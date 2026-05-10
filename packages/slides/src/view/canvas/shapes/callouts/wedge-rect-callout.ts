@@ -1,4 +1,4 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 
 /**
@@ -61,3 +61,22 @@ export const buildWedgeRectCallout: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+const CALLOUT_MIN = -100000;
+const CALLOUT_MAX = 100000;
+
+export const WEDGE_RECT_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const tx = w / 2 + ((adjustments[0] ?? -20833) / 100000) * w;
+      const ty = h / 2 + ((adjustments[1] ?? 62500) / 100000) * h;
+      return { x: tx, y: ty };
+    },
+    apply: ({ w, h }, _start, pointer) => {
+      const tx = w > 0 ? Math.round(((pointer.x - w / 2) / w) * 100000) : 0;
+      const ty = h > 0 ? Math.round(((pointer.y - h / 2) / h) * 100000) : 0;
+      const clamp = (v: number) => Math.max(CALLOUT_MIN, Math.min(CALLOUT_MAX, v));
+      return [clamp(tx), clamp(ty)];
+    },
+  },
+];

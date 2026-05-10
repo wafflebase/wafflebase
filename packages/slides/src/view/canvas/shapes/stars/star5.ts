@@ -1,6 +1,7 @@
 // packages/slides/src/view/canvas/shapes/stars/star5.ts
 import type { PathBuilder, AdjustmentSpec } from '../builder';
 import { adj, regularPolygonPath } from '../builder';
+import { radialStarHandle } from './handles';
 
 export const STAR_5_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
@@ -44,3 +45,5 @@ export const buildStar5: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+export const STAR_5_HANDLES = [radialStarHandle(5)] as const;

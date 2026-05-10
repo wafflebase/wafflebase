@@ -67,5 +67,9 @@ export { MemSlidesStore } from './store/memory';
 // a builder is invoked, and the icon helper only runs when given a
 // real ctx. Backend code that does not invoke them stays runtime-clean.
 export { renderShapeIcon } from './view/canvas/shape-icon';
-export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
-export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
+export {
+  PATH_BUILDERS,
+  ADJUSTMENT_SPECS,
+  ADJUSTMENT_HANDLES,
+} from './view/canvas/shapes';
+export type { PathBuilder, AdjustmentSpec, FrameSize, AdjustmentHandle } from './view/canvas/shapes/builder';

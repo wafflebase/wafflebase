@@ -1,6 +1,6 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
-import type { AdjustmentSpec, PathBuilder } from './builder';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from './builder';
 import { buildCan, CAN_ADJUSTMENTS } from './basic/can';
 import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
@@ -12,7 +12,7 @@ import { buildParallelogram, PARALLELOGRAM_ADJUSTMENTS } from './basic/parallelo
 import { buildPentagon } from './basic/pentagon';
 import { buildPlus, PLUS_ADJUSTMENTS } from './basic/plus';
 import { buildRect } from './basic/rect';
-import { buildRoundRect, ROUND_RECT_ADJUSTMENTS } from './basic/round-rect';
+import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
 import { buildRtTriangle } from './basic/rt-triangle';
 import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS } from './basic/trapezoid';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
@@ -22,7 +22,7 @@ import { buildUpArrow } from './arrows/up-arrow';
 import { buildDownArrow } from './arrows/down-arrow';
 import { buildLeftRightArrow } from './arrows/left-right-arrow';
 import { buildQuadArrow, QUAD_ARROW_ADJUSTMENTS } from './arrows/quad-arrow';
-import { buildChevron, CHEVRON_ADJUSTMENTS } from './arrows/chevron';
+import { buildChevron, CHEVRON_ADJUSTMENTS, CHEVRON_HANDLES } from './arrows/chevron';
 import {
   buildPentagonArrow,
   PENTAGON_ARROW_ADJUSTMENTS,
@@ -30,6 +30,7 @@ import {
 import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
+  WEDGE_RECT_CALLOUT_HANDLES,
 } from './callouts/wedge-rect-callout';
 import {
   buildWedgeRoundRectCallout,
@@ -58,12 +59,12 @@ import {
   buildMathNotEqual,
   MATH_NOT_EQUAL_ADJUSTMENTS,
 } from './equation/math-not-equal';
-import { buildStar4, STAR_4_ADJUSTMENTS } from './stars/star4';
-import { buildStar5, STAR_5_ADJUSTMENTS } from './stars/star5';
-import { buildStar6, STAR_6_ADJUSTMENTS } from './stars/star6';
-import { buildStar7, STAR_7_ADJUSTMENTS } from './stars/star7';
-import { buildStar8, STAR_8_ADJUSTMENTS } from './stars/star8';
-import { buildStar10, STAR_10_ADJUSTMENTS } from './stars/star10';
+import { buildStar4, STAR_4_ADJUSTMENTS, STAR_4_HANDLES } from './stars/star4';
+import { buildStar5, STAR_5_ADJUSTMENTS, STAR_5_HANDLES } from './stars/star5';
+import { buildStar6, STAR_6_ADJUSTMENTS, STAR_6_HANDLES } from './stars/star6';
+import { buildStar7, STAR_7_ADJUSTMENTS, STAR_7_HANDLES } from './stars/star7';
+import { buildStar8, STAR_8_ADJUSTMENTS, STAR_8_HANDLES } from './stars/star8';
+import { buildStar10, STAR_10_ADJUSTMENTS, STAR_10_HANDLES } from './stars/star10';
 import { buildFlowChartTerminator } from './flowchart/terminator';
 import { buildFlowChartPredefinedProcess } from './flowchart/predefined-process';
 import { buildFlowChartInternalStorage } from './flowchart/internal-storage';
@@ -94,6 +95,17 @@ export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 export const ADJUSTMENT_SPECS = new Map<
   ShapeKind,
   readonly AdjustmentSpec[]
+>();
+
+/**
+ * Shape kind → drag-handle metadata. Only kinds with at least one
+ * authored handle are listed. Unregistered kinds get zero handles
+ * (no drag UX, defaults still apply). Phase P3-A.1 fills the pilot
+ * 9; P3-A.2 fills the remaining 24.
+ */
+export const ADJUSTMENT_HANDLES = new Map<
+  ShapeKind,
+  readonly AdjustmentHandle[]
 >();
 
 PATH_BUILDERS.set('rect', buildRect);
@@ -151,6 +163,15 @@ PATH_BUILDERS.set('flowChartDelay', buildFlowChartDelay);
 PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
+ADJUSTMENT_HANDLES.set('wedgeRectCallout', WEDGE_RECT_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('star4', STAR_4_HANDLES);
+ADJUSTMENT_HANDLES.set('star5', STAR_5_HANDLES);
+ADJUSTMENT_HANDLES.set('star6', STAR_6_HANDLES);
+ADJUSTMENT_HANDLES.set('star7', STAR_7_HANDLES);
+ADJUSTMENT_HANDLES.set('star8', STAR_8_HANDLES);
+ADJUSTMENT_HANDLES.set('star10', STAR_10_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);

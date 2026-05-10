@@ -71,6 +71,7 @@ const scenarioIds = [
   "slides-canvas-shapes-catalog-material",
   "slides-canvas-donut-evenodd",
   "slides-canvas-callout-tail",
+  "shapes-adjustments-pilot",
 ];
 
 const visualTargets = [
