@@ -64,6 +64,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-layout-change.md](slides/slides-layout-change.md)                             | Layout change UI — placeholder identity tracking, type-first matching, split-button + context menu  |
 | [slides-shapes-p1.md](slides/slides-shapes-p1.md)                                     | Shape library Phase 1 — data model, path-builder registry, picker popover, 35 OOXML-aligned shapes  |
 | [slides-shapes-p2.md](slides/slides-shapes-p2.md)                                     | Shape library Phase 2 — +14 flowchart + 6 stars (cumulative 55), regularPolygon helper, 2 picker categories |
+| [slides-shapes-p3a-adjustments.md](slides/slides-shapes-p3a-adjustments.md)           | Shape library Phase 3-A.1 — yellow-diamond drag handles for 9 pilot shapes (4 axis types), `ADJUSTMENT_HANDLES` registry |
 
 ## Common
 
