@@ -8,6 +8,12 @@ export type SnapGuide =
   | { axis: 'x'; position: number; kind: 'slide-center' | 'edge' }
   | { axis: 'y'; position: number; kind: 'slide-center' | 'edge' };
 
+type Candidate = {
+  from: number;
+  to: number;
+  kind: 'slide-center' | 'edge';
+};
+
 /**
  * Adjust a (dx, dy) drag delta so the dragged group's bounding-box
  * edges or centre snap to the slide centre or to a non-selected
@@ -37,12 +43,12 @@ export function snapDelta(
     centerYPx: bbox.y + dy + bbox.h / 2,
   };
 
-  const xCandidates: Array<{ from: number; to: number }> = [
+  const xCandidates: Candidate[] = [
     // Slide centre vs dragged centre
-    { from: dragged.centerXPx, to: slide.w / 2 },
+    { from: dragged.centerXPx, to: slide.w / 2, kind: 'slide-center' },
   ];
-  const yCandidates: Array<{ from: number; to: number }> = [
-    { from: dragged.centerYPx, to: slide.h / 2 },
+  const yCandidates: Candidate[] = [
+    { from: dragged.centerYPx, to: slide.h / 2, kind: 'slide-center' },
   ];
   for (const o of others) {
     const oLeft = o.x;
@@ -50,16 +56,16 @@ export function snapDelta(
     const oTop = o.y;
     const oBot = o.y + o.h;
     xCandidates.push(
-      { from: dragged.leftPx,  to: oLeft },
-      { from: dragged.leftPx,  to: oRight },
-      { from: dragged.rightPx, to: oLeft },
-      { from: dragged.rightPx, to: oRight },
+      { from: dragged.leftPx,  to: oLeft,  kind: 'edge' },
+      { from: dragged.leftPx,  to: oRight, kind: 'edge' },
+      { from: dragged.rightPx, to: oLeft,  kind: 'edge' },
+      { from: dragged.rightPx, to: oRight, kind: 'edge' },
     );
     yCandidates.push(
-      { from: dragged.topPx,    to: oTop },
-      { from: dragged.topPx,    to: oBot },
-      { from: dragged.bottomPx, to: oTop },
-      { from: dragged.bottomPx, to: oBot },
+      { from: dragged.topPx,    to: oTop, kind: 'edge' },
+      { from: dragged.topPx,    to: oBot, kind: 'edge' },
+      { from: dragged.bottomPx, to: oTop, kind: 'edge' },
+      { from: dragged.bottomPx, to: oBot, kind: 'edge' },
     );
   }
 
@@ -67,20 +73,10 @@ export function snapDelta(
   const yResult = bestSnapAdjust(yCandidates);
 
   const guides: SnapGuide[] = [];
-  if (xResult.winnerIndex !== null) {
-    guides.push(
-      xResult.winnerIndex === 0
-        ? { axis: 'x', position: slide.w / 2, kind: 'slide-center' }
-        : { axis: 'x', position: xCandidates[xResult.winnerIndex].to, kind: 'edge' },
-    );
-  }
-  if (yResult.winnerIndex !== null) {
-    guides.push(
-      yResult.winnerIndex === 0
-        ? { axis: 'y', position: slide.h / 2, kind: 'slide-center' }
-        : { axis: 'y', position: yCandidates[yResult.winnerIndex].to, kind: 'edge' },
-    );
-  }
+  const xGuide = toGuide('x', xResult.winner);
+  if (xGuide) guides.push(xGuide);
+  const yGuide = toGuide('y', yResult.winner);
+  if (yGuide) guides.push(yGuide);
 
   return {
     dx: dx + xResult.adjust,
@@ -89,21 +85,28 @@ export function snapDelta(
   };
 }
 
+function toGuide(
+  axis: 'x' | 'y',
+  winner: Candidate | null,
+): SnapGuide | null {
+  if (!winner) return null;
+  return { axis, position: winner.to, kind: winner.kind };
+}
+
 function bestSnapAdjust(
-  cands: Array<{ from: number; to: number }>,
-): { adjust: number; winnerIndex: number | null } {
+  cands: Candidate[],
+): { adjust: number; winner: Candidate | null } {
   let best = 0;
   let bestAbs = SNAP_THRESHOLD + 1;
-  let winnerIndex: number | null = null;
-  for (let i = 0; i < cands.length; i++) {
-    const c = cands[i];
+  let winner: Candidate | null = null;
+  for (const c of cands) {
     const diff = c.to - c.from;
     const abs = Math.abs(diff);
     if (abs <= SNAP_THRESHOLD && abs < bestAbs) {
       best = diff;
       bestAbs = abs;
-      winnerIndex = i;
+      winner = c;
     }
   }
-  return { adjust: best, winnerIndex };
+  return { adjust: best, winner };
 }
