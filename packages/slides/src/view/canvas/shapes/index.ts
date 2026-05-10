@@ -30,6 +30,7 @@ import {
 import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
+  WEDGE_RECT_CALLOUT_HANDLES,
 } from './callouts/wedge-rect-callout';
 import {
   buildWedgeRoundRectCallout,
@@ -164,6 +165,7 @@ PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
+ADJUSTMENT_HANDLES.set('wedgeRectCallout', WEDGE_RECT_CALLOUT_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
