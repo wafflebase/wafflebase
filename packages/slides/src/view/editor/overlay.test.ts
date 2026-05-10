@@ -205,4 +205,10 @@ describe('renderOverlay — adjustment handles', () => {
     );
     expect(firstAdjust).toBeGreaterThan(lastResize);
   });
+
+  it('adjustment handle is the LAST sibling for a pilot shape (z-order check)', () => {
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    const lastChild = overlay.lastElementChild;
+    expect(lastChild?.getAttribute('data-handle')).toMatch(/^adjust-/);
+  });
 });

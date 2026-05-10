@@ -916,7 +916,21 @@ class SlidesEditorImpl implements SlidesEditor {
       this.startRotate(clientX, clientY);
       return;
     }
-    this.startResize(handle, clientX, clientY);
+    if (handle.startsWith('adjust-')) {
+      const handleIndex = parseInt(handle.slice('adjust-'.length), 10);
+      this.startAdjustmentDrag(handleIndex, clientX, clientY);
+      return;
+    }
+    this.startResize(handle as ResizeHandle, clientX, clientY);
+  }
+
+  private startAdjustmentDrag(
+    _handleIndex: number,
+    _clientX: number,
+    _clientY: number,
+  ): void {
+    // T11: drag loop + tooltip + commit. Stubbed here so Task 10 can land
+    // the routing layer without a forward-reference compile error.
   }
 
   private startRotate(clientX: number, clientY: number): void {
