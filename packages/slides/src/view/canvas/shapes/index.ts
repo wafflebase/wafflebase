@@ -22,7 +22,7 @@ import { buildUpArrow } from './arrows/up-arrow';
 import { buildDownArrow } from './arrows/down-arrow';
 import { buildLeftRightArrow } from './arrows/left-right-arrow';
 import { buildQuadArrow, QUAD_ARROW_ADJUSTMENTS } from './arrows/quad-arrow';
-import { buildChevron, CHEVRON_ADJUSTMENTS } from './arrows/chevron';
+import { buildChevron, CHEVRON_ADJUSTMENTS, CHEVRON_HANDLES } from './arrows/chevron';
 import {
   buildPentagonArrow,
   PENTAGON_ARROW_ADJUSTMENTS,
@@ -163,6 +163,7 @@ PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
