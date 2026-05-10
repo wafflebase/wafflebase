@@ -1,6 +1,8 @@
 import type { SlidesStore } from '../../store/store';
 import type { SlidesEditor } from './editor';
 import { renderThumbnail } from '../canvas/thumbnail';
+import { showContextMenu, type ContextMenuItem } from './context-menu';
+import { showLayoutPicker } from './layout-picker';
 
 // Thumbnails preserve the slide's 16:9 aspect and scale to fit the
 // container's measured width. Floor/ceiling keep them legible on a
@@ -72,6 +74,109 @@ export function mountThumbnailPanel(
   editor: SlidesEditor,
 ): ThumbnailPanelHandle {
   let selectedSlideIds: string[] = [];
+
+  // Build the right-click menu for the given selection. `anchorSlideId`
+  // is the slide the user actually right-clicked — used as the
+  // single-target for `Change layout…` and as the insertion anchor for
+  // `New slide`. `event` is forwarded so the layout picker can anchor
+  // off the click position.
+  const buildContextMenuItems = (
+    targetIds: readonly string[],
+    anchorSlideId: string,
+    event: MouseEvent,
+  ): ContextMenuItem[] => {
+    const isMulti = targetIds.length > 1;
+    return [
+      {
+        label: 'New slide',
+        run: () => {
+          const doc = store.read();
+          const anchorIndex = doc.slides.findIndex((s) => s.id === anchorSlideId);
+          let newId = '';
+          store.batch(() => {
+            newId = store.addSlide('blank', anchorIndex + 1);
+          });
+          if (newId) editor.setCurrentSlide(newId);
+          selectedSlideIds = newId ? [newId] : [];
+          render();
+        },
+      },
+      {
+        label: isMulti ? `Duplicate ${targetIds.length} slides` : 'Duplicate slide',
+        run: () => {
+          const newIds: string[] = [];
+          store.batch(() => {
+            for (const id of targetIds) newIds.push(store.duplicateSlide(id));
+          });
+          // Anchor follow-up: switch current to the duplicate of the
+          // right-clicked slide so the editor's main canvas tracks the
+          // user's intent (matches Cmd+D's "duplicate moves the cursor
+          // to the new slide" feel).
+          const anchorIdx = targetIds.indexOf(anchorSlideId);
+          const focusId = anchorIdx >= 0 ? newIds[anchorIdx] : newIds[0];
+          if (focusId) editor.setCurrentSlide(focusId);
+          selectedSlideIds = newIds;
+          render();
+        },
+      },
+      {
+        label: isMulti ? `Delete ${targetIds.length} slides` : 'Delete slide',
+        // Block deleting the entire deck — the editor's `render()` bails
+        // out when no current slide exists, leaving a blank canvas.
+        // Matches Google Slides which keeps at least one slide.
+        disabled: store.read().slides.length <= targetIds.length,
+        run: () => {
+          const doc = store.read();
+          const targetSet = new Set(targetIds);
+          const currentId = editor.getCurrentSlideId();
+          // If the current slide is being deleted, pick a survivor:
+          // first slide after the last-deleted index, or fall back to
+          // the slide just before. The deck-wipe case is gated above.
+          let nextCurrent: string | undefined = currentId;
+          if (currentId && targetSet.has(currentId)) {
+            const surviving = doc.slides.filter((s) => !targetSet.has(s.id));
+            const anchorIdx = doc.slides.findIndex((s) => s.id === anchorSlideId);
+            // Prefer the first surviving slide after the anchor, else
+            // the last surviving slide before it.
+            nextCurrent =
+              surviving.find(
+                (s) => doc.slides.indexOf(s) > anchorIdx,
+              )?.id ?? surviving[surviving.length - 1]?.id;
+          }
+          store.batch(() => store.removeSlides([...targetIds]));
+          if (nextCurrent && nextCurrent !== currentId) {
+            editor.setCurrentSlide(nextCurrent);
+          }
+          selectedSlideIds = [];
+          render();
+        },
+      },
+      { label: '---', run: () => undefined },
+      {
+        label: 'Change layout…',
+        // Layout change only makes sense for one slide at a time —
+        // mass-applying a Title layout to a 30-slide deck is almost
+        // never what the user wants. Google Slides also limits this
+        // entry point to single-slide.
+        disabled: isMulti,
+        run: () => {
+          const doc = store.read();
+          const targetSlide = doc.slides.find((s) => s.id === anchorSlideId);
+          if (!targetSlide) return;
+          showLayoutPicker(document.body, {
+            store,
+            anchor: { x: event.clientX, y: event.clientY },
+            selectedLayoutId: targetSlide.layoutId,
+            onPick: (layoutId) => {
+              store.batch(() => store.applyLayout(anchorSlideId, layoutId));
+              render();
+            },
+            onClose: () => {},
+          });
+        },
+      },
+    ];
+  };
 
   const render = (): void => {
     container.innerHTML = '';
@@ -166,6 +271,25 @@ export function mountThumbnailPanel(
         const targetIndex = doc.slides.findIndex((s) => s.id === slide.id);
         store.batch(() => store.moveSlide(sourceId, targetIndex));
         render();
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        // If the right-clicked slide isn't already in the shift-selected
+        // set, replace selection with just that slide. Matches the
+        // canvas right-click semantics in editor.ts (right-click selects
+        // what was clicked before opening the menu) — without this, a
+        // user could right-click a slide they hadn't selected and end
+        // up with a Delete that nukes a different slide.
+        const targetIds = selectedSlideIds.includes(slide.id)
+          ? [...selectedSlideIds]
+          : [slide.id];
+        if (!selectedSlideIds.includes(slide.id)) {
+          selectedSlideIds = [slide.id];
+          render();
+        }
+        const items = buildContextMenuItems(targetIds, slide.id, e);
+        showContextMenu(document.body, items, e.clientX, e.clientY);
       });
 
       container.appendChild(item);

@@ -234,6 +234,14 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     document.head.appendChild(style);
 
     const store = new YorkieSlidesStore(doc);
+    // Brand-new presentations land here with `slides: []`. The editor's
+    // `render()` bails out when no current slide exists, so without this
+    // seed the canvas would stay blank until the user clicked the
+    // "+ Slide" toolbar button. Seeding once on first mount matches
+    // Google Slides' "new deck always opens with one slide" UX.
+    if (store.read().slides.length === 0) {
+      store.batch(() => store.addSlide("blank"));
+    }
     const editor = initializeEditor({
       canvas,
       overlay,

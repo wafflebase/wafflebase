@@ -167,3 +167,141 @@ describe('mountThumbnailPanel — responsive sizing + DPR', () => {
     expect(panel.querySelectorAll('button')).toHaveLength(0);
   });
 });
+
+describe('mountThumbnailPanel — right-click context menu', () => {
+  function rightClick(target: HTMLElement) {
+    target.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }),
+    );
+  }
+  function menuLabels(): string[] {
+    return Array.from(
+      document.body.querySelectorAll('.wfb-slides-context-menu li'),
+    )
+      .map((li) => li.textContent ?? '')
+      .filter((s) => s.length > 0);
+  }
+
+  it('right-click opens the menu with single-slide labels', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const firstId = store.read().slides[0].id;
+    const item = panel.querySelector<HTMLDivElement>(`[data-slide-id="${firstId}"]`)!;
+    rightClick(item);
+    const labels = menuLabels();
+    expect(labels).toContain('New slide');
+    expect(labels).toContain('Duplicate slide');
+    expect(labels).toContain('Delete slide');
+    expect(labels).toContain('Change layout…');
+  });
+
+  it('right-click on a slide outside the multi-selection collapses it to that slide', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    // Shift-click the second slide into the multi-selection.
+    const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    expect(handle.getSelectedSlideIds()).toEqual([ids[1]]);
+    // Right-click on the first slide (NOT in the multi-selection) →
+    // selection collapses to just the first slide.
+    const first = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!;
+    rightClick(first);
+    expect(handle.getSelectedSlideIds()).toEqual([ids[0]]);
+    // Menu uses single-slide labels.
+    expect(menuLabels()).toContain('Delete slide');
+  });
+
+  it('right-click on a slide already in the multi-selection keeps the set and switches labels to plural', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    // Shift-click both slides to multi-select.
+    const first = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!;
+    const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
+    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    expect(handle.getSelectedSlideIds()).toHaveLength(2);
+    // Right-click second (in the set) — selection stays.
+    rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!);
+    expect(handle.getSelectedSlideIds()).toHaveLength(2);
+    expect(menuLabels()).toContain('Delete 2 slides');
+    expect(menuLabels()).toContain('Duplicate 2 slides');
+  });
+
+  it('clicking "New slide" inserts a slide after the right-clicked one and switches current', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const firstId = store.read().slides[0].id;
+    rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${firstId}"]`)!);
+    const newSlideItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'New slide')!;
+    newSlideItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const slides = store.read().slides;
+    expect(slides).toHaveLength(3);
+    // Inserted at index 1 (after the right-clicked first slide).
+    expect(slides[0].id).toBe(firstId);
+    expect(editor.getCurrentSlideId()).toBe(slides[1].id);
+  });
+
+  it('clicking "Duplicate slide" inserts a copy and switches current to it', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const firstId = store.read().slides[0].id;
+    rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${firstId}"]`)!);
+    const dupItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'Duplicate slide')!;
+    dupItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const slides = store.read().slides;
+    expect(slides).toHaveLength(3);
+    // The duplicate sits immediately after the source.
+    expect(slides[0].id).toBe(firstId);
+    expect(editor.getCurrentSlideId()).toBe(slides[1].id);
+  });
+
+  it('clicking "Delete slide" removes it and switches current to a survivor when current was deleted', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    expect(editor.getCurrentSlideId()).toBe(ids[0]);
+    rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!);
+    const delItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'Delete slide')!;
+    delItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.read().slides.map((s) => s.id)).toEqual([ids[1]]);
+    expect(editor.getCurrentSlideId()).toBe(ids[1]);
+  });
+
+  it('"Delete slide" is disabled when only one slide remains in the deck', () => {
+    // Single-slide fixture (the real fixture has two; trim one first).
+    const { panel, store, editor } = makeFixture();
+    const firstId = store.read().slides[0].id;
+    const secondId = store.read().slides[1].id;
+    store.batch(() => store.removeSlide(secondId));
+    mountThumbnailPanel(panel, store, editor);
+    rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${firstId}"]`)!);
+    const delItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'Delete slide')!;
+    expect(delItem.style.opacity).toBe('0.5');
+  });
+
+  it('"Change layout…" is disabled with multi-selection', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    const first = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!;
+    const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
+    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    expect(handle.getSelectedSlideIds()).toHaveLength(2);
+    rightClick(second);
+    const changeItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'Change layout…')!;
+    expect(changeItem.style.opacity).toBe('0.5');
+  });
+});
