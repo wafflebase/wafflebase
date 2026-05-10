@@ -39,7 +39,11 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
     if (!ctx) return;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, 24, 24);
-    ctx.strokeStyle = "currentColor";
+    // Canvas 2D doesn't understand the CSS "currentColor" keyword and
+    // silently falls back to black — invisible against the dark popover
+    // surface. Resolve the cascaded color from the canvas element so
+    // the stroke follows `text-foreground` for both light and dark modes.
+    ctx.strokeStyle = window.getComputedStyle(canvas).color || "#000";
     renderShapeIcon(kind, ctx, { w: 24, h: 24 });
   }, [kind]);
   return (
@@ -88,12 +92,14 @@ export function ShapePicker({
             <button
               type="button"
               aria-label="Shape"
-              data-active={activeKind !== null || undefined}
+              // data-state mirrors the Toggle component so the pressed
+              // visual (bg-accent / text-accent-foreground) matches the
+              // Select / Text Toggles next to it.
+              data-state={activeKind !== null ? "on" : "off"}
               disabled={disabled}
-              className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-sm hover:bg-muted data-[active=true]:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
             >
               <IconShape size={16} />
-              <span className="text-xs">Shape</span>
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

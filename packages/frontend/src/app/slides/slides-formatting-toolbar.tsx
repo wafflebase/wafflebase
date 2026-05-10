@@ -29,6 +29,7 @@ import {
   IconColorSwatch,
   IconTypography,
   IconPlus,
+  IconPointer,
   IconChevronDown,
 } from "@tabler/icons-react";
 import { ShapePicker } from "./shape-picker";
@@ -252,6 +253,26 @@ export function SlidesFormattingToolbar({
       </div>
       <ToolbarSeparator className="mx-1" />
 
+      {/* Select / Text / Shape form an exclusive insert-mode group.
+          Select is pressed when insertMode === null (i.e. ESC state); a
+          click is idempotent — clicking it while already in select mode
+          is a no-op. The Toggle component would untoggle on second click
+          (giving us insertMode === undefined briefly), so we wire onClick
+          directly and read `pressed` from insertMode. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={insertMode === null}
+            onClick={() => editor?.setInsertMode(null)}
+            aria-label="Select"
+            disabled={!editor}
+          >
+            <IconPointer size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Select (Esc)</TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Toggle
