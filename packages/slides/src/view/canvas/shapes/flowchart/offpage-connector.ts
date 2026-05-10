@@ -3,7 +3,11 @@ import type { PathBuilder } from '../builder';
 /**
  * `flowChartOffpageConnector` — rect with the bottom edge replaced
  * by a downward V meeting at the bottom-centre. Cut depth = 20% of
- * frame height, matching the preset look-alike.
+ * frame height; the OOXML preset uses `h/4 = 25%`, but a visual
+ * comparison against PowerPoint preferred the slightly shallower
+ * 20% — close enough that the importer round-trip remains
+ * meaningful, and the V doesn't dominate the cell at typical
+ * sizes.
  */
 export const buildFlowChartOffpageConnector: PathBuilder = ({ w, h }) => {
   const flatBottom = h * 0.8;

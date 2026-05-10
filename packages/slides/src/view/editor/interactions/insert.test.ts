@@ -81,4 +81,30 @@ describe('buildInsertElement — category defaults', () => {
       },
     });
   });
+
+  it('uses outlined defaults for flowchart kinds', () => {
+    const init = buildInsertElement(
+      'flowChartTerminator', { x: 0, y: 0 }, { x: 100, y: 50 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: {
+        kind: 'flowChartTerminator',
+        fill: { kind: 'role', role: 'background' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 2 },
+      },
+    });
+  });
+
+  it('uses filled defaults for star kinds', () => {
+    const init = buildInsertElement(
+      'star5', { x: 0, y: 0 }, { x: 100, y: 100 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: {
+        kind: 'star5',
+        fill: { kind: 'role', role: 'accent1' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 1 },
+      },
+    });
+  });
 });

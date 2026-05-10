@@ -136,8 +136,14 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
  * outlined for callouts, stroked for line / arrow). Used as a single
  * baseline to catch geometry changes across the entire registry.
  *
- * Shapes are ordered in picker-category order:
- *   Lines · Basic Shapes · Block Arrows · Callouts · Equation · Stars · Flowchart
+ * P1 categories (Lines · Basic Shapes · Block Arrows · Callouts ·
+ * Equation) keep their original grid positions; the P2 additions
+ * (Stars, then Flowchart) are appended at the end so the visual
+ * regression diff focuses on the new shapes when categories grow.
+ * The picker itself uses spec order (Lines · Shapes · Block Arrows ·
+ * Flowchart · Callouts · Equation · Stars) — see
+ * `docs/tasks/active/20260509-slides-shapes-p2-lessons.md` for the
+ * trade-off rationale.
  */
 const SHAPE_CATALOG: ShapeKind[] = [
   // Lines (2)

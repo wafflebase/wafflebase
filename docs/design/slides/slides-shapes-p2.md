@@ -92,12 +92,14 @@ Default fill / stroke conventions follow P1's table:
 | Category | Default fill | Default stroke |
 |---|---|---|
 | Flowchart | `role: 'background'` | `role: 'text'`, width 2 |
-| Stars | `role: 'accent1'` | (none) |
+| Stars | `role: 'accent1'` | `role: 'text'`, width 1 |
 
 Flowchart shapes typically appear in diagrams alongside text labels
 and connectors, so the white-filled / outlined default matches GS
-behavior. Stars use the accent fill consistent with the basic-shape
-defaults.
+behavior. Stars use the accent fill + thin text-coloured stroke
+consistent with the basic-shape defaults — the implementation
+simply slots them into the existing `'filled'` `STYLE_BY_KIND`
+bucket rather than introducing a `'filledNoStroke'` variant.
 
 #### Stars (6)
 
