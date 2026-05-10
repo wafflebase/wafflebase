@@ -12,7 +12,7 @@ import { buildParallelogram, PARALLELOGRAM_ADJUSTMENTS } from './basic/parallelo
 import { buildPentagon } from './basic/pentagon';
 import { buildPlus, PLUS_ADJUSTMENTS } from './basic/plus';
 import { buildRect } from './basic/rect';
-import { buildRoundRect, ROUND_RECT_ADJUSTMENTS } from './basic/round-rect';
+import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
 import { buildRtTriangle } from './basic/rt-triangle';
 import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS } from './basic/trapezoid';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
@@ -162,6 +162,7 @@ PATH_BUILDERS.set('flowChartDelay', buildFlowChartDelay);
 PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
