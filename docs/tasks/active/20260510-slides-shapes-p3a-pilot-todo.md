@@ -1914,3 +1914,42 @@ git push
 3. **Type consistency**: `AdjustmentHandle` (with `position`, `apply`) used identically across Tasks 1, 3–7, 9, 11. `ShapeKind` from `model/element` — consistent. `defaultAdjustmentsFor` / `snapToDefaults` from `interactions/adjustment` — consistent in Tasks 8, 9, 11. `data-handle="adjust-N"` — consistent across Tasks 9, 10, 11.
 
 No issues found.
+
+---
+
+## Review (post-execution, 2026-05-11)
+
+All 14 tasks shipped on branch `slides-shapes-p3a-pilot` (15 commits, 46 files changed, ~1262 lines added). `pnpm verify:fast` 764/764 pass. Final-reviewer verdict: **APPROVED FOR MERGE** with two non-blocking follow-ups (8px inset guard near corners; rotated-frame paint position unit test) — both captured in the lessons file.
+
+### What shipped
+
+| Task | Commit | Notes |
+|---|---|---|
+| Spec + plan | `64a171c6` | |
+| 1 — Types | `5ed6bfc2` | Re-used existing `Point` from `model/frame` |
+| 2 — Registry | `3d7e72c4` | Empty Map + 3 consistency tests |
+| 3 — roundRect | `9040a33c` | First non-vacuous registry entry |
+| 4 — chevron | `dbbc9fad` | |
+| 5 — wedgeRectCallout | `383c8a46` | First multi-index handle |
+| 6 — radialStarHandle + star5 | `841ce96d` | Unit-ellipse projection helper |
+| 7 — star4/6/7/8/10 | `63c23969` | Mechanical sweep; registry size = 9 |
+| 8 — defaultAdjustmentsFor + snapToDefaults | `968f172c` | All-or-nothing snap on multi-index |
+| 9 — Render handles in overlay | `c846f802` | DOM diamonds, painted last for z-order |
+| 10 — Hit-test routing | `e6ecc65f` | HandleKind widened with template literal type |
+| 11 — Drag loop + tooltip | `fe57d409` | Live preview via Option A (forceRender) |
+| 11 fix — Tooltip reattach | `999cf57c` | Critical bug surfaced by spec-compliance reviewer |
+| 12 — Editor integration test | `09c3c6c1` | JSDOM end-to-end drag |
+| 13 — Visual harness scenario | `42048c91` | Canvas-only; handle math covered by unit tests |
+| Polish — tooltip labels + spec doc sync | (committed) | `lastWord` instead of `charAt(0)`; spec wedgeRectCallout formula corrected |
+
+### Deviations from the plan
+
+- **Task 1**: re-used existing `Point` from `model/frame.ts` instead of defining inline in `builder.ts`. Avoids duplicate canonical-type definitions.
+- **Task 9**: editor uses DOM overlay (not Canvas) for handles; the original spec doc described a Canvas z-order which was corrected during brainstorming. Implementation uses `data-handle="adjust-N"` divs appended to the overlay.
+- **Task 11**: `paintLiveAdjustments` uses the renderer's existing `forceRender(slide, doc)` (Option A from the plan); zero renderer-side changes. The tooltip-detach bug surfaced after first commit and was fixed in `999cf57c`.
+- **Task 13**: visual harness is canvas-only; handles aren't captured in screenshots. Per-shape unit tests cover the position math; visual scenario covers path-builder geometry regression.
+- **Polish commit**: multi-axis tooltip labels switched from `charAt(0)` to `lastWord` after final review flagged the "Tail x"/"Tail y" → "t"/"t" collision. Spec doc's `wedgeRectCallout` position formula corrected to match the implementation (`w/2 + adj0/100000 × w`, not `adj0/100000 × w`).
+
+### Smoke (deferred to user before merge)
+
+The plan's Step 14.2 (`pnpm dev` smoke) and Step 14.6 (PR creation) are for the user to drive — see PR description for the smoke checklist. Step 14.7 (archive + commit lessons) runs *after* PR merge.
