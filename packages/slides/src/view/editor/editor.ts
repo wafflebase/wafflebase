@@ -311,6 +311,7 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   align(direction: AlignDirection): void {
+    if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
     const framesMap = this.collectSelectedFrames(slide);
@@ -328,6 +329,7 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   distribute(axis: DistributeAxis): void {
+    if (this.editingElementId !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
     const framesMap = this.collectSelectedFrames(slide);

@@ -39,9 +39,26 @@ export function renderOverlay(
 
   if (selectedElements.length === 1 && selectedElements[0].frame.rotation !== 0) {
     renderRotatedHandles(overlay, selectedElements[0].frame, options);
-    return;
+  } else {
+    renderAxisAlignedHandles(overlay, selectedElements, options);
   }
 
+  // Snap guide lines (drag-time visual feedback). Rendered last so they
+  // sit above the selection frame; pointer-events: none keeps them
+  // non-interactive. Apply to both rotated and axis-aligned paths so a
+  // single rotated element being dragged also gets visible guides.
+  if (options.guides && options.guides.length > 0) {
+    for (const g of options.guides) {
+      overlay.appendChild(makeGuide(g, options));
+    }
+  }
+}
+
+function renderAxisAlignedHandles(
+  overlay: HTMLDivElement,
+  selectedElements: readonly Element[],
+  options: OverlayOptions,
+): void {
   const bbox = combinedBoundingBox(selectedElements.map((e) => e.frame));
   if (!bbox) return;
 
@@ -77,15 +94,6 @@ export function renderOverlay(
   ];
   for (const [kind, cx, cy] of positions) {
     overlay.appendChild(makeHandle(kind, cx, cy));
-  }
-
-  // Snap guide lines (drag-time visual feedback). Rendered last so they
-  // sit above the selection frame; pointer-events: none keeps them
-  // non-interactive.
-  if (options.guides && options.guides.length > 0) {
-    for (const g of options.guides) {
-      overlay.appendChild(makeGuide(g, options));
-    }
   }
 }
 

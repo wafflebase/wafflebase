@@ -135,7 +135,21 @@ export function SlidesFormattingToolbar({
     }
     const refresh = () => {
       setSelected(readSingleSelectedElement(store, editor));
-      setSelectionSize(editor.getSelection().length);
+      // Count only selected ids whose elements still exist on the
+      // current slide — defends against remote deletes that leave
+      // stale ids in the local selection set, so align/distribute
+      // buttons enable/disable based on what the editor would actually
+      // act on (matches collectSelectedFrames in editor.ts).
+      const ids = new Set(editor.getSelection());
+      const slideId = editor.getCurrentSlideId();
+      const slide =
+        slideId && store
+          ? store.read().slides.find((s) => s.id === slideId)
+          : undefined;
+      const liveCount = slide
+        ? slide.elements.reduce((n, e) => n + (ids.has(e.id) ? 1 : 0), 0)
+        : 0;
+      setSelectionSize(liveCount);
     };
     refresh();
     const offSel = editor.onSelectionChange(refresh);
