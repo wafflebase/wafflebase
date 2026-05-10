@@ -18,6 +18,8 @@ export function showAdjustmentTooltip(
     current.style.borderRadius = '3px';
     current.style.pointerEvents = 'none';
     current.style.whiteSpace = 'nowrap';
+  }
+  if (!current.isConnected) {
     overlay.appendChild(current);
   }
   current.textContent = text;
