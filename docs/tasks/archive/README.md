@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 167
+Total archived tasks: 168
 
-## 2026/05 (22 tasks)
+## 2026/05 (23 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides guides align (2026-05-11) | [20260511-slides-guides-align-todo.md](./2026/05/20260511-slides-guides-align-todo.md) | [20260511-slides-guides-align-lessons.md](./2026/05/20260511-slides-guides-align-lessons.md) |
 | contributing md (2026-05-10) | [20260510-contributing-md-todo.md](./2026/05/20260510-contributing-md-todo.md) | - |
 | slides thumb context menu (2026-05-10) | [20260510-slides-thumb-context-menu-todo.md](./2026/05/20260510-slides-thumb-context-menu-todo.md) | [20260510-slides-thumb-context-menu-lessons.md](./2026/05/20260510-slides-thumb-context-menu-lessons.md) |
 | slides shapes p1 (2026-05-09) | [20260509-slides-shapes-p1-todo.md](./2026/05/20260509-slides-shapes-p1-todo.md) | [20260509-slides-shapes-p1-lessons.md](./2026/05/20260509-slides-shapes-p1-lessons.md) |

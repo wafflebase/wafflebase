@@ -67,8 +67,6 @@ documents) are explicitly out of scope and listed at the end.
 
 #### Deferred to v1.1 (in scope, just not the first cut)
 
-- Align / distribute toolbar (left·center·right·top·middle·bottom,
-  equal spacing).
 - Hyperlinks on shapes and images (text-box hyperlinks come for free
   with the docs engine in v1).
 
@@ -475,6 +473,68 @@ the project's shared menu primitive (`docs/design/context-menu.md`):
 | Context menu | right-click / long-press | see "Context menus" above |
 | Undo / Redo | Cmd/Ctrl+Z, shift+Z | restore the most recent `store.batch` group |
 
+### Snap guides + align / distribute
+
+Shipped together because they share the snap-engine + frame-math
+substrate (`packages/slides/src/view/editor/snap.ts`,
+`packages/slides/src/model/frame.ts`).
+
+**Snap guides during drag.** `snapDelta` returns a `SnapGuide[]`
+alongside the snapped delta; each guide has a `kind`
+(`'slide-center'` | `'edge'`), an `axis` (`'x'` | `'y'`), and a
+logical `position`. The drag
+interaction stashes the guides on the editor and the overlay paints
+them as 1-px magenta lines spanning the slide canvas. Guides clear
+on `mouseup` via an explicit `repaintOverlay()` call after the
+final frame commit — `render()` only repaints the canvas layer, so
+the overlay needs its own kick. Candidates are tagged with `kind`
+at construction time (the older "first candidate is slide-center"
+index invariant was retired during code review).
+
+**Align.** `SlidesEditor.align(direction)` accepts
+`'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom'`. The reference rect depends on selection size:
+multi-select uses `combinedBoundingBox` (a rotation-aware AABB over
+the selected frames); single-select uses the slide canvas
+(1920×1080). `alignFrames` writes new `frame.x` / `frame.y` values
+and skips frames that already match the target — the result Map
+contains only frames that actually moved.
+
+**Distribute.** `SlidesEditor.distribute(axis)` (`'horizontal'` |
+`'vertical'`) requires ≥3 selected elements. Frames are sorted by
+their leading edge on the chosen axis; the two endpoints are
+pinned, and gaps between consecutive frames are equalized.
+Idempotent in the no-op sense (already-distributed frames are
+skipped) but float-precision drift may produce sub-pixel moves on
+repeated calls — see "Known limitations".
+
+**Atomicity.** Each `align()` / `distribute()` call wraps its
+frame writes in one `store.batch`, so undo/redo restores the whole
+operation as a single step. `applyFrameUpdates` early-returns on
+empty Maps so an align on already-aligned selection produces no
+undo entry at all.
+
+**Toolbar.** The contextual toolbar exposes 6 align buttons (left /
+center / right / top / middle / bottom) plus 2 distribute buttons
+(horizontal / vertical). Align buttons are
+disabled when nothing is selected; distribute buttons are disabled
+when fewer than 3 elements are selected.
+
+#### Known limitations
+
+- **Rotated multi-select align.** `combinedBoundingBox` is
+  rotation-aware (AABB over rotated corners), but the values it
+  produces are written directly to `frame.x` / `frame.y`, which is
+  the *unrotated* element origin. As a result, the visible left /
+  top edges of rotated elements may not coincide after the op —
+  Google Slides aligns the rotated AABBs themselves. Planned for a
+  follow-up.
+- **Distribute float drift.** `distributeFrames` uses exact
+  equality (`!==`) when filtering no-op frames. Repeated distribute
+  calls on already-distributed selections may drift by ≪1 px and
+  emit phantom undo entries. Tolerable while slide coords are
+  integer-typed in the toolbar; revisit with an epsilon if undo-stack
+  bloat is reported.
+
 ### Presentation mode
 
 Implemented in `view/present/presenter.ts` plus the React shell
@@ -601,8 +661,6 @@ that should be evaluated first when planning future versions.
 **Tracked for v1.1** (in scope, deferred only because they are not
 required for the first useful release):
 
-- Align / distribute toolbar (left·center·right·top·middle·bottom,
-  equal vertical / horizontal spacing).
 - Hyperlinks on shapes and images (text hyperlinks come for free with
   the docs engine).
 - External-URL image embed (in addition to the v1 upload / drag-drop /

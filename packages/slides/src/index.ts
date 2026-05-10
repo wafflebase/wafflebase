@@ -77,6 +77,7 @@ export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shape
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind } from './view/editor/editor';
+export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)
 export { mountThumbnailPanel, type ThumbnailPanelHandle } from './view/editor/thumbnail-panel';

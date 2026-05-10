@@ -1,5 +1,6 @@
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import type { SnapGuide } from './snap';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -7,6 +8,12 @@ const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
 export interface OverlayOptions {
   /** Host pixels per logical slide pixel. */
   scale: number;
+  /** Logical slide width — used to span full-slide guide lines. */
+  slideWidth: number;
+  /** Logical slide height — used to span full-slide guide lines. */
+  slideHeight: number;
+  /** Snap guides to render under the selection handles. Empty/omitted = none. */
+  guides?: readonly SnapGuide[];
 }
 
 /**
@@ -32,9 +39,26 @@ export function renderOverlay(
 
   if (selectedElements.length === 1 && selectedElements[0].frame.rotation !== 0) {
     renderRotatedHandles(overlay, selectedElements[0].frame, options);
-    return;
+  } else {
+    renderAxisAlignedHandles(overlay, selectedElements, options);
   }
 
+  // Snap guide lines (drag-time visual feedback). Rendered last so they
+  // sit above the selection frame; pointer-events: none keeps them
+  // non-interactive. Apply to both rotated and axis-aligned paths so a
+  // single rotated element being dragged also gets visible guides.
+  if (options.guides && options.guides.length > 0) {
+    for (const g of options.guides) {
+      overlay.appendChild(makeGuide(g, options));
+    }
+  }
+}
+
+function renderAxisAlignedHandles(
+  overlay: HTMLDivElement,
+  selectedElements: readonly Element[],
+  options: OverlayOptions,
+): void {
   const bbox = combinedBoundingBox(selectedElements.map((e) => e.frame));
   if (!bbox) return;
 
@@ -145,6 +169,27 @@ function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   el.style.border = kind === 'rotate' ? '1px solid #3a7' : '1px solid #fff';
   el.style.borderRadius = kind === 'rotate' ? '50%' : '0';
   el.style.cursor = handleCursor(kind);
+  return el;
+}
+
+function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
+  const { scale, slideWidth, slideHeight } = options;
+  const el = document.createElement('div');
+  el.className = 'wfb-slides-snap-guide';
+  el.style.position = 'absolute';
+  el.style.background = '#e11d48';
+  el.style.pointerEvents = 'none';
+  if (guide.axis === 'x') {
+    el.style.left = `${guide.position * scale}px`;
+    el.style.top = '0px';
+    el.style.width = '1px';
+    el.style.height = `${slideHeight * scale}px`;
+  } else {
+    el.style.left = '0px';
+    el.style.top = `${guide.position * scale}px`;
+    el.style.width = `${slideWidth * scale}px`;
+    el.style.height = '1px';
+  }
   return el;
 }
 

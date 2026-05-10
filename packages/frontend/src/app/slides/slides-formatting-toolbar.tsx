@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   resolveFont,
   showLayoutPicker,
+  type AlignDirection,
+  type DistributeAxis,
   type Element,
   type InsertKind,
   type ShapeKind,
@@ -31,6 +33,14 @@ import {
   IconPlus,
   IconPointer,
   IconChevronDown,
+  IconLayoutAlignLeft,
+  IconLayoutAlignCenter,
+  IconLayoutAlignRight,
+  IconLayoutAlignTop,
+  IconLayoutAlignMiddle,
+  IconLayoutAlignBottom,
+  IconLayoutDistributeHorizontal,
+  IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
 import { ShapePicker } from "./shape-picker";
 import { ThemedColorPicker } from "./themed-color-picker";
@@ -109,6 +119,7 @@ export function SlidesFormattingToolbar({
     slideId: string;
     element: Element;
   } | null>(null);
+  const [selectionSize, setSelectionSize] = useState<number>(0);
 
   useEffect(() => {
     if (!editor) return;
@@ -119,10 +130,27 @@ export function SlidesFormattingToolbar({
   useEffect(() => {
     if (!editor) {
       setSelected(null);
+      setSelectionSize(0);
       return;
     }
-    const refresh = () =>
+    const refresh = () => {
       setSelected(readSingleSelectedElement(store, editor));
+      // Count only selected ids whose elements still exist on the
+      // current slide — defends against remote deletes that leave
+      // stale ids in the local selection set, so align/distribute
+      // buttons enable/disable based on what the editor would actually
+      // act on (matches collectSelectedFrames in editor.ts).
+      const ids = new Set(editor.getSelection());
+      const slideId = editor.getCurrentSlideId();
+      const slide =
+        slideId && store
+          ? store.read().slides.find((s) => s.id === slideId)
+          : undefined;
+      const liveCount = slide
+        ? slide.elements.reduce((n, e) => n + (ids.has(e.id) ? 1 : 0), 0)
+        : 0;
+      setSelectionSize(liveCount);
+    };
     refresh();
     const offSel = editor.onSelectionChange(refresh);
     const offSlide = editor.onCurrentSlideChange(refresh);
@@ -187,6 +215,18 @@ export function SlidesFormattingToolbar({
     if (!store) return;
     store.batch(() => store.addSlide("blank"));
   }, [store]);
+  const onAlign = useCallback(
+    (direction: AlignDirection) => {
+      editor?.align(direction);
+    },
+    [editor],
+  );
+  const onDistribute = useCallback(
+    (axis: DistributeAxis) => {
+      editor?.distribute(axis);
+    },
+    [editor],
+  );
   const onOpenLayoutPicker = useCallback(() => {
     if (!store) return;
     if (pickerCloseRef.current) {
@@ -298,6 +338,125 @@ export function SlidesFormattingToolbar({
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={!editor}
       />
+      <ToolbarSeparator className="mx-1" />
+
+      {/* Align (6) + distribute (2) — momentary actions, not toggles.
+          Align disabled when nothing is selected; distribute requires
+          3+ selected elements (matches editor.distribute() semantics
+          and Google Slides' ergonomics). */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("left")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align left"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignLeft size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align left</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("center-h")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align center"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignCenter size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align center</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("right")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align right"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignRight size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align right</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("top")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align top"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignTop size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align top</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("center-v")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align middle"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignMiddle size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align middle</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onAlign("bottom")}
+            disabled={!editor || selectionSize === 0}
+            aria-label="Align bottom"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutAlignBottom size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Align bottom</TooltipContent>
+      </Tooltip>
+      <ToolbarSeparator className="mx-0.5" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onDistribute("horizontal")}
+            disabled={!editor || selectionSize < 3}
+            aria-label="Distribute horizontally"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutDistributeHorizontal size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Distribute horizontally (3+ objects)</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onDistribute("vertical")}
+            disabled={!editor || selectionSize < 3}
+            aria-label="Distribute vertically"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconLayoutDistributeVertical size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Distribute vertically (3+ objects)</TooltipContent>
+      </Tooltip>
       <ToolbarSeparator className="mx-1" />
 
       <DropdownMenu>

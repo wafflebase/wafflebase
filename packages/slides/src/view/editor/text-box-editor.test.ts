@@ -285,6 +285,45 @@ describe('slides text-box editor wiring', () => {
     expect(store.read().slides[0].elements).toHaveLength(0);
   });
 
+  it('align/distribute are no-ops while a text box is in edit mode', () => {
+    // The mounted text-box editor positions its DOM container against
+    // the frame coords captured at mount time. Mutating frame.x/y mid-
+    // edit would diverge the editor from the underlying element until
+    // the next mount cycle. Block layout actions while editing.
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    // Add two text elements so multi-select align has something to do.
+    const { elementId: aId } = addTextElement(store);
+    let bId = '';
+    store.batch(() => {
+      bId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 800, y: 100, w: 400, h: 200, rotation: 0 },
+        data: { blocks: [paragraph('two')] },
+      });
+    });
+    const { mount } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    editor.setSelection([aId, bId]);
+    // Snapshot frames before entering edit mode.
+    const beforeA = store.read().slides[0].elements.find((e) => e.id === aId)!.frame;
+    const beforeB = store.read().slides[0].elements.find((e) => e.id === bId)!.frame;
+    // Enter edit mode on element a.
+    dispatchDblClick(canvas, 200, 200);
+    expect(editor.getEditingElementId()).toBe(aId);
+    // Try to align — should be a no-op while editing.
+    editor.align('left');
+    editor.distribute('horizontal');
+    const afterA = store.read().slides[0].elements.find((e) => e.id === aId)!.frame;
+    const afterB = store.read().slides[0].elements.find((e) => e.id === bId)!.frame;
+    expect(afterA).toEqual(beforeA);
+    expect(afterB).toEqual(beforeB);
+  });
+
   it('detach() during edit mode tears the text-box down cleanly', () => {
     const { canvas, overlay, store } = makeFixture();
     addTextElement(store);

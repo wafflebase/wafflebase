@@ -3,6 +3,13 @@ import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import {
+  alignFrames,
+  distributeFrames,
+  type AlignDirection,
+  type AlignReference,
+  type DistributeAxis,
+} from './align';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
@@ -15,7 +22,7 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
-import { snapDelta } from './snap';
+import { snapDelta, type SnapGuide } from './snap';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
 export type InsertKind = ShapeKind | 'text';
@@ -88,6 +95,28 @@ export interface SlidesEditor {
    * The editor only updates its internal scale and triggers a repaint.
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
+  /**
+   * Align the selected elements relative to:
+   *   - the combined bounding box of the selection, when ≥ 2 are selected;
+   *   - the slide canvas (1920×1080), when exactly 1 is selected.
+   * Each element's new position is written directly to `frame.x/y` and
+   * `frame.rotation` is preserved; rotated elements keep their rotation
+   * after aligning (matches Google Slides).
+   * No-op when nothing is selected.
+   *
+   * Wraps every moved frame in a single store.batch() so undo/redo treats
+   * the operation atomically.
+   */
+  align(direction: AlignDirection): void;
+  /**
+   * Equalize the gaps between consecutive selected elements along the
+   * given axis. Endpoints stay; only inner elements move.
+   * Spacing uses each frame's axis-aligned `x/y/w/h`; rotation is
+   * preserved on every moved element.
+   *
+   * No-op when fewer than 3 elements are selected.
+   */
+  distribute(axis: DistributeAxis): void;
   detach(): void;
 }
 
@@ -167,7 +196,11 @@ class SlidesEditorImpl implements SlidesEditor {
   private repaintOverlay(): void {
     const slide = this.currentSlide();
     if (!slide) {
-      renderOverlay(this.options.overlay, [], { scale: this.scale() });
+      renderOverlay(this.options.overlay, [], {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+      });
       this.reattachEditingTextBox();
       return;
     }
@@ -177,7 +210,11 @@ class SlidesEditorImpl implements SlidesEditor {
     const selected = slide.elements.filter(
       (e) => this.selection.has(e.id) && e.id !== this.editingElementId,
     );
-    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    renderOverlay(this.options.overlay, selected, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+    });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
     // the overlay rebuild so the editor stays visible.
@@ -268,6 +305,65 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     this.options.hostWidth = hostWidth;
     this.options.hostHeight = hostHeight;
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  align(direction: AlignDirection): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size === 0) return;
+    // Multi-select: align to the combined bbox of the selection.
+    // Single-select: align to the slide canvas (1920×1080).
+    let reference: AlignReference;
+    if (framesMap.size >= 2) {
+      reference = combinedBoundingBox(Array.from(framesMap.values()))!;
+    } else {
+      reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: SLIDE_HEIGHT };
+    }
+    const updates = alignFrames(framesMap, direction, reference);
+    this.applyFrameUpdates(slide.id, updates);
+  }
+
+  distribute(axis: DistributeAxis): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size < 3) return;
+    const updates = distributeFrames(framesMap, axis);
+    this.applyFrameUpdates(slide.id, updates);
+  }
+
+  /**
+   * Collect frames for currently-selected elements that still exist on
+   * the given slide. Defends against ids that were removed remotely
+   * between selection and the toolbar action.
+   */
+  private collectSelectedFrames(slide: { elements: Element[] }): Map<string, Frame> {
+    const selectedIds = new Set(this.selection.get());
+    const result = new Map<string, Frame>();
+    for (const el of slide.elements) {
+      if (selectedIds.has(el.id)) result.set(el.id, el.frame);
+    }
+    return result;
+  }
+
+  /**
+   * Commit a set of frame updates in a single store.batch so undo/redo
+   * treats them atomically, then mark dirty + render. Empty `updates`
+   * is a no-op (skips the empty batch).
+   */
+  private applyFrameUpdates(slideId: string, updates: ReadonlyMap<string, Frame>): void {
+    if (updates.size === 0) return;
+    this.options.store.batch(() => {
+      for (const [id, frame] of updates) {
+        this.options.store.updateElementFrame(slideId, id, frame);
+      }
+    });
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
@@ -736,14 +832,15 @@ class SlidesEditorImpl implements SlidesEditor {
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
       const bbox = combinedBoundingBox(Array.from(originalFrames.values()))!;
-      const { dx, dy } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
+      const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
 
       for (const [id, base] of originalFrames) {
         live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
       }
       // Repaint canvas + overlay with the live frames; we DO NOT touch
-      // the store yet.
-      this.paintLive(live);
+      // the store yet. `guides` flow through to the overlay so magenta
+      // alignment lines render alongside the selection handles.
+      this.paintLive(live, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('mousemove', onMove);
@@ -757,12 +854,17 @@ class SlidesEditorImpl implements SlidesEditor {
       });
       this.renderer.markDirty();
       this.render();
+      // `render()` repaints only the canvas — without an explicit overlay
+      // refresh, the magenta guide nodes from the last `paintLive` would
+      // persist after mouseup. `repaintOverlay()` rebuilds the overlay
+      // with `selected` and no `guides`, clearing them.
+      this.repaintOverlay();
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
 
-  private paintLive(live: Map<string, Frame>): void {
+  private paintLive(live: Map<string, Frame>, guides: readonly SnapGuide[] = []): void {
     // Render a synthesised slide where the selected elements use their
     // live frames. We bypass the store so each mousemove is one paint,
     // not one Yorkie op.
@@ -777,7 +879,12 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.forceRender(synthetic, this.options.store.read());
     // Repaint overlay against the live frames so handles follow.
     const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    renderOverlay(this.options.overlay, selected, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+      guides,
+    });
   }
 
   private currentSlide() {

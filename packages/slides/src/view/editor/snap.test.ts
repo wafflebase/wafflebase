@@ -27,7 +27,9 @@ describe('snapDelta', () => {
   });
 
   it('snaps to the nearest non-selected element edge', () => {
-    const others: Frame[] = [f(500, 0, 100, 100)];
+    // Place the other element at y=400 so its edges don't collide with
+    // the dragged bbox's y edges (which stay at 0/100 since dy=0).
+    const others: Frame[] = [f(500, 400, 100, 100)];
     // Dragging the bbox (originally at x=860) so its left edge is at
     // 603 (dx=-257) — within 3 of element a's right edge (600).
     // Snap: left edge → 600 → dx = -260.
@@ -41,6 +43,36 @@ describe('snapDelta', () => {
     const result = snapDelta(
       { x: 0, y: 0, w: 100, h: 100 }, 17, 23, [], { w: 1920, h: 1080 },
     );
-    expect(result).toEqual({ dx: 17, dy: 23 });
+    expect(result.dx).toBe(17);
+    expect(result.dy).toBe(23);
+  });
+
+  it('emits a slide-center guide when snapping to the slide centre', () => {
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, 53, 0, [], SLIDE,
+    );
+    expect(result.guides).toEqual([
+      { axis: 'x', position: 960, kind: 'slide-center' },
+    ]);
+  });
+
+  it('emits an edge guide when snapping to an element edge', () => {
+    // Place the other at y=400 so its y edges don't accidentally
+    // align with the dragged bbox (y=0..100, dy=0) and emit a phantom
+    // y-axis guide.
+    const others: Frame[] = [f(500, 400, 100, 100)];
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, -257, 0, others, SLIDE,
+    );
+    expect(result.guides).toEqual([
+      { axis: 'x', position: 600, kind: 'edge' },
+    ]);
+  });
+
+  it('returns an empty guides array when nothing snaps', () => {
+    const result = snapDelta(
+      { x: 0, y: 0, w: 100, h: 100 }, 17, 23, [], { w: 1920, h: 1080 },
+    );
+    expect(result.guides).toEqual([]);
   });
 });
