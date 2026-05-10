@@ -32,7 +32,7 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   // Lines
   ['line', 'lineSpecial'],
   ['arrow', 'lineSpecial'],
-  // Basic + Block Arrows + Equation → filled
+  // Basic + Block Arrows + Equation + Stars → filled
   ...((
     [
       'rect', 'roundRect', 'ellipse', 'triangle', 'rtTriangle', 'diamond',
@@ -42,6 +42,7 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
       'mathPlus', 'mathMinus', 'mathMultiply',
       'mathDivide', 'mathEqual', 'mathNotEqual',
+      'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
     ] as ShapeKind[]
   ).map((k) => [k, 'filled' as ShapeStyle] as const)),
   // Callouts → outlined
@@ -49,6 +50,21 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ['wedgeRoundRectCallout', 'outlined'],
   ['wedgeEllipseCallout', 'outlined'],
   ['cloudCallout', 'outlined'],
+  // Flowchart → outlined
+  ['flowChartTerminator', 'outlined'],
+  ['flowChartPredefinedProcess', 'outlined'],
+  ['flowChartInternalStorage', 'outlined'],
+  ['flowChartDocument', 'outlined'],
+  ['flowChartMultidocument', 'outlined'],
+  ['flowChartManualInput', 'outlined'],
+  ['flowChartManualOperation', 'outlined'],
+  ['flowChartOffpageConnector', 'outlined'],
+  ['flowChartPunchedCard', 'outlined'],
+  ['flowChartPunchedTape', 'outlined'],
+  ['flowChartSummingJunction', 'outlined'],
+  ['flowChartOr', 'outlined'],
+  ['flowChartDelay', 'outlined'],
+  ['flowChartDisplay', 'outlined'],
 ]);
 
 function defaultsForShape(

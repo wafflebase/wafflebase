@@ -41,3 +41,39 @@ export function adj(
 ): number {
   return adjustments?.[index] ?? defaultValue;
 }
+
+/**
+ * Vertices of a regular N-gon inscribed in an ellipse. Used by the
+ * pentagon builder and star builders. Returned in polygon-walk
+ * order (no Path2D), so callers can interleave with a second ring
+ * (stars) or close into a Path2D directly (pentagon).
+ *
+ * @param cx, cy   ellipse centre
+ * @param rx, ry   ellipse radii (frame-local, may be unequal)
+ * @param points   vertex count (>= 3)
+ * @param rotation starting angle in radians; default `-Math.PI / 2`
+ *                 (first vertex straight up)
+ */
+export function regularPolygonPath(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  points: number,
+  rotation: number = -Math.PI / 2,
+): { x: number; y: number }[] {
+  if (!Number.isInteger(points) || points < 3) {
+    throw new RangeError(
+      `regularPolygonPath: \`points\` must be an integer >= 3, got ${points}`,
+    );
+  }
+  const verts: { x: number; y: number }[] = [];
+  for (let i = 0; i < points; i++) {
+    const angle = rotation + (i / points) * Math.PI * 2;
+    verts.push({
+      x: cx + rx * Math.cos(angle),
+      y: cy + ry * Math.sin(angle),
+    });
+  }
+  return verts;
+}

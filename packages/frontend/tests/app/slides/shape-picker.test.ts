@@ -14,18 +14,18 @@ import {
  * `shape-picker-helpers.ts` so the toolbar contract can be asserted
  * without rendering React.
  *
- * The picker contract: 5 categories (Lines, Shapes, Block Arrows,
- * Callouts, Equation) with a combined 35 ShapeKind entries, each
+ * The picker contract: 7 categories (Lines, Shapes, Block Arrows,
+ * Flowchart, Callouts, Equation, Stars) with a combined 55 ShapeKind entries, each
  * tagged with a non-empty user-facing label that doubles as the
  * IconButton's `aria-label` for accessibility.
  */
 
 describe("shape-picker categories", () => {
-  it("exposes 5 categories in display order", () => {
-    assert.equal(SHAPE_PICKER_CATEGORIES.length, 5);
+  it("exposes 7 categories in display order", () => {
+    assert.equal(SHAPE_PICKER_CATEGORIES.length, 7);
     assert.deepEqual(
       SHAPE_PICKER_CATEGORIES.map((c) => c.id),
-      ["lines", "shapes", "block-arrows", "callouts", "equation"],
+      ["lines", "shapes", "block-arrows", "flowchart", "callouts", "equation", "stars"],
     );
   });
 
@@ -34,20 +34,22 @@ describe("shape-picker categories", () => {
       lines: "Lines",
       shapes: "Shapes",
       "block-arrows": "Block Arrows",
+      flowchart: "Flowchart",
       callouts: "Callouts",
       equation: "Equation",
+      stars: "Stars",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       assert.equal(cat.title, expected[cat.id]);
     }
   });
 
-  it("contains exactly 35 ShapeKind entries across all categories", () => {
+  it("contains exactly 55 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 35);
+    assert.equal(total, 55);
   });
 
   it("each entry has a non-empty kind and label", () => {
@@ -69,8 +71,10 @@ describe("shape-picker categories", () => {
       lines: "line",
       shapes: "rect",
       "block-arrows": "rightArrow",
+      flowchart: "flowChartTerminator",
       callouts: "wedgeRectCallout",
       equation: "mathPlus",
+      stars: "star4",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       assert.equal(cat.kinds[0]?.kind, firsts[cat.id]);

@@ -83,9 +83,14 @@ remain editable with no data migration.
 | Phase | Cumulative shapes | Adds | Adjustments UX | Picker categories |
 |---|---|---|---|---|
 | **P1 — Foundation** (this doc) | 35 | 2 lines (existing) + 15 basic + 8 block arrows + 4 callouts + 6 equation | none (defaults only) | Lines · Shapes · Block Arrows · Callouts · Equation |
-| **P2 — Practical** | 55 | flowchart 14 + stars 6 | toolbar number inputs | + Flowchart · Stars |
-| **P3 — GS Parity** | 105 | extra callouts/arrows/banners + actionButtons 12 | drag handles (yellow diamonds) | + Action Buttons |
+| **P2 — Practical** | 55 | flowchart 14 + stars 6 | none (defaults only) | + Flowchart · Stars |
+| **P3 — GS Parity** | 105 | extra callouts/arrows/banners + actionButtons 12 | drag handles (yellow diamonds) + popover number input | + Action Buttons |
 | **P4 — OOXML Full** | 187 | remaining presets via DrawingML formula evaluator | (no new UX, all adjustments work) | (no new categories) |
+
+P2's adjustments-UX cell was originally "toolbar number inputs"; it
+moved to P3 once the Google-Slides-canonical UX (yellow-diamond
+drag handles) was confirmed as the destination pattern. See
+`slides-shapes-p2.md` for the rationale.
 
 P1 must therefore lock decisions that ripple through P2–P4: the
 `adjustments` field shape, the path-builder registry signature, the

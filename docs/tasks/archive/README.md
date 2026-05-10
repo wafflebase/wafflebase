@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 161
+Total archived tasks: 162
 
-## 2026/05 (16 tasks)
+## 2026/05 (17 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shapes p2 (2026-05-09) | [20260509-slides-shapes-p2-todo.md](./2026/05/20260509-slides-shapes-p2-todo.md) | [20260509-slides-shapes-p2-lessons.md](./2026/05/20260509-slides-shapes-p2-lessons.md) |
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |

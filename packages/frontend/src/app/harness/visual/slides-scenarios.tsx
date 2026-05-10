@@ -129,15 +129,24 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
 }
 
 /**
- * Build a slide document that lays out every Phase 1 ShapeKind on a
- * single canvas as a 5×7 grid. Each cell is the same frame size and
- * uses the per-category default fill/stroke from the picker (filled
- * for basic / arrows / equation, outlined for callouts, stroked for
- * line / arrow). Used as a single baseline to catch geometry changes
- * across the entire registry.
+ * Build a slide document that lays out every ShapeKind (P1 + P2) on a
+ * single canvas as a 5×11 grid (55 cells, no blanks). Each cell is the
+ * same frame size and uses the per-category default fill/stroke from the
+ * picker (filled for basic / arrows / equation / flowchart / stars,
+ * outlined for callouts, stroked for line / arrow). Used as a single
+ * baseline to catch geometry changes across the entire registry.
+ *
+ * P1 categories (Lines · Basic Shapes · Block Arrows · Callouts ·
+ * Equation) keep their original grid positions; the P2 additions
+ * (Stars, then Flowchart) are appended at the end so the visual
+ * regression diff focuses on the new shapes when categories grow.
+ * The picker itself uses spec order (Lines · Shapes · Block Arrows ·
+ * Flowchart · Callouts · Equation · Stars) — see
+ * `docs/tasks/active/20260509-slides-shapes-p2-lessons.md` for the
+ * trade-off rationale.
  */
 const SHAPE_CATALOG: ShapeKind[] = [
-  // Lines
+  // Lines (2)
   "line", "arrow",
   // Basic (15)
   "rect", "roundRect", "ellipse", "triangle", "rtTriangle",
@@ -152,6 +161,16 @@ const SHAPE_CATALOG: ShapeKind[] = [
   // Equation (6)
   "mathPlus", "mathMinus", "mathMultiply",
   "mathDivide", "mathEqual", "mathNotEqual",
+  // Stars (6, P2)
+  "star4", "star5", "star6", "star7", "star8", "star10",
+  // Flowchart (14, P2)
+  "flowChartTerminator", "flowChartPredefinedProcess",
+  "flowChartInternalStorage", "flowChartDocument",
+  "flowChartMultidocument", "flowChartManualInput",
+  "flowChartManualOperation", "flowChartOffpageConnector",
+  "flowChartPunchedCard", "flowChartPunchedTape",
+  "flowChartSummingJunction", "flowChartOr",
+  "flowChartDelay", "flowChartDisplay",
 ];
 
 const ACCENT1: ThemeColor = { kind: "role", role: "accent1" };
@@ -192,12 +211,14 @@ function shapeElement(
 }
 
 function makeCatalogDoc(themeId: string = "default-light"): SlidesDocument {
-  // 5 columns × 7 rows = 35 cells. Canvas is the standard 1920×1080
-  // logical slide; cell size derived to fit with a small inset.
+  // 5 columns × 11 rows = 55 cells (P1 35 + P2 20). Canvas is the
+  // standard 1920×1080 logical slide; cell size derived to fit with a
+  // small inset.
   const cols = 5;
-  const rows = 7;
+  const rows = 11;
   const cellW = 200;
-  const cellH = 100;
+  // 11 rows × 96 px = 1056 px ≤ 1080 — fits with 12 px top/bottom margin.
+  const cellH = 96;
   const xPad = (1920 - cols * cellW) / 2;
   const yPad = (1080 - rows * cellH) / 2;
   const elements: Element[] = SHAPE_CATALOG.map((kind, i) => {
@@ -401,29 +422,29 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
       "Contextual picker layouts — color picker (Theme / Standard / Custom) and font picker (Theme fonts / System) — rendered standalone for baseline coverage independent of toolbar state.",
     render: () => <SlidesPickersScenario />,
   },
-  // Phase 1 shape library — geometry baselines for the new 33 path
-  // builders. The catalog scenario covers every kind in one go;
+  // Shape library — geometry baselines for all 55 shape builders (P1 + P2).
+  // The catalog scenario covers every kind in one go on a 5×11 grid;
   // donut and callout pin a couple of higher-risk geometries
   // (evenodd fill, tail attachment) at larger sizes for clarity.
   {
     id: "slides-canvas-shapes-catalog-light",
-    title: "Shapes — full 35 catalog (light)",
+    title: "Shapes — full 55 catalog (light)",
     description:
-      "Every Phase 1 ShapeKind on a single slide, 5×7 grid. Default fills/strokes from the picker (accent1 fill for basic/arrows/equation, outlined for callouts). Default-light theme.",
+      "Every ShapeKind (P1 + P2, 55 total) on a single slide, 5×11 grid. Default fills/strokes from the picker (accent1 fill for basic/arrows/equation/flowchart/stars, outlined for callouts). Default-light theme.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-light")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-dark",
-    title: "Shapes — full 35 catalog (dark)",
+    title: "Shapes — full 55 catalog (dark)",
     description:
-      "Same shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all 33 new builders.",
+      "Same 55-shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all builders.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-dark")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-material",
-    title: "Shapes — full 35 catalog (material)",
+    title: "Shapes — full 55 catalog (material)",
     description:
-      "Catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for new builders.",
+      "55-shape catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for all builders.",
     render: () => <SlideCanvas doc={makeCatalogDoc("material")} />,
   },
   {

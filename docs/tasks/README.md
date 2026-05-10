@@ -18,7 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| add CONTRIBUTING.md (2026-05-10) | [20260510-contributing-md-todo.md](./active/20260510-contributing-md-todo.md) | - |
+| contributing md (2026-05-10) | [20260510-contributing-md-todo.md](./active/20260510-contributing-md-todo.md) | - |
+| slides shapes p1 (2026-05-09) | [20260509-slides-shapes-p1-todo.md](./active/20260509-slides-shapes-p1-todo.md) | [20260509-slides-shapes-p1-lessons.md](./active/20260509-slides-shapes-p1-lessons.md) |
+| slides thumb responsive (2026-05-09) | [20260509-slides-thumb-responsive-todo.md](./active/20260509-slides-thumb-responsive-todo.md) | - |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | undo destroys initial block (2026-05-05) | [20260505-undo-destroys-initial-block-todo.md](./active/20260505-undo-destroys-initial-block-todo.md) | - |
@@ -29,7 +31,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 161
+- Archived task count: 162
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: add CONTRIBUTING.md (2026-05-10)
+Latest active task: contributing md (2026-05-10)

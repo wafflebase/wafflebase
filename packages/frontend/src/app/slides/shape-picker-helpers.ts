@@ -81,6 +81,26 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
     ],
   },
   {
+    id: "flowchart",
+    title: "Flowchart",
+    kinds: [
+      { kind: "flowChartTerminator", label: "Terminator" },
+      { kind: "flowChartPredefinedProcess", label: "Predefined process" },
+      { kind: "flowChartInternalStorage", label: "Internal storage" },
+      { kind: "flowChartDocument", label: "Document" },
+      { kind: "flowChartMultidocument", label: "Multi-document" },
+      { kind: "flowChartManualInput", label: "Manual input" },
+      { kind: "flowChartManualOperation", label: "Manual operation" },
+      { kind: "flowChartOffpageConnector", label: "Off-page connector" },
+      { kind: "flowChartPunchedCard", label: "Card" },
+      { kind: "flowChartPunchedTape", label: "Punched tape" },
+      { kind: "flowChartSummingJunction", label: "Summing junction" },
+      { kind: "flowChartOr", label: "Or" },
+      { kind: "flowChartDelay", label: "Delay" },
+      { kind: "flowChartDisplay", label: "Display" },
+    ],
+  },
+  {
     id: "callouts",
     title: "Callouts",
     kinds: [
@@ -100,6 +120,18 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "mathDivide", label: "Divide" },
       { kind: "mathEqual", label: "Equal" },
       { kind: "mathNotEqual", label: "Not equal" },
+    ],
+  },
+  {
+    id: "stars",
+    title: "Stars",
+    kinds: [
+      { kind: "star4", label: "4-point star" },
+      { kind: "star5", label: "5-point star" },
+      { kind: "star6", label: "6-point star" },
+      { kind: "star7", label: "7-point star" },
+      { kind: "star8", label: "8-point star" },
+      { kind: "star10", label: "10-point star" },
     ],
   },
 ];
