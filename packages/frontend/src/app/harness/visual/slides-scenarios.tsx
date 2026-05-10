@@ -274,6 +274,148 @@ function makeDonutDoc(): SlidesDocument {
 }
 
 /**
+ * Build a slide that exercises the 9 pilot shapes whose adjustment
+ * handles are wired in P3-A.1. Two rows of 9 shapes verify that
+ * authored adjustments produce visibly different geometry from the
+ * OOXML defaults:
+ *
+ *  Row 1 (y≈100) — each shape at its OOXML default adjustments.
+ *  Row 2 (y≈350) — each shape at a deliberately different authored
+ *                   value so a regression in apply/clamp/path math
+ *                   jumps out in the pixel diff.
+ *  Bonus shape    — star5 at default adjustments, rotated π/6 (30°),
+ *                   positioned to the right of the grid. Verifies that
+ *                   the shape geometry is rotation-independent (handles
+ *                   are a DOM overlay concern tested separately).
+ *
+ * Fill/stroke follows the same per-category rules as `makeCatalogDoc`:
+ *   • roundRect   → accent1 (basic shape)
+ *   • chevron     → accent1 (block arrow)
+ *   • wedgeRectCallout → BG_ROLE fill + TEXT_ROLE stroke (callout)
+ *   • star*       → accent1 (star)
+ */
+function makeAdjustmentsPilotDoc(): SlidesDocument {
+  // Cell layout: 9 shapes × (140w + 30 gap) starting at x=30.
+  // Two rows: y=100 (defaults) and y=350 (authored). Canvas is 1920×1080.
+  const cellW = 140;
+  const gap = 30;
+  const cellH = 100;
+
+  // Pilot shapes (left → right order)
+  const PILOT_KINDS: ShapeKind[] = [
+    "roundRect",
+    "chevron",
+    "wedgeRectCallout",
+    "star4",
+    "star5",
+    "star6",
+    "star7",
+    "star8",
+    "star10",
+  ];
+
+  // Default OOXML adjustments for each pilot shape.
+  const DEFAULT_ADJUSTMENTS: (number[] | undefined)[] = [
+    undefined,           // roundRect  — [16667]
+    undefined,           // chevron    — [50000]
+    undefined,           // wedgeRectCallout — [-20833, 62500]
+    undefined,           // star4      — [12500]
+    undefined,           // star5      — [19098]
+    undefined,           // star6      — [28868]
+    undefined,           // star7      — [34601]
+    undefined,           // star8      — [37500]
+    undefined,           // star10     — [42533]
+  ];
+
+  // Authored (visibly different) adjustments for each pilot shape.
+  const AUTHORED_ADJUSTMENTS: number[][] = [
+    [40000],          // roundRect — near-max corner radius
+    [20000],          // chevron   — shallow notch
+    [60000, 0],       // wedgeRectCallout — tail right of frame, mid-height
+    [35000],          // star4
+    [35000],          // star5
+    [40000],          // star6
+    [45000],          // star7
+    [45000],          // star8
+    [42533],          // star10 — same as default (control)
+  ];
+
+  function fillFor(kind: ShapeKind) {
+    if (CALLOUT_KINDS.has(kind)) {
+      return { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } };
+    }
+    return { fill: ACCENT1 };
+  }
+
+  const elements: Element[] = [];
+
+  // Row 1 — default adjustments
+  const row1Y = 100;
+  PILOT_KINDS.forEach((kind, i) => {
+    const x = 30 + i * (cellW + gap);
+    elements.push({
+      id: `adj-default-${kind}`,
+      type: "shape",
+      frame: { x, y: row1Y, w: cellW, h: cellH, rotation: 0 },
+      data: {
+        kind,
+        adjustments: DEFAULT_ADJUSTMENTS[i],
+        ...fillFor(kind),
+      },
+    } as Element);
+  });
+
+  // Row 2 — authored adjustments
+  const row2Y = 350;
+  PILOT_KINDS.forEach((kind, i) => {
+    const x = 30 + i * (cellW + gap);
+    elements.push({
+      id: `adj-authored-${kind}`,
+      type: "shape",
+      frame: { x, y: row2Y, w: cellW, h: cellH, rotation: 0 },
+      data: {
+        kind,
+        adjustments: AUTHORED_ADJUSTMENTS[i],
+        ...fillFor(kind),
+      },
+    } as Element);
+  });
+
+  // Rotated star5 — verifies geometry is correct through a rotation transform.
+  // Handles are a DOM overlay concern; this only exercises path rendering.
+  elements.push({
+    id: "adj-rotated-star5",
+    type: "shape",
+    frame: { x: 1500, y: 200, w: 140, h: 140, rotation: Math.PI / 6 },
+    data: {
+      kind: "star5",
+      adjustments: undefined, // OOXML default [19098]
+      fill: ACCENT1,
+    },
+  } as Element);
+
+  return {
+    meta: {
+      title: "Adjustments pilot",
+      themeId: "default-light",
+      masterId: "default",
+    },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+/**
  * Build a slide with a single rectangular callout so the tail's
  * attachment to the closest edge (default `[-20833, 62500]` →
  * bottom-edge tail pointing down-left) is visible in the baseline.
@@ -460,6 +602,18 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     description:
       "wedgeRectCallout with default adjustments (`[-20833, 62500]`). Tail attaches to the closest edge — bottom — and points down-left. Verifies the tail-edge selection logic and outline default fill.",
     render: () => <SlideCanvas doc={makeCalloutDoc()} />,
+  },
+  // P3-A.1 — Adjustment geometry baseline for the 9 pilot shapes.
+  // Two rows + one rotated star verify that authored values produce
+  // visibly different geometry from OOXML defaults. Handles (yellow
+  // diamonds) live in the DOM overlay layer which this canvas-only
+  // renderer does not include; per-shape unit tests cover the math.
+  {
+    id: "shapes-adjustments-pilot",
+    title: "Shape adjustments — pilot 9 (P3-A.1)",
+    description:
+      "Two-row grid of the 9 pilot shapes. Top row: OOXML default adjustments. Bottom row: authored values that visibly differ (rounder corners, shallower chevron, callout tail position, chunkier/slimmer stars). Right: star5 rotated 30° at default adjustments. Catches regressions in apply/clamp/path math across all 4 axis types.",
+    render: () => <SlideCanvas doc={makeAdjustmentsPilotDoc()} />,
   },
 ];
 
