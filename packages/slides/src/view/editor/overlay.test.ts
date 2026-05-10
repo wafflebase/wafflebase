@@ -5,6 +5,8 @@ import { renderOverlay } from './overlay';
 
 const HANDLE_SIZE = 8;
 const HOST_SCALE = 1; // demo uses 1:1 for these tests
+const SLIDE_W = 1920;
+const SLIDE_H = 1080;
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -25,13 +27,13 @@ function shape(x: number, y: number, w: number, h: number, rotation = 0): Elemen
 describe('renderOverlay', () => {
   it('clears the overlay when no elements are selected', () => {
     const overlay = makeOverlay();
-    renderOverlay(overlay, [], { scale: HOST_SCALE });
+    renderOverlay(overlay, [], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     expect(overlay.children.length).toBe(0);
   });
 
   it('renders 9 handles + 1 frame for a single selected element', () => {
     const overlay = makeOverlay();
-    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE });
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     // 8 resize handles + 1 rotate handle + 1 frame outline = 10 children.
     expect(overlay.children.length).toBe(10);
     const handles = overlay.querySelectorAll('[data-handle]');
@@ -40,7 +42,7 @@ describe('renderOverlay', () => {
 
   it('places the nw handle at the frame top-left (centred on the corner)', () => {
     const overlay = makeOverlay();
-    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE });
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
     expect(parseFloat(nw.style.left)).toBe(100 - HANDLE_SIZE / 2);
     expect(parseFloat(nw.style.top)).toBe(50 - HANDLE_SIZE / 2);
@@ -48,7 +50,7 @@ describe('renderOverlay', () => {
 
   it('places the rotate handle above the top centre', () => {
     const overlay = makeOverlay();
-    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE });
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const rot = overlay.querySelector<HTMLDivElement>('[data-handle="rotate"]')!;
     // Top centre = (200, 50); rotate handle sits 24 px above (HANDLE_OFFSET).
     expect(parseFloat(rot.style.left)).toBe(200 - HANDLE_SIZE / 2);
@@ -60,7 +62,7 @@ describe('renderOverlay', () => {
     renderOverlay(overlay, [
       shape(0, 0, 100, 100),
       shape(200, 50, 50, 50),
-    ], { scale: HOST_SCALE });
+    ], { scale: HOST_SCALE, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
     expect(parseFloat(nw.style.left)).toBe(0 - HANDLE_SIZE / 2);
     expect(parseFloat(nw.style.top)).toBe(0 - HANDLE_SIZE / 2);
@@ -71,7 +73,7 @@ describe('renderOverlay', () => {
 
   it('scales handle positions by the host scale factor', () => {
     const overlay = makeOverlay();
-    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: 0.5 });
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], { scale: 0.5, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
     expect(parseFloat(nw.style.left)).toBe(100 * 0.5 - HANDLE_SIZE / 2);
   });
@@ -84,7 +86,7 @@ describe('renderOverlay', () => {
     //   local nw = (-w/2, -h/2) = (-100, -50) relative to centre
     //   R(π/2) * (-100, -50) = (50, -100) relative to centre
     //   world = centre + (50, -100) = (250, 50)
-    renderOverlay(overlay, [shape(100, 100, 200, 100, Math.PI / 2)], { scale: 1 });
+    renderOverlay(overlay, [shape(100, 100, 200, 100, Math.PI / 2)], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
     expect(parseFloat(nw.style.left)).toBeCloseTo(250 - HANDLE_SIZE / 2, 5);
     expect(parseFloat(nw.style.top)).toBeCloseTo(50 - HANDLE_SIZE / 2, 5);
@@ -104,9 +106,53 @@ describe('renderOverlay', () => {
     //   world = (150, 50)
     // Local "up" direction in world = (sin(π/2), -cos(π/2)) = (1, 0).
     // Rotate handle = (150 + 24, 50) = (174, 50) at scale=1.
-    renderOverlay(overlay, [shape(0, 0, 200, 100, Math.PI / 2)], { scale: 1 });
+    renderOverlay(overlay, [shape(0, 0, 200, 100, Math.PI / 2)], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const rot = overlay.querySelector<HTMLDivElement>('[data-handle="rotate"]')!;
     expect(parseFloat(rot.style.left)).toBeCloseTo(174 - HANDLE_SIZE / 2, 5);
     expect(parseFloat(rot.style.top)).toBeCloseTo(50 - HANDLE_SIZE / 2, 5);
+  });
+
+  it('renders no snap-guide nodes when guides is empty', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+    });
+    expect(overlay.querySelectorAll('.wfb-slides-snap-guide').length).toBe(0);
+  });
+
+  it('renders a vertical guide line at the slide-center position', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], {
+      scale: 0.5,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      guides: [{ axis: 'x', position: 960, kind: 'slide-center' }],
+    });
+    const guides = overlay.querySelectorAll<HTMLDivElement>('.wfb-slides-snap-guide');
+    expect(guides.length).toBe(1);
+    const g = guides[0];
+    expect(g.style.left).toBe('480px');
+    expect(g.style.top).toBe('0px');
+    expect(g.style.width).toBe('1px');
+    expect(g.style.height).toBe('540px');
+  });
+
+  it('renders a horizontal guide line at the slide-center position', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(100, 50, 200, 100)], {
+      scale: 0.5,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      guides: [{ axis: 'y', position: 540, kind: 'slide-center' }],
+    });
+    const guides = overlay.querySelectorAll<HTMLDivElement>('.wfb-slides-snap-guide');
+    expect(guides.length).toBe(1);
+    const g = guides[0];
+    expect(g.style.left).toBe('0px');
+    expect(g.style.top).toBe('270px');
+    expect(g.style.width).toBe('960px');
+    expect(g.style.height).toBe('1px');
   });
 });

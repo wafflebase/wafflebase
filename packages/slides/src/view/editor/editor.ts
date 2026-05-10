@@ -167,7 +167,11 @@ class SlidesEditorImpl implements SlidesEditor {
   private repaintOverlay(): void {
     const slide = this.currentSlide();
     if (!slide) {
-      renderOverlay(this.options.overlay, [], { scale: this.scale() });
+      renderOverlay(this.options.overlay, [], {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+      });
       this.reattachEditingTextBox();
       return;
     }
@@ -177,7 +181,11 @@ class SlidesEditorImpl implements SlidesEditor {
     const selected = slide.elements.filter(
       (e) => this.selection.has(e.id) && e.id !== this.editingElementId,
     );
-    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    renderOverlay(this.options.overlay, selected, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+    });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
     // the overlay rebuild so the editor stays visible.
@@ -777,7 +785,11 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.forceRender(synthetic, this.options.store.read());
     // Repaint overlay against the live frames so handles follow.
     const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    renderOverlay(this.options.overlay, selected, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+    });
   }
 
   private currentSlide() {

@@ -1,5 +1,6 @@
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import type { SnapGuide } from './snap';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -7,6 +8,12 @@ const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
 export interface OverlayOptions {
   /** Host pixels per logical slide pixel. */
   scale: number;
+  /** Logical slide width — used to span full-slide guide lines. */
+  slideWidth: number;
+  /** Logical slide height — used to span full-slide guide lines. */
+  slideHeight: number;
+  /** Snap guides to render under the selection handles. Empty/omitted = none. */
+  guides?: readonly SnapGuide[];
 }
 
 /**
@@ -70,6 +77,15 @@ export function renderOverlay(
   ];
   for (const [kind, cx, cy] of positions) {
     overlay.appendChild(makeHandle(kind, cx, cy));
+  }
+
+  // Snap guide lines (drag-time visual feedback). Rendered last so they
+  // sit above the selection frame; pointer-events: none keeps them
+  // non-interactive.
+  if (options.guides && options.guides.length > 0) {
+    for (const g of options.guides) {
+      overlay.appendChild(makeGuide(g, options));
+    }
   }
 }
 
@@ -145,6 +161,27 @@ function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   el.style.border = kind === 'rotate' ? '1px solid #3a7' : '1px solid #fff';
   el.style.borderRadius = kind === 'rotate' ? '50%' : '0';
   el.style.cursor = handleCursor(kind);
+  return el;
+}
+
+function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
+  const { scale, slideWidth, slideHeight } = options;
+  const el = document.createElement('div');
+  el.className = 'wfb-slides-snap-guide';
+  el.style.position = 'absolute';
+  el.style.background = '#e11d48';
+  el.style.pointerEvents = 'none';
+  if (guide.axis === 'x') {
+    el.style.left = `${guide.position * scale}px`;
+    el.style.top = '0px';
+    el.style.width = '1px';
+    el.style.height = `${slideHeight * scale}px`;
+  } else {
+    el.style.left = '0px';
+    el.style.top = `${guide.position * scale}px`;
+    el.style.width = `${slideWidth * scale}px`;
+    el.style.height = '1px';
+  }
   return el;
 }
 
