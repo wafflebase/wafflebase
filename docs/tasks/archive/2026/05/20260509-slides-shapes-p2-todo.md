@@ -14,7 +14,7 @@
 
 ## Pre-flight
 
-- [ ] **Step P-1: Inspect working tree on `main`**
+- [x] **Step P-1: Inspect working tree on `main`**
 
 ```bash
 git status
@@ -23,7 +23,7 @@ git pull --ff-only origin main
 
 Expected: branch is `main`, no merge conflicts. The brainstorming session left **3 uncommitted files** that this branch carries into its first commit (do not stash, do not discard):
 
-```
+```text
 docs/design/slides/slides-shapes-p2.md          (new — P2 spec)
 docs/design/slides/slides-shapes-p1.md          (modified — roadmap row)
 docs/design/README.md                           (modified — slides index)
@@ -33,7 +33,7 @@ docs/tasks/active/20260509-slides-shapes-p2-lessons.md  (new — lessons stub)
 
 If `git status` reports anything else uncommitted, stop and investigate before continuing.
 
-- [ ] **Step P-2: Create feature branch**
+- [x] **Step P-2: Create feature branch**
 
 ```bash
 git checkout -b slides-shapes-p2
@@ -41,7 +41,7 @@ git checkout -b slides-shapes-p2
 
 Expected: switched to new branch.
 
-- [ ] **Step P-3: Verify P1 baseline is green locally**
+- [x] **Step P-3: Verify P1 baseline is green locally**
 
 ```bash
 pnpm install
@@ -62,7 +62,7 @@ Expected: all green. (Per P1 lessons: a fresh checkout requires the workspace bu
 
 This task extends the type union only. The dispatcher fallback (`drawPlaceholderRect`) will paint the new kinds until their builders register in T4–T6, keeping the codebase compilable and rendering-safe at every commit. The frontend `YorkieShapeElement.data.kind` imports `ShapeKind` from `@wafflebase/slides`, so it auto-extends — no parallel edit needed.
 
-- [ ] **Step 1.1: Replace the `ShapeKind` union to include 20 new kinds**
+- [x] **Step 1.1: Replace the `ShapeKind` union to include 20 new kinds**
 
 Replace `packages/slides/src/model/element.ts:23-40` with:
 
@@ -97,7 +97,7 @@ export type ShapeKind =
   | 'flowChartDelay' | 'flowChartDisplay';
 ```
 
-- [ ] **Step 1.2: Verify build and tests still green**
+- [x] **Step 1.2: Verify build and tests still green**
 
 ```bash
 pnpm slides build
@@ -107,7 +107,7 @@ pnpm verify:fast
 
 Expected: all green. The 20 new kinds are typed but unregistered; dispatcher's `drawPlaceholderRect` covers them. Existing `shape-renderer.test.ts` still exercises the unknown-kind path via the synthetic `'__test_unknown__'` cast.
 
-- [ ] **Step 1.3: Commit (bundles the design docs + plan + lessons stub)**
+- [x] **Step 1.3: Commit (bundles the design docs + plan + lessons stub)**
 
 ```bash
 git add packages/slides/src/model/element.ts \
@@ -142,7 +142,7 @@ The project workflow expects task docs and `tasks/README.md` to be committed tog
 
 Stars + the existing `pentagon` builder share inscribed-polygon vertex math. Centralise it before T3 refactors `pentagon` to call it and T4 builds stars on top.
 
-- [ ] **Step 2.1: Write the failing test**
+- [x] **Step 2.1: Write the failing test**
 
 Create `packages/slides/src/view/canvas/shapes/builder.test.ts`:
 
@@ -189,7 +189,7 @@ describe('regularPolygonPath', () => {
 });
 ```
 
-- [ ] **Step 2.2: Run test, verify it fails**
+- [x] **Step 2.2: Run test, verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- builder.test.ts
@@ -197,7 +197,7 @@ pnpm --filter @wafflebase/slides test -- builder.test.ts
 
 Expected: FAIL — `regularPolygonPath` is not exported.
 
-- [ ] **Step 2.3: Implement the helper**
+- [x] **Step 2.3: Implement the helper**
 
 Append to `packages/slides/src/view/canvas/shapes/builder.ts`:
 
@@ -234,7 +234,7 @@ export function regularPolygonPath(
 }
 ```
 
-- [ ] **Step 2.4: Run test, verify it passes**
+- [x] **Step 2.4: Run test, verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- builder.test.ts
@@ -242,7 +242,7 @@ pnpm --filter @wafflebase/slides test -- builder.test.ts
 
 Expected: 4 tests pass.
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/builder.ts \
@@ -263,7 +263,7 @@ in next commit) and the new star builders."
 
 Smoke-tests the helper on a known shape. Output must be coordinate-equivalent (modulo floating-point) to the pre-refactor builder.
 
-- [ ] **Step 3.1: Replace the pentagon builder body**
+- [x] **Step 3.1: Replace the pentagon builder body**
 
 Replace `packages/slides/src/view/canvas/shapes/basic/pentagon.ts` entirely with:
 
@@ -289,7 +289,7 @@ export const buildPentagon: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 3.2: Run pentagon test, verify still green**
+- [x] **Step 3.2: Run pentagon test, verify still green**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- pentagon
@@ -297,7 +297,7 @@ pnpm --filter @wafflebase/slides test -- pentagon
 
 Expected: PASS. The pre-existing pentagon test asserts `isPointInPath` at frame-relative reference points, which depend only on output geometry — identical pre/post refactor.
 
-- [ ] **Step 3.3: Run the full slides test + visual snapshot to confirm no regression**
+- [x] **Step 3.3: Run the full slides test + visual snapshot to confirm no regression**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -305,7 +305,7 @@ pnpm --filter @wafflebase/slides test
 
 Expected: PASS. The registry snapshot (`registry.snap.test.ts`) re-renders pentagon and asserts unchanged ctx-spy output.
 
-- [ ] **Step 3.4: Commit**
+- [x] **Step 3.4: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/basic/pentagon.ts
@@ -428,13 +428,13 @@ describe('buildStar{N}', () => {
 
 ### 4c. Steps
 
-- [ ] **Step 4.1: Create all 6 star builder files using the template above**
+- [x] **Step 4.1: Create all 6 star builder files using the template above**
 
 Six files: `star4.ts`, `star5.ts`, `star6.ts`, `star7.ts`, `star8.ts`, `star10.ts`. Replace `{N}` and `{DEFAULT}` per the table.
 
-- [ ] **Step 4.2: Create all 6 sibling test files using the test template**
+- [x] **Step 4.2: Create all 6 sibling test files using the test template**
 
-- [ ] **Step 4.3: Register the 6 builders in `shapes/index.ts`**
+- [x] **Step 4.3: Register the 6 builders in `shapes/index.ts`**
 
 Add imports (alphabetical after the equation group):
 
@@ -469,7 +469,7 @@ ADJUSTMENT_SPECS.set('star8', STAR_8_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('star10', STAR_10_ADJUSTMENTS);
 ```
 
-- [ ] **Step 4.4: Run tests, accept registry snapshot growth**
+- [x] **Step 4.4: Run tests, accept registry snapshot growth**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -483,7 +483,7 @@ pnpm --filter @wafflebase/slides test -- -u
 
 Expected: snapshot regenerates with 6 new entries; all tests green.
 
-- [ ] **Step 4.5: Visual sanity check**
+- [x] **Step 4.5: Visual sanity check**
 
 ```bash
 pnpm dev
@@ -493,7 +493,7 @@ Open the slides editor, manually create one of each star via `pnpm dev` browser 
 
 If a default looks visually wrong (e.g. star10 inner ring too small to show distinct points), correct the `{DEFAULT}` value, re-run tests, regenerate snapshot.
 
-- [ ] **Step 4.6: Commit**
+- [x] **Step 4.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/stars/ \
@@ -521,7 +521,7 @@ These 7 are non-parametric and use only `lineTo` / `quadraticCurveTo` (well-supp
 
 Each builder has signature `({ w, h }) => Path2D`.
 
-- [ ] **Step 5.1: `flowChartTerminator` — pill (rounded rect with `r = min(w,h)/2`)**
+- [x] **Step 5.1: `flowChartTerminator` — pill (rounded rect with `r = min(w,h)/2`)**
 
 `packages/slides/src/view/canvas/shapes/flowchart/terminator.ts`:
 
@@ -551,7 +551,7 @@ export const buildFlowChartTerminator: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.2: `flowChartPredefinedProcess` — rect with two vertical bars at `x = w/8` and `x = 7w/8`**
+- [x] **Step 5.2: `flowChartPredefinedProcess` — rect with two vertical bars at `x = w/8` and `x = 7w/8`**
 
 `packages/slides/src/view/canvas/shapes/flowchart/predefined-process.ts`:
 
@@ -575,7 +575,7 @@ export const buildFlowChartPredefinedProcess: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.3: `flowChartInternalStorage` — rect with horizontal bar at `y = h/8` and vertical bar at `x = w/8`**
+- [x] **Step 5.3: `flowChartInternalStorage` — rect with horizontal bar at `y = h/8` and vertical bar at `x = w/8`**
 
 `packages/slides/src/view/canvas/shapes/flowchart/internal-storage.ts`:
 
@@ -598,7 +598,7 @@ export const buildFlowChartInternalStorage: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.4: `flowChartManualInput` — quadrilateral, top edge slants from `(0, h/4)` to `(w, 0)`**
+- [x] **Step 5.4: `flowChartManualInput` — quadrilateral, top edge slants from `(0, h/4)` to `(w, 0)`**
 
 `packages/slides/src/view/canvas/shapes/flowchart/manual-input.ts`:
 
@@ -621,7 +621,7 @@ export const buildFlowChartManualInput: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.5: `flowChartManualOperation` — inverted trapezoid, bottom inset 12.5% per side**
+- [x] **Step 5.5: `flowChartManualOperation` — inverted trapezoid, bottom inset 12.5% per side**
 
 `packages/slides/src/view/canvas/shapes/flowchart/manual-operation.ts`:
 
@@ -645,7 +645,7 @@ export const buildFlowChartManualOperation: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.6: `flowChartOffpageConnector` — rect with V-cut bottom (cut depth 20% of `h`)**
+- [x] **Step 5.6: `flowChartOffpageConnector` — rect with V-cut bottom (cut depth 20% of `h`)**
 
 `packages/slides/src/view/canvas/shapes/flowchart/offpage-connector.ts`:
 
@@ -670,7 +670,7 @@ export const buildFlowChartOffpageConnector: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 5.7: `flowChartPunchedCard` — rect with the top-left corner cut diagonally**
+- [x] **Step 5.7: `flowChartPunchedCard` — rect with the top-left corner cut diagonally**
 
 `packages/slides/src/view/canvas/shapes/flowchart/punched-card.ts`:
 
@@ -731,11 +731,11 @@ Other builders' reference points (≥1 px clear of edges per P1 lessons):
 
 Each test file follows the terminator example structure: import shim + builder, call `createTestCanvas`, run 3-5 `isPointInPath` assertions.
 
-- [ ] **Step 5.8: Create all 7 builder files using §5a**
+- [x] **Step 5.8: Create all 7 builder files using §5a**
 
-- [ ] **Step 5.9: Create all 7 test files using §5b**
+- [x] **Step 5.9: Create all 7 test files using §5b**
 
-- [ ] **Step 5.10: Register the 7 builders in `shapes/index.ts`**
+- [x] **Step 5.10: Register the 7 builders in `shapes/index.ts`**
 
 Add imports:
 
@@ -763,7 +763,7 @@ PATH_BUILDERS.set('flowChartPunchedCard', buildFlowChartPunchedCard);
 
 (No `ADJUSTMENT_SPECS` entries — these 7 are non-parametric in P2.)
 
-- [ ] **Step 5.11: Run tests, regenerate registry snapshot**
+- [x] **Step 5.11: Run tests, regenerate registry snapshot**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -772,7 +772,7 @@ pnpm --filter @wafflebase/slides test -- -u
 
 Expected: ~21 new tests pass; snapshot regenerates with 7 new entries.
 
-- [ ] **Step 5.12: Commit**
+- [x] **Step 5.12: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/flowchart/ \
@@ -799,7 +799,7 @@ These 7 use curves and shared sine-wave geometry (Document, Multidocument, Punch
 
 ### 6a. Steps
 
-- [ ] **Step 6.1: Create `flowchart/wave.ts` with `appendSineWave`**
+- [x] **Step 6.1: Create `flowchart/wave.ts` with `appendSineWave`**
 
 `packages/slides/src/view/canvas/shapes/flowchart/wave.ts`:
 
@@ -841,7 +841,7 @@ export function appendSineWave(
 
 This file must exist before the document / multidocument / punched-tape builders below — they import `appendSineWave`.
 
-- [ ] **Step 6.2: `flowChartDocument` — rect with sine-wavy bottom edge**
+- [x] **Step 6.2: `flowChartDocument` — rect with sine-wavy bottom edge**
 
 `packages/slides/src/view/canvas/shapes/flowchart/document.ts`:
 
@@ -880,7 +880,7 @@ export const buildFlowChartDocument: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.3: `flowChartMultidocument` — three stacked documents**
+- [x] **Step 6.3: `flowChartMultidocument` — three stacked documents**
 
 `packages/slides/src/view/canvas/shapes/flowchart/multidocument.ts`:
 
@@ -908,7 +908,7 @@ export const buildFlowChartMultidocument: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.4: `flowChartPunchedTape` — rect with sine-wavy top + bottom**
+- [x] **Step 6.4: `flowChartPunchedTape` — rect with sine-wavy top + bottom**
 
 `packages/slides/src/view/canvas/shapes/flowchart/punched-tape.ts`:
 
@@ -938,7 +938,7 @@ export const buildFlowChartPunchedTape: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.5: `flowChartSummingJunction` — full ellipse + diagonal X**
+- [x] **Step 6.5: `flowChartSummingJunction` — full ellipse + diagonal X**
 
 `packages/slides/src/view/canvas/shapes/flowchart/summing-junction.ts`:
 
@@ -977,7 +977,7 @@ export const buildFlowChartSummingJunction: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.6: `flowChartOr` — full ellipse + horizontal/vertical cross**
+- [x] **Step 6.6: `flowChartOr` — full ellipse + horizontal/vertical cross**
 
 `packages/slides/src/view/canvas/shapes/flowchart/or.ts`:
 
@@ -1011,7 +1011,7 @@ export const buildFlowChartOr: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.7: `flowChartDelay` — left rectangle joined to right semi-ellipse (D-shape)**
+- [x] **Step 6.7: `flowChartDelay` — left rectangle joined to right semi-ellipse (D-shape)**
 
 `packages/slides/src/view/canvas/shapes/flowchart/delay.ts`:
 
@@ -1048,7 +1048,7 @@ export const buildFlowChartDelay: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 6.8: `flowChartDisplay` — left wedge + flat top/bottom + right rounded edge**
+- [x] **Step 6.8: `flowChartDisplay` — left wedge + flat top/bottom + right rounded edge**
 
 `packages/slides/src/view/canvas/shapes/flowchart/display.ts`:
 
@@ -1109,9 +1109,9 @@ Each test follows the simple-7 template (3-5 `isPointInPath` assertions).
 
 For each, write a Vitest `describe` / `it` block following the `terminator.test.ts` template.
 
-- [ ] **Step 6.9: Create all 7 sibling test files using §6c**
+- [x] **Step 6.9: Create all 7 sibling test files using §6c**
 
-- [ ] **Step 6.10: Register the 7 builders in `shapes/index.ts`**
+- [x] **Step 6.10: Register the 7 builders in `shapes/index.ts`**
 
 Add imports:
 
@@ -1137,7 +1137,7 @@ PATH_BUILDERS.set('flowChartDelay', buildFlowChartDelay);
 PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 ```
 
-- [ ] **Step 6.11: Run tests, regenerate registry snapshot**
+- [x] **Step 6.11: Run tests, regenerate registry snapshot**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -1146,11 +1146,11 @@ pnpm --filter @wafflebase/slides test -- -u
 
 Expected: ~21 new tests pass; snapshot regenerates with 7 new entries (P2 catalog now complete: 55 kinds total, 35 P1 + 20 P2).
 
-- [ ] **Step 6.12: Sanity-check shim compatibility for parametric polyline curves**
+- [x] **Step 6.12: Sanity-check shim compatibility for parametric polyline curves**
 
 The `summingJunction` / `or` / `delay` / `display` builders use 32-/64-segment polylines instead of `Path2D.ellipse` (per P1 lessons §"Test infrastructure" — the shim's curve approximations differ in edge semantics from real browsers, and polylines avoid that risk). Confirm tests pass without `-u` re-runs after the regen step.
 
-- [ ] **Step 6.13: Commit**
+- [x] **Step 6.13: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/flowchart/ \
@@ -1173,7 +1173,7 @@ document subpath helper exported for multidocument reuse."
 
 The picker auto-renders any kind in `SHAPE_PICKER_CATEGORIES` that has a registered `PATH_BUILDERS` entry — no per-shape SVG asset needed.
 
-- [ ] **Step 7.1: Insert the Flowchart category between `arrows` and `callouts`**
+- [x] **Step 7.1: Insert the Flowchart category between `arrows` and `callouts`**
 
 In `packages/frontend/src/app/slides/shape-picker-helpers.ts`, find the existing `SHAPE_PICKER_CATEGORIES` constant. Between the `arrows` entry and the `callouts` entry, insert:
 
@@ -1200,7 +1200,7 @@ In `packages/frontend/src/app/slides/shape-picker-helpers.ts`, find the existing
 },
 ```
 
-- [ ] **Step 7.2: Append the Stars category at the end (after `equation`)**
+- [x] **Step 7.2: Append the Stars category at the end (after `equation`)**
 
 ```ts
 {
@@ -1217,7 +1217,7 @@ In `packages/frontend/src/app/slides/shape-picker-helpers.ts`, find the existing
 },
 ```
 
-- [ ] **Step 7.3: Add `STYLE_BY_KIND` entries for the 20 new shapes**
+- [x] **Step 7.3: Add `STYLE_BY_KIND` entries for the 20 new shapes**
 
 `packages/slides/src/view/editor/interactions/insert.ts:28-52` declares `STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle>`. The dispatcher uses three styles: `'filled'` (accent1 fill, no stroke), `'outlined'` (background fill + text stroke, width 2), `'lineSpecial'` (used only by line/arrow). Per `slides-shapes-p2.md` §1, P2 categories map as:
 
@@ -1271,7 +1271,7 @@ After the existing four `'outlined'` callout entries, add the 14 flowchart entri
 
 Update `insert.test.ts` if it exhaustively asserts the count of `STYLE_BY_KIND` entries — the existing `'buildInsertElement — category defaults'` block adds new sub-cases per category.
 
-- [ ] **Step 7.4: Run picker invariant + frontend tests**
+- [x] **Step 7.4: Run picker invariant + frontend tests**
 
 ```bash
 pnpm slides build
@@ -1281,7 +1281,7 @@ pnpm --filter @wafflebase/slides test
 
 Expected: picker invariant test (`shape-picker.test.ts`) confirms every kind in `SHAPE_PICKER_CATEGORIES` has a registered `PATH_BUILDERS` builder + a non-empty label. 7 categories total.
 
-- [ ] **Step 7.5: Commit**
+- [x] **Step 7.5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/shape-picker-helpers.ts \
@@ -1302,7 +1302,7 @@ per-shape asset work."
 - Modify: `packages/frontend/src/app/harness/visual/slides-scenarios.tsx` — `makeCatalogDoc` builds the 35-shape grid in P1; expand it to 55.
 - Update PNGs in `packages/frontend/tests/visual/baselines/` — regenerated by `pnpm verify:browser:docker:update`.
 
-- [ ] **Step 8.1: Inspect `makeCatalogDoc` and its scenario IDs**
+- [x] **Step 8.1: Inspect `makeCatalogDoc` and its scenario IDs**
 
 ```bash
 grep -n "makeCatalogDoc\|catalog\|shape-catalog" packages/frontend/src/app/harness/visual/slides-scenarios.tsx
@@ -1310,13 +1310,13 @@ grep -n "makeCatalogDoc\|catalog\|shape-catalog" packages/frontend/src/app/harne
 
 Note the scenario ID(s) that consume `makeCatalogDoc` (one ID per theme, per P1 lessons). The P2 grid expansion does not need to rename those IDs.
 
-- [ ] **Step 8.2: Expand the grid to 55 shapes**
+- [x] **Step 8.2: Expand the grid to 55 shapes**
 
 Add the 20 new kinds (6 stars + 14 flowchart) to the catalog source array used by `makeCatalogDoc`. Keep the grid layout coherent — e.g. expand from 5×7 to 6×10 (60 cells with 5 blank), or 5×11 (55 cells, no blanks). Choose whichever keeps the scenario PNG visually compact.
 
 If the scenario renders categories in their picker order, also update its iteration to match Lines · Shapes · Block Arrows · Flowchart · Callouts · Equation · Stars.
 
-- [ ] **Step 8.3: Regenerate baseline PNGs**
+- [x] **Step 8.3: Regenerate baseline PNGs**
 
 ```bash
 pnpm verify:browser:docker:update
@@ -1324,7 +1324,7 @@ pnpm verify:browser:docker:update
 
 Expected: existing baselines for the catalog scenario(s) under `packages/frontend/tests/visual/baselines/` are replaced; new baseline PNGs cover all 55 shapes.
 
-- [ ] **Step 8.4: Verify baselines match expectations visually**
+- [x] **Step 8.4: Verify baselines match expectations visually**
 
 Open the regenerated PNGs in `packages/frontend/tests/visual/baselines/` — typically one per (catalog scenario × theme).
 
@@ -1335,7 +1335,7 @@ Sanity-check:
 
 If the resulting PNG is excessively large or the diff threshold fails, **split into two scenarios** per `slides-shapes-p2.md` §5: `slides-shape-catalog-basics` (35 P1 kinds) and `slides-shape-catalog-p2` (20 P2 kinds). Re-run `pnpm verify:browser:docker:update`.
 
-- [ ] **Step 8.5: Verify the gate passes against the regenerated baseline**
+- [x] **Step 8.5: Verify the gate passes against the regenerated baseline**
 
 ```bash
 pnpm verify:browser:docker
@@ -1343,7 +1343,7 @@ pnpm verify:browser:docker
 
 Expected: PASS — visual diff is zero for the regenerated baselines.
 
-- [ ] **Step 8.6: Commit**
+- [x] **Step 8.6: Commit**
 
 ```bash
 git add packages/frontend/src/app/harness/visual/slides-scenarios.tsx \
@@ -1363,7 +1363,7 @@ diff stays meaningful when categories grow."
 - Modify: `docs/tasks/active/README.md`
 - Modify: `docs/tasks/active/20260509-slides-shapes-p2-lessons.md` (created in step 9.3)
 
-- [ ] **Step 9.1: Run the full local verify lane**
+- [x] **Step 9.1: Run the full local verify lane**
 
 ```bash
 pnpm sheets build
@@ -1375,7 +1375,7 @@ pnpm verify:self
 
 Expected: all green. Per P1 lessons, `verify:fast` requires the workspace builds first in a fresh shell.
 
-- [ ] **Step 9.2: Update the active-tasks index (if it lists individual tasks)**
+- [x] **Step 9.2: Update the active-tasks index (if it lists individual tasks)**
 
 ```bash
 grep -n "shapes-p1\|shapes" docs/tasks/active/README.md
@@ -1383,7 +1383,7 @@ grep -n "shapes-p1\|shapes" docs/tasks/active/README.md
 
 If the README enumerates per-task entries, add a sibling row pointing to `20260509-slides-shapes-p2-todo.md` and `-lessons.md`. If it's just a directory description, leave as-is.
 
-- [ ] **Step 9.3: Populate the lessons file**
+- [x] **Step 9.3: Populate the lessons file**
 
 Replace the placeholder content in `docs/tasks/active/20260509-slides-shapes-p2-lessons.md` (created by step 9.4 below) with at least:
 - Build / workflow surprises encountered
@@ -1394,7 +1394,7 @@ Replace the placeholder content in `docs/tasks/active/20260509-slides-shapes-p2-
 
 If no surprises, write a short "no surprises; pattern from P1 carried forward unchanged" entry — completed lessons file is the workflow expectation.
 
-- [ ] **Step 9.4: Commit lessons + any tasks-index update**
+- [x] **Step 9.4: Commit lessons + any tasks-index update**
 
 ```bash
 git add docs/tasks/active/20260509-slides-shapes-p2-lessons.md \
@@ -1410,7 +1410,7 @@ queues hand-off context for P3."
 
 ## Task 10: Open the PR
 
-- [ ] **Step 10.1: Sync with `main`**
+- [x] **Step 10.1: Sync with `main`**
 
 ```bash
 git fetch origin
@@ -1419,13 +1419,13 @@ git rebase origin/main
 
 Resolve any conflicts (none expected — P2 is additive against main).
 
-- [ ] **Step 10.2: Push the branch**
+- [x] **Step 10.2: Push the branch**
 
 ```bash
 git push -u origin slides-shapes-p2
 ```
 
-- [ ] **Step 10.3: Open the PR**
+- [x] **Step 10.3: Open the PR**
 
 ```bash
 gh pr create --title "Add 20 P2 shapes: 14 flowchart + 6 stars (slides Phase 2)" \
@@ -1437,11 +1437,11 @@ gh pr create --title "Add 20 P2 shapes: 14 flowchart + 6 stars (slides Phase 2)"
 - No adjustments-editing UI in P2 — deferred to P3 alongside drag handles per `docs/design/slides/slides-shapes-p2.md`.
 
 ## Test plan
-- [ ] `pnpm verify:fast` green
-- [ ] `pnpm verify:self` green
-- [ ] Regenerated visual baselines for the 55-shape catalog scenario (`pnpm verify:browser:docker` green)
-- [ ] Manual smoke: `pnpm dev`, open the slides editor, click `Shape ▾`, confirm 7 categories appear in order Lines · Shapes · Block Arrows · Flowchart · Callouts · Equation · Stars; insert one shape from each new category and verify it renders
-- [ ] Spec doc cross-check: `docs/design/slides/slides-shapes-p2.md` describes everything in this PR; P1 doc's roadmap table is updated to reflect the deferred adjustments UI
+- [x] `pnpm verify:fast` green
+- [x] `pnpm verify:self` green
+- [x] Regenerated visual baselines for the 55-shape catalog scenario (`pnpm verify:browser:docker` green)
+- [x] Manual smoke: `pnpm dev`, open the slides editor, click `Shape ▾`, confirm 7 categories appear in order Lines · Shapes · Block Arrows · Flowchart · Callouts · Equation · Stars; insert one shape from each new category and verify it renders
+- [x] Spec doc cross-check: `docs/design/slides/slides-shapes-p2.md` describes everything in this PR; P1 doc's roadmap table is updated to reflect the deferred adjustments UI
 
 ## Spec
 - New: `docs/design/slides/slides-shapes-p2.md`
@@ -1451,7 +1451,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 10.4: Self-review the PR**
+- [x] **Step 10.4: Self-review the PR**
 
 Dispatch `superpowers:requesting-code-review` over the full branch diff. Apply blocking findings; note non-blocking items in the PR thread.
 
@@ -1461,7 +1461,7 @@ Dispatch `superpowers:requesting-code-review` over the full branch diff. Apply b
 
 The lessons file is required by the task workflow (`pnpm tasks:archive` expects `<slug>-lessons.md` to exist). Create it now as an empty stub; T9 fills it in.
 
-- [ ] **Step Final: Create stub lessons file (one-off, before T1)**
+- [x] **Step Final: Create stub lessons file (one-off, before T1)**
 
 Create `docs/tasks/active/20260509-slides-shapes-p2-lessons.md`:
 
