@@ -71,6 +71,13 @@ import { buildFlowChartManualInput } from './flowchart/manual-input';
 import { buildFlowChartManualOperation } from './flowchart/manual-operation';
 import { buildFlowChartOffpageConnector } from './flowchart/offpage-connector';
 import { buildFlowChartPunchedCard } from './flowchart/punched-card';
+import { buildFlowChartDocument } from './flowchart/document';
+import { buildFlowChartMultidocument } from './flowchart/multidocument';
+import { buildFlowChartPunchedTape } from './flowchart/punched-tape';
+import { buildFlowChartSummingJunction } from './flowchart/summing-junction';
+import { buildFlowChartOr } from './flowchart/or';
+import { buildFlowChartDelay } from './flowchart/delay';
+import { buildFlowChartDisplay } from './flowchart/display';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -135,6 +142,13 @@ PATH_BUILDERS.set('flowChartManualInput', buildFlowChartManualInput);
 PATH_BUILDERS.set('flowChartManualOperation', buildFlowChartManualOperation);
 PATH_BUILDERS.set('flowChartOffpageConnector', buildFlowChartOffpageConnector);
 PATH_BUILDERS.set('flowChartPunchedCard', buildFlowChartPunchedCard);
+PATH_BUILDERS.set('flowChartDocument', buildFlowChartDocument);
+PATH_BUILDERS.set('flowChartMultidocument', buildFlowChartMultidocument);
+PATH_BUILDERS.set('flowChartPunchedTape', buildFlowChartPunchedTape);
+PATH_BUILDERS.set('flowChartSummingJunction', buildFlowChartSummingJunction);
+PATH_BUILDERS.set('flowChartOr', buildFlowChartOr);
+PATH_BUILDERS.set('flowChartDelay', buildFlowChartDelay);
+PATH_BUILDERS.set('flowChartDisplay', buildFlowChartDisplay);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
