@@ -290,6 +290,153 @@ describe('initialize', () => {
   });
 });
 
+describe('align/distribute', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  function addShape(
+    store: MemSlidesStore,
+    sid: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): string {
+    let id = '';
+    store.batch(() => {
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x, y, w, h, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return id;
+  }
+
+  it('align left with multi-select moves all frames to bbox.x', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // a at x=100, b at x=300, both w=50; bbox.x = 100.
+    const aId = addShape(store, sid, 100, 0, 50, 50);
+    const bId = addShape(store, sid, 300, 0, 50, 50);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    editor.align('left');
+    const elements = store.read().slides[0].elements;
+    const a = elements.find((e) => e.id === aId)!;
+    const b = elements.find((e) => e.id === bId)!;
+    expect(a.frame.x).toBe(100);
+    expect(b.frame.x).toBe(100);
+  });
+
+  it('align center-h with single-select centers element on slide', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // x=0, w=200; slide is 1920x1080; expected x = (1920 - 200) / 2 = 860.
+    const id = addShape(store, sid, 0, 0, 200, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([id]);
+    editor.align('center-h');
+    const el = store.read().slides[0].elements.find((e) => e.id === id)!;
+    expect(el.frame.x).toBe(860);
+  });
+
+  it('align is a no-op when selection is empty', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    addShape(store, sid, 100, 50, 200, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    const before = store.read().slides[0].elements[0].frame;
+    // Snapshot the undo depth before align so we can verify it didn't grow.
+    let undoDepth = 0;
+    while (store.canUndo()) {
+      store.undo();
+      undoDepth++;
+    }
+    while (store.canRedo()) store.redo();
+    // No setSelection — selection is empty.
+    editor.align('left');
+    // Frame unchanged.
+    const after = store.read().slides[0].elements[0].frame;
+    expect(after).toEqual(before);
+    // align must NOT have added a new undo entry on top of the existing ones.
+    let postDepth = 0;
+    while (store.canUndo()) {
+      store.undo();
+      postDepth++;
+    }
+    expect(postDepth).toBe(undoDepth);
+  });
+
+  it('distribute horizontal with 3 elements equalizes gaps', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // a@x=0/w=100, b@x=150/w=50, c@x=400/w=100
+    // gap = (400 - 0 - 150) / 2 = 125; expected b.x = 0 + 100 + 125 = 225
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 150, 0, 50, 100);
+    const cId = addShape(store, sid, 400, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId, cId]);
+    editor.distribute('horizontal');
+    const elements = store.read().slides[0].elements;
+    const a = elements.find((e) => e.id === aId)!;
+    const b = elements.find((e) => e.id === bId)!;
+    const c = elements.find((e) => e.id === cId)!;
+    // Endpoints unchanged.
+    expect(a.frame.x).toBe(0);
+    expect(c.frame.x).toBe(400);
+    // Inner element placed at expected position.
+    expect(b.frame.x).toBe(225);
+  });
+
+  it('distribute is a no-op for 2 elements', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 400, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    const beforeA = store.read().slides[0].elements.find((e) => e.id === aId)!.frame;
+    const beforeB = store.read().slides[0].elements.find((e) => e.id === bId)!.frame;
+    editor.distribute('horizontal');
+    const afterA = store.read().slides[0].elements.find((e) => e.id === aId)!.frame;
+    const afterB = store.read().slides[0].elements.find((e) => e.id === bId)!.frame;
+    expect(afterA).toEqual(beforeA);
+    expect(afterB).toEqual(beforeB);
+  });
+
+  it('align/distribute commit through one store.batch (one undo step)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // 3 elements at differing x so align('left') moves two of them
+    // (and so produces a non-empty batch).
+    const aId = addShape(store, sid, 100, 0, 100, 100);
+    const bId = addShape(store, sid, 300, 0, 100, 100);
+    const cId = addShape(store, sid, 500, 0, 100, 100);
+    const originalA = store.read().slides[0].elements.find((e) => e.id === aId)!.frame;
+    const originalB = store.read().slides[0].elements.find((e) => e.id === bId)!.frame;
+    const originalC = store.read().slides[0].elements.find((e) => e.id === cId)!.frame;
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId, cId]);
+    editor.align('left');
+    expect(store.canUndo()).toBe(true);
+    // Single undo restores all three back to original positions.
+    store.undo();
+    const elements = store.read().slides[0].elements;
+    expect(elements.find((e) => e.id === aId)!.frame).toEqual(originalA);
+    expect(elements.find((e) => e.id === bId)!.frame).toEqual(originalB);
+    expect(elements.find((e) => e.id === cId)!.frame).toEqual(originalC);
+  });
+});
+
 describe('Editor canvas context menu — Change layout', () => {
   beforeEach(() => {
     document.body.innerHTML = '';

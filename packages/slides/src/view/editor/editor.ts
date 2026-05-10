@@ -3,6 +3,13 @@ import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import {
+  alignFrames,
+  distributeFrames,
+  type AlignDirection,
+  type AlignReference,
+  type DistributeAxis,
+} from './align';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
@@ -88,6 +95,23 @@ export interface SlidesEditor {
    * The editor only updates its internal scale and triggers a repaint.
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
+  /**
+   * Align the selected elements relative to:
+   *   - the combined bounding box of the selection, when ≥ 2 are selected;
+   *   - the slide canvas (1920×1080), when exactly 1 is selected.
+   * No-op when nothing is selected.
+   *
+   * Wraps every moved frame in a single store.batch() so undo/redo treats
+   * the operation atomically.
+   */
+  align(direction: AlignDirection): void;
+  /**
+   * Equalize the gaps between consecutive selected elements along the
+   * given axis. Endpoints stay; only inner elements move.
+   *
+   * No-op when fewer than 3 elements are selected.
+   */
+  distribute(axis: DistributeAxis): void;
   detach(): void;
 }
 
@@ -277,6 +301,63 @@ class SlidesEditorImpl implements SlidesEditor {
     this.options.hostWidth = hostWidth;
     this.options.hostHeight = hostHeight;
     this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  align(direction: AlignDirection): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size === 0) return;
+    // Multi-select: align to the combined bbox of the selection.
+    // Single-select: align to the slide canvas (1920×1080).
+    let reference: AlignReference;
+    if (framesMap.size >= 2) {
+      reference = combinedBoundingBox(Array.from(framesMap.values()))!;
+    } else {
+      reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: SLIDE_HEIGHT };
+    }
+    const updates = alignFrames(framesMap, direction, reference);
+    this.applyFrameUpdates(slide.id, updates);
+  }
+
+  distribute(axis: DistributeAxis): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size < 3) return;
+    const updates = distributeFrames(framesMap, axis);
+    this.applyFrameUpdates(slide.id, updates);
+  }
+
+  /**
+   * Collect frames for currently-selected elements that still exist on
+   * the given slide. Defends against ids that were removed remotely
+   * between selection and the toolbar action.
+   */
+  private collectSelectedFrames(slide: { elements: Element[] }): Map<string, Frame> {
+    const selectedIds = new Set(this.selection.get());
+    const result = new Map<string, Frame>();
+    for (const el of slide.elements) {
+      if (selectedIds.has(el.id)) result.set(el.id, el.frame);
+    }
+    return result;
+  }
+
+  /**
+   * Commit a set of frame updates in a single store.batch so undo/redo
+   * treats them atomically, then mark dirty + render. Empty `updates`
+   * is a no-op (skips the empty batch).
+   */
+  private applyFrameUpdates(slideId: string, updates: ReadonlyMap<string, Frame>): void {
+    if (updates.size === 0) return;
+    this.options.store.batch(() => {
+      for (const [id, frame] of updates) {
+        this.options.store.updateElementFrame(slideId, id, frame);
+      }
+    });
+    this.markDirty();
     this.render();
     this.repaintOverlay();
   }
