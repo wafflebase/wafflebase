@@ -60,7 +60,7 @@ import {
   MATH_NOT_EQUAL_ADJUSTMENTS,
 } from './equation/math-not-equal';
 import { buildStar4, STAR_4_ADJUSTMENTS } from './stars/star4';
-import { buildStar5, STAR_5_ADJUSTMENTS } from './stars/star5';
+import { buildStar5, STAR_5_ADJUSTMENTS, STAR_5_HANDLES } from './stars/star5';
 import { buildStar6, STAR_6_ADJUSTMENTS } from './stars/star6';
 import { buildStar7, STAR_7_ADJUSTMENTS } from './stars/star7';
 import { buildStar8, STAR_8_ADJUSTMENTS } from './stars/star8';
@@ -166,6 +166,7 @@ ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
 ADJUSTMENT_HANDLES.set('wedgeRectCallout', WEDGE_RECT_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('star5', STAR_5_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
