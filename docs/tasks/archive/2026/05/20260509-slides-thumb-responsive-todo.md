@@ -16,19 +16,22 @@ Two complaints about the slides left sidebar:
 
 ## Plan
 
-- [ ] Apply DPR to thumbnail canvas: backing store sized at
+- [x] Apply DPR to thumbnail canvas: backing store sized at
       `THUMB_W * dpr × THUMB_H * dpr`, CSS at logical px, pass real
       `dpr` to `renderThumbnail`.
-- [ ] Make thumbnail size derive from the host element's measured
+- [x] Make thumbnail size derive from the host element's measured
       width (minus scrollbar/padding gutter), preserving 16:9.
       Re-render on container resize via `ResizeObserver`.
-- [ ] Keep the panel's drag-resize behavior (`slides-view.tsx`)
+- [x] Keep the panel's drag-resize behavior (`slides-view.tsx`)
       untouched — only the thumbnail sizing inside the panel changes.
-- [ ] Adjust `thumbnail-panel.test.ts` if assumptions about fixed
+- [x] Adjust `thumbnail-panel.test.ts` if assumptions about fixed
       width break; add minimal coverage for DPR + responsive sizing.
-- [ ] `pnpm verify:fast` green.
-- [ ] Browser smoke in `pnpm dev`: drag handle to narrow/wide,
+- [x] `pnpm verify:fast` green.
+- [x] Browser smoke in `pnpm dev`: drag handle to narrow/wide,
       confirm thumbnails scale and stay crisp on Retina.
+
+**Shipped:** `a68897dd` "Slides: responsive thumbnails, toolbar add-slide,
+theme + DPR fixes" + `dd3ca287` PR #206 follow-up.
 
 ## Files touched
 

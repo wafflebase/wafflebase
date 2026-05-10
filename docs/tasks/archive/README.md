@@ -6,20 +6,24 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 163
+Total archived tasks: 167
 
-## 2026/05 (18 tasks)
+## 2026/05 (22 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| contributing md (2026-05-10) | [20260510-contributing-md-todo.md](./2026/05/20260510-contributing-md-todo.md) | - |
 | slides thumb context menu (2026-05-10) | [20260510-slides-thumb-context-menu-todo.md](./2026/05/20260510-slides-thumb-context-menu-todo.md) | [20260510-slides-thumb-context-menu-lessons.md](./2026/05/20260510-slides-thumb-context-menu-lessons.md) |
+| slides shapes p1 (2026-05-09) | [20260509-slides-shapes-p1-todo.md](./2026/05/20260509-slides-shapes-p1-todo.md) | [20260509-slides-shapes-p1-lessons.md](./2026/05/20260509-slides-shapes-p1-lessons.md) |
 | slides shapes p2 (2026-05-09) | [20260509-slides-shapes-p2-todo.md](./2026/05/20260509-slides-shapes-p2-todo.md) | [20260509-slides-shapes-p2-lessons.md](./2026/05/20260509-slides-shapes-p2-lessons.md) |
+| slides thumb responsive (2026-05-09) | [20260509-slides-thumb-responsive-todo.md](./2026/05/20260509-slides-thumb-responsive-todo.md) | - |
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |
+| undo destroys initial block (2026-05-05) | [20260505-undo-destroys-initial-block-todo.md](./2026/05/20260505-undo-destroys-initial-block-todo.md) | - |
 | release 0.3.7 (2026-05-04) | [20260504-release-0.3.7-todo.md](./2026/05/20260504-release-0.3.7-todo.md) | - |
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |
 | docs paragraph bg selection (2026-05-03) | [20260503-docs-paragraph-bg-selection-todo.md](./2026/05/20260503-docs-paragraph-bg-selection-todo.md) | - |
@@ -40,12 +44,12 @@ Total archived tasks: 163
 | border outline extension (2026-04-28) | [20260428-border-outline-extension-todo.md](./2026/04/20260428-border-outline-extension-todo.md) | - |
 | block attr intent preserving (2026-04-23) | [20260423-block-attr-intent-preserving-todo.md](./2026/04/20260423-block-attr-intent-preserving-todo.md) | [20260423-block-attr-intent-preserving-lessons.md](./2026/04/20260423-block-attr-intent-preserving-lessons.md) |
 | cell structural edits (2026-04-23) | [20260423-cell-structural-edits-todo.md](./2026/04/20260423-cell-structural-edits-todo.md) | [20260423-cell-structural-edits-lessons.md](./2026/04/20260423-cell-structural-edits-lessons.md) |
-| inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./20260423-inline-style-tests-todo.md) | - |
-| native inline style (2026-04-23) | [20260423-native-inline-style-todo.md](./20260423-native-inline-style-todo.md) | - |
-| chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./20260421-chart-pivot-range-shift-todo.md) | - |
+| inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./2026/04/20260423-inline-style-tests-todo.md) | - |
+| native inline style (2026-04-23) | [20260423-native-inline-style-todo.md](./2026/04/20260423-native-inline-style-todo.md) | - |
+| chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./2026/04/20260421-chart-pivot-range-shift-todo.md) | - |
 | header footer granular edits (2026-04-19) | [20260419-header-footer-granular-edits-todo.md](./2026/04/20260419-header-footer-granular-edits-todo.md) | - |
-| table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./20260419-table-copy-paste-lessons.md) |
-| table row splitting (2026-04-19) | [20260419-table-row-splitting-todo.md](./20260419-table-row-splitting-todo.md) | - |
+| table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./2026/04/20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./2026/04/20260419-table-copy-paste-lessons.md) |
+| table row splitting (2026-04-19) | [20260419-table-row-splitting-todo.md](./2026/04/20260419-table-row-splitting-todo.md) | - |
 | sheet image (2026-04-18) | [20260418-sheet-image-todo.md](./2026/04/20260418-sheet-image-todo.md) | - |
 | docs mobile toolbar (2026-04-15) | [20260415-docs-mobile-toolbar-todo.md](./2026/04/20260415-docs-mobile-toolbar-todo.md) | - |
 | axis id selection (2026-04-14) | [20260414-axis-id-selection-todo.md](./2026/04/20260414-axis-id-selection-todo.md) | - |
@@ -56,7 +60,7 @@ Total archived tasks: 163
 | docs image editing (2026-04-12) | [20260412-docs-image-editing-todo.md](./2026/04/20260412-docs-image-editing-todo.md) | [20260412-docs-image-editing-lessons.md](./2026/04/20260412-docs-image-editing-lessons.md) |
 | docx image import render (2026-04-12) | [20260412-docx-image-import-render-todo.md](./2026/04/20260412-docx-image-import-render-todo.md) | [20260412-docx-image-import-render-lessons.md](./2026/04/20260412-docx-image-import-render-lessons.md) |
 | docs table merge ux (2026-04-11) | [20260411-docs-table-merge-ux-todo.md](./2026/04/20260411-docs-table-merge-ux-todo.md) | [20260411-docs-table-merge-ux-lessons.md](./2026/04/20260411-docs-table-merge-ux-lessons.md) |
-| docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./20260411-docx-table-merge-gaps-lessons.md) |
+| docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./2026/04/20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./2026/04/20260411-docx-table-merge-gaps-lessons.md) |
 | release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./2026/04/20260411-release-v0.3.2-todo.md) | - |
 | ui review polish (2026-04-11) | [20260411-ui-review-polish-todo.md](./2026/04/20260411-ui-review-polish-todo.md) | [20260411-ui-review-polish-lessons.md](./2026/04/20260411-ui-review-polish-lessons.md) |
 | v0.3.2 smoke test fixes (2026-04-11) | [20260411-v0.3.2-smoke-test-fixes-todo.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-todo.md) | [20260411-v0.3.2-smoke-test-fixes-lessons.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-lessons.md) |
