@@ -599,6 +599,13 @@ describe('Formula', () => {
     expect(evaluate('=TRIM("  hello  ")')).toBe('hello');
     expect(evaluate('=TRIM("hello")')).toBe('hello');
     expect(evaluate('=TRIM("  spaces  ")')).toBe('spaces');
+    expect(evaluate('=TRIM("  hello   world  ")')).toBe('hello world');
+    expect(evaluate('=TRIM("hello   world")')).toBe('hello world');
+    expect(evaluate('=TRIM("\thello\t\tworld\t")')).toBe('hello world');
+    expect(evaluate('=TRIM("hello\n\nworld")')).toBe('hello world');
+    expect(evaluate('=TRIM("  hello \t\n  world  ")')).toBe('hello world');
+    expect(evaluate('=TRIM("")')).toBe('');
+    expect(evaluate('=TRIM("   \t\n   ")')).toBe('');
   });
 
   it('should correctly evaluate LEN function', () => {
