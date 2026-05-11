@@ -1737,13 +1737,15 @@ describe('Formula', () => {
   it('should correctly evaluate IPMT function', () => {
     // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
     const result = evaluate('=IPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(66.67, 1);
+    expect(Number(result)).toBeCloseTo(-66.67, 1);
+    expect(Number(evaluate('=IPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(1500, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
     // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
     const result = evaluate('=PPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-324.76, 0);
+    expect(Number(result)).toBeCloseTo(-191.43, 0);
+    expect(Number(evaluate('=PPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(298.65, 1);
   });
 
   it('should correctly evaluate SLN function', () => {

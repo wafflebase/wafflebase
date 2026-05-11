@@ -263,7 +263,7 @@ export function ipmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = balance * rate.v;
+  const ipmt = -balance * rate.v;
   if (type === 1 && per.v === 1) return { t: 'num', v: 0 };
   return { t: 'num', v: ipmt };
 }
@@ -316,7 +316,7 @@ export function ppmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = (type === 1 && per.v === 1) ? 0 : balance * rate.v;
+  const ipmt = (type === 1 && per.v === 1) ? 0 : -balance * rate.v;
   return { t: 'num', v: pmt - ipmt };
 }
 
