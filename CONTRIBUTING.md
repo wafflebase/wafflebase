@@ -21,11 +21,19 @@ and posts a summary as a PR comment.
 
 ## Before you start
 
-1. Search [open issues](https://github.com/wafflebase/wafflebase/issues)
-   and existing design docs to avoid duplicate work.
-2. For larger changes, open an issue or a discussion first so we can
+1. Search [open issues](https://github.com/wafflebase/wafflebase/issues),
+   open PRs, and existing design docs for related work. If a PR is
+   already open for the issue you wanted to tackle, leave a comment
+   there instead of opening a parallel PR — maintainers will close
+   later duplicates with a pointer to the earlier one.
+2. **Claim the issue before you start.** Leave a comment on the issue
+   saying you'll take it; a maintainer will assign you. If you go
+   silent for more than 3 days, we may un-assign so someone else can
+   pick it up. This keeps multiple contributors from racing on the
+   same fix.
+3. For larger changes, open an issue or a discussion first so we can
    align on scope before you spend time on code.
-3. By contributing, you agree your changes are licensed under the
+4. By contributing, you agree your changes are licensed under the
    project's [Apache License 2.0](LICENSE). A CLA is **not** required
    today; we may introduce one in the future.
 
@@ -153,6 +161,10 @@ generated from merged PRs at release time
   suggestion is wrong; agree explicitly when it is right. Performative
   agreement wastes everyone's time.
 - If `main` moved during review, rebase again before pushing fixes.
+- **Stalled reviews.** If actionable review feedback goes unaddressed
+  for more than 7 days, a maintainer may close the PR to keep the
+  queue clean. Reopen it whenever you address the feedback — there is
+  no penalty for re-opening, only for ignoring.
 
 ## AI agent–assisted contributions
 
@@ -163,8 +175,20 @@ agent-facing instructions in [`CLAUDE.md`](CLAUDE.md) (also exposed as
 
 Expectations:
 
-- A human contributor signs off on every PR, regardless of how the code
-  was produced. You are responsible for what you submit.
+- **You sign off on every line.** Before opening the PR, read the entire
+  diff. You should be able to answer "why X instead of Y" for each
+  change. "The AI wrote it that way" is not an acceptable response to
+  review feedback — fix it, or counter with a concrete technical
+  reason.
+- **Match existing conventions.** Coding agents tend to regress to
+  generic patterns and ignore project-local idioms. Before submitting,
+  compare your changes against nearby code in the same package and
+  reconcile mismatches. If a reviewer flags a convention break, fix it
+  rather than re-prompting the agent until it sounds confident.
+- **CI green ≠ done.** Run the change locally and exercise the affected
+  feature, especially for UI work. Tests are not your reviewer.
+- **Disclose AI assistance** in the PR body so reviewers know where to
+  focus extra attention.
 - Follow the same workflow as a human contributor: design doc → task
   plan → verify lanes → self review → PR.
 - Do not commit secrets, generated lockfile churn, or auto-formatter
