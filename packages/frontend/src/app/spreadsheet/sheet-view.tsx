@@ -44,6 +44,7 @@ import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
+import { copyThread } from "./yorkie-worksheet-comments";
 
 function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   if (!style) {
@@ -140,10 +141,14 @@ export function SheetView({
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
 
-  // Comment popover state
+  // Comment popover state. The pinned axis-ID anchor is what makes the popover
+  // resilient to remote renders: notifySelectionChange fires on every render
+  // (including remote-change repaints), so comparing axis IDs lets us tell
+  // "user moved to a new cell" apart from "remote tick on the same cell".
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
   const [activeCellForComment, setActiveCellForComment] = useState<Ref | null>(null);
   const commentPopoverOpenRef = useRef(false);
+  const popoverAnchorRef = useRef<{ rowId: string; colId: string } | null>(null);
   const { data: currentUserData } = useQuery({
     queryKey: ["me", "optional"],
     queryFn: fetchMeOptional,
@@ -220,17 +225,21 @@ export function SheetView({
     return { kind: 'sheet-cell', tabId, rowId, colId };
   }, [root, tabId, activeCellForComment]);
 
-  // Open threads for the active cell (unresolved only)
+  // Open threads for the active cell (unresolved only). Detach via copyThread
+  // so React consumers see plain numbers for createdAt / editedAt instead of
+  // the bigint values Yorkie returns from its Long primitives (see Issue B).
   const activeCellThreads = useMemo((): Thread[] => {
     if (!root || !activeCellCommentAnchor) return [];
     const ws = root.sheets[tabId];
     if (!ws?.comments) return [];
-    return Object.values(ws.comments as Record<string, Thread>).filter(
-      (t) =>
-        !t.resolved &&
-        t.anchor.rowId === activeCellCommentAnchor.rowId &&
-        t.anchor.colId === activeCellCommentAnchor.colId,
-    );
+    return Object.values(ws.comments as Record<string, Thread>)
+      .filter(
+        (t) =>
+          !t.resolved &&
+          t.anchor.rowId === activeCellCommentAnchor.rowId &&
+          t.anchor.colId === activeCellCommentAnchor.colId,
+      )
+      .map((t) => copyThread(t as Thread));
   }, [root, tabId, activeCellCommentAnchor]);
 
   useEffect(() => {
@@ -271,9 +280,14 @@ export function SheetView({
     paintFormatSourceIndicatorVisibleRef.current = paintFormatSourceIndicatorVisible;
   }, [paintFormatSourceIndicatorVisible]);
 
-  // Keep ref in sync so the selection-change handler can read it without stale closure
+  // Keep ref in sync so the selection-change handler can read it without stale closure.
+  // Clearing the pinned anchor on every close means the next open recomputes it from
+  // the active cell rather than carrying over stale axis IDs from a prior session.
   useEffect(() => {
     commentPopoverOpenRef.current = commentPopoverOpen;
+    if (!commentPopoverOpen) {
+      popoverAnchorRef.current = null;
+    }
   }, [commentPopoverOpen]);
 
   useEffect(() => {
@@ -762,9 +776,19 @@ export function SheetView({
     if (activeCell) {
       storeRef.current?.ensureAxisOrder(activeCell.r, activeCell.c);
       setActiveCellForComment({ ...activeCell });
+      // Pin the (rowId, colId) at open time so subsequent remote renders or
+      // structural edits (row/col insert/delete) can be told apart from real
+      // selection moves. Read directly from the Yorkie doc — ensureAxisOrder
+      // above just seeded any missing IDs, so they are guaranteed to resolve.
+      const ws = doc?.getRoot().sheets[tabId];
+      const rowId = ws?.rowOrder?.[activeCell.r - 1];
+      const colId = ws?.colOrder?.[activeCell.c - 1];
+      if (rowId && colId) {
+        popoverAnchorRef.current = { rowId, colId };
+      }
     }
     setCommentPopoverOpen(true);
-  }, [readOnly]);
+  }, [readOnly, doc, tabId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -974,25 +998,43 @@ export function SheetView({
         }),
       );
 
-      // Track active cell for comment popover; auto-open when cell has comments
+      // Track active cell for comment popover; auto-open when cell has comments.
+      // notifySelectionChange fires on every render (worksheet.setOnRender),
+      // so this runs on remote-change repaints too. We compare axis IDs
+      // against the popover's pinned anchor to distinguish a real selection
+      // move from a render tick on the same logical cell — otherwise typing
+      // in the composer would be force-cancelled by any remote change.
       unsubs.push(
         s.onSelectionChange(() => {
           const activeCell = s.getActiveCell();
           if (!activeCell) return;
           setActiveCellForComment({ ...activeCell });
 
-          // Auto-open the popover when the newly selected cell has open threads.
-          // Check via the Yorkie doc so we don't depend on stale React state.
           const wsNow = doc.getRoot().sheets[tabId];
-          if (!wsNow?.comments) {
-            if (!commentPopoverOpenRef.current) {
-              setCommentPopoverOpen(false);
-            }
-            return;
-          }
+          if (!wsNow) return;
           const rowId = wsNow.rowOrder?.[activeCell.r - 1];
           const colId = wsNow.colOrder?.[activeCell.c - 1];
+
+          if (commentPopoverOpenRef.current) {
+            const pinned = popoverAnchorRef.current;
+            // Same logical cell (axis IDs unchanged) → keep popover open even
+            // if {r,c} shifted because of a remote row/col insert/delete.
+            if (
+              pinned &&
+              rowId === pinned.rowId &&
+              colId === pinned.colId
+            ) {
+              return;
+            }
+            // Either user moved to a different cell, or the pinned row/col
+            // was deleted remotely — close the popover.
+            setCommentPopoverOpen(false);
+            return;
+          }
+
+          // Popover is closed — auto-open if the new cell has unresolved threads.
           if (!rowId || !colId) return;
+          if (!wsNow.comments) return;
           const hasThreads = Object.values(
             wsNow.comments as Record<string, Thread>,
           ).some(
@@ -1002,10 +1044,8 @@ export function SheetView({
               t.anchor.colId === colId,
           );
           if (hasThreads) {
+            popoverAnchorRef.current = { rowId, colId };
             setCommentPopoverOpen(true);
-          } else if (commentPopoverOpenRef.current) {
-            // Close popover when moving away from a cell that had comments
-            setCommentPopoverOpen(false);
           }
         }),
       );

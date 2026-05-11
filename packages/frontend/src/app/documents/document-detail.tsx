@@ -51,6 +51,7 @@ import {
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/app/spreadsheet/components/comments/CommentSidePanel";
+import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -203,7 +204,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     if (!docRoot?.sheets) return [];
     return Object.values(
       docRoot.sheets as Record<string, { comments?: Record<string, Thread> }>,
-    ).flatMap((ws) => Object.values(ws.comments ?? {}));
+    ).flatMap((ws) =>
+      Object.values(ws.comments ?? {}).map((t) => copyThread(t as Thread)),
+    );
   }, [docRoot]);
 
   // Jump to the anchor cell: switch tab if needed, then signal SheetView to focus the cell.
