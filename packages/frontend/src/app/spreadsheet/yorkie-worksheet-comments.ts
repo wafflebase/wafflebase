@@ -5,6 +5,18 @@ function ensureComments(ws: Worksheet): { [threadId: string]: Thread } {
   return ws.comments;
 }
 
+// Yorkie 0.7.x classifies every integer-valued JS number as PrimitiveType.Integer
+// (32-bit), so Date.now() (~1.78e12) gets truncated to its low 32 bits on the
+// wire and remote peers decode timestamps like 1970-01-06. Coerce to bigint so
+// Yorkie stores it as Long, then read it back as a JS number at the boundary.
+function toYorkieMs(ms: number): number {
+  return BigInt(ms) as unknown as number;
+}
+
+function fromYorkieMs(value: number | bigint): number {
+  return typeof value === 'bigint' ? Number(value) : value;
+}
+
 function copyAuthor(a: CommentAuthor): CommentAuthor {
   const copy: CommentAuthor = { userId: a.userId, username: a.username };
   if (a.photo !== undefined) copy.photo = a.photo;
@@ -16,9 +28,9 @@ function copyComment(c: Comment): Comment {
     id: c.id,
     author: copyAuthor(c.author),
     body: c.body,
-    createdAt: c.createdAt,
+    createdAt: fromYorkieMs(c.createdAt),
   };
-  if (c.editedAt !== undefined) copy.editedAt = c.editedAt;
+  if (c.editedAt !== undefined) copy.editedAt = fromYorkieMs(c.editedAt);
   return copy;
 }
 
@@ -38,15 +50,34 @@ export function copyThread(t: Thread): Thread {
     },
     comments: Array.from(t.comments ?? []).map(copyComment),
     resolved: t.resolved,
-    createdAt: t.createdAt,
+    createdAt: fromYorkieMs(t.createdAt),
   };
-  if (t.resolvedAt !== undefined) copy.resolvedAt = t.resolvedAt;
+  if (t.resolvedAt !== undefined) copy.resolvedAt = fromYorkieMs(t.resolvedAt);
   if (t.resolvedBy !== undefined) copy.resolvedBy = copyAuthor(t.resolvedBy);
   return copy;
 }
 
+function withYorkieTimestamps(c: Comment): Comment {
+  const next: Comment = {
+    id: c.id,
+    author: c.author,
+    body: c.body,
+    createdAt: toYorkieMs(c.createdAt),
+  };
+  if (c.editedAt !== undefined) next.editedAt = toYorkieMs(c.editedAt);
+  return next;
+}
+
 export function applyAddThread(ws: Worksheet, thread: Thread): void {
-  ensureComments(ws)[thread.id] = thread;
+  const stored: Thread = {
+    ...thread,
+    createdAt: toYorkieMs(thread.createdAt),
+    comments: thread.comments.map(withYorkieTimestamps),
+  };
+  if (thread.resolvedAt !== undefined) {
+    stored.resolvedAt = toYorkieMs(thread.resolvedAt);
+  }
+  ensureComments(ws)[thread.id] = stored;
 }
 
 export function applyAddReply(
@@ -56,7 +87,7 @@ export function applyAddReply(
 ): void {
   const t = ws.comments?.[threadId];
   if (!t) throw new Error(`Thread not found: ${threadId}`);
-  t.comments.push(reply);
+  t.comments.push(withYorkieTimestamps(reply));
 }
 
 export function applyEditComment(
@@ -71,7 +102,7 @@ export function applyEditComment(
   const c = t.comments.find((x) => x.id === commentId);
   if (!c) throw new Error(`Comment not found: ${commentId}`);
   c.body = body;
-  c.editedAt = editedAt;
+  c.editedAt = toYorkieMs(editedAt);
 }
 
 /**
@@ -105,7 +136,7 @@ export function applyResolveThread(
   if (!t) throw new Error(`Thread not found: ${threadId}`);
   t.resolved = resolved;
   if (resolved) {
-    t.resolvedAt = ts;
+    t.resolvedAt = toYorkieMs(ts);
     t.resolvedBy = by;
   } else {
     delete t.resolvedAt;
