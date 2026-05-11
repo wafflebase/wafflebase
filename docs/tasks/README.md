@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shapes p3a pilot (2026-05-10) | [20260510-slides-shapes-p3a-pilot-todo.md](./active/20260510-slides-shapes-p3a-pilot-todo.md) | [20260510-slides-shapes-p3a-pilot-lessons.md](./active/20260510-slides-shapes-p3a-pilot-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
@@ -27,7 +28,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 168
+- Archived task count: 169
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides themes layouts import (2026-05-07)
+Latest active task: slides shapes p3a pilot (2026-05-10)
