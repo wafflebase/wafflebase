@@ -599,6 +599,10 @@ describe('Formula', () => {
     expect(evaluate('=TRIM("  hello  ")')).toBe('hello');
     expect(evaluate('=TRIM("hello")')).toBe('hello');
     expect(evaluate('=TRIM("  spaces  ")')).toBe('spaces');
+    // Collapse runs of internal whitespace to a single space.
+    expect(evaluate('=TRIM("  hello   world  ")')).toBe('hello world');
+    expect(evaluate('=TRIM("a    b")')).toBe('a b');
+    expect(evaluate('=TRIM("   ")')).toBe('');
   });
 
   it('should correctly evaluate LEN function', () => {

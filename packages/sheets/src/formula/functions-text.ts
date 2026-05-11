@@ -14,7 +14,8 @@ import {
 
 /**
  * `trimFunc` is the implementation of the TRIM function.
- * TRIM(text) — removes leading and trailing whitespace.
+ * TRIM(text) — removes leading and trailing whitespace and collapses
+ * runs of internal whitespace to a single space.
  */
 export function trimFunc(
   ctx: FunctionContext,
@@ -34,7 +35,7 @@ export function trimFunc(
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
 
-  return { t: 'str', v: str.v.trim() };
+  return { t: 'str', v: str.v.replace(/\s+/g, ' ').trim() };
 }
 
 /**
