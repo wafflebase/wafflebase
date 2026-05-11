@@ -1735,15 +1735,47 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate IPMT function', () => {
-    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
+    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%.
+    // pv > 0 represents cash received now, so the interest portion of the
+    // payment is a cash outflow and is negative.
     const result = evaluate('=IPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(66.67, 1);
+    expect(Number(result)).toBeCloseTo(-66.67, 1);
+  });
+
+  it('should correctly evaluate IPMT function with negative pv', () => {
+    // Regression for wafflebase/wafflebase#216: IPMT sign was inverted.
+    // pv < 0 (you lent $300k) → period 1 interest is +1500 (cash received).
+    const result = evaluate('=IPMT(0.06/12,1,360,-300000)');
+    expect(Number(result)).toBeCloseTo(1500, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
-    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
+    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%.
+    // PMT + (-IPMT_sign_corrected) should equal the principal cash flow.
     const result = evaluate('=PPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-324.76, 0);
+    expect(Number(result)).toBeCloseTo(-191.47, 1);
+  });
+
+  it('should correctly evaluate PPMT function with negative pv', () => {
+    // Regression for wafflebase/wafflebase#216: PPMT was off by 2 * |IPMT|
+    // because the inverted IPMT sign was subtracted from PMT.
+    // PMT(0.06/12, 360, -300000) ≈ 1798.65, IPMT period 1 = 1500,
+    // so PPMT period 1 = 1798.65 - 1500 ≈ 298.65.
+    const result = evaluate('=PPMT(0.06/12,1,360,-300000)');
+    expect(Number(result)).toBeCloseTo(298.65, 1);
+  });
+
+  it('should preserve PMT = IPMT + PPMT identity', () => {
+    // The IPMT/PPMT split must always reconstruct PMT exactly. Test for both
+    // signs of pv so a future regression on either side surfaces here.
+    for (const pv of [8000, -300000]) {
+      const rate = pv > 0 ? 0.1 / 12 : 0.06 / 12;
+      const nper = pv > 0 ? 36 : 360;
+      const pmt = Number(evaluate(`=PMT(${rate},${nper},${pv})`));
+      const ipmt = Number(evaluate(`=IPMT(${rate},1,${nper},${pv})`));
+      const ppmt = Number(evaluate(`=PPMT(${rate},1,${nper},${pv})`));
+      expect(ipmt + ppmt).toBeCloseTo(pmt, 6);
+    }
   });
 
   it('should correctly evaluate SLN function', () => {
