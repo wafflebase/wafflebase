@@ -258,12 +258,15 @@ describe('Formula', () => {
     expect(evaluate('=POWER(2,3)')).toBe('8');
     expect(evaluate('=POWER(9,0.5)')).toBe('3');
     expect(evaluate('=POWER(10,1000)')).toBe('#NUM!');
+    expect(evaluate('=1.5E308 * 10')).toBe('#NUM!');
+    expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
   });
 
   it('should correctly evaluate PRODUCT function', () => {
     expect(evaluate('=PRODUCT(2,3,4)')).toBe('24');
     expect(evaluate('=PRODUCT(10,0.5)')).toBe('5');
     expect(evaluate('=PRODUCT(TRUE,5)')).toBe('5');
+    expect(evaluate('=PRODUCT(1E200,1E200)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate MEDIAN function', () => {
@@ -858,6 +861,7 @@ describe('Formula', () => {
   it('should correctly evaluate EXP function', () => {
     expect(evaluate('=EXP(0)')).toBe('1');
     expect(evaluate('=EXP(1)')).toBe(String(Math.E));
+    expect(evaluate('=EXP(1000)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate LN function', () => {
@@ -1119,6 +1123,7 @@ describe('Formula', () => {
     expect(evaluate('=FACT(0)')).toBe('1');
     expect(evaluate('=FACT(1)')).toBe('1');
     expect(evaluate('=FACT(-1)')).toBe('#NUM!');
+    expect(evaluate('=FACT(200)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate QUOTIENT function', () => {

@@ -326,6 +326,9 @@ export function productFunc(
       return node;
     }
     value *= node.v;
+    if (!Number.isFinite(value)) {
+      return ErrNode.NUM;
+    }
   }
 
   return { t: 'num', v: value };
@@ -463,7 +466,12 @@ export function expFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.exp(num.v) };
+  const result = Math.exp(num.v);
+  if (!Number.isFinite(result)) {
+    return ErrNode.NUM;
+  }
+
+  return { t: 'num', v: result };
 }
 
 /**
@@ -1278,6 +1286,9 @@ export function factFunc(
   let result = 1;
   for (let i = 2; i <= n; i++) {
     result *= i;
+    if (!Number.isFinite(result)) {
+      return ErrNode.NUM;
+    }
   }
 
   return { t: 'num', v: result };
