@@ -12,6 +12,40 @@ import {
 } from './functions-helpers';
 import { parseDate, formatDate } from './functions-date';
 
+function getCashFlowValues(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): number[] | ErrNode {
+  const node = visit(expr);
+  if (node.t === 'err') return node;
+
+  if (node.t === 'ref' && grid) {
+    const values: number[] = [];
+    for (const ref of toSrefs([node.v])) {
+      const cell = grid.get(ref);
+      const value = cell ? Number(cell.v) : 0;
+      if (isNaN(value)) return ErrNode.VALUE;
+      values.push(value);
+    }
+    return values;
+  }
+
+  if (node.t === 'arr') {
+    const values: number[] = [];
+    for (const row of node.v) {
+      for (const cell of row) {
+        const valueNode = NumberArgs.map(cell, grid);
+        if (valueNode.t === 'err') return valueNode;
+        values.push(valueNode.v);
+      }
+    }
+    return values;
+  }
+
+  return ErrNode.VALUE;
+}
+
 /**
  * PMT(rate, nper, pv, [fv], [type]) — calculates the periodic payment for a loan.
  */
@@ -432,15 +466,8 @@ export function irrFunc(
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
-  const values: number[] = [];
-  const refsResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (refsResult.t === 'err') return refsResult;
-  for (const ref of refsResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
+  const values = getCashFlowValues(exprs[0], visit, grid);
+  if (!Array.isArray(values)) return values;
 
   let guess = 0.1;
   if (exprs.length === 2) {
@@ -841,20 +868,12 @@ export function mirrFunc(
   const exprs = args.expr();
   if (exprs.length !== 3) return ErrNode.NA;
 
-  const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (valuesResult.t === 'err') return valuesResult;
+  const values = getCashFlowValues(exprs[0], visit, grid);
+  if (!Array.isArray(values)) return values;
   const financeRate = NumberArgs.map(visit(exprs[1]), grid);
   if (financeRate.t === 'err') return financeRate;
   const reinvestRate = NumberArgs.map(visit(exprs[2]), grid);
   if (reinvestRate.t === 'err') return reinvestRate;
-
-  const values: number[] = [];
-  for (const ref of valuesResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
 
   const n = values.length;
   if (n < 2) return ErrNode.VALUE;
