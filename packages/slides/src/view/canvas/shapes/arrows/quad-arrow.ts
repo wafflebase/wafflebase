@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { insetAlongAxis } from '../handles';
 
 /**
  * `quadArrow` — four-headed arrow.
@@ -51,3 +52,79 @@ export const buildQuadArrow: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// quadArrow handles — three diamonds clustered around the TOP
+// arrowhead since that is the closest 4-fold-symmetry axis the user
+// will visually associate with each adjustment:
+//
+//  [0] head length    — at (cx, head)            (drag vertically)
+//  [1] head width     — at (cx + headHalf, head) (drag horizontally)
+//  [2] shaft thickness — at (cx + shaft, cy)     (drag horizontally)
+//
+// Defaults make all three adjustments equal (22500), which puts the
+// head-width and shaft handles at the same x; the shaft handle uses
+// y = cy to keep them visually separable. All three scale by
+// min(w,h), matching the path builder.
+const QA_MIN = QUAD_ARROW_ADJUSTMENTS[0].min;
+const QA_MAX = QUAD_ARROW_ADJUSTMENTS[0].max;
+const QA_DEF = QUAD_ARROW_ADJUSTMENTS[0].defaultValue;
+
+export const QUAD_ARROW_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const dim = Math.min(w, h);
+      const head = ((adjustments[0] ?? QA_DEF) / 100000) * dim;
+      return { x: w / 2, y: insetAlongAxis(head, h) };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const dim = Math.min(w, h);
+      const y = Math.max(0, Math.min(h, pointer.y));
+      const raw = dim > 0 ? Math.round((y / dim) * 100000) : 0;
+      return [
+        Math.max(QA_MIN, Math.min(QA_MAX, raw)),
+        start[1] ?? QA_DEF,
+        start[2] ?? QA_DEF,
+      ];
+    },
+  },
+  {
+    position: ({ w, h }, adjustments) => {
+      const dim = Math.min(w, h);
+      const head = ((adjustments[0] ?? QA_DEF) / 100000) * dim;
+      const headHalf = ((adjustments[1] ?? QA_DEF) / 100000) * dim;
+      return {
+        x: insetAlongAxis(w / 2 + headHalf, w),
+        y: insetAlongAxis(head, h),
+      };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const dim = Math.min(w, h);
+      const x = Math.max(0, Math.min(w, pointer.x));
+      const headHalf = Math.abs(x - w / 2);
+      const raw = dim > 0 ? Math.round((headHalf / dim) * 100000) : 0;
+      return [
+        start[0] ?? QA_DEF,
+        Math.max(QA_MIN, Math.min(QA_MAX, raw)),
+        start[2] ?? QA_DEF,
+      ];
+    },
+  },
+  {
+    position: ({ w, h }, adjustments) => {
+      const dim = Math.min(w, h);
+      const shaft = ((adjustments[2] ?? QA_DEF) / 100000) * dim;
+      return { x: insetAlongAxis(w / 2 + shaft, w), y: h / 2 };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const dim = Math.min(w, h);
+      const x = Math.max(0, Math.min(w, pointer.x));
+      const shaft = Math.abs(x - w / 2);
+      const raw = dim > 0 ? Math.round((shaft / dim) * 100000) : 0;
+      return [
+        start[0] ?? QA_DEF,
+        start[1] ?? QA_DEF,
+        Math.max(QA_MIN, Math.min(QA_MAX, raw)),
+      ];
+    },
+  },
+];

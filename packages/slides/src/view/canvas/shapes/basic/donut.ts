@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { insetAlongAxis } from '../handles';
 
 /**
  * `donut` — annulus (ring). Two concentric ellipses, the inner one
@@ -39,3 +40,31 @@ export const buildDonut: PathBuilder = ({ w, h }, adjustments) => {
   path.ellipse(outerRx, outerRy, innerRx, innerRy, 0, 0, Math.PI * 2, true);
   return path;
 };
+
+// Handle paints where the inner ring crosses the horizontal centre
+// line on the right side: (w - t, h/2). Dragging leftward thickens
+// the ring (larger t); rightward thins it. The donut's t is
+// subtractive (`innerRx = outerRx - t`), not multiplicative like the
+// stars' radial ratio, so the existing radialStarHandle factory in
+// stars/handles.ts does not fit; this handle is inlined.
+//
+// `apply` clamps pointer.x to [0, w] before inverting so dragging
+// past the outer ring still maps to the boundary value, matching the
+// spec's "data still reaches min/max" contract.
+const DONUT_MIN = DONUT_ADJUSTMENTS[0].min;
+const DONUT_MAX = DONUT_ADJUSTMENTS[0].max;
+export const DONUT_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const t = ((adjustments[0] ?? 25000) / 100000) * Math.min(w, h);
+      return { x: insetAlongAxis(w - t, w), y: h / 2 };
+    },
+    apply: ({ w, h }, _start, pointer) => {
+      const x = Math.max(0, Math.min(w, pointer.x));
+      const t = w - x;
+      const m = Math.min(w, h);
+      const raw = m > 0 ? Math.round((t / m) * 100000) : 0;
+      return [Math.max(DONUT_MIN, Math.min(DONUT_MAX, raw))];
+    },
+  },
+];

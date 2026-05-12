@@ -72,6 +72,7 @@ const scenarioIds = [
   "slides-canvas-donut-evenodd",
   "slides-canvas-callout-tail",
   "shapes-adjustments-pilot",
+  "shapes-adjustments-sweep",
 ];
 
 const visualTargets = [

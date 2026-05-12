@@ -26,4 +26,18 @@ describe('ADJUSTMENT_HANDLES registry', () => {
       expect(ADJUSTMENT_SPECS.has(kind)).toBe(true);
     }
   });
+
+  it('every adjustment spec has a matching handle (P3-A.2 closure)', () => {
+    // After the P3-A.2 sweep this invariant is upheld; if a future
+    // shape declares ADJUSTMENT_SPECS but forgets ADJUSTMENT_HANDLES,
+    // it would silently render inert (default-only) so the test
+    // surfaces the gap.
+    for (const kind of ADJUSTMENT_SPECS.keys()) {
+      expect(ADJUSTMENT_HANDLES.has(kind)).toBe(true);
+    }
+  });
+
+  it('SPECS and HANDLES have the same size', () => {
+    expect(ADJUSTMENT_HANDLES.size).toBe(ADJUSTMENT_SPECS.size);
+  });
 });

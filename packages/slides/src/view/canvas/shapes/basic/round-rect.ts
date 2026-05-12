@@ -1,5 +1,6 @@
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `roundRect` — rectangle with quadratic-Bezier rounded corners.
@@ -18,25 +19,19 @@ export const ROUND_RECT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   },
 ];
 
-const RR_MIN = 0;
-const RR_MAX = 50000;
-
+// `r = ratio * min(w,h)` (path builder). Inverse: `ratio = r / min(w,h)`.
+// linearTopEdgeHandle adds the 8px corner inset on paint and clamps
+// the data range on apply via the spec.
 export const ROUND_RECT_HANDLES: readonly AdjustmentHandle[] = [
-  {
-    position: ({ w, h }, adjustments) => {
-      const ratio = (adjustments[0] ?? 16667) / 100000;
-      const r = Math.max(0, Math.min(w, h) * ratio);
-      return { x: r, y: 0 };
-    },
-    apply: ({ w, h }, _start, pointer) => {
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => Math.max(0, (adj / 100000) * Math.min(w, h)),
+    inverse: (x, { w, h }) => {
       const halfMin = Math.min(w, h) / 2;
-      const r = Math.max(0, Math.min(halfMin, pointer.x));
-      // r = ratio * min(w,h) → ratio = r / min(w,h)
-      const ratio = r / Math.min(w, h);
-      const value = Math.round(ratio * 100000);
-      return [Math.max(RR_MIN, Math.min(RR_MAX, value))];
+      const r = Math.max(0, Math.min(halfMin, x));
+      return (r / Math.min(w, h)) * 100000;
     },
-  },
+    spec: ROUND_RECT_ADJUSTMENTS[0],
+  }),
 ];
 
 export const buildRoundRect: PathBuilder = ({ w, h }, adjustments) => {

@@ -20,7 +20,10 @@ import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
 import {
+  adjustmentLocalToWorld,
+  adjustmentWorldToLocal,
   defaultAdjustmentsFor,
+  formatAdjustments,
   snapToDefaults,
 } from './interactions/adjustment';
 import {
@@ -954,18 +957,6 @@ class SlidesEditorImpl implements SlidesEditor {
       startEl.data.adjustments ?? defaultAdjustmentsFor(startEl.data.kind);
 
     const startWorld = this.clientToLogical(clientX, clientY);
-    const cx = startEl.frame.x + startEl.frame.w / 2;
-    const cy = startEl.frame.y + startEl.frame.h / 2;
-    const cos = Math.cos(startEl.frame.rotation);
-    const sin = Math.sin(startEl.frame.rotation);
-    // World → element-local (inverse rotation around center, then re-anchor to top-left).
-    const worldToLocal = (wx: number, wy: number) => {
-      const dx = wx - cx;
-      const dy = wy - cy;
-      const lx = dx * cos + dy * sin + startEl.frame.w / 2;
-      const ly = -dx * sin + dy * cos + startEl.frame.h / 2;
-      return { x: lx, y: ly };
-    };
 
     let live = startAdjustments;
     let moved = false;
@@ -978,7 +969,7 @@ class SlidesEditorImpl implements SlidesEditor {
         if (dx * dx + dy * dy < 4) return; // 2px threshold
         moved = true;
       }
-      const local = worldToLocal(cur.x, cur.y);
+      const local = adjustmentWorldToLocal(startEl.frame, cur);
       let next = handle.apply(
         { w: startEl.frame.w, h: startEl.frame.h },
         startAdjustments,
@@ -993,16 +984,7 @@ class SlidesEditorImpl implements SlidesEditor {
         { w: startEl.frame.w, h: startEl.frame.h },
         live,
       );
-      const handleWorld = {
-        x:
-          cx +
-          (handleLocal.x - startEl.frame.w / 2) * cos -
-          (handleLocal.y - startEl.frame.h / 2) * sin,
-        y:
-          cy +
-          (handleLocal.x - startEl.frame.w / 2) * sin +
-          (handleLocal.y - startEl.frame.h / 2) * cos,
-      };
+      const handleWorld = adjustmentLocalToWorld(startEl.frame, handleLocal);
       showAdjustmentTooltip(
         this.options.overlay,
         handleWorld.x,
@@ -1124,28 +1106,6 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
   return editor;
-}
-
-function formatAdjustments(
-  specs: readonly { name: string; format?: (v: number) => string }[],
-  values: number[],
-): string {
-  if (specs.length === 1) {
-    const v = values[0];
-    return specs[0].format ? specs[0].format(v) : String(v);
-  }
-  return specs
-    .map((s, i) => {
-      const label = lastWord(s.name);
-      const value = s.format ? s.format(values[i]) : String(values[i]);
-      return `${label}: ${value}`;
-    })
-    .join(' / ');
-}
-
-function lastWord(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts[parts.length - 1].toLowerCase();
 }
 
 function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {

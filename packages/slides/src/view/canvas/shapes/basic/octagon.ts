@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `octagon` — rectangle with 45° corner cuts.
@@ -26,3 +27,11 @@ export const buildOctagon: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+export const OCTAGON_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => (adj / 100000) * Math.min(w, h),
+    inverse: (x, { w, h }) => (x / Math.min(w, h)) * 100000,
+    spec: OCTAGON_ADJUSTMENTS[0],
+  }),
+];

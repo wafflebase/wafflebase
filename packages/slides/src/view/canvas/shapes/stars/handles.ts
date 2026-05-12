@@ -1,8 +1,5 @@
 // packages/slides/src/view/canvas/shapes/stars/handles.ts
-import type { AdjustmentHandle } from '../builder';
-
-const STAR_MIN = 0;
-const STAR_MAX = 50000;
+import type { AdjustmentHandle, AdjustmentSpec } from '../builder';
 
 /**
  * Radial drag handle for an N-pointed star. Position = first inner-
@@ -10,11 +7,19 @@ const STAR_MAX = 50000;
  * vector along the same ray controls the inner ratio. All math in
  * unit-ellipse space so non-square frames behave consistently with
  * the path builder's ellipse inscription.
+ *
+ * `spec` supplies the OOXML clamp range; callers pass the star's own
+ * `AdjustmentSpec` so adding a future star with a different `max`
+ * cannot silently desync from the factory.
  */
-export function radialStarHandle(points: number): AdjustmentHandle {
+export function radialStarHandle(
+  points: number,
+  spec: AdjustmentSpec,
+): AdjustmentHandle {
   const theta = -Math.PI / 2 + Math.PI / points;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
+  const { min, max } = spec;
 
   return {
     position: ({ w, h }, adjustments) => {
@@ -37,7 +42,7 @@ export function radialStarHandle(points: number): AdjustmentHandle {
       const radial = Math.max(0, u * cos + v * sin);
       const ratio = Math.min(1, radial);
       const value = Math.round(ratio * 100000);
-      return [Math.max(STAR_MIN, Math.min(STAR_MAX, value))];
+      return [Math.max(min, Math.min(max, value))];
     },
   };
 }

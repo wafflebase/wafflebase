@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `hexagon` — horizontal hexagon (long axis = w) with triangular
@@ -25,3 +26,11 @@ export const buildHexagon: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+export const HEXAGON_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => (adj / 100000) * Math.min(w, h),
+    inverse: (x, { w, h }) => (x / Math.min(w, h)) * 100000,
+    spec: HEXAGON_ADJUSTMENTS[0],
+  }),
+];

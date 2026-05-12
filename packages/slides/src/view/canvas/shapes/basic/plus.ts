@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `plus` — cross / plus sign filling the frame.
@@ -33,3 +34,20 @@ export const buildPlus: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// Handle paints at the LEFT edge of the vertical arm (xL = (w-t)/2).
+// As the user drags rightward, the arm narrows; leftward → wider.
+// Inverse: t = w - 2*pointer.x ⇒ adj = (t / min(w,h)) * 100000.
+export const PLUS_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => {
+      const t = (adj / 100000) * Math.min(w, h);
+      return (w - t) / 2;
+    },
+    inverse: (x, { w, h }) => {
+      const t = w - 2 * x;
+      return (t / Math.min(w, h)) * 100000;
+    },
+    spec: PLUS_ADJUSTMENTS[0],
+  }),
+];

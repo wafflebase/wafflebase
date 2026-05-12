@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `triangle` — apex on the top edge, base spanning the bottom.
@@ -21,3 +22,11 @@ export const buildTriangle: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+export const TRIANGLE_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w }) => (adj / 100000) * w,
+    inverse: (x, { w }) => (x / w) * 100000,
+    spec: TRIANGLE_ADJUSTMENTS[0],
+  }),
+];

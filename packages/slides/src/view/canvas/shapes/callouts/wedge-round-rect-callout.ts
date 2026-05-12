@@ -1,5 +1,7 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
+import { pointTailHandle } from './handles';
 
 /**
  * `wedgeRoundRectCallout` — rounded speech bubble with a triangular
@@ -48,3 +50,20 @@ export const buildWedgeRoundRectCallout: PathBuilder = ({ w, h }, adjustments) =
   path.closePath();
   return path;
 };
+
+// Two handles: the tail tip (point-axis on x/y around frame centre)
+// and the corner radius (linear on the top edge, controlling
+// adjustments[2]). The radius handle reuses the same forward/inverse
+// math as roundRect — `r = (adj/100000) * min(w,h)`.
+export const WEDGE_ROUND_RECT_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
+  pointTailHandle(
+    WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS[0],
+    WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS[1],
+  ),
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => (adj / 100000) * Math.min(w, h),
+    inverse: (x, { w, h }) => (x / Math.min(w, h)) * 100000,
+    spec: WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS[2],
+    index: 2,
+  }),
+];

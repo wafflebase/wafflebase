@@ -558,7 +558,7 @@ practice, the number input may be skipped entirely.
 
 | Phase | Item |
 |---|---|
-| P3-A.2 | Register `ADJUSTMENT_HANDLES` for the remaining 24 shapes (`triangle`, `parallelogram`, `trapezoid`, `hexagon`, `octagon`, `plus`, `donut`, `can`, 8 arrows, 3 other callouts, 6 equation shapes). Mechanical follow-up; no abstraction changes. |
+| ~~P3-A.2~~ | ~~Register `ADJUSTMENT_HANDLES` for the remaining 24 shapes (`triangle`, `parallelogram`, `trapezoid`, `hexagon`, `octagon`, `plus`, `donut`, `can`, 8 arrows, 3 other callouts, 6 equation shapes). Mechanical follow-up; no abstraction changes.~~ Shipped in PR #226. |
 | P3-A.3 | Optional: popover number-input fallback for users who prefer typed values. Reads / writes the same `data.adjustments`. |
 | P3-B | +50 shapes for GS parity (extra callouts/arrows/banners + 12 action buttons); each new shape that has `AdjustmentSpec` entries also registers `AdjustmentHandle` entries in the same PR. |
 | P3-C | Action button click handlers in presentation mode (depends on 5b-2). |
