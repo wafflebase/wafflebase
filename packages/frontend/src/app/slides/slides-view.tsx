@@ -415,7 +415,11 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
   }, [didMount, doc]);
 
   if (loading) {
-    return <Loader />;
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Loader />
+      </div>
+    );
   }
 
   if (error) {
