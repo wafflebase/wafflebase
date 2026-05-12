@@ -62,9 +62,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides.md](slides/slides.md)                                                         | Slides package (v1) — data model, Yorkie schema, Canvas+DOM editor, two-pane layout, PDF export    |
 | [slides-themes-layouts-import.md](slides/slides-themes-layouts-import.md)             | Themes (4-tier) + 11 Google-Slides-parity layouts + PPTX best-effort import; 3-PR rollout plan      |
 | [slides-layout-change.md](slides/slides-layout-change.md)                             | Layout change UI — placeholder identity tracking, type-first matching, split-button + context menu  |
-| [slides-shapes-p1.md](slides/slides-shapes-p1.md)                                     | Shape library Phase 1 — data model, path-builder registry, picker popover, 35 OOXML-aligned shapes  |
-| [slides-shapes-p2.md](slides/slides-shapes-p2.md)                                     | Shape library Phase 2 — +14 flowchart + 6 stars (cumulative 55), regularPolygon helper, 2 picker categories |
-| [slides-shapes-p3a-adjustments.md](slides/slides-shapes-p3a-adjustments.md)           | Shape library Phase 3-A.1 — yellow-diamond drag handles for 9 pilot shapes (4 axis types), `ADJUSTMENT_HANDLES` registry |
+| [slides-shapes.md](slides/slides-shapes.md)                                           | Shape library — 55 OOXML-aligned `ShapeKind` values, path-builder registry, `data.adjustments` storage, yellow-diamond drag handles, picker UX, phased roadmap to ~100-shape GS parity |
 
 ## Common
 
