@@ -13,19 +13,26 @@ describe('ROUND_RECT_HANDLES', () => {
 
     it('default ratio (16667 thousandths) → r ≈ 16.67% of min(w,h)', () => {
       const p = handle.position(FRAME, [16667]);
-      // r = 16667/100000 * min(200,100) = 16.667
+      // r = 16667/100000 * min(200,100) = 16.667; inside the [8, 192] inset band.
       expect(p).toEqual({ x: 16.667, y: 0 });
     });
 
-    it('zero adjustment → handle at top-left corner', () => {
+    it('zero adjustment → handle inset 8px from NW corner', () => {
       const p = handle.position(FRAME, [0]);
-      expect(p).toEqual({ x: 0, y: 0 });
+      // Inset guard keeps the diamond off the NW resize handle.
+      expect(p).toEqual({ x: 8, y: 0 });
     });
 
     it('max adjustment (50000) → handle at half min(w,h) along top edge', () => {
       const p = handle.position(FRAME, [50000]);
-      // r = 0.5 * 100 = 50
+      // r = 0.5 * 100 = 50; inside the inset band on a 200×100 frame.
       expect(p).toEqual({ x: 50, y: 0 });
+    });
+
+    it('zero adjustment on a tiny frame (w < 2*INSET) → no inset, raw position', () => {
+      const p = handle.position({ w: 10, h: 10 }, [0]);
+      // 10 < 16 (2*INSET); raw r=0 returned without inverted-clamp damage.
+      expect(p).toEqual({ x: 0, y: 0 });
     });
   });
 

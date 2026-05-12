@@ -2,7 +2,10 @@ import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
 import type { SnapGuide } from './snap';
 import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
-import { defaultAdjustmentsFor } from './interactions/adjustment';
+import {
+  adjustmentLocalToWorld,
+  defaultAdjustmentsFor,
+} from './interactions/adjustment';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -224,21 +227,12 @@ function renderAdjustmentHandles(
 
   const { scale } = options;
   const { frame } = el;
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
-  const cos = Math.cos(frame.rotation);
-  const sin = Math.sin(frame.rotation);
-  const localToWorld = (lx: number, ly: number) => {
-    const dx = lx - frame.w / 2;
-    const dy = ly - frame.h / 2;
-    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
-  };
 
   const adjustments =
     el.data.adjustments ?? defaultAdjustmentsFor(el.data.kind);
   handles.forEach((handle, i) => {
     const local = handle.position({ w: frame.w, h: frame.h }, adjustments);
-    const world = localToWorld(local.x, local.y);
+    const world = adjustmentLocalToWorld(frame, local);
     overlay.appendChild(
       makeAdjustmentHandle(`adjust-${i}`, world.x * scale, world.y * scale),
     );

@@ -18,15 +18,24 @@ export const ROUND_RECT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   },
 ];
 
-const RR_MIN = 0;
-const RR_MAX = 50000;
+const RR_MIN = ROUND_RECT_ADJUSTMENTS[0].min;
+const RR_MAX = ROUND_RECT_ADJUSTMENTS[0].max;
+const HANDLE_INSET = 8;
 
 export const ROUND_RECT_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
       const ratio = (adjustments[0] ?? 16667) / 100000;
       const r = Math.max(0, Math.min(w, h) * ratio);
-      return { x: r, y: 0 };
+      // Inset so the diamond never overlaps the NW corner (at r=0) or
+      // a far-edge resize handle (at r=min(w,h)/2 on a square frame).
+      // Data still reaches both boundaries — only the paint position
+      // is clipped. Degenerate frames (w < 2*HANDLE_INSET) fall back
+      // to the raw position rather than producing an inverted clamp.
+      const x = w >= 2 * HANDLE_INSET
+        ? Math.min(Math.max(r, HANDLE_INSET), w - HANDLE_INSET)
+        : r;
+      return { x, y: 0 };
     },
     apply: ({ w, h }, _start, pointer) => {
       const halfMin = Math.min(w, h) / 2;

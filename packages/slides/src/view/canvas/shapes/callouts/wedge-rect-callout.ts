@@ -62,14 +62,34 @@ export const buildWedgeRectCallout: PathBuilder = ({ w, h }, adjustments) => {
   return path;
 };
 
-const CALLOUT_MIN = -100000;
-const CALLOUT_MAX = 100000;
+const CALLOUT_MIN = WEDGE_RECT_CALLOUT_ADJUSTMENTS[0].min;
+const CALLOUT_MAX = WEDGE_RECT_CALLOUT_ADJUSTMENTS[0].max;
+const HANDLE_INSET = 8;
 
 export const WEDGE_RECT_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
       const tx = w / 2 + ((adjustments[0] ?? -20833) / 100000) * w;
       const ty = h / 2 + ((adjustments[1] ?? 62500) / 100000) * h;
+      // Inset only when the tail is *inside* the frame AND within
+      // INSET of a corner — that is the only case the diamond would
+      // visually overlap a corner resize handle. Tails outside the
+      // frame (default callout points outward) keep their raw
+      // position so the diamond stays attached to the tail tip.
+      const insideX = tx >= 0 && tx <= w;
+      const insideY = ty >= 0 && ty <= h;
+      if (insideX && insideY) {
+        const nearLeft = tx < HANDLE_INSET;
+        const nearRight = tx > w - HANDLE_INSET;
+        const nearTop = ty < HANDLE_INSET;
+        const nearBottom = ty > h - HANDLE_INSET;
+        if ((nearLeft || nearRight) && (nearTop || nearBottom)) {
+          return {
+            x: nearLeft ? HANDLE_INSET : w - HANDLE_INSET,
+            y: nearTop ? HANDLE_INSET : h - HANDLE_INSET,
+          };
+        }
+      }
       return { x: tx, y: ty };
     },
     apply: ({ w, h }, _start, pointer) => {

@@ -46,4 +46,4 @@ export const buildStar7: PathBuilder = ({ w, h }, adjustments) => {
   return path;
 };
 
-export const STAR_7_HANDLES = [radialStarHandle(7)] as const;
+export const STAR_7_HANDLES = [radialStarHandle(7, STAR_7_ADJUSTMENTS[0])] as const;

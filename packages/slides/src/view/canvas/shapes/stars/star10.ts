@@ -46,4 +46,4 @@ export const buildStar10: PathBuilder = ({ w, h }, adjustments) => {
   return path;
 };
 
-export const STAR_10_HANDLES = [radialStarHandle(10)] as const;
+export const STAR_10_HANDLES = [radialStarHandle(10, STAR_10_ADJUSTMENTS[0])] as const;
