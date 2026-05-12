@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `trapezoid` — narrower top, full-width bottom.
@@ -22,3 +23,11 @@ export const buildTrapezoid: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+export const TRAPEZOID_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w }) => (adj / 100000) * w,
+    inverse: (x, { w }) => (x / w) * 100000,
+    spec: TRAPEZOID_ADJUSTMENTS[0],
+  }),
+];

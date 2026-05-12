@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `pentagonArrow` — homePlate-style pentagon pointing right.
@@ -22,3 +23,14 @@ export const buildPentagonArrow: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// Handle paints where the arrowhead notch begins on the top edge:
+// x = w - point. Dragging rightward shrinks the arrowhead; leftward
+// grows it. Inverse: adj = ((w - x) / w) * 100000.
+export const PENTAGON_ARROW_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w }) => w - (adj / 100000) * w,
+    inverse: (x, { w }) => ((w - x) / w) * 100000,
+    spec: PENTAGON_ARROW_ADJUSTMENTS[0],
+  }),
+];

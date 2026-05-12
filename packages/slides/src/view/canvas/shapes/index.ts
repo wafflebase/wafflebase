@@ -6,16 +6,20 @@ import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
 import { buildDonut, DONUT_ADJUSTMENTS } from './basic/donut';
 import { buildEllipse } from './basic/ellipse';
-import { buildHexagon, HEXAGON_ADJUSTMENTS } from './basic/hexagon';
-import { buildOctagon, OCTAGON_ADJUSTMENTS } from './basic/octagon';
-import { buildParallelogram, PARALLELOGRAM_ADJUSTMENTS } from './basic/parallelogram';
+import { buildHexagon, HEXAGON_ADJUSTMENTS, HEXAGON_HANDLES } from './basic/hexagon';
+import { buildOctagon, OCTAGON_ADJUSTMENTS, OCTAGON_HANDLES } from './basic/octagon';
+import {
+  buildParallelogram,
+  PARALLELOGRAM_ADJUSTMENTS,
+  PARALLELOGRAM_HANDLES,
+} from './basic/parallelogram';
 import { buildPentagon } from './basic/pentagon';
-import { buildPlus, PLUS_ADJUSTMENTS } from './basic/plus';
+import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
 import { buildRtTriangle } from './basic/rt-triangle';
-import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS } from './basic/trapezoid';
-import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
+import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS, TRAPEZOID_HANDLES } from './basic/trapezoid';
+import { buildTriangle, TRIANGLE_ADJUSTMENTS, TRIANGLE_HANDLES } from './basic/triangle';
 import { ARROW_ADJUSTMENTS, buildRightArrow } from './arrows/right-arrow';
 import { buildLeftArrow } from './arrows/left-arrow';
 import { buildUpArrow } from './arrows/up-arrow';
@@ -26,6 +30,7 @@ import { buildChevron, CHEVRON_ADJUSTMENTS, CHEVRON_HANDLES } from './arrows/che
 import {
   buildPentagonArrow,
   PENTAGON_ARROW_ADJUSTMENTS,
+  PENTAGON_ARROW_HANDLES,
 } from './arrows/pentagon-arrow';
 import {
   buildWedgeRectCallout,
@@ -172,6 +177,13 @@ ADJUSTMENT_HANDLES.set('star6', STAR_6_HANDLES);
 ADJUSTMENT_HANDLES.set('star7', STAR_7_HANDLES);
 ADJUSTMENT_HANDLES.set('star8', STAR_8_HANDLES);
 ADJUSTMENT_HANDLES.set('star10', STAR_10_HANDLES);
+ADJUSTMENT_HANDLES.set('triangle', TRIANGLE_HANDLES);
+ADJUSTMENT_HANDLES.set('parallelogram', PARALLELOGRAM_HANDLES);
+ADJUSTMENT_HANDLES.set('trapezoid', TRAPEZOID_HANDLES);
+ADJUSTMENT_HANDLES.set('hexagon', HEXAGON_HANDLES);
+ADJUSTMENT_HANDLES.set('octagon', OCTAGON_HANDLES);
+ADJUSTMENT_HANDLES.set('plus', PLUS_HANDLES);
+ADJUSTMENT_HANDLES.set('pentagonArrow', PENTAGON_ARROW_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
