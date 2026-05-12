@@ -416,6 +416,94 @@ function makeAdjustmentsPilotDoc(): SlidesDocument {
 }
 
 /**
+ * Renders the 24 shapes that P3-A.2 added to ADJUSTMENT_HANDLES at
+ * their OOXML default adjustments. Catches path-builder regressions
+ * on the sweep shapes; the pilot 9 keep their own scenario above.
+ *
+ * Layout: 6 columns × 4 rows = 24 cells (cellW=140, cellH=100,
+ * gap=30, starting at x=30, y=80). Last row has 24-(6*3)=6 cells
+ * exactly, so the grid is full.
+ */
+function makeAdjustmentsSweepDoc(): SlidesDocument {
+  const cellW = 140;
+  const cellH = 100;
+  const gap = 30;
+  const cols = 6;
+
+  // 24 sweep shapes registered by P3-A.2 T2-T7.
+  const SWEEP_KINDS: ShapeKind[] = [
+    "triangle",
+    "parallelogram",
+    "trapezoid",
+    "hexagon",
+    "octagon",
+    "plus",
+    "pentagonArrow",
+    "can",
+    "donut",
+    "rightArrow",
+    "leftArrow",
+    "upArrow",
+    "downArrow",
+    "leftRightArrow",
+    "quadArrow",
+    "wedgeRoundRectCallout",
+    "wedgeEllipseCallout",
+    "cloudCallout",
+    "mathPlus",
+    "mathMinus",
+    "mathMultiply",
+    "mathEqual",
+    "mathDivide",
+    "mathNotEqual",
+  ];
+
+  function fillFor(kind: ShapeKind) {
+    if (CALLOUT_KINDS.has(kind)) {
+      return { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } };
+    }
+    return { fill: ACCENT1 };
+  }
+
+  const elements: Element[] = SWEEP_KINDS.map((kind, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = 30 + col * (cellW + gap);
+    const y = 80 + row * (cellH + gap);
+    return {
+      id: `sweep-${kind}`,
+      type: "shape",
+      frame: { x, y, w: cellW, h: cellH, rotation: 0 },
+      data: {
+        kind,
+        adjustments: undefined, // OOXML default
+        ...fillFor(kind),
+      },
+    } as Element;
+  });
+
+  return {
+    meta: {
+      title: "Adjustments sweep",
+      themeId: "default-light",
+      masterId: "default",
+    },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+/**
  * Build a slide with a single rectangular callout so the tail's
  * attachment to the closest edge (default `[-20833, 62500]` →
  * bottom-edge tail pointing down-left) is visible in the baseline.
@@ -614,6 +702,16 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     description:
       "Two-row grid of the 9 pilot shapes. Top row: OOXML default adjustments. Bottom row: authored values that visibly differ (rounder corners, shallower chevron, callout tail position, chunkier/slimmer stars). Right: star5 rotated 30° at default adjustments. Catches regressions in apply/clamp/path math across all 4 axis types.",
     render: () => <SlideCanvas doc={makeAdjustmentsPilotDoc()} />,
+  },
+  // P3-A.2 — Path-builder regression baseline for the 24 sweep shapes.
+  // Only default adjustments are rendered; per-shape unit tests cover
+  // authored values + clamping.
+  {
+    id: "shapes-adjustments-sweep",
+    title: "Shape adjustments — sweep 24 (P3-A.2)",
+    description:
+      "6×4 grid of the 24 P3-A.2 sweep shapes (triangle, parallelogram, trapezoid, hexagon, octagon, plus, pentagonArrow, can, donut, 5 directional arrows, quadArrow, 3 wedge/cloud callouts, 6 math equation shapes) at OOXML defaults. Catches path-builder regressions; the pilot 9 keep their own scenario above.",
+    render: () => <SlideCanvas doc={makeAdjustmentsSweepDoc()} />,
   },
 ];
 
