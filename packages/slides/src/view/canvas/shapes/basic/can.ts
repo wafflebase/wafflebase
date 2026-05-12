@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { insetAlongAxis } from '../handles';
 
 /**
  * `can` — cylinder side view. Outline is a top half-ellipse, two
@@ -52,3 +53,24 @@ export const buildCan: PathBuilder = ({ w, h }, adjustments) => {
   path.ellipse(w / 2, ry, w / 2, ry, 0, 0, Math.PI);
   return path;
 };
+
+// Handle paints at the horizontal centre of the lid line (w/2, ry).
+// Dragging downward raises ry → taller lid; upward → flatter lid.
+// The y inset keeps the diamond off the N (y=0) and S (y=h) resize
+// handles when the adjustment sits at a boundary.
+const CAN_MIN = CAN_ADJUSTMENTS[0].min;
+const CAN_MAX = CAN_ADJUSTMENTS[0].max;
+export const CAN_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const ratio = (adjustments[0] ?? 25000) / 100000;
+      const y = ratio * h;
+      return { x: w / 2, y: insetAlongAxis(y, h) };
+    },
+    apply: ({ h }, _start, pointer) => {
+      const y = Math.max(0, Math.min(h, pointer.y));
+      const raw = h > 0 ? Math.round((y / h) * 100000) : 0;
+      return [Math.max(CAN_MIN, Math.min(CAN_MAX, raw))];
+    },
+  },
+];

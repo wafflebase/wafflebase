@@ -12,6 +12,22 @@ import type {
 const HANDLE_INSET = 8;
 
 /**
+ * Clamp `coord` so a handle painted at it stays at least
+ * `HANDLE_INSET` away from both ends of an axis of length `dim`.
+ * Degenerate dimensions (`dim < 2 * HANDLE_INSET`) return the raw
+ * coord rather than producing an inverted clamp.
+ *
+ * Exposed so per-shape inline handles (e.g. `can`, `donut`) can
+ * apply the same corner/edge inset that `linearTopEdgeHandle`
+ * applies automatically.
+ */
+export function insetAlongAxis(coord: number, dim: number): number {
+  return dim >= 2 * HANDLE_INSET
+    ? Math.min(Math.max(coord, HANDLE_INSET), dim - HANDLE_INSET)
+    : coord;
+}
+
+/**
  * Linear drag handle that paints on a shape's top edge (`y = 0`).
  *
  * Each shape supplies a `forward(adj, frame) → x` mapping its single
@@ -38,14 +54,13 @@ export function linearTopEdgeHandle(opts: {
 }): AdjustmentHandle {
   const { forward, inverse, spec } = opts;
   return {
-    position: (frame, adjustments) => {
-      const raw = forward(adjustments[0] ?? spec.defaultValue, frame);
-      const x =
-        frame.w >= 2 * HANDLE_INSET
-          ? Math.min(Math.max(raw, HANDLE_INSET), frame.w - HANDLE_INSET)
-          : raw;
-      return { x, y: 0 };
-    },
+    position: (frame, adjustments) => ({
+      x: insetAlongAxis(
+        forward(adjustments[0] ?? spec.defaultValue, frame),
+        frame.w,
+      ),
+      y: 0,
+    }),
     apply: (frame, _start, pointer) => {
       const raw = Math.round(inverse(pointer.x, frame));
       return [Math.max(spec.min, Math.min(spec.max, raw))];

@@ -1,10 +1,10 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from './builder';
-import { buildCan, CAN_ADJUSTMENTS } from './basic/can';
+import { buildCan, CAN_ADJUSTMENTS, CAN_HANDLES } from './basic/can';
 import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
-import { buildDonut, DONUT_ADJUSTMENTS } from './basic/donut';
+import { buildDonut, DONUT_ADJUSTMENTS, DONUT_HANDLES } from './basic/donut';
 import { buildEllipse } from './basic/ellipse';
 import { buildHexagon, HEXAGON_ADJUSTMENTS, HEXAGON_HANDLES } from './basic/hexagon';
 import { buildOctagon, OCTAGON_ADJUSTMENTS, OCTAGON_HANDLES } from './basic/octagon';
@@ -184,6 +184,8 @@ ADJUSTMENT_HANDLES.set('hexagon', HEXAGON_HANDLES);
 ADJUSTMENT_HANDLES.set('octagon', OCTAGON_HANDLES);
 ADJUSTMENT_HANDLES.set('plus', PLUS_HANDLES);
 ADJUSTMENT_HANDLES.set('pentagonArrow', PENTAGON_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('can', CAN_HANDLES);
+ADJUSTMENT_HANDLES.set('donut', DONUT_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
