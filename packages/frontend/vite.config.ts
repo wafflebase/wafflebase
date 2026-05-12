@@ -1,10 +1,39 @@
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin, type Connect } from "vite";
+import { defineConfig, loadEnv, type Plugin, type Connect } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
+
+/**
+ * Replaces the `<!--GA_SNIPPET-->` marker in index.html with the GA4
+ * gtag.js bootstrap when `VITE_GA_ID` is set for the current mode.
+ * When unset (dev, preview without a configured ID), the marker is
+ * stripped so no script tag is emitted and no requests are made.
+ */
+function gaSnippet(): Plugin {
+  let snippet = "";
+  return {
+    name: "ga-snippet",
+    config(_config, { mode }) {
+      const env = loadEnv(mode, process.cwd(), "VITE_");
+      const id = env.VITE_GA_ID;
+      if (!id) return;
+      snippet =
+        `<script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>\n` +
+        `    <script>\n` +
+        `      window.dataLayer = window.dataLayer || [];\n` +
+        `      function gtag(){dataLayer.push(arguments);}\n` +
+        `      gtag('js', new Date());\n` +
+        `      gtag('config', '${id}', { send_page_view: false });\n` +
+        `    </script>`;
+    },
+    transformIndexHtml(html) {
+      return html.replace("<!--GA_SNIPPET-->", snippet);
+    },
+  };
+}
 
 /**
  * Vite plugin that resolves `require("assert")` in antlr4ts to our
@@ -82,6 +111,7 @@ function manualChunks(id: string): string | undefined {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    gaSnippet(),
     antlr4tsAssertShim(),
     react(),
     tailwindcss(),
