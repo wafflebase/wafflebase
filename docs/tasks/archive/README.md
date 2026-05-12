@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 172
+Total archived tasks: 173
 
-## 2026/05 (27 tasks)
+## 2026/05 (28 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | comments collab fixes (2026-05-12) | [20260512-comments-collab-fixes-todo.md](./2026/05/20260512-comments-collab-fixes-todo.md) | [20260512-comments-collab-fixes-lessons.md](./2026/05/20260512-comments-collab-fixes-lessons.md) |
 | google analytics (2026-05-12) | [20260512-google-analytics-todo.md](./2026/05/20260512-google-analytics-todo.md) | [20260512-google-analytics-lessons.md](./2026/05/20260512-google-analytics-lessons.md) |
+| slides shapes p3a2 sweep (2026-05-12) | [20260512-slides-shapes-p3a2-sweep-todo.md](./2026/05/20260512-slides-shapes-p3a2-sweep-todo.md) | [20260512-slides-shapes-p3a2-sweep-lessons.md](./2026/05/20260512-slides-shapes-p3a2-sweep-lessons.md) |
 | release 0.4.0 (2026-05-11) | [20260511-release-0.4.0-todo.md](./2026/05/20260511-release-0.4.0-todo.md) | - |
 | slides guides align (2026-05-11) | [20260511-slides-guides-align-todo.md](./2026/05/20260511-slides-guides-align-todo.md) | [20260511-slides-guides-align-lessons.md](./2026/05/20260511-slides-guides-align-lessons.md) |
 | contributing md (2026-05-10) | [20260510-contributing-md-todo.md](./2026/05/20260510-contributing-md-todo.md) | - |
