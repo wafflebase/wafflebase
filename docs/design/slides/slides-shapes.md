@@ -69,12 +69,14 @@ task docs under `docs/tasks/`.
 export type ShapeKind =
   // Lines (open-path, arrowhead) — special-cased renderers
   | 'line' | 'arrow'
-  // Basic shapes (15) — rect, roundRect, ellipse, triangle, …
-  // Block arrows (8) — rightArrow, …, chevron, pentagonArrow
-  // Callouts (4) — wedgeRectCallout, …, cloudCallout
+  // Basic shapes (P1: 15, P3-B: +29) — rect, …, snipRoundRect
+  // Block arrows (P1: 8, P3-B: +13) — rightArrow, …, swooshArrow
+  // Banners (P3-B: 5) — ribbon, …, leftRightRibbon
+  // Callouts (P1: 4, P3-B: +3 line callouts) — wedgeRectCallout, …, borderCallout3
   // Equation (6) — mathPlus, …, mathNotEqual
   // Stars (6) — star4, …, star10
   // Flowchart (14) — flowChartTerminator, …, flowChartDisplay
+  // Action buttons (P3-B: 12) — special-cased renderer (body + glyph)
   | …;
 
 export type ShapeElement = ElementBase & {
@@ -122,18 +124,23 @@ because an unused field would expose noise in the live schema.
 ```
 packages/slides/src/view/canvas/
 ├── shape-renderer.ts          # dispatcher
-├── shape-special.ts           # drawLine, drawArrow (open-path + arrowhead)
+├── shape-special.ts           # drawLine, drawArrow, drawActionButton
 └── shapes/
     ├── builder.ts             # PathBuilder, AdjustmentSpec, AdjustmentHandle,
     │                          # adj() helper, regularPolygonPath()
+    ├── curves.ts              # polylineArc / polylineEllipseArc — shared
+    │                          # polyline approximation for every curved shape
+    ├── handles.ts             # cross-family handle factories (incl. angular)
     ├── index.ts               # PATH_BUILDERS, ADJUSTMENT_SPECS,
     │                          # ADJUSTMENT_HANDLES — three Map registries
-    ├── basic/                 # 15 closed-path builders
-    ├── arrows/                # 8 block-arrow builders
-    ├── callouts/              # 4 callout builders
+    ├── basic/                 # closed-path builders (P1: 15, P3-B: +29)
+    ├── arrows/                # block-arrow builders (P1: 8, P3-B: +13)
+    ├── banners/               # banner builders (P3-B: 5)
+    ├── callouts/              # callout builders (P1: 4, P3-B: +3 line callouts)
     ├── equation/              # 6 math-glyph builders
     ├── stars/                 # 6 N-pointed-star builders
-    └── flowchart/             # 14 flowchart-shape builders
+    ├── flowchart/             # 14 flowchart-shape builders
+    └── action-buttons/        # 12 body + glyph pairs (P3-B)
 ```
 
 The dispatcher in `shape-renderer.ts`:
@@ -142,6 +149,9 @@ The dispatcher in `shape-renderer.ts`:
 export function drawShape(ctx, size, data, theme) {
   if (data.kind === 'line') return drawLine(ctx, size, data, theme);
   if (data.kind === 'arrow') return drawArrow(ctx, size, data, theme);
+  if (isActionButton(data.kind)) {
+    return drawActionButton(ctx, size, data, theme);
+  }
 
   const builder = PATH_BUILDERS.get(data.kind);
   if (!builder) return drawPlaceholderRect(ctx, size, data, theme);
@@ -158,6 +168,21 @@ export function drawShape(ctx, size, data, theme) {
   }
 }
 ```
+
+`isActionButton(kind)` is a string-prefix check
+(`kind.startsWith('actionButton')`). Action buttons are **not**
+entered in `PATH_BUILDERS` — their geometry is body + inner glyph
+(two distinct fills), which doesn't fit the
+`(size, adj) => Path2D` contract every other shape uses.
+`drawActionButton` paints in two passes: an outer bevel rectangle
+with a 4 px inset (single fill), then a per-kind glyph path
+(`role: 'text'` fill) scaled by `min(w, h)` so non-square frames
+don't distort the icon. The 12 glyph builders live in
+`shapes/action-buttons/<name>.ts` and aggregate into
+`ACTION_BUTTON_GLYPHS: Map<ShapeKind, GlyphBuilder>` consumed by
+the special renderer. Action buttons take no adjustments in V0 (every
+OOXML preset has `<a:avLst/>` empty); presentation-mode click
+semantics are a separate workstream (see Out-of-scope follow-ups).
 
 Each path builder is pure geometry:
 
@@ -242,9 +267,14 @@ from centre, linear inverses need absolute projection, point-axis
 needs absolute coordinates — none of them naturally consumes a
 delta.
 
-#### Four axis types
+#### Five axis types
 
-The pilot set of nine drag-handle shapes covers all four types:
+P3-A.1's pilot exercised four axes (radial, linear-corner,
+linear-edge, point). P3-B adds **angular** for circular-arc
+adjustments (`pie`, `arc`, `chord`, `blockArc`, `circularArrow`,
+`uturnArrow`, `bentArrow`, `bentUpArrow`, and the four
+`curved*Arrow` shapes). The five axes together cover every
+parametric shape in the GS-parity catalog:
 
 | Axis | Examples | `apply` math |
 |---|---|---|
@@ -252,6 +282,7 @@ The pilot set of nine drag-handle shapes covers all four types:
 | Linear (corner) | `roundRect` | clamp `pointer.x` to `[0, min(w,h)/2]` |
 | Linear (edge) | `chevron` | clamp `pointer.x` to `[0, w]`, invert path-builder's inset formula |
 | Point (2D) | `wedgeRectCallout` | independent x / y signed fraction of frame, clamped per index |
+| Angular | `pie`, `arc`, `circularArrow` | `atan2(p − center)` → OOXML 60000ths (`60000 ⇒ 1°`), clamp; winding disambiguated against `startAdjustments` so dragging past 0°/360° doesn't snap |
 
 Adding a new parametric shape to the editable set is one new file
 exporting `*_HANDLES: readonly AdjustmentHandle[]` plus one
@@ -296,8 +327,12 @@ that opens a Radix `Popover`:
 
 - ~280 px wide, scrollable.
 - Sections in fixed order: **Lines · Shapes · Block Arrows ·
-  Flowchart · Callouts · Equation · Stars**. Mirrors Google Slides'
-  picker order.
+  Banners · Flowchart · Callouts · Equation · Stars · Action
+  Buttons**. Mirrors Google Slides' picker order, with Banners next
+  to Block Arrows (visual affinity) and Action Buttons at the end
+  (Google Slides exposes them via a separate Insert > Action button
+  entry; the picker keeps them in one popover until P3-C splits
+  them out).
 - Each section is a 6-column grid of 32 × 32 px buttons with
   24 × 24 px previews.
 - Previews render through the same `PATH_BUILDERS` — a
@@ -316,13 +351,14 @@ category entry has a registered `PATH_BUILDERS` builder.
 `InsertKind` (in `editor.ts`) is `ShapeKind | 'text'`. The
 `buildInsertElement` dispatcher in `insert.ts` looks up a per-kind
 `STYLE_BY_KIND` style (`'filled' | 'outlined' | 'lineSpecial'`)
-for the initial fill / stroke. The five P1 conventions:
+for the initial fill / stroke. Conventions across all families:
 
 | Category | Default fill | Default stroke |
 |---|---|---|
 | Lines | (none) | `role: 'text'`, width 2 |
-| Basic / Block Arrows / Equation / Stars | `role: 'accent1'` | (none, except stars: `role: 'text'`, width 1) |
+| Basic / Block Arrows / Banners / Equation / Stars | `role: 'accent1'` | (none, except stars: `role: 'text'`, width 1) |
 | Callouts / Flowchart | `role: 'background'` | `role: 'text'`, width 2 |
+| Action buttons | `role: 'background'` | `role: 'text'`, width 1 — glyph fill always `role: 'text'` |
 
 ### OOXML alignment
 
@@ -356,7 +392,7 @@ The library is delivered incrementally:
 | P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only |
 | P3-A.1 — Pilot handles | 55 | (no new shapes) | drag handles for 9 pilot shapes (4 axis types) |
 | P3-A.2 — Sweep | 55 | (no new shapes) | drag handles for remaining 24 parametric shapes |
-| P3-B — GS parity | ~105 | + extra callouts/arrows/banners + 12 action buttons | handles ship with shape |
+| P3-B — GS parity | 117 | + 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons | handles ship with shape (`drawActionButton` for action buttons; new `angular` axis for arc-based shapes) |
 | P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) |
 
 Each phase is tracked as a task pair in `docs/tasks/` (search
@@ -383,14 +419,19 @@ authoring frames in the worst regime.
 ### Path2D shim limitations in tests
 
 Some JSDOM canvas implementations have incomplete `Path2D` support
-(notably `quadraticCurveTo`). Multi-period wave shapes use polyline
-approximation rather than quadratic Bézier specifically to stay
-within shim coverage.
+(notably `quadraticCurveTo`). Multi-period wave shapes and every
+curved P3-B shape (`pie`, `arc`, `chord`, `blockArc`,
+`circularArrow`, `uturnArrow`, `bentArrow`, `bentUpArrow`, the four
+`curved*Arrow` shapes) use polyline approximation rather than
+quadratic Bézier specifically to stay within shim coverage.
 
 **Mitigation**: `test-canvas-env.ts` pins a canvas version; the
-registry-snapshot test exercises every builder. If a primitive
-fails, the builder falls back to manual `lineTo` polylines without
-changing the `PathBuilder` signature.
+registry-snapshot test exercises every builder. P3-B routes all
+new curves through one shared helper, `polylineArc` in
+`shapes/curves.ts` (32-segment default, `DEFAULT_ARC_SEGMENTS`
+constant), so a single code path covers both production and JSDOM.
+If a primitive fails the builder falls back to manual `lineTo`
+polylines without changing the `PathBuilder` signature.
 
 ### Picker icon legibility at 24 px
 
@@ -429,7 +470,8 @@ priority where they do overlap.
 | Phase | Item |
 |---|---|
 | P3-A.3 | Optional: typed number-input popover fallback for users who prefer keyboard entry. Reads / writes the same `data.adjustments`. |
-| P3-C | Action-button click handlers in presentation mode (depends on P3-B). |
+| P3-C | Action-button click handlers in presentation mode (`data.action: { type: 'slide' \| 'url' \| 'sound', target: string }`), separate Insert > Action button menu entry. |
+| Theming | Beveled fill gradients on action buttons (and the `bevel` shape). Path data unchanged; renderer reads a per-shape style hint. |
 | P4 | DrawingML formula evaluator (`<a:avLst>` + guide formulas), enabling `kind: 'preset'` + `data.presetName` for unknown imports. |
 | Importer | `prst → ShapeKind` mapping table for the PPTX importer (tracked under `slides-themes-layouts-import.md`). |
 | Selection | Path-precise hit-testing via `ctx.isPointInPath`. Particularly relevant for stars (currently selects through the inner concave regions). |
