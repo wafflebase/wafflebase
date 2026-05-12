@@ -25,7 +25,7 @@ import { buildLeftArrow, LEFT_ARROW_HANDLES } from './arrows/left-arrow';
 import { buildUpArrow, UP_ARROW_HANDLES } from './arrows/up-arrow';
 import { buildDownArrow, DOWN_ARROW_HANDLES } from './arrows/down-arrow';
 import { buildLeftRightArrow, LEFT_RIGHT_ARROW_HANDLES } from './arrows/left-right-arrow';
-import { buildQuadArrow, QUAD_ARROW_ADJUSTMENTS } from './arrows/quad-arrow';
+import { buildQuadArrow, QUAD_ARROW_ADJUSTMENTS, QUAD_ARROW_HANDLES } from './arrows/quad-arrow';
 import { buildChevron, CHEVRON_ADJUSTMENTS, CHEVRON_HANDLES } from './arrows/chevron';
 import {
   buildPentagonArrow,
@@ -191,6 +191,7 @@ ADJUSTMENT_HANDLES.set('leftArrow', LEFT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('upArrow', UP_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('downArrow', DOWN_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('leftRightArrow', LEFT_RIGHT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('quadArrow', QUAD_ARROW_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
