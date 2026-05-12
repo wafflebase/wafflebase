@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { insetAlongAxis } from '../handles';
 
 /**
  * `mathNotEqual` — `≠` glyph: two parallel horizontal bars with a
@@ -106,3 +107,77 @@ export const buildMathNotEqual: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// Three handles, all on the upper-left quadrant for visual locality:
+//  [0] bar thickness   → top of upper bar (w/2, cy - gap/2 - bar)
+//  [1] gap             → bottom of upper bar (w/2, cy - gap/2)
+//  [2] slash thickness → midpoint of slash's upper edge — for the
+//      -45° slash (direction (SQRT1_2, -SQRT1_2)), the perpendicular
+//      offset toward upper-left is (-SQRT1_2, -SQRT1_2). Half the
+//      slash thickness in that direction lands the handle at
+//      (cx - halfT*SQRT1_2, cy - halfT*SQRT1_2).
+const MNE_DEF0 = MATH_NOT_EQUAL_ADJUSTMENTS[0].defaultValue;
+const MNE_DEF1 = MATH_NOT_EQUAL_ADJUSTMENTS[1].defaultValue;
+const MNE_DEF2 = MATH_NOT_EQUAL_ADJUSTMENTS[2].defaultValue;
+const mneClamp = (i: number, v: number) =>
+  Math.max(
+    MATH_NOT_EQUAL_ADJUSTMENTS[i].min,
+    Math.min(MATH_NOT_EQUAL_ADJUSTMENTS[i].max, v),
+  );
+export const MATH_NOT_EQUAL_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const bar = ((adjustments[0] ?? MNE_DEF0) / 100000) * h;
+      const gap = ((adjustments[1] ?? MNE_DEF1) / 100000) * h;
+      return { x: w / 2, y: insetAlongAxis(h / 2 - gap / 2 - bar, h) };
+    },
+    apply: ({ h }, start, pointer) => {
+      const y = Math.max(0, Math.min(h, pointer.y));
+      const gap = ((start[1] ?? MNE_DEF1) / 100000) * h;
+      const bar = h / 2 - gap / 2 - y;
+      const raw = h > 0 ? Math.round((bar / h) * 100000) : 0;
+      const result = [...start];
+      result[0] = mneClamp(0, raw);
+      return result;
+    },
+  },
+  {
+    position: ({ w, h }, adjustments) => {
+      const gap = ((adjustments[1] ?? MNE_DEF1) / 100000) * h;
+      return { x: w / 2, y: insetAlongAxis(h / 2 - gap / 2, h) };
+    },
+    apply: ({ h }, start, pointer) => {
+      const y = Math.max(0, Math.min(h, pointer.y));
+      const gap = h - 2 * y;
+      const raw = h > 0 ? Math.round((gap / h) * 100000) : 0;
+      const result = [...start];
+      result[1] = mneClamp(1, raw);
+      return result;
+    },
+  },
+  {
+    position: ({ w, h }, adjustments) => {
+      const slashT = ((adjustments[2] ?? MNE_DEF2) / 100000) * h;
+      const off = (slashT / 2) * Math.SQRT1_2;
+      return {
+        x: insetAlongAxis(w / 2 - off, w),
+        y: insetAlongAxis(h / 2 - off, h),
+      };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const x = Math.max(0, Math.min(w, pointer.x));
+      const y = Math.max(0, Math.min(h, pointer.y));
+      // Project (pointer - centre) onto the perpendicular direction
+      // (-SQRT1_2, -SQRT1_2). The signed scalar is `proj = -(dx + dy)*SQRT1_2`;
+      // slashT/2 corresponds to |proj|.
+      const dx = x - w / 2;
+      const dy = y - h / 2;
+      const proj = -(dx + dy) * Math.SQRT1_2;
+      const slashT = 2 * Math.abs(proj);
+      const raw = h > 0 ? Math.round((slashT / h) * 100000) : 0;
+      const result = [...start];
+      result[2] = mneClamp(2, raw);
+      return result;
+    },
+  },
+];

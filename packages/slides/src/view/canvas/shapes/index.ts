@@ -52,20 +52,23 @@ import {
   CLOUD_CALLOUT_ADJUSTMENTS,
   CLOUD_CALLOUT_HANDLES,
 } from './callouts/cloud-callout';
-import { buildMathPlus, MATH_PLUS_ADJUSTMENTS } from './equation/math-plus';
-import { buildMathMinus } from './equation/math-minus';
-import { buildMathMultiply } from './equation/math-multiply';
+import { buildMathPlus, MATH_PLUS_ADJUSTMENTS, MATH_PLUS_HANDLES } from './equation/math-plus';
+import { buildMathMinus, MATH_MINUS_HANDLES } from './equation/math-minus';
+import { buildMathMultiply, MATH_MULTIPLY_HANDLES } from './equation/math-multiply';
 import {
   buildMathDivide,
   MATH_DIVIDE_ADJUSTMENTS,
+  MATH_DIVIDE_HANDLES,
 } from './equation/math-divide';
 import {
   buildMathEqual,
   MATH_EQUAL_ADJUSTMENTS,
+  MATH_EQUAL_HANDLES,
 } from './equation/math-equal';
 import {
   buildMathNotEqual,
   MATH_NOT_EQUAL_ADJUSTMENTS,
+  MATH_NOT_EQUAL_HANDLES,
 } from './equation/math-not-equal';
 import { buildStar4, STAR_4_ADJUSTMENTS, STAR_4_HANDLES } from './stars/star4';
 import { buildStar5, STAR_5_ADJUSTMENTS, STAR_5_HANDLES } from './stars/star5';
@@ -198,6 +201,12 @@ ADJUSTMENT_HANDLES.set('quadArrow', QUAD_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('wedgeRoundRectCallout', WEDGE_ROUND_RECT_CALLOUT_HANDLES);
 ADJUSTMENT_HANDLES.set('wedgeEllipseCallout', WEDGE_ELLIPSE_CALLOUT_HANDLES);
 ADJUSTMENT_HANDLES.set('cloudCallout', CLOUD_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('mathPlus', MATH_PLUS_HANDLES);
+ADJUSTMENT_HANDLES.set('mathMinus', MATH_MINUS_HANDLES);
+ADJUSTMENT_HANDLES.set('mathMultiply', MATH_MULTIPLY_HANDLES);
+ADJUSTMENT_HANDLES.set('mathEqual', MATH_EQUAL_HANDLES);
+ADJUSTMENT_HANDLES.set('mathDivide', MATH_DIVIDE_HANDLES);
+ADJUSTMENT_HANDLES.set('mathNotEqual', MATH_NOT_EQUAL_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);

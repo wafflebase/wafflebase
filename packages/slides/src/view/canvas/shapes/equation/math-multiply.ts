@@ -1,5 +1,7 @@
-import type { PathBuilder } from '../builder';
+import type { PathBuilder, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { insetAlongAxis } from '../handles';
+import { MATH_PLUS_ADJUSTMENTS } from './math-plus';
 
 /**
  * `mathMultiply` — `×` glyph: a single 12-vertex polygon outlining
@@ -54,3 +56,30 @@ export const buildMathMultiply: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// mathMultiply rotates the `+` outline by 45° about the centre. The
+// inner notch [-half, -half] in the un-rotated frame maps to
+// (cx, cy - half*sqrt(2)) after rotation — that is the closest
+// "inner-corner" point on the top axis, the natural handle anchor.
+// half = t/2, so `position.y = cy - t/2 * sqrt(2) = cy - t * SQRT1_2`.
+// Inverse: t = (cy - pointer.y) / SQRT1_2.
+const MM_MIN = MATH_PLUS_ADJUSTMENTS[0].min;
+const MM_MAX = MATH_PLUS_ADJUSTMENTS[0].max;
+const MM_DEF = MATH_PLUS_ADJUSTMENTS[0].defaultValue;
+export const MATH_MULTIPLY_HANDLES: readonly AdjustmentHandle[] = [
+  {
+    position: ({ w, h }, adjustments) => {
+      const t = ((adjustments[0] ?? MM_DEF) / 100000) * Math.min(w, h);
+      return { x: w / 2, y: insetAlongAxis(h / 2 - t * Math.SQRT1_2, h) };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const y = Math.max(0, Math.min(h, pointer.y));
+      const t = (h / 2 - y) / Math.SQRT1_2;
+      const m = Math.min(w, h);
+      const raw = m > 0 ? Math.round((t / m) * 100000) : 0;
+      const result = [...start];
+      result[0] = Math.max(MM_MIN, Math.min(MM_MAX, raw));
+      return result;
+    },
+  },
+];

@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { linearTopEdgeHandle } from '../handles';
 
 /**
  * `mathPlus` — `+` glyph filling the frame as a single 12-vertex
@@ -39,3 +40,20 @@ export const buildMathPlus: PathBuilder = ({ w, h }, adjustments) => {
   path.closePath();
   return path;
 };
+
+// mathPlus is geometrically identical to basic/plus — same forward
+// `xL = (w - t) / 2` and same inverse `t = w - 2*pointer.x`. Only the
+// default thickness differs (23520 vs 25000).
+export const MATH_PLUS_HANDLES: readonly AdjustmentHandle[] = [
+  linearTopEdgeHandle({
+    forward: (adj, { w, h }) => {
+      const t = (adj / 100000) * Math.min(w, h);
+      return (w - t) / 2;
+    },
+    inverse: (x, { w, h }) => {
+      const t = w - 2 * x;
+      return (t / Math.min(w, h)) * 100000;
+    },
+    spec: MATH_PLUS_ADJUSTMENTS[0],
+  }),
+];
