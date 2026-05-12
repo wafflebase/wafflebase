@@ -20,11 +20,11 @@ import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './ba
 import { buildRtTriangle } from './basic/rt-triangle';
 import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS, TRAPEZOID_HANDLES } from './basic/trapezoid';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS, TRIANGLE_HANDLES } from './basic/triangle';
-import { ARROW_ADJUSTMENTS, buildRightArrow } from './arrows/right-arrow';
-import { buildLeftArrow } from './arrows/left-arrow';
-import { buildUpArrow } from './arrows/up-arrow';
-import { buildDownArrow } from './arrows/down-arrow';
-import { buildLeftRightArrow } from './arrows/left-right-arrow';
+import { ARROW_ADJUSTMENTS, buildRightArrow, RIGHT_ARROW_HANDLES } from './arrows/right-arrow';
+import { buildLeftArrow, LEFT_ARROW_HANDLES } from './arrows/left-arrow';
+import { buildUpArrow, UP_ARROW_HANDLES } from './arrows/up-arrow';
+import { buildDownArrow, DOWN_ARROW_HANDLES } from './arrows/down-arrow';
+import { buildLeftRightArrow, LEFT_RIGHT_ARROW_HANDLES } from './arrows/left-right-arrow';
 import { buildQuadArrow, QUAD_ARROW_ADJUSTMENTS } from './arrows/quad-arrow';
 import { buildChevron, CHEVRON_ADJUSTMENTS, CHEVRON_HANDLES } from './arrows/chevron';
 import {
@@ -186,6 +186,11 @@ ADJUSTMENT_HANDLES.set('plus', PLUS_HANDLES);
 ADJUSTMENT_HANDLES.set('pentagonArrow', PENTAGON_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('can', CAN_HANDLES);
 ADJUSTMENT_HANDLES.set('donut', DONUT_HANDLES);
+ADJUSTMENT_HANDLES.set('rightArrow', RIGHT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('leftArrow', LEFT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('upArrow', UP_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('downArrow', DOWN_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('leftRightArrow', LEFT_RIGHT_ARROW_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
