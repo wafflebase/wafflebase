@@ -6,7 +6,9 @@ import {
   MemSlidesStore,
   SlideRenderer,
   defaultLight,
+  seedPlaceholderBlocks,
   type Element,
+  type PlaceholderType,
   type ShapeKind,
   type SlidesDocument,
   type Theme,
@@ -96,21 +98,42 @@ function makeThemedDoc(themeId: string): SlidesDocument {
   };
 }
 
+// Demo text per placeholder type. The raw layout placeholders carry
+// empty inline text, so a baseline of the canvas-only renderer would
+// show just the background — see `emptyBlocks` in slides/model/layout.ts.
+// Seeding visible text here makes the placeholder geometry observable.
+const PLACEHOLDER_DEMO_TEXT: Record<PlaceholderType, string> = {
+  title: "Title",
+  subtitle: "Subtitle",
+  body: "Body text — short paragraph so the placeholder frame is visible.",
+  caption: "Caption",
+  "big-number": "42",
+};
+
 /**
  * Build a layout-only `SlidesDocument` rendering a single slide that
  * uses the given layout id. Placeholders from the layout are projected
- * to elements with text labels so the visual output reflects the
- * layout's placeholder geometry, not just the bare background.
+ * to elements seeded with the master's placeholder typography plus
+ * demo text, so the visual output reflects the layout's placeholder
+ * geometry, not just the bare background.
  */
 function makeLayoutDoc(layoutId: string): SlidesDocument {
   const layout = BUILT_IN_LAYOUTS.find((l) => l.id === layoutId);
   if (!layout) throw new Error(`Unknown layout: ${layoutId}`);
-  const elements: Element[] = layout.placeholders.map((p, i) => ({
-    id: `e${i}`,
-    type: p.type,
-    frame: p.frame,
-    data: p.data,
-  })) as Element[];
+  const elements: Element[] = layout.placeholders.map((p, i) => {
+    const placeholderType = p.placeholder.type;
+    const style =
+      DEFAULT_MASTER.placeholderStyles[placeholderType]
+      ?? DEFAULT_MASTER.placeholderStyles.body;
+    const blocks = seedPlaceholderBlocks(style, defaultLight);
+    blocks[0].inlines[0].text = PLACEHOLDER_DEMO_TEXT[placeholderType];
+    return {
+      id: `e${i}`,
+      type: p.type,
+      frame: p.frame,
+      data: { blocks },
+    };
+  }) as Element[];
   return {
     meta: { title: layoutId, themeId: "default-light", masterId: "default" },
     themes: BUILT_IN_THEMES,
