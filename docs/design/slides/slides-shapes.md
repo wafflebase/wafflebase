@@ -1,6 +1,6 @@
 ---
 title: slides-shapes
-target-version: 0.7.0
+target-version: 0.4.1
 ---
 
 # Slides Shape Library
