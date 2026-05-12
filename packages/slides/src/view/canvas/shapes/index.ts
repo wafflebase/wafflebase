@@ -14,6 +14,9 @@ import {
   PARALLELOGRAM_HANDLES,
 } from './basic/parallelogram';
 import { buildPentagon } from './basic/pentagon';
+import { buildHeptagon } from './basic/heptagon';
+import { buildDecagon } from './basic/decagon';
+import { buildDodecagon } from './basic/dodecagon';
 import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
@@ -129,7 +132,10 @@ PATH_BUILDERS.set('parallelogram', buildParallelogram);
 PATH_BUILDERS.set('trapezoid', buildTrapezoid);
 PATH_BUILDERS.set('pentagon', buildPentagon);
 PATH_BUILDERS.set('hexagon', buildHexagon);
+PATH_BUILDERS.set('heptagon', buildHeptagon);
 PATH_BUILDERS.set('octagon', buildOctagon);
+PATH_BUILDERS.set('decagon', buildDecagon);
+PATH_BUILDERS.set('dodecagon', buildDodecagon);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);

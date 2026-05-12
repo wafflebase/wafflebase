@@ -15,9 +15,13 @@ import {
  * without rendering React.
  *
  * The picker contract: 7 categories (Lines, Shapes, Block Arrows,
- * Flowchart, Callouts, Equation, Stars) with a combined 55 ShapeKind entries, each
+ * Flowchart, Callouts, Equation, Stars) with a combined entry count
+ * matching the registered `ShapeKind` catalogue. Each entry is
  * tagged with a non-empty user-facing label that doubles as the
  * IconButton's `aria-label` for accessibility.
+ *
+ * The entry-count expectation is updated as P3-B adds new shapes:
+ * 55 (P3-A.2) → 58 (P3-B T2a: heptagon, decagon, dodecagon) → …
  */
 
 describe("shape-picker categories", () => {
@@ -44,12 +48,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 55 ShapeKind entries across all categories", () => {
+  it("contains exactly 58 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 55);
+    assert.equal(total, 58);
   });
 
   it("each entry has a non-empty kind and label", () => {

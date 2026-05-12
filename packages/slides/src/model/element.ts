@@ -23,11 +23,12 @@ export type Crop = { x: number; y: number; w: number; h: number };
 export type ShapeKind =
   // Lines (special-cased renderers in shape-special.ts)
   | 'line' | 'arrow'
-  // Basic shapes (15)
+  // Basic shapes (15 P1 + 3 P3-B regular polys)
   | 'rect' | 'roundRect' | 'ellipse'
   | 'triangle' | 'rtTriangle'
   | 'diamond' | 'parallelogram' | 'trapezoid'
-  | 'pentagon' | 'hexagon' | 'octagon'
+  | 'pentagon' | 'hexagon' | 'heptagon' | 'octagon'
+  | 'decagon' | 'dodecagon'
   | 'plus' | 'donut' | 'can' | 'cloud'
   // Block arrows (8)
   | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
