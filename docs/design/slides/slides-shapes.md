@@ -189,10 +189,11 @@ Three orthogonal contracts, each backed by its own registry:
 | `ADJUSTMENT_HANDLES` | drag-handle position + inverse-apply | only if interactively editable |
 
 A shape can have specs without handles (its parameter is stored and
-honoured but not yet draggable — e.g. `donut` until its handle
-ships), and the reverse cannot happen — a registry-consistency test
-asserts every `ADJUSTMENT_HANDLES` key has a matching `ADJUSTMENT_SPECS`
-entry, and both keys exist in `PATH_BUILDERS`.
+honoured by the path builder, but not yet editable on the canvas —
+typical when a new parametric shape lands ahead of its handle).
+The reverse cannot happen: a registry-consistency test asserts every
+`ADJUSTMENT_HANDLES` key has a matching `ADJUSTMENT_SPECS` entry, and
+both keys exist in `PATH_BUILDERS`.
 
 #### `AdjustmentSpec` — storage contract
 
