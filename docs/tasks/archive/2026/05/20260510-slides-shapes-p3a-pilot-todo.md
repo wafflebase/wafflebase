@@ -20,14 +20,14 @@
 
 ## Setup
 
-- [ ] **Step 0.1: Create feature branch**
+- [x] **Step 0.1: Create feature branch**
 
 ```bash
 git fetch origin
 git checkout -b slides-shapes-p3a-pilot origin/main
 ```
 
-- [ ] **Step 0.2: Verify baseline green**
+- [x] **Step 0.2: Verify baseline green**
 
 ```bash
 pnpm verify:fast
@@ -35,7 +35,7 @@ pnpm verify:fast
 
 Expected: PASS. If anything fails, stop and investigate before proceeding — tasks below assume a clean baseline.
 
-- [ ] **Step 0.3: Commit design doc**
+- [x] **Step 0.3: Commit design doc**
 
 The design doc and README link were created during brainstorming (see "Files modified before this plan" in git diff). Commit them as the first commit on the branch:
 
@@ -62,7 +62,7 @@ EOF
 - Modify: `packages/slides/src/view/canvas/shapes/builder.ts`
 - Modify: `packages/slides/src/node.ts` (re-export new types)
 
-- [ ] **Step 1.1: Add types to builder.ts**
+- [x] **Step 1.1: Add types to builder.ts**
 
 Append to `packages/slides/src/view/canvas/shapes/builder.ts`:
 
@@ -92,7 +92,7 @@ export type AdjustmentHandle = {
 };
 ```
 
-- [ ] **Step 1.2: Re-export from node.ts**
+- [x] **Step 1.2: Re-export from node.ts**
 
 Modify `packages/slides/src/node.ts:71` to add `Point, AdjustmentHandle`:
 
@@ -106,7 +106,7 @@ export type {
 } from './view/canvas/shapes/builder';
 ```
 
-- [ ] **Step 1.3: Verify compile**
+- [x] **Step 1.3: Verify compile**
 
 ```bash
 pnpm --filter @wafflebase/slides build
@@ -114,7 +114,7 @@ pnpm --filter @wafflebase/slides build
 
 Expected: PASS (just adds types; no behavior change).
 
-- [ ] **Step 1.4: Commit**
+- [x] **Step 1.4: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/builder.ts packages/slides/src/node.ts
@@ -137,7 +137,7 @@ EOF
 - Modify: `packages/slides/src/view/canvas/shapes/index.test.ts`
 - Modify: `packages/slides/src/node.ts` (re-export `ADJUSTMENT_HANDLES`)
 
-- [ ] **Step 2.1: Write failing test**
+- [x] **Step 2.1: Write failing test**
 
 Add to `packages/slides/src/view/canvas/shapes/index.test.ts`:
 
@@ -163,7 +163,7 @@ describe('ADJUSTMENT_HANDLES registry', () => {
 });
 ```
 
-- [ ] **Step 2.2: Run test to verify it fails**
+- [x] **Step 2.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/index.test.ts
@@ -171,7 +171,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: FAIL with `ADJUSTMENT_HANDLES` not exported.
 
-- [ ] **Step 2.3: Add registry**
+- [x] **Step 2.3: Add registry**
 
 Add to `packages/slides/src/view/canvas/shapes/index.ts`, immediately after the `ADJUSTMENT_SPECS` declaration (around line 97):
 
@@ -194,7 +194,7 @@ Add the `AdjustmentHandle` import at top of file (next to existing `AdjustmentSp
 import type { AdjustmentSpec, AdjustmentHandle } from './builder';
 ```
 
-- [ ] **Step 2.4: Re-export from node.ts**
+- [x] **Step 2.4: Re-export from node.ts**
 
 Modify `packages/slides/src/node.ts:70`:
 
@@ -206,7 +206,7 @@ export {
 } from './view/canvas/shapes';
 ```
 
-- [ ] **Step 2.5: Run test to verify it passes**
+- [x] **Step 2.5: Run test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/index.test.ts
@@ -214,7 +214,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS (registry is empty Map, all `for…of` loops are vacuously satisfied).
 
-- [ ] **Step 2.6: Commit**
+- [x] **Step 2.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/index.ts packages/slides/src/view/canvas/shapes/index.test.ts packages/slides/src/node.ts
@@ -238,7 +238,7 @@ EOF
 - Create: `packages/slides/src/view/canvas/shapes/basic/round-rect.handles.test.ts`
 - Modify: `packages/slides/src/view/canvas/shapes/index.ts` (register)
 
-- [ ] **Step 3.1: Write failing test**
+- [x] **Step 3.1: Write failing test**
 
 Create `packages/slides/src/view/canvas/shapes/basic/round-rect.handles.test.ts`:
 
@@ -302,7 +302,7 @@ describe('ROUND_RECT_HANDLES', () => {
 });
 ```
 
-- [ ] **Step 3.2: Run test to verify it fails**
+- [x] **Step 3.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/basic/round-rect.handles.test.ts
@@ -310,7 +310,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: FAIL with `ROUND_RECT_HANDLES` not exported.
 
-- [ ] **Step 3.3: Add handle definition**
+- [x] **Step 3.3: Add handle definition**
 
 Add to `packages/slides/src/view/canvas/shapes/basic/round-rect.ts`, after the existing `buildRoundRect` export:
 
@@ -345,7 +345,7 @@ Update the existing `import` at top of `round-rect.ts` to include the type if no
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 ```
 
-- [ ] **Step 3.4: Register in index.ts**
+- [x] **Step 3.4: Register in index.ts**
 
 Add to `packages/slides/src/view/canvas/shapes/index.ts`, after the existing roundRect imports:
 
@@ -359,7 +359,7 @@ After the `ADJUSTMENT_SPECS.set(...)` block, add:
 ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
 ```
 
-- [ ] **Step 3.5: Run tests to verify they pass**
+- [x] **Step 3.5: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/basic/round-rect.handles.test.ts packages/slides/src/view/canvas/shapes/index.test.ts
@@ -367,7 +367,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS (all 6 round-rect cases + 3 registry consistency cases).
 
-- [ ] **Step 3.6: Commit**
+- [x] **Step 3.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/basic/round-rect.ts packages/slides/src/view/canvas/shapes/basic/round-rect.handles.test.ts packages/slides/src/view/canvas/shapes/index.ts
@@ -394,7 +394,7 @@ EOF
 
 Chevron's adjustment is the back-notch depth, drawn at horizontal inset `(notch/100000) × (h/2) × (w/h)` from the left edge. Handle sits at the inner V tip.
 
-- [ ] **Step 4.1: Write failing test**
+- [x] **Step 4.1: Write failing test**
 
 Create `packages/slides/src/view/canvas/shapes/arrows/chevron.handles.test.ts`:
 
@@ -461,7 +461,7 @@ describe('CHEVRON_HANDLES', () => {
 });
 ```
 
-- [ ] **Step 4.2: Run test to verify it fails**
+- [x] **Step 4.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/arrows/chevron.handles.test.ts
@@ -469,7 +469,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: FAIL with `CHEVRON_HANDLES` not exported.
 
-- [ ] **Step 4.3: Add handle definition**
+- [x] **Step 4.3: Add handle definition**
 
 Add to `packages/slides/src/view/canvas/shapes/arrows/chevron.ts`:
 
@@ -503,7 +503,7 @@ Update import at top:
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 ```
 
-- [ ] **Step 4.4: Register in index.ts**
+- [x] **Step 4.4: Register in index.ts**
 
 Update the chevron import line:
 
@@ -517,7 +517,7 @@ Add to the `ADJUSTMENT_HANDLES.set` block:
 ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
 ```
 
-- [ ] **Step 4.5: Run tests**
+- [x] **Step 4.5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/arrows/chevron.handles.test.ts packages/slides/src/view/canvas/shapes/index.test.ts
@@ -525,7 +525,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS.
 
-- [ ] **Step 4.6: Commit**
+- [x] **Step 4.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/arrows/chevron.ts packages/slides/src/view/canvas/shapes/arrows/chevron.handles.test.ts packages/slides/src/view/canvas/shapes/index.ts
@@ -550,7 +550,7 @@ EOF
 
 Tail tip = `(w/2 + adj0/100000 * w, h/2 + adj1/100000 * h)`. One handle controls both indices.
 
-- [ ] **Step 5.1: Write failing test**
+- [x] **Step 5.1: Write failing test**
 
 Create `packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.handles.test.ts`:
 
@@ -617,7 +617,7 @@ describe('WEDGE_RECT_CALLOUT_HANDLES', () => {
 });
 ```
 
-- [ ] **Step 5.2: Run test to verify it fails**
+- [x] **Step 5.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.handles.test.ts
@@ -625,7 +625,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: FAIL with `WEDGE_RECT_CALLOUT_HANDLES` not exported.
 
-- [ ] **Step 5.3: Add handle definition**
+- [x] **Step 5.3: Add handle definition**
 
 Add to `packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.ts`:
 
@@ -658,7 +658,7 @@ Update import at top:
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 ```
 
-- [ ] **Step 5.4: Register in index.ts**
+- [x] **Step 5.4: Register in index.ts**
 
 Update import:
 
@@ -676,7 +676,7 @@ Add registration:
 ADJUSTMENT_HANDLES.set('wedgeRectCallout', WEDGE_RECT_CALLOUT_HANDLES);
 ```
 
-- [ ] **Step 5.5: Run tests**
+- [x] **Step 5.5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.handles.test.ts packages/slides/src/view/canvas/shapes/index.test.ts
@@ -684,7 +684,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS.
 
-- [ ] **Step 5.6: Commit**
+- [x] **Step 5.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.ts packages/slides/src/view/canvas/shapes/callouts/wedge-rect-callout.handles.test.ts packages/slides/src/view/canvas/shapes/index.ts
@@ -711,7 +711,7 @@ EOF
 
 Stars share radial math; factory function `radialStarHandle(N)` returns a handle whose angle is `-π/2 + π/N`. star5 is the canonical first.
 
-- [ ] **Step 6.1: Write failing test**
+- [x] **Step 6.1: Write failing test**
 
 Create `packages/slides/src/view/canvas/shapes/stars/star5.handles.test.ts`:
 
@@ -791,7 +791,7 @@ describe('STAR_5_HANDLES', () => {
 });
 ```
 
-- [ ] **Step 6.2: Run test to verify it fails**
+- [x] **Step 6.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/stars/star5.handles.test.ts
@@ -799,7 +799,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: FAIL with `STAR_5_HANDLES` not exported.
 
-- [ ] **Step 6.3: Create shared radial helper**
+- [x] **Step 6.3: Create shared radial helper**
 
 Create `packages/slides/src/view/canvas/shapes/stars/handles.ts`:
 
@@ -848,7 +848,7 @@ export function radialStarHandle(points: number): AdjustmentHandle {
 }
 ```
 
-- [ ] **Step 6.4: Register `STAR_5_HANDLES`**
+- [x] **Step 6.4: Register `STAR_5_HANDLES`**
 
 Add to `packages/slides/src/view/canvas/shapes/stars/star5.ts`:
 
@@ -870,7 +870,7 @@ Add registration:
 ADJUSTMENT_HANDLES.set('star5', STAR_5_HANDLES);
 ```
 
-- [ ] **Step 6.5: Run tests**
+- [x] **Step 6.5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/stars/star5.handles.test.ts packages/slides/src/view/canvas/shapes/index.test.ts
@@ -878,7 +878,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS (all 7 star5 cases + 3 registry consistency cases).
 
-- [ ] **Step 6.6: Commit**
+- [x] **Step 6.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/stars/handles.ts packages/slides/src/view/canvas/shapes/stars/star5.ts packages/slides/src/view/canvas/shapes/stars/star5.handles.test.ts packages/slides/src/view/canvas/shapes/index.ts
@@ -906,7 +906,7 @@ EOF
 
 Each star is a one-liner: import `radialStarHandle`, export `STAR_N_HANDLES = [radialStarHandle(N)] as const`. Tests are short — 2 cases per star (default position, round-trip).
 
-- [ ] **Step 7.1: Write tests for all 5 stars**
+- [x] **Step 7.1: Write tests for all 5 stars**
 
 For each `N` in `[4, 6, 7, 8, 10]`, create `packages/slides/src/view/canvas/shapes/stars/star${N}.handles.test.ts`:
 
@@ -950,7 +950,7 @@ DEFAULT_RATIO per star (from each `STAR_N_ADJUSTMENTS.defaultValue`):
 | 8 | 37500 |
 | 10 | 42533 |
 
-- [ ] **Step 7.2: Run tests to verify they fail**
+- [x] **Step 7.2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/stars/
@@ -958,7 +958,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: 5 new test files FAIL with missing exports.
 
-- [ ] **Step 7.3: Add handle exports to each star file**
+- [x] **Step 7.3: Add handle exports to each star file**
 
 For each `N` in `[4, 6, 7, 8, 10]`, add to `packages/slides/src/view/canvas/shapes/stars/star${N}.ts`:
 
@@ -969,7 +969,7 @@ export const STAR_N_HANDLES = [radialStarHandle(N)] as const;
 // substitute N: STAR_4_HANDLES = [radialStarHandle(4)] as const, etc.
 ```
 
-- [ ] **Step 7.4: Register in index.ts**
+- [x] **Step 7.4: Register in index.ts**
 
 Update each star's import to include the new export, then add 5 lines to the `ADJUSTMENT_HANDLES.set` block:
 
@@ -981,7 +981,7 @@ ADJUSTMENT_HANDLES.set('star8', STAR_8_HANDLES);
 ADJUSTMENT_HANDLES.set('star10', STAR_10_HANDLES);
 ```
 
-- [ ] **Step 7.5: Run all star tests + registry test**
+- [x] **Step 7.5: Run all star tests + registry test**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/shapes/stars/ packages/slides/src/view/canvas/shapes/index.test.ts
@@ -989,7 +989,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/canvas/s
 
 Expected: PASS. Registry size now == 9 (`star5` from Task 6 + 5 here + roundRect + chevron + wedgeRectCallout from Tasks 3–5).
 
-- [ ] **Step 7.6: Commit**
+- [x] **Step 7.6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/stars/star4.ts packages/slides/src/view/canvas/shapes/stars/star4.handles.test.ts packages/slides/src/view/canvas/shapes/stars/star6.ts packages/slides/src/view/canvas/shapes/stars/star6.handles.test.ts packages/slides/src/view/canvas/shapes/stars/star7.ts packages/slides/src/view/canvas/shapes/stars/star7.handles.test.ts packages/slides/src/view/canvas/shapes/stars/star8.ts packages/slides/src/view/canvas/shapes/stars/star8.handles.test.ts packages/slides/src/view/canvas/shapes/stars/star10.ts packages/slides/src/view/canvas/shapes/stars/star10.handles.test.ts packages/slides/src/view/canvas/shapes/index.ts
@@ -1014,7 +1014,7 @@ EOF
 
 These two pure functions are needed by both the renderer (defaults) and the drag loop (snap). Hit-test enters in Task 10.
 
-- [ ] **Step 8.1: Write failing tests**
+- [x] **Step 8.1: Write failing tests**
 
 Create `packages/slides/src/view/editor/interactions/adjustment.test.ts`:
 
@@ -1059,7 +1059,7 @@ describe('snapToDefaults', () => {
 });
 ```
 
-- [ ] **Step 8.2: Run test to verify it fails**
+- [x] **Step 8.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/interactions/adjustment.test.ts
@@ -1067,7 +1067,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/i
 
 Expected: FAIL with module not found.
 
-- [ ] **Step 8.3: Implement module**
+- [x] **Step 8.3: Implement module**
 
 Create `packages/slides/src/view/editor/interactions/adjustment.ts`:
 
@@ -1107,7 +1107,7 @@ export function snapToDefaults(
 }
 ```
 
-- [ ] **Step 8.4: Run test to verify it passes**
+- [x] **Step 8.4: Run test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/interactions/adjustment.test.ts
@@ -1115,7 +1115,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/i
 
 Expected: PASS.
 
-- [ ] **Step 8.5: Commit**
+- [x] **Step 8.5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/adjustment.ts packages/slides/src/view/editor/interactions/adjustment.test.ts
@@ -1141,7 +1141,7 @@ EOF
 
 Add handle painting for the 9 pilot shapes when single-selected. Reuses the existing `localToWorld` math (currently private to `overlay.ts`); we add a new private helper `renderAdjustmentHandles` invoked at the end of both axis-aligned and rotated render branches.
 
-- [ ] **Step 9.1: Write failing test**
+- [x] **Step 9.1: Write failing test**
 
 Append to `packages/slides/src/view/editor/overlay.test.ts` (or create a new test file if separate):
 
@@ -1201,7 +1201,7 @@ describe('renderOverlay — adjustment handles', () => {
 });
 ```
 
-- [ ] **Step 9.2: Run test to verify it fails**
+- [x] **Step 9.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/overlay.test.ts
@@ -1209,7 +1209,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/o
 
 Expected: FAIL on first 3 cases (no `adjust-N` element).
 
-- [ ] **Step 9.3: Add `renderAdjustmentHandles` to overlay.ts**
+- [x] **Step 9.3: Add `renderAdjustmentHandles` to overlay.ts**
 
 Add at the bottom of `packages/slides/src/view/editor/overlay.ts`:
 
@@ -1293,7 +1293,7 @@ if (selectedElements.length === 1) {
 
 (Existing import `import type { Element, Frame } from '../../model/element';` already covers the `Element` type.)
 
-- [ ] **Step 9.4: Run tests**
+- [x] **Step 9.4: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/overlay.test.ts
@@ -1301,7 +1301,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/o
 
 Expected: PASS (all 4 new cases + existing overlay cases).
 
-- [ ] **Step 9.5: Commit**
+- [x] **Step 9.5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/overlay.ts packages/slides/src/view/editor/overlay.test.ts
@@ -1328,7 +1328,7 @@ EOF
 
 The existing `handleHitTest(overlay, x, y)` reads `data-handle` from DOM elements at `(x, y)`. It needs to widen its return type to include `adjust-${number}` strings, and the editor's pointerdown branch needs to route those to a new `startAdjustmentDrag`.
 
-- [ ] **Step 10.1: Locate the existing hit-test helper**
+- [x] **Step 10.1: Locate the existing hit-test helper**
 
 ```bash
 grep -rn "handleHitTest\|HandleKind" packages/slides/src/view/editor/
@@ -1336,7 +1336,7 @@ grep -rn "handleHitTest\|HandleKind" packages/slides/src/view/editor/
 
 The exact file name is environment-dependent; the helper currently returns one of `'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate' | null`. Confirm before editing.
 
-- [ ] **Step 10.2: Widen the return type**
+- [x] **Step 10.2: Widen the return type**
 
 Add to the same module that exports `HandleKind`:
 
@@ -1349,7 +1349,7 @@ export type HandleKind =
 
 If the existing implementation reads `dataset.handle` and returns it as-is, the runtime change may be zero — only the type needs widening. Confirm by reading the file before changing logic.
 
-- [ ] **Step 10.3: Route in editor.ts**
+- [x] **Step 10.3: Route in editor.ts**
 
 Modify `packages/slides/src/view/editor/editor.ts:807` (`onPointerDownHandle`):
 
@@ -1370,7 +1370,7 @@ private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number
 
 `startAdjustmentDrag` is implemented in Task 11.
 
-- [ ] **Step 10.4: Add hit-priority test**
+- [x] **Step 10.4: Add hit-priority test**
 
 Append to `packages/slides/src/view/editor/overlay.test.ts`:
 
@@ -1394,7 +1394,7 @@ it('handleHitTest returns the adjustment handle when it overlaps a resize handle
 
 (Exact stub form depends on whether `handleHitTest` uses `elementFromPoint` or iterates `overlay.children` itself; check Step 10.1 result.)
 
-- [ ] **Step 10.5: Run tests + typecheck**
+- [x] **Step 10.5: Run tests + typecheck**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run
@@ -1403,7 +1403,7 @@ pnpm --filter @wafflebase/slides build
 
 Expected: PASS. The build catches any missed type widening across consumers of `HandleKind`.
 
-- [ ] **Step 10.6: Commit**
+- [x] **Step 10.6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/
@@ -1430,7 +1430,7 @@ EOF
 
 Mirrors `startResize` (`editor.ts:850`). Adds 2px threshold, Shift snap, and a tooltip overlay.
 
-- [ ] **Step 11.1: Implement tooltip helper**
+- [x] **Step 11.1: Implement tooltip helper**
 
 Create `packages/slides/src/view/editor/adjustment-tooltip.ts`:
 
@@ -1471,7 +1471,7 @@ export function hideAdjustmentTooltip(): void {
 }
 ```
 
-- [ ] **Step 11.2: Implement `startAdjustmentDrag`**
+- [x] **Step 11.2: Implement `startAdjustmentDrag`**
 
 Add to `packages/slides/src/view/editor/editor.ts`, alongside `startResize`:
 
@@ -1606,7 +1606,7 @@ function formatAdjustments(
 }
 ```
 
-- [ ] **Step 11.3: Run unit tests**
+- [x] **Step 11.3: Run unit tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run
@@ -1614,7 +1614,7 @@ pnpm --filter @wafflebase/slides test --run
 
 Expected: PASS. (Drag end-to-end editor test follows in Task 12.)
 
-- [ ] **Step 11.4: Commit**
+- [x] **Step 11.4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/src/view/editor/adjustment-tooltip.ts
@@ -1637,7 +1637,7 @@ EOF
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.test.ts` (or its existing equivalent — locate first)
 
-- [ ] **Step 12.1: Locate the editor test file**
+- [x] **Step 12.1: Locate the editor test file**
 
 ```bash
 find packages/slides/src/view/editor -name "*.test.ts"
@@ -1645,7 +1645,7 @@ find packages/slides/src/view/editor -name "*.test.ts"
 
 If `editor.test.ts` doesn't exist, create one with the standard JSDOM setup used elsewhere in the package (look at `overlay.test.ts` for the pattern).
 
-- [ ] **Step 12.2: Add drag end-to-end test**
+- [x] **Step 12.2: Add drag end-to-end test**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1704,7 +1704,7 @@ describe('editor — adjustment drag', () => {
 
 (Adjust the seed-store helper to match the actual `createMemoryStore` API; the test's value is in proving the wiring, not the literal numbers.)
 
-- [ ] **Step 12.3: Run editor tests**
+- [x] **Step 12.3: Run editor tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/editor.test.ts
@@ -1712,7 +1712,7 @@ pnpm --filter @wafflebase/slides test --run -- packages/slides/src/view/editor/e
 
 Expected: PASS.
 
-- [ ] **Step 12.4: Commit**
+- [x] **Step 12.4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.test.ts
@@ -1736,7 +1736,7 @@ EOF
 
 Add a `shapes-adjustments-pilot` scenario that lays out the 9 pilot shapes in two rows: top row at default adjustments, bottom row with visibly-different user-authored adjustments (including one rotated star).
 
-- [ ] **Step 13.1: Read the existing scenarios file**
+- [x] **Step 13.1: Read the existing scenarios file**
 
 ```bash
 grep -n "scenario\|register\|export\|harness" packages/frontend/src/app/harness/visual/slides-scenarios.tsx | head -30
@@ -1744,7 +1744,7 @@ grep -n "scenario\|register\|export\|harness" packages/frontend/src/app/harness/
 
 Pattern-match the existing P2 catalog scenario (`shapes-catalog-basics` or similar) and follow its structure exactly.
 
-- [ ] **Step 13.2: Add the scenario**
+- [x] **Step 13.2: Add the scenario**
 
 Append a new `registerScenario({...})` call (or whatever the file's pattern is) with a 9 × 2 grid of `ShapeElement`s. Top row uses defaults; bottom row uses these authored values:
 
@@ -1762,7 +1762,7 @@ Append a new `registerScenario({...})` call (or whatever the file's pattern is) 
 
 Add one rotated copy of `star5` (rotation = π/6) to the right of the grid to exercise rotated handle painting in the visual baseline.
 
-- [ ] **Step 13.3: Run harness build to confirm it compiles**
+- [x] **Step 13.3: Run harness build to confirm it compiles**
 
 ```bash
 pnpm --filter @wafflebase/frontend build
@@ -1770,7 +1770,7 @@ pnpm --filter @wafflebase/frontend build
 
 Expected: PASS.
 
-- [ ] **Step 13.4: Run visual harness baseline regen**
+- [x] **Step 13.4: Run visual harness baseline regen**
 
 ```bash
 pnpm verify:browser:docker:update
@@ -1784,7 +1784,7 @@ Expected: a new PNG baseline written for `shapes-adjustments-pilot`. Inspect the
 
 If anything looks visibly wrong, fix the scenario and re-run baseline regen before committing.
 
-- [ ] **Step 13.5: Run visual diff (no `:update`) to confirm the baseline holds**
+- [x] **Step 13.5: Run visual diff (no `:update`) to confirm the baseline holds**
 
 ```bash
 pnpm verify:browser:docker
@@ -1792,7 +1792,7 @@ pnpm verify:browser:docker
 
 Expected: PASS.
 
-- [ ] **Step 13.6: Commit**
+- [x] **Step 13.6: Commit**
 
 ```bash
 git add packages/frontend/src/app/harness/visual/slides-scenarios.tsx packages/frontend/test-results/visual/baselines/
@@ -1817,7 +1817,7 @@ EOF
 - Modify: `docs/tasks/active/20260510-slides-shapes-p3a-pilot-todo.md` (this file — close items)
 - Create: `docs/tasks/active/20260510-slides-shapes-p3a-pilot-lessons.md`
 
-- [ ] **Step 14.1: Run full verify**
+- [x] **Step 14.1: Run full verify**
 
 ```bash
 pnpm verify:fast
@@ -1826,7 +1826,7 @@ pnpm verify:self
 
 Expected: both PASS.
 
-- [ ] **Step 14.2: Manual smoke in dev**
+- [x] **Step 14.2: Manual smoke in dev**
 
 ```bash
 docker compose up -d
@@ -1843,11 +1843,11 @@ pnpm dev
 
 Document any anomalies in the lessons file before fixing.
 
-- [ ] **Step 14.3: Self code-review via skill**
+- [x] **Step 14.3: Self code-review via skill**
 
 Run `superpowers:requesting-code-review` over the full branch diff. Apply blocking findings; note non-blocking ones in lessons.
 
-- [ ] **Step 14.4: Write lessons file**
+- [x] **Step 14.4: Write lessons file**
 
 Create `docs/tasks/active/20260510-slides-shapes-p3a-pilot-lessons.md` documenting:
 - Anything that diverged from the spec at implementation time (with the reason).
@@ -1855,11 +1855,11 @@ Create `docs/tasks/active/20260510-slides-shapes-p3a-pilot-lessons.md` documenti
 - Any new pitfalls future P3-A.2 / P3-B tasks should know (e.g., gotchas with `paintLive` for `data` fields if that turned out non-trivial).
 - Test infrastructure quirks (DOM event dispatch shape, JSDOM limits).
 
-- [ ] **Step 14.5: Mark this todo file's items complete**
+- [x] **Step 14.5: Mark this todo file's items complete**
 
 Edit this file: change every `- [ ]` to `- [x]` for completed steps. Add a "Review" section at the bottom summarizing what shipped vs spec.
 
-- [ ] **Step 14.6: Sync + open PR**
+- [x] **Step 14.6: Sync + open PR**
 
 ```bash
 git fetch origin
@@ -1874,11 +1874,11 @@ gh pr create --title "Add adjustment drag handles for 9 pilot slides shapes (P3-
 
 ## Test plan
 
-- [ ] Unit: 9 shape × handle test files PASS (`pnpm --filter @wafflebase/slides test`)
-- [ ] Integration: editor drag end-to-end test PASS (single store update; below-threshold drag commits nothing)
-- [ ] Visual: `shapes-adjustments-pilot` baseline approved (`pnpm verify:browser:docker`)
-- [ ] Smoke: all 9 shapes draggable in dev; tooltip readable; rotated shape works; multi-select hides handles
-- [ ] `pnpm verify:fast` and `pnpm verify:self` PASS
+- [x] Unit: 9 shape × handle test files PASS (`pnpm --filter @wafflebase/slides test`)
+- [x] Integration: editor drag end-to-end test PASS (single store update; below-threshold drag commits nothing)
+- [x] Visual: `shapes-adjustments-pilot` baseline approved (`pnpm verify:browser:docker`)
+- [x] Smoke: all 9 shapes draggable in dev; tooltip readable; rotated shape works; multi-select hides handles
+- [x] `pnpm verify:fast` and `pnpm verify:self` PASS
 
 ## Spec
 
@@ -1888,7 +1888,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 14.7: After PR merge — archive task and commit lessons**
+- [x] **Step 14.7: After PR merge — archive task and commit lessons**
 
 ```bash
 pnpm tasks:archive
