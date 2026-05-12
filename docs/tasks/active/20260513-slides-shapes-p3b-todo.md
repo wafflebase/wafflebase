@@ -123,55 +123,72 @@ Each task = one commit on `slides-shapes-p3b`. Mark complete when the commit lan
 
 ### Setup
 
-- [ ] **T0 — Branch + commit todo+lessons skeleton + design doc updates**
+- [x] **T0 — Branch + commit todo+lessons skeleton + design doc updates** (commit `26ca1ade`)
   - `git checkout -b slides-shapes-p3b` (off `main` or `slides-shapes-design-consolidate`)
   - `pnpm verify:fast` green baseline
   - This file + `20260513-slides-shapes-p3b-lessons.md` skeleton + the `docs/design/slides/slides-shapes.md` edits go into this commit.
 
 ### Shared infrastructure
 
-- [ ] **T1 — `shapes/curves.ts` + `angularHandle` factory**
-  - New `shapes/curves.ts` exporting `polylineArc(cx, cy, rx, ry, theta0, theta1, segments = DEFAULT_ARC_SEGMENTS)` and `polylineEllipseArc` (latter only if it ends up needing distinct args — collapse to one helper if signatures align).
-  - Add `angularHandle({ center, radiusOf, index, spec })` to `shapes/handles.ts`. `apply` carries a winding-disambiguation branch (compare current `atan2` quadrant vs `startAdjustments`-derived angle; unwrap by ±360° if sign flipped) so dragging across 0°/360° doesn't snap. Pre-condition: `spec.min`/`max` in OOXML 60000ths.
+- [x] **T1 — `shapes/curves.ts` + `angularHandle` factory** (commit `5825f73d`)
+  - New `shapes/curves.ts` exporting `polylineArc(cx, cy, rx, ry, theta0, theta1, segments = DEFAULT_ARC_SEGMENTS)`. Single helper handles both circle and ellipse via distinct `rx` / `ry` — no separate `polylineEllipseArc` needed.
+  - Add `angularHandle({ center, radius, index, spec })` to `shapes/handles.ts`. `apply` carries a winding-disambiguation branch (while-loops normalise atan2 result to within ±180° of `startAdjustments[index]`-derived angle) so dragging across 0°/360° doesn't snap. Pre-condition: `spec.min`/`max` in OOXML 60000ths.
   - Unit tests:
-    - `shapes/curves.test.ts`: monotonic arc-point advance; endpoint match within `1e-9` of analytical formula; full-circle case.
-    - `shapes/handles.test.ts`: add 5-case angular test (0°, 90°, 180°, 270°, 359°), plus a winding-wrap case (start 5°, drag past 0° to 355°).
-  - No new `ShapeKind` yet; no registry edits.
+    - `shapes/curves.test.ts` (10 cases): monotonic advance, analytical endpoint match within `1e-9`, full-circle close, reverse sweep, elliptical, segment-count validation.
+    - `shapes/handles.test.ts` angular cases (13 cases): 4 quadrants + 359°, wrap-around (start 355° → 365°), clamp above spec.max, multi-index passthrough, round-trip identity.
+  - No new `ShapeKind`; no registry edits; no picker changes.
 
 ### Shape sweep
 
-- [ ] **T2 — 22 basic shapes + handles**
+> **Picker registration is per-family** (Option B). Each T2–T7 commit
+> includes the matching `SHAPE_PICKER_CATEGORIES` entries and
+> `STYLE_BY_KIND` rows so the new shapes are insertable from the
+> dropdown the moment the commit lands. T8 reduces to visual
+> scenarios + whitelist + baselines + invariants.
+
+- [ ] **T2 — 22 basic shapes + handles + picker entries**
   - Files: `basic/{heptagon,decagon,dodecagon,pie,chord,teardrop,frame,halfFrame,corner,diagStripe,plaque,bevel,foldedCorner,smileyFace,heart,lightningBolt,sun,moon,arc,blockArc,cube,noSmoking}.ts`.
   - `pie` / `arc` / `chord` / `blockArc` share a private `sectorPath` helper in `basic/sector.ts` (P3-A.2 lesson §2: factor when call-site shrinks below inline math).
   - Parametric shapes register `*_HANDLES` next to the builder. `pie`/`arc`/`chord`/`blockArc` route through `angularHandle` for angle adjustments; `blockArc` adds one `linearXHandle` for the inner-radius axis.
   - `<kind>.test.ts` per shape; `<kind>.handles.test.ts` only for parametric shapes.
   - Register all 22 in `shapes/index.ts` `PATH_BUILDERS` + `ADJUSTMENT_SPECS` + `ADJUSTMENT_HANDLES` maps.
   - `ShapeKind` union in `packages/slides/src/model/element.ts` gains the 22 kinds.
+  - **Picker**: add 22 entries to the existing `Shapes` section in `SHAPE_PICKER_CATEGORIES` (`shape-picker-helpers.ts`). Existing `STYLE_BY_KIND` Basic row already covers them.
+  - **Smoke**: run `pnpm dev`, open a slide, verify the 22 new shapes appear in the Shapes section of the picker and one example from each axis family (e.g. `pie`, `frame`, `heart`) inserts and renders correctly.
 
-- [ ] **T3 — 7 snip/round-corner rects + handles**
+- [ ] **T3 — 7 snip/round-corner rects + handles + picker entries**
   - Files: `basic/{snip1Rect,snip2SameRect,snip2DiagRect,snipRoundRect,round1Rect,round2SameRect,round2DiagRect}.ts`.
   - All 7 reuse `linearTopEdgeHandle` (per-corner index passed via `index` parameter — already supported, P3-A.2 lessons §3). `snipRoundRect` mixes snip-corner + round-corner indices in one shape.
   - One unit test + one handle smoke test per shape.
+  - **Picker**: add 7 entries to the `Shapes` section (after the basic 22, before the section closes). Basic row of `STYLE_BY_KIND` covers them.
+  - **Smoke**: `pnpm dev` — verify all 7 appear and at least one of each (snip vs round) inserts correctly.
 
-- [ ] **T4 — 13 block arrows + handles**
+- [ ] **T4 — 13 block arrows + handles + picker entries**
   - Files: `arrows/{up-down,left-right-up,bent,bent-up,uturn,curved-right,curved-left,curved-up,curved-down,circular,notched-right,striped-right,swoosh}-arrow.ts`.
   - Curved arrows (curvedRight/Left/Up/Down) share a directional factory in `arrows/curved.ts` (mirrors the P3-A.2 `directionalArrowHandles` pattern). If symmetry doesn't collapse cleanly to one factory, drop to inline per-direction and record divergence in lessons.
   - `circularArrow`, `uturnArrow`, `bentArrow`, `bentUpArrow`, `notchedRightArrow`, `stripedRightArrow`, `swooshArrow`: expect inline implementation. Try a shared factory only if 2+ of them collapse to the same arg signature.
   - All curve segments use `polylineArc`.
   - Unit + handle tests per shape.
+  - **Picker**: add 13 entries to the existing `Block Arrows` section. Existing Block Arrows row of `STYLE_BY_KIND` covers them.
+  - **Smoke**: `pnpm dev` — verify all 13 appear; insert one curved (e.g. `curvedRightArrow`) and one ad-hoc (e.g. `uturnArrow`) and confirm rendering.
 
-- [ ] **T5 — 5 banners + handles**
+- [ ] **T5 — 5 banners + handles + new picker section**
   - New folder `shapes/banners/` with index module pattern matching existing families.
   - Files: `banners/{ribbon,ribbon2,horizontal-scroll,vertical-scroll,left-right-ribbon}.ts`.
   - `horizontalScroll` and `verticalScroll` share a private `scrollEnds` helper for the curled-end paths (uses `polylineArc`).
   - Register family in `shapes/index.ts`.
+  - **Picker**: introduce the new `Banners` section in `SHAPE_PICKER_CATEGORIES` between Block Arrows and Flowchart (matches design doc ordering). Add 5 entries.
+  - **`STYLE_BY_KIND`**: add Banners row (`'filled' (accent1)`).
+  - **Smoke**: `pnpm dev` — verify the new Banners section appears in the picker after Block Arrows, all 5 entries visible and insertable.
 
-- [ ] **T6 — 3 line callouts + handles**
+- [ ] **T6 — 3 line callouts + handles + picker entries**
   - Files: `callouts/{border-callout-1,border-callout-2,border-callout-3}.ts`.
   - Multiple tail points → reuse `pointTailHandle` factory (P3-A.2 lessons §2 already promoted it to `callouts/handles.ts`); each callout registers 2-4 handles.
   - Unit + handle tests per shape.
+  - **Picker**: append 3 entries to the existing `Callouts` section. Existing Callouts row of `STYLE_BY_KIND` covers them.
+  - **Smoke**: `pnpm dev` — verify the 3 line callouts appear at the bottom of the Callouts section; drag-add one and confirm tail handles drag correctly.
 
-- [ ] **T7 — 12 action buttons + `drawActionButton` + dispatcher branch**
+- [ ] **T7 — 12 action buttons + `drawActionButton` + dispatcher branch + new picker section**
   - New folder `shapes/action-buttons/`. Files per button: `action-buttons/<name>.ts` exporting `<NAME>_BODY: PathBuilder` and `<NAME>_GLYPH: (size) => Path2D`.
   - `shapes/action-buttons/index.ts` aggregates `ACTION_BUTTON_GLYPHS: Map<ShapeKind, GlyphBuilder>` (body builder map kept separate from `PATH_BUILDERS`).
   - `shape-special.ts`: new `drawActionButton(ctx, size, data, theme)` paints body (outer rect + 4 px inset bevel rect, single fill from `data.fill ?? role('background')`) then glyph (scaled by `min(w, h)`, fill = `role('text')`).
@@ -182,11 +199,12 @@ Each task = one commit on `slides-shapes-p3b`. Mark complete when the commit lan
   - Unit tests:
     - `action-buttons/<name>.test.ts`: snapshot body+glyph commands for default size.
     - `shape-special.test.ts`: extends to cover `drawActionButton` two-pass paint (fill called twice, distinct paths).
+  - **Picker**: introduce the new `Action Buttons` section as the last section in `SHAPE_PICKER_CATEGORIES`. Add 12 entries.
+  - **`STYLE_BY_KIND`**: add Action buttons row (`'filled' (background)` + `'text'` stroke 1; glyph fill forced to `'text'`).
+  - **`shape-picker.test.ts` invariants**: every action-button entry has a registered `ACTION_BUTTON_GLYPHS` glyph; every action-button kind is recognised by `isActionButton`.
+  - **Smoke**: `pnpm dev` — verify Action Buttons section appears at the end of the picker; insert at least 3 distinct buttons (e.g. Home, Forward Next, Help) and confirm body + glyph render with the right colours.
 
-- [ ] **T8 — Picker + insert + visual scenarios + baselines**
-  - `shape-picker-helpers.ts`: insert Banners (between Block Arrows and Flowchart) and Action Buttons (end). Add entries for all 62 new kinds with labels.
-  - `insert.ts` `STYLE_BY_KIND`: append banners (`'filled' (accent1)`), line callouts (`'filled' (background)` + `'text'` stroke 2 — already covered by existing callout rule), action buttons (`'filled' (background)` + `'text'` stroke 1; glyph forced to `'text'`).
-  - `shape-picker.test.ts` adds two invariants: every action-button entry has a registered `ACTION_BUTTON_GLYPHS` glyph; every action-button kind is recognised by `isActionButton`.
+- [ ] **T8 — Visual scenarios + whitelist + baselines + closeout invariants**
   - Visual scenarios in `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`:
     - `shapes-basic-p3b` (29 shapes — 22 basic + 7 snip/round)
     - `shapes-arrows-p3b` (13 block arrows + 5 banners = 18 shapes)
@@ -194,6 +212,7 @@ Each task = one commit on `slides-shapes-p3b`. Mark complete when the commit lan
     - `shapes-action-buttons` (12 buttons)
   - **Whitelist update** (P3-A.2 lessons §6 — easy to forget): add all 4 IDs to the `scenarioIds` array in `packages/frontend/scripts/verify-visual-browser.mjs`.
   - Regen baselines with `pnpm verify:browser:docker:update`; visually inspect each new baseline before commit.
+  - Final cross-family invariant pass: existing `shapes/index.test.ts` registry-consistency test asserts every parametric kind in `ADJUSTMENT_SPECS` has an `ADJUSTMENT_HANDLES` entry (auto-passes given T2–T7 discipline).
 
 ### Closeout
 
