@@ -1,4 +1,5 @@
 import { ADJUSTMENT_SPECS } from '../../canvas/shapes';
+import type { AdjustmentSpec } from '../../canvas/shapes/builder';
 import type { ShapeKind } from '../../../model/element';
 
 const SNAP_FRACTION = 0.05;
@@ -79,4 +80,35 @@ export function snapToDefaults(
     return Math.abs(v - spec.defaultValue) <= range * SNAP_FRACTION;
   });
   return allClose ? specs.map((s) => s.defaultValue) : adjustments;
+}
+
+/**
+ * Format an adjustment array for the drag tooltip. Single-axis specs
+ * return just the formatted value (e.g. "25%"); multi-axis specs use
+ * `axisLabel` (or, as a fallback, the last whitespace-delimited word
+ * of `name`) plus the formatted value, joined by " / ".
+ *
+ * Exported for unit testing; the editor's drag loop is the production
+ * caller.
+ */
+export function formatAdjustments(
+  specs: readonly AdjustmentSpec[],
+  values: number[],
+): string {
+  if (specs.length === 1) {
+    const v = values[0];
+    return specs[0].format ? specs[0].format(v) : String(v);
+  }
+  return specs
+    .map((s, i) => {
+      const label = s.axisLabel ?? lastWord(s.name);
+      const value = s.format ? s.format(values[i]) : String(values[i]);
+      return `${label}: ${value}`;
+    })
+    .join(' / ');
+}
+
+function lastWord(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts[parts.length - 1].toLowerCase();
 }

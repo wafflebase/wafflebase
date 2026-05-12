@@ -23,6 +23,7 @@ import {
   adjustmentLocalToWorld,
   adjustmentWorldToLocal,
   defaultAdjustmentsFor,
+  formatAdjustments,
   snapToDefaults,
 } from './interactions/adjustment';
 import {
@@ -1105,28 +1106,6 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
   return editor;
-}
-
-function formatAdjustments(
-  specs: readonly { name: string; format?: (v: number) => string }[],
-  values: number[],
-): string {
-  if (specs.length === 1) {
-    const v = values[0];
-    return specs[0].format ? specs[0].format(v) : String(v);
-  }
-  return specs
-    .map((s, i) => {
-      const label = lastWord(s.name);
-      const value = s.format ? s.format(values[i]) : String(values[i]);
-      return `${label}: ${value}`;
-    })
-    .join(' / ');
-}
-
-function lastWord(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts[parts.length - 1].toLowerCase();
 }
 
 function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {

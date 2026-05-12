@@ -22,9 +22,11 @@ import { insetAlongAxis } from '../handles';
  * bar edges at each crossing.
  */
 export const MATH_NOT_EQUAL_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Bar thickness', defaultValue: 23520, min: 0, max: 50000 },
+  // axisLabel disambiguates the two "thickness" entries in the
+  // multi-axis tooltip; without it both would collapse to "thickness".
+  { name: 'Bar thickness', defaultValue: 23520, min: 0, max: 50000, axisLabel: 'bar' },
   { name: 'Gap', defaultValue: 11760, min: 0, max: 50000 },
-  { name: 'Slash thickness', defaultValue: 6600, min: 0, max: 50000 },
+  { name: 'Slash thickness', defaultValue: 6600, min: 0, max: 50000, axisLabel: 'slash' },
 ];
 
 export const buildMathNotEqual: PathBuilder = ({ w, h }, adjustments) => {

@@ -3,9 +3,11 @@ import {
   adjustmentLocalToWorld,
   adjustmentWorldToLocal,
   defaultAdjustmentsFor,
+  formatAdjustments,
   snapToDefaults,
 } from './adjustment';
 import { STAR_5_HANDLES } from '../../canvas/shapes/stars/star5';
+import type { AdjustmentSpec } from '../../canvas/shapes/builder';
 
 describe('defaultAdjustmentsFor', () => {
   it('returns the spec defaults for a registered kind', () => {
@@ -118,5 +120,46 @@ describe('adjustmentLocalToWorld / adjustmentWorldToLocal', () => {
       backLocal,
     );
     expect(next[0]).toBeCloseTo(adjustments[0], -1);
+  });
+});
+
+describe('formatAdjustments', () => {
+  const SINGLE: AdjustmentSpec[] = [
+    {
+      name: 'Corner radius',
+      defaultValue: 16667,
+      min: 0,
+      max: 50000,
+      format: (v) => `${(v / 1000).toFixed(1)}%`,
+    },
+  ];
+
+  const TAIL_XY: AdjustmentSpec[] = [
+    { name: 'Tail x', defaultValue: 0, min: -100000, max: 100000 },
+    { name: 'Tail y', defaultValue: 0, min: -100000, max: 100000 },
+  ];
+
+  const COLLIDING: AdjustmentSpec[] = [
+    { name: 'Bar thickness', defaultValue: 0, min: 0, max: 50000, axisLabel: 'bar' },
+    { name: 'Gap', defaultValue: 0, min: 0, max: 50000 },
+    { name: 'Slash thickness', defaultValue: 0, min: 0, max: 50000, axisLabel: 'slash' },
+  ];
+
+  it('single-axis returns the formatted value with no label', () => {
+    expect(formatAdjustments(SINGLE, [25000])).toBe('25.0%');
+  });
+
+  it('multi-axis falls back to lastWord when axisLabel is absent', () => {
+    expect(formatAdjustments(TAIL_XY, [50000, -75000])).toBe(
+      'x: 50000 / y: -75000',
+    );
+  });
+
+  it('axisLabel overrides the lastWord heuristic when present', () => {
+    // Without axisLabel both "Bar thickness" and "Slash thickness"
+    // would collapse to "thickness". The explicit labels disambiguate.
+    expect(formatAdjustments(COLLIDING, [20000, 10000, 5000])).toBe(
+      'bar: 20000 / gap: 10000 / slash: 5000',
+    );
   });
 });

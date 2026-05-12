@@ -30,6 +30,15 @@ export type AdjustmentSpec = {
   min: number;
   max: number;
   format?: (value: number) => string;
+  /**
+   * Optional short label for the multi-axis drag tooltip
+   * ("x: 75% / y: 100%"). When absent the tooltip falls back to the
+   * last whitespace-delimited word of `name` (e.g. "Tail x" → "x").
+   * Populate this when the heuristic would collide — e.g. mathNotEqual's
+   * "Bar thickness" and "Slash thickness" both end in "thickness" and
+   * need explicit labels to stay distinguishable.
+   */
+  axisLabel?: string;
 };
 
 /**
