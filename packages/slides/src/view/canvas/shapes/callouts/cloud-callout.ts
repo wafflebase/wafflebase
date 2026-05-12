@@ -1,6 +1,7 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 import { buildCloud } from '../basic/cloud';
+import { pointTailHandle } from './handles';
 
 /**
  * `cloudCallout` — cloud silhouette plus two small "thought-bubble"
@@ -52,3 +53,10 @@ export const buildCloudCallout: PathBuilder = ({ w, h }, adjustments) => {
   path.arc(small2.x, small2.y, small2.r, 0, Math.PI * 2);
   return path;
 };
+
+export const CLOUD_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
+  pointTailHandle(
+    CLOUD_CALLOUT_ADJUSTMENTS[0],
+    CLOUD_CALLOUT_ADJUSTMENTS[1],
+  ),
+];

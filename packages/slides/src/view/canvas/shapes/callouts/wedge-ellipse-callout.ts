@@ -1,5 +1,6 @@
-import type { PathBuilder, AdjustmentSpec } from '../builder';
+import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
+import { pointTailHandle } from './handles';
 
 /**
  * `wedgeEllipseCallout` — elliptical speech bubble with a triangular
@@ -40,3 +41,10 @@ export const buildWedgeEllipseCallout: PathBuilder = ({ w, h }, adjustments) => 
   path.closePath();
   return path;
 };
+
+export const WEDGE_ELLIPSE_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
+  pointTailHandle(
+    WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS[0],
+    WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS[1],
+  ),
+];

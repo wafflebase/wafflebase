@@ -51,19 +51,30 @@ export function linearTopEdgeHandle(opts: {
   forward: (adj: number, frame: FrameSize) => number;
   inverse: (x: number, frame: FrameSize) => number;
   spec: AdjustmentSpec;
+  /**
+   * Which adjustment index this handle controls. Defaults to 0 for
+   * single-adjustment shapes; multi-adjustment shapes pass the right
+   * index (e.g. wedgeRoundRectCallout's corner radius is index 2).
+   * Other indices are passed through from `startAdjustments` per the
+   * `AdjustmentHandle` contract.
+   */
+  index?: number;
 }): AdjustmentHandle {
-  const { forward, inverse, spec } = opts;
+  const { forward, inverse, spec, index = 0 } = opts;
   return {
     position: (frame, adjustments) => ({
       x: insetAlongAxis(
-        forward(adjustments[0] ?? spec.defaultValue, frame),
+        forward(adjustments[index] ?? spec.defaultValue, frame),
         frame.w,
       ),
       y: 0,
     }),
-    apply: (frame, _start, pointer) => {
+    apply: (frame, start, pointer) => {
       const raw = Math.round(inverse(pointer.x, frame));
-      return [Math.max(spec.min, Math.min(spec.max, raw))];
+      const clamped = Math.max(spec.min, Math.min(spec.max, raw));
+      const result = [...start];
+      result[index] = clamped;
+      return result;
     },
   };
 }

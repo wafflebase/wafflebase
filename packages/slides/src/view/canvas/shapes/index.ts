@@ -40,14 +40,17 @@ import {
 import {
   buildWedgeRoundRectCallout,
   WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS,
+  WEDGE_ROUND_RECT_CALLOUT_HANDLES,
 } from './callouts/wedge-round-rect-callout';
 import {
   buildWedgeEllipseCallout,
   WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS,
+  WEDGE_ELLIPSE_CALLOUT_HANDLES,
 } from './callouts/wedge-ellipse-callout';
 import {
   buildCloudCallout,
   CLOUD_CALLOUT_ADJUSTMENTS,
+  CLOUD_CALLOUT_HANDLES,
 } from './callouts/cloud-callout';
 import { buildMathPlus, MATH_PLUS_ADJUSTMENTS } from './equation/math-plus';
 import { buildMathMinus } from './equation/math-minus';
@@ -192,6 +195,9 @@ ADJUSTMENT_HANDLES.set('upArrow', UP_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('downArrow', DOWN_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('leftRightArrow', LEFT_RIGHT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('quadArrow', QUAD_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('wedgeRoundRectCallout', WEDGE_ROUND_RECT_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('wedgeEllipseCallout', WEDGE_ELLIPSE_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('cloudCallout', CLOUD_CALLOUT_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
