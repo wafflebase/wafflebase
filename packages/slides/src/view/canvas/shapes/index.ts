@@ -17,6 +17,14 @@ import { buildPentagon } from './basic/pentagon';
 import { buildHeptagon } from './basic/heptagon';
 import { buildDecagon } from './basic/decagon';
 import { buildDodecagon } from './basic/dodecagon';
+import { buildPie, PIE_ADJUSTMENTS, PIE_HANDLES } from './basic/pie';
+import { buildChord, CHORD_ADJUSTMENTS, CHORD_HANDLES } from './basic/chord';
+import { buildArc, ARC_ADJUSTMENTS, ARC_HANDLES } from './basic/arc';
+import {
+  buildBlockArc,
+  BLOCK_ARC_ADJUSTMENTS,
+  BLOCK_ARC_HANDLES,
+} from './basic/block-arc';
 import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
@@ -136,6 +144,10 @@ PATH_BUILDERS.set('heptagon', buildHeptagon);
 PATH_BUILDERS.set('octagon', buildOctagon);
 PATH_BUILDERS.set('decagon', buildDecagon);
 PATH_BUILDERS.set('dodecagon', buildDodecagon);
+PATH_BUILDERS.set('pie', buildPie);
+PATH_BUILDERS.set('chord', buildChord);
+PATH_BUILDERS.set('arc', buildArc);
+PATH_BUILDERS.set('blockArc', buildBlockArc);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -248,3 +260,11 @@ ADJUSTMENT_SPECS.set('star6', STAR_6_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('star7', STAR_7_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('star8', STAR_8_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('star10', STAR_10_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('pie', PIE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('chord', CHORD_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('arc', ARC_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('blockArc', BLOCK_ARC_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('pie', PIE_HANDLES);
+ADJUSTMENT_HANDLES.set('chord', CHORD_HANDLES);
+ADJUSTMENT_HANDLES.set('arc', ARC_HANDLES);
+ADJUSTMENT_HANDLES.set('blockArc', BLOCK_ARC_HANDLES);

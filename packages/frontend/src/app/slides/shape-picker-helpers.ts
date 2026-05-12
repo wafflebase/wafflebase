@@ -67,6 +67,10 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "donut", label: "Donut" },
       { kind: "can", label: "Can" },
       { kind: "cloud", label: "Cloud" },
+      { kind: "pie", label: "Pie" },
+      { kind: "chord", label: "Chord" },
+      { kind: "arc", label: "Arc" },
+      { kind: "blockArc", label: "Block arc" },
     ],
   },
   {

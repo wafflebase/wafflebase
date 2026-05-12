@@ -21,7 +21,8 @@ import {
  * IconButton's `aria-label` for accessibility.
  *
  * The entry-count expectation is updated as P3-B adds new shapes:
- * 55 (P3-A.2) → 58 (P3-B T2a: heptagon, decagon, dodecagon) → …
+ * 55 (P3-A.2) → 58 (T2a: heptagon, decagon, dodecagon) → 62
+ * (T2b: pie, chord, arc, blockArc) → …
  */
 
 describe("shape-picker categories", () => {
@@ -48,12 +49,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 58 ShapeKind entries across all categories", () => {
+  it("contains exactly 62 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 58);
+    assert.equal(total, 62);
   });
 
   it("each entry has a non-empty kind and label", () => {

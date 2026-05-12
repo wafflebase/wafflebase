@@ -38,6 +38,7 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'rect', 'roundRect', 'ellipse', 'triangle', 'rtTriangle', 'diamond',
       'parallelogram', 'trapezoid', 'pentagon', 'hexagon', 'octagon',
       'plus', 'donut', 'can', 'cloud',
+      'pie', 'chord', 'blockArc',
       'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
       'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
       'mathPlus', 'mathMinus', 'mathMultiply',
@@ -45,6 +46,11 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
     ] as ShapeKind[]
   ).map((k) => [k, 'filled' as ShapeStyle] as const)),
+  // Arc → stroke-only (open path). Reuses `lineSpecial` since the
+  // dispatcher behaviour we need is the same: stroke = text colour,
+  // no fill. Adding a fourth ShapeStyle for one shape would be
+  // overkill; the visual outcome matches.
+  ['arc', 'lineSpecial'],
   // Callouts → outlined
   ['wedgeRectCallout', 'outlined'],
   ['wedgeRoundRectCallout', 'outlined'],
