@@ -23,7 +23,9 @@ import {
  * The entry-count expectation is updated as P3-B adds new shapes:
  * 55 (P3-A.2) → 58 (T2a: heptagon, decagon, dodecagon) → 62
  * (T2b: pie, chord, arc, blockArc) → 70 (T2c: frame, halfFrame,
- * corner, diagStripe, plaque, bevel, foldedCorner, cube) → …
+ * corner, diagStripe, plaque, bevel, foldedCorner, cube) → 77
+ * (T2d: teardrop, smileyFace, heart, lightningBolt, sun, moon,
+ * noSmoking) → …
  */
 
 describe("shape-picker categories", () => {
@@ -50,12 +52,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 70 ShapeKind entries across all categories", () => {
+  it("contains exactly 77 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 70);
+    assert.equal(total, 77);
   });
 
   it("each entry has a non-empty kind and label", () => {

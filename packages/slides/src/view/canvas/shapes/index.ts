@@ -65,6 +65,25 @@ import {
   CUBE_ADJUSTMENTS,
   CUBE_HANDLES,
 } from './basic/cube';
+import {
+  buildTeardrop,
+  TEARDROP_ADJUSTMENTS,
+  TEARDROP_HANDLES,
+} from './basic/teardrop';
+import { buildHeart } from './basic/heart';
+import { buildLightningBolt } from './basic/lightning-bolt';
+import { buildSun, SUN_ADJUSTMENTS, SUN_HANDLES } from './basic/sun';
+import { buildMoon, MOON_ADJUSTMENTS, MOON_HANDLES } from './basic/moon';
+import {
+  buildNoSmoking,
+  NO_SMOKING_ADJUSTMENTS,
+  NO_SMOKING_HANDLES,
+} from './basic/no-smoking';
+import {
+  buildSmileyFace,
+  SMILEY_FACE_ADJUSTMENTS,
+  SMILEY_FACE_HANDLES,
+} from './basic/smiley-face';
 import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
@@ -196,6 +215,13 @@ PATH_BUILDERS.set('plaque', buildPlaque);
 PATH_BUILDERS.set('bevel', buildBevel);
 PATH_BUILDERS.set('foldedCorner', buildFoldedCorner);
 PATH_BUILDERS.set('cube', buildCube);
+PATH_BUILDERS.set('teardrop', buildTeardrop);
+PATH_BUILDERS.set('smileyFace', buildSmileyFace);
+PATH_BUILDERS.set('heart', buildHeart);
+PATH_BUILDERS.set('lightningBolt', buildLightningBolt);
+PATH_BUILDERS.set('sun', buildSun);
+PATH_BUILDERS.set('moon', buildMoon);
+PATH_BUILDERS.set('noSmoking', buildNoSmoking);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -332,3 +358,13 @@ ADJUSTMENT_HANDLES.set('plaque', PLAQUE_HANDLES);
 ADJUSTMENT_HANDLES.set('bevel', BEVEL_HANDLES);
 ADJUSTMENT_HANDLES.set('foldedCorner', FOLDED_CORNER_HANDLES);
 ADJUSTMENT_HANDLES.set('cube', CUBE_HANDLES);
+ADJUSTMENT_SPECS.set('teardrop', TEARDROP_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('smileyFace', SMILEY_FACE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('sun', SUN_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('moon', MOON_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('noSmoking', NO_SMOKING_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('teardrop', TEARDROP_HANDLES);
+ADJUSTMENT_HANDLES.set('smileyFace', SMILEY_FACE_HANDLES);
+ADJUSTMENT_HANDLES.set('sun', SUN_HANDLES);
+ADJUSTMENT_HANDLES.set('moon', MOON_HANDLES);
+ADJUSTMENT_HANDLES.set('noSmoking', NO_SMOKING_HANDLES);

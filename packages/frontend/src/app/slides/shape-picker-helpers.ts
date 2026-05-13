@@ -79,6 +79,13 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "bevel", label: "Bevel" },
       { kind: "foldedCorner", label: "Folded corner" },
       { kind: "cube", label: "Cube" },
+      { kind: "teardrop", label: "Teardrop" },
+      { kind: "smileyFace", label: "Smiley face" },
+      { kind: "heart", label: "Heart" },
+      { kind: "lightningBolt", label: "Lightning bolt" },
+      { kind: "sun", label: "Sun" },
+      { kind: "moon", label: "Moon" },
+      { kind: "noSmoking", label: "No symbol" },
     ],
   },
   {

@@ -33,6 +33,8 @@ export type ShapeKind =
   | 'pie' | 'chord' | 'arc' | 'blockArc'
   | 'frame' | 'halfFrame' | 'corner' | 'diagStripe'
   | 'plaque' | 'bevel' | 'foldedCorner' | 'cube'
+  | 'teardrop' | 'smileyFace' | 'heart' | 'lightningBolt'
+  | 'sun' | 'moon' | 'noSmoking'
   // Block arrows (8)
   | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
   | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
