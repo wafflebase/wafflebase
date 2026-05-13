@@ -30,6 +30,8 @@ import {
   parseRef,
   parseRange,
   isCrossSheetRef,
+  toSref,
+  toSrng,
 } from '../model/core/coordinates';
 
 /**
@@ -238,7 +240,134 @@ export function extractReferences(formula: string): Set<Reference> {
     }
   }
 
+  // Static OFFSET calls reference cells that are not visible as tokens.
+  addStaticOffsetReferences(formula, references);
+
   return references;
+}
+
+function addStaticOffsetReferences(
+  formula: string,
+  references: Set<Reference>,
+): void {
+  const parsed = parseExpression(formula);
+  if (!parsed || hasSyntaxErrors(parsed)) {
+    return;
+  }
+
+  collectStaticOffsetReferences(parsed.tree, references);
+}
+
+function collectStaticOffsetReferences(
+  tree: ParseTree,
+  references: Set<Reference>,
+): void {
+  if (
+    tree instanceof FunctionContext &&
+    tree.FUNCNAME().text.toUpperCase() === 'OFFSET'
+  ) {
+    const reference = buildStaticOffsetReference(tree);
+    if (reference) {
+      references.add(reference);
+    }
+  }
+
+  for (let i = 0; i < tree.childCount; i++) {
+    collectStaticOffsetReferences(tree.getChild(i), references);
+  }
+}
+
+function buildStaticOffsetReference(
+  ctx: FunctionContext,
+): Reference | undefined {
+  const exprs = ctx.args()?.expr();
+  if (!exprs || exprs.length < 3 || exprs.length > 5) {
+    return undefined;
+  }
+
+  const reference = getStaticReference(exprs[0]);
+  const rowOffset = getStaticNumber(exprs[1]);
+  const colOffset = getStaticNumber(exprs[2]);
+  if (
+    reference === undefined ||
+    rowOffset === undefined ||
+    colOffset === undefined
+  ) {
+    return undefined;
+  }
+
+  try {
+    let localReference = reference;
+    let prefix = '';
+    if (isCrossSheetRef(reference)) {
+      const separatorIndex = reference.lastIndexOf('!');
+      prefix = reference.slice(0, separatorIndex + 1);
+      localReference = reference.slice(separatorIndex + 1);
+    }
+
+    const [from, to] = isSrng(localReference)
+      ? parseRange(localReference)
+      : [parseRef(localReference), parseRef(localReference)];
+    const startRow = Math.min(from.r, to.r);
+    const startCol = Math.min(from.c, to.c);
+    const defaultHeight = Math.abs(to.r - from.r) + 1;
+    const defaultWidth = Math.abs(to.c - from.c) + 1;
+
+    const height = getStaticNumber(exprs[3]) ?? defaultHeight;
+    const width = getStaticNumber(exprs[4]) ?? defaultWidth;
+    if (height < 1 || width < 1) {
+      return undefined;
+    }
+
+    const newFrom = {
+      r: startRow + Math.trunc(rowOffset),
+      c: startCol + Math.trunc(colOffset),
+    };
+    const newTo = {
+      r: newFrom.r + Math.trunc(height) - 1,
+      c: newFrom.c + Math.trunc(width) - 1,
+    };
+    if (newFrom.r < 1 || newFrom.c < 1 || newTo.r < 1 || newTo.c < 1) {
+      return undefined;
+    }
+
+    const offsetReference =
+      newFrom.r === newTo.r && newFrom.c === newTo.c
+        ? toSref(newFrom)
+        : toSrng([newFrom, newTo]);
+    return `${prefix}${offsetReference}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function getStaticReference(
+  tree: ParseTree | undefined,
+): Reference | undefined {
+  if (tree instanceof ReferenceContext) {
+    return tree.text.toUpperCase();
+  }
+  if (tree instanceof ParenthesesContext) {
+    return getStaticReference(tree.expr());
+  }
+  return undefined;
+}
+
+function getStaticNumber(tree: ParseTree | undefined): number | undefined {
+  if (tree instanceof NumberContext) {
+    return Number(tree.text);
+  }
+  if (tree instanceof UnarySignContext) {
+    const value = getStaticNumber(tree.expr());
+    if (value === undefined) {
+      return undefined;
+    }
+    return tree.SUB() ? -value : value;
+  }
+  if (tree instanceof ParenthesesContext) {
+    return getStaticNumber(tree.expr());
+  }
+  return undefined;
 }
 
 /**

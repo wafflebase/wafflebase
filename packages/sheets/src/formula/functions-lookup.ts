@@ -10,6 +10,8 @@ import {
   parseRange,
   parseRef,
   toColumnLabel,
+  toSref,
+  toSrng,
 } from '../model/core/coordinates';
 import {
   toStr,
@@ -705,25 +707,82 @@ export function offsetFunc(
   const rowOffset = Math.trunc(rowsNode.v);
   const colOffset = Math.trunc(colsNode.v);
 
-  // Parse the starting reference
-  const refStr = isSrng(refNode.v) ? refNode.v.split(':')[0] : refNode.v;
-  const parsed = parseRef(refStr);
+  let localRef = refNode.v;
+  let prefix = '';
+  if (isCrossSheetRef(localRef)) {
+    const parsedCrossSheetRef = parseCrossSheetRef(localRef);
+    localRef = parsedCrossSheetRef.localRef;
+    prefix = `${parsedCrossSheetRef.sheetName}!`;
+  }
 
-  const newRow = parsed.r + rowOffset;
-  const newCol = parsed.c + colOffset;
+  const [from, to] = isSrng(localRef)
+    ? parseRange(localRef)
+    : [parseRef(localRef), parseRef(localRef)];
+  const startRow = Math.min(from.r, to.r);
+  const startCol = Math.min(from.c, to.c);
+  const defaultHeight = Math.abs(to.r - from.r) + 1;
+  const defaultWidth = Math.abs(to.c - from.c) + 1;
 
-  if (newRow < 1 || newCol < 1) {
+  const height = resolveOffsetDimension(exprs[3], visit, grid, defaultHeight);
+  if (typeof height !== 'number') return height;
+  const width = resolveOffsetDimension(exprs[4], visit, grid, defaultWidth);
+  if (typeof width !== 'number') return width;
+
+  const newFrom = { r: startRow + rowOffset, c: startCol + colOffset };
+  const newTo = { r: newFrom.r + height - 1, c: newFrom.c + width - 1 };
+
+  if (newFrom.r < 1 || newFrom.c < 1 || newTo.r < 1 || newTo.c < 1) {
     return ErrNode.REF;
   }
 
-  // For single cell OFFSET (no height/width or 1x1)
-  const newRef = `${toColumnLabel(newCol)}${newRow}`;
-  const cellVal = grid.get(newRef)?.v || '';
-  const num = Number(cellVal);
-  if (cellVal !== '' && !isNaN(num)) {
-    return { t: 'num', v: num };
+  const bounds = getGridBounds(grid);
+  if (bounds && (newTo.r > bounds.maxRow || newTo.c > bounds.maxCol)) {
+    return ErrNode.REF;
   }
-  return { t: 'str', v: cellVal };
+
+  const reference =
+    height === 1 && width === 1 ? toSref(newFrom) : toSrng([newFrom, newTo]);
+  return { t: 'ref', v: `${prefix}${reference}` };
+}
+
+function resolveOffsetDimension(
+  expr: ParseTree | undefined,
+  visit: (tree: ParseTree) => EvalNode,
+  grid: Grid,
+  fallback: number,
+): number | ErrNode {
+  if (!expr) {
+    return fallback;
+  }
+
+  const node = NumberArgs.map(visit(expr), grid);
+  if (node.t === 'err') {
+    return node;
+  }
+
+  const dimension = Math.trunc(node.v);
+  return dimension > 0 ? dimension : ErrNode.REF;
+}
+
+function getGridBounds(grid: Grid): { maxRow: number; maxCol: number } | undefined {
+  let maxRow = 0;
+  let maxCol = 0;
+  for (const ref of grid.keys()) {
+    try {
+      const localRef = isCrossSheetRef(ref)
+        ? parseCrossSheetRef(ref).localRef
+        : ref;
+      const [from, to] = isSrng(localRef)
+        ? parseRange(localRef)
+        : [parseRef(localRef), parseRef(localRef)];
+      maxRow = Math.max(maxRow, from.r, to.r);
+      maxCol = Math.max(maxCol, from.c, to.c);
+    } catch {
+      // Ignore non-cell keys; formula grids are keyed by A1 references.
+    }
+  }
+
+  return maxRow > 0 && maxCol > 0 ? { maxRow, maxCol } : undefined;
 }
 
 /**

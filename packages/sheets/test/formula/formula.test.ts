@@ -1586,6 +1586,18 @@ describe('Formula', () => {
     expect(evaluate('=OFFSET(A1,1,1)', grid)).toBe('40');
     // OFFSET(A1, 0, 1) = B1 = 20
     expect(evaluate('=OFFSET(A1,0,1)', grid)).toBe('20');
+    // OFFSET(A1, 0, 0, 2, 2) = A1:B2
+    expect(evaluate('=SUM(OFFSET(A1,0,0,2,2))', grid)).toBe('100');
+    expect(evaluate('=OFFSET(A1,100,0)', grid)).toBe('#REF!');
+  });
+
+  it('should evaluate OFFSET ranges with height and width', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+
+    expect(evaluate('=SUM(OFFSET(A1,0,0,3,1))', grid)).toBe('60');
   });
 
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
@@ -3594,6 +3606,15 @@ describe('Formula', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
       new Set(['A1', 'A2:A3', 'A4']),
+    );
+  });
+
+  it('should extract static OFFSET range references', () => {
+    expect(extractReferences('=SUM(OFFSET(A1,0,0,3,1))')).toEqual(
+      new Set(['A1', 'A1:A3']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,1,1,2,2))')).toEqual(
+      new Set(['A1', 'B2:C3']),
     );
   });
 
