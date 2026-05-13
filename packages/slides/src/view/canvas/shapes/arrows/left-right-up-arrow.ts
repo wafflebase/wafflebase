@@ -23,10 +23,14 @@ export const LEFT_RIGHT_UP_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Up arm length', defaultValue: 35000, min: 0, max: 100000 },
 ];
 
+const LRU_DEFAULT_HEAD_LENGTH = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[0].defaultValue;
+const LRU_DEFAULT_HEAD_WIDTH = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[1].defaultValue;
+const LRU_DEFAULT_UP_ARM = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[2].defaultValue;
+
 export const buildLeftRightUpArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const headLen = (adj(adjustments, 0, 25000) / 100000) * (w / 2);
-  const headHalf = (adj(adjustments, 1, 25000) / 100000) * (h / 2);
-  const upLen = (adj(adjustments, 2, 25000) / 100000) * h;
+  const headLen = (adj(adjustments, 0, LRU_DEFAULT_HEAD_LENGTH) / 100000) * (w / 2);
+  const headHalf = (adj(adjustments, 1, LRU_DEFAULT_HEAD_WIDTH) / 100000) * (h / 2);
+  const upLen = (adj(adjustments, 2, LRU_DEFAULT_UP_ARM) / 100000) * h;
   const shaftHalfV = headHalf * 0.5;
   const cx = w / 2;
   const cy = h - headHalf; // central horizontal shaft sits near the bottom
@@ -57,8 +61,8 @@ export const LEFT_RIGHT_UP_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   // Head length — diamond on the horizontal centerline at left head.
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? 25000) / 100000) * (w / 2);
-      const headHalf = ((adjustments[1] ?? 25000) / 100000) * (h / 2);
+      const headLen = ((adjustments[0] ?? LRU_DEFAULT_HEAD_LENGTH) / 100000) * (w / 2);
+      const headHalf = ((adjustments[1] ?? LRU_DEFAULT_HEAD_WIDTH) / 100000) * (h / 2);
       const cy = h - headHalf;
       return { x: insetAlongAxis(headLen, w), y: cy };
     },
@@ -68,16 +72,16 @@ export const LEFT_RIGHT_UP_ARROW_HANDLES: readonly AdjustmentHandle[] = [
       const spec = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[0];
       return [
         Math.max(spec.min, Math.min(spec.max, raw)),
-        start[1] ?? 25000,
-        start[2] ?? 25000,
+        start[1] ?? LRU_DEFAULT_HEAD_WIDTH,
+        start[2] ?? LRU_DEFAULT_UP_ARM,
       ];
     },
   },
   // Head width — diamond at outer corner of left head.
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? 25000) / 100000) * (w / 2);
-      const headHalf = ((adjustments[1] ?? 25000) / 100000) * (h / 2);
+      const headLen = ((adjustments[0] ?? LRU_DEFAULT_HEAD_LENGTH) / 100000) * (w / 2);
+      const headHalf = ((adjustments[1] ?? LRU_DEFAULT_HEAD_WIDTH) / 100000) * (h / 2);
       const cy = h - headHalf;
       return {
         x: insetAlongAxis(headLen, w),
@@ -86,20 +90,24 @@ export const LEFT_RIGHT_UP_ARROW_HANDLES: readonly AdjustmentHandle[] = [
     },
     apply: ({ h }, start, pointer) => {
       const y = Math.max(0, Math.min(h, pointer.y));
-      const headHalf = Math.max(0, h - y);
+      // `position` places the diamond at `y = cy − headHalf` where
+      // `cy = h − headHalf`, so `y = h − 2·headHalf`. The inverse
+      // must halve `(h − y)` to round-trip; the earlier `h − y`
+      // doubled the value (e.g. 50000 → 100000 on a no-op drag).
+      const headHalf = Math.max(0, Math.min(h / 2, (h - y) / 2));
       const raw = h > 0 ? Math.round((headHalf / (h / 2)) * 100000) : 0;
       const spec = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[1];
       return [
-        start[0] ?? 25000,
+        start[0] ?? LRU_DEFAULT_HEAD_LENGTH,
         Math.max(spec.min, Math.min(spec.max, raw)),
-        start[2] ?? 25000,
+        start[2] ?? LRU_DEFAULT_UP_ARM,
       ];
     },
   },
   // Up-arm length — diamond at the tip of the up arrow.
   {
     position: ({ w, h }, adjustments) => {
-      const upLen = ((adjustments[2] ?? 25000) / 100000) * h;
+      const upLen = ((adjustments[2] ?? LRU_DEFAULT_UP_ARM) / 100000) * h;
       return { x: w / 2, y: insetAlongAxis(upLen, h) };
     },
     apply: ({ h }, start, pointer) => {
@@ -107,8 +115,8 @@ export const LEFT_RIGHT_UP_ARROW_HANDLES: readonly AdjustmentHandle[] = [
       const raw = h > 0 ? Math.round((y / h) * 100000) : 0;
       const spec = LEFT_RIGHT_UP_ARROW_ADJUSTMENTS[2];
       return [
-        start[0] ?? 25000,
-        start[1] ?? 25000,
+        start[0] ?? LRU_DEFAULT_HEAD_LENGTH,
+        start[1] ?? LRU_DEFAULT_HEAD_WIDTH,
         Math.max(spec.min, Math.min(spec.max, raw)),
       ];
     },

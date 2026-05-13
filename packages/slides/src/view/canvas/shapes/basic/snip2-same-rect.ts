@@ -47,13 +47,19 @@ export const buildSnip2SameRect: PathBuilder = ({ w, h }, adjustments) => {
 export const SNIP2_SAME_RECT_HANDLES: readonly AdjustmentHandle[] = [
   linearTopEdgeHandle({
     forward: (val, { w, h }) => (val / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => (x / Math.min(w, h)) * 100000,
+    inverse: (x, { w, h }) => {
+      const m = Math.min(w, h);
+      return m > 0 ? (x / m) * 100000 : 0;
+    },
     spec: SNIP2_SAME_RECT_ADJUSTMENTS[0],
     index: 0,
   }),
   linearTopEdgeHandle({
     forward: (val, { w, h }) => w - (val / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => ((w - x) / Math.min(w, h)) * 100000,
+    inverse: (x, { w, h }) => {
+      const m = Math.min(w, h);
+      return m > 0 ? ((w - x) / m) * 100000 : 0;
+    },
     spec: SNIP2_SAME_RECT_ADJUSTMENTS[1],
     index: 1,
   }),

@@ -68,6 +68,7 @@ export const SUN_HANDLES: readonly AdjustmentHandle[] = [
       // pointer is at distance r from centre on the +x axis →
       // inner radius = r; a = 100000 * (1 − r / outerRx).
       const rx = w / 2;
+      if (rx <= 0) return [...start];
       const r = Math.max(0, pointer.x - w / 2);
       const raw = Math.round(100000 * (1 - r / rx));
       const spec = SUN_ADJUSTMENTS[0];

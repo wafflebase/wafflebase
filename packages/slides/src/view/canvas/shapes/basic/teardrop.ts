@@ -48,6 +48,7 @@ export const TEARDROP_HANDLES: readonly AdjustmentHandle[] = [
       return { x: w / 2, y: insetAlongAxis(tipY, h) };
     },
     apply: ({ h }, start, pointer) => {
+      if (h <= 0) return [...start];
       // tipY = h/2 (1 - a/100000)  ⇒  a = 100000 (1 - 2y/h)
       const raw = Math.round(100000 * (1 - (2 * pointer.y) / h));
       const spec = TEARDROP_ADJUSTMENTS[0];

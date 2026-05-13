@@ -24,4 +24,20 @@ describe('LEFT_RIGHT_UP_ARROW_HANDLES', () => {
   it('exposes three handles', () => {
     expect(LEFT_RIGHT_UP_ARROW_HANDLES.length).toBe(3);
   });
+
+  it('head-width handle round-trips position → apply → position', () => {
+    // Regression for the doubling bug: position writes
+    // y = h − 2·headHalf; the earlier apply used headHalf = h − y,
+    // doubling the value on every drag.
+    const headWidthIdx = 1;
+    const start = [35000, 50000, 35000]; // spec defaults
+    const frame = { w: 200, h: 200 };
+    const p = LEFT_RIGHT_UP_ARROW_HANDLES[headWidthIdx].position(frame, start);
+    const back = LEFT_RIGHT_UP_ARROW_HANDLES[headWidthIdx].apply(
+      frame,
+      start,
+      p,
+    );
+    expect(back[headWidthIdx]).toBeCloseTo(start[headWidthIdx], -2);
+  });
 });

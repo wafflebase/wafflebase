@@ -591,9 +591,19 @@ function makeP3bAdjustmentsDoc(
     style?: 'filled' | 'outlined' | 'stroke';
   }>,
 ): SlidesDocument {
-  const cellW = 150;
+  // Compute `cellW` from the available slide width so the last
+  // column never clips off-screen. 12 cells × 150 px + 11 × 24 px gap
+  // + 30 px left margin = 2094 px, well past the 1920 px logical
+  // slide. The earlier hard-coded constants dropped coverage for the
+  // 12th kind in each scenario.
+  const canvasW = 1920;
+  const leftPad = 30;
+  const rightPad = 30;
+  const gap = 16;
+  const cellW = Math.floor(
+    (canvasW - leftPad - rightPad - gap * (rows.length - 1)) / rows.length,
+  );
   const cellH = 110;
-  const gap = 24;
   const yRow1 = 80;
   const yRow2 = 80 + cellH + 60;
   function styleFor(style: 'filled' | 'outlined' | 'stroke' | undefined) {
@@ -604,7 +614,7 @@ function makeP3bAdjustmentsDoc(
   }
   const elements: Element[] = [];
   rows.forEach((row, i) => {
-    const x = 30 + i * (cellW + gap);
+    const x = leftPad + i * (cellW + gap);
     const fillStroke = styleFor(row.style);
     elements.push({
       id: `${row.kind}-default`,

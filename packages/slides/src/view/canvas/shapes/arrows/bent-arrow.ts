@@ -50,7 +50,8 @@ export const BENT_ARROW_HANDLES: readonly AdjustmentHandle[] = [
     },
     apply: ({ w, h }, start, pointer) => {
       const y = Math.max(0, Math.min(h, pointer.y));
-      const raw = Math.round((y / Math.min(w, h)) * 100000);
+      const span = Math.min(w, h);
+      const raw = span > 0 ? Math.round((y / span) * 100000) : 0;
       const spec = BENT_ARROW_ADJUSTMENTS[0];
       return [
         Math.max(spec.min, Math.min(spec.max, raw)),

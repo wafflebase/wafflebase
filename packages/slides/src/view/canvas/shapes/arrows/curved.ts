@@ -134,15 +134,19 @@ export function curvedArrowHandles(
         };
       },
       apply: (size, start, pointer) => {
+        const minDim = Math.min(size.w, size.h);
         const pivot = spec.pivot(size);
         const dx = pointer.x - pivot.x;
         const dy = pointer.y - pivot.y;
         const r = Math.sqrt(dx * dx + dy * dy);
-        const headLen = ((start[1] ?? 20000) / 100000) * Math.min(size.w, size.h);
-        const outerR = Math.max(0, Math.min(size.w, size.h) - headLen);
+        const headLen = ((start[1] ?? 20000) / 100000) * minDim;
+        const outerR = Math.max(0, minDim - headLen);
         const shaft = Math.max(0, outerR - r);
+        // Builder uses `min(w, h)` as the shaft-thickness basis
+        // (see `buildCurvedArrow`); the apply formula must match,
+        // not the inner-band-relative `outerR`.
         const raw =
-          outerR > 0 ? Math.round((shaft / outerR) * 100000) : 0;
+          minDim > 0 ? Math.round((shaft / minDim) * 100000) : 0;
         const specA = CURVED_ARROW_ADJUSTMENTS[0];
         return [
           Math.max(specA.min, Math.min(specA.max, raw)),

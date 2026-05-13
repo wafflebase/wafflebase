@@ -51,14 +51,20 @@ export const SNIP2_DIAG_RECT_HANDLES: readonly AdjustmentHandle[] = [
   // NE chamfer: top-edge handle at x = w - cNe.
   linearTopEdgeHandle({
     forward: (val, { w, h }) => w - (val / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => ((w - x) / Math.min(w, h)) * 100000,
+    inverse: (x, { w, h }) => {
+      const m = Math.min(w, h);
+      return m > 0 ? ((w - x) / m) * 100000 : 0;
+    },
     spec: SNIP2_DIAG_RECT_ADJUSTMENTS[0],
     index: 0,
   }),
   // SW chamfer: left-edge handle at y = h - cSw.
   linearLeftEdgeHandle({
     forward: (val, { w, h }) => h - (val / 100000) * Math.min(w, h),
-    inverse: (y, { w, h }) => ((h - y) / Math.min(w, h)) * 100000,
+    inverse: (y, { w, h }) => {
+      const m = Math.min(w, h);
+      return m > 0 ? ((h - y) / m) * 100000 : 0;
+    },
     spec: SNIP2_DIAG_RECT_ADJUSTMENTS[1],
     index: 1,
   }),

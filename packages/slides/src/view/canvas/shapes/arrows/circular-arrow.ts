@@ -83,14 +83,21 @@ export const CIRCULAR_ARROW_HANDLES: readonly AdjustmentHandle[] = [
       };
     },
     apply: ({ w, h }, start, pointer) => {
+      const minDim = Math.min(w, h);
+      if (minDim <= 0) return [...start];
       const cx = w / 2;
       const cy = h / 2;
       const dx = pointer.x - cx;
       const dy = pointer.y - cy;
       const r = Math.sqrt(dx * dx + dy * dy);
-      const outerR = Math.min(w, h) / 2;
-      const shaft = Math.max(0, outerR - r);
-      const raw = Math.round((shaft / outerR) * 100000);
+      // Builder interprets `adj[0]` against `min(w, h)` (see line 32),
+      // so the normalization basis must match — the earlier
+      // `/ outerR (= min(w,h)/2)` doubled the value and made drag
+      // updates overshoot.
+      const headLen = ((start[1] ?? 12500) / 100000) * minDim;
+      const outerR = minDim / 2 - headLen;
+      const shaft = Math.max(0, Math.min(outerR, outerR - r));
+      const raw = Math.round((shaft / minDim) * 100000);
       const spec = CIRCULAR_ARROW_ADJUSTMENTS[0];
       return [
         Math.max(spec.min, Math.min(spec.max, raw)),
@@ -114,14 +121,18 @@ export const CIRCULAR_ARROW_HANDLES: readonly AdjustmentHandle[] = [
       };
     },
     apply: ({ w, h }, start, pointer) => {
+      const minDim = Math.min(w, h);
+      if (minDim <= 0) return [...start];
       const cx = w / 2;
       const cy = h / 2;
       const dx = pointer.x - cx;
       const dy = pointer.y - cy;
       const r = Math.sqrt(dx * dx + dy * dy);
-      const outerR = Math.min(w, h) / 2;
-      const headLen = Math.max(0, outerR - r);
-      const raw = Math.round((headLen / outerR) * 100000);
+      // Builder uses `min(w,h)` as the head-length basis — same
+      // doubling fix as the shaft handle above.
+      const halfMin = minDim / 2;
+      const headLen = Math.max(0, Math.min(halfMin, halfMin - r));
+      const raw = Math.round((headLen / minDim) * 100000);
       const spec = CIRCULAR_ARROW_ADJUSTMENTS[1];
       return [
         start[0] ?? 12500,
