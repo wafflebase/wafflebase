@@ -228,6 +228,21 @@ import {
   LEFT_RIGHT_RIBBON_HANDLES,
 } from './banners/left-right-ribbon';
 import {
+  buildBorderCallout1,
+  BORDER_CALLOUT_1_ADJUSTMENTS,
+  BORDER_CALLOUT_1_HANDLES,
+} from './callouts/border-callout-1';
+import {
+  buildBorderCallout2,
+  BORDER_CALLOUT_2_ADJUSTMENTS,
+  BORDER_CALLOUT_2_HANDLES,
+} from './callouts/border-callout-2';
+import {
+  buildBorderCallout3,
+  BORDER_CALLOUT_3_ADJUSTMENTS,
+  BORDER_CALLOUT_3_HANDLES,
+} from './callouts/border-callout-3';
+import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
   WEDGE_RECT_CALLOUT_HANDLES,
@@ -372,6 +387,9 @@ PATH_BUILDERS.set('ribbon2', buildRibbon2);
 PATH_BUILDERS.set('horizontalScroll', buildHorizontalScroll);
 PATH_BUILDERS.set('verticalScroll', buildVerticalScroll);
 PATH_BUILDERS.set('leftRightRibbon', buildLeftRightRibbon);
+PATH_BUILDERS.set('borderCallout1', buildBorderCallout1);
+PATH_BUILDERS.set('borderCallout2', buildBorderCallout2);
+PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -568,3 +586,9 @@ ADJUSTMENT_HANDLES.set('ribbon2', RIBBON2_HANDLES);
 ADJUSTMENT_HANDLES.set('horizontalScroll', HORIZONTAL_SCROLL_HANDLES);
 ADJUSTMENT_HANDLES.set('verticalScroll', VERTICAL_SCROLL_HANDLES);
 ADJUSTMENT_HANDLES.set('leftRightRibbon', LEFT_RIGHT_RIBBON_HANDLES);
+ADJUSTMENT_SPECS.set('borderCallout1', BORDER_CALLOUT_1_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('borderCallout2', BORDER_CALLOUT_2_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('borderCallout3', BORDER_CALLOUT_3_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('borderCallout1', BORDER_CALLOUT_1_HANDLES);
+ADJUSTMENT_HANDLES.set('borderCallout2', BORDER_CALLOUT_2_HANDLES);
+ADJUSTMENT_HANDLES.set('borderCallout3', BORDER_CALLOUT_3_HANDLES);

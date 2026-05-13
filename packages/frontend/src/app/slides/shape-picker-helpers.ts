@@ -161,6 +161,9 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "wedgeRoundRectCallout", label: "Rounded callout" },
       { kind: "wedgeEllipseCallout", label: "Oval callout" },
       { kind: "cloudCallout", label: "Cloud callout" },
+      { kind: "borderCallout1", label: "Line callout 1" },
+      { kind: "borderCallout2", label: "Line callout 2" },
+      { kind: "borderCallout3", label: "Line callout 3" },
     ],
   },
   {

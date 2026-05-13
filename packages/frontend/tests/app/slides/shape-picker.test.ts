@@ -30,7 +30,8 @@ import {
  * stripedRightArrow) → 92 (T4b: bentArrow, bentUpArrow,
  * uturnArrow, swooshArrow) → 97 (T4c: circularArrow + 4×
  * curved*Arrow) → 102 (T5: 5 banners — new "Banners" section
- * inserted between Block Arrows and Flowchart) → …
+ * inserted between Block Arrows and Flowchart) → 105 (T6:
+ * borderCallout1/2/3 appended to Callouts) → …
  */
 
 describe("shape-picker categories", () => {
@@ -67,12 +68,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 102 ShapeKind entries across all categories", () => {
+  it("contains exactly 105 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 102);
+    assert.equal(total, 105);
   });
 
   it("each entry has a non-empty kind and label", () => {

@@ -50,9 +50,10 @@ export type ShapeKind =
   // Banners (5, P3-B T5)
   | 'ribbon' | 'ribbon2' | 'horizontalScroll' | 'verticalScroll'
   | 'leftRightRibbon'
-  // Callouts (4)
+  // Callouts (4 P1 + 3 line callouts)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'
+  | 'borderCallout1' | 'borderCallout2' | 'borderCallout3'
   // Equation (6)
   | 'mathPlus' | 'mathMinus' | 'mathMultiply'
   | 'mathDivide' | 'mathEqual' | 'mathNotEqual'

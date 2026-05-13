@@ -70,6 +70,9 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ['wedgeRoundRectCallout', 'outlined'],
   ['wedgeEllipseCallout', 'outlined'],
   ['cloudCallout', 'outlined'],
+  ['borderCallout1', 'outlined'],
+  ['borderCallout2', 'outlined'],
+  ['borderCallout3', 'outlined'],
   // Flowchart → outlined
   ['flowChartTerminator', 'outlined'],
   ['flowChartPredefinedProcess', 'outlined'],
