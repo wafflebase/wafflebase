@@ -38,4 +38,23 @@ describe('renderShapeIcon', () => {
       ).not.toThrow();
     }
   });
+
+  it('renders action buttons (body + glyph) so picker icons are visible', () => {
+    const canvas = createTestCanvas(24, 24);
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    // Action buttons are not in PATH_BUILDERS; the icon dispatcher
+    // has a dedicated branch that strokes a body rect + the inner
+    // glyph from ACTION_BUTTON_GLYPHS. Without this branch they
+    // would render as fully transparent at picker scale.
+    for (const kind of [
+      'actionButtonBlank',
+      'actionButtonHome',
+      'actionButtonForwardNext',
+      'actionButtonHelp',
+    ] as const) {
+      expect(() =>
+        renderShapeIcon(kind, ctx, { w: 24, h: 24 }),
+      ).not.toThrow();
+    }
+  });
 });

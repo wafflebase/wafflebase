@@ -1,6 +1,7 @@
 import type { ShapeKind } from '../../model/element';
 import type { FrameSize } from './shapes/builder';
 import { PATH_BUILDERS } from './shapes';
+import { ACTION_BUTTON_GLYPHS, isActionButton } from './shapes/action-buttons';
 
 const STROKE_WIDTH = 1.0;
 const PADDING = 1;
@@ -58,6 +59,33 @@ export function renderShapeIcon(
       ctx.lineTo(w * 0.75, h / 2);
       ctx.lineTo(w * 0.55, h * 0.75);
       ctx.stroke();
+      return;
+    }
+    if (isActionButton(kind)) {
+      // Action buttons aren't in PATH_BUILDERS — `drawActionButton`
+      // handles the slide-canvas paint via the body + glyph pair.
+      // For the picker icon we stroke a small body rectangle and
+      // overlay the per-kind glyph (when one exists) so each
+      // button is visually distinguishable at 24 × 24 px. Use
+      // moveTo/lineTo (instead of `ctx.rect`) because the harness
+      // shim doesn't implement `rect` directly.
+      const inset = Math.min(w, h) * 0.06;
+      const x0 = inset;
+      const y0 = inset;
+      const x1 = w - inset;
+      const y1 = h - inset;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x0, y1);
+      ctx.lineTo(x0, y0);
+      ctx.stroke();
+      const glyphBuilder = ACTION_BUTTON_GLYPHS.get(kind);
+      if (glyphBuilder) {
+        const glyph = glyphBuilder({ w, h });
+        ctx.stroke(glyph);
+      }
       return;
     }
     const iconKind = CALLOUT_BUBBLE_PROXY[kind] ?? kind;
