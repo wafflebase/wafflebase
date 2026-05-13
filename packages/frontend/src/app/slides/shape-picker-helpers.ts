@@ -123,6 +123,17 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
     ],
   },
   {
+    id: "banners",
+    title: "Banners",
+    kinds: [
+      { kind: "ribbon", label: "Ribbon" },
+      { kind: "ribbon2", label: "Ribbon (notched)" },
+      { kind: "horizontalScroll", label: "Horizontal scroll" },
+      { kind: "verticalScroll", label: "Vertical scroll" },
+      { kind: "leftRightRibbon", label: "Left-right ribbon" },
+    ],
+  },
+  {
     id: "flowchart",
     title: "Flowchart",
     kinds: [

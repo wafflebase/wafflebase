@@ -29,15 +29,25 @@ import {
  * → 88 (T4a: upDownArrow, leftRightUpArrow, notchedRightArrow,
  * stripedRightArrow) → 92 (T4b: bentArrow, bentUpArrow,
  * uturnArrow, swooshArrow) → 97 (T4c: circularArrow + 4×
- * curved*Arrow) → …
+ * curved*Arrow) → 102 (T5: 5 banners — new "Banners" section
+ * inserted between Block Arrows and Flowchart) → …
  */
 
 describe("shape-picker categories", () => {
-  it("exposes 7 categories in display order", () => {
-    assert.equal(SHAPE_PICKER_CATEGORIES.length, 7);
+  it("exposes 8 categories in display order", () => {
+    assert.equal(SHAPE_PICKER_CATEGORIES.length, 8);
     assert.deepEqual(
       SHAPE_PICKER_CATEGORIES.map((c) => c.id),
-      ["lines", "shapes", "block-arrows", "flowchart", "callouts", "equation", "stars"],
+      [
+        "lines",
+        "shapes",
+        "block-arrows",
+        "banners",
+        "flowchart",
+        "callouts",
+        "equation",
+        "stars",
+      ],
     );
   });
 
@@ -46,6 +56,7 @@ describe("shape-picker categories", () => {
       lines: "Lines",
       shapes: "Shapes",
       "block-arrows": "Block Arrows",
+      banners: "Banners",
       flowchart: "Flowchart",
       callouts: "Callouts",
       equation: "Equation",
@@ -56,12 +67,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 97 ShapeKind entries across all categories", () => {
+  it("contains exactly 102 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 97);
+    assert.equal(total, 102);
   });
 
   it("each entry has a non-empty kind and label", () => {
@@ -83,6 +94,7 @@ describe("shape-picker categories", () => {
       lines: "line",
       shapes: "rect",
       "block-arrows": "rightArrow",
+      banners: "ribbon",
       flowchart: "flowChartTerminator",
       callouts: "wedgeRectCallout",
       equation: "mathPlus",

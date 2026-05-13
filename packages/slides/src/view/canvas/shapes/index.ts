@@ -203,6 +203,31 @@ import {
   CURVED_DOWN_ARROW_HANDLES,
 } from './arrows/curved-down-arrow';
 import {
+  buildRibbon,
+  RIBBON_ADJUSTMENTS,
+  RIBBON_HANDLES,
+} from './banners/ribbon';
+import {
+  buildRibbon2,
+  RIBBON2_ADJUSTMENTS,
+  RIBBON2_HANDLES,
+} from './banners/ribbon2';
+import {
+  buildHorizontalScroll,
+  HORIZONTAL_SCROLL_ADJUSTMENTS,
+  HORIZONTAL_SCROLL_HANDLES,
+} from './banners/horizontal-scroll';
+import {
+  buildVerticalScroll,
+  VERTICAL_SCROLL_ADJUSTMENTS,
+  VERTICAL_SCROLL_HANDLES,
+} from './banners/vertical-scroll';
+import {
+  buildLeftRightRibbon,
+  LEFT_RIGHT_RIBBON_ADJUSTMENTS,
+  LEFT_RIGHT_RIBBON_HANDLES,
+} from './banners/left-right-ribbon';
+import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
   WEDGE_RECT_CALLOUT_HANDLES,
@@ -342,6 +367,11 @@ PATH_BUILDERS.set('curvedRightArrow', buildCurvedRightArrow);
 PATH_BUILDERS.set('curvedLeftArrow', buildCurvedLeftArrow);
 PATH_BUILDERS.set('curvedUpArrow', buildCurvedUpArrow);
 PATH_BUILDERS.set('curvedDownArrow', buildCurvedDownArrow);
+PATH_BUILDERS.set('ribbon', buildRibbon);
+PATH_BUILDERS.set('ribbon2', buildRibbon2);
+PATH_BUILDERS.set('horizontalScroll', buildHorizontalScroll);
+PATH_BUILDERS.set('verticalScroll', buildVerticalScroll);
+PATH_BUILDERS.set('leftRightRibbon', buildLeftRightRibbon);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -528,3 +558,13 @@ ADJUSTMENT_HANDLES.set('curvedRightArrow', CURVED_RIGHT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('curvedLeftArrow', CURVED_LEFT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('curvedUpArrow', CURVED_UP_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('curvedDownArrow', CURVED_DOWN_ARROW_HANDLES);
+ADJUSTMENT_SPECS.set('ribbon', RIBBON_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('ribbon2', RIBBON2_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('horizontalScroll', HORIZONTAL_SCROLL_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('verticalScroll', VERTICAL_SCROLL_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftRightRibbon', LEFT_RIGHT_RIBBON_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('ribbon', RIBBON_HANDLES);
+ADJUSTMENT_HANDLES.set('ribbon2', RIBBON2_HANDLES);
+ADJUSTMENT_HANDLES.set('horizontalScroll', HORIZONTAL_SCROLL_HANDLES);
+ADJUSTMENT_HANDLES.set('verticalScroll', VERTICAL_SCROLL_HANDLES);
+ADJUSTMENT_HANDLES.set('leftRightRibbon', LEFT_RIGHT_RIBBON_HANDLES);
