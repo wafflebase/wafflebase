@@ -195,6 +195,17 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
     title: "Action Buttons",
     kinds: [
       { kind: "actionButtonBlank", label: "Blank action button" },
+      { kind: "actionButtonBackPrevious", label: "Back action button" },
+      { kind: "actionButtonForwardNext", label: "Forward action button" },
+      { kind: "actionButtonBeginning", label: "Beginning action button" },
+      { kind: "actionButtonEnd", label: "End action button" },
+      { kind: "actionButtonHome", label: "Home action button" },
+      { kind: "actionButtonInformation", label: "Information action button" },
+      { kind: "actionButtonReturn", label: "Return action button" },
+      { kind: "actionButtonMovie", label: "Movie action button" },
+      { kind: "actionButtonSound", label: "Sound action button" },
+      { kind: "actionButtonDocument", label: "Document action button" },
+      { kind: "actionButtonHelp", label: "Help action button" },
     ],
   },
 ];

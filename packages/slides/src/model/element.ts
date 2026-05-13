@@ -67,9 +67,14 @@ export type ShapeKind =
   | 'flowChartPunchedCard' | 'flowChartPunchedTape'
   | 'flowChartSummingJunction' | 'flowChartOr'
   | 'flowChartDelay' | 'flowChartDisplay'
-  // Action buttons (P3-B T7) — special-cased renderer
+  // Action buttons (12 — P3-B T7) — special-cased renderer
   // (drawActionButton); not entered in PATH_BUILDERS.
-  | 'actionButtonBlank';
+  | 'actionButtonBlank' | 'actionButtonBackPrevious'
+  | 'actionButtonForwardNext' | 'actionButtonBeginning'
+  | 'actionButtonEnd' | 'actionButtonHome'
+  | 'actionButtonInformation' | 'actionButtonReturn'
+  | 'actionButtonMovie' | 'actionButtonSound'
+  | 'actionButtonDocument' | 'actionButtonHelp';
 
 export type ShapeStroke = {
   color: ThemeColor;

@@ -94,6 +94,17 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   // existing `outlined` defaults (background + text-coloured
   // stroke) give the correct two-tone visual.
   ['actionButtonBlank', 'outlined'],
+  ['actionButtonBackPrevious', 'outlined'],
+  ['actionButtonForwardNext', 'outlined'],
+  ['actionButtonBeginning', 'outlined'],
+  ['actionButtonEnd', 'outlined'],
+  ['actionButtonHome', 'outlined'],
+  ['actionButtonInformation', 'outlined'],
+  ['actionButtonReturn', 'outlined'],
+  ['actionButtonMovie', 'outlined'],
+  ['actionButtonSound', 'outlined'],
+  ['actionButtonDocument', 'outlined'],
+  ['actionButtonHelp', 'outlined'],
 ]);
 
 function defaultsForShape(

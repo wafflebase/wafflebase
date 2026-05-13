@@ -33,7 +33,8 @@ import {
  * inserted between Block Arrows and Flowchart) → 105 (T6:
  * borderCallout1/2/3 appended to Callouts) → 106 (T7a:
  * actionButtonBlank — infrastructure pilot, new "Action Buttons"
- * section at end) → …
+ * section at end) → 117 (T7b: 11 remaining action buttons —
+ * final P3-B catalog).
  */
 
 describe("shape-picker categories", () => {
@@ -72,12 +73,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 106 ShapeKind entries across all categories", () => {
+  it("contains exactly 117 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 106);
+    assert.equal(total, 117);
   });
 
   it("each entry has a non-empty kind and label", () => {
