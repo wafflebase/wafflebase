@@ -246,6 +246,9 @@ export function extractReferences(formula: string): Set<Reference> {
   return references;
 }
 
+/**
+ * Add references introduced by OFFSET calls whose arguments are all static.
+ */
 function addStaticOffsetReferences(
   formula: string,
   references: Set<Reference>,
@@ -258,6 +261,9 @@ function addStaticOffsetReferences(
   collectStaticOffsetReferences(parsed.tree, references);
 }
 
+/**
+ * Walk the parse tree and record target ranges for static OFFSET calls.
+ */
 function collectStaticOffsetReferences(
   tree: ParseTree,
   references: Set<Reference>,
@@ -277,6 +283,9 @@ function collectStaticOffsetReferences(
   }
 }
 
+/**
+ * Build the target reference for an OFFSET call with literal reference and numeric arguments.
+ */
 function buildStaticOffsetReference(
   ctx: FunctionContext,
 ): Reference | undefined {
@@ -341,6 +350,9 @@ function buildStaticOffsetReference(
   }
 }
 
+/**
+ * Return a reference from a static reference expression, unwrapping parentheses.
+ */
 function getStaticReference(
   tree: ParseTree | undefined,
 ): Reference | undefined {
@@ -353,6 +365,9 @@ function getStaticReference(
   return undefined;
 }
 
+/**
+ * Return a number from a static numeric expression, including unary signs.
+ */
 function getStaticNumber(tree: ParseTree | undefined): number | undefined {
   if (tree instanceof NumberContext) {
     return Number(tree.text);

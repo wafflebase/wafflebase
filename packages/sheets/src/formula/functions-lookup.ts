@@ -745,6 +745,9 @@ export function offsetFunc(
   return { t: 'ref', v: `${prefix}${reference}` };
 }
 
+/**
+ * Resolve an optional OFFSET height or width expression, using fallback when omitted.
+ */
 function resolveOffsetDimension(
   expr: ParseTree | undefined,
   visit: (tree: ParseTree) => EvalNode,
@@ -764,6 +767,9 @@ function resolveOffsetDimension(
   return dimension > 0 ? dimension : ErrNode.REF;
 }
 
+/**
+ * Return the occupied grid bounds so OFFSET can reject references outside loaded cells.
+ */
 function getGridBounds(grid: Grid): { maxRow: number; maxCol: number } | undefined {
   let maxRow = 0;
   let maxCol = 0;

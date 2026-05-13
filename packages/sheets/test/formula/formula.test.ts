@@ -1600,6 +1600,47 @@ describe('Formula', () => {
     expect(evaluate('=SUM(OFFSET(A1,0,0,3,1))', grid)).toBe('60');
   });
 
+  it('should preserve source range dimensions when OFFSET height and width are omitted', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('B1', { v: '2' });
+    grid.set('C1', { v: '3' });
+    grid.set('A2', { v: '4' });
+    grid.set('B2', { v: '5' });
+    grid.set('C2', { v: '6' });
+    grid.set('A3', { v: '7' });
+    grid.set('B3', { v: '8' });
+    grid.set('C3', { v: '9' });
+
+    expect(evaluate('=SUM(OFFSET(A1:B2,1,1))', grid)).toBe('28');
+  });
+
+  it('should validate OFFSET dynamic dimensions and invalid grid keys', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('C1', { v: '3' });
+    grid.set('C2', { v: 'width' });
+    grid.set('not-a-cell', { v: 'ignored' });
+
+    expect(evaluate('=SUM(OFFSET(A1,0,0,C1,1))', grid)).toBe('60');
+    expect(evaluate('=OFFSET(A1,0,0,0,1)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,0,1,0)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,0,C2,1)', grid)).toBe('#REF!');
+  });
+
+  it('should evaluate OFFSET against cross-sheet references', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('SHEET1!A1', { v: '10' });
+    grid.set('SHEET1!B1', { v: '20' });
+    grid.set('SHEET1!A2', { v: '30' });
+    grid.set('SHEET1!B2', { v: '40' });
+
+    expect(evaluate('=OFFSET(Sheet1!A1,1,1)', grid)).toBe('40');
+    expect(evaluate('=SUM(OFFSET(Sheet1!A1,0,0,2,2))', grid)).toBe('100');
+  });
+
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
     expect(evaluate('=ISEVEN(4)')).toBe('TRUE');
     expect(evaluate('=ISEVEN(3)')).toBe('FALSE');
@@ -3615,6 +3656,21 @@ describe('Formula', () => {
     );
     expect(extractReferences('=SUM(OFFSET(A1,1,1,2,2))')).toEqual(
       new Set(['A1', 'B2:C3']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1:B2,1,1))')).toEqual(
+      new Set(['A1:B2', 'B2:C3']),
+    );
+    expect(extractReferences('=SUM(OFFSET((A1),+1,0,2,1))')).toEqual(
+      new Set(['A1', 'A2:A3']),
+    );
+    expect(extractReferences('=SUM(OFFSET(Sheet1!A1,1,1,2,2))')).toEqual(
+      new Set(['SHEET1!A1', 'SHEET1!B2:C3']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,B1,0,2,1))')).toEqual(
+      new Set(['A1', 'B1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,-1,0,2,1))')).toEqual(
+      new Set(['A1']),
     );
   });
 
