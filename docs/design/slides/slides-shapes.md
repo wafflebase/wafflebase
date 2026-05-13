@@ -8,11 +8,12 @@ target-version: 0.4.1
 ## Summary
 
 The `@wafflebase/slides` package ships an OOXML-aligned shape library:
-**55 `ShapeKind` values** rendered through a single path-builder
-registry, with per-shape adjustments stored as
+**117 `ShapeKind` values** rendered through a single path-builder
+registry (plus a special-cased dispatcher for `line` / `arrow` /
+action buttons), with per-shape adjustments stored as
 `data.adjustments?: number[]` and edited via yellow-diamond drag
-handles on the canvas. The library targets ~100-shape Google Slides
-parity, with naming chosen to map 1:1 onto OOXML `prstGeom` presets
+handles on the canvas. The catalog matches Google Slides' shape
+menu, with naming chosen to map 1:1 onto OOXML `prstGeom` presets
 for forward-compatible PPTX import.
 
 This document covers the architectural contract — data model,
@@ -390,9 +391,9 @@ The library is delivered incrementally:
 |---|---|---|---|
 | P1 — Foundation | 35 | 2 lines + 15 basic + 8 block arrows + 4 callouts + 6 equation | defaults only |
 | P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only |
-| P3-A.1 — Pilot handles | 55 | (no new shapes) | drag handles for 9 pilot shapes (4 axis types) |
-| P3-A.2 — Sweep | 55 | (no new shapes) | drag handles for remaining 24 parametric shapes |
-| P3-B — GS parity | 117 | + 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons | handles ship with shape (`drawActionButton` for action buttons; new `angular` axis for arc-based shapes) |
+| ~~P3-A.1 — Pilot handles~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for 9 pilot shapes (4 axis types)~~ |
+| ~~P3-A.2 — Sweep~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for remaining 24 parametric shapes~~ |
+| ~~P3-B — GS parity~~ | ~~117~~ | ~~+ 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons~~ | ~~handles ship with shape (`drawActionButton` for action buttons; new `angular` axis for arc-based shapes)~~ |
 | P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) |
 
 Each phase is tracked as a task pair in `docs/tasks/` (search
