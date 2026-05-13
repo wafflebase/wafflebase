@@ -259,6 +259,9 @@ describe('Formula', () => {
     expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
     expect(evaluate('=EXP(1000)')).toBe('#NUM!');
     expect(evaluate('=POWER(10,1000)')).toBe('#NUM!');
+    expect(evaluate('=FACT(200)')).toBe('#NUM!');
+    expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=1E309')).toBe('#NUM!');
   });
 
   it('should correctly evaluate POWER function', () => {

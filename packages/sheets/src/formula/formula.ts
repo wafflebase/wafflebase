@@ -722,10 +722,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitNumber(ctx: NumberContext): EvalNode {
-    return {
-      t: 'num',
-      v: Number(ctx.text),
-    };
+    return numNode(Number(ctx.text));
   }
 
   visitBoolean(ctx: BooleanContext): EvalNode {
@@ -872,7 +869,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.SUB) {
-      return { t: 'num', v: -operand.v };
+      return numNode(-operand.v);
     }
 
     return operand;
