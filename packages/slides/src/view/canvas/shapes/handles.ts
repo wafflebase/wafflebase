@@ -119,6 +119,38 @@ export function angularHandle(opts: {
   };
 }
 
+/**
+ * Mirror of `linearTopEdgeHandle` for adjustments whose visual is
+ * "diamond slides along the left edge as the value changes" — e.g.
+ * `halfFrame` / `corner` top-arm thickness, or any inner-rectangle
+ * vertical inset. Forward maps the adjustment to a y coordinate;
+ * inverse maps a pointer y back to the adjustment unit.
+ */
+export function linearLeftEdgeHandle(opts: {
+  forward: (adj: number, frame: FrameSize) => number;
+  inverse: (y: number, frame: FrameSize) => number;
+  spec: AdjustmentSpec;
+  index?: number;
+}): AdjustmentHandle {
+  const { forward, inverse, spec, index = 0 } = opts;
+  return {
+    position: (frame, adjustments) => ({
+      x: 0,
+      y: insetAlongAxis(
+        forward(adjustments[index] ?? spec.defaultValue, frame),
+        frame.h,
+      ),
+    }),
+    apply: (frame, start, pointer) => {
+      const raw = Math.round(inverse(pointer.y, frame));
+      const clamped = Math.max(spec.min, Math.min(spec.max, raw));
+      const result = [...start];
+      result[index] = clamped;
+      return result;
+    },
+  };
+}
+
 export function linearTopEdgeHandle(opts: {
   forward: (adj: number, frame: FrameSize) => number;
   inverse: (x: number, frame: FrameSize) => number;

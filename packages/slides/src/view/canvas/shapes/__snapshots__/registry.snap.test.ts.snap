@@ -142,6 +142,52 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       ],
     },
   ],
+  "bevel": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 12.5,
+          "y": 12.5,
+        },
+        {
+          "x": 12.5,
+          "y": 87.5,
+        },
+        {
+          "x": 87.5,
+          "y": 87.5,
+        },
+        {
+          "x": 87.5,
+          "y": 12.5,
+        },
+      ],
+    },
+  ],
   "blockArc": [
     {
       "closed": true,
@@ -2291,6 +2337,106 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       "ry": 4,
     },
   ],
+  "corner": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 33.333,
+          "y": 0,
+        },
+        {
+          "x": 33.333,
+          "y": 66.667,
+        },
+        {
+          "x": 100,
+          "y": 66.667,
+        },
+        {
+          "x": 100,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+  ],
+  "cube": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 25,
+        },
+        {
+          "x": 75,
+          "y": 25,
+        },
+        {
+          "x": 75,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 25,
+        },
+        {
+          "x": 25,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 0,
+        },
+        {
+          "x": 75,
+          "y": 25,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 75,
+          "y": 25,
+        },
+        {
+          "x": 100,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 75,
+        },
+        {
+          "x": 75,
+          "y": 100,
+        },
+      ],
+    },
+  ],
   "decagon": [
     {
       "closed": true,
@@ -2335,6 +2481,26 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 20.610737,
           "y": 9.54915,
+        },
+      ],
+    },
+  ],
+  "diagStripe": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 50,
+          "y": 0,
+        },
+        {
+          "x": 0,
+          "y": 50,
         },
       ],
     },
@@ -4574,6 +4740,130 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       ],
     },
   ],
+  "foldedCorner": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 83.333,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 16.667,
+        },
+        {
+          "x": 100,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 83.333,
+          "y": 0,
+        },
+        {
+          "x": 83.333,
+          "y": 16.667,
+        },
+        {
+          "x": 100,
+          "y": 16.667,
+        },
+      ],
+    },
+  ],
+  "frame": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 12.5,
+          "y": 12.5,
+        },
+        {
+          "x": 12.5,
+          "y": 87.5,
+        },
+        {
+          "x": 87.5,
+          "y": 87.5,
+        },
+        {
+          "x": 87.5,
+          "y": 12.5,
+        },
+      ],
+    },
+  ],
+  "halfFrame": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 33.333,
+        },
+        {
+          "x": 33.333,
+          "y": 33.333,
+        },
+        {
+          "x": 33.333,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 100,
+        },
+      ],
+    },
+  ],
   "heptagon": [
     {
       "closed": true,
@@ -5258,6 +5548,46 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 100,
           "y": 50,
+        },
+      ],
+    },
+  ],
+  "plaque": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 16.667,
+          "y": 0,
+        },
+        {
+          "x": 83.333,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 16.667,
+        },
+        {
+          "x": 100,
+          "y": 83.333,
+        },
+        {
+          "x": 83.333,
+          "y": 100,
+        },
+        {
+          "x": 16.667,
+          "y": 100,
+        },
+        {
+          "x": 0,
+          "y": 83.333,
+        },
+        {
+          "x": 0,
+          "y": 16.667,
         },
       ],
     },

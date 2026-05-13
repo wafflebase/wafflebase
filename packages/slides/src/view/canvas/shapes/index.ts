@@ -25,6 +25,46 @@ import {
   BLOCK_ARC_ADJUSTMENTS,
   BLOCK_ARC_HANDLES,
 } from './basic/block-arc';
+import {
+  buildFrame,
+  FRAME_ADJUSTMENTS,
+  FRAME_HANDLES,
+} from './basic/frame';
+import {
+  buildHalfFrame,
+  HALF_FRAME_ADJUSTMENTS,
+  HALF_FRAME_HANDLES,
+} from './basic/half-frame';
+import {
+  buildCorner,
+  CORNER_ADJUSTMENTS,
+  CORNER_HANDLES,
+} from './basic/corner';
+import {
+  buildDiagStripe,
+  DIAG_STRIPE_ADJUSTMENTS,
+  DIAG_STRIPE_HANDLES,
+} from './basic/diag-stripe';
+import {
+  buildPlaque,
+  PLAQUE_ADJUSTMENTS,
+  PLAQUE_HANDLES,
+} from './basic/plaque';
+import {
+  buildBevel,
+  BEVEL_ADJUSTMENTS,
+  BEVEL_HANDLES,
+} from './basic/bevel';
+import {
+  buildFoldedCorner,
+  FOLDED_CORNER_ADJUSTMENTS,
+  FOLDED_CORNER_HANDLES,
+} from './basic/folded-corner';
+import {
+  buildCube,
+  CUBE_ADJUSTMENTS,
+  CUBE_HANDLES,
+} from './basic/cube';
 import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
@@ -148,6 +188,14 @@ PATH_BUILDERS.set('pie', buildPie);
 PATH_BUILDERS.set('chord', buildChord);
 PATH_BUILDERS.set('arc', buildArc);
 PATH_BUILDERS.set('blockArc', buildBlockArc);
+PATH_BUILDERS.set('frame', buildFrame);
+PATH_BUILDERS.set('halfFrame', buildHalfFrame);
+PATH_BUILDERS.set('corner', buildCorner);
+PATH_BUILDERS.set('diagStripe', buildDiagStripe);
+PATH_BUILDERS.set('plaque', buildPlaque);
+PATH_BUILDERS.set('bevel', buildBevel);
+PATH_BUILDERS.set('foldedCorner', buildFoldedCorner);
+PATH_BUILDERS.set('cube', buildCube);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -268,3 +316,19 @@ ADJUSTMENT_HANDLES.set('pie', PIE_HANDLES);
 ADJUSTMENT_HANDLES.set('chord', CHORD_HANDLES);
 ADJUSTMENT_HANDLES.set('arc', ARC_HANDLES);
 ADJUSTMENT_HANDLES.set('blockArc', BLOCK_ARC_HANDLES);
+ADJUSTMENT_SPECS.set('frame', FRAME_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('halfFrame', HALF_FRAME_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('corner', CORNER_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('diagStripe', DIAG_STRIPE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('plaque', PLAQUE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('bevel', BEVEL_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('foldedCorner', FOLDED_CORNER_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('cube', CUBE_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('frame', FRAME_HANDLES);
+ADJUSTMENT_HANDLES.set('halfFrame', HALF_FRAME_HANDLES);
+ADJUSTMENT_HANDLES.set('corner', CORNER_HANDLES);
+ADJUSTMENT_HANDLES.set('diagStripe', DIAG_STRIPE_HANDLES);
+ADJUSTMENT_HANDLES.set('plaque', PLAQUE_HANDLES);
+ADJUSTMENT_HANDLES.set('bevel', BEVEL_HANDLES);
+ADJUSTMENT_HANDLES.set('foldedCorner', FOLDED_CORNER_HANDLES);
+ADJUSTMENT_HANDLES.set('cube', CUBE_HANDLES);
