@@ -43,24 +43,25 @@ function makeRenderer(): { renderer: SlideRenderer; ctx: ReturnType<typeof creat
 }
 
 describe('SlideRenderer.render', () => {
-  it('clears the canvas, fills the background, and is a no-op on the second call when nothing is dirty', () => {
+  it('fills the background once and is a no-op on the second call when nothing is dirty', () => {
     const { renderer, ctx } = makeRenderer();
     renderer.render(blankSlide(), DOC);
-    expect(ctx.clearRect).toHaveBeenCalledTimes(1);
-    expect(ctx.fillRect).toHaveBeenCalled(); // background fill
+    // The full-canvas background fillRect doubles as the clear step; we
+    // no longer call clearRect because fillRect overwrites everything.
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
 
-    const before = ctx.clearRect.mock.calls.length;
+    const before = ctx.fillRect.mock.calls.length;
     renderer.render(blankSlide(), DOC);
-    expect(ctx.clearRect.mock.calls.length).toBe(before); // no second clear
+    expect(ctx.fillRect.mock.calls.length).toBe(before); // no second paint
   });
 
   it('repaints after markDirty()', () => {
     const { renderer, ctx } = makeRenderer();
     renderer.render(blankSlide(), DOC);
-    const before = ctx.clearRect.mock.calls.length;
+    const before = ctx.fillRect.mock.calls.length;
     renderer.markDirty();
     renderer.render(blankSlide(), DOC);
-    expect(ctx.clearRect.mock.calls.length).toBe(before + 1);
+    expect(ctx.fillRect.mock.calls.length).toBe(before + 1);
   });
 
   it('iterates elements in array order (z-order) — last element paints on top', () => {
@@ -117,9 +118,9 @@ describe('SlideRenderer.render', () => {
   it('forceRender paints even when not dirty', () => {
     const { renderer, ctx } = makeRenderer();
     renderer.render(blankSlide(), DOC);        // dirty → false
-    const before = ctx.clearRect.mock.calls.length;
+    const before = ctx.fillRect.mock.calls.length;
     renderer.forceRender(blankSlide(), DOC);
-    expect(ctx.clearRect.mock.calls.length).toBe(before + 1);
+    expect(ctx.fillRect.mock.calls.length).toBe(before + 1);
   });
 
   it('resolves a role-bound background through the theme', () => {

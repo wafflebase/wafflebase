@@ -39,7 +39,6 @@ describe('renderThumbnail', () => {
   it('paints the slide at the requested host size', () => {
     const ctx = createCtxSpy();
     renderThumbnail(asCtx(ctx), blankSlide('s1'), DOC, { hostWidth: 192, hostHeight: 108, dpr: 1 });
-    expect(ctx.clearRect).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalled();
     // Scale = 192 / 1920 = 0.1
     expect(ctx.scale).toHaveBeenCalledWith(0.1, 0.1);
