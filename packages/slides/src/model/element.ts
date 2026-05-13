@@ -43,6 +43,7 @@ export type ShapeKind =
   | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
   | 'upDownArrow' | 'leftRightUpArrow'
   | 'notchedRightArrow' | 'stripedRightArrow'
+  | 'bentArrow' | 'bentUpArrow' | 'uturnArrow' | 'swooshArrow'
   // Callouts (4)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'

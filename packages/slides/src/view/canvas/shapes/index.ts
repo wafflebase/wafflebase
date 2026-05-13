@@ -158,6 +158,26 @@ import {
   STRIPED_RIGHT_ARROW_HANDLES,
 } from './arrows/striped-right-arrow';
 import {
+  buildBentArrow,
+  BENT_ARROW_ADJUSTMENTS,
+  BENT_ARROW_HANDLES,
+} from './arrows/bent-arrow';
+import {
+  buildBentUpArrow,
+  BENT_UP_ARROW_ADJUSTMENTS,
+  BENT_UP_ARROW_HANDLES,
+} from './arrows/bent-up-arrow';
+import {
+  buildUturnArrow,
+  UTURN_ARROW_ADJUSTMENTS,
+  UTURN_ARROW_HANDLES,
+} from './arrows/uturn-arrow';
+import {
+  buildSwooshArrow,
+  SWOOSH_ARROW_ADJUSTMENTS,
+  SWOOSH_ARROW_HANDLES,
+} from './arrows/swoosh-arrow';
+import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
   WEDGE_RECT_CALLOUT_HANDLES,
@@ -288,6 +308,10 @@ PATH_BUILDERS.set('upDownArrow', buildUpDownArrow);
 PATH_BUILDERS.set('leftRightUpArrow', buildLeftRightUpArrow);
 PATH_BUILDERS.set('notchedRightArrow', buildNotchedRightArrow);
 PATH_BUILDERS.set('stripedRightArrow', buildStripedRightArrow);
+PATH_BUILDERS.set('bentArrow', buildBentArrow);
+PATH_BUILDERS.set('bentUpArrow', buildBentUpArrow);
+PATH_BUILDERS.set('uturnArrow', buildUturnArrow);
+PATH_BUILDERS.set('swooshArrow', buildSwooshArrow);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -456,3 +480,11 @@ ADJUSTMENT_HANDLES.set('upDownArrow', UP_DOWN_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('leftRightUpArrow', LEFT_RIGHT_UP_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('notchedRightArrow', NOTCHED_RIGHT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('stripedRightArrow', STRIPED_RIGHT_ARROW_HANDLES);
+ADJUSTMENT_SPECS.set('bentArrow', BENT_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('bentUpArrow', BENT_UP_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('uturnArrow', UTURN_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('swooshArrow', SWOOSH_ARROW_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('bentArrow', BENT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('bentUpArrow', BENT_UP_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('uturnArrow', UTURN_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('swooshArrow', SWOOSH_ARROW_HANDLES);
