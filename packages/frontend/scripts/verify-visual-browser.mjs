@@ -73,6 +73,10 @@ const scenarioIds = [
   "slides-canvas-callout-tail",
   "shapes-adjustments-pilot",
   "shapes-adjustments-sweep",
+  "shapes-basic-p3b",
+  "shapes-arrows-p3b",
+  "shapes-callouts-p3b",
+  "shapes-action-buttons",
 ];
 
 const visualTargets = [

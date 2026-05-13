@@ -526,6 +526,191 @@ function makeAdjustmentsSweepDoc(): SlidesDocument {
   };
 }
 
+function makeBasicP3bDoc(): SlidesDocument {
+  const cellW = 140;
+  const cellH = 100;
+  const gap = 24;
+  const cols = 6;
+  const KINDS: ShapeKind[] = [
+    "heptagon", "decagon", "dodecagon", "pie", "chord", "arc",
+    "blockArc", "teardrop", "frame", "halfFrame", "corner", "diagStripe",
+    "plaque", "bevel", "foldedCorner", "cube", "smileyFace", "heart",
+    "lightningBolt", "sun", "moon", "noSmoking",
+    "snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect",
+    "round1Rect", "round2SameRect", "round2DiagRect",
+  ];
+  function fillFor(kind: ShapeKind) {
+    if (kind === "arc") {
+      return { stroke: { color: TEXT_ROLE, width: 2 } };
+    }
+    return { fill: ACCENT1 };
+  }
+  const elements: Element[] = KINDS.map((kind, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return {
+      id: `basic-p3b-${kind}`,
+      type: "shape",
+      frame: {
+        x: 30 + col * (cellW + gap),
+        y: 60 + row * (cellH + gap),
+        w: cellW,
+        h: cellH,
+        rotation: 0,
+      },
+      data: { kind, adjustments: undefined, ...fillFor(kind) },
+    } as Element;
+  });
+  return {
+    meta: { title: "Basic P3-B", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+function makeArrowsP3bDoc(): SlidesDocument {
+  const cellW = 140;
+  const cellH = 100;
+  const gap = 24;
+  const cols = 6;
+  const KINDS: ShapeKind[] = [
+    "upDownArrow", "leftRightUpArrow", "notchedRightArrow", "stripedRightArrow",
+    "bentArrow", "bentUpArrow",
+    "uturnArrow", "swooshArrow", "circularArrow",
+    "curvedRightArrow", "curvedLeftArrow", "curvedUpArrow",
+    "curvedDownArrow",
+    "ribbon", "ribbon2", "horizontalScroll", "verticalScroll", "leftRightRibbon",
+  ];
+  const elements: Element[] = KINDS.map((kind, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return {
+      id: `arrows-p3b-${kind}`,
+      type: "shape",
+      frame: {
+        x: 30 + col * (cellW + gap),
+        y: 60 + row * (cellH + gap),
+        w: cellW,
+        h: cellH,
+        rotation: 0,
+      },
+      data: { kind, adjustments: undefined, fill: ACCENT1 },
+    } as Element;
+  });
+  return {
+    meta: { title: "Arrows + banners P3-B", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+function makeCalloutsP3bDoc(): SlidesDocument {
+  const cellW = 260;
+  const cellH = 200;
+  const gap = 40;
+  const KINDS: ShapeKind[] = ["borderCallout1", "borderCallout2", "borderCallout3"];
+  const elements: Element[] = KINDS.map((kind, i) => ({
+    id: `callouts-p3b-${kind}`,
+    type: "shape",
+    frame: {
+      x: 100 + i * (cellW + gap),
+      y: 200,
+      w: cellW,
+      h: cellH,
+      rotation: 0,
+    },
+    data: {
+      kind,
+      adjustments: undefined,
+      fill: BG_ROLE,
+      stroke: { color: TEXT_ROLE, width: 2 },
+    },
+  } as Element));
+  return {
+    meta: { title: "Line callouts P3-B", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+function makeActionButtonsDoc(): SlidesDocument {
+  const cellW = 140;
+  const cellH = 100;
+  const gap = 30;
+  const cols = 4;
+  const KINDS: ShapeKind[] = [
+    "actionButtonBlank", "actionButtonBackPrevious", "actionButtonForwardNext", "actionButtonBeginning",
+    "actionButtonEnd", "actionButtonHome", "actionButtonInformation", "actionButtonReturn",
+    "actionButtonMovie", "actionButtonSound", "actionButtonDocument", "actionButtonHelp",
+  ];
+  const elements: Element[] = KINDS.map((kind, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return {
+      id: `action-${kind}`,
+      type: "shape",
+      frame: {
+        x: 60 + col * (cellW + gap),
+        y: 100 + row * (cellH + gap),
+        w: cellW,
+        h: cellH,
+        rotation: 0,
+      },
+      data: {
+        kind,
+        adjustments: undefined,
+        fill: BG_ROLE,
+        stroke: { color: TEXT_ROLE, width: 2 },
+      },
+    } as Element;
+  });
+  return {
+    meta: { title: "Action buttons", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
 /**
  * Build a slide with a single rectangular callout so the tail's
  * attachment to the closest edge (default `[-20833, 62500]` →
@@ -735,6 +920,40 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     description:
       "6×4 grid of the 24 P3-A.2 sweep shapes (triangle, parallelogram, trapezoid, hexagon, octagon, plus, pentagonArrow, can, donut, 5 directional arrows, quadArrow, 3 wedge/cloud callouts, 6 math equation shapes) at OOXML defaults. Catches path-builder regressions; the pilot 9 keep their own scenario above.",
     render: () => <SlideCanvas doc={makeAdjustmentsSweepDoc()} />,
+  },
+  // P3-B — Google Slides parity sweep. Four scenarios cover the 62
+  // new shapes across the families they belong to:
+  //   shapes-basic-p3b      (29 basics + snip/round rects)
+  //   shapes-arrows-p3b     (13 block arrows + 5 banners)
+  //   shapes-callouts-p3b   (3 line callouts)
+  //   shapes-action-buttons (12 action buttons via drawActionButton)
+  {
+    id: "shapes-basic-p3b",
+    title: "Shape — P3-B basics (29)",
+    description:
+      "6-column grid of all 29 new P3-B basic shapes — 3 regular polys (heptagon/decagon/dodecagon), 4 sector/arc (pie/chord/arc/blockArc), 8 linear (frame/halfFrame/corner/diagStripe/plaque/bevel/foldedCorner/cube), 7 character (teardrop/smileyFace/heart/lightningBolt/sun/moon/noSmoking), and 7 snip/round-corner rects. All at OOXML defaults.",
+    render: () => <SlideCanvas doc={makeBasicP3bDoc()} />,
+  },
+  {
+    id: "shapes-arrows-p3b",
+    title: "Shape — P3-B arrows + banners (18)",
+    description:
+      "6×3 grid of 13 new block arrows (upDown, leftRightUp, notched/striped right, bent, bentUp, uturn, swoosh, circular, 4 curved*Arrow) + 5 banners (ribbon, ribbon2, horizontal/vertical scroll, leftRightRibbon). All at OOXML defaults; exercises the polylineArc curve helper across multiple shape families.",
+    render: () => <SlideCanvas doc={makeArrowsP3bDoc()} />,
+  },
+  {
+    id: "shapes-callouts-p3b",
+    title: "Shape — P3-B line callouts (3)",
+    description:
+      "borderCallout1/2/3 in a row, each at OOXML defaults. Verifies the rect-body + wedge-tail composition with 1/2/3-segment bends and the `outlined` style (background fill + text-coloured stroke).",
+    render: () => <SlideCanvas doc={makeCalloutsP3bDoc()} />,
+  },
+  {
+    id: "shapes-action-buttons",
+    title: "Shape — P3-B action buttons (12)",
+    description:
+      "4×3 grid of the 12 action buttons rendered via `drawActionButton` (special-cased dispatcher branch). Body = background fill + bevel outline; glyph = text-coloured inner icon. Includes `actionButtonBlank` to verify the no-glyph path.",
+    render: () => <SlideCanvas doc={makeActionButtonsDoc()} />,
   },
 ];
 
