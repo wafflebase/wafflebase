@@ -22,14 +22,17 @@ export type Category = {
 };
 
 /**
- * The 35-shape catalogue surfaced by the toolbar's `Shape ▾` picker.
+ * Shape catalogue surfaced by the toolbar's `Shape ▾` picker. Grows
+ * with each shape-library phase; entry count + section order are
+ * pinned via `shape-picker.test.ts` invariants.
  *
  * Categories mirror the OOXML / Google Slides shape menu groups —
- * Lines (2), Shapes (15), Block Arrows (8), Callouts (4), Equation
- * (6) — and the ordering inside each category matches Google Slides
- * so habits transfer. Each `kind` MUST be a ShapeKind that has a
- * registered PATH_BUILDER + a label > 0 chars; both invariants are
- * asserted in `shape-picker.test.ts`.
+ * Lines, Shapes, Block Arrows, Banners, Flowchart, Callouts,
+ * Equation, Stars, Action Buttons — and the ordering inside each
+ * category matches Google Slides so habits transfer. Each `kind`
+ * MUST be a ShapeKind that has a registered `PATH_BUILDERS` builder
+ * (or, for action buttons, an `ACTION_BUTTON_GLYPHS` entry) + a
+ * label > 0 chars.
  *
  * Exported as a `readonly` `Category[]` so consumers don't mutate
  * the canonical list. The picker re-exports this through
@@ -59,11 +62,40 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "trapezoid", label: "Trapezoid" },
       { kind: "pentagon", label: "Pentagon" },
       { kind: "hexagon", label: "Hexagon" },
+      { kind: "heptagon", label: "Heptagon" },
       { kind: "octagon", label: "Octagon" },
+      { kind: "decagon", label: "Decagon" },
+      { kind: "dodecagon", label: "Dodecagon" },
       { kind: "plus", label: "Plus" },
       { kind: "donut", label: "Donut" },
       { kind: "can", label: "Can" },
       { kind: "cloud", label: "Cloud" },
+      { kind: "pie", label: "Pie" },
+      { kind: "chord", label: "Chord" },
+      { kind: "arc", label: "Arc" },
+      { kind: "blockArc", label: "Block arc" },
+      { kind: "frame", label: "Frame" },
+      { kind: "halfFrame", label: "Half frame" },
+      { kind: "corner", label: "Corner" },
+      { kind: "diagStripe", label: "Diagonal stripe" },
+      { kind: "plaque", label: "Plaque" },
+      { kind: "bevel", label: "Bevel" },
+      { kind: "foldedCorner", label: "Folded corner" },
+      { kind: "cube", label: "Cube" },
+      { kind: "teardrop", label: "Teardrop" },
+      { kind: "smileyFace", label: "Smiley face" },
+      { kind: "heart", label: "Heart" },
+      { kind: "lightningBolt", label: "Lightning bolt" },
+      { kind: "sun", label: "Sun" },
+      { kind: "moon", label: "Moon" },
+      { kind: "noSmoking", label: "No symbol" },
+      { kind: "snip1Rect", label: "Snip single corner" },
+      { kind: "snip2SameRect", label: "Snip same side corners" },
+      { kind: "snip2DiagRect", label: "Snip diagonal corners" },
+      { kind: "snipRoundRect", label: "Snip + round corner" },
+      { kind: "round1Rect", label: "Round single corner" },
+      { kind: "round2SameRect", label: "Round same side corners" },
+      { kind: "round2DiagRect", label: "Round diagonal corners" },
     ],
   },
   {
@@ -78,6 +110,30 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "quadArrow", label: "Quad arrow" },
       { kind: "chevron", label: "Chevron" },
       { kind: "pentagonArrow", label: "Pentagon arrow" },
+      { kind: "upDownArrow", label: "Up-down arrow" },
+      { kind: "leftRightUpArrow", label: "Left-right-up arrow" },
+      { kind: "notchedRightArrow", label: "Notched right arrow" },
+      { kind: "stripedRightArrow", label: "Striped right arrow" },
+      { kind: "bentArrow", label: "Bent arrow" },
+      { kind: "bentUpArrow", label: "Bent-up arrow" },
+      { kind: "uturnArrow", label: "U-turn arrow" },
+      { kind: "swooshArrow", label: "Swoosh arrow" },
+      { kind: "circularArrow", label: "Circular arrow" },
+      { kind: "curvedRightArrow", label: "Curved right arrow" },
+      { kind: "curvedLeftArrow", label: "Curved left arrow" },
+      { kind: "curvedUpArrow", label: "Curved up arrow" },
+      { kind: "curvedDownArrow", label: "Curved down arrow" },
+    ],
+  },
+  {
+    id: "banners",
+    title: "Banners",
+    kinds: [
+      { kind: "ribbon", label: "Ribbon" },
+      { kind: "ribbon2", label: "Ribbon (notched)" },
+      { kind: "horizontalScroll", label: "Horizontal scroll" },
+      { kind: "verticalScroll", label: "Vertical scroll" },
+      { kind: "leftRightRibbon", label: "Left-right ribbon" },
     ],
   },
   {
@@ -108,6 +164,9 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "wedgeRoundRectCallout", label: "Rounded callout" },
       { kind: "wedgeEllipseCallout", label: "Oval callout" },
       { kind: "cloudCallout", label: "Cloud callout" },
+      { kind: "borderCallout1", label: "Line callout 1" },
+      { kind: "borderCallout2", label: "Line callout 2" },
+      { kind: "borderCallout3", label: "Line callout 3" },
     ],
   },
   {
@@ -132,6 +191,24 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "star7", label: "7-point star" },
       { kind: "star8", label: "8-point star" },
       { kind: "star10", label: "10-point star" },
+    ],
+  },
+  {
+    id: "action-buttons",
+    title: "Action Buttons",
+    kinds: [
+      { kind: "actionButtonBlank", label: "Blank action button" },
+      { kind: "actionButtonBackPrevious", label: "Back action button" },
+      { kind: "actionButtonForwardNext", label: "Forward action button" },
+      { kind: "actionButtonBeginning", label: "Beginning action button" },
+      { kind: "actionButtonEnd", label: "End action button" },
+      { kind: "actionButtonHome", label: "Home action button" },
+      { kind: "actionButtonInformation", label: "Information action button" },
+      { kind: "actionButtonReturn", label: "Return action button" },
+      { kind: "actionButtonMovie", label: "Movie action button" },
+      { kind: "actionButtonSound", label: "Sound action button" },
+      { kind: "actionButtonDocument", label: "Document action button" },
+      { kind: "actionButtonHelp", label: "Help action button" },
     ],
   },
 ];

@@ -23,18 +23,37 @@ export type Crop = { x: number; y: number; w: number; h: number };
 export type ShapeKind =
   // Lines (special-cased renderers in shape-special.ts)
   | 'line' | 'arrow'
-  // Basic shapes (15)
+  // Basic shapes (15 P1 + 3 regular polys + 4 sector/arc + 8 linear)
   | 'rect' | 'roundRect' | 'ellipse'
   | 'triangle' | 'rtTriangle'
   | 'diamond' | 'parallelogram' | 'trapezoid'
-  | 'pentagon' | 'hexagon' | 'octagon'
+  | 'pentagon' | 'hexagon' | 'heptagon' | 'octagon'
+  | 'decagon' | 'dodecagon'
   | 'plus' | 'donut' | 'can' | 'cloud'
-  // Block arrows (8)
+  | 'pie' | 'chord' | 'arc' | 'blockArc'
+  | 'frame' | 'halfFrame' | 'corner' | 'diagStripe'
+  | 'plaque' | 'bevel' | 'foldedCorner' | 'cube'
+  | 'teardrop' | 'smileyFace' | 'heart' | 'lightningBolt'
+  | 'sun' | 'moon' | 'noSmoking'
+  // Snip / round-corner rects (7)
+  | 'snip1Rect' | 'snip2SameRect' | 'snip2DiagRect' | 'snipRoundRect'
+  | 'round1Rect' | 'round2SameRect' | 'round2DiagRect'
+  // Block arrows (8 P1 + 4 T4a)
   | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
   | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
-  // Callouts (4)
+  | 'upDownArrow' | 'leftRightUpArrow'
+  | 'notchedRightArrow' | 'stripedRightArrow'
+  | 'bentArrow' | 'bentUpArrow' | 'uturnArrow' | 'swooshArrow'
+  | 'circularArrow'
+  | 'curvedRightArrow' | 'curvedLeftArrow'
+  | 'curvedUpArrow' | 'curvedDownArrow'
+  // Banners (5, P3-B T5)
+  | 'ribbon' | 'ribbon2' | 'horizontalScroll' | 'verticalScroll'
+  | 'leftRightRibbon'
+  // Callouts (4 P1 + 3 line callouts)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'
+  | 'borderCallout1' | 'borderCallout2' | 'borderCallout3'
   // Equation (6)
   | 'mathPlus' | 'mathMinus' | 'mathMultiply'
   | 'mathDivide' | 'mathEqual' | 'mathNotEqual'
@@ -47,7 +66,15 @@ export type ShapeKind =
   | 'flowChartManualOperation' | 'flowChartOffpageConnector'
   | 'flowChartPunchedCard' | 'flowChartPunchedTape'
   | 'flowChartSummingJunction' | 'flowChartOr'
-  | 'flowChartDelay' | 'flowChartDisplay';
+  | 'flowChartDelay' | 'flowChartDisplay'
+  // Action buttons (12 — P3-B T7) — special-cased renderer
+  // (drawActionButton); not entered in PATH_BUILDERS.
+  | 'actionButtonBlank' | 'actionButtonBackPrevious'
+  | 'actionButtonForwardNext' | 'actionButtonBeginning'
+  | 'actionButtonEnd' | 'actionButtonHome'
+  | 'actionButtonInformation' | 'actionButtonReturn'
+  | 'actionButtonMovie' | 'actionButtonSound'
+  | 'actionButtonDocument' | 'actionButtonHelp';
 
 export type ShapeStroke = {
   color: ThemeColor;

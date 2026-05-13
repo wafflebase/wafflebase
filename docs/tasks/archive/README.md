@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 173
+Total archived tasks: 174
 
-## 2026/05 (28 tasks)
+## 2026/05 (29 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shapes p3b (2026-05-13) | [20260513-slides-shapes-p3b-todo.md](./2026/05/20260513-slides-shapes-p3b-todo.md) | [20260513-slides-shapes-p3b-lessons.md](./2026/05/20260513-slides-shapes-p3b-lessons.md) |
 | comments collab fixes (2026-05-12) | [20260512-comments-collab-fixes-todo.md](./2026/05/20260512-comments-collab-fixes-todo.md) | [20260512-comments-collab-fixes-lessons.md](./2026/05/20260512-comments-collab-fixes-lessons.md) |
 | google analytics (2026-05-12) | [20260512-google-analytics-todo.md](./2026/05/20260512-google-analytics-todo.md) | [20260512-google-analytics-lessons.md](./2026/05/20260512-google-analytics-lessons.md) |
 | slides shapes p3a2 sweep (2026-05-12) | [20260512-slides-shapes-p3a2-sweep-todo.md](./2026/05/20260512-slides-shapes-p3a2-sweep-todo.md) | [20260512-slides-shapes-p3a2-sweep-lessons.md](./2026/05/20260512-slides-shapes-p3a2-sweep-lessons.md) |

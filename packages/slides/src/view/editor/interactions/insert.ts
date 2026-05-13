@@ -36,20 +36,45 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ...((
     [
       'rect', 'roundRect', 'ellipse', 'triangle', 'rtTriangle', 'diamond',
-      'parallelogram', 'trapezoid', 'pentagon', 'hexagon', 'octagon',
+      'parallelogram', 'trapezoid',
+      'pentagon', 'hexagon', 'heptagon', 'octagon',
+      'decagon', 'dodecagon',
       'plus', 'donut', 'can', 'cloud',
+      'pie', 'chord', 'blockArc',
+      'frame', 'halfFrame', 'corner', 'diagStripe',
+      'plaque', 'bevel', 'foldedCorner', 'cube',
+      'teardrop', 'smileyFace', 'heart', 'lightningBolt',
+      'sun', 'moon', 'noSmoking',
+      'snip1Rect', 'snip2SameRect', 'snip2DiagRect', 'snipRoundRect',
+      'round1Rect', 'round2SameRect', 'round2DiagRect',
       'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
       'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
+      'upDownArrow', 'leftRightUpArrow',
+      'notchedRightArrow', 'stripedRightArrow',
+      'bentArrow', 'bentUpArrow', 'uturnArrow', 'swooshArrow',
+      'circularArrow',
+      'curvedRightArrow', 'curvedLeftArrow',
+      'curvedUpArrow', 'curvedDownArrow',
+      'ribbon', 'ribbon2', 'horizontalScroll', 'verticalScroll',
+      'leftRightRibbon',
       'mathPlus', 'mathMinus', 'mathMultiply',
       'mathDivide', 'mathEqual', 'mathNotEqual',
       'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
     ] as ShapeKind[]
   ).map((k) => [k, 'filled' as ShapeStyle] as const)),
+  // Arc → stroke-only (open path). Reuses `lineSpecial` since the
+  // dispatcher behaviour we need is the same: stroke = text colour,
+  // no fill. Adding a fourth ShapeStyle for one shape would be
+  // overkill; the visual outcome matches.
+  ['arc', 'lineSpecial'],
   // Callouts → outlined
   ['wedgeRectCallout', 'outlined'],
   ['wedgeRoundRectCallout', 'outlined'],
   ['wedgeEllipseCallout', 'outlined'],
   ['cloudCallout', 'outlined'],
+  ['borderCallout1', 'outlined'],
+  ['borderCallout2', 'outlined'],
+  ['borderCallout3', 'outlined'],
   // Flowchart → outlined
   ['flowChartTerminator', 'outlined'],
   ['flowChartPredefinedProcess', 'outlined'],
@@ -65,6 +90,23 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ['flowChartOr', 'outlined'],
   ['flowChartDelay', 'outlined'],
   ['flowChartDisplay', 'outlined'],
+  // Action buttons → outlined. `drawActionButton` interprets
+  // `data.fill` as the body background and `data.stroke.color` as
+  // both the bevel outline and the inner-glyph fill, so the
+  // existing `outlined` defaults (background + text-coloured
+  // stroke) give the correct two-tone visual.
+  ['actionButtonBlank', 'outlined'],
+  ['actionButtonBackPrevious', 'outlined'],
+  ['actionButtonForwardNext', 'outlined'],
+  ['actionButtonBeginning', 'outlined'],
+  ['actionButtonEnd', 'outlined'],
+  ['actionButtonHome', 'outlined'],
+  ['actionButtonInformation', 'outlined'],
+  ['actionButtonReturn', 'outlined'],
+  ['actionButtonMovie', 'outlined'],
+  ['actionButtonSound', 'outlined'],
+  ['actionButtonDocument', 'outlined'],
+  ['actionButtonHelp', 'outlined'],
 ]);
 
 function defaultsForShape(

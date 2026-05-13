@@ -15,17 +15,44 @@ import {
  * without rendering React.
  *
  * The picker contract: 7 categories (Lines, Shapes, Block Arrows,
- * Flowchart, Callouts, Equation, Stars) with a combined 55 ShapeKind entries, each
+ * Flowchart, Callouts, Equation, Stars) with a combined entry count
+ * matching the registered `ShapeKind` catalogue. Each entry is
  * tagged with a non-empty user-facing label that doubles as the
  * IconButton's `aria-label` for accessibility.
+ *
+ * The entry-count expectation is updated as P3-B adds new shapes:
+ * 55 (P3-A.2) → 58 (T2a: heptagon, decagon, dodecagon) → 62
+ * (T2b: pie, chord, arc, blockArc) → 70 (T2c: frame, halfFrame,
+ * corner, diagStripe, plaque, bevel, foldedCorner, cube) → 77
+ * (T2d: teardrop, smileyFace, heart, lightningBolt, sun, moon,
+ * noSmoking) → 84 (T3: snip1/2 + round1/2 + snipRound, 7 rects)
+ * → 88 (T4a: upDownArrow, leftRightUpArrow, notchedRightArrow,
+ * stripedRightArrow) → 92 (T4b: bentArrow, bentUpArrow,
+ * uturnArrow, swooshArrow) → 97 (T4c: circularArrow + 4×
+ * curved*Arrow) → 102 (T5: 5 banners — new "Banners" section
+ * inserted between Block Arrows and Flowchart) → 105 (T6:
+ * borderCallout1/2/3 appended to Callouts) → 106 (T7a:
+ * actionButtonBlank — infrastructure pilot, new "Action Buttons"
+ * section at end) → 117 (T7b: 11 remaining action buttons —
+ * final P3-B catalog).
  */
 
 describe("shape-picker categories", () => {
-  it("exposes 7 categories in display order", () => {
-    assert.equal(SHAPE_PICKER_CATEGORIES.length, 7);
+  it("exposes 9 categories in display order", () => {
+    assert.equal(SHAPE_PICKER_CATEGORIES.length, 9);
     assert.deepEqual(
       SHAPE_PICKER_CATEGORIES.map((c) => c.id),
-      ["lines", "shapes", "block-arrows", "flowchart", "callouts", "equation", "stars"],
+      [
+        "lines",
+        "shapes",
+        "block-arrows",
+        "banners",
+        "flowchart",
+        "callouts",
+        "equation",
+        "stars",
+        "action-buttons",
+      ],
     );
   });
 
@@ -34,22 +61,24 @@ describe("shape-picker categories", () => {
       lines: "Lines",
       shapes: "Shapes",
       "block-arrows": "Block Arrows",
+      banners: "Banners",
       flowchart: "Flowchart",
       callouts: "Callouts",
       equation: "Equation",
       stars: "Stars",
+      "action-buttons": "Action Buttons",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       assert.equal(cat.title, expected[cat.id]);
     }
   });
 
-  it("contains exactly 55 ShapeKind entries across all categories", () => {
+  it("contains exactly 117 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 55);
+    assert.equal(total, 117);
   });
 
   it("each entry has a non-empty kind and label", () => {
@@ -71,10 +100,12 @@ describe("shape-picker categories", () => {
       lines: "line",
       shapes: "rect",
       "block-arrows": "rightArrow",
+      banners: "ribbon",
       flowchart: "flowChartTerminator",
       callouts: "wedgeRectCallout",
       equation: "mathPlus",
       stars: "star4",
+      "action-buttons": "actionButtonBlank",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       assert.equal(cat.kinds[0]?.kind, firsts[cat.id]);
