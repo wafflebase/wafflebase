@@ -38,9 +38,11 @@ export type ShapeKind =
   // Snip / round-corner rects (7)
   | 'snip1Rect' | 'snip2SameRect' | 'snip2DiagRect' | 'snipRoundRect'
   | 'round1Rect' | 'round2SameRect' | 'round2DiagRect'
-  // Block arrows (8)
+  // Block arrows (8 P1 + 4 T4a)
   | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
   | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
+  | 'upDownArrow' | 'leftRightUpArrow'
+  | 'notchedRightArrow' | 'stripedRightArrow'
   // Callouts (4)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'

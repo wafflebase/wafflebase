@@ -47,6 +47,8 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'round1Rect', 'round2SameRect', 'round2DiagRect',
       'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
       'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
+      'upDownArrow', 'leftRightUpArrow',
+      'notchedRightArrow', 'stripedRightArrow',
       'mathPlus', 'mathMinus', 'mathMultiply',
       'mathDivide', 'mathEqual', 'mathNotEqual',
       'star4', 'star5', 'star6', 'star7', 'star8', 'star10',

@@ -25,7 +25,9 @@ import {
  * (T2b: pie, chord, arc, blockArc) → 70 (T2c: frame, halfFrame,
  * corner, diagStripe, plaque, bevel, foldedCorner, cube) → 77
  * (T2d: teardrop, smileyFace, heart, lightningBolt, sun, moon,
- * noSmoking) → 84 (T3: snip1/2 + round1/2 + snipRound, 7 rects) → …
+ * noSmoking) → 84 (T3: snip1/2 + round1/2 + snipRound, 7 rects)
+ * → 88 (T4a: upDownArrow, leftRightUpArrow, notchedRightArrow,
+ * stripedRightArrow) → …
  */
 
 describe("shape-picker categories", () => {
@@ -52,12 +54,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 84 ShapeKind entries across all categories", () => {
+  it("contains exactly 88 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 84);
+    assert.equal(total, 88);
   });
 
   it("each entry has a non-empty kind and label", () => {

@@ -5164,6 +5164,74 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       ],
     },
   ],
+  "leftRightUpArrow": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 87.5,
+        },
+        {
+          "x": 12.5,
+          "y": 75,
+        },
+        {
+          "x": 12.5,
+          "y": 81.25,
+        },
+        {
+          "x": 43.75,
+          "y": 81.25,
+        },
+        {
+          "x": 43.75,
+          "y": 37.5,
+        },
+        {
+          "x": 37.5,
+          "y": 37.5,
+        },
+        {
+          "x": 50,
+          "y": 25,
+        },
+        {
+          "x": 62.5,
+          "y": 37.5,
+        },
+        {
+          "x": 56.25,
+          "y": 37.5,
+        },
+        {
+          "x": 56.25,
+          "y": 81.25,
+        },
+        {
+          "x": 87.5,
+          "y": 81.25,
+        },
+        {
+          "x": 87.5,
+          "y": 75,
+        },
+        {
+          "x": 100,
+          "y": 87.5,
+        },
+        {
+          "x": 87.5,
+          "y": 100,
+        },
+        {
+          "x": 12.5,
+          "y": 100,
+        },
+      ],
+    },
+  ],
   "lightningBolt": [
     {
       "closed": true,
@@ -5912,6 +5980,46 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": -13.258252,
           "y": 13.258252,
+        },
+      ],
+    },
+  ],
+  "notchedRightArrow": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 25,
+        },
+        {
+          "x": 50,
+          "y": 25,
+        },
+        {
+          "x": 50,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 50,
+        },
+        {
+          "x": 50,
+          "y": 100,
+        },
+        {
+          "x": 50,
+          "y": 75,
+        },
+        {
+          "x": 0,
+          "y": 75,
+        },
+        {
+          "x": 25,
+          "y": 50,
         },
       ],
     },
@@ -7767,6 +7875,86 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       ],
     },
   ],
+  "stripedRightArrow": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 0,
+          "y": 25,
+        },
+        {
+          "x": 5,
+          "y": 25,
+        },
+        {
+          "x": 5,
+          "y": 75,
+        },
+        {
+          "x": 0,
+          "y": 75,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 10,
+          "y": 25,
+        },
+        {
+          "x": 15,
+          "y": 25,
+        },
+        {
+          "x": 15,
+          "y": 75,
+        },
+        {
+          "x": 10,
+          "y": 75,
+        },
+      ],
+    },
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 20,
+          "y": 25,
+        },
+        {
+          "x": 50,
+          "y": 25,
+        },
+        {
+          "x": 50,
+          "y": 0,
+        },
+        {
+          "x": 100,
+          "y": 50,
+        },
+        {
+          "x": 50,
+          "y": 100,
+        },
+        {
+          "x": 50,
+          "y": 75,
+        },
+        {
+          "x": 20,
+          "y": 75,
+        },
+      ],
+    },
+  ],
   "sun": [
     {
       "closed": true,
@@ -8003,6 +8191,54 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 75,
           "y": 100,
+        },
+      ],
+    },
+  ],
+  "upDownArrow": [
+    {
+      "closed": true,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 50,
+          "y": 0,
+        },
+        {
+          "x": 75,
+          "y": 50,
+        },
+        {
+          "x": 62.5,
+          "y": 50,
+        },
+        {
+          "x": 62.5,
+          "y": 50,
+        },
+        {
+          "x": 75,
+          "y": 50,
+        },
+        {
+          "x": 50,
+          "y": 100,
+        },
+        {
+          "x": 25,
+          "y": 50,
+        },
+        {
+          "x": 37.5,
+          "y": 50,
+        },
+        {
+          "x": 37.5,
+          "y": 50,
+        },
+        {
+          "x": 25,
+          "y": 50,
         },
       ],
     },

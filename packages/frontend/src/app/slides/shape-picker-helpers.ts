@@ -107,6 +107,10 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "quadArrow", label: "Quad arrow" },
       { kind: "chevron", label: "Chevron" },
       { kind: "pentagonArrow", label: "Pentagon arrow" },
+      { kind: "upDownArrow", label: "Up-down arrow" },
+      { kind: "leftRightUpArrow", label: "Left-right-up arrow" },
+      { kind: "notchedRightArrow", label: "Notched right arrow" },
+      { kind: "stripedRightArrow", label: "Striped right arrow" },
     ],
   },
   {

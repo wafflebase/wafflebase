@@ -138,6 +138,26 @@ import {
   PENTAGON_ARROW_HANDLES,
 } from './arrows/pentagon-arrow';
 import {
+  buildUpDownArrow,
+  UP_DOWN_ARROW_ADJUSTMENTS,
+  UP_DOWN_ARROW_HANDLES,
+} from './arrows/up-down-arrow';
+import {
+  buildLeftRightUpArrow,
+  LEFT_RIGHT_UP_ARROW_ADJUSTMENTS,
+  LEFT_RIGHT_UP_ARROW_HANDLES,
+} from './arrows/left-right-up-arrow';
+import {
+  buildNotchedRightArrow,
+  NOTCHED_RIGHT_ARROW_ADJUSTMENTS,
+  NOTCHED_RIGHT_ARROW_HANDLES,
+} from './arrows/notched-right-arrow';
+import {
+  buildStripedRightArrow,
+  STRIPED_RIGHT_ARROW_ADJUSTMENTS,
+  STRIPED_RIGHT_ARROW_HANDLES,
+} from './arrows/striped-right-arrow';
+import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
   WEDGE_RECT_CALLOUT_HANDLES,
@@ -264,6 +284,10 @@ PATH_BUILDERS.set('snipRoundRect', buildSnipRoundRect);
 PATH_BUILDERS.set('round1Rect', buildRound1Rect);
 PATH_BUILDERS.set('round2SameRect', buildRound2SameRect);
 PATH_BUILDERS.set('round2DiagRect', buildRound2DiagRect);
+PATH_BUILDERS.set('upDownArrow', buildUpDownArrow);
+PATH_BUILDERS.set('leftRightUpArrow', buildLeftRightUpArrow);
+PATH_BUILDERS.set('notchedRightArrow', buildNotchedRightArrow);
+PATH_BUILDERS.set('stripedRightArrow', buildStripedRightArrow);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -424,3 +448,11 @@ ADJUSTMENT_HANDLES.set('snipRoundRect', SNIP_ROUND_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('round1Rect', ROUND1_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('round2SameRect', ROUND2_SAME_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('round2DiagRect', ROUND2_DIAG_RECT_HANDLES);
+ADJUSTMENT_SPECS.set('upDownArrow', UP_DOWN_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftRightUpArrow', LEFT_RIGHT_UP_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('notchedRightArrow', NOTCHED_RIGHT_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('stripedRightArrow', STRIPED_RIGHT_ARROW_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('upDownArrow', UP_DOWN_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('leftRightUpArrow', LEFT_RIGHT_UP_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('notchedRightArrow', NOTCHED_RIGHT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('stripedRightArrow', STRIPED_RIGHT_ARROW_HANDLES);
