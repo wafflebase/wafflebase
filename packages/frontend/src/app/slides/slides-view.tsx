@@ -207,6 +207,11 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     canvas.style.width = `${hostW}px`;
     canvas.style.height = `${hostH}px`;
     canvas.style.background = "#fff";
+    // 1px ring so the slide edge stays visible when the slide background
+    // (theme-driven, white by default) matches the surrounding inset's
+    // bg-background. Without this, the slide blends into the chrome
+    // entirely below `md:` (where `SidebarInset` drops its own card frame).
+    canvas.style.boxShadow = "0 0 0 1px var(--border)";
     canvasWrap.appendChild(canvas);
 
     const overlay = document.createElement("div");
