@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, ArrNode } from './formula';
+import { EvalNode, ErrNode, ArrNode, numNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -328,7 +328,7 @@ export function productFunc(
     value *= node.v;
   }
 
-  return { t: 'num', v: value };
+  return numNode(value);
 }
 
 /**
@@ -463,7 +463,7 @@ export function expFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.exp(num.v) };
+  return numNode(Math.exp(num.v));
 }
 
 /**
@@ -1280,7 +1280,7 @@ export function factFunc(
     result *= i;
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
