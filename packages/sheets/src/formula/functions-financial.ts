@@ -432,15 +432,8 @@ export function irrFunc(
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
-  const values: number[] = [];
-  const refsResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (refsResult.t === 'err') return refsResult;
-  for (const ref of refsResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
+  const values = collectCashFlowValues(exprs[0], visit, grid);
+  if (values.t === 'err') return values;
 
   let guess = 0.1;
   if (exprs.length === 2) {
@@ -454,10 +447,10 @@ export function irrFunc(
   for (let iter = 0; iter < 100; iter++) {
     let npv = 0;
     let dnpv = 0;
-    for (let i = 0; i < values.length; i++) {
+    for (let i = 0; i < values.v.length; i++) {
       const denom = Math.pow(1 + rate, i);
-      npv += values[i] / denom;
-      dnpv -= i * values[i] / Math.pow(1 + rate, i + 1);
+      npv += values.v[i] / denom;
+      dnpv -= i * values.v[i] / Math.pow(1 + rate, i + 1);
     }
     if (Math.abs(dnpv) < 1e-15) return ErrNode.VALUE;
     const newRate = rate - npv / dnpv;
@@ -841,22 +834,14 @@ export function mirrFunc(
   const exprs = args.expr();
   if (exprs.length !== 3) return ErrNode.NA;
 
-  const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (valuesResult.t === 'err') return valuesResult;
+  const values = collectCashFlowValues(exprs[0], visit, grid);
+  if (values.t === 'err') return values;
   const financeRate = NumberArgs.map(visit(exprs[1]), grid);
   if (financeRate.t === 'err') return financeRate;
   const reinvestRate = NumberArgs.map(visit(exprs[2]), grid);
   if (reinvestRate.t === 'err') return reinvestRate;
 
-  const values: number[] = [];
-  for (const ref of valuesResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
-
-  const n = values.length;
+  const n = values.v.length;
   if (n < 2) return ErrNode.VALUE;
 
   // PV of negative cash flows (costs) discounted at finance rate
@@ -865,15 +850,61 @@ export function mirrFunc(
   let fvPos = 0;
 
   for (let i = 0; i < n; i++) {
-    if (values[i] < 0) {
-      pvNeg += values[i] / Math.pow(1 + financeRate.v, i);
+    if (values.v[i] < 0) {
+      pvNeg += values.v[i] / Math.pow(1 + financeRate.v, i);
     } else {
-      fvPos += values[i] * Math.pow(1 + reinvestRate.v, n - 1 - i);
+      fvPos += values.v[i] * Math.pow(1 + reinvestRate.v, n - 1 - i);
     }
   }
 
   if (pvNeg === 0) return ErrNode.DIV0;
   return { t: 'num', v: Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1 };
+}
+
+function collectCashFlowValues(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { t: 'values'; v: number[] } | ErrNode {
+  const node = visit(expr);
+  if (node.t === 'err') return node;
+
+  const values: number[] = [];
+  if (node.t === 'arr') {
+    for (const row of node.v) {
+      for (const cell of row) {
+        const value = cashFlowNodeToNumber(cell);
+        if (value.t === 'err') return value;
+        values.push(value.v);
+      }
+    }
+    return { t: 'values', v: values };
+  }
+
+  if (node.t !== 'ref' || !grid) {
+    return ErrNode.VALUE;
+  }
+
+  for (const ref of toSrefs([node.v])) {
+    const value = cashFlowStringToNumber(grid.get(ref)?.v);
+    if (value.t === 'err') return value;
+    values.push(value.v);
+  }
+  return { t: 'values', v: values };
+}
+
+function cashFlowNodeToNumber(node: EvalNode): { t: 'num'; v: number } | ErrNode {
+  if (node.t === 'err') return node;
+  if (node.t === 'num') return node;
+  if (node.t === 'bool') return { t: 'num', v: node.v ? 1 : 0 };
+  if (node.t === 'str') return cashFlowStringToNumber(node.v);
+  if (node.t === 'empty') return { t: 'num', v: 0 };
+  return ErrNode.VALUE;
+}
+
+function cashFlowStringToNumber(value?: string): { t: 'num'; v: number } | ErrNode {
+  const num = Number(value ?? 0);
+  return isNaN(num) ? ErrNode.VALUE : { t: 'num', v: num };
 }
 
 /**
