@@ -10,6 +10,7 @@ import {
   parseRange,
   parseRef,
   toColumnLabel,
+  toSrng,
 } from '../model/core/coordinates';
 import {
   toStr,
@@ -716,8 +717,25 @@ export function offsetFunc(
     return ErrNode.REF;
   }
 
-  // For single cell OFFSET (no height/width or 1x1)
+  const heightNode = exprs[3] ? NumberArgs.map(visit(exprs[3]), grid) : { t: 'num' as const, v: 1 };
+  if (heightNode.t === 'err') return heightNode;
+  const widthNode = exprs[4] ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 1 };
+  if (widthNode.t === 'err') return widthNode;
+
+  const height = Math.trunc(heightNode.v);
+  const width = Math.trunc(widthNode.v);
+  if (height < 1 || width < 1) {
+    return ErrNode.REF;
+  }
+
+  const endRow = newRow + height - 1;
+  const endCol = newCol + width - 1;
   const newRef = `${toColumnLabel(newCol)}${newRow}`;
+  const endRef = `${toColumnLabel(endCol)}${endRow}`;
+  if (height > 1 || width > 1) {
+    return { t: 'ref', v: toSrng([parseRef(newRef), parseRef(endRef)]) };
+  }
+
   const cellVal = grid.get(newRef)?.v || '';
   const num = Number(cellVal);
   if (cellVal !== '' && !isNaN(num)) {

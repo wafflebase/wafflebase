@@ -1586,6 +1586,10 @@ describe('Formula', () => {
     expect(evaluate('=OFFSET(A1,1,1)', grid)).toBe('40');
     // OFFSET(A1, 0, 1) = B1 = 20
     expect(evaluate('=OFFSET(A1,0,1)', grid)).toBe('20');
+    expect(evaluate('=SUM(OFFSET(A1,0,0,2,1))', grid)).toBe('40');
+    expect(evaluate('=SUM(OFFSET(A1,0,0,2,2))', grid)).toBe('100');
+    expect(evaluate('=OFFSET(A1,-1,0)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,0,0,1)', grid)).toBe('#REF!');
   });
 
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
