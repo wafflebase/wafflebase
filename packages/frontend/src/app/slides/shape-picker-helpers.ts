@@ -22,14 +22,17 @@ export type Category = {
 };
 
 /**
- * The 35-shape catalogue surfaced by the toolbar's `Shape ▾` picker.
+ * Shape catalogue surfaced by the toolbar's `Shape ▾` picker. Grows
+ * with each shape-library phase; entry count + section order are
+ * pinned via `shape-picker.test.ts` invariants.
  *
  * Categories mirror the OOXML / Google Slides shape menu groups —
- * Lines (2), Shapes (15), Block Arrows (8), Callouts (4), Equation
- * (6) — and the ordering inside each category matches Google Slides
- * so habits transfer. Each `kind` MUST be a ShapeKind that has a
- * registered PATH_BUILDER + a label > 0 chars; both invariants are
- * asserted in `shape-picker.test.ts`.
+ * Lines, Shapes, Block Arrows, Banners, Flowchart, Callouts,
+ * Equation, Stars, Action Buttons — and the ordering inside each
+ * category matches Google Slides so habits transfer. Each `kind`
+ * MUST be a ShapeKind that has a registered `PATH_BUILDERS` builder
+ * (or, for action buttons, an `ACTION_BUTTON_GLYPHS` entry) + a
+ * label > 0 chars.
  *
  * Exported as a `readonly` `Category[]` so consumers don't mutate
  * the canonical list. The picker re-exports this through

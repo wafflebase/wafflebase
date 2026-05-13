@@ -357,9 +357,9 @@ for the initial fill / stroke. Conventions across all families:
 | Category | Default fill | Default stroke |
 |---|---|---|
 | Lines | (none) | `role: 'text'`, width 2 |
-| Basic / Block Arrows / Banners / Equation / Stars | `role: 'accent1'` | (none, except stars: `role: 'text'`, width 1) |
+| Basic / Block Arrows / Banners / Equation / Stars | `role: 'accent1'` | `role: 'text'`, width 1 |
 | Callouts / Flowchart | `role: 'background'` | `role: 'text'`, width 2 |
-| Action buttons | `role: 'background'` | `role: 'text'`, width 1 — glyph fill always `role: 'text'` |
+| Action buttons | `role: 'background'` | `role: 'text'`, width 1 — `drawActionButton` reuses `stroke.color` for the inner glyph fill, falling back to the `background` role on collision so the glyph stays legible against any body fill |
 
 ### OOXML alignment
 

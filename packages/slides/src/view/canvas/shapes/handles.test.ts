@@ -258,5 +258,30 @@ describe('angularHandle', () => {
       const back = angHandle.apply({ w: 200, h: 200 }, start, p);
       expect(back[0]).toBeCloseTo(start[0], -3);
     });
+
+    it('does not hang when startAdjustments[index] is non-finite', () => {
+      // A corrupt CRDT replica could surface Infinity / NaN. The
+      // unwrap loop must terminate; clamping + finite-check should
+      // return a clamped result rather than spinning forever.
+      const finished = { value: false };
+      const timer = setTimeout(() => {
+        // If this fires the test is hung — fail fast rather than
+        // waiting on the test runner's overall timeout.
+        if (!finished.value) {
+          throw new Error('angularHandle.apply did not return in 100ms');
+        }
+      }, 100);
+      const next = angHandle.apply(
+        { w: 200, h: 200 },
+        [Number.POSITIVE_INFINITY],
+        { x: 200, y: 100 },
+      );
+      finished.value = true;
+      clearTimeout(timer);
+      // Result must be a valid in-range integer, not NaN / Infinity.
+      expect(Number.isFinite(next[0])).toBe(true);
+      expect(next[0]).toBeGreaterThanOrEqual(ANGULAR_SPEC.min);
+      expect(next[0]).toBeLessThanOrEqual(ANGULAR_SPEC.max);
+    });
   });
 });

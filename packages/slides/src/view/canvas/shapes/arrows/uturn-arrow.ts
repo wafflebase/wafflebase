@@ -30,8 +30,13 @@ export const buildUturnArrow: PathBuilder = ({ w, h }, adjustments) => {
   // Top of the U-turn — semicircle whose centre is between leftCx
   // and rightCx, sitting at the same y as both arm tops.
   const turnCx = (leftCx + rightCx) / 2;
-  const outerR = turnCx; // outer radius spans from frame left to frame right
-  const innerR = (rightCx - leftCx) / 2 - shaft;
+  // Radii chosen so the semicircle endpoints land flush with the arm
+  // walls: outer at `(leftCx - shaft/2)` / `(rightCx + shaft/2)`, inner
+  // at `(leftCx + shaft/2)` / `(rightCx - shaft/2)`. The earlier
+  // `outerR = turnCx` produced visible notches because the arc extended
+  // past the arm walls by `shaft/2`.
+  const outerR = (rightCx - leftCx) / 2 + shaft / 2;
+  const innerR = Math.max(0, (rightCx - leftCx) / 2 - shaft / 2);
   const turnCy = outerR;
   const path = new Path2D();
   // CW from bottom-left of left arm.

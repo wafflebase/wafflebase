@@ -104,12 +104,30 @@ export function angularHandle(opts: {
       const dx = pointer.x - c.x;
       const dy = pointer.y - c.y;
       let degrees = (Math.atan2(dy, dx) * 180) / Math.PI;
-      const startDegrees = (start[index] ?? spec.defaultValue) / 60000;
+      // `start[index]` may hold a corrupt (non-finite) value if the
+      // CRDT replica was poisoned upstream. Clamp + finite-check so
+      // a malformed start angle can't make the unwrap loop spin
+      // forever (`Infinity - 360` is still `Infinity`).
+      const rawStart = (start[index] ?? spec.defaultValue) / 60000;
+      const startDegrees = Number.isFinite(rawStart)
+        ? Math.max(spec.min / 60000, Math.min(spec.max / 60000, rawStart))
+        : spec.defaultValue / 60000;
       // Unwrap so the chosen branch is within 180° of the start
-      // angle. Handles drags across the 0°/360° (or any 360°k)
-      // boundary without snapping to the opposite side.
-      while (degrees - startDegrees > 180) degrees -= 360;
-      while (degrees - startDegrees < -180) degrees += 360;
+      // angle. Handles drags across the 0°/360° boundary without
+      // snapping to the opposite side. Strict `> 180` / `< -180`
+      // matches the half-open `(start-180, start+180]` semantics
+      // exercised by the test suite; a closed-form
+      // `Math.round((d - s)/360)` shift collapses the exact-180°
+      // tie incorrectly.
+      const MAX_UNWRAP_STEPS = 4; // covers any spec range up to ±720°
+      let steps = 0;
+      while (degrees - startDegrees > 180 && steps++ < MAX_UNWRAP_STEPS) {
+        degrees -= 360;
+      }
+      steps = 0;
+      while (degrees - startDegrees < -180 && steps++ < MAX_UNWRAP_STEPS) {
+        degrees += 360;
+      }
       const ooxml = Math.round(degrees * 60000);
       const clamped = Math.max(spec.min, Math.min(spec.max, ooxml));
       const result = [...start];

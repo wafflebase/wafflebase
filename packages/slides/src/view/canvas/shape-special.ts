@@ -92,14 +92,22 @@ export function drawActionButton(
       ctx.strokeRect(inset, inset, w - 2 * inset, h - 2 * inset);
     }
   }
-  // Glyph.
+  // Glyph. Inherits the stroke colour so the bevel outline + inner
+  // glyph form a coherent two-tone visual. If the resolved glyph
+  // colour collides with the body fill (e.g. the user explicitly set
+  // `fill: text`), fall back to the background role so the glyph
+  // stays legible. Without this guard a body fill of the same role
+  // as the glyph fallback would paint an invisible icon.
   const glyphBuilder = ACTION_BUTTON_GLYPHS.get(data.kind);
   if (glyphBuilder) {
     const path = glyphBuilder({ w, h });
-    ctx.fillStyle = resolveColor(
-      data.stroke?.color ?? ACTION_BUTTON_GLYPH_FALLBACK,
-      theme,
-    );
+    const glyphSource = data.stroke?.color ?? ACTION_BUTTON_GLYPH_FALLBACK;
+    const glyphResolved = resolveColor(glyphSource, theme);
+    const bodyResolved = data.fill ? resolveColor(data.fill, theme) : null;
+    ctx.fillStyle =
+      bodyResolved === glyphResolved
+        ? resolveColor({ kind: 'role', role: 'background' }, theme)
+        : glyphResolved;
     ctx.fill(path);
   }
 }

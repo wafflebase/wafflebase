@@ -120,10 +120,13 @@ export function curvedArrowHandles(
     {
       position: (size, adjustments) => {
         const shaft = ((adjustments[0] ?? 20000) / 100000) * Math.min(size.w, size.h);
+        const headLen = ((adjustments[1] ?? 20000) / 100000) * Math.min(size.w, size.h);
         const pivot = spec.pivot(size);
-        // Diamond at the tail end of the inner arc (one band-width
-        // away from the tail end of the outer arc).
-        const outerR = Math.min(size.w, size.h);
+        // Diamond at the tail end of the inner arc. Must use the same
+        // `outerR = min(w,h) - headLen` the path builder uses
+        // (`buildCurvedArrow`); the earlier `outerR = min(w,h)` floated
+        // the handle `headLen` pixels off the actual band tail.
+        const outerR = Math.max(0, Math.min(size.w, size.h) - headLen);
         const innerR = Math.max(0, outerR - shaft);
         return {
           x: insetAlongAxis(pivot.x + innerR * Math.cos(spec.tailTheta), size.w),
@@ -135,9 +138,11 @@ export function curvedArrowHandles(
         const dx = pointer.x - pivot.x;
         const dy = pointer.y - pivot.y;
         const r = Math.sqrt(dx * dx + dy * dy);
-        const outerR = Math.min(size.w, size.h);
+        const headLen = ((start[1] ?? 20000) / 100000) * Math.min(size.w, size.h);
+        const outerR = Math.max(0, Math.min(size.w, size.h) - headLen);
         const shaft = Math.max(0, outerR - r);
-        const raw = Math.round((shaft / outerR) * 100000);
+        const raw =
+          outerR > 0 ? Math.round((shaft / outerR) * 100000) : 0;
         const specA = CURVED_ARROW_ADJUSTMENTS[0];
         return [
           Math.max(specA.min, Math.min(specA.max, raw)),
