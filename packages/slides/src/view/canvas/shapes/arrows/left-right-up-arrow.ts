@@ -14,10 +14,13 @@ import { insetAlongAxis } from '../handles';
  *   [1] head width — OOXML thousandths of `h/2`
  *   [2] up-arm length — OOXML thousandths of `h`
  */
+// Bumped vs the OOXML 25000-uniform defaults so the three arms are
+// each visibly prominent at picker / cell aspect ratios; the OOXML
+// values render as a tiny T at 140 × 100.
 export const LEFT_RIGHT_UP_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Head length', defaultValue: 25000, min: 0, max: 50000 },
-  { name: 'Head width', defaultValue: 25000, min: 0, max: 100000 },
-  { name: 'Up arm length', defaultValue: 25000, min: 0, max: 100000 },
+  { name: 'Head length', defaultValue: 35000, min: 0, max: 50000 },
+  { name: 'Head width', defaultValue: 50000, min: 0, max: 100000 },
+  { name: 'Up arm length', defaultValue: 35000, min: 0, max: 100000 },
 ];
 
 export const buildLeftRightUpArrow: PathBuilder = ({ w, h }, adjustments) => {

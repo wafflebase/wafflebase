@@ -11,12 +11,14 @@ import { linearTopEdgeHandle } from '../handles';
  * `verticalScroll` — vertical version of `horizontalScroll`.
  * Roll discs at top and bottom corners.
  */
+// Default bumped to 18750 (matches `horizontalScroll`) so the roll
+// discs are visible at picker / cell sizes.
 export const VERTICAL_SCROLL_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Roll thickness', defaultValue: 12500, min: 0, max: 25000 },
+  { name: 'Roll thickness', defaultValue: 18750, min: 0, max: 25000 },
 ];
 
 export const buildVerticalScroll: PathBuilder = ({ w, h }, adjustments) => {
-  const a1 = adj(adjustments, 0, 12500);
+  const a1 = adj(adjustments, 0, 18750);
   const r = (a1 / 100000) * Math.min(w, h);
   const path = new Path2D();
   path.moveTo(0, r);

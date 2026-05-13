@@ -13,13 +13,17 @@ import { insetAlongAxis } from '../handles';
  *   [1] head width — OOXML thousandths of `w/2`; default 50000
  * Shaft width fixed at 50% of head width (matches OOXML default).
  */
+// Head length default 25000 (25 % of h) leaves 50 % of the height for
+// the shaft. The OOXML 50000 default collapses the shaft to zero at
+// common picker / cell aspect ratios, making the shape look like a
+// bowtie — see lessons doc.
 export const UP_DOWN_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Head length', defaultValue: 50000, min: 0, max: 100000 },
+  { name: 'Head length', defaultValue: 25000, min: 0, max: 100000 },
   { name: 'Head width', defaultValue: 50000, min: 0, max: 100000 },
 ];
 
 export const buildUpDownArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const headLen = Math.min(h / 2, (adj(adjustments, 0, 50000) / 100000) * h);
+  const headLen = Math.min(h / 2, (adj(adjustments, 0, 25000) / 100000) * h);
   const headHalf = (adj(adjustments, 1, 50000) / 100000) * (w / 2);
   const shaftHalf = headHalf * 0.5;
   const cx = w / 2;

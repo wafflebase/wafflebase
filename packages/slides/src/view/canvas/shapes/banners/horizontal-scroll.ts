@@ -13,12 +13,15 @@ import { linearTopEdgeHandle } from '../handles';
  * fraction of `min(w, h)`. V0 uses semicircular polyline arcs
  * for the rolls.
  */
+// Default 18750 (≈ 19 % of `min(w, h)`) keeps both diagonal-corner
+// roll discs visible at 140 × 100 picker / cell sizes. OOXML's
+// 12500 default renders as near-invisible specks.
 export const HORIZONTAL_SCROLL_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Roll thickness', defaultValue: 12500, min: 0, max: 25000 },
+  { name: 'Roll thickness', defaultValue: 18750, min: 0, max: 25000 },
 ];
 
 export const buildHorizontalScroll: PathBuilder = ({ w, h }, adjustments) => {
-  const a1 = adj(adjustments, 0, 12500);
+  const a1 = adj(adjustments, 0, 18750);
   const r = (a1 / 100000) * Math.min(w, h);
   const path = new Path2D();
   // Main rectangle body inset by `r` on the vertical sides for rolls.

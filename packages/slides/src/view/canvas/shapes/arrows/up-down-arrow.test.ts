@@ -19,8 +19,11 @@ describe('buildUpDownArrow', () => {
     expect(ctx.isPointInPath(path, 5, 100)).toBe(false);
   });
 
-  it('default adjustments are 50000 / 50000', () => {
-    expect(UP_DOWN_ARROW_ADJUSTMENTS[0].defaultValue).toBe(50000);
+  it('default adjustments are 25000 / 50000', () => {
+    // Head length default is 25000 (25 % of h), leaving 50 % of the
+    // height for the shaft. OOXML's 50000 default collapses the
+    // shape to a bowtie at common cell aspect ratios.
+    expect(UP_DOWN_ARROW_ADJUSTMENTS[0].defaultValue).toBe(25000);
     expect(UP_DOWN_ARROW_ADJUSTMENTS[1].defaultValue).toBe(50000);
   });
 });
