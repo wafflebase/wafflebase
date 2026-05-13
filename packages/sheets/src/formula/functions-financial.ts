@@ -861,6 +861,9 @@ export function mirrFunc(
   return { t: 'num', v: Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1 };
 }
 
+/**
+ * Collects cash-flow inputs from either an evaluated array literal or a reference range.
+ */
 function collectCashFlowValues(
   expr: ParseTree,
   visit: (tree: ParseTree) => EvalNode,
@@ -893,6 +896,9 @@ function collectCashFlowValues(
   return { t: 'values', v: values };
 }
 
+/**
+ * Coerces array-literal cells using the same numeric rules as referenced cells.
+ */
 function cashFlowNodeToNumber(node: EvalNode): { t: 'num'; v: number } | ErrNode {
   if (node.t === 'err') return node;
   if (node.t === 'num') return node;
@@ -902,6 +908,9 @@ function cashFlowNodeToNumber(node: EvalNode): { t: 'num'; v: number } | ErrNode
   return ErrNode.VALUE;
 }
 
+/**
+ * Coerces a referenced cash-flow cell, treating blank and missing cells as zero.
+ */
 function cashFlowStringToNumber(value?: string): { t: 'num'; v: number } | ErrNode {
   const num = Number(value ?? 0);
   return isNaN(num) ? ErrNode.VALUE : { t: 'num', v: num };

@@ -1780,6 +1780,15 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(0.2489, 3);
   });
 
+  it('should coerce IRR array literal cash-flow values consistently', () => {
+    expect(Number(evaluate('=IRR({"-10000","3000","4200","6800"})'))).toBeCloseTo(
+      0.1634,
+      2,
+    );
+    expect(evaluate('=IRR({"not-a-number",3000})')).toBe('#VALUE!');
+    expect(evaluate('=IRR(1)')).toBe('#VALUE!');
+  });
+
   it('should correctly evaluate DB function', () => {
     // DB(1000000, 100000, 6, 1, 7)
     const result = evaluate('=DB(1000000,100000,6,1,7)');
@@ -2097,6 +2106,21 @@ describe('Formula', () => {
   it('should correctly evaluate MIRR with array literals', () => {
     const result = evaluate('=MIRR({-50000,15000,20000,25000,30000},0.1,0.12)');
     expect(Number(result)).toBeCloseTo(0.2014, 3);
+  });
+
+  it('should coerce MIRR array literal and range cash-flow values consistently', () => {
+    expect(Number(evaluate('=MIRR({-10000,"5000",TRUE},0.1,0.12)'))).toBeCloseTo(
+      -0.2516,
+      3,
+    );
+    expect(evaluate('=MIRR({1000,2000},0.1,0.12)')).toBe('#DIV/0!');
+    expect(evaluate('=MIRR({-1000},0.1,0.12)')).toBe('#VALUE!');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '-10000' } as Cell);
+    grid.set('A3', { v: '12000' } as Cell);
+    const result = evaluate('=MIRR(A1:A3,0.1,0.12)', grid);
+    expect(Number(result)).toBeCloseTo(0.0954, 3);
   });
 
   it('should correctly evaluate DOLLARDE function', () => {
