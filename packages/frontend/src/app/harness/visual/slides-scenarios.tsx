@@ -159,28 +159,58 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
  * outlined for callouts, stroked for line / arrow). Used as a single
  * baseline to catch geometry changes across the entire registry.
  *
- * P1 categories (Lines · Basic Shapes · Block Arrows · Callouts ·
- * Equation) keep their original grid positions; the P2 additions
- * (Stars, then Flowchart) are appended at the end so the visual
- * regression diff focuses on the new shapes when categories grow.
- * The picker itself uses spec order (Lines · Shapes · Block Arrows ·
- * Flowchart · Callouts · Equation · Stars) — see
- * `docs/tasks/active/20260509-slides-shapes-p2-lessons.md` for the
- * trade-off rationale.
+ * Order is "old before new" so the regression diff focuses on new
+ * shapes as categories grow: P1 (lines, basics, arrows, callouts,
+ * equation) first, then P2 stars + flowchart, then P3-B additions
+ * appended to each family (basics, snip/round rects, banners,
+ * arrows, line callouts), with the 12 action buttons last (their
+ * special-cased renderer makes them the natural tail of the
+ * catalog).
+ *
+ * The picker itself uses spec order (Lines · Shapes · Block Arrows
+ * · Banners · Flowchart · Callouts · Equation · Stars · Action
+ * Buttons) — see `docs/tasks/active/20260509-slides-shapes-p2-lessons.md`
+ * for the original "categories may diverge between catalog and
+ * picker" trade-off rationale.
  */
 const SHAPE_CATALOG: ShapeKind[] = [
   // Lines (2)
   "line", "arrow",
-  // Basic (15)
+  // Basic — P1 (15)
   "rect", "roundRect", "ellipse", "triangle", "rtTriangle",
   "diamond", "parallelogram", "trapezoid", "pentagon", "hexagon",
   "octagon", "plus", "donut", "can", "cloud",
-  // Block arrows (8)
+  // Basic — P3-B regular polys (3)
+  "heptagon", "decagon", "dodecagon",
+  // Basic — P3-B sector / arc (4)
+  "pie", "chord", "arc", "blockArc",
+  // Basic — P3-B linear (8)
+  "frame", "halfFrame", "corner", "diagStripe",
+  "plaque", "bevel", "foldedCorner", "cube",
+  // Basic — P3-B character (7)
+  "teardrop", "smileyFace", "heart", "lightningBolt",
+  "sun", "moon", "noSmoking",
+  // Basic — P3-B snip / round-corner rects (7)
+  "snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect",
+  "round1Rect", "round2SameRect", "round2DiagRect",
+  // Block arrows — P1 (8)
   "rightArrow", "leftArrow", "upArrow", "downArrow",
   "leftRightArrow", "quadArrow", "chevron", "pentagonArrow",
-  // Callouts (4)
+  // Block arrows — P3-B (13)
+  "upDownArrow", "leftRightUpArrow",
+  "notchedRightArrow", "stripedRightArrow",
+  "bentArrow", "bentUpArrow", "uturnArrow", "swooshArrow",
+  "circularArrow",
+  "curvedRightArrow", "curvedLeftArrow",
+  "curvedUpArrow", "curvedDownArrow",
+  // Banners — P3-B (5)
+  "ribbon", "ribbon2", "horizontalScroll", "verticalScroll",
+  "leftRightRibbon",
+  // Callouts — P1 (4)
   "wedgeRectCallout", "wedgeRoundRectCallout",
   "wedgeEllipseCallout", "cloudCallout",
+  // Callouts — P3-B line callouts (3)
+  "borderCallout1", "borderCallout2", "borderCallout3",
   // Equation (6)
   "mathPlus", "mathMinus", "mathMultiply",
   "mathDivide", "mathEqual", "mathNotEqual",
@@ -194,6 +224,13 @@ const SHAPE_CATALOG: ShapeKind[] = [
   "flowChartPunchedCard", "flowChartPunchedTape",
   "flowChartSummingJunction", "flowChartOr",
   "flowChartDelay", "flowChartDisplay",
+  // Action buttons — P3-B (12)
+  "actionButtonBlank", "actionButtonBackPrevious",
+  "actionButtonForwardNext", "actionButtonBeginning",
+  "actionButtonEnd", "actionButtonHome",
+  "actionButtonInformation", "actionButtonReturn",
+  "actionButtonMovie", "actionButtonSound",
+  "actionButtonDocument", "actionButtonHelp",
 ];
 
 const ACCENT1: ThemeColor = { kind: "role", role: "accent1" };
@@ -204,16 +241,26 @@ const CALLOUT_KINDS = new Set<ShapeKind>([
   "wedgeRoundRectCallout",
   "wedgeEllipseCallout",
   "cloudCallout",
+  "borderCallout1",
+  "borderCallout2",
+  "borderCallout3",
 ]);
 const LINE_KINDS = new Set<ShapeKind>(["line", "arrow"]);
+const STROKE_ONLY_KINDS = new Set<ShapeKind>(["arc"]);
+
+function isActionButtonKind(kind: ShapeKind): boolean {
+  return kind.startsWith("actionButton");
+}
 
 function shapeElement(
   kind: ShapeKind,
   frame: { x: number; y: number; w: number; h: number },
 ): Element {
-  const adjustments = undefined; // Defaults — Phase 1 has no edit UI.
+  const adjustments = undefined;
   const lineSpecial = LINE_KINDS.has(kind);
   const callout = CALLOUT_KINDS.has(kind);
+  const strokeOnly = STROKE_ONLY_KINDS.has(kind);
+  const actionButton = isActionButtonKind(kind);
   return {
     id: `${kind}-${frame.x}-${frame.y}`,
     type: "shape",
@@ -226,22 +273,24 @@ function shapeElement(
             stroke: { color: TEXT_ROLE, width: 2 },
             ...(kind === "arrow" ? { fill: TEXT_ROLE } : {}),
           }
-        : callout
-          ? { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } }
-          : { fill: ACCENT1 }),
+        : strokeOnly
+          ? { stroke: { color: TEXT_ROLE, width: 2 } }
+          : callout || actionButton
+            ? { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } }
+            : { fill: ACCENT1 }),
     },
   } as Element;
 }
 
 function makeCatalogDoc(themeId: string = "default-light"): SlidesDocument {
-  // 5 columns × 11 rows = 55 cells (P1 35 + P2 20). Canvas is the
-  // standard 1920×1080 logical slide; cell size derived to fit with a
-  // small inset.
-  const cols = 5;
-  const rows = 11;
-  const cellW = 200;
-  // 11 rows × 96 px = 1056 px ≤ 1080 — fits with 12 px top/bottom margin.
-  const cellH = 96;
+  // 10 columns × 12 rows = 120 cells, 117 used (3 trailing empty) —
+  // grew from the P1+P2 5×11=55 layout to fit the P3-B catalog. Cells
+  // are roughly square so character / arrow shapes don't get squashed
+  // along the longer axis.
+  const cols = 10;
+  const rows = 12;
+  const cellW = 190;
+  const cellH = 88;
   const xPad = (1920 - cols * cellW) / 2;
   const yPad = (1080 - rows * cellH) / 2;
   const elements: Element[] = SHAPE_CATALOG.map((kind, i) => {
@@ -250,10 +299,10 @@ function makeCatalogDoc(themeId: string = "default-light"): SlidesDocument {
     const cellX = xPad + col * cellW;
     const cellY = yPad + row * cellH;
     return shapeElement(kind, {
-      x: cellX + 30,
-      y: cellY + 20,
-      w: cellW - 60,
-      h: cellH - 40,
+      x: cellX + 20,
+      y: cellY + 12,
+      w: cellW - 40,
+      h: cellH - 24,
     });
   });
   return {
@@ -526,43 +575,52 @@ function makeAdjustmentsSweepDoc(): SlidesDocument {
   };
 }
 
-function makeBasicP3bDoc(): SlidesDocument {
-  const cellW = 140;
-  const cellH = 100;
+/**
+ * Two-row authored-adjustment doc factory shared between the P3-B
+ * basics and arrows/banners scenarios. Row 1 is each shape at the
+ * picker's default adjustments; row 2 is the same shape at a
+ * deliberately different value so the drag-handle math has visible
+ * regression coverage (mirrors the P3-A.1 pilot doc pattern).
+ */
+function makeP3bAdjustmentsDoc(
+  title: string,
+  rows: ReadonlyArray<{
+    kind: ShapeKind;
+    defaultAdj: number[] | undefined;
+    authoredAdj: number[];
+    style?: 'filled' | 'outlined' | 'stroke';
+  }>,
+): SlidesDocument {
+  const cellW = 150;
+  const cellH = 110;
   const gap = 24;
-  const cols = 6;
-  const KINDS: ShapeKind[] = [
-    "heptagon", "decagon", "dodecagon", "pie", "chord", "arc",
-    "blockArc", "teardrop", "frame", "halfFrame", "corner", "diagStripe",
-    "plaque", "bevel", "foldedCorner", "cube", "smileyFace", "heart",
-    "lightningBolt", "sun", "moon", "noSmoking",
-    "snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect",
-    "round1Rect", "round2SameRect", "round2DiagRect",
-  ];
-  function fillFor(kind: ShapeKind) {
-    if (kind === "arc") {
-      return { stroke: { color: TEXT_ROLE, width: 2 } };
-    }
+  const yRow1 = 80;
+  const yRow2 = 80 + cellH + 60;
+  function styleFor(style: 'filled' | 'outlined' | 'stroke' | undefined) {
+    if (style === 'stroke') return { stroke: { color: TEXT_ROLE, width: 2 } };
+    if (style === 'outlined')
+      return { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } };
     return { fill: ACCENT1 };
   }
-  const elements: Element[] = KINDS.map((kind, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    return {
-      id: `basic-p3b-${kind}`,
+  const elements: Element[] = [];
+  rows.forEach((row, i) => {
+    const x = 30 + i * (cellW + gap);
+    const fillStroke = styleFor(row.style);
+    elements.push({
+      id: `${row.kind}-default`,
       type: "shape",
-      frame: {
-        x: 30 + col * (cellW + gap),
-        y: 60 + row * (cellH + gap),
-        w: cellW,
-        h: cellH,
-        rotation: 0,
-      },
-      data: { kind, adjustments: undefined, ...fillFor(kind) },
-    } as Element;
+      frame: { x, y: yRow1, w: cellW, h: cellH, rotation: 0 },
+      data: { kind: row.kind, adjustments: row.defaultAdj, ...fillStroke },
+    } as Element);
+    elements.push({
+      id: `${row.kind}-authored`,
+      type: "shape",
+      frame: { x, y: yRow2, w: cellW, h: cellH, rotation: 0 },
+      data: { kind: row.kind, adjustments: row.authoredAdj, ...fillStroke },
+    } as Element);
   });
   return {
-    meta: { title: "Basic P3-B", themeId: "default-light", masterId: "default" },
+    meta: { title, themeId: "default-light", masterId: "default" },
     themes: BUILT_IN_THEMES,
     masters: [DEFAULT_MASTER],
     layouts: BUILT_IN_LAYOUTS,
@@ -578,89 +636,41 @@ function makeBasicP3bDoc(): SlidesDocument {
   };
 }
 
-function makeArrowsP3bDoc(): SlidesDocument {
-  const cellW = 140;
-  const cellH = 100;
-  const gap = 24;
-  const cols = 6;
-  const KINDS: ShapeKind[] = [
-    "upDownArrow", "leftRightUpArrow", "notchedRightArrow", "stripedRightArrow",
-    "bentArrow", "bentUpArrow",
-    "uturnArrow", "swooshArrow", "circularArrow",
-    "curvedRightArrow", "curvedLeftArrow", "curvedUpArrow",
-    "curvedDownArrow",
-    "ribbon", "ribbon2", "horizontalScroll", "verticalScroll", "leftRightRibbon",
-  ];
-  const elements: Element[] = KINDS.map((kind, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    return {
-      id: `arrows-p3b-${kind}`,
-      type: "shape",
-      frame: {
-        x: 30 + col * (cellW + gap),
-        y: 60 + row * (cellH + gap),
-        w: cellW,
-        h: cellH,
-        rotation: 0,
-      },
-      data: { kind, adjustments: undefined, fill: ACCENT1 },
-    } as Element;
-  });
-  return {
-    meta: { title: "Arrows + banners P3-B", themeId: "default-light", masterId: "default" },
-    themes: BUILT_IN_THEMES,
-    masters: [DEFAULT_MASTER],
-    layouts: BUILT_IN_LAYOUTS,
-    slides: [
-      {
-        id: "s1",
-        layoutId: "blank",
-        background: { fill: BG_ROLE },
-        elements,
-        notes: [],
-      },
-    ],
-  };
+function makeAdjustmentsP3bBasicsDoc(): SlidesDocument {
+  return makeP3bAdjustmentsDoc("Adjustments P3-B basics", [
+    // sector / arc — angular handles
+    { kind: "pie", defaultAdj: undefined, authoredAdj: [0, 10800000] }, // 0°→180° bottom semi-circle
+    { kind: "chord", defaultAdj: undefined, authoredAdj: [5400000, 16200000] }, // 90°→270°
+    { kind: "arc", defaultAdj: undefined, authoredAdj: [10800000, 21600000], style: 'stroke' }, // 180°→360° top half
+    { kind: "blockArc", defaultAdj: undefined, authoredAdj: [16200000, 10800000, 40000] }, // 270°→180° thick
+    // linear-corner family
+    { kind: "frame", defaultAdj: undefined, authoredAdj: [30000] },
+    { kind: "halfFrame", defaultAdj: undefined, authoredAdj: [55000, 25000] },
+    { kind: "plaque", defaultAdj: undefined, authoredAdj: [35000] },
+    { kind: "bevel", defaultAdj: undefined, authoredAdj: [35000] },
+    { kind: "foldedCorner", defaultAdj: undefined, authoredAdj: [42000] },
+    { kind: "cube", defaultAdj: undefined, authoredAdj: [42000] },
+    // character — radial / linear
+    { kind: "sun", defaultAdj: undefined, authoredAdj: [45000] },
+    { kind: "moon", defaultAdj: undefined, authoredAdj: [20000] },
+  ]);
 }
 
-function makeCalloutsP3bDoc(): SlidesDocument {
-  const cellW = 260;
-  const cellH = 200;
-  const gap = 40;
-  const KINDS: ShapeKind[] = ["borderCallout1", "borderCallout2", "borderCallout3"];
-  const elements: Element[] = KINDS.map((kind, i) => ({
-    id: `callouts-p3b-${kind}`,
-    type: "shape",
-    frame: {
-      x: 100 + i * (cellW + gap),
-      y: 200,
-      w: cellW,
-      h: cellH,
-      rotation: 0,
-    },
-    data: {
-      kind,
-      adjustments: undefined,
-      fill: BG_ROLE,
-      stroke: { color: TEXT_ROLE, width: 2 },
-    },
-  } as Element));
-  return {
-    meta: { title: "Line callouts P3-B", themeId: "default-light", masterId: "default" },
-    themes: BUILT_IN_THEMES,
-    masters: [DEFAULT_MASTER],
-    layouts: BUILT_IN_LAYOUTS,
-    slides: [
-      {
-        id: "s1",
-        layoutId: "blank",
-        background: { fill: BG_ROLE },
-        elements,
-        notes: [],
-      },
-    ],
-  };
+function makeAdjustmentsP3bArrowsDoc(): SlidesDocument {
+  return makeP3bAdjustmentsDoc("Adjustments P3-B arrows + banners", [
+    { kind: "upDownArrow", defaultAdj: undefined, authoredAdj: [40000, 80000] },
+    { kind: "leftRightUpArrow", defaultAdj: undefined, authoredAdj: [45000, 80000, 50000] },
+    { kind: "bentArrow", defaultAdj: undefined, authoredAdj: [40000, 40000] },
+    { kind: "bentUpArrow", defaultAdj: undefined, authoredAdj: [40000, 40000] },
+    { kind: "uturnArrow", defaultAdj: undefined, authoredAdj: [35000, 35000] },
+    { kind: "swooshArrow", defaultAdj: undefined, authoredAdj: [22000, 40000] },
+    { kind: "circularArrow", defaultAdj: undefined, authoredAdj: [22000, 22000, -10800000] },
+    { kind: "curvedRightArrow", defaultAdj: undefined, authoredAdj: [35000, 40000] },
+    { kind: "curvedDownArrow", defaultAdj: undefined, authoredAdj: [35000, 40000] },
+    { kind: "ribbon", defaultAdj: undefined, authoredAdj: [85000, 30000] },
+    { kind: "ribbon2", defaultAdj: undefined, authoredAdj: [85000, 30000] },
+    { kind: "horizontalScroll", defaultAdj: undefined, authoredAdj: [25000] },
+  ]);
 }
 
 function makeActionButtonsDoc(): SlidesDocument {
@@ -866,23 +876,23 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
   // (evenodd fill, tail attachment) at larger sizes for clarity.
   {
     id: "slides-canvas-shapes-catalog-light",
-    title: "Shapes — full 55 catalog (light)",
+    title: "Shapes — full 117 catalog (light)",
     description:
-      "Every ShapeKind (P1 + P2, 55 total) on a single slide, 5×11 grid. Default fills/strokes from the picker (accent1 fill for basic/arrows/equation/flowchart/stars, outlined for callouts). Default-light theme.",
+      "Every ShapeKind (P1 + P2 + P3-B, 117 total) on a single slide, 10×12 grid. Default fills/strokes from the picker (accent1 fill for basic / arrows / banners / equation / flowchart / stars; outlined for callouts and action buttons; stroke-only for arc). Default-light theme.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-light")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-dark",
-    title: "Shapes — full 55 catalog (dark)",
+    title: "Shapes — full 117 catalog (dark)",
     description:
-      "Same 55-shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all builders.",
+      "Same 117-shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all builders, including the P3-B drawActionButton dispatcher branch.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-dark")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-material",
-    title: "Shapes — full 55 catalog (material)",
+    title: "Shapes — full 117 catalog (material)",
     description:
-      "55-shape catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for all builders.",
+      "117-shape catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for all builders.",
     render: () => <SlideCanvas doc={makeCatalogDoc("material")} />,
   },
   {
@@ -922,31 +932,28 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     render: () => <SlideCanvas doc={makeAdjustmentsSweepDoc()} />,
   },
   // P3-B — Google Slides parity sweep. Four scenarios cover the 62
-  // new shapes across the families they belong to:
-  //   shapes-basic-p3b      (29 basics + snip/round rects)
-  //   shapes-arrows-p3b     (13 block arrows + 5 banners)
-  //   shapes-callouts-p3b   (3 line callouts)
-  //   shapes-action-buttons (12 action buttons via drawActionButton)
+  // new shapes' interesting behaviours (default values already
+  // covered by the full catalog above):
+  //   shapes-adjustments-p3b-basics — 12 parametric basics with
+  //     two rows showing default vs authored adjustments.
+  //   shapes-adjustments-p3b-arrows — 12 parametric arrows / banners
+  //     with default vs authored rows.
+  //   shapes-action-buttons         — 12 action buttons at picker
+  //     scale × 1.5 so the body + glyph two-pass dispatcher
+  //     branch is verifiable in isolation.
   {
-    id: "shapes-basic-p3b",
-    title: "Shape — P3-B basics (29)",
+    id: "shapes-adjustments-p3b-basics",
+    title: "Shape adjustments — P3-B basics (12 × 2)",
     description:
-      "6-column grid of all 29 new P3-B basic shapes — 3 regular polys (heptagon/decagon/dodecagon), 4 sector/arc (pie/chord/arc/blockArc), 8 linear (frame/halfFrame/corner/diagStripe/plaque/bevel/foldedCorner/cube), 7 character (teardrop/smileyFace/heart/lightningBolt/sun/moon/noSmoking), and 7 snip/round-corner rects. All at OOXML defaults.",
-    render: () => <SlideCanvas doc={makeBasicP3bDoc()} />,
+      "Two-row grid of 12 parametric P3-B basic shapes. Top row: picker defaults. Bottom row: deliberately different authored adjustments (pie sweep 0°→180°, blockArc thicker, frame border doubled, sun longer rays, moon thinner crescent, etc.). Mirrors the P3-A.1 pilot pattern — catches regressions in the angular handle + linear-corner / linear-edge inverses.",
+    render: () => <SlideCanvas doc={makeAdjustmentsP3bBasicsDoc()} />,
   },
   {
-    id: "shapes-arrows-p3b",
-    title: "Shape — P3-B arrows + banners (18)",
+    id: "shapes-adjustments-p3b-arrows",
+    title: "Shape adjustments — P3-B arrows + banners (12 × 2)",
     description:
-      "6×3 grid of 13 new block arrows (upDown, leftRightUp, notched/striped right, bent, bentUp, uturn, swoosh, circular, 4 curved*Arrow) + 5 banners (ribbon, ribbon2, horizontal/vertical scroll, leftRightRibbon). All at OOXML defaults; exercises the polylineArc curve helper across multiple shape families.",
-    render: () => <SlideCanvas doc={makeArrowsP3bDoc()} />,
-  },
-  {
-    id: "shapes-callouts-p3b",
-    title: "Shape — P3-B line callouts (3)",
-    description:
-      "borderCallout1/2/3 in a row, each at OOXML defaults. Verifies the rect-body + wedge-tail composition with 1/2/3-segment bends and the `outlined` style (background fill + text-coloured stroke).",
-    render: () => <SlideCanvas doc={makeCalloutsP3bDoc()} />,
+      "Two-row grid of 12 parametric P3-B arrows / banners. Top row: picker defaults. Bottom row: authored adjustments emphasising each shape's distinct parameters (bigger arrow heads, longer up arms, narrower curve sweeps, rotated `circularArrow` gap, ribbon body height changes). Exercises `polylineArc` + the directional `curved.ts` factory + `angularHandle` together.",
+    render: () => <SlideCanvas doc={makeAdjustmentsP3bArrowsDoc()} />,
   },
   {
     id: "shapes-action-buttons",
