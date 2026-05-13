@@ -43,6 +43,8 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'plaque', 'bevel', 'foldedCorner', 'cube',
       'teardrop', 'smileyFace', 'heart', 'lightningBolt',
       'sun', 'moon', 'noSmoking',
+      'snip1Rect', 'snip2SameRect', 'snip2DiagRect', 'snipRoundRect',
+      'round1Rect', 'round2SameRect', 'round2DiagRect',
       'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
       'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
       'mathPlus', 'mathMinus', 'mathMultiply',

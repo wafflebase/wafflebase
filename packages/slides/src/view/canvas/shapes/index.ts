@@ -84,6 +84,41 @@ import {
   SMILEY_FACE_ADJUSTMENTS,
   SMILEY_FACE_HANDLES,
 } from './basic/smiley-face';
+import {
+  buildSnip1Rect,
+  SNIP1_RECT_ADJUSTMENTS,
+  SNIP1_RECT_HANDLES,
+} from './basic/snip1-rect';
+import {
+  buildSnip2SameRect,
+  SNIP2_SAME_RECT_ADJUSTMENTS,
+  SNIP2_SAME_RECT_HANDLES,
+} from './basic/snip2-same-rect';
+import {
+  buildSnip2DiagRect,
+  SNIP2_DIAG_RECT_ADJUSTMENTS,
+  SNIP2_DIAG_RECT_HANDLES,
+} from './basic/snip2-diag-rect';
+import {
+  buildSnipRoundRect,
+  SNIP_ROUND_RECT_ADJUSTMENTS,
+  SNIP_ROUND_RECT_HANDLES,
+} from './basic/snip-round-rect';
+import {
+  buildRound1Rect,
+  ROUND1_RECT_ADJUSTMENTS,
+  ROUND1_RECT_HANDLES,
+} from './basic/round1-rect';
+import {
+  buildRound2SameRect,
+  ROUND2_SAME_RECT_ADJUSTMENTS,
+  ROUND2_SAME_RECT_HANDLES,
+} from './basic/round2-same-rect';
+import {
+  buildRound2DiagRect,
+  ROUND2_DIAG_RECT_ADJUSTMENTS,
+  ROUND2_DIAG_RECT_HANDLES,
+} from './basic/round2-diag-rect';
 import { buildPlus, PLUS_ADJUSTMENTS, PLUS_HANDLES } from './basic/plus';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS, ROUND_RECT_HANDLES } from './basic/round-rect';
@@ -222,6 +257,13 @@ PATH_BUILDERS.set('lightningBolt', buildLightningBolt);
 PATH_BUILDERS.set('sun', buildSun);
 PATH_BUILDERS.set('moon', buildMoon);
 PATH_BUILDERS.set('noSmoking', buildNoSmoking);
+PATH_BUILDERS.set('snip1Rect', buildSnip1Rect);
+PATH_BUILDERS.set('snip2SameRect', buildSnip2SameRect);
+PATH_BUILDERS.set('snip2DiagRect', buildSnip2DiagRect);
+PATH_BUILDERS.set('snipRoundRect', buildSnipRoundRect);
+PATH_BUILDERS.set('round1Rect', buildRound1Rect);
+PATH_BUILDERS.set('round2SameRect', buildRound2SameRect);
+PATH_BUILDERS.set('round2DiagRect', buildRound2DiagRect);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -368,3 +410,17 @@ ADJUSTMENT_HANDLES.set('smileyFace', SMILEY_FACE_HANDLES);
 ADJUSTMENT_HANDLES.set('sun', SUN_HANDLES);
 ADJUSTMENT_HANDLES.set('moon', MOON_HANDLES);
 ADJUSTMENT_HANDLES.set('noSmoking', NO_SMOKING_HANDLES);
+ADJUSTMENT_SPECS.set('snip1Rect', SNIP1_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('snip2SameRect', SNIP2_SAME_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('snip2DiagRect', SNIP2_DIAG_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('snipRoundRect', SNIP_ROUND_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('round1Rect', ROUND1_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('round2SameRect', ROUND2_SAME_RECT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('round2DiagRect', ROUND2_DIAG_RECT_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('snip1Rect', SNIP1_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('snip2SameRect', SNIP2_SAME_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('snip2DiagRect', SNIP2_DIAG_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('snipRoundRect', SNIP_ROUND_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('round1Rect', ROUND1_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('round2SameRect', ROUND2_SAME_RECT_HANDLES);
+ADJUSTMENT_HANDLES.set('round2DiagRect', ROUND2_DIAG_RECT_HANDLES);

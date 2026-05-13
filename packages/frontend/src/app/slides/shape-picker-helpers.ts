@@ -86,6 +86,13 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "sun", label: "Sun" },
       { kind: "moon", label: "Moon" },
       { kind: "noSmoking", label: "No symbol" },
+      { kind: "snip1Rect", label: "Snip single corner" },
+      { kind: "snip2SameRect", label: "Snip same side corners" },
+      { kind: "snip2DiagRect", label: "Snip diagonal corners" },
+      { kind: "snipRoundRect", label: "Snip + round corner" },
+      { kind: "round1Rect", label: "Round single corner" },
+      { kind: "round2SameRect", label: "Round same side corners" },
+      { kind: "round2DiagRect", label: "Round diagonal corners" },
     ],
   },
   {

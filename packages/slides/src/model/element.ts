@@ -35,6 +35,9 @@ export type ShapeKind =
   | 'plaque' | 'bevel' | 'foldedCorner' | 'cube'
   | 'teardrop' | 'smileyFace' | 'heart' | 'lightningBolt'
   | 'sun' | 'moon' | 'noSmoking'
+  // Snip / round-corner rects (7)
+  | 'snip1Rect' | 'snip2SameRect' | 'snip2DiagRect' | 'snipRoundRect'
+  | 'round1Rect' | 'round2SameRect' | 'round2DiagRect'
   // Block arrows (8)
   | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
   | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
