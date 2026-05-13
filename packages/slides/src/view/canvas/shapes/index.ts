@@ -178,6 +178,31 @@ import {
   SWOOSH_ARROW_HANDLES,
 } from './arrows/swoosh-arrow';
 import {
+  buildCircularArrow,
+  CIRCULAR_ARROW_ADJUSTMENTS,
+  CIRCULAR_ARROW_HANDLES,
+} from './arrows/circular-arrow';
+import {
+  buildCurvedRightArrow,
+  CURVED_RIGHT_ARROW_ADJUSTMENTS,
+  CURVED_RIGHT_ARROW_HANDLES,
+} from './arrows/curved-right-arrow';
+import {
+  buildCurvedLeftArrow,
+  CURVED_LEFT_ARROW_ADJUSTMENTS,
+  CURVED_LEFT_ARROW_HANDLES,
+} from './arrows/curved-left-arrow';
+import {
+  buildCurvedUpArrow,
+  CURVED_UP_ARROW_ADJUSTMENTS,
+  CURVED_UP_ARROW_HANDLES,
+} from './arrows/curved-up-arrow';
+import {
+  buildCurvedDownArrow,
+  CURVED_DOWN_ARROW_ADJUSTMENTS,
+  CURVED_DOWN_ARROW_HANDLES,
+} from './arrows/curved-down-arrow';
+import {
   buildWedgeRectCallout,
   WEDGE_RECT_CALLOUT_ADJUSTMENTS,
   WEDGE_RECT_CALLOUT_HANDLES,
@@ -312,6 +337,11 @@ PATH_BUILDERS.set('bentArrow', buildBentArrow);
 PATH_BUILDERS.set('bentUpArrow', buildBentUpArrow);
 PATH_BUILDERS.set('uturnArrow', buildUturnArrow);
 PATH_BUILDERS.set('swooshArrow', buildSwooshArrow);
+PATH_BUILDERS.set('circularArrow', buildCircularArrow);
+PATH_BUILDERS.set('curvedRightArrow', buildCurvedRightArrow);
+PATH_BUILDERS.set('curvedLeftArrow', buildCurvedLeftArrow);
+PATH_BUILDERS.set('curvedUpArrow', buildCurvedUpArrow);
+PATH_BUILDERS.set('curvedDownArrow', buildCurvedDownArrow);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
@@ -488,3 +518,13 @@ ADJUSTMENT_HANDLES.set('bentArrow', BENT_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('bentUpArrow', BENT_UP_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('uturnArrow', UTURN_ARROW_HANDLES);
 ADJUSTMENT_HANDLES.set('swooshArrow', SWOOSH_ARROW_HANDLES);
+ADJUSTMENT_SPECS.set('circularArrow', CIRCULAR_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('curvedRightArrow', CURVED_RIGHT_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('curvedLeftArrow', CURVED_LEFT_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('curvedUpArrow', CURVED_UP_ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('curvedDownArrow', CURVED_DOWN_ARROW_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('circularArrow', CIRCULAR_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('curvedRightArrow', CURVED_RIGHT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('curvedLeftArrow', CURVED_LEFT_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('curvedUpArrow', CURVED_UP_ARROW_HANDLES);
+ADJUSTMENT_HANDLES.set('curvedDownArrow', CURVED_DOWN_ARROW_HANDLES);

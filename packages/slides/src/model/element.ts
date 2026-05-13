@@ -44,6 +44,9 @@ export type ShapeKind =
   | 'upDownArrow' | 'leftRightUpArrow'
   | 'notchedRightArrow' | 'stripedRightArrow'
   | 'bentArrow' | 'bentUpArrow' | 'uturnArrow' | 'swooshArrow'
+  | 'circularArrow'
+  | 'curvedRightArrow' | 'curvedLeftArrow'
+  | 'curvedUpArrow' | 'curvedDownArrow'
   // Callouts (4)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'

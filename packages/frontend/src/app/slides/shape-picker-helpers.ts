@@ -115,6 +115,11 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "bentUpArrow", label: "Bent-up arrow" },
       { kind: "uturnArrow", label: "U-turn arrow" },
       { kind: "swooshArrow", label: "Swoosh arrow" },
+      { kind: "circularArrow", label: "Circular arrow" },
+      { kind: "curvedRightArrow", label: "Curved right arrow" },
+      { kind: "curvedLeftArrow", label: "Curved left arrow" },
+      { kind: "curvedUpArrow", label: "Curved up arrow" },
+      { kind: "curvedDownArrow", label: "Curved down arrow" },
     ],
   },
   {

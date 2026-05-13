@@ -28,7 +28,8 @@ import {
  * noSmoking) → 84 (T3: snip1/2 + round1/2 + snipRound, 7 rects)
  * → 88 (T4a: upDownArrow, leftRightUpArrow, notchedRightArrow,
  * stripedRightArrow) → 92 (T4b: bentArrow, bentUpArrow,
- * uturnArrow, swooshArrow) → …
+ * uturnArrow, swooshArrow) → 97 (T4c: circularArrow + 4×
+ * curved*Arrow) → …
  */
 
 describe("shape-picker categories", () => {
@@ -55,12 +56,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 92 ShapeKind entries across all categories", () => {
+  it("contains exactly 97 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 92);
+    assert.equal(total, 97);
   });
 
   it("each entry has a non-empty kind and label", () => {
