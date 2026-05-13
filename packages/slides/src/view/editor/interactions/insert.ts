@@ -88,6 +88,12 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ['flowChartOr', 'outlined'],
   ['flowChartDelay', 'outlined'],
   ['flowChartDisplay', 'outlined'],
+  // Action buttons → outlined. `drawActionButton` interprets
+  // `data.fill` as the body background and `data.stroke.color` as
+  // both the bevel outline and the inner-glyph fill, so the
+  // existing `outlined` defaults (background + text-coloured
+  // stroke) give the correct two-tone visual.
+  ['actionButtonBlank', 'outlined'],
 ]);
 
 function defaultsForShape(

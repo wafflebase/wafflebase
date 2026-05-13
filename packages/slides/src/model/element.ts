@@ -66,7 +66,10 @@ export type ShapeKind =
   | 'flowChartManualOperation' | 'flowChartOffpageConnector'
   | 'flowChartPunchedCard' | 'flowChartPunchedTape'
   | 'flowChartSummingJunction' | 'flowChartOr'
-  | 'flowChartDelay' | 'flowChartDisplay';
+  | 'flowChartDelay' | 'flowChartDisplay'
+  // Action buttons (P3-B T7) — special-cased renderer
+  // (drawActionButton); not entered in PATH_BUILDERS.
+  | 'actionButtonBlank';
 
 export type ShapeStroke = {
   color: ThemeColor;

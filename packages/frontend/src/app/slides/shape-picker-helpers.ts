@@ -190,4 +190,11 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "star10", label: "10-point star" },
     ],
   },
+  {
+    id: "action-buttons",
+    title: "Action Buttons",
+    kinds: [
+      { kind: "actionButtonBlank", label: "Blank action button" },
+    ],
+  },
 ];

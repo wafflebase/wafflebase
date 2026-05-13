@@ -1,7 +1,8 @@
 import type { ShapeElement, ShapeKind } from '../../model/element';
 import { resolveColor, type Theme } from '../../model/theme';
-import { drawLine, drawArrow } from './shape-special';
+import { drawActionButton, drawArrow, drawLine } from './shape-special';
 import { PATH_BUILDERS } from './shapes';
+import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 
 export type { FrameSize } from './shapes/builder';
@@ -32,6 +33,9 @@ export function drawShape(
 ): void {
   if (data.kind === 'line') return drawLine(ctx, size, data, theme);
   if (data.kind === 'arrow') return drawArrow(ctx, size, data, theme);
+  if (isActionButton(data.kind)) {
+    return drawActionButton(ctx, size, data, theme);
+  }
 
   const builder = PATH_BUILDERS.get(data.kind);
   if (!builder) {
