@@ -537,17 +537,25 @@ when fewer than 3 elements are selected.
 
 ### Presentation mode
 
-Implemented in `view/present/presenter.ts` plus the React shell
-`presentation-mode.tsx`:
+See [slides-presentation-mode.md](./slides-presentation-mode.md) for
+the v1 design.
 
-- `requestFullscreen` on a single canvas, render only the current slide
-  via the same `slide-renderer` with `zoom = fit-to-screen`.
-- Keyboard navigation: ←/→, Space, Page Up/Down to step; Home/End to
-  jump; Esc to exit.
-- Editing UI is fully disabled. Presence shows only the presenter's
-  current slide so collaborators can follow along.
-- Speaker notes are written and stored in v1, but the dual-screen
-  presenter view that displays them ships in v2 (see Non-Goals).
+Shape at a glance:
+
+- `view/present/presenter.ts` (slides package, framework-free) +
+  `slides-presentation-mode.tsx` (frontend React shell).
+- `requestFullscreen` on a host element, single canvas re-using
+  `SlideRenderer` with fit-to-screen sizing; overlay fallback when
+  fullscreen is denied.
+- Keyboard navigation: ←/→, Space, PgUp/PgDn, Home/End, Esc. All
+  other keys are swallowed so editor shortcuts cannot fire.
+- Click-to-advance, cursor auto-hide after 3 s, end-of-slideshow
+  black screen.
+- Entry: a "Present" split-button in the slides header plus the
+  existing `Cmd/Ctrl+Enter` shortcuts.
+- **Local-only in v1**: no presence broadcast, no follow-along.
+  Speaker notes display and the dual-screen presenter view stay in
+  v2 (see Non-Goals).
 
 ### Error handling
 
