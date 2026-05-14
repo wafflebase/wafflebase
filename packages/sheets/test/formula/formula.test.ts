@@ -1738,31 +1738,19 @@ describe('Formula', () => {
     // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%.
     // pv > 0 represents cash received now, so the interest portion of the
     // payment is a cash outflow and is negative.
-    const result = evaluate('=IPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-66.67, 1);
-  });
+    expect(Number(evaluate('=IPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-66.67, 1);
 
-  it('should correctly evaluate IPMT function with negative pv', () => {
-    // Regression for wafflebase/wafflebase#216: IPMT sign was inverted.
     // pv < 0 (you lent $300k) → period 1 interest is +1500 (cash received).
-    const result = evaluate('=IPMT(0.06/12,1,360,-300000)');
-    expect(Number(result)).toBeCloseTo(1500, 1);
+    expect(Number(evaluate('=IPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(1500, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
     // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%.
-    // PMT + (-IPMT_sign_corrected) should equal the principal cash flow.
-    const result = evaluate('=PPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-191.47, 1);
-  });
+    expect(Number(evaluate('=PPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-191.47, 1);
 
-  it('should correctly evaluate PPMT function with negative pv', () => {
-    // Regression for wafflebase/wafflebase#216: PPMT was off by 2 * |IPMT|
-    // because the inverted IPMT sign was subtracted from PMT.
-    // PMT(0.06/12, 360, -300000) ≈ 1798.65, IPMT period 1 = 1500,
+    // pv < 0 ($300k lent at 6% over 30y): PMT ≈ 1798.65 and IPMT = 1500,
     // so PPMT period 1 = 1798.65 - 1500 ≈ 298.65.
-    const result = evaluate('=PPMT(0.06/12,1,360,-300000)');
-    expect(Number(result)).toBeCloseTo(298.65, 1);
+    expect(Number(evaluate('=PPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(298.65, 1);
   });
 
   it('should preserve PMT = IPMT + PPMT identity', () => {
