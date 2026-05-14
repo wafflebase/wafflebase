@@ -38,6 +38,15 @@ interface SlidesViewProps {
    * own Yorkie store wrapper.
    */
   onStoreReady?: (store: YorkieSlidesStore | null) => void;
+  /**
+   * Invoked when the editor wants to enter present mode — currently
+   * driven by Cmd/Ctrl+Enter (from current slide) and Cmd/Ctrl+Shift+
+   * Enter (from the first slide). The parent shell owns the present
+   * mode UI (Task 7); this prop just routes the editor-level shortcut
+   * to it. Captured via a ref so a new callback identity from the
+   * parent doesn't remount the editor.
+   */
+  onStartPresentation?: (from: "current" | "first") => void;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -87,12 +96,24 @@ function computeFitSize(availWidth: number, availHeight: number): {
  * preload Noto KR via `document.fonts.load` the same way docs'
  * PDF exporter does.
  */
-export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
+export function SlidesView({
+  onEditorReady,
+  onStoreReady,
+  onStartPresentation,
+}: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   const [didMount, setDidMount] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
+
+  // Capture the latest onStartPresentation in a ref so the editor's
+  // Cmd/Ctrl+Enter handler always calls the freshest callback, without
+  // adding the prop to the mount effect's deps (which would tear down
+  // and rebuild the editor whenever the parent re-renders with a new
+  // callback identity).
+  const onStartPresentationRef = useRef(onStartPresentation);
+  onStartPresentationRef.current = onStartPresentation;
 
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
@@ -263,11 +284,11 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       hostHeight: hostH,
       dpr,
       onShowShortcutsHelp: () => setHelpOpen(true),
-      // onStartPresentation / onLinkRequest are intentionally left
-      // unwired here. Present mode UI lands in a separate phase, and
-      // the link popover needs a richer TextBoxEditorAPI (insertLink /
-      // getLinkAtCursor) before it can drive the docs text-box.
-      // Cmd+Enter / Cmd+K no-op at the editor level until then.
+      onStartPresentation: (from) => onStartPresentationRef.current?.(from),
+      // onLinkRequest is still intentionally unwired — the link popover
+      // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
+      // before it can drive the docs text-box. Cmd+K no-ops at the
+      // editor level until then.
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
