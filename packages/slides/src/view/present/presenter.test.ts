@@ -639,6 +639,13 @@ describe('startPresenter — cursor auto-hide', () => {
 });
 
 describe('startPresenter — fullscreen', () => {
+  afterEach(() => {
+    // Some tests below stub `document.fullscreenElement` with a
+    // configurable getter — clear it so later suites see jsdom's
+    // default and don't inherit a stale stub.
+    delete (document as unknown as { fullscreenElement?: unknown }).fullscreenElement;
+  });
+
   it('calls container.requestFullscreen on mount', () => {
     const req = vi
       .spyOn(HTMLElement.prototype, 'requestFullscreen')
@@ -703,7 +710,9 @@ describe('startPresenter — fullscreen', () => {
     });
     try {
       // Wait for the resolved requestFullscreen Promise to settle so
-      // mountMode remains 'fullscreen'.
+      // `enteredFullscreen` flips to `true` inside the `.then`
+      // continuation. Without this flush the handler would (correctly)
+      // ignore the dispatched event.
       await Promise.resolve();
       await Promise.resolve();
       document.dispatchEvent(new Event('fullscreenchange'));
@@ -730,6 +739,68 @@ describe('startPresenter — fullscreen', () => {
     });
     try {
       // Settle the rejected Promise so mountMode flips to 'overlay'.
+      // `enteredFullscreen` stays false since the `.then` never ran.
+      await Promise.resolve();
+      await Promise.resolve();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('fullscreenchange before requestFullscreen resolves does NOT trigger onExit', async () => {
+    // Pending forever — `enteredFullscreen` never flips to true. A
+    // stray fullscreenchange (e.g. some other element on the page
+    // exiting fullscreen while ours is still pending) must not be
+    // mistaken for our own exit.
+    (HTMLElement.prototype as unknown as { requestFullscreen: () => Promise<void> })
+      .requestFullscreen = vi.fn().mockReturnValue(new Promise<void>(() => {}));
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => null,
+    });
+    const onExit = vi.fn();
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit,
+    });
+    try {
+      // Even after flushing, the pending Promise above never resolves,
+      // so `enteredFullscreen` remains false.
+      await Promise.resolve();
+      await Promise.resolve();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('fullscreenchange while our container is still the fullscreen element does NOT trigger onExit', async () => {
+    // Identity check: our container IS the fullscreen element. A
+    // fullscreenchange that leaves us as the fullscreen element (e.g.
+    // dispatched spuriously, or paired with a sibling transition that
+    // doesn't dethrone us) must not exit the presenter.
+    const onExit = vi.fn();
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => container,
+    });
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit,
+    });
+    try {
+      // Flush so `enteredFullscreen` becomes true via the resolved
+      // requestFullscreen Promise from the global beforeEach.
       await Promise.resolve();
       await Promise.resolve();
       document.dispatchEvent(new Event('fullscreenchange'));

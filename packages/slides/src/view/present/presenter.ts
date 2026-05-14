@@ -289,7 +289,15 @@ export function startPresenter(options: PresenterOptions): Presenter {
   // discard the Promise with `void` — the side effects (entering
   // fullscreen, or applying overlay on rejection) are sufficient. The
   // optional-call handles environments that lack the API entirely.
+  //
+  // `mountMode` drives overlay-vs-fullscreen styling for dispose() in
+  // Task 6. `enteredFullscreen` is a separate axis describing whether
+  // the browser-level fullscreen bridge is armed — it only flips true
+  // inside the `.then` of our own requestFullscreen, so a stray
+  // `fullscreenchange` before our Promise resolves, or one triggered
+  // by a sibling element exiting fullscreen, cannot misfire onExit.
   let mountMode: 'fullscreen' | 'overlay' = 'fullscreen';
+  let enteredFullscreen = false;
   function applyOverlayStyles(): void {
     container.style.position = 'fixed';
     container.style.top = '0';
@@ -298,22 +306,30 @@ export function startPresenter(options: PresenterOptions): Presenter {
     container.style.bottom = '0';
     container.style.zIndex = String(OVERLAY_Z_INDEX);
   }
-  void container.requestFullscreen?.().catch(() => {
+  void container.requestFullscreen?.().then(() => {
+    if (disposed) return;
+    enteredFullscreen = true;
+  }).catch(() => {
     if (disposed) return;
     mountMode = 'overlay';
     applyOverlayStyles();
   });
 
   // Bridge the browser's own Esc (which exits fullscreen without
-  // firing our keydown handler) back to options.onExit. Only relevant
-  // when we actually entered fullscreen — in overlay mode there's
-  // nothing to leave.
+  // firing our keydown handler) back to options.onExit. We gate on
+  // `enteredFullscreen` so events before our own requestFullscreen
+  // resolves are ignored, and on identity (`fullscreenElement ===
+  // container`) so a sibling element transitioning in or out of
+  // fullscreen does not exit the presenter. If our container is no
+  // longer the fullscreen element — whether the user left fullscreen
+  // entirely or some other element took over — the presenter is no
+  // longer driving fullscreen, so exit cleanly.
   function onFullscreenChange(): void {
     if (disposed) return;
-    if (mountMode !== 'fullscreen') return;
-    if (document.fullscreenElement === null) {
-      options.onExit();
-    }
+    if (!enteredFullscreen) return;
+    if (document.fullscreenElement === container) return;
+    enteredFullscreen = false;
+    options.onExit();
   }
   document.addEventListener('fullscreenchange', onFullscreenChange);
 
@@ -355,7 +371,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
       goToLast,
       getCanvas: () => canvas,
       getLastPaintKind: () => lastPaintKind,
-      getResources: () => ({ canvas, ctx, prevCssText, resizeObserver }),
+      getResources: () => ({ canvas, ctx, prevCssText, resizeObserver, mountMode }),
     },
   });
 
