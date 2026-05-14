@@ -219,10 +219,54 @@ export function startPresenter(options: PresenterOptions): Presenter {
     return state.atEndScreen;
   }
 
+  // Keyboard mapping: each entry corresponds to an `event.key` value
+  // that the presenter consumes. Anything not in this map is still
+  // swallowed (see `onKeyDown`) so editor shortcuts can't fire under
+  // the presenter — e.g. Cmd+Z must not undo the live deck.
+  const keyActions = new Map<string, () => void>([
+    ['ArrowRight', next],
+    [' ', next],
+    ['PageDown', next],
+    ['n', next],
+    ['N', next],
+    ['ArrowLeft', prev],
+    ['PageUp', prev],
+    ['Backspace', prev],
+    ['p', prev],
+    ['P', prev],
+    ['Home', goToFirst],
+    ['End', goToLast],
+    ['Escape', () => options.onExit()],
+  ]);
+
+  function onKeyDown(ev: KeyboardEvent): void {
+    if (disposed) return;
+    // Capture-phase + stopImmediatePropagation means editor key rules
+    // never see these events while the presenter is mounted.
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    const action = keyActions.get(ev.key);
+    if (action) action();
+  }
+  document.addEventListener('keydown', onKeyDown, { capture: true });
+
+  function onCanvasClick(): void {
+    if (disposed) return;
+    if (state.atEndScreen) {
+      options.onExit();
+      return;
+    }
+    next();
+  }
+  canvas.addEventListener('click', onCanvasClick);
+
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    // Task 6 will tear down canvas, listeners, fullscreen, etc.
+    // Task 6 will tear down canvas, listeners (`onKeyDown` /
+    // `onCanvasClick` are held in closure above), fullscreen, etc.
+    // The `disposed` flag short-circuits all handlers so leaving the
+    // listeners installed until then is safe.
   }
 
   // Seed the initial paint after all closures are set up.

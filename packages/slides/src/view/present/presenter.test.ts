@@ -400,3 +400,185 @@ describe('startPresenter — dispose()', () => {
     expect(presenter.isAtEndScreen()).toBe(false);
   });
 });
+
+interface KeyboardHandle {
+  presenter: Presenter;
+  ids: [string, string, string];
+  onExit: ReturnType<typeof vi.fn>;
+}
+
+function mountAt(slideIdx: 0 | 1 | 2): KeyboardHandle {
+  const { doc, ids } = makeDoc();
+  const onExit = vi.fn();
+  const presenter = startPresenter({
+    container: makeContainer(),
+    doc,
+    startSlideId: ids[slideIdx],
+    onExit,
+  });
+  return { presenter, ids, onExit };
+}
+
+function dispatchKey(key: string, extra: Partial<KeyboardEventInit> = {}): KeyboardEvent {
+  const ev = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...extra,
+  });
+  document.dispatchEvent(ev);
+  return ev;
+}
+
+describe('startPresenter — keyboard', () => {
+  it('ArrowRight, Space, PageDown, n, N each advance to the next slide', () => {
+    const keys = ['ArrowRight', ' ', 'PageDown', 'n', 'N'];
+    for (const key of keys) {
+      const { presenter, ids } = mountAt(0);
+      try {
+        dispatchKey(key);
+        expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+        expect(presenter.isAtEndScreen()).toBe(false);
+      } finally {
+        presenter.dispose();
+      }
+    }
+  });
+
+  it('ArrowLeft, PageUp, Backspace, p, P each move to the previous slide', () => {
+    const keys = ['ArrowLeft', 'PageUp', 'Backspace', 'p', 'P'];
+    for (const key of keys) {
+      const { presenter, ids } = mountAt(1);
+      try {
+        dispatchKey(key);
+        expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+        expect(presenter.isAtEndScreen()).toBe(false);
+      } finally {
+        presenter.dispose();
+      }
+    }
+  });
+
+  it('Home jumps to the first slide; End jumps to the last', () => {
+    {
+      const { presenter, ids } = mountAt(2);
+      try {
+        dispatchKey('Home');
+        expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+      } finally {
+        presenter.dispose();
+      }
+    }
+    {
+      const { presenter, ids } = mountAt(0);
+      try {
+        dispatchKey('End');
+        expect(presenter.getCurrentSlideId()).toBe(ids[2]);
+      } finally {
+        presenter.dispose();
+      }
+    }
+  });
+
+  it('Escape calls onExit (does not dispose)', () => {
+    const { presenter, ids, onExit } = mountAt(0);
+    try {
+      dispatchKey('Escape');
+      expect(onExit).toHaveBeenCalledOnce();
+      // Presenter is NOT disposed — the caller decides. State queries
+      // and navigation still work.
+      expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+      testApi(presenter).next();
+      expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('next() past the last slide enters the end-screen via ArrowRight', () => {
+    const { presenter, onExit } = mountAt(2);
+    try {
+      dispatchKey('ArrowRight');
+      expect(presenter.isAtEndScreen()).toBe(true);
+      // Pressing ArrowRight again at end-screen stays put; keyboard
+      // does not trigger onExit from the end-screen — click does.
+      dispatchKey('ArrowRight');
+      expect(presenter.isAtEndScreen()).toBe(true);
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('Cmd+Z (or any unhandled key) is swallowed: preventDefault + stopImmediatePropagation', () => {
+    const { presenter } = mountAt(0);
+    try {
+      const ev = new KeyboardEvent('keydown', {
+        key: 'z',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      const stopSpy = vi.spyOn(ev, 'stopImmediatePropagation');
+      document.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(stopSpy).toHaveBeenCalledOnce();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('keydown listener is installed in capture phase', () => {
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      const keydownCall = addSpy.mock.calls.find(
+        (args) => args[0] === 'keydown',
+      );
+      expect(keydownCall).toBeDefined();
+      const options = keydownCall![2];
+      expect(options).toBeDefined();
+      // Accept either `true` or `{ capture: true }`.
+      const captured =
+        options === true ||
+        (typeof options === 'object' && options !== null && (options as AddEventListenerOptions).capture === true);
+      expect(captured).toBe(true);
+    } finally {
+      presenter.dispose();
+      addSpy.mockRestore();
+    }
+  });
+});
+
+describe('startPresenter — click-to-advance', () => {
+  it('click on canvas advances to the next slide', () => {
+    const { presenter, ids } = mountAt(0);
+    try {
+      const canvas = testApi(presenter).getCanvas();
+      canvas.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(presenter.getCurrentSlideId()).toBe(ids[1]);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('click on canvas while at end-screen invokes onExit', () => {
+    const { presenter, onExit } = mountAt(2);
+    try {
+      testApi(presenter).next(); // → end-screen
+      expect(presenter.isAtEndScreen()).toBe(true);
+      expect(onExit).not.toHaveBeenCalled();
+      const canvas = testApi(presenter).getCanvas();
+      canvas.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(onExit).toHaveBeenCalledOnce();
+    } finally {
+      presenter.dispose();
+    }
+  });
+});
