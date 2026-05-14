@@ -1750,15 +1750,35 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate IPMT function', () => {
-    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
-    const result = evaluate('=IPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(66.67, 1);
+    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%.
+    // pv > 0 represents cash received now, so the interest portion of the
+    // payment is a cash outflow and is negative.
+    expect(Number(evaluate('=IPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-66.67, 1);
+
+    // pv < 0 (you lent $300k) → period 1 interest is +1500 (cash received).
+    expect(Number(evaluate('=IPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(1500, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
-    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
-    const result = evaluate('=PPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-324.76, 0);
+    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%.
+    expect(Number(evaluate('=PPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-191.47, 1);
+
+    // pv < 0 ($300k lent at 6% over 30y): PMT ≈ 1798.65 and IPMT = 1500,
+    // so PPMT period 1 = 1798.65 - 1500 ≈ 298.65.
+    expect(Number(evaluate('=PPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(298.65, 1);
+  });
+
+  it('should preserve PMT = IPMT + PPMT identity', () => {
+    // The IPMT/PPMT split must always reconstruct PMT exactly. Test for both
+    // signs of pv so a future regression on either side surfaces here.
+    for (const pv of [8000, -300000]) {
+      const rate = pv > 0 ? 0.1 / 12 : 0.06 / 12;
+      const nper = pv > 0 ? 36 : 360;
+      const pmt = Number(evaluate(`=PMT(${rate},${nper},${pv})`));
+      const ipmt = Number(evaluate(`=IPMT(${rate},1,${nper},${pv})`));
+      const ppmt = Number(evaluate(`=PPMT(${rate},1,${nper},${pv})`));
+      expect(ipmt + ppmt).toBeCloseTo(pmt, 6);
+    }
   });
 
   it('should correctly evaluate SLN function', () => {

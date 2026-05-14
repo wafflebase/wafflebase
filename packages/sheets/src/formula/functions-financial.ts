@@ -297,7 +297,9 @@ export function ipmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = balance * rate.v;
+  // Excel cash-flow sign convention: interest is a cash flow paid/received
+  // by the borrower/lender, so its sign is opposite the outstanding balance.
+  const ipmt = -balance * rate.v;
   if (type === 1 && per.v === 1) return { t: 'num', v: 0 };
   return { t: 'num', v: ipmt };
 }
@@ -340,7 +342,7 @@ export function ppmtFunc(
 
   const pmt = computePmt(rate.v, nper.v, pv.v, fv, type);
 
-  // IPMT at this period
+  // IPMT at this period (Excel cash-flow sign convention: opposite of balance)
   let balance = pv.v;
   for (let i = 1; i < per.v; i++) {
     if (type === 1 && i === 1) {
@@ -350,7 +352,7 @@ export function ppmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = (type === 1 && per.v === 1) ? 0 : balance * rate.v;
+  const ipmt = (type === 1 && per.v === 1) ? 0 : -balance * rate.v;
   return { t: 'num', v: pmt - ipmt };
 }
 
