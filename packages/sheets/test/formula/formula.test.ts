@@ -534,7 +534,7 @@ describe('Formula', () => {
     expect(evaluate('=MATCH(25,A1:A3,1)', grid)).toBe('2');
     expect(evaluate('=MATCH(25,B1:B3,-1)', grid)).toBe('1');
     expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A');
-    // invalid search_type → #N/A
+    // invalid search_type 鈫?#N/A
     expect(evaluate('=MATCH(20,A1:A3,2)', grid)).toBe('#N/A');
   });
 
@@ -891,7 +891,7 @@ describe('Formula', () => {
     expect(evaluate('=OR(FALSE(),FALSE())')).toBe('FALSE');
     expect(evaluate('=NOT(TRUE())')).toBe('FALSE');
 
-    // Computed booleans must not be callable — only TRUE()/FALSE() literals
+    // Computed booleans must not be callable 鈥?only TRUE()/FALSE() literals
     expect(evaluate('=(1=1)()')).toBe('#ERROR!');
     expect(evaluate('=(TRUE)()')).toBe('#ERROR!');
     expect(evaluate('=(1>0)()')).toBe('#ERROR!');
@@ -1022,7 +1022,7 @@ describe('Formula', () => {
   it('should correctly evaluate CHAR function', () => {
     expect(evaluate('=CHAR(65)')).toBe('A');
     expect(evaluate('=CHAR(97)')).toBe('a');
-    expect(evaluate('=CHAR(65536)')).toBe('𐀀'); // U+10000, valid Unicode
+    expect(evaluate('=CHAR(65536)')).toBe('饜€€'); // U+10000, valid Unicode
     expect(evaluate('=CHAR(1114111)')).toBe('\u{10FFFF}'); // max valid code point
     expect(evaluate('=CHAR(0)')).toBe('#NUM!');
     expect(evaluate('=CHAR(1114112)')).toBe('#NUM!');
@@ -1299,7 +1299,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate STDEV function', () => {
-    // population stdev = 2, sample stdev = sqrt(32/7) ≈ 2.138
+    // population stdev = 2, sample stdev = sqrt(32/7) 鈮?2.138
     const result = Number(evaluate('=STDEV(2,4,4,4,5,5,7,9)'));
     expect(result).toBeCloseTo(2.138, 2);
     // Single value should error (need at least 2 for sample)
@@ -1312,7 +1312,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate VAR function', () => {
-    // sample variance = 32/7 ≈ 4.571
+    // sample variance = 32/7 鈮?4.571
     const result = Number(evaluate('=VAR(2,4,4,4,5,5,7,9)'));
     expect(result).toBeCloseTo(4.571, 2);
     expect(evaluate('=VAR(5)')).toBe('#VALUE!');
@@ -1394,20 +1394,20 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate WORKDAY function', () => {
-    // DATE(2024,1,1) is Monday, 5 working days → 2024-01-08 (next Monday)
+    // DATE(2024,1,1) is Monday, 5 working days 鈫?2024-01-08 (next Monday)
     expect(evaluate('=WORKDAY("2024-01-01",5)')).toBe('2024-01-08');
-    // 1 working day from Friday → Monday
+    // 1 working day from Friday 鈫?Monday
     expect(evaluate('=WORKDAY("2024-01-05",1)')).toBe('2024-01-08');
   });
 
   it('should correctly evaluate YEARFRAC function', () => {
-    // 366 days (2024 is leap) / 365 ≈ 1.0027
+    // 366 days (2024 is leap) / 365 鈮?1.0027
     const result = Number(evaluate('=YEARFRAC("2024-01-01","2025-01-01",3)'));
     expect(result).toBeCloseTo(1.003, 2);
     // 2023 is not a leap year: 365/365 = 1
     expect(evaluate('=YEARFRAC("2023-01-01","2024-01-01",3)')).toBe('1');
 
-    // Basis 0 (US 30/360): 2020-04-06 to 2026-03-28 → 2152/360 ≈ 5.978
+    // Basis 0 (US 30/360): 2020-04-06 to 2026-03-28 鈫?2152/360 鈮?5.978
     const us30 = Number(evaluate('=YEARFRAC("2020-04-06","2026-03-28",0)'));
     expect(us30).toBeCloseTo(5.978, 2);
     expect(us30).toBeLessThan(6);
@@ -1630,6 +1630,27 @@ describe('Formula', () => {
     expect(evaluate('=OFFSET(A1,0,0,C2,1)', grid)).toBe('#REF!');
   });
 
+  it('should reject invalid OFFSET arguments and out-of-bounds references', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('B1', { v: '1' });
+    grid.set('C1', { v: '1' });
+    grid.set('B2', { v: '40' });
+
+    expect(evaluate('=OFFSET(A1,0)', grid)).toBe('#N/A');
+    expect(evaluate('=OFFSET(A1,0,0,1,1,1)', grid)).toBe('#N/A');
+    expect(evaluate('=OFFSET(1,0,0)', grid)).toBe('#VALUE!');
+    expect(evaluate('=OFFSET(A1,0,0)')).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,-1,0)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,-1)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,0,1,4)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,B1,C1)', grid)).toBe('40');
+
+    const invalidGrid: Grid = new Map<string, Cell>();
+    invalidGrid.set('not-a-cell', { v: 'ignored' });
+    expect(evaluate('=OFFSET(A1,0,0)', invalidGrid)).toBe('');
+  });
+
   it('should evaluate OFFSET against cross-sheet references', () => {
     const grid: Grid = new Map<string, Cell>();
     grid.set('SHEET1!A1', { v: '10' });
@@ -1639,6 +1660,7 @@ describe('Formula', () => {
 
     expect(evaluate('=OFFSET(Sheet1!A1,1,1)', grid)).toBe('40');
     expect(evaluate('=SUM(OFFSET(Sheet1!A1,0,0,2,2))', grid)).toBe('100');
+    expect(evaluate('=SUM(OFFSET(Sheet1!A1:B2,0,0))', grid)).toBe('100');
   });
 
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
@@ -1721,19 +1743,19 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate HARMEAN function', () => {
-    // HARMEAN(1,2,4) = 3 / (1 + 0.5 + 0.25) = 3/1.75 ≈ 1.714
+    // HARMEAN(1,2,4) = 3 / (1 + 0.5 + 0.25) = 3/1.75 鈮?1.714
     const result = Number(evaluate('=HARMEAN(1,2,4)'));
     expect(result).toBeCloseTo(12 / 7, 10);
   });
 
   it('should correctly evaluate AVEDEV function', () => {
-    // AVEDEV(2,4,6) mean=4, deviations: 2,0,2 → avg=4/3
+    // AVEDEV(2,4,6) mean=4, deviations: 2,0,2 鈫?avg=4/3
     const result = Number(evaluate('=AVEDEV(2,4,6)'));
     expect(result).toBeCloseTo(4 / 3, 10);
   });
 
   it('should correctly evaluate DEVSQ function', () => {
-    // DEVSQ(2,4,6) mean=4, sq devs: 4,0,4 → sum=8
+    // DEVSQ(2,4,6) mean=4, sq devs: 4,0,4 鈫?sum=8
     expect(evaluate('=DEVSQ(2,4,6)')).toBe('8');
   });
 
@@ -1758,43 +1780,43 @@ describe('Formula', () => {
 
   // --- Batch 16: Financial functions ---
   it('should correctly evaluate PMT function', () => {
-    // PMT(0.05/12, 360, 200000) — monthly payment on $200k mortgage at 5%
+    // PMT(0.05/12, 360, 200000) 鈥?monthly payment on $200k mortgage at 5%
     const result = evaluate('=PMT(0.05/12,360,200000)');
     expect(Number(result)).toBeCloseTo(-1073.64, 1);
   });
 
   it('should correctly evaluate FV function', () => {
-    // FV(0.06/12, 120, 0-200, 0) — $200/month at 6% for 10 years
+    // FV(0.06/12, 120, 0-200, 0) 鈥?$200/month at 6% for 10 years
     const result = evaluate('=FV(0.06/12,120,-200,0)');
     expect(Number(result)).toBeCloseTo(32775.87, 0);
   });
 
   it('should correctly evaluate PV function', () => {
-    // PV(0.08/12, 240, 0-500) — present value of $500/month at 8% for 20 years
+    // PV(0.08/12, 240, 0-500) 鈥?present value of $500/month at 8% for 20 years
     const result = evaluate('=PV(0.08/12,240,-500)');
     expect(Number(result)).toBeCloseTo(59777.15, 0);
   });
 
   it('should correctly evaluate NPV function', () => {
-    // NPV(0.1, 100, 200, 300) — cash flows at 10% discount
+    // NPV(0.1, 100, 200, 300) 鈥?cash flows at 10% discount
     const result = evaluate('=NPV(0.1,100,200,300)');
     expect(Number(result)).toBeCloseTo(481.59, 1);
   });
 
   it('should correctly evaluate NPER function', () => {
-    // NPER(0.06/12, 0-200, 10000) — how many months to pay off $10k at 6%
+    // NPER(0.06/12, 0-200, 10000) 鈥?how many months to pay off $10k at 6%
     const result = evaluate('=NPER(0.06/12,-200,10000)');
     expect(Number(result)).toBeCloseTo(57.68, 1);
   });
 
   it('should correctly evaluate IPMT function', () => {
-    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
+    // IPMT(0.1/12, 1, 36, 8000) 鈥?interest in period 1 on $8000 loan at 10%
     const result = evaluate('=IPMT(0.1/12,1,36,8000)');
     expect(Number(result)).toBeCloseTo(66.67, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
-    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
+    // PPMT(0.1/12, 1, 36, 8000) 鈥?principal in period 1 on $8000 loan at 10%
     const result = evaluate('=PPMT(0.1/12,1,36,8000)');
     expect(Number(result)).toBeCloseTo(-324.76, 0);
   });
@@ -1804,7 +1826,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate EFFECT function', () => {
-    // EFFECT(0.1, 4) — 10% nominal compounded quarterly
+    // EFFECT(0.1, 4) 鈥?10% nominal compounded quarterly
     const result = evaluate('=EFFECT(0.1,4)');
     expect(Number(result)).toBeCloseTo(0.10381, 4);
     expect(evaluate('=EFFECT(-0.05,1)')).toBe('#NUM!');
@@ -1813,7 +1835,7 @@ describe('Formula', () => {
 
   // --- Batch 17: More Financial functions ---
   it('should correctly evaluate RATE function', () => {
-    // RATE(360, 0-1073.64, 200000) — rate for $200k loan, ~$1073.64/mo, 360 months
+    // RATE(360, 0-1073.64, 200000) 鈥?rate for $200k loan, ~$1073.64/mo, 360 months
     const result = evaluate('=RATE(360,-1073.64,200000)');
     expect(Number(result)).toBeCloseTo(0.05 / 12, 4);
   });
@@ -1835,12 +1857,12 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate DDB function', () => {
-    // DDB(10000, 1000, 5, 1) — double declining on $10k, $1k salvage, 5yr, period 1
+    // DDB(10000, 1000, 5, 1) 鈥?double declining on $10k, $1k salvage, 5yr, period 1
     expect(evaluate('=DDB(10000,1000,5,1)')).toBe('4000'); // 10000 * 2/5
   });
 
   it('should correctly evaluate NOMINAL function', () => {
-    // NOMINAL(0.10381, 4) — effective 10.381% quarterly → ~10% nominal
+    // NOMINAL(0.10381, 4) 鈥?effective 10.381% quarterly 鈫?~10% nominal
     const result = evaluate('=NOMINAL(0.10381,4)');
     expect(Number(result)).toBeCloseTo(0.1, 3);
     expect(evaluate('=NOMINAL(0.05,0)')).toBe('#NUM!');
@@ -1848,13 +1870,13 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate CUMIPMT function', () => {
-    // CUMIPMT(0.1/12, 30, 100000, 1, 12, 0) — interest paid in year 1 on $100k loan
+    // CUMIPMT(0.1/12, 30, 100000, 1, 12, 0) 鈥?interest paid in year 1 on $100k loan
     const result = evaluate('=CUMIPMT(0.1/12,30,100000,1,12,0)');
     expect(Number(result)).toBeGreaterThan(0);
   });
 
   it('should correctly evaluate CUMPRINC function', () => {
-    // CUMPRINC(0.1/12, 30, 100000, 1, 12, 0) — principal paid in year 1
+    // CUMPRINC(0.1/12, 30, 100000, 1, 12, 0) 鈥?principal paid in year 1
     const result = evaluate('=CUMPRINC(0.1/12,30,100000,1,12,0)');
     expect(Number(result)).toBeLessThan(0);
   });
@@ -1909,7 +1931,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate NORMDIST function', () => {
-    // NORMDIST(0, 0, 1, 1) — CDF at 0 for standard normal = 0.5
+    // NORMDIST(0, 0, 1, 1) 鈥?CDF at 0 for standard normal = 0.5
     const result = evaluate('=NORMDIST(0,0,1,1)');
     expect(Number(result)).toBeCloseTo(0.5, 4);
   });
@@ -1935,50 +1957,50 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate WEIBULL.DIST function', () => {
-    // WEIBULL.DIST(1, 1, 1, 1) — CDF = 1 - e^(-1) ≈ 0.6321
+    // WEIBULL.DIST(1, 1, 1, 1) 鈥?CDF = 1 - e^(-1) 鈮?0.6321
     const result = evaluate('=WEIBULL.DIST(1,1,1,1)');
     expect(Number(result)).toBeCloseTo(0.6321, 3);
   });
 
   it('should correctly evaluate POISSON.DIST function', () => {
-    // POISSON.DIST(2, 5, 0) — PMF: P(X=2) for λ=5
+    // POISSON.DIST(2, 5, 0) 鈥?PMF: P(X=2) for 位=5
     const result = evaluate('=POISSON.DIST(2,5,0)');
     expect(Number(result)).toBeCloseTo(0.0842, 3);
   });
 
   it('should correctly evaluate BINOM.DIST function', () => {
-    // BINOM.DIST(3, 10, 0.5, 0) — PMF: P(X=3) for n=10, p=0.5
+    // BINOM.DIST(3, 10, 0.5, 0) 鈥?PMF: P(X=3) for n=10, p=0.5
     const result = evaluate('=BINOM.DIST(3,10,0.5,0)');
     expect(Number(result)).toBeCloseTo(0.1172, 3);
   });
 
   // --- Batch 19: More distribution functions ---
   it('should correctly evaluate EXPON.DIST function', () => {
-    // EXPON.DIST(1, 1, 1) — CDF of exponential with λ=1 at x=1 = 1-e^(-1)
+    // EXPON.DIST(1, 1, 1) 鈥?CDF of exponential with 位=1 at x=1 = 1-e^(-1)
     const result = evaluate('=EXPON.DIST(1,1,1)');
     expect(Number(result)).toBeCloseTo(0.6321, 3);
   });
 
   it('should correctly evaluate CONFIDENCE.NORM function', () => {
-    // CONFIDENCE.NORM(0.05, 2.5, 50) — 95% CI half-width
+    // CONFIDENCE.NORM(0.05, 2.5, 50) 鈥?95% CI half-width
     const result = evaluate('=CONFIDENCE.NORM(0.05,2.5,50)');
     expect(Number(result)).toBeCloseTo(0.6929, 2);
   });
 
   it('should correctly evaluate CHISQ.DIST function', () => {
-    // CHISQ.DIST(3.84, 1, 1) — CDF at 3.84 with 1 df ≈ 0.95
+    // CHISQ.DIST(3.84, 1, 1) 鈥?CDF at 3.84 with 1 df 鈮?0.95
     const result = evaluate('=CHISQ.DIST(3.84,1,1)');
     expect(Number(result)).toBeCloseTo(0.95, 1);
   });
 
   it('should correctly evaluate CHISQ.INV function', () => {
-    // CHISQ.INV(0.95, 1) ≈ 3.84
+    // CHISQ.INV(0.95, 1) 鈮?3.84
     const result = evaluate('=CHISQ.INV(0.95,1)');
     expect(Number(result)).toBeCloseTo(3.84, 1);
   });
 
   it('should correctly evaluate T.DIST function', () => {
-    // T.DIST(0, 10, 1) — CDF at 0 for t-distribution = 0.5
+    // T.DIST(0, 10, 1) 鈥?CDF at 0 for t-distribution = 0.5
     const result = evaluate('=T.DIST(0,10,1)');
     expect(Number(result)).toBeCloseTo(0.5, 4);
   });
@@ -1990,13 +2012,13 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate HYPGEOM.DIST function', () => {
-    // HYPGEOM.DIST(1, 4, 8, 20, 0) — PMF: 1 success in 4 draws from population with 8 successes out of 20
+    // HYPGEOM.DIST(1, 4, 8, 20, 0) 鈥?PMF: 1 success in 4 draws from population with 8 successes out of 20
     const result = evaluate('=HYPGEOM.DIST(1,4,8,20,0)');
     expect(Number(result)).toBeCloseTo(0.3633, 3);
   });
 
   it('should correctly evaluate NEGBINOM.DIST function', () => {
-    // NEGBINOM.DIST(1, 1, 0.5, 0) — PMF: 1 failure before 1 success with p=0.5
+    // NEGBINOM.DIST(1, 1, 0.5, 0) 鈥?PMF: 1 failure before 1 success with p=0.5
     const result = evaluate('=NEGBINOM.DIST(1,1,0.5,0)');
     expect(Number(result)).toBeCloseTo(0.25, 4);
   });
@@ -2015,17 +2037,17 @@ describe('Formula', () => {
     expect(evaluate('=ARABIC("IV")')).toBe('4');
     // lowercase input
     expect(evaluate('=ARABIC("xiv")')).toBe('14');
-    // empty string → 0
+    // empty string 鈫?0
     expect(evaluate('=ARABIC("")')).toBe('0');
     // negative prefix
     expect(evaluate('=ARABIC("-XIV")')).toBe('-14');
     expect(evaluate('=ARABIC("-MCMXCIX")')).toBe('-1999');
     expect(evaluate('=ARABIC("-I")')).toBe('-1');
-    // minus sign only → 0
+    // minus sign only 鈫?0
     expect(evaluate('=ARABIC("-")')).toBe('0');
-    // invalid character → #VALUE!
+    // invalid character 鈫?#VALUE!
     expect(evaluate('=ARABIC("XIVZ")')).toBe('#VALUE!');
-    // non-canonical forms → #VALUE! (round-trip check: must match ROMAN(n, rule) for some rule 0–4)
+    // non-canonical forms 鈫?#VALUE! (round-trip check: must match ROMAN(n, rule) for some rule 0鈥?)
     expect(evaluate('=ARABIC("VV")')).toBe('#VALUE!');
     expect(evaluate('=ARABIC("VVV")')).toBe('#VALUE!');
     expect(evaluate('=ARABIC("LL")')).toBe('#VALUE!');
@@ -2034,7 +2056,7 @@ describe('Formula', () => {
     expect(evaluate('=ARABIC("DDD")')).toBe('#VALUE!');
     expect(evaluate('=ARABIC("IIII")')).toBe('#VALUE!');
     expect(evaluate('=ARABIC("XXXX")')).toBe('#VALUE!');
-    // M can repeat but result must be ≤ 3999
+    // M can repeat but result must be 鈮?3999
     expect(evaluate('=ARABIC("MMMCMXCIX")')).toBe('3999');
     expect(evaluate('=ARABIC("MMMM")')).toBe('#VALUE!');
     // subtractive pair must be exactly one prefix char before one target char
@@ -2143,13 +2165,13 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate DOLLARDE function', () => {
-    // DOLLARDE(1.02, 16) — price of 1 and 2/16 = 1.125
+    // DOLLARDE(1.02, 16) 鈥?price of 1 and 2/16 = 1.125
     const result = evaluate('=DOLLARDE(1.02,16)');
     expect(Number(result)).toBeCloseTo(1.125, 3);
   });
 
   it('should correctly evaluate DOLLARFR function', () => {
-    // DOLLARFR(1.125, 16) — back to fractional = 1.02
+    // DOLLARFR(1.125, 16) 鈥?back to fractional = 1.02
     const result = evaluate('=DOLLARFR(1.125,16)');
     expect(Number(result)).toBeCloseTo(1.02, 3);
   });
@@ -2275,7 +2297,7 @@ describe('Formula', () => {
       ['B2', { v: '6' } as Cell],
       ['B3', { v: '7' } as Cell],
     ]);
-    // (2²-5²)+(3²-6²)+(4²-7²) = -21-27-33 = -81
+    // (2虏-5虏)+(3虏-6虏)+(4虏-7虏) = -21-27-33 = -81
     const result = evaluate('=SUMX2MY2(A1:A3,B1:B3)', grid);
     expect(Number(result)).toBe(-81);
   });
@@ -2303,7 +2325,7 @@ describe('Formula', () => {
       ['B2', { v: '6' } as Cell],
       ['B3', { v: '7' } as Cell],
     ]);
-    // (2-5)² + (3-6)² + (4-7)² = 9 + 9 + 9 = 27
+    // (2-5)虏 + (3-6)虏 + (4-7)虏 = 9 + 9 + 9 = 27
     const result = evaluate('=SUMXMY2(A1:A3,B1:B3)', grid);
     expect(Number(result)).toBe(27);
   });
@@ -2317,7 +2339,7 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTILE.EXC(A1:A4,0.4)', grid);
     expect(Number(result)).toBe(2);
-    // k must be strictly in (0, 1); interpolation rank out of range also → #NUM!.
+    // k must be strictly in (0, 1); interpolation rank out of range also 鈫?#NUM!.
     expect(evaluate('=PERCENTILE.EXC(A1:A4,0)', grid)).toBe('#NUM!');
     expect(evaluate('=PERCENTILE.EXC(A1:A4,1)', grid)).toBe('#NUM!');
     expect(evaluate('=PERCENTILE.EXC(A1:A4,0.1)', grid)).toBe('#NUM!');
@@ -2334,7 +2356,7 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=QUARTILE.EXC(A1:A6,1)', grid);
     expect(Number(result)).toBeCloseTo(1.75, 2);
-    // quart outside [1,3] is a domain error → #NUM!.
+    // quart outside [1,3] is a domain error 鈫?#NUM!.
     expect(evaluate('=QUARTILE.EXC(A1:A6,0)', grid)).toBe('#NUM!');
     expect(evaluate('=QUARTILE.EXC(A1:A6,4)', grid)).toBe('#NUM!');
   });
@@ -2346,7 +2368,7 @@ describe('Formula', () => {
       ['A3', { v: '3' } as Cell],
       ['A4', { v: '7' } as Cell],
     ]);
-    // Descending: 7=1st, 5=2nd, 3 tied 3rd&4th → avg 3.5
+    // Descending: 7=1st, 5=2nd, 3 tied 3rd&4th 鈫?avg 3.5
     const result = evaluate('=RANK.AVG(3,A1:A4)', grid);
     expect(Number(result)).toBe(3.5);
   });
@@ -2361,9 +2383,9 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTRANK(A1:A5,3)', grid);
     expect(Number(result)).toBe(0.5);
-    // value outside range → #N/A
+    // value outside range 鈫?#N/A
     expect(evaluate('=PERCENTRANK(A1:A5,6)', grid)).toBe('#N/A');
-    // sig=0 → raw rank returned without rounding
+    // sig=0 鈫?raw rank returned without rounding
     const grid2 = new Map([
       ['B1', { v: '1' } as Cell],
       ['B2', { v: '2' } as Cell],
@@ -2382,12 +2404,12 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTRANK.EXC(A1:A5,3)', grid);
     expect(Number(result)).toBe(0.5);
-    // significance < 1 is a domain error → #NUM!.
+    // significance < 1 is a domain error 鈫?#NUM!.
     expect(evaluate('=PERCENTRANK.EXC(A1:A5,3,0)', grid)).toBe('#NUM!');
   });
 
   it('should correctly evaluate BETA.DIST function', () => {
-    // BETA.DIST(0.5, 2, 5, TRUE) — CDF
+    // BETA.DIST(0.5, 2, 5, TRUE) 鈥?CDF
     const result = evaluate('=BETA.DIST(0.5,2,5,TRUE)', undefined);
     expect(Number(result)).toBeCloseTo(0.8906, 3);
   });
@@ -2428,7 +2450,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate GAMMA.DIST function', () => {
-    // CDF: GAMMA.DIST(2, 3, 2, TRUE) = P(3, 1) ≈ 0.0803
+    // CDF: GAMMA.DIST(2, 3, 2, TRUE) = P(3, 1) 鈮?0.0803
     const result = evaluate('=GAMMA.DIST(2,3,2,TRUE)', undefined);
     expect(Number(result)).toBeCloseTo(0.0803, 2);
     // PDF
@@ -2453,13 +2475,13 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate T.DIST.RT function', () => {
-    // Right tail of t(10) at x=2 ≈ 0.0368
+    // Right tail of t(10) at x=2 鈮?0.0368
     const result = evaluate('=T.DIST.RT(2,10)', undefined);
     expect(Number(result)).toBeCloseTo(0.0368, 2);
   });
 
   it('should correctly evaluate T.DIST.2T function', () => {
-    // Two-tailed at x=2, df=10 ≈ 0.0734
+    // Two-tailed at x=2, df=10 鈮?0.0734
     const result = evaluate('=T.DIST.2T(2,10)', undefined);
     expect(Number(result)).toBeCloseTo(0.0734, 2);
   });
@@ -2480,7 +2502,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate BINOM.INV function', () => {
-    // BINOM.INV(10, 0.5, 0.75) — smallest k where CDF >= 0.75
+    // BINOM.INV(10, 0.5, 0.75) 鈥?smallest k where CDF >= 0.75
     const result = evaluate('=BINOM.INV(10,0.5,0.75)', undefined);
     expect(Number(result)).toBe(6);
   });
@@ -2555,9 +2577,9 @@ describe('Formula', () => {
   it('should correctly evaluate NORM.S.DIST function', () => {
     // CDF at z=0 should be 0.5
     expect(Number(evaluate('=NORM.S.DIST(0,TRUE)'))).toBeCloseTo(0.5, 4);
-    // CDF at z=1.96 ≈ 0.975
+    // CDF at z=1.96 鈮?0.975
     expect(Number(evaluate('=NORM.S.DIST(1.96,TRUE)'))).toBeCloseTo(0.975, 2);
-    // PDF at z=0 ≈ 0.3989
+    // PDF at z=0 鈮?0.3989
     expect(Number(evaluate('=NORM.S.DIST(0,FALSE)'))).toBeCloseTo(0.3989, 3);
   });
 
@@ -2673,9 +2695,9 @@ describe('Formula', () => {
   it('should correctly evaluate CONVERT function', () => {
     // Length: 1 mile = 1.60934 km
     expect(Number(evaluate('=CONVERT(1,"mi","km")'))).toBeCloseTo(1.60934, 3);
-    // Temperature: 32°F = 0°C
+    // Temperature: 32掳F = 0掳C
     expect(Number(evaluate('=CONVERT(32,"F","C")'))).toBeCloseTo(0, 4);
-    // Temperature: 100°C = 212°F
+    // Temperature: 100掳C = 212掳F
     expect(Number(evaluate('=CONVERT(100,"C","F")'))).toBeCloseTo(212, 4);
     // Mass: 1 kg = 2.205 lbm
     expect(Number(evaluate('=CONVERT(1,"kg","lbm")'))).toBeCloseTo(2.2046, 2);
@@ -2752,9 +2774,9 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate IMPRODUCT and IMDIV functions', () => {
-    // (1+2i)*(3+4i) = 3+4i+6i+8i² = 3+10i-8 = -5+10i
+    // (1+2i)*(3+4i) = 3+4i+6i+8i虏 = 3+10i-8 = -5+10i
     expect(evaluate('=IMPRODUCT("1+2i","3+4i")')).toBe('-5+10i');
-    // (10+5i)/(3+4i) = (10+5i)(3-4i)/(9+16) = (30-40i+15i-20i²)/25 = (50-25i)/25 = 2-i
+    // (10+5i)/(3+4i) = (10+5i)(3-4i)/(9+16) = (30-40i+15i-20i虏)/25 = (50-25i)/25 = 2-i
     expect(evaluate('=IMDIV("10+5i","3+4i")')).toBe('2-i');
   });
 
@@ -2772,7 +2794,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate IMPOWER function', () => {
-    // (1+i)^2 = 2i — use IMREAL/IMAGINARY to check numerically
+    // (1+i)^2 = 2i 鈥?use IMREAL/IMAGINARY to check numerically
     expect(Number(evaluate('=IMREAL(IMPOWER("1+i",2))'))).toBeCloseTo(0, 10);
     expect(Number(evaluate('=IMAGINARY(IMPOWER("1+i",2))'))).toBeCloseTo(2, 10);
     // (2)^3 = 8
@@ -2813,7 +2835,7 @@ describe('Formula', () => {
     // sin(0) = 0, cos(0) = 1
     expect(evaluate('=IMSIN("0")')).toBe('0');
     expect(evaluate('=IMCOS("0")')).toBe('1');
-    // sin(PI/2) ≈ 1
+    // sin(PI/2) 鈮?1
     const sinPiHalf = evaluate('=IMSIN("' + (Math.PI / 2) + '")');
     expect(Number(sinPiHalf)).toBeCloseTo(1, 10);
   });
@@ -2827,9 +2849,9 @@ describe('Formula', () => {
     // sinh(0) = 0, cosh(0) = 1
     expect(evaluate('=IMSINH("0")')).toBe('0');
     expect(evaluate('=IMCOSH("0")')).toBe('1');
-    // sinh(1) ≈ 1.1752
+    // sinh(1) 鈮?1.1752
     expect(Number(evaluate('=IMSINH("1")'))).toBeCloseTo(Math.sinh(1), 10);
-    // cosh(1) ≈ 1.5431
+    // cosh(1) 鈮?1.5431
     expect(Number(evaluate('=IMCOSH("1")'))).toBeCloseTo(Math.cosh(1), 10);
   });
 
@@ -2862,32 +2884,32 @@ describe('Formula', () => {
   it('should correctly evaluate BESSELJ function', () => {
     // J0(0) = 1
     expect(Number(evaluate('=BESSELJ(0,0)'))).toBeCloseTo(1, 10);
-    // J0(1) ≈ 0.7652
+    // J0(1) 鈮?0.7652
     expect(Number(evaluate('=BESSELJ(1,0)'))).toBeCloseTo(0.7652, 3);
-    // J1(1) ≈ 0.4401
+    // J1(1) 鈮?0.4401
     expect(Number(evaluate('=BESSELJ(1,1)'))).toBeCloseTo(0.4401, 3);
   });
 
   it('should correctly evaluate BESSELY function', () => {
-    // Y0(1) ≈ 0.0883
+    // Y0(1) 鈮?0.0883
     expect(Number(evaluate('=BESSELY(1,0)'))).toBeCloseTo(0.0883, 3);
-    // Y1(1) ≈ -0.7812
+    // Y1(1) 鈮?-0.7812
     expect(Number(evaluate('=BESSELY(1,1)'))).toBeCloseTo(-0.7812, 3);
   });
 
   it('should correctly evaluate BESSELI function', () => {
     // I0(0) = 1
     expect(Number(evaluate('=BESSELI(0,0)'))).toBeCloseTo(1, 10);
-    // I0(1) ≈ 1.2661
+    // I0(1) 鈮?1.2661
     expect(Number(evaluate('=BESSELI(1,0)'))).toBeCloseTo(1.2661, 3);
-    // I1(1) ≈ 0.5652
+    // I1(1) 鈮?0.5652
     expect(Number(evaluate('=BESSELI(1,1)'))).toBeCloseTo(0.5652, 3);
   });
 
   it('should correctly evaluate BESSELK function', () => {
-    // K0(1) ≈ 0.4211
+    // K0(1) 鈮?0.4211
     expect(Number(evaluate('=BESSELK(1,0)'))).toBeCloseTo(0.4211, 3);
-    // K1(1) ≈ 0.6019
+    // K1(1) 鈮?0.6019
     expect(Number(evaluate('=BESSELK(1,1)'))).toBeCloseTo(0.6019, 3);
   });
 
@@ -2908,7 +2930,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate DISC and PRICEDISC functions', () => {
-    // DISC: (100-98)/100 / yearfrac ≈ some rate
+    // DISC: (100-98)/100 / yearfrac 鈮?some rate
     const disc = Number(evaluate('=DISC("2024-01-01","2025-01-01",98,100)'));
     expect(disc).toBeCloseTo(0.02, 2);
     // PRICEDISC: redemption * (1 - discount * yearfrac)
@@ -2938,7 +2960,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate RECEIVED function', () => {
     // investment / (1 - discount * yearfrac)
-    // 1000 / (1 - 0.05 * 1) = 1000 / 0.95 ≈ 1052.63
+    // 1000 / (1 - 0.05 * 1) = 1000 / 0.95 鈮?1052.63
     expect(Number(evaluate('=RECEIVED("2024-01-01","2025-01-01",1000,0.05)'))).toBeCloseTo(1052.63, 0);
   });
 
@@ -3063,7 +3085,7 @@ describe('Formula', () => {
       ['B2', { v: '4' } as Cell],
       ['B3', { v: '8' } as Cell],
     ]);
-    // y ≈ 1 * 2^x, growth rate ≈ 2
+    // y 鈮?1 * 2^x, growth rate 鈮?2
     expect(Number(evaluate('=LOGEST(B1:B3,A1:A3)', grid))).toBeCloseTo(2, 1);
   });
 
@@ -3101,7 +3123,7 @@ describe('Formula', () => {
       ['B1', { v: '4' } as Cell],
       ['B2', { v: '8' } as Cell],
     ]);
-    // values <= 4: 1,3 → count 2
+    // values <= 4: 1,3 鈫?count 2
     expect(evaluate('=FREQUENCY(A1:A5,B1:B2)', grid)).toBe('2');
   });
 
@@ -3141,7 +3163,7 @@ describe('Formula', () => {
     // PERMUTATIONA(3,2) = 3^2 = 9
     expect(evaluate('=PERMUTATIONA(3,2)')).toBe('9');
     expect(evaluate('=PERMUTATIONA(2,4)')).toBe('16');
-    // Negative args are a domain error → #NUM!.
+    // Negative args are a domain error 鈫?#NUM!.
     expect(evaluate('=PERMUTATIONA(-1,2)')).toBe('#NUM!');
     expect(evaluate('=PERMUTATIONA(3,-1)')).toBe('#NUM!');
   });
@@ -3169,7 +3191,7 @@ describe('Formula', () => {
       ['A4', { v: '6' } as Cell],
       ['A5', { v: '7' } as Cell],
     ]);
-    // Z.TEST(data, 4) — test against mu=4
+    // Z.TEST(data, 4) 鈥?test against mu=4
     const pval = Number(evaluate('=Z.TEST(A1:A5,4)', grid));
     expect(pval).toBeGreaterThan(0);
     expect(pval).toBeLessThan(1);
@@ -3187,18 +3209,18 @@ describe('Formula', () => {
   });
 
   it('MUNIT returns full identity matrix as ArrNode', () => {
-    // 2×2 identity: [[1,0],[0,1]]
+    // 2脳2 identity: [[1,0],[0,1]]
     expect(evaluate('=INDEX(MUNIT(2),1,1)')).toBe('1');
     expect(evaluate('=INDEX(MUNIT(2),1,2)')).toBe('0');
     expect(evaluate('=INDEX(MUNIT(2),2,1)')).toBe('0');
     expect(evaluate('=INDEX(MUNIT(2),2,2)')).toBe('1');
-    // 3×3 diagonal
+    // 3脳3 diagonal
     expect(evaluate('=INDEX(MUNIT(3),1,1)')).toBe('1');
     expect(evaluate('=INDEX(MUNIT(3),2,2)')).toBe('1');
     expect(evaluate('=INDEX(MUNIT(3),3,3)')).toBe('1');
     expect(evaluate('=INDEX(MUNIT(3),1,2)')).toBe('0');
     expect(evaluate('=INDEX(MUNIT(3),2,1)')).toBe('0');
-    // 1×1 identity
+    // 1脳1 identity
     expect(evaluate('=INDEX(MUNIT(1),1,1)')).toBe('1');
     // non-integer is floored
     expect(evaluate('=INDEX(MUNIT(2.9),1,1)')).toBe('1');
@@ -3212,7 +3234,7 @@ describe('Formula', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: '3' } as Cell); grid.set('B1', { v: '7' } as Cell);
     grid.set('A2', { v: '1' } as Cell); grid.set('B2', { v: '5' } as Cell);
-    // A · I₂ = A
+    // A 路 I鈧?= A
     expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),1,1)', grid)).toBe('3');
     expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),1,2)', grid)).toBe('7');
     expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),2,1)', grid)).toBe('1');
@@ -3221,7 +3243,7 @@ describe('Formula', () => {
 
   it('TRANSPOSE returns full transposed matrix as ArrNode', () => {
     const grid = new Map<string, Cell>();
-    // [[1,2,3],[4,5,6]] → transposed → [[1,4],[2,5],[3,6]]
+    // [[1,2,3],[4,5,6]] 鈫?transposed 鈫?[[1,4],[2,5],[3,6]]
     grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell); grid.set('C1', { v: '3' } as Cell);
     grid.set('A2', { v: '4' } as Cell); grid.set('B2', { v: '5' } as Cell); grid.set('C2', { v: '6' } as Cell);
     expect(evaluate('=INDEX(TRANSPOSE(A1:C2),1,1)', grid)).toBe('1');
@@ -3230,7 +3252,7 @@ describe('Formula', () => {
     expect(evaluate('=INDEX(TRANSPOSE(A1:C2),2,2)', grid)).toBe('5');
     expect(evaluate('=INDEX(TRANSPOSE(A1:C2),3,1)', grid)).toBe('3');
     expect(evaluate('=INDEX(TRANSPOSE(A1:C2),3,2)', grid)).toBe('6');
-    // array literal: TRANSPOSE({1,2;3,4}) → [[1,3],[2,4]]
+    // array literal: TRANSPOSE({1,2;3,4}) 鈫?[[1,3],[2,4]]
     expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),1,1)')).toBe('1');
     expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),1,2)')).toBe('3');
     expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),2,1)')).toBe('2');
@@ -3239,12 +3261,12 @@ describe('Formula', () => {
 
   it('TRANSPOSE handles single-row and single-column ranges', () => {
     const grid = new Map<string, Cell>();
-    // Single row [1,2,3] → transposed to single column [[1],[2],[3]]
+    // Single row [1,2,3] 鈫?transposed to single column [[1],[2],[3]]
     grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell); grid.set('C1', { v: '3' } as Cell);
     expect(evaluate('=INDEX(TRANSPOSE(A1:C1),1,1)', grid)).toBe('1');
     expect(evaluate('=INDEX(TRANSPOSE(A1:C1),2,1)', grid)).toBe('2');
     expect(evaluate('=INDEX(TRANSPOSE(A1:C1),3,1)', grid)).toBe('3');
-    // Single column [[10],[20]] → transposed to single row [10,20]
+    // Single column [[10],[20]] 鈫?transposed to single row [10,20]
     grid.set('A2', { v: '10' } as Cell); grid.set('A3', { v: '20' } as Cell);
     expect(evaluate('=INDEX(TRANSPOSE(A2:A3),1,1)', grid)).toBe('10');
     expect(evaluate('=INDEX(TRANSPOSE(A2:A3),1,2)', grid)).toBe('20');
@@ -3254,7 +3276,7 @@ describe('Formula', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: 'hello' } as Cell); grid.set('B1', { v: 'world' } as Cell);
     grid.set('A2', { v: '42' } as Cell);    grid.set('B2', { v: 'end' } as Cell);
-    // [[hello,world],[42,end]] → transposed → [[hello,42],[world,end]]
+    // [[hello,world],[42,end]] 鈫?transposed 鈫?[[hello,42],[world,end]]
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,1)', grid)).toBe('hello');
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,2)', grid)).toBe('42');
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),2,1)', grid)).toBe('world');
@@ -3297,17 +3319,17 @@ describe('Formula', () => {
     grid.set('A7', { v: '9' } as Cell); grid.set('B7', { v: '8' } as Cell); grid.set('C7', { v: '7' } as Cell);
     grid.set('A8', { v: '6' } as Cell); grid.set('B8', { v: '5' } as Cell); grid.set('C8', { v: '4' } as Cell);
     grid.set('A9', { v: '3' } as Cell); grid.set('B9', { v: '2' } as Cell); grid.set('C9', { v: '1' } as Cell);
-    // A·B [1,1] = 1*9+2*6+3*3 = 9+12+9 = 30
+    // A路B [1,1] = 1*9+2*6+3*3 = 9+12+9 = 30
     expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),1,1)', grid)).toBe('30');
-    // A·B [1,2] = 1*8+2*5+3*2 = 8+10+6 = 24
+    // A路B [1,2] = 1*8+2*5+3*2 = 8+10+6 = 24
     expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),1,2)', grid)).toBe('24');
-    // A·B [2,1] = 4*9+5*6+6*3 = 36+30+18 = 84
+    // A路B [2,1] = 4*9+5*6+6*3 = 36+30+18 = 84
     expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),2,1)', grid)).toBe('84');
   });
 
   it('INDEX(MINVERSE(...)) accesses all elements of the inverse', () => {
     const grid = new Map<string, Cell>();
-    // [[2,1],[1,1]] — det=1, inverse = [[1,-1],[-1,2]]
+    // [[2,1],[1,1]] 鈥?det=1, inverse = [[1,-1],[-1,2]]
     grid.set('A1', { v: '2' } as Cell); grid.set('B1', { v: '1' } as Cell);
     grid.set('A2', { v: '1' } as Cell); grid.set('B2', { v: '1' } as Cell);
     expect(evaluate('=INDEX(MINVERSE(A1:B2),1,1)', grid)).toBe('1');
@@ -3335,7 +3357,7 @@ describe('Formula', () => {
     // B = [[5,6],[7,8]]
     grid.set('C1', { v: '5' } as Cell); grid.set('D1', { v: '6' } as Cell);
     grid.set('C2', { v: '7' } as Cell); grid.set('D2', { v: '8' } as Cell);
-    // A×B = [[19,22],[43,50]]; (A×B)×A [1,1] = 19*1+22*3 = 85, [2,2] = 43*2+50*4 = 286
+    // A脳B = [[19,22],[43,50]]; (A脳B)脳A [1,1] = 19*1+22*3 = 85, [2,2] = 43*2+50*4 = 286
     expect(evaluate('=INDEX(MMULT(MMULT(A1:B2,C1:D2),A1:B2),1,1)', grid)).toBe('85');
     expect(evaluate('=INDEX(MMULT(MMULT(A1:B2,C1:D2),A1:B2),2,2)', grid)).toBe('286');
   });
@@ -3373,7 +3395,7 @@ describe('Formula', () => {
 
   it('MMULT(MMULT with non-numeric)) propagates #VALUE! to outer call', () => {
     const grid = new Map<string, Cell>();
-    // inner MMULT will get a non-numeric element → ArrNode with err element
+    // inner MMULT will get a non-numeric element 鈫?ArrNode with err element
     // outer INDEX should surface #VALUE!
     grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: 'bad' } as Cell);
     grid.set('A2', { v: '3' } as Cell); grid.set('B2', { v: '4' } as Cell);
@@ -3383,14 +3405,14 @@ describe('Formula', () => {
   });
 
   it('MMULT returns #VALUE! when an array literal element is non-numeric text', () => {
-    // getMatrixVal arrmat path: string node with non-numeric value → #VALUE!
+    // getMatrixVal arrmat path: string node with non-numeric value 鈫?#VALUE!
     expect(evaluate('=MMULT({"text",2;3,4},{1,0;0,1})')).toBe('#VALUE!');
     expect(evaluate('=MMULT({1,0;0,1},{"bad",0;0,1})')).toBe('#VALUE!');
   });
 
   it('MMULT coerces numeric strings in array literals', () => {
-    // getMatrixVal arrmat path: string node with numeric value → coerced to number
-    // {{"2","3"},{"4","5"}} · [[1,0],[0,1]] = same matrix → top-left is "2"
+    // getMatrixVal arrmat path: string node with numeric value 鈫?coerced to number
+    // {{"2","3"},{"4","5"}} 路 [[1,0],[0,1]] = same matrix 鈫?top-left is "2"
     expect(evaluate('=MMULT({"2","0";"0","1"},{1,0;0,1})')).toBe('2');
   });
 
@@ -3487,7 +3509,7 @@ describe('Formula', () => {
     grid.set('B1', { v: '2' } as Cell);
     grid.set('B2', { v: '1' } as Cell);
     grid.set('B3', { v: '3' } as Cell);
-    // Sorted by B1:B3 ascending → apple (key 1) comes first
+    // Sorted by B1:B3 ascending 鈫?apple (key 1) comes first
     expect(evaluate('=SORTBY(A1:A3,B1:B3)', grid)).toBe('apple');
   });
 
@@ -3637,9 +3659,9 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate BINOM.DIST.RANGE function', () => {
-    // 10 trials, p=0.5, P(X=5) ≈ 0.2461
+    // 10 trials, p=0.5, P(X=5) 鈮?0.2461
     expect(Number(evaluate('=BINOM.DIST.RANGE(10,0.5,5)'))).toBeCloseTo(0.2461, 3);
-    // 10 trials, p=0.5, P(4 ≤ X ≤ 6) ≈ 0.6563
+    // 10 trials, p=0.5, P(4 鈮?X 鈮?6) 鈮?0.6563
     expect(Number(evaluate('=BINOM.DIST.RANGE(10,0.5,4,6)'))).toBeCloseTo(0.6563, 3);
   });
 
@@ -3670,6 +3692,29 @@ describe('Formula', () => {
       new Set(['A1', 'B1']),
     );
     expect(extractReferences('=SUM(OFFSET(A1,-1,0,2,1))')).toEqual(
+      new Set(['A1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,0))')).toEqual(new Set(['A1']));
+    expect(extractReferences('=SUM(OFFSET(A1,0,0,1,1,1))')).toEqual(
+      new Set(['A1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(1,0,0))')).toEqual(new Set());
+    expect(extractReferences('=SUM(OFFSET(A1,0,0,0,1))')).toEqual(
+      new Set(['A1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,1.9,1.1,1.9,1.1))')).toEqual(
+      new Set(['A1', 'B2']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,-B1,0,2,1))')).toEqual(
+      new Set(['A1', 'B1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,0,0,1,B1))')).toEqual(
+      new Set(['A1', 'B1']),
+    );
+    expect(extractReferences('=SUM(OFFSET(OFFSET(A1,1,0),1,0))')).toEqual(
+      new Set(['A1', 'A2']),
+    );
+    expect(extractReferences('=SUM(OFFSET(A1,0,0,3,1')).toEqual(
       new Set(['A1']),
     );
   });
@@ -3856,40 +3901,40 @@ describe('Formula.extractTokens', () => {
 
     // Emoji characters (supplementary code points) must produce correct
     // token text AND UTF-16 start/stop positions.
-    // Formula: =IF(A1>0,"🔴 Bad","🟢 OK")
-    //  body:    I F ( A 1 > 0 , " 🔴    B  a  d  "  ,  "  🟢     O  K  "  )
+    // Formula: =IF(A1>0,"馃敶 Bad","馃煝 OK")
+    //  body:    I F ( A 1 > 0 , " 馃敶    B  a  d  "  ,  "  馃煝     O  K  "  )
     //  UTF-16:  0 1 2 3 4 5 6 7 8 9,10 11 12 13 14 15 16 17 18,19 20 21 22 23 24
-    //  (🔴 = U+1F534, 2 UTF-16 code units at positions 9-10)
-    //  (🟢 = U+1F7E2, 2 UTF-16 code units at positions 18-19)
-    expect(extractTokens('=IF(A1>0,"🔴 Bad","🟢 OK")')).toEqual([
+    //  (馃敶 = U+1F534, 2 UTF-16 code units at positions 9-10)
+    //  (馃煝 = U+1F7E2, 2 UTF-16 code units at positions 18-19)
+    expect(extractTokens('=IF(A1>0,"馃敶 Bad","馃煝 OK")')).toEqual([
       { type: 'FUNCNAME', start: 0, stop: 1, text: 'IF' },
       { type: 'STRING', start: 2, stop: 2, text: '(' },
       { type: 'REFERENCE', start: 3, stop: 4, text: 'A1' },
       { type: 'GT', start: 5, stop: 5, text: '>' },
       { type: 'NUM', start: 6, stop: 6, text: '0' },
       { type: 'STRING', start: 7, stop: 7, text: ',' },
-      // "🔴 Bad" — 🔴 is 2 UTF-16 units, so the string token spans 8..15
-      { type: 'STRING', start: 8, stop: 15, text: '"🔴 Bad"' },
+      // "馃敶 Bad" 鈥?馃敶 is 2 UTF-16 units, so the string token spans 8..15
+      { type: 'STRING', start: 8, stop: 15, text: '"馃敶 Bad"' },
       { type: 'STRING', start: 16, stop: 16, text: ',' },
-      // "🟢 OK" — 🟢 is 2 UTF-16 units, so the string token spans 17..23
-      { type: 'STRING', start: 17, stop: 23, text: '"🟢 OK"' },
+      // "馃煝 OK" 鈥?馃煝 is 2 UTF-16 units, so the string token spans 17..23
+      { type: 'STRING', start: 17, stop: 23, text: '"馃煝 OK"' },
       { type: 'STRING', start: 24, stop: 24, text: ')' },
     ]);
 
     // Multi-emoji formula reconstructs losslessly
     const emojiFormula =
-      '=IF(A1>0,"🔴 Over Budget",IF(A1>0,"🟢 OK"))';
+      '=IF(A1>0,"馃敶 Over Budget",IF(A1>0,"馃煝 OK"))';
     const emojiTokens = extractTokens(emojiFormula);
     const reconstructed = '=' + emojiTokens.map((t) => t.text).join('');
     expect(reconstructed).toBe(emojiFormula);
 
     // Token after multiple emoji has correct UTF-16 offset
-    // "=1+"🔴🟡"+2" — two emoji in a string, then NUM token after
-    expect(extractTokens('=1+"🔴🟡"+2')).toEqual([
+    // "=1+"馃敶馃煛"+2" 鈥?two emoji in a string, then NUM token after
+    expect(extractTokens('=1+"馃敶馃煛"+2')).toEqual([
       { type: 'NUM', start: 0, stop: 0, text: '1' },
       { type: 'ADD', start: 1, stop: 1, text: '+' },
-      // "🔴🟡" — each emoji is 2 UTF-16 units → string is 6 UTF-16 units
-      { type: 'STRING', start: 2, stop: 7, text: '"🔴🟡"' },
+      // "馃敶馃煛" 鈥?each emoji is 2 UTF-16 units 鈫?string is 6 UTF-16 units
+      { type: 'STRING', start: 2, stop: 7, text: '"馃敶馃煛"' },
       { type: 'ADD', start: 8, stop: 8, text: '+' },
       { type: 'NUM', start: 9, stop: 9, text: '2' },
     ]);
@@ -3927,11 +3972,11 @@ describe('Formula.extractTokens', () => {
   it('should correctly evaluate TBILLEQ, TBILLPRICE, TBILLYIELD functions', () => {
     // settlement=2024-01-15, maturity=2024-07-15, 182 days
     // TBILLEQ(settlement, maturity, discount=0.05)
-    // = 365 * 0.05 / (360 - 0.05 * 182) = 18.25 / 350.9 ≈ 0.05200
+    // = 365 * 0.05 / (360 - 0.05 * 182) = 18.25 / 350.9 鈮?0.05200
     expect(Number(evaluate('=TBILLEQ("2024-01-15","2024-07-15",0.05)'))).toBeCloseTo(0.052, 2);
-    // TBILLPRICE: 100 * (1 - 0.05 * 182 / 360) ≈ 97.4722
+    // TBILLPRICE: 100 * (1 - 0.05 * 182 / 360) 鈮?97.4722
     expect(Number(evaluate('=TBILLPRICE("2024-01-15","2024-07-15",0.05)'))).toBeCloseTo(97.472, 2);
-    // TBILLYIELD: (100-97.472)/97.472 * 360/182 ≈ 0.05133
+    // TBILLYIELD: (100-97.472)/97.472 * 360/182 鈮?0.05133
     expect(Number(evaluate('=TBILLYIELD("2024-01-15","2024-07-15",97.472)'))).toBeCloseTo(0.0513, 2);
   });
 
@@ -3965,7 +4010,7 @@ describe('Formula.extractTokens', () => {
 
   it('should correctly evaluate WORKDAY.INTL function', () => {
     // 2024-01-01 (Mon) + 5 workdays (default weekend=Sat,Sun)
-    // Jan 1(Mon)→2, 2(Tue)→3, 3(Wed)→4, 4(Thu)→5, 5(Fri) = Jan 8 (Mon)
+    // Jan 1(Mon)鈫?, 2(Tue)鈫?, 3(Wed)鈫?, 4(Thu)鈫?, 5(Fri) = Jan 8 (Mon)
     const result = evaluate('=WORKDAY.INTL("2024-01-01",5)');
     expect(result).toContain('2024');
   });
@@ -4019,7 +4064,7 @@ describe('Formula.extractTokens', () => {
     expect(result).toBeCloseTo(0.3734, 2);
   });
 
-  // ─── Operator functions ────────────────────────────────────────────────────
+  // 鈹€鈹€鈹€ Operator functions 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   describe('Operator arithmetic', () => {
     it('ADD returns sum of two numbers', () => {
