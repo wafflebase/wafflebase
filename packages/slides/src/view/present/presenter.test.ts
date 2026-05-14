@@ -810,3 +810,167 @@ describe('startPresenter — fullscreen', () => {
     }
   });
 });
+
+// Yorkie pushes store snapshots into the presenter via setDocument
+// while the presentation runs. These tests cover the four real-world
+// branches: unchanged deck (theme/element edits), current slide kept
+// despite structural edits, current slide deleted with the original
+// index either valid or out of bounds, and an empty deck triggering
+// onExit. The atEndScreen flag must survive any structural change
+// short of emptying the deck — the presentation is still "over".
+describe('startPresenter — setDocument remote changes', () => {
+  // Build a fresh 3-slide fixture and return a function that produces
+  // a new SlidesDocument with the specified slide ids removed. Uses
+  // MemSlidesStore so all mutations flow through the supported API.
+  function makeDocWithRemovals(): {
+    doc: SlidesDocument;
+    ids: [string, string, string];
+    store: MemSlidesStore;
+  } {
+    const store = new MemSlidesStore();
+    let aId = '';
+    let bId = '';
+    let cId = '';
+    store.batch(() => {
+      aId = store.addSlide('blank');
+      bId = store.addSlide('blank');
+      cId = store.addSlide('blank');
+    });
+    return { doc: store.read(), ids: [aId, bId, cId], store };
+  }
+
+  it('preserves currentSlideId and re-renders when the current slide still exists', () => {
+    const renderSpy = vi.spyOn(SlideRenderer.prototype, 'render');
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [, bId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: bId,
+      onExit: vi.fn(),
+    });
+    try {
+      const callsBefore = renderSpy.mock.calls.length;
+      // Same deck snapshot, no structural change. Calls re-render.
+      presenter.setDocument(store.read());
+      expect(presenter.getCurrentSlideId()).toBe(bId);
+      expect(presenter.isAtEndScreen()).toBe(false);
+      expect(renderSpy.mock.calls.length).toBe(callsBefore + 1);
+    } finally {
+      presenter.dispose();
+      renderSpy.mockRestore();
+    }
+  });
+
+  it('jumps to the slide at the same index when the current slide is deleted', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [, bId, cId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: bId,
+      onExit: vi.fn(),
+    });
+    try {
+      // Remove B → new array is [A, C]; index 1 is now C.
+      store.batch(() => store.removeSlide(bId));
+      presenter.setDocument(store.read());
+      expect(presenter.getCurrentSlideId()).toBe(cId);
+      expect(presenter.isAtEndScreen()).toBe(false);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('falls back to the last slide when the deleted current slide index is out of bounds', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [aId, bId, cId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: cId,
+      onExit: vi.fn(),
+    });
+    try {
+      // Remove B and C → new array is [A]; index 2 is OOB → clamp to A.
+      store.batch(() => {
+        store.removeSlide(bId);
+        store.removeSlide(cId);
+      });
+      presenter.setDocument(store.read());
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+      expect(presenter.isAtEndScreen()).toBe(false);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('calls onExit when the deck becomes empty', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [aId, bId, cId] = ids;
+    const onExit = vi.fn();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit,
+    });
+    try {
+      store.batch(() => {
+        store.removeSlide(aId);
+        store.removeSlide(bId);
+        store.removeSlide(cId);
+      });
+      presenter.setDocument(store.read());
+      expect(onExit).toHaveBeenCalledOnce();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('preserves end-screen state when the deck is unchanged', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [, , cId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: cId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // → end-screen
+      expect(presenter.isAtEndScreen()).toBe(true);
+      presenter.setDocument(store.read());
+      expect(presenter.isAtEndScreen()).toBe(true);
+      expect(presenter.getCurrentSlideId()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('preserves end-screen state even when slides shrink below the original tail', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [, bId, cId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: cId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // → end-screen
+      expect(presenter.isAtEndScreen()).toBe(true);
+      // Shrink the deck (C and B removed); only A remains. The
+      // presentation is still "over" — the end-screen survives.
+      store.batch(() => {
+        store.removeSlide(bId);
+        store.removeSlide(cId);
+      });
+      presenter.setDocument(store.read());
+      expect(presenter.isAtEndScreen()).toBe(true);
+      expect(presenter.getCurrentSlideId()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+});

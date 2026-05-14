@@ -209,9 +209,55 @@ export function startPresenter(options: PresenterOptions): Presenter {
 
   function setDocument(doc: SlidesDocument): void {
     if (disposed) return;
-    // Task 5 will flesh this out with deletion / reindex logic.
+    // Capture the old index BEFORE rebinding — the reindex fallback
+    // for a deleted current slide needs the position the user was on
+    // in the previous snapshot.
+    const oldSlides = state.slides;
+    const oldIndex =
+      state.currentSlideId === null
+        ? -1
+        : oldSlides.findIndex((s) => s.id === state.currentSlideId);
+
     state.doc = doc;
     state.slides = doc.slides;
+
+    // Empty deck → hand control back to the shell; it surfaces a
+    // toast and unmounts. Checked first so subsequent branches never
+    // index into an empty array.
+    if (state.slides.length === 0) {
+      options.onExit();
+      return;
+    }
+
+    // End-screen survives any structural change short of emptying the
+    // deck — the presentation is still "over". paint() re-paints the
+    // end-screen with no slide lookup, so this is safe regardless of
+    // what was removed.
+    if (state.atEndScreen) {
+      paint();
+      return;
+    }
+
+    // Same id still present — fast path. Avoids the reindex round-trip
+    // and prevents a spurious currentSlideId change on the common case
+    // of a theme or element edit on a slide that wasn't deleted.
+    const stillThere =
+      state.currentSlideId !== null &&
+      state.slides.some((s) => s.id === state.currentSlideId);
+    if (stillThere) {
+      paint();
+      return;
+    }
+
+    // Current slide is gone — fall back to the slide at the old
+    // index, clamped to the new tail. `oldIndex` is guaranteed >= 0
+    // here because `stillThere` was false and a null currentSlideId
+    // only occurs in the end-screen branch handled above.
+    const targetIndex = Math.min(
+      Math.max(0, oldIndex),
+      state.slides.length - 1,
+    );
+    state.currentSlideId = state.slides[targetIndex].id;
     paint();
   }
 
