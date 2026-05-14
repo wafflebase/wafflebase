@@ -85,3 +85,4 @@ export { mountNotesPanel } from './view/editor/notes-panel';
 export { showLayoutPicker, type LayoutPickerOptions } from './view/editor/layout-picker';
 export { showContextMenu, dismiss as dismissContextMenu, type ContextMenuItem } from './view/editor/context-menu';
 export { MIME_TYPE as SLIDES_CLIPBOARD_MIME, serializeElements, deserializeElements } from './view/editor/interactions/clipboard';
+export { SHORTCUTS, formatCombo, type ShortcutEntry, type ShortcutCategory } from './view/editor/shortcuts-catalog';

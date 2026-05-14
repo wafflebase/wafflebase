@@ -10,6 +10,7 @@ import { useDocument } from "@yorkie-js/react";
 import { Loader } from "@/components/loader";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
+import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 
 export type { SlidesEditor } from "@wafflebase/slides";
@@ -90,6 +91,7 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
 
   // Prevent double-initialization in React strict mode / dev HMR.
@@ -260,6 +262,12 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       hostWidth: hostW,
       hostHeight: hostH,
       dpr,
+      onShowShortcutsHelp: () => setHelpOpen(true),
+      // onStartPresentation / onLinkRequest are intentionally left
+      // unwired here. Present mode UI lands in a separate phase, and
+      // the link popover needs a richer TextBoxEditorAPI (insertLink /
+      // getLinkAtCursor) before it can drive the docs text-box.
+      // Cmd+Enter / Cmd+K no-op at the editor level until then.
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
@@ -441,7 +449,12 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     );
   }
 
-  return <div ref={containerRef} className="relative flex-1 w-full min-h-0" />;
+  return (
+    <>
+      <div ref={containerRef} className="relative flex-1 w-full min-h-0" />
+      <SlidesShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
+    </>
+  );
 }
 
 export default SlidesView;

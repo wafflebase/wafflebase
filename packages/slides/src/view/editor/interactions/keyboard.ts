@@ -12,7 +12,14 @@ export interface KeyboardContext {
   store: SlidesStore;
   selection: Selection;
   currentSlideId(): string | undefined;
+  /** Switch to the given slide. Used by Page Up / Page Down and Cmd+M. */
+  setCurrentSlide(id: string): void;
+  /** Enter text-edit mode on the given element. Used by F2 / Enter. */
+  enterEditMode(slideId: string, elementId: string): void;
   requestRender(): void;
+  /** Optional callbacks wired by the host shell. No-op if absent. */
+  onStartPresentation?: (from: 'current' | 'first') => void;
+  onShowShortcutsHelp?: () => void;
 }
 
 const NUDGE = 1;
@@ -213,6 +220,225 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         ctx.requestRender();
       },
     },
+
+    // --- Parity pass: selection / slide / present / help ---
+
+    // Cmd+/ — show shortcuts help. Bypasses the editable-target gate so
+    // the help modal opens even while typing in a text-box. Matches
+    // only when a host handler is wired so an unhandled Cmd+/ falls
+    // through to the browser default.
+    {
+      match: (e) =>
+        keyEquals(e.key, '/') &&
+        isModPressed(e) &&
+        ctx.onShowShortcutsHelp !== undefined,
+      run: (e) => {
+        if (!ctx.onShowShortcutsHelp) return;
+        e.preventDefault();
+        ctx.onShowShortcutsHelp();
+      },
+    },
+
+    // Cmd+Shift+Enter — present from first slide. Must precede the
+    // Cmd+Enter rule so the shift variant doesn't get swallowed.
+    // Both rules are gated by the editable-target check: docs
+    // text-editor binds Cmd+Enter to a page-break op (a docs-only
+    // concept) which would corrupt slide text-element data if it ran
+    // inside a slides text-box. Users can press Esc to exit text edit
+    // before starting present mode. See design doc "Esc semantics"
+    // and the "Cmd+Enter implementation deviation" note.
+    {
+      match: (e) =>
+        e.key === 'Enter' &&
+        isModPressed(e) &&
+        e.shiftKey &&
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
+      run: (e) => {
+        if (!ctx.onStartPresentation) return;
+        e.preventDefault();
+        ctx.onStartPresentation('first');
+      },
+    },
+    {
+      match: (e) =>
+        e.key === 'Enter' &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
+      run: (e) => {
+        if (!ctx.onStartPresentation) return;
+        e.preventDefault();
+        ctx.onStartPresentation('current');
+      },
+    },
+
+    // Cmd+A — select all elements on the current slide.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'a') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide || slide.elements.length === 0) return;
+        e.preventDefault();
+        ctx.selection.set(slide.elements.map((el) => el.id));
+        ctx.requestRender();
+      },
+    },
+
+    // Cmd+M — add a new slide after the current, using the current
+    // slide's layout, and switch to it.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'm') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        const slides = ctx.store.read().slides;
+        const currentIdx = slides.findIndex((s) => s.id === slide.id);
+        let newId = '';
+        ctx.store.batch(() => {
+          newId = ctx.store.addSlide(slide.layoutId, currentIdx + 1);
+        });
+        if (newId) ctx.setCurrentSlide(newId);
+        ctx.requestRender();
+      },
+    },
+
+    // Cmd+Shift+D — duplicate the current slide explicitly. Distinct
+    // from Cmd+D, which duplicates the selected element(s) and only
+    // falls back to slide-duplicate when nothing is selected.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'd') &&
+        isModPressed(e) &&
+        e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        ctx.store.batch(() => ctx.store.duplicateSlide(slide.id));
+        ctx.requestRender();
+      },
+    },
+
+    // Page Up / Page Down — switch to previous / next slide. Gated by
+    // editable target so PgUp/PgDn inside a focused textarea retains
+    // its default behaviour (caret movement).
+    {
+      match: (e) =>
+        (e.key === 'PageUp' || e.key === 'PageDown') &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slides = ctx.store.read().slides;
+        if (slides.length === 0) return;
+        const currentId = ctx.currentSlideId();
+        const currentIdx = slides.findIndex((s) => s.id === currentId);
+        if (currentIdx === -1) return;
+        const targetIdx =
+          e.key === 'PageUp'
+            ? Math.max(0, currentIdx - 1)
+            : Math.min(slides.length - 1, currentIdx + 1);
+        if (targetIdx === currentIdx) return;
+        e.preventDefault();
+        ctx.setCurrentSlide(slides[targetIdx].id);
+      },
+    },
+
+    // Tab / Shift+Tab — cycle next / previous element on the current
+    // slide. Empty selection: Tab picks the first element, Shift+Tab
+    // picks the last (matches Google Slides).
+    {
+      match: (e) =>
+        e.key === 'Tab' &&
+        !isModPressed(e) &&
+        !e.altKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide || slide.elements.length === 0) return;
+        e.preventDefault();
+        const direction: 'next' | 'prev' = e.shiftKey ? 'prev' : 'next';
+        const selected = ctx.selection.get();
+        const len = slide.elements.length;
+        let nextIdx: number;
+        if (selected.length === 0) {
+          nextIdx = direction === 'next' ? 0 : len - 1;
+        } else {
+          // Anchor on the last element in selection (in array order)
+          // so repeated Tab walks forward through the slide.
+          let anchor = -1;
+          for (let i = len - 1; i >= 0; i--) {
+            if (selected.includes(slide.elements[i].id)) {
+              anchor = i;
+              break;
+            }
+          }
+          if (anchor === -1) {
+            nextIdx = direction === 'next' ? 0 : len - 1;
+          } else {
+            const step = direction === 'next' ? 1 : -1;
+            nextIdx = (anchor + step + len) % len;
+          }
+        }
+        ctx.selection.set([slide.elements[nextIdx].id]);
+        ctx.requestRender();
+      },
+    },
+
+    // F2 / Enter — enter text-edit mode on the selected text element.
+    // Only fires when:
+    //   - exactly one element is selected,
+    //   - that element is type 'text',
+    //   - the focused target isn't an editable input (so Enter still
+    //     submits dialogs and the text-box editor's own Enter keeps
+    //     inserting newlines).
+    {
+      match: (e) =>
+        (e.key === 'F2' || e.key === 'Enter') &&
+        !isModPressed(e) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        const selected = ctx.selection.get();
+        if (selected.length !== 1) return;
+        const element = slide.elements.find((el) => el.id === selected[0]);
+        if (!element || element.type !== 'text') return;
+        e.preventDefault();
+        ctx.enterEditMode(slide.id, element.id);
+      },
+    },
+
+    // Esc — clear selection when something is selected and no
+    // editable target is focused. Text-box Esc is handled by the
+    // text-box editor's own capture-phase listener (which stops
+    // propagation before reaching this rule). Popover/context-menu
+    // Esc is also captured at their layer.
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        if (ctx.selection.get().length === 0) return;
+        e.preventDefault();
+        ctx.selection.clear();
+        ctx.requestRender();
+      },
+    },
   ];
 }
 
@@ -308,5 +534,18 @@ function isEditableTarget(target: EventTarget | null): boolean {
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if ((target as HTMLElement).isContentEditable) return true;
+  // Also gate against interactive widgets (dialogs, dropdowns, focused
+  // buttons). Without this, Tab inside the shortcuts-help dialog would
+  // be hijacked by the slides Tab-cycle rule, and Enter on a focused
+  // toolbar button would enter text-edit mode instead of activating
+  // the button. We treat any of these as "not the slide canvas" and
+  // let the default browser/widget handling run.
+  if (tag === 'BUTTON') return true;
+  if (target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [role="tree"], [role="grid"]')) {
+    return true;
+  }
+  if (target.matches('[role="button"], [role="menuitem"], [role="option"], [role="tab"]')) {
+    return true;
+  }
   return false;
 }
