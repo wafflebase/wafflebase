@@ -88,6 +88,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
 
   function goToFirst(): void {
     if (disposed) return;
+    if (state.slides.length === 0) return;
     state.currentSlideId = state.slides[0].id;
     state.atEndScreen = false;
     paint();
@@ -95,6 +96,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
 
   function goToLast(): void {
     if (disposed) return;
+    if (state.slides.length === 0) return;
     state.currentSlideId = state.slides[state.slides.length - 1].id;
     state.atEndScreen = false;
     paint();

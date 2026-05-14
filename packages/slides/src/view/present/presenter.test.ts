@@ -276,4 +276,20 @@ describe('startPresenter — dispose()', () => {
       presenter.dispose();
     }).not.toThrow();
   });
+
+  it('navigation after dispose() is a no-op', () => {
+    const { doc, ids } = makeDoc();
+    const [aId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    presenter.dispose();
+    const before = presenter.getCurrentSlideId();
+    testApi(presenter).next();
+    expect(presenter.getCurrentSlideId()).toBe(before);
+    expect(presenter.isAtEndScreen()).toBe(false);
+  });
 });
