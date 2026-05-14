@@ -95,18 +95,28 @@ export function drawSlide(
   const scaleY = (hostHeight / SLIDE_HEIGHT) * dpr;
   const scale = Math.min(scaleX, scaleY);
 
-  // Reset to identity, clear, then re-establish the world scale so
-  // the content paints at the correct host pixel size regardless of
-  // any leftover transforms from a previous render.
+  // Reset to identity, paint the slide background across the FULL canvas
+  // (not just the logical 1920×1080 region), then re-establish the world
+  // scale so element content paints at the correct host pixel size.
+  //
+  // Filling the full canvas — rather than `fillRect(0, 0, SLIDE_W, SLIDE_H)`
+  // after the scale transform — hides 1–2 px aspect-ratio rounding gaps on
+  // the right/bottom edges. Without this, host dimensions whose ratio drifts
+  // from SLIDE_WIDTH:SLIDE_HEIGHT (rounding from `computeFitSize` →
+  // `Math.round`) leave a transparent strip that reveals the canvas's CSS
+  // `background` underneath. That strip reads white in light mode and reads
+  // as a flashing white edge in dark mode + Simple Dark, where the slide
+  // background is `#202124` but the canvas backdrop stays `#fff`.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, hostWidth * dpr, hostHeight * dpr);
+  ctx.fillStyle = resolveColor(slide.background.fill, theme);
+  ctx.fillRect(0, 0, hostWidth * dpr, hostHeight * dpr);
   ctx.scale(scale, scale);
 
-  // Background fill — image-fill backgrounds are v2.
-  ctx.fillStyle = resolveColor(slide.background.fill, theme);
-  ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
-
-  // Iterate elements in array order = z-order, last is front.
+  // Iterate elements in array order = z-order, last is front. Image-fill
+  // backgrounds are v2 — when they land, paint the image inside the
+  // logical 1920×1080 region *after* this full-canvas color fill so the
+  // image still represents the slide and the surrounding strip stays
+  // background-color.
   for (const element of slide.elements) {
     drawElement(ctx, element, doc, theme, onAssetLoad);
   }

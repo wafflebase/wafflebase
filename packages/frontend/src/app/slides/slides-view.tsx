@@ -207,6 +207,17 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     canvas.style.width = `${hostW}px`;
     canvas.style.height = `${hostH}px`;
     canvas.style.background = "#fff";
+    // Slide elevation: 1px hairline + soft drop shadow so the slide edge
+    // stays visible when its background matches the surrounding inset's
+    // `bg-background` — happens in two pairings: default-light (white slide
+    // on white bg) and dark mode + Simple Dark (dark slide on dark bg).
+    // Hairline is mixed from `--foreground` so it inverts with the theme
+    // (dark on light, light on dark) and reads on both. The drop shadow
+    // is a black rgba — it adds depth in light mode and quietly fades in
+    // dark mode where the hairline carries the edge.
+    canvas.style.boxShadow =
+      "0 0 0 1px color-mix(in srgb, var(--foreground) 25%, transparent)," +
+      " 0 4px 12px rgba(0, 0, 0, 0.08)";
     canvasWrap.appendChild(canvas);
 
     const overlay = document.createElement("div");
