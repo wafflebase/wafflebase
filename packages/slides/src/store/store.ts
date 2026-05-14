@@ -1,5 +1,6 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, SlidesDocument } from '../model/presentation';
+import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { ElementInit, Frame } from '../model/element';
 import type { Theme } from '../model/theme';
 
@@ -67,7 +68,7 @@ export interface SlidesStore {
     slideId: string,
     elementId: string,
     side: 'start' | 'end',
-    endpoint: import('../model/connector').Endpoint,
+    endpoint: Endpoint,
   ): void;
 
   /** Replace a connector's arrowhead styles. Pass `null` per side to clear. */
@@ -75,8 +76,8 @@ export interface SlidesStore {
     slideId: string,
     elementId: string,
     heads: {
-      start?: import('../model/connector').ArrowheadStyle | null;
-      end?:   import('../model/connector').ArrowheadStyle | null;
+      start?: ArrowheadStyle | null;
+      end?:   ArrowheadStyle | null;
     },
   ): void;
 
