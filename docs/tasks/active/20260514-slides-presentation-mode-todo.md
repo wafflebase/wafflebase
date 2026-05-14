@@ -548,7 +548,7 @@ primitives (check sibling files for the exact import paths).
 
 **Branch:** `feat/slides-presentation-mode` (off `main` @ `2c319e59`).
 
-**Commits (13, oldest → newest):**
+**Commits (15, oldest → newest):**
 
 1. `c9ce715f` Add slides presentation mode v1 design and plan
 2. `4e173dd5` Add slides presenter scaffold and navigation state
@@ -563,13 +563,16 @@ primitives (check sibling files for the exact import paths).
 11. `e2fce34b` Add slides presentation mode React shell
 12. `cc9dbc83` Forward onStartPresentation to the slides editor
 13. `ffa0df8e` Add Present split-button and presenting state to slides header
+14. `dc0c3275` Close out slides presentation mode task tracking
+15. `379636ae` Tighten presenter against fullscreen race and stale start id *(final cross-cutting fixup)*
 
 **Verification:** `pnpm verify:fast` green on the latest commit
-(47 test files, 764 tests). 50 unit tests in
+(47 test files, 764 tests). 52 unit tests in
 `packages/slides/src/view/present/presenter.test.ts` cover navigation,
 canvas mount, end-screen, keyboard, click, cursor auto-hide, fullscreen,
-overlay fallback, identity-gated fullscreenchange, remote-change
-handling, and dispose cleanup.
+overlay fallback, identity-gated fullscreenchange, dispose-during-pending-
+fullscreen race, stale-start-id fallback, remote-change handling, and
+dispose cleanup.
 
 **Outstanding (10.2 / 10.5 / 10.6 / 10.7):**
 
