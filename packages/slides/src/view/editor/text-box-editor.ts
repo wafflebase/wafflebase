@@ -41,6 +41,12 @@ export interface MountSlidesTextBoxOptions {
   onCommit: (blocks: Block[]) => void;
   /** Called when Escape is pressed (BEFORE onCommit fires via the blur path). */
   onCancel: () => void;
+  /**
+   * Called when the user presses Cmd/Ctrl+K. The slides shell opens a
+   * link popover anchored near the caret. Forwarded straight through
+   * to the docs text-box, which wires it to the inner `TextEditor`.
+   */
+  onLinkRequest?: () => void;
 }
 
 export interface SlidesTextBoxEditor {
@@ -68,7 +74,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest } = opts;
 
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
@@ -142,6 +148,7 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     dpr: dpr * scale,
     onCommit: handleCommit,
     onCancel: handleCancel,
+    onLinkRequest,
   });
 
   return {

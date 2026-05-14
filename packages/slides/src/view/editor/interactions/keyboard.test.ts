@@ -219,6 +219,331 @@ describe('keyboard — z-order shortcuts', () => {
   });
 });
 
+describe('keyboard — Cmd+A select all', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('selects every element on the current slide', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    const slideId = store.read().slides[0].id;
+    let secondId = '';
+    store.batch(() => {
+      secondId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true }));
+    expect(editor.getSelection()).toEqual([elementId, secondId]);
+  });
+
+  it('is a no-op when target is a textarea', () => {
+    const { editor: e } = makeFixture();
+    editor = e;
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true }));
+    expect(editor.getSelection()).toEqual([]);
+    textarea.remove();
+  });
+});
+
+describe('keyboard — Esc', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('clears selection when something is selected', () => {
+    const { editor: e, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(editor.getSelection()).toEqual([]);
+  });
+
+  it('is a no-op when nothing is selected', () => {
+    const { editor: e } = makeFixture();
+    editor = e;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(editor.getSelection()).toEqual([]);
+  });
+});
+
+describe('keyboard — Tab cycle', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  function fixtureWithTwoElements() {
+    const fx = makeFixture();
+    let secondId = '';
+    fx.store.batch(() => {
+      secondId = fx.store.addElement(fx.store.read().slides[0].id, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    return { ...fx, secondId };
+  }
+
+  it('with empty selection Tab picks the first element', () => {
+    const { editor: e, elementId } = fixtureWithTwoElements();
+    editor = e;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(editor.getSelection()).toEqual([elementId]);
+  });
+
+  it('with empty selection Shift+Tab picks the last element', () => {
+    const { editor: e, secondId } = fixtureWithTwoElements();
+    editor = e;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    expect(editor.getSelection()).toEqual([secondId]);
+  });
+
+  it('Tab advances and wraps', () => {
+    const { editor: e, elementId, secondId } = fixtureWithTwoElements();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(editor.getSelection()).toEqual([secondId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(editor.getSelection()).toEqual([elementId]);
+  });
+
+  it('Shift+Tab moves backward and wraps', () => {
+    const { editor: e, elementId, secondId } = fixtureWithTwoElements();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    expect(editor.getSelection()).toEqual([secondId]);
+  });
+});
+
+describe('keyboard — F2 / Enter enters text edit', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  function fixtureWithTextElement() {
+    document.body.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let textId = '';
+    store.batch(() => {
+      const sid = store.addSlide('blank');
+      textId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 200, h: 80, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    // Mount fixture uses a fake text-box mount so jsdom isn't asked to
+    // drive the real docs text editor.
+    const mountedSpy = vi.fn();
+    const fakeMount = ((opts: { overlay: HTMLDivElement }) => {
+      mountedSpy();
+      const container = document.createElement('div');
+      opts.overlay.appendChild(container);
+      return {
+        isEditing: () => true,
+        focus: () => undefined,
+        detach: () => container.remove(),
+        commit: () => undefined,
+        container,
+      };
+    }) as unknown as Parameters<typeof initialize>[0]['mountTextBox'];
+    const ed = initialize({
+      canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
+      mountTextBox: fakeMount,
+    });
+    trackedEditors.push(ed);
+    return { editor: ed, store, textId, mountedSpy };
+  }
+
+  it('F2 mounts the text-box editor on the selected text element', () => {
+    const { editor: e, textId, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    editor.setSelection([textId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    expect(mountedSpy).toHaveBeenCalledTimes(1);
+    expect(editor.getEditingElementId()).toBe(textId);
+  });
+
+  it('Enter mounts the text-box editor on the selected text element', () => {
+    const { editor: e, textId, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    editor.setSelection([textId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mountedSpy).toHaveBeenCalledTimes(1);
+    expect(editor.getEditingElementId()).toBe(textId);
+  });
+
+  it('does not enter edit mode for non-text elements', () => {
+    const { editor: e, store, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    // The non-text element from makeFixture style — add a shape and select it instead.
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(store.read().slides[0].id, {
+        type: 'shape',
+        frame: { x: 300, y: 100, w: 100, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor.setSelection([shapeId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mountedSpy).not.toHaveBeenCalled();
+    expect(editor.getEditingElementId()).toBe(null);
+  });
+});
+
+describe('keyboard — Cmd+M new slide', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('inserts after the current slide and switches to it', () => {
+    const { editor: e, store } = makeFixture();
+    editor = e;
+    const startId = store.read().slides[0].id;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', metaKey: true, bubbles: true }));
+    const slides = store.read().slides;
+    expect(slides).toHaveLength(2);
+    expect(slides[0].id).toBe(startId);
+    expect(editor.getCurrentSlideId()).toBe(slides[1].id);
+  });
+
+  it('reuses the current slide\'s layout', () => {
+    const { editor: e, store } = makeFixture();
+    editor = e;
+    const layoutId = store.read().slides[0].layoutId;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', metaKey: true, bubbles: true }));
+    expect(store.read().slides[1].layoutId).toBe(layoutId);
+  });
+});
+
+describe('keyboard — Cmd+Shift+D duplicate slide', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('duplicates the current slide even when an element is selected', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, shiftKey: true, bubbles: true }));
+    expect(store.read().slides).toHaveLength(2);
+  });
+});
+
+describe('keyboard — Page Up / Page Down', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  function fixtureWithTwoSlides() {
+    const fx = makeFixture();
+    fx.store.batch(() => fx.store.addSlide('blank'));
+    return fx;
+  }
+
+  it('Page Down advances to next slide', () => {
+    const { editor: e, store } = fixtureWithTwoSlides();
+    editor = e;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
+    expect(editor.getCurrentSlideId()).toBe(store.read().slides[1].id);
+  });
+
+  it('Page Up returns to previous slide', () => {
+    const { editor: e, store } = fixtureWithTwoSlides();
+    editor = e;
+    editor.setCurrentSlide(store.read().slides[1].id);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }));
+    expect(editor.getCurrentSlideId()).toBe(store.read().slides[0].id);
+  });
+
+  it('is a no-op at boundaries', () => {
+    const { editor: e, store } = fixtureWithTwoSlides();
+    editor = e;
+    const firstId = store.read().slides[0].id;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }));
+    expect(editor.getCurrentSlideId()).toBe(firstId);
+  });
+});
+
+describe('keyboard — Present mode shortcuts', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Cmd+Enter fires onStartPresentation with current', () => {
+    document.body.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    const onStartPresentation = vi.fn();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
+      onStartPresentation,
+    });
+    trackedEditors.push(editor);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    expect(onStartPresentation).toHaveBeenCalledWith('current');
+  });
+
+  it('Cmd+Shift+Enter fires onStartPresentation with first', () => {
+    document.body.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    const onStartPresentation = vi.fn();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
+      onStartPresentation,
+    });
+    trackedEditors.push(editor);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, shiftKey: true, bubbles: true }));
+    expect(onStartPresentation).toHaveBeenCalledWith('first');
+  });
+});
+
+describe('keyboard — Cmd+/ shortcuts help', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('fires onShowShortcutsHelp even while a textarea is focused', () => {
+    document.body.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    const onShowShortcutsHelp = vi.fn();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
+      onShowShortcutsHelp,
+    });
+    trackedEditors.push(editor);
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true, bubbles: true }));
+    expect(onShowShortcutsHelp).toHaveBeenCalled();
+    textarea.remove();
+  });
+});
+
 describe('keyboard — Cmd+C copy', () => {
   let editor: SlidesEditor | null = null;
   let originalClipboard: unknown;

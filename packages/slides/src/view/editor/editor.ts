@@ -50,6 +50,26 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * functional Canvas 2D context).
    */
   mountTextBox?: typeof mountSlidesTextBox;
+  /**
+   * Host hook for `Cmd+Enter` / `Cmd+Shift+Enter`. The editor doesn't
+   * own present mode — the surrounding shell does — so we fire this
+   * callback and let the host route to its existing presentation
+   * entry path. `from` is `'current'` for `Cmd+Enter` and `'first'`
+   * for `Cmd+Shift+Enter`. No-op when omitted.
+   */
+  onStartPresentation?: (from: 'current' | 'first') => void;
+  /**
+   * Host hook for `Cmd+/`. Opens the shortcuts-help modal. The keyRule
+   * bypasses the editable-target gate so help opens even while
+   * editing text. No-op when omitted.
+   */
+  onShowShortcutsHelp?: () => void;
+  /**
+   * Host hook for `Cmd+K` inside text-box edit mode. Forwarded down
+   * to the docs text-box editor; fired by docs/text-editor when the
+   * user requests link insertion. No-op when omitted.
+   */
+  onLinkRequest?: () => void;
 }
 
 export interface SlidesEditor {
@@ -194,7 +214,12 @@ class SlidesEditorImpl implements SlidesEditor {
       store: this.options.store,
       selection: this.selection,
       currentSlideId: () => this.getCurrentSlideId(),
+      setCurrentSlide: (id: string) => this.setCurrentSlide(id),
+      enterEditMode: (slideId: string, elementId: string) =>
+        this.enterEditMode(slideId, elementId),
       requestRender: () => this.requestRender(),
+      onStartPresentation: this.options.onStartPresentation,
+      onShowShortcutsHelp: this.options.onShowShortcutsHelp,
     });
     this.attachInteractions();
   }
@@ -666,6 +691,7 @@ class SlidesEditorImpl implements SlidesEditor {
       frame: element.frame,
       scale: this.scale(),
       blocks,
+      onLinkRequest: this.options.onLinkRequest,
       onCommit: (next) => {
         // Persist via withTextElement and exit edit mode. We snapshot
         // the slide id at enter-time because the user could have

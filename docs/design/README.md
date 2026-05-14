@@ -63,6 +63,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-themes-layouts-import.md](slides/slides-themes-layouts-import.md)             | Themes (4-tier) + 11 Google-Slides-parity layouts + PPTX best-effort import; 3-PR rollout plan      |
 | [slides-layout-change.md](slides/slides-layout-change.md)                             | Layout change UI — placeholder identity tracking, type-first matching, split-button + context menu  |
 | [slides-shapes.md](slides/slides-shapes.md)                                           | Shape library — 55 OOXML-aligned `ShapeKind` values, path-builder registry, `data.adjustments` storage, yellow-diamond drag handles, picker UX, phased roadmap to ~100-shape GS parity |
+| [slides-keyboard-shortcuts.md](slides/slides-keyboard-shortcuts.md)                   | Slides keyboard shortcuts — Google Slides parity pass, single catalog source, help modal, link popover wiring                                                                          |
 
 ## Common
 

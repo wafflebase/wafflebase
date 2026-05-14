@@ -96,6 +96,15 @@ export interface TextBoxEditorOptions {
    * Defaults to 1 (no HiDPI scaling) if omitted.
    */
   dpr?: number;
+
+  /**
+   * Called when the user presses Cmd/Ctrl+K inside the text-box. The
+   * host typically opens a link popover anchored near the caret. The
+   * shim wires this through to the underlying `TextEditor`'s
+   * `onLinkRequest` field — same shape as the docs editor's public
+   * `onLinkRequest(cb)` API.
+   */
+  onLinkRequest?: () => void;
 }
 
 export interface TextBoxEditorAPI {
@@ -329,6 +338,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
   );
   textEditor.setCursorTarget(canvas);
+  if (opts.onLinkRequest) {
+    textEditor.onLinkRequest = opts.onLinkRequest;
+  }
 
   // Track focus so the cursor only paints + blinks while the textarea
   // owns focus (the standard caret behaviour).
