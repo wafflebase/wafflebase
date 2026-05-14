@@ -246,7 +246,16 @@ function SlidesLayout({ documentId }: { documentId: string }) {
         <SlidesPresentationMode
           store={store}
           startSlideId={resolveStartSlideId(store, presentingFrom, editor)!}
-          onExit={() => setPresentingFrom(null)}
+          onExit={() => {
+            // The presenter calls onExit for several reasons (Esc, end-
+            // screen click, native fullscreen exit, empty deck). We
+            // can't ask which — but if the deck is empty right now,
+            // the empty-deck branch of setDocument is what called us.
+            if (store.read().slides.length === 0) {
+              toast.info("Presentation ended (deck is empty)");
+            }
+            setPresentingFrom(null);
+          }}
         />
       )}
     </SidebarProvider>

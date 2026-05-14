@@ -64,10 +64,21 @@ function computeFitSize(availWidth: number, availHeight: number): {
 
 export function startPresenter(options: PresenterOptions): Presenter {
   const { container } = options;
+  // Validate startSlideId against the live doc. A peer can delete that
+  // slide between the host computing the id and startPresenter
+  // running; without this fallback, the presenter would mount on a
+  // phantom id, paint() would no-op, and navigation would look broken.
+  // The host empty-deck guard (slides-detail.tsx) ensures `slides` is
+  // non-empty by the time we get here.
+  const resolvedStartId = options.doc.slides.some(
+    (s) => s.id === options.startSlideId,
+  )
+    ? options.startSlideId
+    : options.doc.slides[0].id;
   const state: PresenterState = {
     doc: options.doc,
     slides: options.doc.slides,
-    currentSlideId: options.startSlideId,
+    currentSlideId: resolvedStartId,
     atEndScreen: false,
   };
 
@@ -353,7 +364,13 @@ export function startPresenter(options: PresenterOptions): Presenter {
     container.style.zIndex = String(OVERLAY_Z_INDEX);
   }
   void container.requestFullscreen?.().then(() => {
-    if (disposed) return;
+    if (disposed) {
+      // We tore down before the browser entered fullscreen. Reverse
+      // it — without this, the page sits in fullscreen with no canvas,
+      // no listeners, no way out except the browser's native Esc.
+      document.exitFullscreen?.().catch(() => { /* already exited */ });
+      return;
+    }
     enteredFullscreen = true;
   }).catch(() => {
     if (disposed) return;

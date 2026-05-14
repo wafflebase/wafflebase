@@ -68,6 +68,26 @@ describe('startPresenter — initial state', () => {
       presenter.dispose();
     }
   });
+
+  it('falls back to the first slide when startSlideId is not in the deck', () => {
+    // A peer can delete the host's pending start slide between the
+    // host computing the id and startPresenter mounting — without the
+    // fallback the presenter would mount on a phantom id.
+    const { doc, ids } = makeDoc();
+    const [aId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: 'not-a-real-id',
+      onExit: vi.fn(),
+    });
+    try {
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+      expect(presenter.isAtEndScreen()).toBe(false);
+    } finally {
+      presenter.dispose();
+    }
+  });
 });
 
 describe('startPresenter — next()', () => {
@@ -1015,6 +1035,33 @@ describe('startPresenter — fullscreen', () => {
     } finally {
       presenter.dispose();
     }
+  });
+
+  it('dispose during pending requestFullscreen reverses the in-flight transition', async () => {
+    // Defer the requestFullscreen Promise so we can dispose mid-flight.
+    // Without the reversal, the browser still completes the fullscreen
+    // transition after we tear down — leaving the page in fullscreen
+    // with no canvas, no listeners, no way out except the browser's
+    // native Esc.
+    let resolveFullscreen!: () => void;
+    (HTMLElement.prototype as unknown as { requestFullscreen: () => Promise<void> })
+      .requestFullscreen = vi.fn().mockImplementation(
+        () => new Promise<void>((res) => { resolveFullscreen = res; }),
+      );
+    const exitSpy = vi.fn().mockResolvedValue(undefined);
+    (document as unknown as { exitFullscreen: () => Promise<void> }).exitFullscreen = exitSpy;
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    presenter.dispose();          // dispose BEFORE the promise resolves
+    resolveFullscreen();          // browser completes the transition
+    await Promise.resolve();      // let the .then continuation run
+    await Promise.resolve();      // and its sub-continuation
+    expect(exitSpy).toHaveBeenCalledOnce();
   });
 });
 

@@ -215,6 +215,9 @@ layout chrome:
 Hotkey hints in the dropdown: `⌘↩` and `⌘⇧↩` (or Ctrl on non-Mac).
 The button is disabled when `store.read().slides.length === 0`.
 
+Icon library: `@tabler/icons-react` (`IconPlayerPlay`,
+`IconChevronDown`), matching the existing slides toolbar / chrome.
+
 The existing shortcuts (`Cmd/Ctrl+Enter`, `Cmd/Ctrl+Shift+Enter`)
 continue to work and are already documented in
 `docs/design/slides/slides-keyboard-shortcuts.md`.
@@ -235,11 +238,13 @@ Vitest + jsdom in `packages/slides/src/view/present/presenter.test.ts`:
 - `requestFullscreen` / `exitFullscreen` are mocked. A fallback path
   is exercised by making `requestFullscreen` reject.
 
-A small frontend test in
-`packages/frontend/src/app/slides/slides-presentation-mode.test.tsx`
-verifies that the shell mounts / unmounts cleanly and that an
-`onStartPresentation` call followed by `onExit` returns the editor
-to its prior state.
+No colocated React-shell test — the frontend package's test runner
+(Node `--test` + experimental strip-types) doesn't support JSX, and
+no existing slides React component is unit-tested. The presenter's
+50 unit tests in `packages/slides/src/view/present/presenter.test.ts`
+cover the framework-free half; the shell's mount / unmount lifecycle
+is exercised by the manual smoke in Task 10.2 of the implementation
+plan.
 
 No visual / browser test in this PR — fullscreen behavior is
 notoriously flaky in headless Chromium and the render path is the
