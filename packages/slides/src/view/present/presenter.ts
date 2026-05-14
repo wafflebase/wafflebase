@@ -38,6 +38,11 @@ interface PresenterState {
 
 const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
 
+/** End-screen font size as a fraction of the host canvas height. */
+const END_SCREEN_FONT_RATIO = 0.04;
+/** User-visible end-screen copy. Single source for any future i18n pass. */
+const END_SCREEN_TEXT = 'End of slideshow — click or press Esc to exit';
+
 /**
  * Pick the largest box that fits inside `availWidth × availHeight`
  * while preserving the 16:9 slide aspect. Duplicated from
@@ -110,8 +115,12 @@ export function startPresenter(options: PresenterOptions): Presenter {
     paint();
   }
 
-  const resizeObserver = new ResizeObserver(() => applyFit());
-  resizeObserver.observe(document.documentElement);
+  // observe documentElement as a viewport proxy — it works pre-fullscreen and post-overlay-fallback alike
+  let resizeObserver: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => applyFit());
+    resizeObserver.observe(document.documentElement);
+  }
 
   function paint(): void {
     if (disposed) return;
@@ -136,14 +145,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, hostWidth, hostHeight);
     ctx.fillStyle = '#fff';
-    ctx.font = `${Math.round(hostHeight * 0.04)}px system-ui`;
+    ctx.font = `${Math.round(hostHeight * END_SCREEN_FONT_RATIO)}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(
-      'End of slideshow — click or press Esc to exit',
-      hostWidth / 2,
-      hostHeight / 2,
-    );
+    ctx.fillText(END_SCREEN_TEXT, hostWidth / 2, hostHeight / 2);
     ctx.restore();
     lastPaintKind = 'end';
   }
