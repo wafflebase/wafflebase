@@ -401,6 +401,213 @@ describe('startPresenter — dispose()', () => {
   });
 });
 
+describe('dispose — cleanup', () => {
+  afterEach(() => {
+    delete (document as unknown as { fullscreenElement?: unknown }).fullscreenElement;
+  });
+
+  it('removes the canvas from the container', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    expect(container.querySelector('canvas')).not.toBeNull();
+    presenter.dispose();
+    expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('restores container.style.cssText to its pre-mount snapshot', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    // Set inline styles BEFORE mount so dispose() can restore them.
+    container.style.background = 'red';
+    container.style.padding = '10px';
+    expect(container.style.background).toBe('red');
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    // Letterbox styles overwrote background while mounted.
+    expect(container.style.background).toBe('rgb(0, 0, 0)');
+    presenter.dispose();
+    expect(container.style.background).toBe('red');
+    expect(container.style.padding).toBe('10px');
+  });
+
+  it('removes the document keydown listener', () => {
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+    presenter.dispose();
+    // After dispose, ArrowRight on document must not change state.
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+    );
+    expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+    expect(presenter.isAtEndScreen()).toBe(false);
+  });
+
+  it('removes the canvas click listener', () => {
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    const canvas = testApi(presenter).getCanvas();
+    presenter.dispose();
+    // The canvas reference is still around even after removal from
+    // the DOM — dispatch a click and confirm no state change.
+    canvas.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(presenter.getCurrentSlideId()).toBe(ids[0]);
+  });
+
+  it('disconnects the ResizeObserver', () => {
+    const observers: Array<{ disconnectCalled: boolean }> = [];
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      disconnectCalled = false;
+      constructor() {
+        observers.push(this);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        this.disconnectCalled = true;
+      }
+    };
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    expect(observers.length).toBe(1);
+    expect(observers[0].disconnectCalled).toBe(false);
+    presenter.dispose();
+    expect(observers[0].disconnectCalled).toBe(true);
+  });
+
+  it('clears the cursor-hide timeout', () => {
+    vi.useFakeTimers();
+    try {
+      const { doc, ids } = makeDoc();
+      const container = makeContainer();
+      const presenter = startPresenter({
+        container,
+        doc,
+        startSlideId: ids[0],
+        onExit: vi.fn(),
+      });
+      // Dispose immediately, before the 3 s timer fires.
+      presenter.dispose();
+      vi.advanceTimersByTime(3_000);
+      // The cursor should never have been set to 'none'; the inline
+      // cssText was restored on dispose anyway, so the assertion is
+      // simply that nothing flipped to 'none' afterwards.
+      expect(container.style.cursor).not.toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('removes the fullscreenchange listener', async () => {
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => null,
+    });
+    const onExit = vi.fn();
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit,
+    });
+    // Let enteredFullscreen flip true so the handler would otherwise
+    // fire on a dispatched fullscreenchange.
+    await Promise.resolve();
+    await Promise.resolve();
+    presenter.dispose();
+    onExit.mockClear();
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('calls exitFullscreen when in fullscreen mode', async () => {
+    const container = makeContainer();
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => container,
+    });
+    const exitSpy = vi.fn().mockResolvedValue(undefined);
+    (document as unknown as { exitFullscreen: () => Promise<void> }).exitFullscreen = exitSpy;
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    // Wait for the resolved requestFullscreen Promise to flip
+    // enteredFullscreen true.
+    await Promise.resolve();
+    await Promise.resolve();
+    presenter.dispose();
+    expect(exitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT call exitFullscreen when in overlay mode', async () => {
+    (HTMLElement.prototype as unknown as { requestFullscreen: () => Promise<void> })
+      .requestFullscreen = vi.fn().mockRejectedValue(new Error('denied'));
+    const exitSpy = vi.fn().mockResolvedValue(undefined);
+    (document as unknown as { exitFullscreen: () => Promise<void> }).exitFullscreen = exitSpy;
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    presenter.dispose();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent: second dispose call is a no-op', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    presenter.dispose();
+    const callsAfterFirst = removeSpy.mock.calls.length;
+    expect(() => presenter.dispose()).not.toThrow();
+    // Second dispose returns early — no further removeEventListener
+    // calls, canvas stays removed, container cssText stays restored.
+    expect(removeSpy.mock.calls.length).toBe(callsAfterFirst);
+    expect(container.querySelector('canvas')).toBeNull();
+    removeSpy.mockRestore();
+  });
+});
+
 interface KeyboardHandle {
   presenter: Presenter;
   ids: [string, string, string];

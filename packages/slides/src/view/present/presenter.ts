@@ -382,10 +382,36 @@ export function startPresenter(options: PresenterOptions): Presenter {
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    // Task 6 will tear down canvas, listeners (`onKeyDown` /
-    // `onCanvasClick` are held in closure above), fullscreen, etc.
-    // The `disposed` flag short-circuits all handlers so leaving the
-    // listeners installed until then is safe.
+
+    // Detach the fullscreenchange listener FIRST so the
+    // exitFullscreen() call below can't loop back into our handler
+    // → onExit → caller dispose → infinite recursion.
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+
+    // Capture-phase listener: the options object is part of the
+    // listener identity for removal. Without { capture: true } here
+    // removeEventListener is a silent no-op and the listener leaks.
+    document.removeEventListener('keydown', onKeyDown, { capture: true });
+    canvas.removeEventListener('click', onCanvasClick);
+    container.removeEventListener('mousemove', onMouseMove);
+
+    if (cursorHideTimer !== null) clearTimeout(cursorHideTimer);
+    resizeObserver?.disconnect();
+
+    // Exit fullscreen only if WE put the page there. exitFullscreen()
+    // throws when not currently in fullscreen, so the identity check
+    // plus try/catch guards against both browser-initiated exits and
+    // dispose-after-exit races.
+    if (enteredFullscreen && document.fullscreenElement === container) {
+      try {
+        void document.exitFullscreen();
+      } catch {
+        /* already exited */
+      }
+    }
+
+    canvas.remove();
+    container.style.cssText = prevCssText;
   }
 
   // Seed the initial paint after all closures are set up.
