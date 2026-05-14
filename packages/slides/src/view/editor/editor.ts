@@ -433,20 +433,24 @@ class SlidesEditorImpl implements SlidesEditor {
     const cursor = kind === null ? '' : 'crosshair';
     this.options.canvas.style.cursor = cursor;
     this.options.overlay.style.cursor = cursor;
-    // Disarming or switching to text mode clears any in-flight ghost
-    // so it doesn't linger on the canvas after the user picks
-    // "Select" / hits ESC / chooses Text mode mid-hover.
-    if (kind === null || kind === 'text') {
-      const hadGhost = this.hoverPreview !== null;
-      this.hoverPreview = null;
-      if (this.hoverRenderRaf !== null) {
-        cancelAnimationFrame(this.hoverRenderRaf);
-        this.hoverRenderRaf = null;
-      }
-      if (hadGhost) {
-        this.renderer.markDirty();
-        this.render();
-      }
+    // Any insert-mode change clears the stale ghost: when the user
+    // disarms (null), switches to text mode (no preview), or swaps
+    // shape kind A → B, we drop the cached preview so the next
+    // mousemove repopulates it with the new kind. Without this, a
+    // pending rAF queued just before the switch would briefly paint
+    // a kind-A ghost after the user already picked kind B.
+    const hadGhost = this.hoverPreview !== null;
+    this.hoverPreview = null;
+    if (this.hoverRenderRaf !== null) {
+      cancelAnimationFrame(this.hoverRenderRaf);
+      this.hoverRenderRaf = null;
+    }
+    // Only force a clean repaint when leaving a ghost-eligible mode.
+    // Shape-to-shape transitions repaint on the next mousemove anyway
+    // and an extra paint here would flash the slide between kinds.
+    if (hadGhost && (kind === null || kind === 'text')) {
+      this.renderer.markDirty();
+      this.render();
     }
     for (const cb of this.insertModeListeners) cb();
   }
@@ -477,6 +481,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox = null;
       this.editingElementId = null;
     }
+    // A pending hover-ghost rAF would otherwise fire after teardown
+    // and paint into a detached canvas. Cancel it and drop the
+    // preview state so a remount starts clean.
+    if (this.hoverRenderRaf !== null) {
+      cancelAnimationFrame(this.hoverRenderRaf);
+      this.hoverRenderRaf = null;
+    }
+    this.hoverPreview = null;
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }

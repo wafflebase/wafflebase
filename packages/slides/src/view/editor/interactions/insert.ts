@@ -33,7 +33,7 @@ export interface Point { x: number; y: number; }
  *   - Action buttons are small squares so the inner glyph stays
  *     proportionate.
  */
-export interface Size { w: number; h: number; }
+interface Size { w: number; h: number; }
 
 const LINE_H: Size = { w: 400, h: 0 };
 const ARC_HALF: Size = { w: 320, h: 160 };

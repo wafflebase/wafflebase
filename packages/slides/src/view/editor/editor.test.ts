@@ -289,6 +289,45 @@ describe('initialize', () => {
     });
   });
 
+  it('Escape mid-drag aborts the drag-to-size insert without committing', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setInsertMode('rect');
+    // Begin a drag — past the click threshold so the click branch
+    // (default-size insert) doesn't fire on the synthetic mouseup.
+    dispatchMouseDown(canvas, 100, 100);
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 200, bubbles: true }));
+    // Mid-drag ESC: capture-phase handler should abort, no element
+    // committed, insert mode disarmed.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Even if the user releases after ESC, no commit should land.
+    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 300, clientY: 200, bubbles: true }));
+    return Promise.resolve().then(() => {
+      expect(store.read().slides[0].elements.length).toBe(0);
+      expect(editor!.getInsertMode()).toBe(null);
+      expect(canvas.style.cursor).toBe('');
+    });
+  });
+
+  it('disarming insert mode clears the hover ghost state', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setInsertMode('rect');
+    // Fire a mousemove so the editor stages a hoverPreview. We can't
+    // observe the private field directly, but `setInsertMode(null)`
+    // is documented to cancel the rAF + drop the preview; without
+    // that, a pending rAF would later call into a stale renderer.
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 100, bubbles: true }));
+    // Disarming should not throw and should leave the cursor cleared
+    // — together these imply the cleanup path ran without trying to
+    // paint against a torn-down renderer on a later rAF tick.
+    expect(() => editor!.setInsertMode(null)).not.toThrow();
+    expect(canvas.style.cursor).toBe('');
+    // detach() in the test teardown must also be safe even if a rAF
+    // was queued; the editor's detach cancels any pending hover rAF.
+    expect(() => editor!.detach()).not.toThrow();
+  });
+
   it('Escape is a no-op when no insert mode is armed (other ESC handlers can layer on)', () => {
     const { canvas, overlay, store } = makeFixture();
     editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
