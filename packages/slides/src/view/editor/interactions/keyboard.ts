@@ -224,9 +224,14 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     // --- Parity pass: selection / slide / present / help ---
 
     // Cmd+/ — show shortcuts help. Bypasses the editable-target gate so
-    // the help modal opens even while typing in a text-box.
+    // the help modal opens even while typing in a text-box. Matches
+    // only when a host handler is wired so an unhandled Cmd+/ falls
+    // through to the browser default.
     {
-      match: (e) => keyEquals(e.key, '/') && isModPressed(e),
+      match: (e) =>
+        keyEquals(e.key, '/') &&
+        isModPressed(e) &&
+        ctx.onShowShortcutsHelp !== undefined,
       run: (e) => {
         if (!ctx.onShowShortcutsHelp) return;
         e.preventDefault();
@@ -236,27 +241,32 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
 
     // Cmd+Shift+Enter — present from first slide. Must precede the
     // Cmd+Enter rule so the shift variant doesn't get swallowed.
+    // Both rules are gated by the editable-target check: docs
+    // text-editor binds Cmd+Enter to a page-break op (a docs-only
+    // concept) which would corrupt slide text-element data if it ran
+    // inside a slides text-box. Users can press Esc to exit text edit
+    // before starting present mode. See design doc "Esc semantics"
+    // and the "Cmd+Enter implementation deviation" note.
     {
       match: (e) =>
         e.key === 'Enter' &&
         isModPressed(e) &&
         e.shiftKey &&
-        !isEditableTarget(e.target),
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
       run: (e) => {
         if (!ctx.onStartPresentation) return;
         e.preventDefault();
         ctx.onStartPresentation('first');
       },
     },
-    // Cmd+Enter — present from current slide. Gated by editable target
-    // because docs text-editor binds Cmd+Enter to a page-break op which
-    // isn't meaningful in slides text-boxes; user can Esc out first.
     {
       match: (e) =>
         e.key === 'Enter' &&
         isModPressed(e) &&
         !e.shiftKey &&
-        !isEditableTarget(e.target),
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
       run: (e) => {
         if (!ctx.onStartPresentation) return;
         e.preventDefault();
@@ -524,5 +534,18 @@ function isEditableTarget(target: EventTarget | null): boolean {
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if ((target as HTMLElement).isContentEditable) return true;
+  // Also gate against interactive widgets (dialogs, dropdowns, focused
+  // buttons). Without this, Tab inside the shortcuts-help dialog would
+  // be hijacked by the slides Tab-cycle rule, and Enter on a focused
+  // toolbar button would enter text-edit mode instead of activating
+  // the button. We treat any of these as "not the slide canvas" and
+  // let the default browser/widget handling run.
+  if (tag === 'BUTTON') return true;
+  if (target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [role="tree"], [role="grid"]')) {
+    return true;
+  }
+  if (target.matches('[role="button"], [role="menuitem"], [role="option"], [role="tab"]')) {
+    return true;
+  }
   return false;
 }

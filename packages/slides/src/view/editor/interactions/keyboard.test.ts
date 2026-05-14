@@ -402,6 +402,38 @@ describe('keyboard — F2 / Enter enters text edit', () => {
   });
 });
 
+describe('keyboard — interactive-widget gate', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Tab inside a focused dialog does not cycle slide selection', () => {
+    const { editor: e, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const button = document.createElement('button');
+    dialog.appendChild(button);
+    document.body.appendChild(dialog);
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(editor.getSelection()).toEqual([elementId]);
+    dialog.remove();
+  });
+
+  it('Enter on a focused button does not enter text-edit mode', () => {
+    const { editor: e, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(editor.getEditingElementId()).toBe(null);
+    button.remove();
+  });
+});
+
 describe('keyboard — Cmd+M new slide', () => {
   let editor: SlidesEditor | null = null;
   beforeEach(() => { if (editor) { editor.detach(); editor = null; } });

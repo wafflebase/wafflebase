@@ -102,22 +102,46 @@ package, and unit tests don't need to provide them.
 **Editable-target gate.** Every selection-level rule keeps an
 `isEditableTarget(e.target)` guard so typing into a focused
 `<textarea>` (the text-box editor, the link popover input, the help
-modal search field) is not intercepted. Exceptions:
+modal search field) is not intercepted. The gate also bails when the
+focused element is inside an interactive widget (`role="dialog"`,
+`role="menu"`, focused `<button>`, etc.) so the help modal's own Tab
+navigation doesn't get hijacked by the slides Tab-cycle rule.
+
+Exceptions:
 
 - `Cmd+/` (help modal) bypasses the gate — help should always open.
-- `Cmd+Enter` / `Cmd+Shift+Enter` (start presentation) bypass the
-  gate — Google Slides treats this as a global shortcut.
 - `Cmd+K` (link) flows through the docs text-editor inside text-box
   edit mode; no slides-level rule needed.
+- `Cmd+Enter` / `Cmd+Shift+Enter` (start presentation) **respect** the
+  gate. The original intent was to make them global like Google
+  Slides, but the docs text-editor binds Cmd+Enter to a `handlePageBreak`
+  op that writes a `page-break` block into the doc store (a docs-only
+  concept). Letting both fire produces stale page-break blocks in
+  slide text-element data. The pragmatic v1 behaviour: respect the
+  gate, document that the user can press Esc to exit text edit
+  before starting present mode. A clean fix is to expose a
+  `disablePageBreak` option on `TextBoxEditorOptions` (or skip
+  Cmd+Enter in the docs handler when `editContext` flags it as a
+  shim) — tracked as a follow-up.
 
 ### Catalog module
 
 `slides/src/view/editor/shortcuts-catalog.ts`:
 
 ```ts
+export type ShortcutCategory =
+  | 'Selection'
+  | 'Slide'
+  | 'Clipboard'
+  | 'Z-order'
+  | 'Nudge'
+  | 'Format'
+  | 'Present'
+  | 'Help';
+
 export interface ShortcutEntry {
   /** Category for grouping in the help modal. */
-  category: 'Selection' | 'Slide' | 'Clipboard' | 'Format' | 'Present' | 'Help';
+  category: ShortcutCategory;
   /** Display label. Use `Cmd` for mac and `Ctrl` elsewhere — rendered
    *  at runtime based on platform. */
   keys: ReadonlyArray<string>;
@@ -224,11 +248,26 @@ Esc).
   default behaviour.
 
 - **Present-mode side effects.** `Cmd+Enter` while editing a text-box
-  would today commit the text-box (Enter inserts newline; Cmd-Enter
-  is special). We bypass the editable-target gate for the present
-  shortcut, but the docs text-editor's own handler for
-  Cmd/Ctrl+Enter (which inserts a page break in docs) is **not
-  inherited** here — slides text-box doesn't expose page breaks. The
-  text-editor's `case 'Enter'` branch fires only when the key is
-  Enter and the `editContext` is 'body' (the default in slides);
-  we keep the slides keyRule but call `e.preventDefault()` first.
+  routes through the docs text-editor first, which binds it to
+  `handlePageBreak()` — inserts a `page-break` block. That block is
+  filtered at render but persists in the in-memory store and would
+  be committed to the slide on blur. Mitigation: the present-mode
+  keyRule respects the editable-target gate, so Cmd+Enter inside a
+  text-box defers to the docs handler. Users press Esc first to
+  exit text edit, then Cmd+Enter to present. A cleaner fix (a docs
+  text-box `disablePageBreak` option) is tracked as a follow-up.
+
+- **Catalog drift.** The shortcuts catalog and the keyRules array
+  are parallel declarations. If a rule lands without a catalog
+  entry, the help modal silently omits it. The catalog test asserts
+  surface invariants (every entry has non-empty keys, every category
+  is one of the expected values), which catches typos but not
+  deletions. Dual-edit convention is called out in
+  `shortcuts-catalog.ts` head comment.
+
+- **Categories expanded beyond original list.** The implementation
+  added `'Z-order'` and `'Nudge'` categories to the
+  `ShortcutCategory` union (originally `'Selection' | 'Slide' |
+  'Clipboard' | 'Format' | 'Present' | 'Help'`). This was a
+  pragmatic split to keep the help modal scannable; the catalog
+  is the source of truth.
