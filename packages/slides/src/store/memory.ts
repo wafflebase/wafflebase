@@ -227,6 +227,26 @@ export class MemSlidesStore implements SlidesStore {
     e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
   }
 
+  updateConnectorEndpoint(
+    _slideId: string,
+    _elementId: string,
+    _side: 'start' | 'end',
+    _endpoint: import('../model/connector').Endpoint,
+  ): void {
+    throw new Error('updateConnectorEndpoint not implemented yet (PR1 Task 6)');
+  }
+
+  updateConnectorArrowheads(
+    _slideId: string,
+    _elementId: string,
+    _heads: {
+      start?: import('../model/connector').ArrowheadStyle | null;
+      end?:   import('../model/connector').ArrowheadStyle | null;
+    },
+  ): void {
+    throw new Error('updateConnectorArrowheads not implemented yet (PR1 Task 6)');
+  }
+
   reorderElement(
     slideId: string, elementId: string, toIndex: number,
   ): void {

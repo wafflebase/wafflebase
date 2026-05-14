@@ -60,6 +60,26 @@ export interface SlidesStore {
   /** toIndex: 0 = back, length-1 = front. */
   reorderElement(slideId: string, elementId: string, toIndex: number): void;
 
+  // --- connector-level ---
+
+  /** Update an endpoint of an existing connector. */
+  updateConnectorEndpoint(
+    slideId: string,
+    elementId: string,
+    side: 'start' | 'end',
+    endpoint: import('../model/connector').Endpoint,
+  ): void;
+
+  /** Replace a connector's arrowhead styles. Pass `null` per side to clear. */
+  updateConnectorArrowheads(
+    slideId: string,
+    elementId: string,
+    heads: {
+      start?: import('../model/connector').ArrowheadStyle | null;
+      end?:   import('../model/connector').ArrowheadStyle | null;
+    },
+  ): void;
+
   // --- text bridges (Phase 5 wires these to docs Tree) ---
 
   /** Mutate the rich-text body of a text element via the docs Tree. */
