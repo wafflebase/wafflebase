@@ -1,6 +1,6 @@
 ---
 title: slides-keyboard-shortcuts
-target-version: 0.2.0
+target-version: 0.4.1
 ---
 
 # Slides Keyboard Shortcuts — Google Slides Parity
@@ -177,75 +177,37 @@ Action: clear selection, `requestRender()`. Pure UI; no store write.
 
 ### Link popover wiring
 
-1. `docs/src/view/text-box-editor.ts` — add `onLinkRequest?: () =>
-   void` to `TextBoxEditorOptions`, set
-   `textEditor.onLinkRequest = opts.onLinkRequest` after construction.
-2. `slides/src/view/editor/text-box-editor.ts` — forward
-   `MountSlidesTextBoxOptions.onLinkRequest` to `initializeTextBox`.
-3. `SlidesEditor.enterEditMode` passes
-   `options.onLinkRequest` down to `mountSlidesTextBox`.
-4. Frontend (`slides-detail.tsx`) wires `onLinkRequest` to a small
-   floating input bound to the current text-box selection range.
-   (Same shape as the docs link popover — defer richer UX.)
-
-For v1, the popover is a minimal element ("URL: [____] [OK] [Cancel]")
-positioned near the caret. Without selection it inserts a new link;
-with a selection it wraps the run. Implementation reuses
-`getStyleAtCursor` / `toggleStyle` already on the text-editor.
+`Cmd+K` flows: docs `TextEditor.onLinkRequest` → docs `text-box-editor`
+forward → slides `text-box-editor` forward →
+`SlidesEditorOptions.onLinkRequest` → host shell. The slides side
+plumbs the callback through without owning the popover UI; a real
+popover requires extending `TextBoxEditorAPI` with `insertLink(url)`
+/ `getLinkAtCursor()` so the host can mutate the active text-box.
 
 ### Help modal
 
-`frontend/src/app/slides/slides-shortcuts-help.tsx`:
-
-- Centered, max-width modal with categories laid out vertically.
-- Closes on `Esc`, click outside, or the `×` button.
-- Content sourced from `SHORTCUTS` (imported from
-  `@wafflebase/slides`).
-- No search / filter in v1; the list is short enough to scan.
-
-The modal is the only new visible UI surface in this PR.
-
-### Testing
-
-Two layers:
-
-- **Unit (keyboard.test.ts).** One test per new rule, asserting:
-  - The keyRule mutation observed (selection state, store contents, or
-    callback invocation via `vi.fn()`).
-  - The editable-target gate (where applicable) — focus a `<textarea>`,
-    dispatch the key, assert no-op.
-  - Platform parity for `Mod` — exercise both `metaKey` and `ctrlKey`.
-
-- **Catalog test.** `shortcuts-catalog.test.ts` asserts catalog
-  invariants (every entry has non-empty keys, every category is one
-  of the expected values).
-
-The frontend wiring is exercised by existing slides smoke tests; the
-new help modal gets a focused jsdom test (open via callback, close via
-Esc).
+The host shell renders the modal from the `SHORTCUTS` catalog. It is
+the only path users have to discover the parity shortcuts, so its
+content must remain in lock-step with the catalog — see the
+"Catalog drift" risk below.
 
 ## Risks and Mitigation
 
 - **Catalog drift.** Catalog and keyRules are separate arrays. If a
   rule is added without a catalog entry, the help modal silently
-  omits it. Mitigation: include a developer-facing TODO comment in
-  the catalog and document the dual-edit in `slides.md`'s
-  Interactions table.
+  omits it. The catalog test asserts surface invariants (non-empty
+  keys, valid category), which catches typos but not deletions. The
+  dual-edit convention is documented in the `shortcuts-catalog.ts`
+  head comment.
 
 - **Tab-cycle ordering surprises.** Tab uses element-array order
   (current z-order). When the user reorders elements, Tab follows.
-  This matches Google Slides. Document in the design.
+  This matches Google Slides.
 
 - **Enter ambiguity.** Enter doubles as "enter edit mode on selected
   text element" and "submit dialogs / form inputs". The
   `isEditableTarget` gate handles form inputs; the rule no-ops when
   the selection isn't exactly one text element.
-
-- **Page Up / Page Down conflict with text scrolling.** Slides has
-  no scrolling content surface (slide thumbnails have their own
-  scroll, but its container isn't a textarea/input). The rule
-  invokes the editable-target gate so focused textareas keep their
-  default behaviour.
 
 - **Present-mode side effects.** `Cmd+Enter` while editing a text-box
   routes through the docs text-editor first, which binds it to
@@ -253,21 +215,5 @@ Esc).
   filtered at render but persists in the in-memory store and would
   be committed to the slide on blur. Mitigation: the present-mode
   keyRule respects the editable-target gate, so Cmd+Enter inside a
-  text-box defers to the docs handler. Users press Esc first to
-  exit text edit, then Cmd+Enter to present. A cleaner fix (a docs
+  text-box defers to the docs handler. A cleaner fix (a docs
   text-box `disablePageBreak` option) is tracked as a follow-up.
-
-- **Catalog drift.** The shortcuts catalog and the keyRules array
-  are parallel declarations. If a rule lands without a catalog
-  entry, the help modal silently omits it. The catalog test asserts
-  surface invariants (every entry has non-empty keys, every category
-  is one of the expected values), which catches typos but not
-  deletions. Dual-edit convention is called out in
-  `shortcuts-catalog.ts` head comment.
-
-- **Categories expanded beyond original list.** The implementation
-  added `'Z-order'` and `'Nudge'` categories to the
-  `ShortcutCategory` union (originally `'Selection' | 'Slide' |
-  'Clipboard' | 'Format' | 'Present' | 'Help'`). This was a
-  pragmatic split to keep the help modal scannable; the catalog
-  is the source of truth.
