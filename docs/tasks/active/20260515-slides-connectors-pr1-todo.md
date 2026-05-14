@@ -95,11 +95,22 @@ React (DOM overlay in `view/editor/overlay.ts`).
 
 ---
 
-### Task 1: ConnectorElement model types
+### Task 1: ConnectorElement model types (purely additive)
 
 **Files:**
 - Create: `packages/slides/src/model/connector.ts`
 - Modify: `packages/slides/src/model/element.ts`
+- Modify (as needed): any file with an exhaustive switch on
+  `el.type` that fails to compile after the union extension
+
+**Scope note (correction from initial plan):** Task 1 is purely
+additive — it does **not** remove `'line'` / `'arrow'` from
+`ShapeKind`. Those literals are referenced by production code (e.g.
+`shape-renderer.ts`, `shape-icon.ts`, `insert.ts`) and several test
+files (`shape-renderer.test.ts`, `shape-icon.test.ts`,
+`insert.test.ts`). Removing them in Task 1 would break `verify:fast`
+immediately. Task 10 owns the `ShapeKind` removal together with all
+the call-site and test-file cleanup it triggers.
 
 - [ ] **Step 1.1: Write `connector.ts` with all types**
 
@@ -134,24 +145,16 @@ export type ConnectorElement = ElementBase & {
   /** Present only when the user manually dragged the elbow handle. */
   elbowBend?: number;
 };
-
-/** Helper for store/init code — frame placeholder updated by
- * `computeConnectorFrame` after the element is realized. */
-export function emptyConnectorFrame() {
-  return { x: 0, y: 0, w: 0, h: 0, rotation: 0 };
-}
 ```
 
 - [ ] **Step 1.2: Update `element.ts` to include connector**
 
-Open `packages/slides/src/model/element.ts`. Make these edits:
+Open `packages/slides/src/model/element.ts`. Leave `ShapeKind` as
+it is (still contains `'line' | 'arrow'` for now — Task 10 removes
+them along with the dependent call-sites and tests).
 
-In the `ShapeKind` union at lines 23-77, **delete** the leading
-`'line' | 'arrow'` entries and the surrounding `// Lines` comment
-block on lines 24-25.
-
-After line 138 where `Element` is defined, replace the union to add
-connector:
+Around line 138 where `Element` is defined, extend the union and
+`ElementInit`:
 
 ```ts
 import type { ConnectorElement } from './connector';
@@ -171,23 +174,41 @@ export type ElementInit =
   | Omit<ConnectorElement, 'id'>;
 ```
 
-- [ ] **Step 1.3: Verify TypeScript compiles**
+- [ ] **Step 1.3: Resolve exhaustive-switch compile errors**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
-Expected: compiles. Errors are likely (existing code that switches
-on `el.type` won't have a 'connector' branch). **Note each error
-location** — they will be fixed in Tasks 9–11. For now, add
-`// TODO(connector-pr1)` stubs that throw `new Error('unreachable —
-connector not implemented yet')` at any forced exhaustive-switch
-site (typically `element-renderer.ts`, `selection.ts`, etc.). This
-unblocks compilation; subsequent tasks replace the stubs.
 
-- [ ] **Step 1.4: Commit**
+Inspect each error. Each one will be a switch / type-narrowing site
+that expected `el.type` to be one of the existing 3 values. For
+each such site, add a minimal stub branch that throws:
+
+```ts
+case 'connector':
+  throw new Error('connector rendering not implemented yet (PR1 Task N)');
+```
+
+Pick the right Task number per location:
+- `element-renderer.ts` → "Task 9"
+- `selection.ts` → "Task 12"
+- `overlay.ts` → "Task 13"
+- anywhere else → "later in PR1"
+
+If a site uses an `if (el.type === '…') / else if` chain rather
+than a switch, add an analogous unreachable branch. Goal: `tsc`
+passes with **zero errors**. Do NOT add eslint-disable comments;
+do NOT implement real behavior; do NOT touch test files.
+
+- [ ] **Step 1.4: Verify `pnpm verify:fast` is green**
+
+Existing tests should all still pass — Task 1 is purely additive,
+no behavior changes.
+
+- [ ] **Step 1.5: Commit**
 
 ```bash
 git add packages/slides/src/model/connector.ts \
         packages/slides/src/model/element.ts \
-        packages/slides/src/view/   # for the unreachable stubs
+        packages/slides/src/view/   # only for the unreachable stubs
 git commit -m "Add ConnectorElement type to slides element union"
 ```
 
@@ -1119,15 +1140,36 @@ git commit -m "Dispatch connector elements to drawConnector"
 
 ---
 
-### Task 10: Remove line/arrow ShapeKind branches
+### Task 10: Remove line/arrow from ShapeKind + cleanup
+
+This task owns the full removal of `'line'` and `'arrow'` from
+`ShapeKind` along with every production and test-file site that
+referenced them. It runs after the new connector type and the
+connector renderer/insert path are in place (Tasks 1–9 + 11–13),
+so the old special-cased shape paths can be deleted safely.
 
 **Files:**
-- Modify: `packages/slides/src/view/canvas/shape-renderer.ts`
-- Modify: `packages/slides/src/view/canvas/shape-special.ts`
-- Modify: `packages/slides/src/view/editor/interactions/insert.ts`
-
-(`element.ts` was already touched in Task 1.2 to remove
-`'line' | 'arrow'` from `ShapeKind`.)
+- Modify: `packages/slides/src/model/element.ts` — remove
+  `'line' | 'arrow'` from `ShapeKind`
+- Modify: `packages/slides/src/view/canvas/shape-renderer.ts` —
+  drop `kind === 'line'` / `'arrow'` branches
+- Modify: `packages/slides/src/view/canvas/shape-special.ts` —
+  delete `drawLine` and `drawArrow`
+- Modify: `packages/slides/src/view/canvas/shape-icon.ts` — drop
+  the `kind === 'line'` / `'arrow'` icon branches
+- Modify: `packages/slides/src/view/editor/interactions/insert.ts` —
+  drop the `LINE_H` constant, the `'line'` / `'arrow'` entries from
+  `DEFAULT_INSERT_SIZE` and `SPECIAL_FAMILIES`, and any
+  `kind === 'arrow'` conditional in `buildInsertElement`
+- Modify: `packages/slides/src/view/canvas/shape-renderer.test.ts` —
+  remove or rewrite the 6 line/arrow test cases (the rendering is
+  now covered by `connector-renderer.test.ts`)
+- Modify: `packages/slides/src/view/canvas/shape-icon.test.ts` —
+  remove the `'line'` / `'arrow'` icon test entries
+- Modify: `packages/slides/src/view/editor/interactions/insert.test.ts` —
+  remove the `buildInsertElement('line', …)` /
+  `buildInsertElement('arrow', …)` tests (the connector insert flow
+  is covered by `insert-connector.test.ts`)
 
 - [ ] **Step 10.1: Delete `drawLine` and `drawArrow` from
   `shape-special.ts`**
@@ -1142,41 +1184,74 @@ Find the dispatcher's special-case block (look for `kind === 'line'`
 and `kind === 'arrow'`). Delete those branches and the associated
 imports.
 
-- [ ] **Step 10.3: Remove `line`/`arrow` from `DEFAULT_INSERT_SIZE`**
+- [ ] **Step 10.3: Remove `line`/`arrow` branches from
+  `shape-icon.ts`**
 
-In `interactions/insert.ts:60-62`, delete the two lines:
+Drop the two conditional branches that match `kind === 'line'` and
+`kind === 'arrow'` (around lines 47 and 54 at time of writing).
 
-```ts
-['line', LINE_H],
-['arrow', LINE_H],
-```
+- [ ] **Step 10.4: Clean `interactions/insert.ts`**
 
-Also delete the now-unused `LINE_H` constant (or keep if PR2 will
-want it — leave a comment if so).
+Delete:
+- The `LINE_H` size constant.
+- The two `['line', LINE_H]` / `['arrow', LINE_H]` entries in
+  `DEFAULT_INSERT_SIZE`.
+- Any entry referring to `'line'` / `'arrow'` in `SPECIAL_FAMILIES`.
+- Any `kind === 'arrow'` (or `'line'`) conditional inside
+  `buildInsertElement` (it's dead once the kinds are gone).
 
-- [ ] **Step 10.4: Find any remaining references**
+- [ ] **Step 10.5: Remove `'line' | 'arrow'` from `ShapeKind` in
+  `element.ts`**
+
+Delete the `| 'line' | 'arrow'` entries plus the surrounding
+`// Lines (special-cased renderers in shape-special.ts)` comment
+line.
+
+- [ ] **Step 10.6: Update the existing tests**
+
+In `shape-renderer.test.ts`, remove the 6 test cases that construct
+`{ kind: 'line' }` or `{ kind: 'arrow' }` shapes (they're now
+exercised by `connector-renderer.test.ts`).
+
+In `shape-icon.test.ts`, remove the 2 entries that pass `'line'`
+and `'arrow'` to `renderShapeIcon`.
+
+In `interactions/insert.test.ts`, remove the tests that call
+`buildInsertElement('line', …)` / `buildInsertElement('arrow', …)`
+and the assertions that narrow on `line.data.kind === 'line'`. The
+connector insert flow is now covered by
+`insert-connector.test.ts` (Task 11).
+
+- [ ] **Step 10.7: Find any remaining references**
 
 ```bash
-grep -rn "kind: 'line'\|kind: 'arrow'\|'line' \| 'arrow'\|drawLine\|drawArrow" \
+grep -rn "kind: 'line'\|kind: 'arrow'\|'line' \| 'arrow'\|drawLine\|drawArrow\|LINE_H" \
   packages/slides/src
 ```
 
-Expected output: empty. Fix any that remain.
+Expected output: empty (or only matches inside comments that
+should also be cleaned).
 
-- [ ] **Step 10.5: Verify build still passes**
+- [ ] **Step 10.8: Verify build + tests still pass**
 
 ```bash
-pnpm --filter @wafflebase/slides exec tsc --noEmit
-pnpm --filter @wafflebase/slides test
+pnpm verify:fast
 ```
 
-- [ ] **Step 10.6: Commit**
+Must be green.
+
+- [ ] **Step 10.9: Commit**
 
 ```bash
-git add packages/slides/src/view/canvas/shape-special.ts \
+git add packages/slides/src/model/element.ts \
+        packages/slides/src/view/canvas/shape-special.ts \
         packages/slides/src/view/canvas/shape-renderer.ts \
-        packages/slides/src/view/editor/interactions/insert.ts
-git commit -m "Remove line and arrow from ShapeKind shape renderer paths"
+        packages/slides/src/view/canvas/shape-renderer.test.ts \
+        packages/slides/src/view/canvas/shape-icon.ts \
+        packages/slides/src/view/canvas/shape-icon.test.ts \
+        packages/slides/src/view/editor/interactions/insert.ts \
+        packages/slides/src/view/editor/interactions/insert.test.ts
+git commit -m "Drop line and arrow from ShapeKind in favor of connectors"
 ```
 
 ---
