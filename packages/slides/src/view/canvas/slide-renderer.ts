@@ -1,8 +1,14 @@
+import type { Element } from '../../model/element';
 import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { resolveColor } from '../../model/theme';
 import { drawElement } from './element-renderer';
 import { getActiveTheme } from './render-context';
+
+/** Global alpha applied to the hover-ghost element so the user can see
+ * exactly what (kind + size + position) is about to be inserted while
+ * still reading the slide content underneath. */
+export const GHOST_ALPHA = 0.4;
 
 export interface SlideRendererOptions {
   hostWidth: number;   // CSS pixels of the target <canvas>
@@ -63,10 +69,16 @@ export class SlideRenderer {
    * Paint unconditionally (bypass the dirty check). Used by interaction
    * live-paint paths in the editor that need to draw an in-memory
    * frame override on every mousemove without committing to the store.
+   *
+   * `ghost` — optional element drawn on top of the committed slide at
+   * `GHOST_ALPHA` so the hover-preview semi-transparently shows the
+   * shape that *would* be inserted on click. Kept out of `slide` so
+   * the ghost never participates in selection, hit-test, or z-order.
    */
-  forceRender(slide: Slide, doc: SlidesDocument): void {
+  forceRender(slide: Slide, doc: SlidesDocument, ghost?: Element): void {
     this.dirty = true;
-    this.render(slide, doc);
+    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghost);
+    this.dirty = false;
   }
 }
 
@@ -82,6 +94,7 @@ export function drawSlide(
   doc: SlidesDocument,
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
+  ghost?: Element,
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
@@ -119,5 +132,17 @@ export function drawSlide(
   // background-color.
   for (const element of slide.elements) {
     drawElement(ctx, element, doc, theme, onAssetLoad);
+  }
+
+  if (ghost !== undefined) {
+    // Paint the hover-preview ghost on top of the committed slide so
+    // its semi-transparency reveals the underlying content. Using
+    // `globalAlpha` rather than per-shape opacity means every kind
+    // (filled basic, outlined callout, two-tone action button) ends
+    // up at the same readable opacity without per-renderer tweaks.
+    ctx.save();
+    ctx.globalAlpha = GHOST_ALPHA;
+    drawElement(ctx, ghost, doc, theme, onAssetLoad);
+    ctx.restore();
   }
 }

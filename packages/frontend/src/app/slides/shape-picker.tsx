@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconShape } from "@tabler/icons-react";
 import { renderShapeIcon, type ShapeKind } from "@wafflebase/slides";
 import {
@@ -84,8 +84,14 @@ export function ShapePicker({
   onSelect,
   disabled,
 }: ShapePickerProps) {
+  // Controlled open state so we can close the picker as soon as the
+  // user picks a shape. The grid buttons are plain <button>s (not
+  // `DropdownMenuItem`), so Radix doesn't auto-close on click —
+  // without this the menu stays open after `onSelect`, requiring a
+  // second click off-menu to dismiss it.
+  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -122,7 +128,10 @@ export function ShapePicker({
                   kind={entry.kind}
                   label={entry.label}
                   active={entry.kind === activeKind}
-                  onSelect={(k) => onSelect(k)}
+                  onSelect={(k) => {
+                    onSelect(k);
+                    setOpen(false);
+                  }}
                 />
               ))}
             </div>

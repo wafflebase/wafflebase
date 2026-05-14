@@ -1,5 +1,6 @@
 import type { Element, ElementInit } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
+import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
 import {
@@ -20,6 +21,14 @@ export interface KeyboardContext {
   /** Optional callbacks wired by the host shell. No-op if absent. */
   onStartPresentation?: (from: 'current' | 'first') => void;
   onShowShortcutsHelp?: () => void;
+  /**
+   * Current insert mode (shape kind, `'text'`, or `null`). Read by the
+   * Escape rule so it can disarm an active insert without affecting
+   * other Escape consumers (e.g. closing context menus).
+   */
+  getInsertMode(): InsertKind | null;
+  /** Called by the Escape rule to disarm a shape/text insert. */
+  setInsertMode(kind: InsertKind | null): void;
 }
 
 const NUDGE = 1;
@@ -31,6 +40,24 @@ const NUDGE_SHIFT = 10;
  */
 export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
   return [
+    // Escape — disarm a shape / text insert mode and return to select
+    // mode. No-op when insert mode is already null (so other future
+    // Escape consumers, e.g. closing a popover, can layer on top).
+    // Skipped while the user is typing in an editable target so
+    // Escape inside the text-box editor still cancels the IME /
+    // exits edit mode through the docs editor's own handler.
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        ctx.getInsertMode() !== null &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.setInsertMode(null);
+      },
+    },
+
     // Undo / Redo (mod-Z and mod-shift-Z) — listed before the arrow
     // rules so a stray Z key doesn't fall through.
     {

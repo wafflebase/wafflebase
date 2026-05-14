@@ -65,6 +65,26 @@ describe('initialize', () => {
     expect(() => editor!.setInsertMode(null)).not.toThrow();
   });
 
+  it('setInsertMode toggles a crosshair cursor on canvas + overlay', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    // Idle: stylesheet default (empty inline cursor).
+    expect(canvas.style.cursor).toBe('');
+    expect(overlay.style.cursor).toBe('');
+    // Arming any insert kind switches both surfaces to crosshair.
+    editor.setInsertMode('rect');
+    expect(canvas.style.cursor).toBe('crosshair');
+    expect(overlay.style.cursor).toBe('crosshair');
+    // Text mode uses the same affordance (single-click insert).
+    editor.setInsertMode('text');
+    expect(canvas.style.cursor).toBe('crosshair');
+    expect(overlay.style.cursor).toBe('crosshair');
+    // Disarming restores the default.
+    editor.setInsertMode(null);
+    expect(canvas.style.cursor).toBe('');
+    expect(overlay.style.cursor).toBe('');
+  });
+
   function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
     target.dispatchEvent(new MouseEvent('mousedown', {
       clientX: x, clientY: y, shiftKey: shift, bubbles: true,
@@ -249,6 +269,37 @@ describe('initialize', () => {
     dispatchMouseDown(canvas, 800, 800);
     document.dispatchEvent(new MouseEvent('mouseup', { clientX: 800, clientY: 800, bubbles: true }));
     expect(editor.getSelection()).toEqual([]);
+  });
+
+  it('Escape disarms an active insert mode and restores the cursor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    editor.setInsertMode('rect');
+    expect(editor.getInsertMode()).toBe('rect');
+    expect(canvas.style.cursor).toBe('crosshair');
+    // Plain Escape (no mod, no editable focus) → disarm.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // The key rule is async (returns a Promise via handleKeyDown's
+    // `runKeyRules`); flush microtasks so the synchronous-looking
+    // setInsertMode update has run before we assert.
+    return Promise.resolve().then(() => {
+      expect(editor!.getInsertMode()).toBe(null);
+      expect(canvas.style.cursor).toBe('');
+      expect(overlay.style.cursor).toBe('');
+    });
+  });
+
+  it('Escape is a no-op when no insert mode is armed (other ESC handlers can layer on)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    expect(editor.getInsertMode()).toBe(null);
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.dispatchEvent(ev);
+    return Promise.resolve().then(() => {
+      expect(editor!.getInsertMode()).toBe(null);
+      // No preventDefault when we didn't act → other consumers stay free.
+      expect(ev.defaultPrevented).toBe(false);
+    });
   });
 
   it('notifies onInsertModeChange when setInsertMode is called', () => {
