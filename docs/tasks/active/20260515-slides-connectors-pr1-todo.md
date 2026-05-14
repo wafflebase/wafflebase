@@ -334,11 +334,13 @@ describe('siteWorldPos', () => {
 
   it('with 90° rotation: E site rotates to S side', () => {
     const rotated = { ...frame, rotation: Math.PI / 2 };
-    // Center is (200, 250) in world. E local = (200, 50). Rotated 90°
-    // around (100, 50) local center → (100, 100) local → world (200, 300).
+    // E site local = (200, 50); local center = (100, 50); vector from
+    // center = (100, 0). Canvas convention rotates +π/2 mapping
+    // (x,y) → (x·cos − y·sin, x·sin + y·cos), so (100, 0) → (0, 100).
+    // Add center → local (100, 150) → world (200, 350).
     const e = siteWorldPos({ frame: rotated }, { x: 1, y: 0.5, angle: 0 });
     expect(e.x).toBeCloseTo(200);
-    expect(e.y).toBeCloseTo(300);
+    expect(e.y).toBeCloseTo(350);
     expect(e.angle).toBeCloseTo(Math.PI / 2);
   });
 
