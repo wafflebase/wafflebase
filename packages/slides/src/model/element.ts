@@ -1,4 +1,5 @@
 import type { Block } from '@wafflebase/docs';
+import type { ConnectorElement } from './connector';
 import type { ThemeColor } from './theme';
 
 export type Frame = {
@@ -135,7 +136,11 @@ export type ShapeElement = ElementBase & {
   };
 };
 
-export type Element = TextElement | ImageElement | ShapeElement;
+export type Element =
+  | TextElement
+  | ImageElement
+  | ShapeElement
+  | ConnectorElement;
 
 export type ElementType = Element['type'];
 
@@ -143,7 +148,8 @@ export type ElementType = Element['type'];
 export type ElementInit =
   | Omit<TextElement, 'id'>
   | Omit<ImageElement, 'id'>
-  | Omit<ShapeElement, 'id'>;
+  | Omit<ShapeElement, 'id'>
+  | Omit<ConnectorElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

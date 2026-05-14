@@ -218,6 +218,11 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type === 'connector') {
+      throw new Error(
+        'connector updateElementData not implemented yet (PR1 later)',
+      );
+    }
     // discriminated union — patch only the data sub-object.
     e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
   }

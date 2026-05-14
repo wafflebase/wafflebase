@@ -77,6 +77,10 @@ export function drawElement(
       case 'image':
         drawImage(ctx, size, element.data, onAssetLoad);
         break;
+      case 'connector':
+        throw new Error(
+          'connector rendering not implemented yet (PR1 Task 9)',
+        );
     }
   } finally {
     ctx.restore();
