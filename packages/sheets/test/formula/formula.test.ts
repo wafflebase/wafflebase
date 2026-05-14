@@ -1790,6 +1790,11 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(0.1634, 2);
   });
 
+  it('should evaluate IRR with array literal cash flows', () => {
+    const result = evaluate('=IRR({-50000,15000,20000,25000,30000})');
+    expect(Number(result)).toBeCloseTo(0.2489, 4);
+  });
+
   it('should correctly evaluate DB function', () => {
     // DB(1000000, 100000, 6, 1, 7)
     const result = evaluate('=DB(1000000,100000,6,1,7)');
@@ -2102,6 +2107,11 @@ describe('Formula', () => {
     grid.set('A4', { v: '7000' } as Cell);
     const result = evaluate('=MIRR(A1:A4,0.1,0.12)', grid);
     expect(Number(result)).toBeGreaterThan(0);
+  });
+
+  it('should evaluate MIRR with array literal cash flows', () => {
+    const result = evaluate('=MIRR({-50000,15000,20000,25000,30000},0.1,0.12)');
+    expect(Number(result)).toBeCloseTo(0.2014, 4);
   });
 
   it('should correctly evaluate DOLLARDE function', () => {
