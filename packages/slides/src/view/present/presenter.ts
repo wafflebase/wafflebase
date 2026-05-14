@@ -64,12 +64,21 @@ function computeFitSize(availWidth: number, availHeight: number): {
 
 export function startPresenter(options: PresenterOptions): Presenter {
   const { container } = options;
+  // Fail-fast on an empty deck. The React shell's empty-deck guard
+  // (slides-detail.tsx) is the host-side gate, but `startPresenter`
+  // is public API — a future caller (CLI, test, embed) might bypass
+  // it. Without this throw we'd index into an empty `slides` array
+  // below and crash with an opaque `undefined.id`.
+  if (options.doc.slides.length === 0) {
+    throw new Error(
+      'startPresenter: doc.slides must be non-empty. The host is ' +
+        'responsible for guarding the empty-deck case before mounting.',
+    );
+  }
   // Validate startSlideId against the live doc. A peer can delete that
   // slide between the host computing the id and startPresenter
   // running; without this fallback, the presenter would mount on a
   // phantom id, paint() would no-op, and navigation would look broken.
-  // The host empty-deck guard (slides-detail.tsx) ensures `slides` is
-  // non-empty by the time we get here.
   const resolvedStartId = options.doc.slides.some(
     (s) => s.id === options.startSlideId,
   )
@@ -363,20 +372,30 @@ export function startPresenter(options: PresenterOptions): Presenter {
     container.style.bottom = '0';
     container.style.zIndex = String(OVERLAY_Z_INDEX);
   }
-  void container.requestFullscreen?.().then(() => {
-    if (disposed) {
-      // We tore down before the browser entered fullscreen. Reverse
-      // it — without this, the page sits in fullscreen with no canvas,
-      // no listeners, no way out except the browser's native Esc.
-      document.exitFullscreen?.().catch(() => { /* already exited */ });
-      return;
-    }
-    enteredFullscreen = true;
-  }).catch(() => {
-    if (disposed) return;
+  if (container.requestFullscreen) {
+    void container.requestFullscreen().then(() => {
+      if (disposed) {
+        // We tore down before the browser entered fullscreen. Reverse
+        // it — without this, the page sits in fullscreen with no canvas,
+        // no listeners, no way out except the browser's native Esc.
+        document.exitFullscreen?.().catch(() => { /* already exited */ });
+        return;
+      }
+      enteredFullscreen = true;
+    }).catch(() => {
+      if (disposed) return;
+      mountMode = 'overlay';
+      applyOverlayStyles();
+    });
+  } else {
+    // Environment lacks the Fullscreen API entirely (some embed
+    // contexts, very old browsers). Optional-chaining only protects
+    // the call itself — calling `.then` on the resulting `undefined`
+    // would throw TypeError. Feature-detect explicitly and skip
+    // directly to overlay mode.
     mountMode = 'overlay';
     applyOverlayStyles();
-  });
+  }
 
   // Bridge the browser's own Esc (which exits fullscreen without
   // firing our keydown handler) back to options.onExit. We gate on

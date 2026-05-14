@@ -164,7 +164,7 @@ While the timer is dormant, `container.style.cursor = 'none'`. Any
 
 ### Fullscreen with overlay fallback
 
-```
+```typescript
 try {
   await container.requestFullscreen();
 } catch {

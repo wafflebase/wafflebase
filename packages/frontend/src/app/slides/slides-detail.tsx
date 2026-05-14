@@ -242,22 +242,39 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           </div>
         </div>
       </SidebarInset>
-      {presentingFrom && store && (
-        <SlidesPresentationMode
-          store={store}
-          startSlideId={resolveStartSlideId(store, presentingFrom, editor)!}
-          onExit={() => {
-            // The presenter calls onExit for several reasons (Esc, end-
-            // screen click, native fullscreen exit, empty deck). We
-            // can't ask which — but if the deck is empty right now,
-            // the empty-deck branch of setDocument is what called us.
-            if (store.read().slides.length === 0) {
-              toast.info("Presentation ended (deck is empty)");
-            }
-            setPresentingFrom(null);
-          }}
-        />
-      )}
+      {presentingFrom &&
+        store &&
+        (() => {
+          // resolveStartSlideId returns undefined when the deck is
+          // empty. `presentingFrom` is gated on the empty-deck check
+          // in `handleStartPresentation`, but a remote peer can empty
+          // the deck between `setPresentingFrom(...)` and the next
+          // render — the conditional would otherwise reach here with
+          // an undefined start id. Guard explicitly instead of using
+          // a non-null assertion.
+          const startSlideId = resolveStartSlideId(
+            store,
+            presentingFrom,
+            editor,
+          );
+          if (!startSlideId) return null;
+          return (
+            <SlidesPresentationMode
+              store={store}
+              startSlideId={startSlideId}
+              onExit={() => {
+                // The presenter calls onExit for several reasons (Esc, end-
+                // screen click, native fullscreen exit, empty deck). We
+                // can't ask which — but if the deck is empty right now,
+                // the empty-deck branch of setDocument is what called us.
+                if (store.read().slides.length === 0) {
+                  toast.info("Presentation ended (deck is empty)");
+                }
+                setPresentingFrom(null);
+              }}
+            />
+          );
+        })()}
     </SidebarProvider>
   );
 }

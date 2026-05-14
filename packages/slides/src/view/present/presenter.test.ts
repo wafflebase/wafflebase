@@ -69,6 +69,23 @@ describe('startPresenter — initial state', () => {
     }
   });
 
+  it('throws when constructed with an empty deck', () => {
+    // The React shell guards on empty-deck before mounting the
+    // presenter, but startPresenter is public API and a CLI / test /
+    // embed caller could bypass that guard. Fail-fast rather than
+    // crashing on `slides[0].id` access below.
+    const emptyDoc = new MemSlidesStore().read();
+    expect(emptyDoc.slides.length).toBe(0);
+    expect(() =>
+      startPresenter({
+        container: makeContainer(),
+        doc: emptyDoc,
+        startSlideId: 'irrelevant',
+        onExit: vi.fn(),
+      }),
+    ).toThrow(/non-empty/);
+  });
+
   it('falls back to the first slide when startSlideId is not in the deck', () => {
     // A peer can delete the host's pending start slide between the
     // host computing the id and startPresenter mounting — without the
@@ -892,6 +909,38 @@ describe('startPresenter — fullscreen', () => {
     } finally {
       presenter.dispose();
       req.mockRestore();
+    }
+  });
+
+  it('falls back to overlay mode synchronously when requestFullscreen is unavailable', () => {
+    // Some embed contexts and very old browsers omit the Fullscreen
+    // API entirely. The optional-chained call protects only the call
+    // itself — chaining `.then` on the resulting `undefined` would
+    // throw TypeError. The explicit feature-detect handles it by
+    // dropping straight to overlay synchronously.
+    //
+    // The deletion is scoped to this test: the top-level beforeEach
+    // re-installs `requestFullscreen` on HTMLElement.prototype before
+    // every subsequent test, so we don't need to restore it here.
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+      .requestFullscreen;
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      expect(container.style.position).toBe('fixed');
+      expect(container.style.top).toBe('0px');
+      expect(container.style.left).toBe('0px');
+      expect(container.style.right).toBe('0px');
+      expect(container.style.bottom).toBe('0px');
+      expect(container.style.zIndex).toBe('9999');
+    } finally {
+      presenter.dispose();
     }
   });
 
