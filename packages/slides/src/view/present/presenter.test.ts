@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import '../canvas/test-canvas-env';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemSlidesStore } from '../../store/memory';
 import type { SlidesDocument } from '../../model/presentation';
+import { SlideRenderer } from '../canvas/slide-renderer';
 import { startPresenter, type Presenter } from './presenter';
 
 interface TestHandle {
@@ -9,6 +11,8 @@ interface TestHandle {
   prev: () => void;
   goToFirst: () => void;
   goToLast: () => void;
+  getCanvas: () => HTMLCanvasElement;
+  getLastPaintKind: () => 'slide' | 'end' | null;
 }
 
 function testApi(presenter: Presenter): TestHandle {
@@ -257,6 +261,109 @@ describe('startPresenter — goToFirst() / goToLast()', () => {
       expect(presenter.getCurrentSlideId()).toBe(cId);
     } finally {
       presenter.dispose();
+    }
+  });
+});
+
+// jsdom's CanvasRenderingContext2D is a stub that doesn't actually
+// commit pixels, so we verify the end-screen branch via a
+// `lastPaintKind` side-effect exposed through `__test`. This tests
+// intent (which branch ran) rather than rendered output, and avoids
+// pulling in node-canvas for a single check.
+describe('startPresenter — canvas mount and paint', () => {
+  it('mounts a canvas into the container sized to dpr * fitted box', () => {
+    const { doc, ids } = makeDoc();
+    const [aId] = ids;
+    const container = makeContainer();
+    // jsdom defaults: window.innerWidth=1024, window.innerHeight=768.
+    // 1024 / (16/9) = 576 < 768 → width-binding fit.
+    expect(window.innerWidth).toBe(1024);
+    expect(window.innerHeight).toBe(768);
+    const dpr = window.devicePixelRatio || 1;
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      const canvas = container.querySelector('canvas');
+      expect(canvas).not.toBeNull();
+      const expectedCssWidth = Math.round(1024);
+      const expectedCssHeight = Math.round(1024 / (16 / 9));
+      expect(canvas!.width).toBe(Math.round(expectedCssWidth * dpr));
+      expect(canvas!.height).toBe(Math.round(expectedCssHeight * dpr));
+      expect(canvas!.style.width).toBe(`${expectedCssWidth}px`);
+      expect(canvas!.style.height).toBe(`${expectedCssHeight}px`);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('letterbox styles applied to container on mount', () => {
+    const { doc, ids } = makeDoc();
+    const [aId] = ids;
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // Black backdrop + flex centering so the canvas sits inside a
+      // letterbox when the viewport aspect differs from 16:9.
+      expect(container.style.background).toBe('rgb(0, 0, 0)');
+      expect(container.style.display).toBe('flex');
+      expect(container.style.alignItems).toBe('center');
+      expect(container.style.justifyContent).toBe('center');
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('next() triggers a fresh SlideRenderer.render call', () => {
+    const renderSpy = vi.spyOn(SlideRenderer.prototype, 'render');
+    const { doc, ids } = makeDoc();
+    const [aId, bId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      const callsBefore = renderSpy.mock.calls.length;
+      testApi(presenter).next();
+      expect(renderSpy.mock.calls.length).toBe(callsBefore + 1);
+      const lastCall = renderSpy.mock.calls[renderSpy.mock.calls.length - 1];
+      expect((lastCall[0] as { id: string }).id).toBe(bId);
+    } finally {
+      presenter.dispose();
+      renderSpy.mockRestore();
+    }
+  });
+
+  it('end-screen state paints via the raw 2D context and does not call SlideRenderer.render', () => {
+    const renderSpy = vi.spyOn(SlideRenderer.prototype, 'render');
+    const { doc, ids } = makeDoc();
+    const [, , cId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: cId,
+      onExit: vi.fn(),
+    });
+    try {
+      // Mount paint on slide C consumed one call; baseline from here.
+      const callsBefore = renderSpy.mock.calls.length;
+      testApi(presenter).next(); // → end-screen
+      expect(presenter.isAtEndScreen()).toBe(true);
+      expect(renderSpy.mock.calls.length).toBe(callsBefore);
+      expect(testApi(presenter).getLastPaintKind()).toBe('end');
+    } finally {
+      presenter.dispose();
+      renderSpy.mockRestore();
     }
   });
 });

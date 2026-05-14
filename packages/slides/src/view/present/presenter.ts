@@ -1,4 +1,6 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
+import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import { SlideRenderer } from '../canvas/slide-renderer';
 
 /**
  * Options for `startPresenter`. The presenter mounts a canvas inside
@@ -34,7 +36,25 @@ interface PresenterState {
   atEndScreen: boolean;
 }
 
+const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
+
+/**
+ * Pick the largest box that fits inside `availWidth × availHeight`
+ * while preserving the 16:9 slide aspect. Duplicated from
+ * `packages/frontend/src/app/slides/slides-view.tsx` on purpose — the
+ * slides package can't depend on the frontend, and the math is small.
+ */
+function computeFitSize(availWidth: number, availHeight: number): {
+  width: number;
+  height: number;
+} {
+  const widthFit = { width: availWidth, height: availWidth / SLIDE_ASPECT };
+  if (widthFit.height <= availHeight) return widthFit;
+  return { width: availHeight * SLIDE_ASPECT, height: availHeight };
+}
+
 export function startPresenter(options: PresenterOptions): Presenter {
+  const { container } = options;
   const state: PresenterState = {
     doc: options.doc,
     slides: options.doc.slides,
@@ -43,13 +63,89 @@ export function startPresenter(options: PresenterOptions): Presenter {
   };
 
   let disposed = false;
+  let lastPaintKind: 'slide' | 'end' | null = null;
 
-  /**
-   * Render stub. Task 2 fills this in with the canvas + SlideRenderer
-   * integration. Task 1 only needs the state machine.
-   */
+  // Remember the container's inline styles so Task 6's dispose() can
+  // restore them — the React shell hands us a host element it expects
+  // to look unchanged once presentation ends.
+  const prevCssText = container.style.cssText;
+
+  // Letterbox layout: black backdrop, center the canvas inside the
+  // container so non-16:9 viewports show black bars rather than
+  // stretching the slide.
+  container.style.background = '#000';
+  container.style.display = 'flex';
+  container.style.alignItems = 'center';
+  container.style.justifyContent = 'center';
+
+  const canvas = document.createElement('canvas');
+  container.appendChild(canvas);
+  const ctx = canvas.getContext('2d')!;
+  const dpr = window.devicePixelRatio || 1;
+
+  // SlideRenderer is bound to specific host dimensions, so it's
+  // rebuilt whenever the fit size changes. The constructor is cheap
+  // and ResizeObserver only fires on real size changes — not per
+  // frame — so re-instantiating here is fine.
+  let renderer = new SlideRenderer(ctx, {
+    hostWidth: 0,
+    hostHeight: 0,
+    dpr,
+  });
+
+  function applyFit(): void {
+    const fit = computeFitSize(window.innerWidth, window.innerHeight);
+    const cssWidth = Math.round(fit.width);
+    const cssHeight = Math.round(fit.height);
+    canvas.width = Math.round(fit.width * dpr);
+    canvas.height = Math.round(fit.height * dpr);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    renderer = new SlideRenderer(ctx, {
+      hostWidth: cssWidth,
+      hostHeight: cssHeight,
+      dpr,
+    });
+    renderer.markDirty();
+    paint();
+  }
+
+  const resizeObserver = new ResizeObserver(() => applyFit());
+  resizeObserver.observe(document.documentElement);
+
   function paint(): void {
-    // no-op — render lands in Task 2.
+    if (disposed) return;
+    if (state.atEndScreen) {
+      paintEndScreen();
+      return;
+    }
+    const slide = state.slides.find((s) => s.id === state.currentSlideId);
+    if (!slide) return;
+    // SlideRenderer's dirty flag is per-slide-state, so it would skip
+    // the repaint after a slide switch without an explicit markDirty.
+    renderer.markDirty();
+    renderer.render(slide, state.doc);
+    lastPaintKind = 'slide';
+  }
+
+  function paintEndScreen(): void {
+    const hostWidth = canvas.width / dpr;
+    const hostHeight = canvas.height / dpr;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, hostWidth, hostHeight);
+    ctx.fillStyle = '#fff';
+    ctx.font = `${Math.round(hostHeight * 0.04)}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      'End of slideshow — click or press Esc to exit',
+      hostWidth / 2,
+      hostHeight / 2,
+    );
+    ctx.restore();
+    lastPaintKind = 'end';
   }
 
   function indexOfCurrent(): number {
@@ -124,6 +220,9 @@ export function startPresenter(options: PresenterOptions): Presenter {
     // Task 6 will tear down canvas, listeners, fullscreen, etc.
   }
 
+  // Seed the initial paint after all closures are set up.
+  applyFit();
+
   const presenter: Presenter = {
     setDocument,
     getCurrentSlideId,
@@ -135,9 +234,23 @@ export function startPresenter(options: PresenterOptions): Presenter {
   // without going through DOM events. Not part of the public type;
   // not enumerable. Later tasks (input wiring, remote-change tests)
   // still want to drive navigation directly, so this stays.
+  //
+  // Also exposes:
+  //   - `getCanvas` so tests can inspect the mounted element.
+  //   - `getLastPaintKind` so tests can verify which paint branch ran
+  //     without depending on jsdom's stubbed canvas pixel state.
+  //   - `getResources` for Task 6's dispose teardown verification.
   Object.defineProperty(presenter, '__test', {
     enumerable: false,
-    value: { next, prev, goToFirst, goToLast },
+    value: {
+      next,
+      prev,
+      goToFirst,
+      goToLast,
+      getCanvas: () => canvas,
+      getLastPaintKind: () => lastPaintKind,
+      getResources: () => ({ canvas, ctx, prevCssText, resizeObserver }),
+    },
   });
 
   return presenter;
