@@ -1024,6 +1024,9 @@ describe('Formula', () => {
     expect(evaluate('=TEXT(12.3,"###.##")')).toBe('12.3');
     expect(evaluate('=TEXT(12.3,"$###.##")')).toBe('$12.3');
     expect(evaluate('=TEXT(1234567,"000,000,000")')).toBe('001,234,567');
+    expect(evaluate('=TEXT(1234567,"00,00,000")')).toBe('12,34,567');
+    expect(evaluate('=TEXT(12,"0.#kg")')).toBe('12kg');
+    expect(evaluate('=TEXT(12.3,"0.#kg")')).toBe('12.3kg');
     expect(evaluate('=TEXT(12.305,"00.00")')).toBe('12.31');
   });
 

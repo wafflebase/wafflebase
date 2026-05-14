@@ -754,10 +754,34 @@ function formatIntegerPlaceholders(digits: string, format: string): string {
   const requiredDigits = [...placeholders].filter((ch) => ch === '0').length;
   const paddedDigits = digits.padStart(requiredDigits, '0');
   const formattedDigits = hasGrouping
-    ? paddedDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    ? applyIntegerGrouping(paddedDigits, placeholderSection)
     : paddedDigits;
 
   return `${prefix}${formattedDigits}${suffix}`;
+}
+
+function applyIntegerGrouping(digits: string, placeholderSection: string): string {
+  const groupSizes = placeholderSection
+    .split(',')
+    .map((token) => token.replace(/[^0#]/g, '').length)
+    .filter((size) => size > 0);
+
+  if (groupSizes.length <= 1) {
+    return digits;
+  }
+
+  const groups: string[] = [];
+  let remainingDigits = digits;
+  let groupIndex = groupSizes.length - 1;
+
+  while (remainingDigits.length > 0) {
+    const groupSize = groupSizes[Math.max(groupIndex, 0)];
+    groups.unshift(remainingDigits.slice(-groupSize));
+    remainingDigits = remainingDigits.slice(0, -groupSize);
+    groupIndex--;
+  }
+
+  return groups.join(',');
 }
 
 function formatDecimalPlaceholders(digits: string, format: string): string {
@@ -767,6 +791,7 @@ function formatDecimalPlaceholders(digits: string, format: string): string {
 
   const chars: string[] = [];
   let digitIndex = 0;
+  let emittedDigit = false;
 
   for (const ch of format) {
     if (ch !== '0' && ch !== '#') {
@@ -777,6 +802,7 @@ function formatDecimalPlaceholders(digits: string, format: string): string {
     const digit = digits[digitIndex++] ?? '0';
     if (ch === '0' || digit !== '0' || hasNonZeroDigit(digits, digitIndex)) {
       chars.push(digit);
+      emittedDigit = true;
     }
   }
 
@@ -788,7 +814,11 @@ function formatDecimalPlaceholders(digits: string, format: string): string {
     chars.pop();
   }
 
-  return chars.length === 0 ? '' : `.${chars.join('')}`;
+  if (chars.length === 0) {
+    return '';
+  }
+
+  return emittedDigit ? `.${chars.join('')}` : chars.join('');
 }
 
 function hasNonZeroDigit(digits: string, start: number): boolean {
