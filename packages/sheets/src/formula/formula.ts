@@ -345,6 +345,7 @@ function buildStaticOffsetReference(
         ? toSref(newFrom)
         : toSrng([newFrom, newTo]);
     return `${prefix}${offsetReference}`;
+    /* c8 ignore next 3 -- Formula grammar only produces valid REF/REFRANGE nodes here. */
   } catch {
     return undefined;
   }
