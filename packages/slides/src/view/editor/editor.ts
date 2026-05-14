@@ -169,6 +169,18 @@ class SlidesEditorImpl implements SlidesEditor {
   private currentSlideListeners = new Set<() => void>();
   private insertModeListeners = new Set<() => void>();
   /**
+   * Logical-coord position of the hover-preview ghost while a shape
+   * insert is armed and the cursor is over the slide. `null` whenever
+   * the ghost should not paint (no insert mode, text mode, cursor
+   * outside the canvas, mid-drag). Only shape kinds get a ghost —
+   * text uses a single-click insert at fixed size, no preview needed.
+   */
+  private hoverPreview: { kind: ShapeKind; x: number; y: number } | null = null;
+  /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
+  private hoverRenderRaf: number | null = null;
+  /** Suppress hover ghost during an active drag-to-size insert. */
+  private insertDragging = false;
+  /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
    *   - drag/resize/rotate/lasso interactions are short-circuited
@@ -220,6 +232,8 @@ class SlidesEditorImpl implements SlidesEditor {
       requestRender: () => this.requestRender(),
       onStartPresentation: this.options.onStartPresentation,
       onShowShortcutsHelp: this.options.onShowShortcutsHelp,
+      getInsertMode: () => this.getInsertMode(),
+      setInsertMode: (kind) => this.setInsertMode(kind),
     });
     this.attachInteractions();
   }
@@ -409,7 +423,35 @@ class SlidesEditorImpl implements SlidesEditor {
   setInsertMode(kind: InsertKind | null): void {
     if (this.insertKind === kind) return;
     this.insertKind = kind;
-    // T7 wires this to a cursor change + canvas pointerdown handler.
+    // Crosshair cursor signals to the user that the next click will
+    // place a shape (or text box). Mirrors GS / PPT. We set it on
+    // both the canvas (where the click lands) and the overlay (which
+    // sits on top and would otherwise reset the cursor back to the
+    // default while hovering selection / resize handles for some
+    // pixel rows). Setting `cursor = ''` reverts to the stylesheet
+    // default so we don't override author styles unconditionally.
+    const cursor = kind === null ? '' : 'crosshair';
+    this.options.canvas.style.cursor = cursor;
+    this.options.overlay.style.cursor = cursor;
+    // Any insert-mode change clears the stale ghost: when the user
+    // disarms (null), switches to text mode (no preview), or swaps
+    // shape kind A → B, we drop the cached preview so the next
+    // mousemove repopulates it with the new kind. Without this, a
+    // pending rAF queued just before the switch would briefly paint
+    // a kind-A ghost after the user already picked kind B.
+    const hadGhost = this.hoverPreview !== null;
+    this.hoverPreview = null;
+    if (this.hoverRenderRaf !== null) {
+      cancelAnimationFrame(this.hoverRenderRaf);
+      this.hoverRenderRaf = null;
+    }
+    // Only force a clean repaint when leaving a ghost-eligible mode.
+    // Shape-to-shape transitions repaint on the next mousemove anyway
+    // and an extra paint here would flash the slide between kinds.
+    if (hadGhost && (kind === null || kind === 'text')) {
+      this.renderer.markDirty();
+      this.render();
+    }
     for (const cb of this.insertModeListeners) cb();
   }
 
@@ -439,6 +481,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox = null;
       this.editingElementId = null;
     }
+    // A pending hover-ghost rAF would otherwise fire after teardown
+    // and paint into a detached canvas. Cancel it and drop the
+    // preview state so a remount starts clean.
+    if (this.hoverRenderRaf !== null) {
+      cancelAnimationFrame(this.hoverRenderRaf);
+      this.hoverRenderRaf = null;
+    }
+    this.hoverPreview = null;
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
@@ -466,6 +516,18 @@ class SlidesEditorImpl implements SlidesEditor {
     this.on(document, 'keydown', (e) => {
       void this.handleKeyDown(e as KeyboardEvent);
     });
+    // Hover-preview: while insert mode is armed, paint a translucent
+    // "ghost" of the to-be-inserted shape under the cursor so the user
+    // sees the kind / size / position before clicking. The overlay
+    // sits above the canvas with `pointer-events: none`, so mousemove
+    // on the canvas alone is enough — the overlay never intercepts
+    // empty-area moves. mouseleave clears the ghost (otherwise it
+    // would stick at the last in-canvas pointer position while the
+    // user is in the toolbar).
+    const onMove = (e: Event) => this.onInsertHoverMove(e as MouseEvent);
+    const onLeave = () => this.onInsertHoverLeave();
+    this.on(this.options.canvas, 'mousemove', onMove);
+    this.on(this.options.canvas, 'mouseleave', onLeave);
     // Double-click on the slide canvas (or overlay, when the click
     // hits a selection-frame area that overlaps a text element) enters
     // text edit mode if a text element was hit.
@@ -556,10 +618,11 @@ class SlidesEditorImpl implements SlidesEditor {
   private insertAt(kind: InsertKind, x: number, y: number): void {
     const slide = this.currentSlide();
     if (!slide) return;
-    // Default-size insert at the click point. Text uses its own default
-    // box per buildInsertElement; for shapes pass an end point that
-    // produces a reasonable default rectangle.
-    const init = buildInsertElement(kind, { x, y }, { x: x + 200, y: y + 100 });
+    // Default-size insert at the click point. Passing start === end
+    // triggers buildInsertElement's click branch, which looks up the
+    // per-kind default frame (rect → SHAPE_WIDE, ellipse →
+    // SHAPE_SQUARE, etc.). Text uses its own fixed default box.
+    const init = buildInsertElement(kind, { x, y }, { x, y });
     this.options.store.batch(() => {
       const id = this.options.store.addElement(slide.id, init);
       this.selection.set([id]);
@@ -758,6 +821,56 @@ class SlidesEditorImpl implements SlidesEditor {
     this.repaintOverlay();
   }
 
+  /**
+   * Update the hover-ghost position as the cursor moves over the slide
+   * canvas. No-op when not in shape-insert mode, when text-insert is
+   * armed (text uses a single-click insert and has no useful ghost),
+   * or while a drag-to-size insert is already in flight (the live
+   * drag preview from `startInsert` takes over rendering).
+   */
+  private onInsertHoverMove(e: MouseEvent): void {
+    const kind = this.insertKind;
+    if (kind === null || kind === 'text') return;
+    if (this.editingElementId !== null) return;
+    if (this.insertDragging) return;
+    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    this.hoverPreview = { kind, x, y };
+    if (this.hoverRenderRaf !== null) return;
+    this.hoverRenderRaf = requestAnimationFrame(() => {
+      this.hoverRenderRaf = null;
+      this.paintWithHoverGhost();
+    });
+  }
+
+  /** Cursor left the canvas — drop the ghost and repaint cleanly. */
+  private onInsertHoverLeave(): void {
+    if (this.hoverPreview === null) return;
+    this.hoverPreview = null;
+    if (this.hoverRenderRaf !== null) {
+      cancelAnimationFrame(this.hoverRenderRaf);
+      this.hoverRenderRaf = null;
+    }
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  /**
+   * Paint the committed slide + the hover ghost on top at
+   * `GHOST_ALPHA`. Keeps the slide's own elements untouched so the
+   * ghost can never participate in selection or hit-test.
+   */
+  private paintWithHoverGhost(): void {
+    const slide = this.currentSlide();
+    if (!slide || this.hoverPreview === null) return;
+    const init = buildInsertElement(
+      this.hoverPreview.kind,
+      { x: this.hoverPreview.x, y: this.hoverPreview.y },
+      { x: this.hoverPreview.x, y: this.hoverPreview.y },
+    );
+    const ghost = { ...init, id: '__hover_preview__' } as Element;
+    this.renderer.forceRender(slide, this.options.store.read(), ghost);
+  }
+
   private startInsert(clientX: number, clientY: number): void {
     const kind = this.insertKind;
     if (kind === null) return;
@@ -778,26 +891,36 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
-    // Drag-to-size for shapes.
+    // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
+    // listener stops repainting; the drag preview below owns the
+    // canvas until mouseup. The preview is rendered through the same
+    // `forceRender(slide, doc, ghost)` channel as the hover ghost so
+    // the in-progress shape stays semi-transparent — the user can see
+    // any underlying content while sizing, and the commit on mouseup
+    // is the moment the shape goes opaque.
+    this.insertDragging = true;
+    this.hoverPreview = null;
     let endPoint = start;
+    let cancelled = false;
     const onMove = (ev: MouseEvent) => {
       endPoint = this.clientToLogical(ev.clientX, ev.clientY);
-      // Live preview: paint the in-progress shape over the slide.
       const init = buildInsertElement(kind, start, endPoint);
-      const synthetic = {
-        ...slide,
-        elements: [...slide.elements, { ...init, id: '__preview__' } as Element],
-      };
-      this.renderer.forceRender(synthetic, this.options.store.read());
+      const ghost = { ...init, id: '__preview__' } as Element;
+      this.renderer.forceRender(slide, this.options.store.read(), ghost);
     };
-    const onUp = () => {
+    const cleanup = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey, true);
+      this.insertDragging = false;
+    };
+    const onUp = () => {
+      cleanup();
+      if (cancelled) return; // ESC pressed mid-drag — discard.
+      // buildInsertElement handles the click-vs-drag distinction: if
+      // the pointer barely moved, it returns a per-kind default-sized
+      // frame anchored at `start`; otherwise it uses the drag rect.
       const init = buildInsertElement(kind, start, endPoint);
-      if (init.frame.w < 4 && init.frame.h < 4) {
-        // No real drag — drop a default-sized shape.
-        init.frame = { x: start.x, y: start.y, w: 200, h: 100, rotation: 0 };
-      }
       this.options.store.batch(() => {
         const id = this.options.store.addElement(slide.id, init);
         this.selection.set([id]);
@@ -806,8 +929,26 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.render();
     };
+    // ESC during a drag aborts the in-flight insert without committing
+    // anything. We listen with `capture: true` and stopImmediatePropagation
+    // so the editor's own keyrules (which would otherwise also disarm
+    // insert mode via `setInsertMode(null)`) don't double-fire — the
+    // drag handler owns the cancel here. After cleanup we still
+    // disarm insert mode so the user lands in select mode with the
+    // canvas clean.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      cancelled = true;
+      cleanup();
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+    };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKey, true);
   }
 
   private startLasso(clientX: number, clientY: number): void {
