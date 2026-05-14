@@ -18,6 +18,8 @@ import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesFormattingToolbar } from "./slides-formatting-toolbar";
+import { SlidesPresentationMode } from "./slides-presentation-mode";
+import { PresentButton } from "./slides-present-button";
 import { ThemePanel } from "./theme-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
 
@@ -28,6 +30,26 @@ import type { YorkieSlidesStore } from "./yorkie-slides-store";
  */
 function initialSlidesRoot(): Partial<YorkieSlidesRoot> {
   return {};
+}
+
+/**
+ * Resolve the slide id where a fresh presentation session should start.
+ * `from === "first"` always returns the deck's first slide. `from ===
+ * "current"` prefers the editor's active slide, falling back to the
+ * first slide when the editor hasn't broadcast a selection yet (e.g.,
+ * the user hit Cmd+Enter before clicking anywhere). Returns undefined
+ * for an empty deck — the caller guards on that before mounting the
+ * presenter.
+ */
+function resolveStartSlideId(
+  store: YorkieSlidesStore,
+  from: "current" | "first",
+  editor: SlidesEditor | null,
+): string | undefined {
+  const slides = store.read().slides;
+  if (slides.length === 0) return undefined;
+  if (from === "first") return slides[0].id;
+  return editor?.getCurrentSlideId() ?? slides[0].id;
 }
 
 /**
@@ -45,6 +67,17 @@ function SlidesLayout({ documentId }: { documentId: string }) {
   // below — local applies notify after the batch commits, remote applies
   // notify on the Yorkie subscription.
   const [currentThemeId, setCurrentThemeId] = useState("default-light");
+  // `presentingFrom` is the present-mode state machine: null while
+  // editing, 'current' | 'first' while a session is mounted. Flipping
+  // to a non-null value mounts <SlidesPresentationMode>; the presenter's
+  // onExit flips it back to null.
+  const [presentingFrom, setPresentingFrom] = useState<
+    "current" | "first" | null
+  >(null);
+  // Mirror the deck size so the Present button can disable itself when
+  // the deck momentarily holds zero slides (before the editor seeds its
+  // initial slide). Re-evaluated on every store change.
+  const [slideCount, setSlideCount] = useState(0);
 
   useEffect(() => {
     if (!store) return;
@@ -53,6 +86,26 @@ function SlidesLayout({ documentId }: { documentId: string }) {
       setCurrentThemeId(store.read().meta.themeId);
     });
   }, [store]);
+
+  useEffect(() => {
+    if (!store) {
+      setSlideCount(0);
+      return;
+    }
+    setSlideCount(store.getSlideCount());
+    return store.onChange(() => {
+      setSlideCount(store.getSlideCount());
+    });
+  }, [store]);
+
+  const handleStartPresentation = useCallback(
+    (from: "current" | "first") => {
+      if (!store) return;
+      if (store.read().slides.length === 0) return;
+      setPresentingFrom(from);
+    },
+    [store],
+  );
 
   // Resolve the active Theme object — fed to the contextual color and
   // font pickers in the toolbar so their "Theme" rows match the deck.
@@ -156,6 +209,10 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <PresentButton
+              disabled={!store || slideCount === 0}
+              onStart={handleStartPresentation}
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -172,6 +229,7 @@ function SlidesLayout({ documentId }: { documentId: string }) {
             <SlidesView
               onEditorReady={setEditor}
               onStoreReady={setStore}
+              onStartPresentation={handleStartPresentation}
               documentId={documentId}
             />
             {themePanelOpen && store && (
@@ -184,6 +242,13 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           </div>
         </div>
       </SidebarInset>
+      {presentingFrom && store && (
+        <SlidesPresentationMode
+          store={store}
+          startSlideId={resolveStartSlideId(store, presentingFrom, editor)!}
+          onExit={() => setPresentingFrom(null)}
+        />
+      )}
     </SidebarProvider>
   );
 }
