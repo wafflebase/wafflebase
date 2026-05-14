@@ -62,10 +62,12 @@ modal). Group/Ungroup and Find/Replace are intentionally deferred.
 - [x] Help modal renders `SHORTCUTS` categorized; closes via the
       Dialog primitive's Esc / overlay-click.
 - [x] Wire `onShowShortcutsHelp` to open the modal.
-- [ ] **Deferred:** `onStartPresentation` wiring. Present mode UI
-      isn't yet implemented in the slides package (`view/present/`
-      is documented in `slides.md` but the actual presenter doesn't
-      exist). Hook the callback in when that lands.
+- [x] **Wired in `feat/slides-presentation-mode`**: `view/present/`
+      now exists in the slides package, `SlidesView` forwards
+      `onStartPresentation`, and `SlidesLayout` routes the callback
+      to `handleStartPresentation` so the Cmd/Ctrl+Enter shortcuts
+      and the new Present split-button share the same entry path.
+      See `docs/tasks/active/20260514-slides-presentation-mode-todo.md`.
 - [ ] **Deferred:** Real `onLinkRequest` popover. Requires
       extending `TextBoxEditorAPI` with `insertLink(url)` /
       `getLinkAtCursor()` so a slides-side popover can actually

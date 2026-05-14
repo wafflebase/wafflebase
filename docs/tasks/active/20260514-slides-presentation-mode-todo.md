@@ -546,4 +546,39 @@ primitives (check sibling files for the exact import paths).
 
 ## Status
 
-_Filled in as work progresses._
+**Branch:** `feat/slides-presentation-mode` (off `main` @ `2c319e59`).
+
+**Commits (13, oldest → newest):**
+
+1. `c9ce715f` Add slides presentation mode v1 design and plan
+2. `4e173dd5` Add slides presenter scaffold and navigation state
+3. `1e17df5b` Guard slides presenter against empty deck *(Task 1 fixup)*
+4. `ee045edf` Render slides on the presenter canvas
+5. `caefa99a` Guard presenter ResizeObserver and lift end-screen constants *(Task 2 fixup)*
+6. `e7501762` Wire presenter keyboard and click navigation
+7. `ef7155db` Add presenter fullscreen, overlay fallback, cursor auto-hide
+8. `bdc7df05` Identity-gate presenter fullscreenchange handler *(Task 4 fixup)*
+9. `6bc0920b` Handle remote doc changes in the presenter
+10. `06c24ecc` Tear down presenter cleanly and export from the package
+11. `e2fce34b` Add slides presentation mode React shell
+12. `cc9dbc83` Forward onStartPresentation to the slides editor
+13. `ffa0df8e` Add Present split-button and presenting state to slides header
+
+**Verification:** `pnpm verify:fast` green on the latest commit
+(47 test files, 764 tests). 50 unit tests in
+`packages/slides/src/view/present/presenter.test.ts` cover navigation,
+canvas mount, end-screen, keyboard, click, cursor auto-hide, fullscreen,
+overlay fallback, identity-gated fullscreenchange, remote-change
+handling, and dispose cleanup.
+
+**Outstanding (10.2 / 10.5 / 10.6 / 10.7):**
+
+- Manual browser smoke (`pnpm dev`) per the Task 10.2 checklist —
+  user-driven per the workflow.
+- Optional final cross-cutting code review (e.g. `/ultrareview`).
+- Lessons file (`20260514-slides-presentation-mode-lessons.md`).
+- Archive (`pnpm tasks:archive && pnpm tasks:index`).
+
+**Parked work**: Branch `wip/shape-insert-hover-preview` carries the
+unrelated shape-insert hover-preview + Escape-disarm changes that were
+sitting uncommitted on `main` at session start. Independent of this PR.
