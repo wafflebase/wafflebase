@@ -42,6 +42,10 @@ const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
 const END_SCREEN_FONT_RATIO = 0.04;
 /** User-visible end-screen copy. Single source for any future i18n pass. */
 const END_SCREEN_TEXT = 'End of slideshow — click or press Esc to exit';
+/** Milliseconds of mousemove inactivity before the cursor is hidden. */
+const CURSOR_HIDE_DELAY_MS = 3_000;
+/** z-index for the overlay fallback when fullscreen is unavailable. */
+const OVERLAY_Z_INDEX = 9999;
 
 /**
  * Pick the largest box that fits inside `availWidth × availHeight`
@@ -259,6 +263,59 @@ export function startPresenter(options: PresenterOptions): Presenter {
     next();
   }
   canvas.addEventListener('click', onCanvasClick);
+
+  // Cursor auto-hide: any `mousemove` restores the cursor and re-arms
+  // a single setTimeout. While the timer is dormant we set
+  // `cursor: 'none'` directly on the container so the canvas (which
+  // doesn't have its own cursor style) inherits it.
+  let cursorHideTimer: ReturnType<typeof setTimeout> | null = null;
+  function armCursorHide(): void {
+    if (cursorHideTimer !== null) clearTimeout(cursorHideTimer);
+    cursorHideTimer = setTimeout(() => {
+      if (disposed) return;
+      container.style.cursor = 'none';
+    }, CURSOR_HIDE_DELAY_MS);
+  }
+  function onMouseMove(): void {
+    if (disposed) return;
+    container.style.cursor = '';
+    armCursorHide();
+  }
+  container.addEventListener('mousemove', onMouseMove);
+  armCursorHide();
+
+  // Fullscreen + overlay fallback. `requestFullscreen` returns a
+  // Promise that rejects on iframe-sandbox / permission-denied. We
+  // discard the Promise with `void` — the side effects (entering
+  // fullscreen, or applying overlay on rejection) are sufficient. The
+  // optional-call handles environments that lack the API entirely.
+  let mountMode: 'fullscreen' | 'overlay' = 'fullscreen';
+  function applyOverlayStyles(): void {
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.right = '0';
+    container.style.bottom = '0';
+    container.style.zIndex = String(OVERLAY_Z_INDEX);
+  }
+  void container.requestFullscreen?.().catch(() => {
+    if (disposed) return;
+    mountMode = 'overlay';
+    applyOverlayStyles();
+  });
+
+  // Bridge the browser's own Esc (which exits fullscreen without
+  // firing our keydown handler) back to options.onExit. Only relevant
+  // when we actually entered fullscreen — in overlay mode there's
+  // nothing to leave.
+  function onFullscreenChange(): void {
+    if (disposed) return;
+    if (mountMode !== 'fullscreen') return;
+    if (document.fullscreenElement === null) {
+      options.onExit();
+    }
+  }
+  document.addEventListener('fullscreenchange', onFullscreenChange);
 
   function dispose(): void {
     if (disposed) return;

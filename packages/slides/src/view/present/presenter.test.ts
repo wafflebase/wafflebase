@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '../canvas/test-canvas-env';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemSlidesStore } from '../../store/memory';
 import type { SlidesDocument } from '../../model/presentation';
 import { SlideRenderer } from '../canvas/slide-renderer';
@@ -577,6 +577,163 @@ describe('startPresenter — click-to-advance', () => {
       const canvas = testApi(presenter).getCanvas();
       canvas.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       expect(onExit).toHaveBeenCalledOnce();
+    } finally {
+      presenter.dispose();
+    }
+  });
+});
+
+describe('startPresenter — cursor auto-hide', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('hides the cursor after 3 s of no mousemove', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      // Initial timer is armed at mount; before the delay elapses
+      // the cursor must still be its default (empty inline style).
+      expect(container.style.cursor).toBe('');
+      vi.advanceTimersByTime(3_000);
+      expect(container.style.cursor).toBe('none');
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('mousemove restores the cursor and re-arms the hide timer', () => {
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      vi.advanceTimersByTime(3_000);
+      expect(container.style.cursor).toBe('none');
+
+      container.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      expect(container.style.cursor).toBe('');
+
+      vi.advanceTimersByTime(2_999);
+      expect(container.style.cursor).toBe('');
+
+      vi.advanceTimersByTime(1);
+      expect(container.style.cursor).toBe('none');
+    } finally {
+      presenter.dispose();
+    }
+  });
+});
+
+describe('startPresenter — fullscreen', () => {
+  it('calls container.requestFullscreen on mount', () => {
+    const req = vi
+      .spyOn(HTMLElement.prototype, 'requestFullscreen')
+      .mockResolvedValue(undefined);
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      expect(req).toHaveBeenCalledTimes(1);
+      // requestFullscreen is invoked on the container element.
+      expect(req.mock.instances[0]).toBe(container);
+    } finally {
+      presenter.dispose();
+      req.mockRestore();
+    }
+  });
+
+  it('falls back to overlay styles when requestFullscreen rejects', async () => {
+    (HTMLElement.prototype as unknown as { requestFullscreen: () => Promise<void> })
+      .requestFullscreen = vi.fn().mockRejectedValue(new Error('denied'));
+    const { doc, ids } = makeDoc();
+    const container = makeContainer();
+    const presenter = startPresenter({
+      container,
+      doc,
+      startSlideId: ids[0],
+      onExit: vi.fn(),
+    });
+    try {
+      // The .catch handler runs on the microtask queue; flush once for
+      // the resolved-promise hop, again for the .catch continuation.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(container.style.position).toBe('fixed');
+      expect(container.style.top).toBe('0px');
+      expect(container.style.left).toBe('0px');
+      expect(container.style.right).toBe('0px');
+      expect(container.style.bottom).toBe('0px');
+      expect(container.style.zIndex).toBe('9999');
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('fullscreenchange to null triggers onExit when mounted in fullscreen', async () => {
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => null,
+    });
+    const onExit = vi.fn();
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit,
+    });
+    try {
+      // Wait for the resolved requestFullscreen Promise to settle so
+      // mountMode remains 'fullscreen'.
+      await Promise.resolve();
+      await Promise.resolve();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(onExit).toHaveBeenCalledTimes(1);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('fullscreenchange does NOT trigger onExit in overlay mode', async () => {
+    (HTMLElement.prototype as unknown as { requestFullscreen: () => Promise<void> })
+      .requestFullscreen = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => null,
+    });
+    const onExit = vi.fn();
+    const { doc, ids } = makeDoc();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: ids[0],
+      onExit,
+    });
+    try {
+      // Settle the rejected Promise so mountMode flips to 'overlay'.
+      await Promise.resolve();
+      await Promise.resolve();
+      document.dispatchEvent(new Event('fullscreenchange'));
+      expect(onExit).not.toHaveBeenCalled();
     } finally {
       presenter.dispose();
     }
