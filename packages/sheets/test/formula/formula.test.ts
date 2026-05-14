@@ -1017,6 +1017,17 @@ describe('Formula', () => {
     expect(evaluate('=TEXT(0.75,"0%")')).toBe('75%');
     expect(evaluate('=TEXT(3.14159,"0.00")')).toBe('3.14');
     expect(evaluate('=TEXT(42,"0")')).toBe('42');
+    expect(evaluate('=TEXT(42,"00000")')).toBe('00042');
+    expect(evaluate('=TEXT(-42,"00000")')).toBe('-00042');
+    expect(evaluate('=TEXT(12.3,"000.00")')).toBe('012.30');
+    expect(evaluate('=TEXT(42,"##000")')).toBe('042');
+    expect(evaluate('=TEXT(12.3,"###.##")')).toBe('12.3');
+    expect(evaluate('=TEXT(12.3,"$###.##")')).toBe('$12.3');
+    expect(evaluate('=TEXT(1234567,"000,000,000")')).toBe('001,234,567');
+    expect(evaluate('=TEXT(1234567,"00,00,000")')).toBe('12,34,567');
+    expect(evaluate('=TEXT(12,"0.#kg")')).toBe('12kg');
+    expect(evaluate('=TEXT(12.3,"0.#kg")')).toBe('12.3kg');
+    expect(evaluate('=TEXT(12.305,"00.00")')).toBe('12.31');
   });
 
   it('should correctly evaluate CHAR function', () => {

@@ -718,32 +718,111 @@ export function textFunc(
     return fmt;
   }
 
-  const format = fmt.v;
-  const value = num.v;
+  return { t: 'str', v: formatNumberWithPlaceholders(num.v, fmt.v) };
+}
 
-  // Percentage formats
-  if (format.endsWith('%')) {
-    const decimalPart = format.slice(0, -1);
-    const decimals = (decimalPart.split('.')[1] || '').length;
-    return { t: 'str', v: (value * 100).toFixed(decimals) + '%' };
+function formatNumberWithPlaceholders(value: number, format: string): string {
+  const isPercent = format.endsWith('%');
+  const numericFormat = isPercent ? format.slice(0, -1) : format;
+  const scaledValue = isPercent ? value * 100 : value;
+  const [integerFormat, decimalFormat = ''] = numericFormat.split('.');
+  const decimalPlaceholders = decimalFormat.match(/[0#]/g)?.length ?? 0;
+  const roundingFactor = 10 ** decimalPlaceholders;
+  const rounded = (
+    Math.round(Math.abs(scaledValue) * roundingFactor) / roundingFactor
+  ).toFixed(decimalPlaceholders);
+  const [roundedInteger, roundedDecimal = ''] = rounded.split('.');
+  const integerResult = formatIntegerPlaceholders(roundedInteger, integerFormat);
+  const decimalResult = formatDecimalPlaceholders(roundedDecimal, decimalFormat);
+  const sign = scaledValue < 0 ? '-' : '';
+
+  return `${sign}${integerResult}${decimalResult}${isPercent ? '%' : ''}`;
+}
+
+function formatIntegerPlaceholders(digits: string, format: string): string {
+  const firstPlaceholder = format.search(/[0#]/);
+  const lastPlaceholder = Math.max(format.lastIndexOf('0'), format.lastIndexOf('#'));
+  if (firstPlaceholder === -1 || lastPlaceholder === -1) {
+    return digits;
   }
 
-  // Comma-separated formats
-  if (format.includes(',')) {
-    const decimals = (format.split('.')[1] || '').replace(/[^0#]/g, '').length;
-    const parts = value.toFixed(decimals).split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    return { t: 'str', v: parts.join('.') };
+  const prefix = format.slice(0, firstPlaceholder).replace(/,/g, '');
+  const suffix = format.slice(lastPlaceholder + 1).replace(/,/g, '');
+  const placeholderSection = format.slice(firstPlaceholder, lastPlaceholder + 1);
+  const hasGrouping = placeholderSection.includes(',');
+  const placeholders = placeholderSection.replace(/[^0#]/g, '');
+  const requiredDigits = [...placeholders].filter((ch) => ch === '0').length;
+  const paddedDigits = digits.padStart(requiredDigits, '0');
+  const formattedDigits = hasGrouping
+    ? applyIntegerGrouping(paddedDigits, placeholderSection)
+    : paddedDigits;
+
+  return `${prefix}${formattedDigits}${suffix}`;
+}
+
+function applyIntegerGrouping(digits: string, placeholderSection: string): string {
+  const groupSizes = placeholderSection
+    .split(',')
+    .map((token) => token.replace(/[^0#]/g, '').length)
+    .filter((size) => size > 0);
+
+  if (groupSizes.length <= 1) {
+    return digits;
   }
 
-  // Fixed decimal formats
-  if (format.includes('.')) {
-    const decimals = (format.split('.')[1] || '').length;
-    return { t: 'str', v: value.toFixed(decimals) };
+  const groups: string[] = [];
+  let remainingDigits = digits;
+  let groupIndex = groupSizes.length - 1;
+
+  while (remainingDigits.length > 0) {
+    const groupSize = groupSizes[Math.max(groupIndex, 0)];
+    groups.unshift(remainingDigits.slice(-groupSize));
+    remainingDigits = remainingDigits.slice(0, -groupSize);
+    groupIndex--;
   }
 
-  // Integer format
-  return { t: 'str', v: value.toFixed(0) };
+  return groups.join(',');
+}
+
+function formatDecimalPlaceholders(digits: string, format: string): string {
+  if (!format) {
+    return '';
+  }
+
+  const chars: string[] = [];
+  let digitIndex = 0;
+  let emittedDigit = false;
+
+  for (const ch of format) {
+    if (ch !== '0' && ch !== '#') {
+      chars.push(ch);
+      continue;
+    }
+
+    const digit = digits[digitIndex++] ?? '0';
+    if (ch === '0' || digit !== '0' || hasNonZeroDigit(digits, digitIndex)) {
+      chars.push(digit);
+      emittedDigit = true;
+    }
+  }
+
+  while (chars.length > 0 && chars[chars.length - 1] === '0') {
+    const formatIndex = chars.length - 1;
+    if (format[formatIndex] === '0') {
+      break;
+    }
+    chars.pop();
+  }
+
+  if (chars.length === 0) {
+    return '';
+  }
+
+  return emittedDigit ? `.${chars.join('')}` : chars.join('');
+}
+
+function hasNonZeroDigit(digits: string, start: number): boolean {
+  return [...digits.slice(start)].some((digit) => digit !== '0');
 }
 
 /**
