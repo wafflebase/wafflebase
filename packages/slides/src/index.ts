@@ -41,6 +41,18 @@ export type {
 } from './model/element';
 export { generateId } from './model/element';
 
+export type {
+  ArrowheadKind,
+  ArrowheadStyle,
+  ConnectorElement,
+  ConnectorRouting,
+  Endpoint,
+} from './model/connector';
+export {
+  computeConnectorFrame,
+  resolveEndpoint,
+} from './view/canvas/connector-frame';
+
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 

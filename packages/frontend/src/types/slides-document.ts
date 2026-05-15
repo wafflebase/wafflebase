@@ -1,5 +1,14 @@
 import type { Block } from '@wafflebase/docs';
-import type { Master, PlaceholderRef, ShapeKind, Theme, ThemeColor } from '@wafflebase/slides';
+import type {
+  ArrowheadStyle,
+  ConnectorRouting,
+  Endpoint,
+  Master,
+  PlaceholderRef,
+  ShapeKind,
+  Theme,
+  ThemeColor,
+} from '@wafflebase/slides';
 
 /**
  * Yorkie document root for the slides editor. Text element bodies
@@ -51,7 +60,8 @@ export interface YorkieSlide {
 export type YorkieElement =
   | YorkieTextElement
   | YorkieImageElement
-  | YorkieShapeElement;
+  | YorkieShapeElement
+  | YorkieConnectorElement;
 
 interface YorkieFrame {
   x: number;
@@ -92,6 +102,26 @@ export interface YorkieShapeElement {
     fill?: ThemeColor;
     stroke?: { color: ThemeColor; width: number };
   };
+}
+
+/**
+ * Connector element — line/arrow joining two endpoints. The cached
+ * `frame` is derived from the resolved endpoint positions and refreshed
+ * on every mutation that could move them (endpoint update, source
+ * shape move, source shape delete). Connectors do not appear as layout
+ * placeholders, so they are intentionally absent from `YorkiePlaceholder`.
+ */
+export interface YorkieConnectorElement {
+  id: string;
+  type: 'connector';
+  frame: YorkieFrame;
+  placeholderRef?: PlaceholderRef;
+  routing: ConnectorRouting;
+  start: Endpoint;
+  end: Endpoint;
+  arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
+  stroke?: { color: ThemeColor; width: number };
+  elbowBend?: number;
 }
 
 /** Layout placeholder shape — element template without an id. */
