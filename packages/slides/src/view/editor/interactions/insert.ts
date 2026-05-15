@@ -1,7 +1,15 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import type { ElementInit, ShapeKind } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
-import type { InsertKind } from '../editor';
+
+/**
+ * Subset of editor `InsertKind` that `buildInsertElement` handles —
+ * the shape/text branch. Connector insert variants
+ * (`'connector:line'` / `'connector:arrow'`) have their own
+ * `buildConnectorInit` in `insert-connector.ts`, so they never reach
+ * this function.
+ */
+export type ShapeOrTextInsertKind = ShapeKind | 'text';
 
 // Insert defaults bind to theme roles so new shapes follow the active
 // theme — switching the deck's theme repaints them in the new palette.
@@ -282,7 +290,7 @@ function defaultsForShape(
  * picker path agree on what a "default-sized" shape looks like.
  */
 export function buildInsertElement(
-  kind: InsertKind,
+  kind: ShapeOrTextInsertKind,
   start: Point,
   end: Point,
 ): ElementInit {

@@ -1,6 +1,6 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import {
@@ -13,7 +13,15 @@ import {
 import { ADJUSTMENT_HANDLES, ADJUSTMENT_SPECS } from '../canvas/shapes';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
-import { buildInsertElement } from './interactions/insert';
+import {
+  buildInsertElement,
+  type ShapeOrTextInsertKind,
+} from './interactions/insert';
+import {
+  buildConnectorInit,
+  finalizeInsert as finalizeConnectorInsert,
+  type ConnectorInsertVariant,
+} from './interactions/insert-connector';
 import { buildKeyRules } from './interactions/keyboard';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
@@ -37,7 +45,29 @@ import { Selection } from './selection';
 import { snapDelta, type SnapGuide } from './snap';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
-export type InsertKind = ShapeKind | 'text';
+/**
+ * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
+ * `ShapeKind` because connectors live outside the shape registry — they
+ * have endpoint-attached endpoints and their own renderer / interaction
+ * pipeline. The toolbar passes one of these values; the editor's
+ * `startInsert` branches on the `'connector:'` prefix to route into the
+ * connector drag flow.
+ */
+export type ConnectorInsertKind = 'connector:line' | 'connector:arrow';
+
+export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
+
+/** Internal helper — recognise connector insert-mode keys. */
+function isConnectorInsertKind(
+  kind: InsertKind | null,
+): kind is ConnectorInsertKind {
+  return kind === 'connector:line' || kind === 'connector:arrow';
+}
+
+/** Map a connector insert-mode key to its `ConnectorInsertVariant`. */
+function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
+  return kind === 'connector:arrow' ? 'arrow' : 'line';
+}
 
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
@@ -89,6 +119,13 @@ export interface SlidesEditor {
   setInsertMode(kind: InsertKind | null): void;
   /** Current insert mode, or `null` if no insert mode is active. */
   getInsertMode(): InsertKind | null;
+  /**
+   * `true` while the current insert mode is a connector variant
+   * (`'connector:line'` or `'connector:arrow'`). Subscribe via
+   * `onInsertModeChange` to react to transitions — Task 13's
+   * connection-points overlay uses this to decide when to render.
+   */
+  isConnectorMode(): boolean;
   /**
    * Subscribe to insert-mode changes. Fires whenever
    * `setInsertMode` is called, including the editor's own internal
@@ -448,7 +485,13 @@ class SlidesEditorImpl implements SlidesEditor {
     // Only force a clean repaint when leaving a ghost-eligible mode.
     // Shape-to-shape transitions repaint on the next mousemove anyway
     // and an extra paint here would flash the slide between kinds.
-    if (hadGhost && (kind === null || kind === 'text')) {
+    // Connector modes also have no shape hover-ghost, so leaving a
+    // ghost into a connector mode needs the same clean repaint as
+    // leaving into text/null.
+    if (
+      hadGhost &&
+      (kind === null || kind === 'text' || isConnectorInsertKind(kind))
+    ) {
       this.renderer.markDirty();
       this.render();
     }
@@ -457,6 +500,10 @@ class SlidesEditorImpl implements SlidesEditor {
 
   getInsertMode(): InsertKind | null {
     return this.insertKind;
+  }
+
+  isConnectorMode(): boolean {
+    return isConnectorInsertKind(this.insertKind);
   }
 
   onInsertModeChange(cb: () => void): () => void {
@@ -615,7 +662,7 @@ class SlidesEditorImpl implements SlidesEditor {
     ];
   }
 
-  private insertAt(kind: InsertKind, x: number, y: number): void {
+  private insertAt(kind: ShapeOrTextInsertKind, x: number, y: number): void {
     const slide = this.currentSlide();
     if (!slide) return;
     // Default-size insert at the click point. Passing start === end
@@ -831,6 +878,10 @@ class SlidesEditorImpl implements SlidesEditor {
   private onInsertHoverMove(e: MouseEvent): void {
     const kind = this.insertKind;
     if (kind === null || kind === 'text') return;
+    // Connector insert modes have no shape-style hover ghost: the
+    // connection-points overlay (Task 13) handles their hover affordance,
+    // and the live drag preview takes over after mousedown.
+    if (isConnectorInsertKind(kind)) return;
     if (this.editingElementId !== null) return;
     if (this.insertDragging) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -891,6 +942,11 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
+    if (isConnectorInsertKind(kind)) {
+      this.startConnectorInsert(kind, slide, start);
+      return;
+    }
+
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
@@ -936,6 +992,75 @@ class SlidesEditorImpl implements SlidesEditor {
     // drag handler owns the cancel here. After cleanup we still
     // disarm insert mode so the user lands in select mode with the
     // canvas clean.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      cancelled = true;
+      cleanup();
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKey, true);
+  }
+
+  /**
+   * Drag-to-place flow for connectors. Mirrors `startInsert`'s shape
+   * branch: live ghost preview during the drag (rendered via the same
+   * `forceRender(slide, doc, ghost)` channel), commit on mouseup,
+   * ESC cancels with capture-phase pre-emption so the keyboard rule's
+   * own `setInsertMode(null)` Esc handler doesn't double-fire.
+   *
+   * Sub-threshold drags (`< MIN_DRAG_DISTANCE`) are discarded by
+   * `finalizeConnectorInsert` returning null; we still disarm insert
+   * mode afterwards so a stray click leaves the editor in select mode
+   * rather than stuck in connector-arm.
+   */
+  private startConnectorInsert(
+    kind: ConnectorInsertKind,
+    slide: Slide,
+    start: { x: number; y: number },
+  ): void {
+    const variant = connectorVariant(kind);
+    this.insertDragging = true;
+    this.hoverPreview = null;
+    let endPoint = start;
+    let cancelled = false;
+    const onMove = (ev: MouseEvent) => {
+      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      const init = buildConnectorInit(variant, start, endPoint, slide.elements);
+      const ghost = { ...init, id: '__preview__' } as Element;
+      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+    };
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey, true);
+      this.insertDragging = false;
+    };
+    const onUp = () => {
+      cleanup();
+      if (cancelled) return; // ESC pressed mid-drag — discard.
+      let newId: string | null = null;
+      this.options.store.batch(() => {
+        newId = finalizeConnectorInsert(
+          this.options.store,
+          slide.id,
+          variant,
+          start,
+          endPoint,
+          slide.elements,
+        );
+        if (newId !== null) this.selection.set([newId]);
+      });
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return;
       ev.preventDefault();
