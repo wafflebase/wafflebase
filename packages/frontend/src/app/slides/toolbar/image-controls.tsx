@@ -13,7 +13,7 @@ import {
 import {
   IconReplace,
   IconCrop,
-  IconCropOff,
+  IconArrowBackUp,
   IconAccessible,
 } from '@tabler/icons-react';
 import { replaceImageOnSlide } from '../replace-image';
@@ -132,7 +132,7 @@ export function ImageControls({
             disabled={!hasCrop}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
-            <IconCropOff size={16} />
+            <IconArrowBackUp size={16} />
           </button>
         </TooltipTrigger>
         <TooltipContent>Reset crop</TooltipContent>
