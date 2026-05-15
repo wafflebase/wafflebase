@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconShape } from "@tabler/icons-react";
-import { renderShapeIcon } from "@wafflebase/slides";
+import { renderShapeIcon, type ShapeKind } from "@wafflebase/slides";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -11,72 +11,20 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import {
-  SHAPE_PICKER_CATEGORIES,
-  type PickerInsertKind,
-} from "./shape-picker-helpers";
+import { SHAPE_PICKER_CATEGORIES } from "./shape-picker-helpers";
 
 interface IconButtonProps {
-  kind: PickerInsertKind;
+  kind: ShapeKind;
   label: string;
   active: boolean;
-  onSelect: (kind: PickerInsertKind) => void;
-}
-
-/** Connector insert-mode keys aren't in `PATH_BUILDERS` — render their
- * preview inline as a thin line (with an arrowhead for `:arrow`). */
-function isConnectorPickerKind(
-  kind: PickerInsertKind,
-): kind is "connector:line" | "connector:arrow" {
-  return kind === "connector:line" || kind === "connector:arrow";
-}
-
-function drawConnectorIcon(
-  ctx: CanvasRenderingContext2D,
-  kind: "connector:line" | "connector:arrow",
-  size: { w: number; h: number },
-): void {
-  const padding = 3;
-  const x0 = padding;
-  const y0 = size.h - padding;
-  const x1 = size.w - padding;
-  const y1 = padding;
-  ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y1);
-  ctx.stroke();
-  if (kind === "connector:arrow") {
-    // Tiny arrowhead at the (x1, y1) end. Direction vector is normalised
-    // along the diagonal so the head sits flush on the line endpoint.
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const len = Math.max(1, Math.hypot(dx, dy));
-    const ux = dx / len;
-    const uy = dy / len;
-    // Perpendicular for the wing offset.
-    const px = -uy;
-    const py = ux;
-    const headLen = 6;
-    const headHalf = 3;
-    const baseX = x1 - ux * headLen;
-    const baseY = y1 - uy * headLen;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(baseX + px * headHalf, baseY + py * headHalf);
-    ctx.lineTo(baseX - px * headHalf, baseY - py * headHalf);
-    ctx.closePath();
-    ctx.stroke();
-  }
+  onSelect: (kind: ShapeKind) => void;
 }
 
 /**
  * One canvas-rendered shape preview button. The 24×24 canvas is
  * painted from the same `PATH_BUILDERS` registry the slide canvas
- * uses (via `renderShapeIcon`) for ShapeKinds, so the picker
- * preview can never drift from the geometry the user gets after
- * dragging on the slide. For connector kinds (line / arrow) — which
- * live outside the shape registry — the preview is drawn inline
- * by `drawConnectorIcon`.
+ * uses (via `renderShapeIcon`) so the picker preview can never drift
+ * from the geometry the user gets after dragging on the slide.
  */
 function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -95,11 +43,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
     // surface. Resolve the cascaded color from the canvas element so
     // the stroke follows `text-foreground` for both light and dark modes.
     ctx.strokeStyle = window.getComputedStyle(canvas).color || "#000";
-    if (isConnectorPickerKind(kind)) {
-      drawConnectorIcon(ctx, kind, { w: 24, h: 24 });
-    } else {
-      renderShapeIcon(kind, ctx, { w: 24, h: 24 });
-    }
+    renderShapeIcon(kind, ctx, { w: 24, h: 24 });
   }, [kind]);
   return (
     <button
@@ -116,24 +60,25 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
 }
 
 export interface ShapePickerProps {
-  /** Currently-active picker insert kind (shape or connector), or
-   * `null` when no shape insert is armed (e.g. user is in text-box
+  /** Currently-active `ShapeKind` insert kind, or `null` when no
+   * shape insert is armed (e.g. user is in text-box / connector
    * insert mode or no insert mode at all). Used to highlight the
    * matching button. */
-  activeKind: PickerInsertKind | null;
+  activeKind: ShapeKind | null;
   /** Called when the user picks an entry. Caller is responsible for
    * arming insert mode (`editor.setInsertMode(kind)`). */
-  onSelect: (kind: PickerInsertKind) => void;
+  onSelect: (kind: ShapeKind) => void;
   /** Disables the trigger button when the editor isn't ready yet. */
   disabled?: boolean;
 }
 
 /**
  * "Shape ▾" toolbar control. Single trigger button opens a popover
- * with five labelled categories — Lines, Shapes, Block Arrows,
- * Callouts, Equation — laid out as 6-column grids of canvas
- * previews. Replaces the previous five inline insert buttons in
- * `slides-formatting-toolbar.tsx`.
+ * with eight labelled categories — Shapes, Block Arrows, Banners,
+ * Flowchart, Callouts, Equation, Stars, Action Buttons — laid out as
+ * 6-column grids of canvas previews. Connector "lines" live in the
+ * sibling `<LinePicker />` (endpoint-anchored insertion UX is
+ * different enough to warrant its own dropdown).
  */
 export function ShapePicker({
   activeKind,

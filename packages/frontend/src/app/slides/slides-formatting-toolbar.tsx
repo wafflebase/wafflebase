@@ -42,6 +42,8 @@ import {
   IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
 import { ShapePicker } from "./shape-picker";
+import { LinePicker } from "./line-picker";
+import { isLinePickerKind } from "./line-picker-helpers";
 import { ThemedColorPicker } from "./themed-color-picker";
 import { ThemedFontPicker } from "./themed-font-picker";
 import {
@@ -329,7 +331,16 @@ export function SlidesFormattingToolbar({
         <TooltipContent>Text box</TooltipContent>
       </Tooltip>
       <ShapePicker
-        activeKind={insertMode && insertMode !== "text" ? insertMode : null}
+        activeKind={
+          insertMode && insertMode !== "text" && !isLinePickerKind(insertMode)
+            ? insertMode
+            : null
+        }
+        onSelect={(kind) => editor?.setInsertMode(kind)}
+        disabled={!editor}
+      />
+      <LinePicker
+        activeKind={isLinePickerKind(insertMode) ? insertMode : null}
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={!editor}
       />
