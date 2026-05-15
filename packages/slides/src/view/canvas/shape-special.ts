@@ -1,6 +1,7 @@
 // packages/slides/src/view/canvas/shape-special.ts
 import type { ShapeElement } from '../../model/element';
 import { resolveColor, type Theme, type ThemeColor } from '../../model/theme';
+import { resolveStrokeColor } from './render-context';
 import type { FrameSize } from './shapes/builder';
 import { ACTION_BUTTON_GLYPHS } from './shapes/action-buttons';
 
@@ -31,7 +32,7 @@ export function drawActionButton(
   }
   // Outer + inner bevel outline.
   if (data.stroke) {
-    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
+    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
     ctx.strokeRect(0, 0, w, h);
     const inset = ACTION_BUTTON_BEVEL_INSET;
@@ -49,7 +50,7 @@ export function drawActionButton(
   if (glyphBuilder) {
     const path = glyphBuilder({ w, h });
     const glyphSource = data.stroke?.color ?? ACTION_BUTTON_GLYPH_FALLBACK;
-    const glyphResolved = resolveColor(glyphSource, theme);
+    const glyphResolved = resolveStrokeColor(glyphSource, theme);
     const bodyResolved = data.fill ? resolveColor(data.fill, theme) : null;
     ctx.fillStyle =
       bodyResolved === glyphResolved

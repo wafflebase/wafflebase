@@ -92,3 +92,27 @@ describe('isElementEmpty', () => {
     expect(isElementEmpty(el)).toBe(false);
   });
 });
+
+describe('ShapeElement.data.stroke.dash', () => {
+  it('accepts solid/dashed/dotted', () => {
+    const shape: ShapeElement = {
+      id: 's1',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      data: { kind: 'rect', stroke: { color: '#000', width: 1, dash: 'dashed' } },
+    };
+    expect(shape.data.stroke?.dash).toBe('dashed');
+  });
+});
+
+describe('TextElement.data.stroke', () => {
+  it('is optional and accepts the same shape as ShapeElement.stroke', () => {
+    const text: TextElement = {
+      id: 't1',
+      type: 'text',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      data: { blocks: [], stroke: { color: '#000', width: 2, dash: 'solid' } },
+    };
+    expect(text.data.stroke?.width).toBe(2);
+  });
+});

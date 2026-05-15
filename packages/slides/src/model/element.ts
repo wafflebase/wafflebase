@@ -75,10 +75,22 @@ export type ShapeKind =
   | 'actionButtonMovie' | 'actionButtonSound'
   | 'actionButtonDocument' | 'actionButtonHelp';
 
-export type ShapeStroke = {
-  color: ThemeColor;
+/**
+ * Stroke descriptor shared by ShapeElement, TextElement, and ConnectorElement.
+ *
+ * `color` accepts either a resolved hex/CSS string (used by the toolbar
+ * redesign and all new editing paths) or a legacy ThemeColor discriminated
+ * union (stored in older Yorkie documents before the toolbar redesign).
+ * Renderers handle both via `resolveStrokeColor()` in render-context.ts.
+ */
+export type Stroke = {
+  color: ThemeColor | string;
   width: number;
+  dash?: 'solid' | 'dashed' | 'dotted';
 };
+
+/** @deprecated Use {@link Stroke} instead. Kept for type-level compatibility with ConnectorElement. */
+export type ShapeStroke = Stroke;
 
 export type PlaceholderType =
   | 'title'
@@ -104,6 +116,8 @@ export type TextElement = ElementBase & {
   data: {
     /** Domain-level read view; the Yorkie store backs this with a Tree. */
     blocks: Block[];
+    /** Optional box-level border. Used by toolbar redesign for object-selected text border control. */
+    stroke?: Stroke;
   };
 };
 
@@ -130,7 +144,7 @@ export type ShapeElement = ElementBase & {
      */
     adjustments?: number[];
     fill?: ThemeColor;
-    stroke?: ShapeStroke;
+    stroke?: Stroke;
   };
 };
 
