@@ -79,7 +79,7 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
           <button
             type="button"
             onClick={onImagePick}
-            disabled={disabled}
+            disabled={disabled || !editor}
             aria-label="Insert image"
             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
