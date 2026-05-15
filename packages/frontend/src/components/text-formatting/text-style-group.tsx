@@ -26,12 +26,9 @@ interface TextStyleGroupProps {
   disabled?: boolean;
   /**
    * When provided, only block-type options whose `type` is in this list are
-   * rendered. Omit (or pass `undefined`) to show the full set — preserves
-   * existing docs toolbar behaviour with no change.
-   *
-   * Task 11 (slides toolbar) will pass something like
-   * `['paragraph', 'heading']` to hide Title/Subtitle which silently no-op
-   * inside text boxes.
+   * rendered. Omit (or pass `undefined`) to show the full set. Useful when
+   * the hosting editor silently ignores some block types (e.g. text-boxes
+   * have no Title/Subtitle); pass `['paragraph', 'heading']` to hide them.
    */
   allowedBlockTypes?: ReadonlyArray<BlockType>;
 }

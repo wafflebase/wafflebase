@@ -59,9 +59,6 @@ export const STYLE_OPTIONS: StyleOption[] = [
 /**
  * Return the subset of `STYLE_OPTIONS` whose `type` is in `allowedBlockTypes`.
  * When `allowedBlockTypes` is undefined the full list is returned unchanged.
- *
- * Task 11 (slides toolbar) will pass something like `['paragraph', 'heading']`
- * to hide Title/Subtitle which silently no-op inside text boxes.
  */
 export function getFilteredStyleOptions(
   allowedBlockTypes?: ReadonlyArray<BlockType>

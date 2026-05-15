@@ -41,7 +41,8 @@ const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 24, 32, 48, 64, 96] as const;
  *   - Font family — writes fontFamily across all inlines in all blocks
  *   - Font size — writes fontSize across all inlines in all blocks
  *
- * Per-run text editing (bold, italic, etc.) is State 3 (Task 11).
+ * Per-run text editing (bold, italic, etc.) happens in the text-editing
+ * toolbar state, after double-click enters the box.
  */
 export function TextElementControls({ editor, store, theme, ids }: TextElementControlsProps) {
   const slideId = editor?.getCurrentSlideId();

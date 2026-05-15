@@ -796,14 +796,23 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       // For text elements, text content goes through `withTextElement`; we
       // ignore any `blocks` field in the patch to avoid clobbering.
+      const source = { ...(patch as object) } as Record<string, unknown>;
       if (e.type === 'text') {
-        const safe = { ...(patch as object) } as Record<string, unknown>;
-        delete safe.blocks;
-        if (Object.keys(safe).length === 0) return;
-        e.data = { ...(e.data as object), ...clone(safe) } as typeof e.data;
-        return;
+        delete source.blocks;
+        if (Object.keys(source).length === 0) return;
       }
-      e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
+      // Apply key-by-key so explicit `undefined` removes the key. JSON.stringify
+      // strips undefined, so the clone-and-spread approach silently dropped
+      // clears (e.g. `{ crop: undefined }` for Reset Crop).
+      const merged: Record<string, unknown> = { ...(e.data as object) };
+      for (const [k, v] of Object.entries(source)) {
+        if (v === undefined) {
+          delete merged[k];
+        } else {
+          merged[k] = clone(v);
+        }
+      }
+      e.data = merged as typeof e.data;
     });
   }
 

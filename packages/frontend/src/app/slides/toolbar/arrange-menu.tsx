@@ -32,11 +32,8 @@ export interface ArrangeMenuProps {
 
 /**
  * Arrange dropdown — collapses z-order, align, distribute, and rotate
- * actions into a single menu button. Intended for the object-selected
+ * actions into a single menu button. Rendered only in the object-selected
  * toolbar states (shape / image / text-element / mixed).
- *
- * Wired into the toolbar by Task 8's object-section.tsx. Not rendered in
- * idle or text-edit states.
  */
 export function ArrangeMenu({ editor, selectionSize }: ArrangeMenuProps) {
   const canAlign = !!editor && selectionSize > 0;

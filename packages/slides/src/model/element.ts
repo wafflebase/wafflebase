@@ -86,7 +86,6 @@ export type ShapeKind =
 export type Stroke = {
   color: ThemeColor | string;
   width: number;
-  /** Dash pattern. Rendering is wired up in Task 8 (shape-controls + renderer). */
   dash?: 'solid' | 'dashed' | 'dotted';
 };
 
@@ -117,9 +116,7 @@ export type TextElement = ElementBase & {
   data: {
     /** Domain-level read view; the Yorkie store backs this with a Tree. */
     blocks: Block[];
-    /** Optional box-level border. Used by toolbar redesign for object-selected text border control. */
     stroke?: Stroke;
-    /** Optional box background fill. Used by toolbar redesign for text-element object-level fill control. */
     fill?: ThemeColor;
   };
 };

@@ -20,11 +20,10 @@ export interface SlidesToolbarProps {
 }
 
 /**
- * Morphing slides toolbar shell. Renders global controls (undo/redo,
- * slide group, theme toggle, present button) plus a contextual middle
- * slot that will be populated by Tasks 5-11.
- *
- * Replaces the old SlidesFormattingToolbar that was removed in Task 12.
+ * Morphing slides toolbar shell. Fixed global zones on the outside
+ * (undo/redo, slide group on the left; Done/background/theme on the
+ * right) plus a contextual middle that swaps between the idle,
+ * object-selected, and text-editing sections based on editor state.
  */
 export function SlidesToolbar({
   editor,
@@ -61,7 +60,6 @@ export function SlidesToolbar({
       <ToolbarSeparator className="mx-1" />
       <SlideGroup store={store} />
       <ToolbarSeparator className="mx-1" />
-      {/* Contextual middle — populated by Tasks 5-11 */}
       <div
         data-testid="toolbar-contextual"
         className="flex flex-1 items-center gap-1"

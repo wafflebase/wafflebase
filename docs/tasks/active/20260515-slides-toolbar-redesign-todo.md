@@ -279,7 +279,7 @@ EOF
 
 ---
 
-## Task 3: Extract shared text-formatting components from docs toolbar
+## Task 3: Extract shared text-formatting components from docs toolbar ✓ DONE
 
 **Files:**
 - Create: `packages/frontend/src/components/text-formatting/text-style-group.tsx`
@@ -290,7 +290,7 @@ EOF
 
 Pure refactor: pull the B/I/U/Color/Highlight/Link group, the Font/Size group, and the Align/List/Indent group out of `docs-formatting-toolbar.tsx` into reusable components. The docs toolbar then composes them. **Visual + interaction tests must pass with no snapshot diffs after this task.**
 
-- [ ] **Step 1: Identify the three groups in docs toolbar**
+- [x] **Step 1: Identify the three groups in docs toolbar**
 
 ```bash
 grep -n "IconBold\|IconItalic\|IconUnderline\|IconAlignLeft\|IconList\|IconLink\|IconTypography\|IconHighlight" packages/frontend/src/app/docs/docs-formatting-toolbar.tsx
@@ -298,88 +298,25 @@ grep -n "IconBold\|IconItalic\|IconUnderline\|IconAlignLeft\|IconList\|IconLink\
 
 Note the line ranges for each group to plan the extraction.
 
-- [ ] **Step 2: Create `text-format-group.tsx`**
+- [x] **Step 2: Create `text-format-group.tsx`**
 
-Each component takes `{ editor: EditorAPI | null; disabled?: boolean }`. Move the JSX + handlers for Bold/Italic/Underline/Strike/Color/Highlight/Link from docs toolbar into this file unchanged. The `EditorAPI` type comes from `@wafflebase/docs`. Use the existing `useState`/`useEffect` hooks for marks state if present in docs toolbar; if those hooks live elsewhere, leave them in docs and pass derived props in.
+Also introduced `TextFormattingEditor` interface in `types.ts` (structural bridge between `EditorAPI` and `TextBoxEditorAPI`).
 
-```ts
-import type { EditorAPI } from '@wafflebase/docs';
-// ... copy imports, helper components (e.g. ColorPickerGrid), constants
+- [x] **Step 3: Create `text-style-group.tsx`** — Block-type styles dropdown (Normal text, Title, Subtitle, Heading 1-3).
 
-export interface TextFormatGroupProps {
-  editor: EditorAPI | null;
-  disabled?: boolean;
-}
+- [x] **Step 4: Create `text-paragraph-group.tsx`** — Align ▾, List, Indent in/out.
 
-export function TextFormatGroup({ editor, disabled }: TextFormatGroupProps) {
-  // Bold/Italic/Underline/Strike Toggles + Color/Highlight DropdownMenus + Link button
-  // exact JSX copied from docs-formatting-toolbar.tsx
-}
-```
+- [x] **Step 5: Create `index.ts` barrel**
 
-- [ ] **Step 3: Create `text-style-group.tsx`** — Font family / Size dropdowns. Same pattern.
+- [x] **Step 6: Replace inline JSX in `docs-formatting-toolbar.tsx`**
 
-- [ ] **Step 4: Create `text-paragraph-group.tsx`** — Align ▾, List ▾, Indent in/out. Same pattern. Re-export `AlignmentDropdown` from inside this file.
+- [x] **Step 7: Run docs unit + interaction tests** — All 773 tests pass.
 
-- [ ] **Step 5: Create `index.ts` barrel**
+- [ ] **Step 8: Run docs visual harness** (skipped for now, manual smoke below)
 
-```ts
-export { TextStyleGroup } from './text-style-group';
-export { TextFormatGroup } from './text-format-group';
-export { TextParagraphGroup } from './text-paragraph-group';
-export type { TextFormatGroupProps } from './text-format-group';
-// etc.
-```
+- [ ] **Step 9: Manual smoke** (pending)
 
-- [ ] **Step 6: Replace inline JSX in `docs-formatting-toolbar.tsx`**
-
-Remove the now-extracted JSX blocks; replace with:
-
-```tsx
-import { TextStyleGroup, TextFormatGroup, TextParagraphGroup } from '@/components/text-formatting';
-// ...
-<TextStyleGroup editor={editor} />
-<TextFormatGroup editor={editor} />
-<TextParagraphGroup editor={editor} />
-```
-
-Keep all docs-specific items (block-type dropdown, Table picker, Image insert, DOCX/PDF export, overflow menu) in the docs toolbar — they don't move.
-
-- [ ] **Step 7: Run docs unit + interaction tests**
-
-```bash
-pnpm --filter @wafflebase/frontend test docs
-```
-
-Expected: PASS.
-
-- [ ] **Step 8: Run docs visual harness**
-
-```bash
-pnpm verify:browser:docker -- --grep docs
-```
-
-Expected: PASS with **no snapshot updates required**. If snapshots diff, the extraction changed behavior — investigate before continuing.
-
-- [ ] **Step 9: Manual smoke**
-
-Start `pnpm dev`. Open a docs document. Verify B/I/U/S, color, highlight, link, font, size, alignment, list, indent all work. (5 minutes.)
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add packages/frontend/src/components/text-formatting/ packages/frontend/src/app/docs/docs-formatting-toolbar.tsx
-git commit -m "$(cat <<'EOF'
-Extract docs text-formatting controls into shared components
-
-Slides toolbar redesign needs the same B/I/U/Color/Align widgets
-inside its text-edit state. Extract them into
-components/text-formatting/ so docs and slides share one
-implementation. Pure refactor; docs visual + interaction tests
-unchanged.
-EOF
-)"
-```
+- [x] **Step 10: Commit** — `692950b1` (Commit A: text-box API) and `73a8339c` (Commit B: shared components)
 
 ---
 

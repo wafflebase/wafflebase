@@ -23,7 +23,6 @@ export interface ImageControlsProps {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
   ids: readonly string[];
-  /** Upload pipeline injected from the parent (wired in Task 12). */
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
 }
 

@@ -24,9 +24,6 @@
  * in v1 are paragraph-only inline content. Tables / horizontal rules /
  * page breaks would also be skipped by `paintLayout` itself, matching
  * the spec.
- *
- * Refs `packages/slides/spike/docs-richtext-audit.md` "Required exports"
- * and `docs/tasks/active/20260507-slides-phase5a-plan.md` Task 3.
  */
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import { createEmptyBlock } from '../model/types.js';
