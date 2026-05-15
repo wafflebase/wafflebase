@@ -81,6 +81,8 @@ export function UndoRedoGroup({ store }: UndoRedoGroupProps) {
 export interface RightGlobalsProps {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
+  /** When true, shows a Done button to exit text editing (Esc-equivalent). */
+  isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
   onStartPresentation?: (from: "current" | "first") => void;
@@ -89,10 +91,14 @@ export interface RightGlobalsProps {
 
 /**
  * Right-aligned global controls: Theme panel toggle + Present split-button.
+ * When isTextEditing is true, also renders a Done button before the theme
+ * toggle that exits text editing (equivalent to pressing Escape).
  * Aligned to the right of the toolbar via ml-auto on the wrapper.
  */
 export function RightGlobals({
+  editor,
   store,
+  isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
   onStartPresentation,
@@ -100,6 +106,21 @@ export function RightGlobals({
 }: RightGlobalsProps) {
   return (
     <div className="ml-auto flex items-center gap-1">
+      {isTextEditing && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => editor?.exitTextEditing()}
+              aria-label="Done editing text"
+              className="inline-flex h-7 items-center justify-center rounded-md px-3 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Done
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Exit text edit (Esc)</TooltipContent>
+        </Tooltip>
+      )}
       {onToggleThemePanel && (
         <Tooltip>
           <TooltipTrigger asChild>

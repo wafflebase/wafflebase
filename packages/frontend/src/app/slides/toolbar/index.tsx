@@ -6,6 +6,7 @@ import { SlideGroup } from "./slide-group";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
 import { IdleSection } from "./idle-section";
 import { ObjectSection } from "./object-section";
+import { TextEditSection } from "./text-edit-section";
 
 export interface SlidesToolbarProps {
   editor: SlidesEditor | null;
@@ -88,11 +89,14 @@ export function SlidesToolbar({
             upload={upload}
           />
         )}
-        {state.kind === "text-edit" && null}
+        {state.kind === "text-edit" && (
+          <TextEditSection state={state} />
+        )}
       </div>
       <RightGlobals
         editor={editor}
         store={store}
+        isTextEditing={state.kind === "text-edit"}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}
         onStartPresentation={onStartPresentation}
