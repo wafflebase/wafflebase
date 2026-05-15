@@ -6,7 +6,6 @@ import {
   type DistributeAxis,
   type Element,
   type InsertKind,
-  type ShapeKind,
   type SlidesEditor,
   type SlidesStore,
   type Theme,
@@ -330,11 +329,7 @@ export function SlidesFormattingToolbar({
         <TooltipContent>Text box</TooltipContent>
       </Tooltip>
       <ShapePicker
-        activeKind={
-          insertMode && insertMode !== "text"
-            ? (insertMode as ShapeKind)
-            : null
-        }
+        activeKind={insertMode && insertMode !== "text" ? insertMode : null}
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={!editor}
       />

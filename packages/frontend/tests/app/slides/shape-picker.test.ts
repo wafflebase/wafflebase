@@ -97,7 +97,7 @@ describe("shape-picker categories", () => {
     // mental "default" for that category. Locking these prevents an
     // accidental category-order shuffle from breaking habits.
     const firsts: Record<string, string> = {
-      lines: "line",
+      lines: "connector:line",
       shapes: "rect",
       "block-arrows": "rightArrow",
       banners: "ribbon",

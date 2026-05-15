@@ -1,12 +1,22 @@
-import { type ShapeKind } from "@wafflebase/slides";
+import { type ConnectorInsertKind, type ShapeKind } from "@wafflebase/slides";
 
 /**
- * One entry in a `Category.kinds` list — a single ShapeKind paired
- * with the user-facing label used as both the IconButton's tooltip
- * and `aria-label` for keyboard / screen-reader users.
+ * Insert-mode keys surfaced by the shape picker. Combines the static
+ * `ShapeKind` registry (rect, ellipse, …) with the connector
+ * insert-mode keys (`'connector:line'`, `'connector:arrow'`) — both
+ * are accepted by `editor.setInsertMode`. Connectors are NOT shape
+ * registry entries (they live outside `PATH_BUILDERS`), so the
+ * picker's icon renderer special-cases them.
+ */
+export type PickerInsertKind = ShapeKind | ConnectorInsertKind;
+
+/**
+ * One entry in a `Category.kinds` list — a single insert-mode key
+ * paired with the user-facing label used as both the IconButton's
+ * tooltip and `aria-label` for keyboard / screen-reader users.
  */
 export type CategoryEntry = {
-  kind: ShapeKind;
+  kind: PickerInsertKind;
   label: string;
 };
 
@@ -30,8 +40,10 @@ export type Category = {
  * Lines, Shapes, Block Arrows, Banners, Flowchart, Callouts,
  * Equation, Stars, Action Buttons — and the ordering inside each
  * category matches Google Slides so habits transfer. Each `kind`
- * MUST be a ShapeKind that has a registered `PATH_BUILDERS` builder
- * (or, for action buttons, an `ACTION_BUTTON_GLYPHS` entry) + a
+ * MUST be either a ShapeKind that has a registered `PATH_BUILDERS`
+ * builder (or, for action buttons, an `ACTION_BUTTON_GLYPHS` entry),
+ * or one of the `ConnectorInsertKind` values (`'connector:line'`,
+ * `'connector:arrow'`) for the Lines category. Every entry needs a
  * label > 0 chars.
  *
  * Exported as a `readonly` `Category[]` so consumers don't mutate
@@ -44,8 +56,8 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
     id: "lines",
     title: "Lines",
     kinds: [
-      { kind: "line", label: "Line" },
-      { kind: "arrow", label: "Arrow" },
+      { kind: "connector:line", label: "Line" },
+      { kind: "connector:arrow", label: "Arrow" },
     ],
   },
   {
