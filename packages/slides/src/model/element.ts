@@ -119,6 +119,8 @@ export type TextElement = ElementBase & {
     blocks: Block[];
     /** Optional box-level border. Used by toolbar redesign for object-selected text border control. */
     stroke?: Stroke;
+    /** Optional box background fill. Used by toolbar redesign for text-element object-level fill control. */
+    fill?: ThemeColor;
   };
 };
 
