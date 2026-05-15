@@ -81,6 +81,16 @@ export interface SlidesStore {
     },
   ): void;
 
+  /**
+   * Update a connector's stroke. Pass `undefined` to remove the stroke
+   * (connector falls back to its default rendering style).
+   */
+  updateConnectorStroke(
+    slideId: string,
+    elementId: string,
+    stroke: import('../model/element').Stroke | undefined,
+  ): void;
+
   // --- text bridges (Phase 5 wires these to docs Tree) ---
 
   /** Mutate the rich-text body of a text element via the docs Tree. */

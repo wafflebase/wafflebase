@@ -5,6 +5,7 @@ import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
 import { IdleSection } from "./idle-section";
+import { ObjectSection } from "./object-section";
 
 export interface SlidesToolbarProps {
   editor: SlidesEditor | null;
@@ -74,7 +75,15 @@ export function SlidesToolbar({
             onImagePick={onImagePick}
           />
         )}
-        {state.kind === "object" && null}
+        {state.kind === "object" && (
+          <ObjectSection
+            state={state}
+            editor={editor}
+            store={store}
+            theme={theme}
+            onImagePick={onImagePick}
+          />
+        )}
         {state.kind === "text-edit" && null}
       </div>
       <RightGlobals

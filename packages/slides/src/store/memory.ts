@@ -6,6 +6,7 @@ import type {
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
 import type { ArrowheadStyle, Endpoint } from '../model/connector';
+import type { Stroke } from '../model/element';
 import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
@@ -351,6 +352,22 @@ export class MemSlidesStore implements SlidesStore {
       }
     }
     e.arrowheads = next;
+  }
+
+  updateConnectorStroke(
+    slideId: string, elementId: string, stroke: Stroke | undefined,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    if (stroke === undefined) {
+      delete e.stroke;
+    } else {
+      e.stroke = clone(stroke);
+    }
   }
 
   reorderElement(

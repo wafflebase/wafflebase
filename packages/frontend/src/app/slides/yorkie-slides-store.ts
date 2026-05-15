@@ -15,6 +15,7 @@ import {
   type Slide as ModelSlide,
   type SlidesDocument,
   type SlidesStore,
+  type Stroke,
   type Theme,
   BUILT_IN_LAYOUTS,
   applyLayoutToSlide,
@@ -874,6 +875,29 @@ export class YorkieSlidesStore implements SlidesStore {
         }
       }
       c.arrowheads = next;
+    });
+  }
+
+  updateConnectorStroke(
+    slideId: string,
+    elementId: string,
+    stroke: Stroke | undefined,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const e = s.elements.find((e) => e.id === elementId);
+      if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as { stroke?: Stroke };
+      if (stroke === undefined) {
+        delete c.stroke;
+      } else {
+        c.stroke = clone(stroke);
+      }
     });
   }
 
