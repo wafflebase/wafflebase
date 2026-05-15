@@ -19,11 +19,7 @@ import {
 } from "@/components/ui/tooltip";
 import { IconChevronDown } from "@tabler/icons-react";
 import { getFilteredStyleOptions, getBlockLabel } from "./text-style-options";
-
-const isMac =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
+import { modKey } from "./platform";
 
 interface TextStyleGroupProps {
   editor: TextFormattingEditor | null;

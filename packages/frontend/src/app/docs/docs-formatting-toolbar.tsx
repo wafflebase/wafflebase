@@ -52,11 +52,8 @@ import {
   TextFormatGroup,
   TextParagraphGroup,
 } from "@/components/text-formatting";
-
-const isMac =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
+import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
+import { isMac, modKey } from "@/components/text-formatting/platform";
 
 // ─── Docs-specific sub-components ────────────────────────────────────────────
 
@@ -555,14 +552,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Styles</DropdownMenuLabel>
-              {[
-                { label: "Normal text", type: "paragraph" as const, className: "text-[13px]" },
-                { label: "Title", type: "title" as const, className: "text-[22px] leading-tight" },
-                { label: "Subtitle", type: "subtitle" as const, className: "text-[13px] text-muted-foreground" },
-                { label: "Heading 1", type: "heading" as const, headingLevel: 1 as const, className: "text-[18px] font-bold" },
-                { label: "Heading 2", type: "heading" as const, headingLevel: 2 as const, className: "text-[16px] font-bold" },
-                { label: "Heading 3", type: "heading" as const, headingLevel: 3 as const, className: "text-[14px] font-bold" },
-              ].map((opt) => (
+              {STYLE_OPTIONS.map((opt) => (
                 <DropdownMenuItem
                   key={opt.label}
                   onClick={() =>

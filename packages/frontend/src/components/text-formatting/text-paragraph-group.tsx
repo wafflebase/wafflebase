@@ -28,11 +28,7 @@ import {
   IconIndentDecrease,
   IconIndentIncrease,
 } from "@tabler/icons-react";
-
-const isMac =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
+import { modKey } from "./platform";
 
 interface TextParagraphGroupProps {
   editor: TextFormattingEditor | null;

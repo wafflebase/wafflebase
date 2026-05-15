@@ -27,11 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
-
-const isMac =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
+import { modKey } from "./platform";
 
 interface TextFormatGroupProps {
   editor: TextFormattingEditor | null;

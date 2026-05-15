@@ -56,10 +56,4 @@ export interface TextFormattingEditor {
 
   /** Programmatically trigger the link request (same as Ctrl+K). */
   requestLink(): void;
-
-  /** Undo. */
-  undo(): void;
-
-  /** Redo. */
-  redo(): void;
 }
