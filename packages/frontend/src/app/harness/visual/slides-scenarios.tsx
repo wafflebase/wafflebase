@@ -156,16 +156,18 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
  * single canvas as a 5×11 grid (55 cells, no blanks). Each cell is the
  * same frame size and uses the per-category default fill/stroke from the
  * picker (filled for basic / arrows / equation / flowchart / stars,
- * outlined for callouts, stroked for line / arrow). Used as a single
- * baseline to catch geometry changes across the entire registry.
+ * outlined for callouts). Used as a single baseline to catch geometry
+ * changes across the entire registry.
+ *
+ * Connectors (line / arrow) live outside the shape registry now —
+ * connector-rendering visual coverage is deferred to a future PR.
  *
  * Order is "old before new" so the regression diff focuses on new
- * shapes as categories grow: P1 (lines, basics, arrows, callouts,
- * equation) first, then P2 stars + flowchart, then P3-B additions
- * appended to each family (basics, snip/round rects, banners,
- * arrows, line callouts), with the 12 action buttons last (their
- * special-cased renderer makes them the natural tail of the
- * catalog).
+ * shapes as categories grow: P1 (basics, arrows, callouts, equation)
+ * first, then P2 stars + flowchart, then P3-B additions appended to
+ * each family (basics, snip/round rects, banners, arrows, line
+ * callouts), with the 12 action buttons last (their special-cased
+ * renderer makes them the natural tail of the catalog).
  *
  * The picker itself uses spec order (Lines · Shapes · Block Arrows
  * · Banners · Flowchart · Callouts · Equation · Stars · Action
@@ -174,8 +176,6 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
  * picker" trade-off rationale.
  */
 const SHAPE_CATALOG: ShapeKind[] = [
-  // Lines (2)
-  "line", "arrow",
   // Basic — P1 (15)
   "rect", "roundRect", "ellipse", "triangle", "rtTriangle",
   "diamond", "parallelogram", "trapezoid", "pentagon", "hexagon",
@@ -245,7 +245,6 @@ const CALLOUT_KINDS = new Set<ShapeKind>([
   "borderCallout2",
   "borderCallout3",
 ]);
-const LINE_KINDS = new Set<ShapeKind>(["line", "arrow"]);
 const STROKE_ONLY_KINDS = new Set<ShapeKind>(["arc"]);
 
 function isActionButtonKind(kind: ShapeKind): boolean {
@@ -257,7 +256,6 @@ function shapeElement(
   frame: { x: number; y: number; w: number; h: number },
 ): Element {
   const adjustments = undefined;
-  const lineSpecial = LINE_KINDS.has(kind);
   const callout = CALLOUT_KINDS.has(kind);
   const strokeOnly = STROKE_ONLY_KINDS.has(kind);
   const actionButton = isActionButtonKind(kind);
@@ -268,25 +266,22 @@ function shapeElement(
     data: {
       kind,
       adjustments,
-      ...(lineSpecial
-        ? {
-            stroke: { color: TEXT_ROLE, width: 2 },
-            ...(kind === "arrow" ? { fill: TEXT_ROLE } : {}),
-          }
-        : strokeOnly
-          ? { stroke: { color: TEXT_ROLE, width: 2 } }
-          : callout || actionButton
-            ? { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } }
-            : { fill: ACCENT1 }),
+      ...(strokeOnly
+        ? { stroke: { color: TEXT_ROLE, width: 2 } }
+        : callout || actionButton
+          ? { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } }
+          : { fill: ACCENT1 }),
     },
   } as Element;
 }
 
 function makeCatalogDoc(themeId: string = "default-light"): SlidesDocument {
-  // 10 columns × 12 rows = 120 cells, 117 used (3 trailing empty) —
-  // grew from the P1+P2 5×11=55 layout to fit the P3-B catalog. Cells
-  // are roughly square so character / arrow shapes don't get squashed
-  // along the longer axis.
+  // 10 columns × 12 rows = 120 cells, 115 used (5 trailing empty) —
+  // grew from the P1+P2 5×11=55 layout to fit the P3-B catalog. Line
+  // and arrow connectors moved out of `ShapeKind` to the connector
+  // pipeline (Task 14, slides connectors PR1) so the catalog now
+  // covers shape-builder geometry only. Cells are roughly square so
+  // character / arrow shapes don't get squashed along the longer axis.
   const cols = 10;
   const rows = 12;
   const cellW = 190;
@@ -880,29 +875,31 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
       "Contextual picker layouts — color picker (Theme / Standard / Custom) and font picker (Theme fonts / System) — rendered standalone for baseline coverage independent of toolbar state.",
     render: () => <SlidesPickersScenario />,
   },
-  // Shape library — geometry baselines for all 55 shape builders (P1 + P2).
-  // The catalog scenario covers every kind in one go on a 5×11 grid;
+  // Shape library — geometry baselines for all shape builders (P1 + P2 + P3-B).
+  // The catalog scenario covers every kind in one go on a 10×12 grid;
   // donut and callout pin a couple of higher-risk geometries
   // (evenodd fill, tail attachment) at larger sizes for clarity.
+  // Connector-rendering visual coverage (line, arrow) is deferred to a
+  // follow-up PR once connectors land in the registry.
   {
     id: "slides-canvas-shapes-catalog-light",
-    title: "Shapes — full 117 catalog (light)",
+    title: "Shapes — full 115 catalog (light)",
     description:
-      "Every ShapeKind (P1 + P2 + P3-B, 117 total) on a single slide, 10×12 grid. Default fills/strokes from the picker (accent1 fill for basic / arrows / banners / equation / flowchart / stars; outlined for callouts and action buttons; stroke-only for arc). Default-light theme.",
+      "Every ShapeKind (P1 + P2 + P3-B, 115 total) on a single slide, 10×12 grid. Default fills/strokes from the picker (accent1 fill for basic / arrows / banners / equation / flowchart / stars; outlined for callouts and action buttons; stroke-only for arc). Default-light theme.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-light")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-dark",
-    title: "Shapes — full 117 catalog (dark)",
+    title: "Shapes — full 115 catalog (dark)",
     description:
-      "Same 117-shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all builders, including the P3-B drawActionButton dispatcher branch.",
+      "Same 115-shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all builders, including the P3-B drawActionButton dispatcher branch.",
     render: () => <SlideCanvas doc={makeCatalogDoc("default-dark")} />,
   },
   {
     id: "slides-canvas-shapes-catalog-material",
-    title: "Shapes — full 117 catalog (material)",
+    title: "Shapes — full 115 catalog (material)",
     description:
-      "117-shape catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for all builders.",
+      "115-shape catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for all builders.",
     render: () => <SlideCanvas doc={makeCatalogDoc("material")} />,
   },
   {

@@ -5,6 +5,7 @@ import type {
   SlidesDocument,
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
+import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
@@ -15,6 +16,10 @@ import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
 import { defaultLight } from '../themes/default-light';
 import { clone } from '../model/clone';
+import {
+  computeConnectorFrame,
+  resolveEndpoint,
+} from '../view/canvas/connector-frame';
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -107,7 +112,32 @@ export class MemSlidesStore implements SlidesStore {
     const source = this.doc.slides[index];
     const copy: Slide = clone(source);
     copy.id = generateId();
-    copy.elements = copy.elements.map((e) => ({ ...e, id: generateId() }));
+    // Regenerate element ids and build oldId → newId map so attached
+    // endpoints on connectors can be rewritten to reference the new ids.
+    // Without this, every duplicated slide with an attached connector
+    // would silently leave the connector pointing at the source slide's
+    // element id — which still resolves on the source but resolves to
+    // (0,0) on the copy (resolveEndpoint's missing-target fallback).
+    const idMap = new Map<string, string>();
+    copy.elements = copy.elements.map((e) => {
+      const newId = generateId();
+      idMap.set(e.id, newId);
+      return { ...e, id: newId };
+    });
+    // Rewrite connector endpoints; recompute their cached frame off the
+    // new id space.
+    const lookup = new Map(copy.elements.map((e) => [e.id, e] as const));
+    for (const e of copy.elements) {
+      if (e.type !== 'connector') continue;
+      for (const side of ['start', 'end'] as const) {
+        const ep = e[side];
+        if (ep.kind === 'attached') {
+          const mapped = idMap.get(ep.elementId);
+          if (mapped) e[side] = { ...ep, elementId: mapped };
+        }
+      }
+      e.frame = computeConnectorFrame(e, lookup);
+    }
     this.doc.slides.splice(index + 1, 0, copy);
     return copy.id;
   }
@@ -185,6 +215,15 @@ export class MemSlidesStore implements SlidesStore {
     const slide = this.requireSlide(slideId);
     const id = generateId();
     const element = { ...clone(init), id } as Element;
+    // Connectors carry a derived `frame` cache; the insert call path uses
+    // `buildConnectorInit` which pre-fills it correctly, but any future
+    // paste/import path could persist a degenerate `{0,0,0,0}` frame and
+    // silently break the selection bbox. Recompute defensively here so
+    // the cache is always derived from the endpoints.
+    if (element.type === 'connector') {
+      const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+      element.frame = computeConnectorFrame(element, lookup);
+    }
     slide.elements.push(element);
     return id;
   }
@@ -193,6 +232,13 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const i = this.requireElementIndex(slide, elementId);
+    // Cascade sweep — any connector still attached to the element being
+    // removed must convert that endpoint to a `free` endpoint pinned at
+    // the endpoint's *current* world position, so the connector survives
+    // source deletion without snapping to the origin. (Q4 c1 policy.)
+    // We compute the world position *before* removing the source from the
+    // lookup so attached siteWorldPos still resolves.
+    this.detachConnectorsTargeting(slide, elementId);
     slide.elements.splice(i, 1);
   }
 
@@ -200,6 +246,12 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const set = new Set(elementIds);
+    // Cascade sweep — convert any endpoint attached to one of the
+    // about-to-be-removed elements into a free endpoint at its last
+    // world position before any source is dropped.
+    for (const id of set) {
+      this.detachConnectorsTargeting(slide, id);
+    }
     slide.elements = slide.elements.filter((e) => !set.has(e.id));
   }
 
@@ -209,7 +261,32 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type === 'connector') {
+      // Connector frame is derived from endpoint positions — patching it
+      // directly would leave the cached bbox out of sync with the
+      // endpoints. Callers must mutate endpoints via
+      // `updateConnectorEndpoint`, which recomputes the frame for them.
+      throw new Error(
+        `Element ${elementId} is a connector; update its endpoints instead of its frame`,
+      );
+    }
     e.frame = { ...e.frame, ...frame };
+    // Recompute cached frames of connectors whose endpoints attach to
+    // this element. The renderer reads endpoints live, so the visual
+    // line already follows the source move — but selection bbox /
+    // hit-testing uses the cached `frame`, which must stay fresh.
+    // This is derived state; the snapshot-based undo already restores
+    // the prior frame from the pre-batch snapshot.
+    const lookup = this.elementsLookup(slideId);
+    for (const el of slide.elements) {
+      if (el.type !== 'connector') continue;
+      const dependsOnUs =
+        (el.start.kind === 'attached' && el.start.elementId === elementId) ||
+        (el.end.kind   === 'attached' && el.end.elementId   === elementId);
+      if (dependsOnUs) {
+        el.frame = computeConnectorFrame(el, lookup);
+      }
+    }
   }
 
   updateElementData(
@@ -218,8 +295,62 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type === 'connector') {
+      // Connectors have no `data` sub-object; use `updateConnectorEndpoint`
+      // or `updateConnectorArrowheads` instead.
+      throw new Error(
+        `Element ${elementId} is a connector; use updateConnectorEndpoint / updateConnectorArrowheads`,
+      );
+    }
     // discriminated union — patch only the data sub-object.
     e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
+  }
+
+  updateConnectorEndpoint(
+    slideId: string,
+    elementId: string,
+    side: 'start' | 'end',
+    endpoint: Endpoint,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    e[side] = clone(endpoint);
+    e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
+  }
+
+  updateConnectorArrowheads(
+    slideId: string,
+    elementId: string,
+    heads: {
+      start?: ArrowheadStyle | null;
+      end?:   ArrowheadStyle | null;
+    },
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    // Build a fresh arrowheads object — never mutate the existing one
+    // in place, since other places may hold a snapshot reference to it.
+    const next: { start?: ArrowheadStyle; end?: ArrowheadStyle } = {
+      ...e.arrowheads,
+    };
+    for (const side of ['start', 'end'] as const) {
+      if (!(side in heads)) continue; // `undefined` means "don't touch"
+      const value = heads[side];
+      if (value === null) {
+        delete next[side];
+      } else if (value !== undefined) {
+        next[side] = clone(value);
+      }
+    }
+    e.arrowheads = next;
   }
 
   reorderElement(
@@ -314,6 +445,47 @@ export class MemSlidesStore implements SlidesStore {
   private requireBatch(): void {
     if (this.batchDepth === 0) {
       throw new Error('Mutations must be wrapped in batch()');
+    }
+  }
+
+  /**
+   * Read-only id → Element map for the given slide. Used by the
+   * connector frame helpers to resolve attached endpoints.
+   */
+  private elementsLookup(slideId: string): ReadonlyMap<string, Element> {
+    const i = this.doc.slides.findIndex((s) => s.id === slideId);
+    if (i === -1) return new Map();
+    const slide = this.doc.slides[i];
+    return new Map(slide.elements.map((e) => [e.id, e] as const));
+  }
+
+  /**
+   * For every connector on `slide` whose `start` or `end` is attached
+   * to `targetId`, convert that endpoint to a `free` endpoint pinned at
+   * the endpoint's current world position, then refresh the connector's
+   * cached `frame`. Caller must invoke this *before* removing the target
+   * so attached `siteWorldPos` still resolves to a defined location.
+   */
+  private detachConnectorsTargeting(slide: Slide, targetId: string): void {
+    const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+    for (const el of slide.elements) {
+      if (el.type !== 'connector') continue;
+      let mutated = false;
+      for (const side of ['start', 'end'] as const) {
+        const ep = el[side];
+        if (ep.kind === 'attached' && ep.elementId === targetId) {
+          const w = resolveEndpoint(ep, lookup);
+          el[side] = { kind: 'free', x: w.x, y: w.y };
+          mutated = true;
+        }
+      }
+      if (mutated) {
+        // Reuse the outer `lookup` — `computeConnectorFrame` only
+        // consults it for `attached` endpoints, and we just rewrote
+        // both touched endpoints to `free`, so rebuilding the Map
+        // would be pure overhead.
+        el.frame = computeConnectorFrame(el, lookup);
+      }
     }
   }
 }

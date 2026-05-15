@@ -404,6 +404,258 @@ describe('MemSlidesStore — addSlide seeds master typography', () => {
   });
 });
 
+describe('MemSlidesStore — connector methods', () => {
+  /**
+   * Set up a slide with a target rectangle at (100,100)-(300,200) and a
+   * connector whose `end` is attached to the target's N connection site
+   * (siteIndex 0 → world position (200, 100)) and whose `start` is a
+   * free endpoint at the origin.
+   */
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let targetId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      targetId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 0, y: 0 },
+        end:   { kind: 'attached', elementId: targetId, siteIndex: 0 }, // N site
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+    return { store, slideId, targetId, connectorId };
+  }
+
+  it('addElement persists a connector with both endpoints', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    const c = slide.elements.find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      expect(c.start).toEqual({ kind: 'free', x: 0, y: 0 });
+      expect(c.end).toEqual({
+        kind: 'attached', elementId: targetId, siteIndex: 0,
+      });
+    }
+  });
+
+  it('updateConnectorEndpoint replaces one endpoint and recomputes frame', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => {
+      store.updateConnectorEndpoint(slideId, connectorId, 'start', {
+        kind: 'free', x: 42, y: 7,
+      });
+    });
+    const c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      expect(c.start).toEqual({ kind: 'free', x: 42, y: 7 });
+      // Frame is the tight bbox of (42,7) and the target N site (200,100),
+      // expanded by half the default stroke width. min-x should not exceed 42.
+      expect(c.frame.x).toBeLessThanOrEqual(42);
+      expect(c.frame.y).toBeLessThanOrEqual(7);
+    }
+  });
+
+  it('updateConnectorEndpoint throws when target element is not a connector', () => {
+    const { store, slideId, targetId } = setup();
+    store.batch(() => {
+      expect(() =>
+        store.updateConnectorEndpoint(slideId, targetId, 'start', {
+          kind: 'free', x: 0, y: 0,
+        }),
+      ).toThrow(/not a connector/);
+    });
+  });
+
+  it('updateElementFrame throws when target is a connector', () => {
+    const { store, slideId, connectorId } = setup();
+    expect(() => {
+      store.batch(() => {
+        store.updateElementFrame(slideId, connectorId, { x: 999 });
+      });
+    }).toThrow(/connector/i);
+  });
+
+  it('removeElement of attached target converts endpoint to free at last world position', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    // Target N site = (200, 100).
+    store.batch(() => { store.removeElement(slideId, targetId); });
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    const c = slide.elements.find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      expect(c.end).toEqual({ kind: 'free', x: 200, y: 100 });
+    }
+  });
+
+  it('removeElement undo restores both target and attached endpoint', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    store.batch(() => { store.removeElement(slideId, targetId); });
+    store.undo();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    const c = slide.elements.find((e) => e.id === connectorId);
+    expect(slide.elements.some((e) => e.id === targetId)).toBe(true);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      expect(c.end).toEqual({
+        kind: 'attached', elementId: targetId, siteIndex: 0,
+      });
+    }
+  });
+
+  it('removeElements detaches connectors attached to any of the removed ids', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    store.batch(() => { store.removeElements(slideId, [targetId]); });
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    const c = slide.elements.find((e) => e.id === connectorId);
+    expect(slide.elements.some((e) => e.id === targetId)).toBe(false);
+    if (c?.type === 'connector') {
+      expect(c.end).toEqual({ kind: 'free', x: 200, y: 100 });
+    }
+  });
+
+  it('updateConnectorArrowheads toggles end arrowhead', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => {
+      store.updateConnectorArrowheads(slideId, connectorId, {
+        end: { kind: 'triangle', size: 'md' },
+      });
+    });
+    const c1 = store.read().slides.find((s) => s.id === slideId)!
+      .elements.find((e) => e.id === connectorId);
+    if (c1?.type === 'connector') {
+      expect(c1.arrowheads.end).toEqual({ kind: 'triangle', size: 'md' });
+    }
+
+    store.batch(() => {
+      store.updateConnectorArrowheads(slideId, connectorId, { end: null });
+    });
+    const c2 = store.read().slides.find((s) => s.id === slideId)!
+      .elements.find((e) => e.id === connectorId);
+    if (c2?.type === 'connector') {
+      expect(c2.arrowheads.end).toBeUndefined();
+    }
+  });
+
+  it('updateConnectorArrowheads leaves untouched sides alone', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => {
+      store.updateConnectorArrowheads(slideId, connectorId, {
+        start: { kind: 'circle', size: 'sm' },
+        end:   { kind: 'triangle', size: 'lg' },
+      });
+    });
+    store.batch(() => {
+      // Only patch `end`; `start` must remain.
+      store.updateConnectorArrowheads(slideId, connectorId, {
+        end: { kind: 'diamond', size: 'md' },
+      });
+    });
+    const c = store.read().slides.find((s) => s.id === slideId)!
+      .elements.find((e) => e.id === connectorId);
+    if (c?.type === 'connector') {
+      expect(c.arrowheads.start).toEqual({ kind: 'circle', size: 'sm' });
+      expect(c.arrowheads.end).toEqual({ kind: 'diamond', size: 'md' });
+    }
+  });
+
+  it('duplicateSlide rewrites attached connector endpoint ids on the copy', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    let copyId = '';
+    store.batch(() => { copyId = store.duplicateSlide(slideId); });
+    const doc = store.read();
+    const copySlide = doc.slides.find((s) => s.id === copyId)!;
+    // The copy contains regenerated ids — neither matches the source.
+    expect(copySlide.elements.map((e) => e.id))
+      .not.toContain(targetId);
+    expect(copySlide.elements.map((e) => e.id))
+      .not.toContain(connectorId);
+    // Locate the copy's connector + its target by type, not by id.
+    const copyConnector = copySlide.elements.find((e) => e.type === 'connector');
+    const copyTarget = copySlide.elements.find((e) => e.type === 'shape');
+    expect(copyConnector?.type).toBe('connector');
+    expect(copyTarget?.type).toBe('shape');
+    if (copyConnector?.type === 'connector' && copyTarget) {
+      // The copy's connector must attach to the COPY's target, not the
+      // original target. Pre-fix, the connector still pointed at
+      // `targetId` and resolveEndpoint's missing-target fallback would
+      // snap it to (0, 0) when rendered on the copy slide.
+      expect(copyConnector.end).toEqual({
+        kind: 'attached',
+        elementId: copyTarget.id,
+        siteIndex: 0,
+      });
+      // Cached frame must also be derived from the rewritten endpoint
+      // (i.e. the copy's target's N site at (200, 100)), so the bbox
+      // matches the original.
+      const orig = doc.slides
+        .find((s) => s.id === slideId)!.elements
+        .find((e) => e.id === connectorId);
+      if (orig?.type === 'connector') {
+        expect(copyConnector.frame).toEqual(orig.frame);
+      }
+    }
+  });
+
+  it('addElement recomputes frame for connector even if init.frame is degenerate', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 100, y: 100 },
+        end:   { kind: 'free', x: 400, y: 200 },
+        arrowheads: {},
+        // Deliberately degenerate — simulates a future paste/import
+        // path that stores a stale or zero frame.
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 2 },
+      });
+    });
+    const c = store.read().slides[0].elements.find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      // Frame derived from endpoints, not the degenerate input.
+      expect(c.frame.w).toBeGreaterThan(0);
+      expect(c.frame.h).toBeGreaterThan(0);
+      expect(c.frame.x).toBeLessThanOrEqual(100);
+      expect(c.frame.y).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('updateElementFrame on attached target recomputes connector frame', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    const slide1 = store.read().slides.find((s) => s.id === slideId)!;
+    const f1 = slide1.elements.find((e) => e.id === connectorId)!.frame;
+
+    // Move the target by 400 in both axes.
+    store.batch(() => {
+      store.updateElementFrame(slideId, targetId, { x: 500, y: 500 });
+    });
+
+    const slide2 = store.read().slides.find((s) => s.id === slideId)!;
+    const f2 = slide2.elements.find((e) => e.id === connectorId)!.frame;
+    // After the move the attached endpoint's world position is (600, 500),
+    // not (200, 100), so the bbox must differ.
+    expect(f2).not.toEqual(f1);
+  });
+});
+
 describe('MemSlidesStore — batch / undo / redo', () => {
   it('batch groups multiple mutations into one undo entry', () => {
     const store = new MemSlidesStore();

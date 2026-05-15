@@ -14,11 +14,18 @@ import {
  * `shape-picker-helpers.ts` so the toolbar contract can be asserted
  * without rendering React.
  *
- * The picker contract: 7 categories (Lines, Shapes, Block Arrows,
- * Flowchart, Callouts, Equation, Stars) with a combined entry count
- * matching the registered `ShapeKind` catalogue. Each entry is
- * tagged with a non-empty user-facing label that doubles as the
- * IconButton's `aria-label` for accessibility.
+ * The picker contract: 8 categories (Shapes, Block Arrows, Banners,
+ * Flowchart, Callouts, Equation, Stars, Action Buttons) with a
+ * combined entry count matching the registered `ShapeKind`
+ * catalogue. Each entry is tagged with a non-empty user-facing label
+ * that doubles as the IconButton's `aria-label` for accessibility.
+ *
+ * Line connectors (`'connector:line'` / `'connector:arrow'`) used to
+ * live in a "Lines" category here, but were split out into a
+ * dedicated `<LinePicker />` dropdown (their insertion UX is
+ * endpoint-anchored, fundamentally different from shape drag-to-size,
+ * so they get their own toolbar button next to Shapes). Their
+ * contract is covered by `line-picker.test.ts`.
  *
  * The entry-count expectation is updated as P3-B adds new shapes:
  * 55 (P3-A.2) → 58 (T2a: heptagon, decagon, dodecagon) → 62
@@ -34,16 +41,16 @@ import {
  * borderCallout1/2/3 appended to Callouts) → 106 (T7a:
  * actionButtonBlank — infrastructure pilot, new "Action Buttons"
  * section at end) → 117 (T7b: 11 remaining action buttons —
- * final P3-B catalog).
+ * final P3-B catalog) → 115 (lines moved out into
+ * `<LinePicker />`, dropping 2 connector entries).
  */
 
 describe("shape-picker categories", () => {
-  it("exposes 9 categories in display order", () => {
-    assert.equal(SHAPE_PICKER_CATEGORIES.length, 9);
+  it("exposes 8 categories in display order", () => {
+    assert.equal(SHAPE_PICKER_CATEGORIES.length, 8);
     assert.deepEqual(
       SHAPE_PICKER_CATEGORIES.map((c) => c.id),
       [
-        "lines",
         "shapes",
         "block-arrows",
         "banners",
@@ -58,7 +65,6 @@ describe("shape-picker categories", () => {
 
   it("each category has a human-readable title", () => {
     const expected: Record<string, string> = {
-      lines: "Lines",
       shapes: "Shapes",
       "block-arrows": "Block Arrows",
       banners: "Banners",
@@ -73,12 +79,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 117 ShapeKind entries across all categories", () => {
+  it("contains exactly 115 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 117);
+    assert.equal(total, 115);
   });
 
   it("each entry has a non-empty kind and label", () => {
@@ -97,7 +103,6 @@ describe("shape-picker categories", () => {
     // mental "default" for that category. Locking these prevents an
     // accidental category-order shuffle from breaking habits.
     const firsts: Record<string, string> = {
-      lines: "line",
       shapes: "rect",
       "block-arrows": "rightArrow",
       banners: "ribbon",
@@ -110,6 +115,15 @@ describe("shape-picker categories", () => {
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       assert.equal(cat.kinds[0]?.kind, firsts[cat.id]);
     }
+  });
+
+  it("excludes line connector kinds (now in <LinePicker />)", () => {
+    const kinds = SHAPE_PICKER_CATEGORIES.flatMap((c) =>
+      c.kinds.map((k) => k.kind as string),
+    );
+    assert.ok(!kinds.includes("connector:line"));
+    assert.ok(!kinds.includes("connector:arrow"));
+    assert.ok(!SHAPE_PICKER_CATEGORIES.some((c) => c.id === "lines"));
   });
 
   it("ShapeKind values are unique across the catalogue", () => {

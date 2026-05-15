@@ -1,5 +1,6 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, SlidesDocument } from '../model/presentation';
+import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { ElementInit, Frame } from '../model/element';
 import type { Theme } from '../model/theme';
 
@@ -59,6 +60,26 @@ export interface SlidesStore {
   ): void;
   /** toIndex: 0 = back, length-1 = front. */
   reorderElement(slideId: string, elementId: string, toIndex: number): void;
+
+  // --- connector-level ---
+
+  /** Update an endpoint of an existing connector. */
+  updateConnectorEndpoint(
+    slideId: string,
+    elementId: string,
+    side: 'start' | 'end',
+    endpoint: Endpoint,
+  ): void;
+
+  /** Replace a connector's arrowhead styles. Pass `null` per side to clear. */
+  updateConnectorArrowheads(
+    slideId: string,
+    elementId: string,
+    heads: {
+      start?: ArrowheadStyle | null;
+      end?:   ArrowheadStyle | null;
+    },
+  ): void;
 
   // --- text bridges (Phase 5 wires these to docs Tree) ---
 

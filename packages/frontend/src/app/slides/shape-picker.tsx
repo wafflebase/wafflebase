@@ -23,9 +23,8 @@ interface IconButtonProps {
 /**
  * One canvas-rendered shape preview button. The 24×24 canvas is
  * painted from the same `PATH_BUILDERS` registry the slide canvas
- * uses (via `renderShapeIcon`), so the picker preview can never
- * drift from the geometry the user gets after dragging on the
- * slide.
+ * uses (via `renderShapeIcon`) so the picker preview can never drift
+ * from the geometry the user gets after dragging on the slide.
  */
 function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -61,11 +60,12 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
 }
 
 export interface ShapePickerProps {
-  /** Currently-active insert shape kind, or `null` when no shape
-   * insert is armed (e.g. user is in text-box insert mode or no
-   * insert mode at all). Used to highlight the matching button. */
+  /** Currently-active `ShapeKind` insert kind, or `null` when no
+   * shape insert is armed (e.g. user is in text-box / connector
+   * insert mode or no insert mode at all). Used to highlight the
+   * matching button. */
   activeKind: ShapeKind | null;
-  /** Called when the user picks a shape. Caller is responsible for
+  /** Called when the user picks an entry. Caller is responsible for
    * arming insert mode (`editor.setInsertMode(kind)`). */
   onSelect: (kind: ShapeKind) => void;
   /** Disables the trigger button when the editor isn't ready yet. */
@@ -74,10 +74,11 @@ export interface ShapePickerProps {
 
 /**
  * "Shape ▾" toolbar control. Single trigger button opens a popover
- * with five labelled categories — Lines, Shapes, Block Arrows,
- * Callouts, Equation — laid out as 6-column grids of canvas
- * previews. Replaces the previous five inline insert buttons in
- * `slides-formatting-toolbar.tsx`.
+ * with eight labelled categories — Shapes, Block Arrows, Banners,
+ * Flowchart, Callouts, Equation, Stars, Action Buttons — laid out as
+ * 6-column grids of canvas previews. Connector "lines" live in the
+ * sibling `<LinePicker />` (endpoint-anchored insertion UX is
+ * different enough to warrant its own dropdown).
  */
 export function ShapePicker({
   activeKind,

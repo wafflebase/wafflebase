@@ -1,4 +1,5 @@
 import type { Block } from '@wafflebase/docs';
+import type { ConnectorElement } from './connector';
 import type { ThemeColor } from './theme';
 
 export type Frame = {
@@ -21,8 +22,6 @@ export type ImageRef = {
 export type Crop = { x: number; y: number; w: number; h: number };
 
 export type ShapeKind =
-  // Lines (special-cased renderers in shape-special.ts)
-  | 'line' | 'arrow'
   // Basic shapes (15 P1 + 3 regular polys + 4 sector/arc + 8 linear)
   | 'rect' | 'roundRect' | 'ellipse'
   | 'triangle' | 'rtTriangle'
@@ -135,7 +134,11 @@ export type ShapeElement = ElementBase & {
   };
 };
 
-export type Element = TextElement | ImageElement | ShapeElement;
+export type Element =
+  | TextElement
+  | ImageElement
+  | ShapeElement
+  | ConnectorElement;
 
 export type ElementType = Element['type'];
 
@@ -143,7 +146,8 @@ export type ElementType = Element['type'];
 export type ElementInit =
   | Omit<TextElement, 'id'>
   | Omit<ImageElement, 'id'>
-  | Omit<ShapeElement, 'id'>;
+  | Omit<ShapeElement, 'id'>
+  | Omit<ConnectorElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

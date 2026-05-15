@@ -1,6 +1,6 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import {
@@ -13,7 +13,18 @@ import {
 import { ADJUSTMENT_HANDLES, ADJUSTMENT_SPECS } from '../canvas/shapes';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
-import { buildInsertElement } from './interactions/insert';
+import {
+  buildInsertElement,
+  type ShapeOrTextInsertKind,
+} from './interactions/insert';
+import { dragEndpoint } from './interactions/connector-endpoint-drag';
+import {
+  buildConnectorInit,
+  finalizeInsert as finalizeConnectorInsert,
+  MIN_DRAG_DISTANCE as CONNECTOR_MIN_DRAG_DISTANCE,
+  snappedEndpoint,
+  type ConnectorInsertVariant,
+} from './interactions/insert-connector';
 import { buildKeyRules } from './interactions/keyboard';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
@@ -37,7 +48,29 @@ import { Selection } from './selection';
 import { snapDelta, type SnapGuide } from './snap';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
-export type InsertKind = ShapeKind | 'text';
+/**
+ * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
+ * `ShapeKind` because connectors live outside the shape registry — they
+ * have endpoint-attached endpoints and their own renderer / interaction
+ * pipeline. The toolbar passes one of these values; the editor's
+ * `startInsert` branches on the `'connector:'` prefix to route into the
+ * connector drag flow.
+ */
+export type ConnectorInsertKind = 'connector:line' | 'connector:arrow';
+
+export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
+
+/** Internal helper — recognise connector insert-mode keys. */
+function isConnectorInsertKind(
+  kind: InsertKind | null,
+): kind is ConnectorInsertKind {
+  return kind === 'connector:line' || kind === 'connector:arrow';
+}
+
+/** Map a connector insert-mode key to its `ConnectorInsertVariant`. */
+function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
+  return kind === 'connector:arrow' ? 'arrow' : 'line';
+}
 
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
@@ -89,6 +122,13 @@ export interface SlidesEditor {
   setInsertMode(kind: InsertKind | null): void;
   /** Current insert mode, or `null` if no insert mode is active. */
   getInsertMode(): InsertKind | null;
+  /**
+   * `true` while the current insert mode is a connector variant
+   * (`'connector:line'` or `'connector:arrow'`). Subscribe via
+   * `onInsertModeChange` to react to transitions — Task 13's
+   * connection-points overlay uses this to decide when to render.
+   */
+  isConnectorMode(): boolean;
   /**
    * Subscribe to insert-mode changes. Fires whenever
    * `setInsertMode` is called, including the editor's own internal
@@ -181,6 +221,17 @@ class SlidesEditorImpl implements SlidesEditor {
   /** Suppress hover ghost during an active drag-to-size insert. */
   private insertDragging = false;
   /**
+   * Logical-coord cursor position to drive the Task 13 connection-
+   * points overlay. Set whenever the connector tool is armed and the
+   * cursor is over the slide (whether or not a drag is in flight),
+   * cleared when the connector tool disarms or the cursor leaves the
+   * canvas without a drag. During an active connector drag (insert or
+   * endpoint), the drag handlers update this directly so the dots
+   * follow the cursor even while the drag has captured pointer events
+   * on `document`.
+   */
+  private connectorCursor: { x: number; y: number } | null = null;
+  /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
    *   - drag/resize/rotate/lasso interactions are short-circuited
@@ -265,11 +316,30 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      // Pass the full slide so connector endpoint handles can resolve
+      // `attached` endpoints to world positions via the host element's
+      // frame. Free endpoints don't need this map but it's cheap to
+      // pass always.
+      allElements: slide.elements,
+      connectorAffordance: this.connectorAffordance(),
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
     // the overlay rebuild so the editor stays visible.
     this.reattachEditingTextBox();
+  }
+
+  /**
+   * Build the `connectorAffordance` for `renderOverlay`. Returns
+   * undefined when the dots should not paint — either the connector
+   * tool is disarmed AND no endpoint drag is in flight, or we have no
+   * cursor position yet (cursor hasn't entered the canvas).
+   */
+  private connectorAffordance():
+    | { cursor: { x: number; y: number }; zoom: number }
+    | undefined {
+    if (this.connectorCursor === null) return undefined;
+    return { cursor: this.connectorCursor, zoom: this.scale() };
   }
 
   private reattachEditingTextBox(): void {
@@ -448,15 +518,34 @@ class SlidesEditorImpl implements SlidesEditor {
     // Only force a clean repaint when leaving a ghost-eligible mode.
     // Shape-to-shape transitions repaint on the next mousemove anyway
     // and an extra paint here would flash the slide between kinds.
-    if (hadGhost && (kind === null || kind === 'text')) {
+    // Connector modes also have no shape hover-ghost, so leaving a
+    // ghost into a connector mode needs the same clean repaint as
+    // leaving into text/null.
+    if (
+      hadGhost &&
+      (kind === null || kind === 'text' || isConnectorInsertKind(kind))
+    ) {
       this.renderer.markDirty();
       this.render();
+    }
+    // Disarming connector mode (or switching away from it without
+    // entering a fresh connector mode) drops the cached affordance
+    // cursor so the next overlay repaint clears the dots. Switching
+    // between connector variants keeps the cursor: the user is still
+    // hovering and we want continuous visual feedback.
+    if (!isConnectorInsertKind(kind) && this.connectorCursor !== null) {
+      this.connectorCursor = null;
+      this.repaintOverlay();
     }
     for (const cb of this.insertModeListeners) cb();
   }
 
   getInsertMode(): InsertKind | null {
     return this.insertKind;
+  }
+
+  isConnectorMode(): boolean {
+    return isConnectorInsertKind(this.insertKind);
   }
 
   onInsertModeChange(cb: () => void): () => void {
@@ -489,6 +578,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.hoverRenderRaf = null;
     }
     this.hoverPreview = null;
+    this.connectorCursor = null;
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
@@ -615,7 +705,7 @@ class SlidesEditorImpl implements SlidesEditor {
     ];
   }
 
-  private insertAt(kind: InsertKind, x: number, y: number): void {
+  private insertAt(kind: ShapeOrTextInsertKind, x: number, y: number): void {
     const slide = this.currentSlide();
     if (!slide) return;
     // Default-size insert at the click point. Passing start === end
@@ -831,6 +921,17 @@ class SlidesEditorImpl implements SlidesEditor {
   private onInsertHoverMove(e: MouseEvent): void {
     const kind = this.insertKind;
     if (kind === null || kind === 'text') return;
+    // Connector insert modes: no shape-style hover ghost, but DO drive
+    // the Task 13 connection-points affordance so the user sees where
+    // their connector will attach before they even click. The live
+    // drag preview takes over rendering after mousedown.
+    if (isConnectorInsertKind(kind)) {
+      if (this.editingElementId !== null) return;
+      if (this.insertDragging) return;
+      this.connectorCursor = this.clientToLogical(e.clientX, e.clientY);
+      this.repaintOverlay();
+      return;
+    }
     if (this.editingElementId !== null) return;
     if (this.insertDragging) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -844,6 +945,14 @@ class SlidesEditorImpl implements SlidesEditor {
 
   /** Cursor left the canvas — drop the ghost and repaint cleanly. */
   private onInsertHoverLeave(): void {
+    // Drop the connector affordance dots when the cursor exits the
+    // canvas. Repaint runs unconditionally below if either the shape
+    // ghost or the connector cursor was active.
+    const hadConnectorCursor = this.connectorCursor !== null;
+    if (hadConnectorCursor && !this.insertDragging) {
+      this.connectorCursor = null;
+      this.repaintOverlay();
+    }
     if (this.hoverPreview === null) return;
     this.hoverPreview = null;
     if (this.hoverRenderRaf !== null) {
@@ -888,6 +997,11 @@ class SlidesEditorImpl implements SlidesEditor {
       this.setInsertMode(null);
       this.renderer.markDirty();
       this.render();
+      return;
+    }
+
+    if (isConnectorInsertKind(kind)) {
+      this.startConnectorInsert(kind, slide, start);
       return;
     }
 
@@ -945,6 +1059,94 @@ class SlidesEditorImpl implements SlidesEditor {
       this.setInsertMode(null);
       this.renderer.markDirty();
       this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKey, true);
+  }
+
+  /**
+   * Drag-to-place flow for connectors. Mirrors `startInsert`'s shape
+   * branch: live ghost preview during the drag (rendered via the same
+   * `forceRender(slide, doc, ghost)` channel), commit on mouseup,
+   * ESC cancels with capture-phase pre-emption so the keyboard rule's
+   * own `setInsertMode(null)` Esc handler doesn't double-fire.
+   *
+   * Sub-threshold drags (`< MIN_DRAG_DISTANCE`) are discarded by
+   * `finalizeConnectorInsert` returning null; we still disarm insert
+   * mode afterwards so a stray click leaves the editor in select mode
+   * rather than stuck in connector-arm.
+   */
+  private startConnectorInsert(
+    kind: ConnectorInsertKind,
+    slide: Slide,
+    start: { x: number; y: number },
+  ): void {
+    const variant = connectorVariant(kind);
+    this.insertDragging = true;
+    this.hoverPreview = null;
+    let endPoint = start;
+    let cancelled = false;
+    // Drive the Task 13 connection-points affordance throughout the
+    // drag. The cursor at mousedown seeds the dots so they appear on
+    // the very first paint, before any mousemove.
+    this.connectorCursor = start;
+    const onMove = (ev: MouseEvent) => {
+      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      this.connectorCursor = endPoint;
+      const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
+      const ghost = { ...init, id: '__preview__' } as Element;
+      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+      // Repaint the overlay so the connection-points dots track the
+      // cursor. The forceRender above paints the canvas; the overlay
+      // is a separate DOM layer and needs its own update.
+      this.repaintOverlay();
+    };
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey, true);
+      this.insertDragging = false;
+      // Clear the affordance cursor on drag end; the surrounding
+      // tool-armed hover plumbing will refill it on the next mousemove
+      // if the user is still in connector mode.
+      this.connectorCursor = null;
+    };
+    const onUp = () => {
+      cleanup();
+      if (cancelled) return; // ESC pressed mid-drag — discard.
+      // `finalizeConnectorInsert` owns its own `store.batch(...)` so that a
+      // sub-threshold drag (< MIN_DRAG_DISTANCE) skips the batch entirely
+      // and doesn't pollute the undo stack with an empty snapshot.
+      const newId = finalizeConnectorInsert(
+        this.options.store,
+        slide.id,
+        variant,
+        start,
+        endPoint,
+        slide.elements,
+        this.scale(),
+      );
+      if (newId !== null) this.selection.set([newId]);
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      cancelled = true;
+      cleanup();
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+      // `cleanup` cleared the affordance cursor; explicitly rebuild
+      // the overlay so the connection-point dots painted on the last
+      // mousemove vanish (otherwise they linger until the next
+      // overlay repaint).
+      this.repaintOverlay();
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -1063,6 +1265,8 @@ class SlidesEditorImpl implements SlidesEditor {
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
       guides,
+      allElements: synthetic.elements,
+      connectorAffordance: this.connectorAffordance(),
     });
   }
 
@@ -1095,12 +1299,143 @@ class SlidesEditorImpl implements SlidesEditor {
       this.startRotate(clientX, clientY);
       return;
     }
+    if (handle === 'start' || handle === 'end') {
+      this.startConnectorEndpointDrag(handle, clientX, clientY);
+      return;
+    }
     if (handle.startsWith('adjust-')) {
       const handleIndex = parseInt(handle.slice('adjust-'.length), 10);
       this.startAdjustmentDrag(handleIndex, clientX, clientY);
       return;
     }
     this.startResize(handle as ResizeHandle, clientX, clientY);
+  }
+
+  /**
+   * Drag one endpoint of a selected connector. Snaps to connection
+   * sites of other elements within `SITE_SNAP_RADIUS` while the cursor
+   * moves; on mouseup the final endpoint is committed via a single
+   * batched `updateConnectorEndpoint` so undo treats the whole drag as
+   * one operation.
+   *
+   * During the drag we paint a synthesised slide with the connector's
+   * endpoint replaced by the in-progress value — same pattern as
+   * `paintLive` for shape drags, just keyed on the endpoint instead of
+   * the frame. The store is not touched until mouseup, so each move is
+   * one canvas paint, not one Yorkie op.
+   */
+  private startConnectorEndpointDrag(
+    side: 'start' | 'end',
+    clientX: number,
+    clientY: number,
+  ): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl || startEl.type !== 'connector') return;
+    const startConnector = startEl;
+    const slideId = startSlide.id;
+
+    const startCursor = this.clientToLogical(clientX, clientY);
+    let liveEndpoint = side === 'start' ? startConnector.start : startConnector.end;
+    let liveCursor = startCursor;
+    let moved = false;
+    // Drive the Task 13 connection-points overlay throughout the drag.
+    // Seeded with the start cursor so dots appear on the first paint —
+    // important when the user clicks the handle directly over a nearby
+    // shape and never crosses the move threshold below.
+    this.connectorCursor = startCursor;
+
+    const recompute = (cur: { x: number; y: number }) => {
+      // Other elements as snap candidates — exclude the connector itself
+      // so the endpoint can't self-link. Mirrors `dragEndpoint`'s filter
+      // but applied here so the live preview matches the eventual
+      // commit exactly.
+      const candidates = startSlide.elements.filter(
+        (e) => e.id !== startConnector.id,
+      );
+      liveEndpoint = snappedEndpoint(cur, candidates, this.scale());
+      liveCursor = cur;
+    };
+
+    const paintLiveConnector = () => {
+      const synthetic = {
+        ...startSlide,
+        elements: startSlide.elements.map((el) => {
+          if (el.id !== elementId || el.type !== 'connector') return el;
+          return side === 'start'
+            ? { ...el, start: liveEndpoint }
+            : { ...el, end: liveEndpoint };
+        }),
+      };
+      this.renderer.forceRender(synthetic, this.options.store.read());
+      const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
+      renderOverlay(this.options.overlay, selected, {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+        allElements: synthetic.elements,
+        connectorAffordance: this.connectorAffordance(),
+      });
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      // Update the affordance cursor on every move so the dots track
+      // continuously — even sub-deadband moves should refresh the
+      // highlight state under the cursor.
+      this.connectorCursor = cur;
+      if (!moved) {
+        const dx = cur.x - startCursor.x;
+        const dy = cur.y - startCursor.y;
+        // Use the same screen-pixel constant as insert so click-vs-drag
+        // feels identical across modes (insert / endpoint-drag) and
+        // across zoom levels. `MIN_DRAG_DISTANCE` is in screen pixels;
+        // `dx`/`dy` are slide-logical, so divide by zoom for the
+        // matching logical threshold. A pure click then never
+        // reinterprets the endpoint (e.g. detaches an attached
+        // endpoint because the free cursor landed off-site).
+        const threshold = CONNECTOR_MIN_DRAG_DISTANCE / this.scale();
+        if (dx * dx + dy * dy < threshold * threshold) return;
+        moved = true;
+      }
+      recompute(cur);
+      paintLiveConnector();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // Drop the affordance cursor before repainting so the dots
+      // disappear on commit (no drag = no affordance).
+      this.connectorCursor = null;
+      if (!moved) {
+        // No drag occurred — repaint anyway to clear the seed-time
+        // affordance dots we painted on mousedown.
+        this.repaintOverlay();
+        return;
+      }
+      // Commit the final endpoint via dragEndpoint so the snap rules
+      // match exactly between live preview and committed state.
+      this.options.store.batch(() => {
+        dragEndpoint(
+          this.options.store,
+          slideId,
+          startConnector,
+          side,
+          liveCursor,
+          startSlide.elements,
+          this.scale(),
+        );
+      });
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private startAdjustmentDrag(
@@ -1197,6 +1532,7 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      allElements: synthetic.elements,
     });
   }
 

@@ -41,6 +41,18 @@ export type {
 } from './model/element';
 export { generateId } from './model/element';
 
+export type {
+  ArrowheadKind,
+  ArrowheadStyle,
+  ConnectorElement,
+  ConnectorRouting,
+  Endpoint,
+} from './model/connector';
+export {
+  computeConnectorFrame,
+  resolveEndpoint,
+} from './view/canvas/connector-frame';
+
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 
@@ -76,7 +88,7 @@ export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
 
 // View — Editor (Phase 3a)
-export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind } from './view/editor/editor';
+export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)

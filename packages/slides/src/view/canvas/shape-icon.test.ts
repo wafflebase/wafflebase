@@ -14,13 +14,6 @@ describe('renderShapeIcon', () => {
     expect(ctx.lineWidth).toBeGreaterThan(0);
   });
 
-  it('returns silently for line/arrow specials', () => {
-    const canvas = createTestCanvas(24, 24);
-    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
-    expect(() => renderShapeIcon('line', ctx, { w: 24, h: 24 })).not.toThrow();
-    expect(() => renderShapeIcon('arrow', ctx, { w: 24, h: 24 })).not.toThrow();
-  });
-
   it('renders callouts via their bubble-shape proxy', () => {
     const canvas = createTestCanvas(24, 24);
     const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;

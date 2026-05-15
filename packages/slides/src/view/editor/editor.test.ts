@@ -681,6 +681,103 @@ describe('Editor — adjustment drag (Task 12)', () => {
   });
 });
 
+describe('Editor — connector endpoint drag deadband', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  /**
+   * Build a fixture with a single connector and return the editor,
+   * store, and connector id. hostWidth=1920 matches SLIDE_WIDTH so
+   * scale=1 and overlay pixel positions equal logical slide coords.
+   */
+  function setupConnector() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 100, y: 100 },
+        end: { kind: 'free', x: 300, y: 100 },
+        arrowheads: {},
+        frame: { x: 100, y: 100, w: 200, h: 0, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Select the connector so the overlay renders its endpoint handles.
+    editor.setSelection([connectorId]);
+    return { canvas, overlay, store, connectorId };
+  }
+
+  it('pure click on an endpoint handle does not pollute the undo stack', () => {
+    const { overlay, store } = setupConnector();
+    // After setup the bootstrap batch (addSlide+addConnector) is the
+    // only entry on the undo stack. `canUndo()` is boolean-only, so we
+    // probe undo stack depth indirectly: a pure click that pollutes
+    // the stack would leave `canUndo()` still true after one undo.
+    expect(store.canUndo()).toBe(true);
+
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="start"]');
+    expect(handle).not.toBeNull();
+    const left = parseFloat(handle!.style.left);
+    const top = parseFloat(handle!.style.top);
+    // Click center of the handle (HANDLE_SIZE = 8, so half = 4).
+    const cx = left + 4;
+    const cy = top + 4;
+
+    // mousedown + mouseup at exactly the same coords — pure click, no
+    // movement. The 1px deadband in startConnectorEndpointDrag must
+    // skip the store.batch wrap and leave the undo stack untouched.
+    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: cx, clientY: cy }));
+
+    // One undo drains the bootstrap entry; if the deadband had pushed
+    // a second entry, `canUndo()` would still be true here.
+    store.undo();
+    expect(store.canUndo()).toBe(false);
+  });
+
+  it('drag past the 1px deadband commits and grows the undo stack', () => {
+    const { overlay, store } = setupConnector();
+    // Bootstrap entry is the only thing on the stack at this point.
+    expect(store.canUndo()).toBe(true);
+
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="start"]');
+    expect(handle).not.toBeNull();
+    const left = parseFloat(handle!.style.left);
+    const top = parseFloat(handle!.style.top);
+    const cx = left + 4;
+    const cy = top + 4;
+
+    // Move 5px — comfortably past the 1px deadband (sqrt(5²+0²)=5 > 1).
+    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 5, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 5, clientY: cy }));
+
+    // Two entries now: bootstrap + drag commit. One undo pops the
+    // drag entry but leaves the bootstrap entry behind — so `canUndo()`
+    // remains true. Confirms the commit pushed a fresh undo entry.
+    store.undo();
+    expect(store.canUndo()).toBe(true);
+  });
+});
+
 describe('Editor canvas context menu — Change layout', () => {
   beforeEach(() => {
     document.body.innerHTML = '';

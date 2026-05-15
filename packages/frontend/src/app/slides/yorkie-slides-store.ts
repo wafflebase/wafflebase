@@ -2,8 +2,12 @@ import type { Document as YorkieDocument } from '@yorkie-js/sdk';
 import {
   DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
+  type ArrowheadStyle,
   type Background,
+  type ConnectorElement,
+  type Element as ModelElement,
   type ElementInit,
+  type Endpoint,
   type Frame,
   type Layout,
   type Master,
@@ -14,10 +18,12 @@ import {
   type Theme,
   BUILT_IN_LAYOUTS,
   applyLayoutToSlide,
+  computeConnectorFrame,
   defaultLight,
   generateId,
   getLayout,
   migrateDocument,
+  resolveEndpoint,
   seedPlaceholderBlocks,
   slotRefsForLayout,
 } from '@wafflebase/slides';
@@ -59,6 +65,20 @@ function yorkieToPlain<T>(value: unknown): T {
     }
   }
   return value as T;
+}
+
+/**
+ * Fully unwrap a Yorkie element proxy into a plain object preserving every
+ * field. Connectors store endpoints / arrowheads / routing / stroke as
+ * top-level fields (no `data` sub-object), so the previous shape-only
+ * rebuild paths dropped them. This helper unwraps the entire element via
+ * `yorkieToPlain` in one shot, which is correct for every element kind:
+ * text/image/shape all have `id` + `type` + `frame` + `data`; connectors
+ * have `id` + `type` + `frame` + `routing` + `start` + `end` + `arrowheads`
+ * + optional `stroke` + optional `elbowBend`.
+ */
+function unwrapElement(e: unknown): YorkieElement {
+  return yorkieToPlain<YorkieElement>(e);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +287,38 @@ export class YorkieSlidesStore implements SlidesStore {
             data: { blocks },
           };
         }
+        if (el.type === 'connector') {
+          // Connectors store their endpoints / arrowheads / stroke /
+          // routing as top-level fields (no `data` sub-object). Each is
+          // a Yorkie proxy until we unwrap, so reading via the generic
+          // `data`-only path above would drop them and crash the overlay
+          // when it tries `connector.start.kind`. Connectors are never
+          // placeholders (see `YorkieConnectorElement`), so we don't
+          // emit a `placeholderRef` field here.
+          const c = el as unknown as {
+            routing: ConnectorElement['routing'];
+            start: Endpoint;
+            end: Endpoint;
+            arrowheads: ConnectorElement['arrowheads'];
+            stroke?: ConnectorElement['stroke'];
+            elbowBend?: number;
+          };
+          return {
+            id: el.id,
+            type: 'connector',
+            frame: yorkieToPlain<Frame>(el.frame),
+            routing: c.routing,
+            start: yorkieToPlain<Endpoint>(c.start),
+            end: yorkieToPlain<Endpoint>(c.end),
+            arrowheads:
+              yorkieToPlain<ConnectorElement['arrowheads']>(c.arrowheads)
+              ?? {},
+            stroke: c.stroke
+              ? yorkieToPlain<ConnectorElement['stroke']>(c.stroke)
+              : undefined,
+            elbowBend: c.elbowBend,
+          };
+        }
         return {
           id: el.id,
           type: el.type,
@@ -430,24 +482,43 @@ export class YorkieSlidesStore implements SlidesStore {
       const src = r.slides[idx];
       const sourceBackground = yorkieToPlain<YorkieSlide['background']>((src as { background: unknown }).background);
       const sourceLayoutId = (src as { layoutId: string }).layoutId;
+      // Regenerate element ids and build an oldId → newId map. Without
+      // remapping, every attached connector endpoint on a duplicated
+      // slide would still point at the source slide's element id —
+      // which resolves correctly on the source but to (0,0) on the
+      // copy (resolveEndpoint's missing-target fallback).
+      const idMap = new Map<string, string>();
       const sourceElements = ((src as { elements: unknown[] }).elements ?? []).map((e) => {
-        const el = e as { type: string; frame: unknown; data: unknown };
-        if (el.type === 'text') {
-          const blocks = yorkieToPlain<Block[]>((el.data as { blocks?: unknown }).blocks) ?? [];
-          return {
-            id: generateId(),
-            type: 'text',
-            frame: yorkieToPlain<Frame>(el.frame),
-            data: { blocks: clone(blocks) },
-          } as YorkieElement;
-        }
-        return {
-          id: generateId(),
-          type: el.type as 'image' | 'shape',
-          frame: yorkieToPlain<Frame>(el.frame),
-          data: yorkieToPlain<object>(el.data),
-        } as YorkieElement;
+        const plain = unwrapElement(e);
+        const newElementId = generateId();
+        idMap.set((plain as { id: string }).id, newElementId);
+        return { ...plain, id: newElementId } as YorkieElement;
       });
+      // Rewrite connector endpoints to the new id space, then recompute
+      // the cached frame off the rewritten endpoints.
+      const lookup = new Map(
+        sourceElements.map((e) => [(e as { id: string }).id, e] as const),
+      );
+      for (const e of sourceElements) {
+        if ((e as { type: string }).type !== 'connector') continue;
+        const c = e as unknown as {
+          start: Endpoint;
+          end: Endpoint;
+          frame: Frame;
+        };
+        for (const side of ['start', 'end'] as const) {
+          const ep = c[side];
+          if (ep.kind === 'attached') {
+            const mapped = idMap.get(ep.elementId);
+            if (mapped) c[side] = { ...ep, elementId: mapped };
+          }
+        }
+        const plain = e as unknown as ConnectorElement;
+        c.frame = computeConnectorFrame(
+          plain,
+          lookup as unknown as ReadonlyMap<string, ModelElement>,
+        );
+      }
       const sourceNotes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
       const newSlide: YorkieSlide = {
         id: newId,
@@ -525,24 +596,9 @@ export class YorkieSlidesStore implements SlidesStore {
     const background = yorkieToPlain<YorkieSlide['background']>((src as { background: unknown }).background);
     const layoutId = (src as { layoutId: string }).layoutId;
     const id = (src as { id: string }).id;
-    const elements = ((src as { elements: unknown[] }).elements ?? []).map((e) => {
-      const el = e as { id: string; type: string; frame: unknown; data: unknown };
-      if (el.type === 'text') {
-        const blocks = yorkieToPlain<Block[]>((el.data as { blocks?: unknown }).blocks) ?? [];
-        return {
-          id: el.id,
-          type: 'text',
-          frame: yorkieToPlain<Frame>(el.frame),
-          data: { blocks: clone(blocks) },
-        } as YorkieElement;
-      }
-      return {
-        id: el.id,
-        type: el.type as 'image' | 'shape',
-        frame: yorkieToPlain<Frame>(el.frame),
-        data: yorkieToPlain<object>(el.data),
-      } as YorkieElement;
-    });
+    const elements = ((src as { elements: unknown[] }).elements ?? []).map(
+      (e) => unwrapElement(e) as YorkieElement,
+    );
     const notes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
     return {
       id,
@@ -641,9 +697,21 @@ export class YorkieSlidesStore implements SlidesStore {
           frame: { ...init.frame },
           data: { blocks: clone(blocks) },
         } as YorkieElement);
-      } else {
-        s.elements.push({ ...clone(init), id } as YorkieElement);
+        return;
       }
+      if (init.type === 'connector') {
+        // Connectors carry a derived `frame` cache. The insert call path
+        // (buildConnectorInit) pre-fills it correctly, but any future
+        // paste/import path could store a degenerate `{0,0,0,0}` frame
+        // and silently break selection bbox. Recompute defensively from
+        // the endpoints + current slide elements.
+        const lookup = this.slideElementsLookup(s);
+        const next = { ...clone(init), id } as ConnectorElement;
+        next.frame = computeConnectorFrame(next, lookup);
+        s.elements.push(next as unknown as YorkieElement);
+        return;
+      }
+      s.elements.push({ ...clone(init), id } as YorkieElement);
     });
     return id;
   }
@@ -655,6 +723,12 @@ export class YorkieSlidesStore implements SlidesStore {
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const i = s.elements.findIndex((e) => e.id === elementId);
       if (i === -1) throw new Error(`Element not found: ${elementId}`);
+      // Cascade sweep — any connector still attached to the element being
+      // removed must convert that endpoint to a `free` endpoint pinned at
+      // the endpoint's current world position so the connector survives
+      // source deletion without snapping to the origin. (Q4 c1 policy.)
+      // Must run BEFORE splice so attached siteWorldPos still resolves.
+      this.detachConnectorsTargeting(s, elementId);
       s.elements.splice(i, 1);
     });
   }
@@ -666,7 +740,12 @@ export class YorkieSlidesStore implements SlidesStore {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       for (let i = s.elements.length - 1; i >= 0; i--) {
-        if (set.has(s.elements[i].id)) s.elements.splice(i, 1);
+        if (set.has(s.elements[i].id)) {
+          // Convert dependent endpoints to free BEFORE this source is
+          // dropped — see `removeElement` rationale.
+          this.detachConnectorsTargeting(s, s.elements[i].id);
+          s.elements.splice(i, 1);
+        }
       }
     });
   }
@@ -682,7 +761,21 @@ export class YorkieSlidesStore implements SlidesStore {
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const e = s.elements.find((e) => e.id === elementId);
       if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type === 'connector') {
+        // Connector frame is derived from endpoint positions — patching it
+        // directly would leave the cached bbox out of sync with the
+        // endpoints. Callers must mutate endpoints via
+        // `updateConnectorEndpoint`, which recomputes the frame for them.
+        throw new Error(
+          `Element ${elementId} is a connector; update its endpoints instead of its frame`,
+        );
+      }
       e.frame = { ...e.frame, ...frame };
+      // Refresh the cached frames of connectors whose endpoints attach to
+      // this element. The renderer reads endpoints live, so the visual
+      // line already follows the source move — but selection bbox /
+      // hit-testing uses the cached `frame`, which must stay fresh.
+      this.recomputeDependentConnectorFrames(s, elementId);
     });
   }
 
@@ -693,6 +786,13 @@ export class YorkieSlidesStore implements SlidesStore {
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const e = s.elements.find((e) => e.id === elementId);
       if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type === 'connector') {
+        // Connectors have no `data` sub-object; use
+        // `updateConnectorEndpoint` / `updateConnectorArrowheads`.
+        throw new Error(
+          `Element ${elementId} is a connector; use updateConnectorEndpoint / updateConnectorArrowheads`,
+        );
+      }
       // For text elements, text content goes through `withTextElement`; we
       // ignore any `blocks` field in the patch to avoid clobbering.
       if (e.type === 'text') {
@@ -706,6 +806,77 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  updateConnectorEndpoint(
+    slideId: string,
+    elementId: string,
+    side: 'start' | 'end',
+    endpoint: Endpoint,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const e = s.elements.find((e) => e.id === elementId);
+      if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as {
+        start: Endpoint;
+        end: Endpoint;
+        frame: Frame;
+      };
+      if (side === 'start') c.start = clone(endpoint);
+      else c.end = clone(endpoint);
+      // Recompute the cached frame from the (post-update) endpoints +
+      // current slide elements.
+      const plain = unwrapElement(e) as unknown as ConnectorElement;
+      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+    });
+  }
+
+  updateConnectorArrowheads(
+    slideId: string,
+    elementId: string,
+    heads: {
+      start?: ArrowheadStyle | null;
+      end?:   ArrowheadStyle | null;
+    },
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const e = s.elements.find((e) => e.id === elementId);
+      if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as {
+        arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
+      };
+      // Build a fresh arrowheads object — never mutate the existing one
+      // in place, since snapshot references may hold the prior shape.
+      const prev =
+        yorkieToPlain<{ start?: ArrowheadStyle; end?: ArrowheadStyle }>(
+          c.arrowheads,
+        ) ?? {};
+      const next: { start?: ArrowheadStyle; end?: ArrowheadStyle } = {
+        ...prev,
+      };
+      for (const side of ['start', 'end'] as const) {
+        if (!(side in heads)) continue; // undefined = "don't touch"
+        const value = heads[side];
+        if (value === null) {
+          delete next[side];
+        } else if (value !== undefined) {
+          next[side] = clone(value);
+        }
+      }
+      c.arrowheads = next;
+    });
+  }
+
   reorderElement(slideId: string, elementId: string, toIndex: number): void {
     this.requireBatch();
     this.doc.update((r) => {
@@ -715,24 +886,7 @@ export class YorkieSlidesStore implements SlidesStore {
       if (from === -1) throw new Error(`Element not found: ${elementId}`);
       // Rebuild the element so its data is detached from the proxy —
       // safer to re-insert into the Yorkie array.
-      const src = s.elements[from];
-      let rebuilt: YorkieElement;
-      if (src.type === 'text') {
-        const blocks = yorkieToPlain<Block[]>((src.data as { blocks?: unknown }).blocks) ?? [];
-        rebuilt = {
-          id: src.id,
-          type: 'text',
-          frame: yorkieToPlain<Frame>((src as { frame: unknown }).frame),
-          data: { blocks: clone(blocks) },
-        } as YorkieElement;
-      } else {
-        rebuilt = {
-          id: src.id,
-          type: src.type,
-          frame: yorkieToPlain<Frame>((src as { frame: unknown }).frame),
-          data: yorkieToPlain<object>((src as { data: unknown }).data),
-        } as YorkieElement;
-      }
+      const rebuilt = unwrapElement(s.elements[from]) as YorkieElement;
       s.elements.splice(from, 1);
       const clamped = Math.max(0, Math.min(toIndex, s.elements.length));
       s.elements.splice(clamped, 0, rebuilt);
@@ -811,6 +965,82 @@ export class YorkieSlidesStore implements SlidesStore {
   private requireBatch(): void {
     if (this.batchDepth === 0) {
       throw new Error('Mutations must be wrapped in batch()');
+    }
+  }
+
+  /**
+   * Read-only id → unwrapped Element map for the given Yorkie slide.
+   * Used by the connector-frame helpers to resolve attached endpoints.
+   * Each element is `yorkieToPlain`-unwrapped so the map carries plain
+   * objects with live `frame` / endpoint fields — `resolveEndpoint` and
+   * `computeConnectorFrame` only read, never mutate.
+   */
+  private slideElementsLookup(s: YorkieSlide): ReadonlyMap<string, ModelElement> {
+    const map = new Map<string, ModelElement>();
+    for (const e of s.elements) {
+      const plain = unwrapElement(e) as unknown as ModelElement;
+      map.set(plain.id, plain);
+    }
+    return map;
+  }
+
+  /**
+   * For every connector on `s` whose `start` or `end` attaches to
+   * `targetId`, convert that endpoint to a `free` endpoint pinned at the
+   * endpoint's current world position and refresh the cached `frame`.
+   * Caller MUST invoke this BEFORE removing the target so attached
+   * `siteWorldPos` still resolves to a defined location. (Q4 c1 policy.)
+   */
+  private detachConnectorsTargeting(s: YorkieSlide, targetId: string): void {
+    const lookup = this.slideElementsLookup(s);
+    for (const el of s.elements) {
+      if (el.type !== 'connector') continue;
+      const c = el as unknown as {
+        start: Endpoint;
+        end: Endpoint;
+        frame: Frame;
+      };
+      let mutated = false;
+      for (const side of ['start', 'end'] as const) {
+        const ep = c[side];
+        if (ep.kind === 'attached' && ep.elementId === targetId) {
+          const w = resolveEndpoint(ep, lookup);
+          c[side] = { kind: 'free', x: w.x, y: w.y };
+          mutated = true;
+        }
+      }
+      if (mutated) {
+        const plain = unwrapElement(el) as unknown as ConnectorElement;
+        c.frame = computeConnectorFrame(plain, lookup);
+      }
+    }
+  }
+
+  /**
+   * Refresh the cached `frame` of every connector on `s` whose `start`
+   * or `end` attaches to `sourceId`. Called after a source element's
+   * frame moves; keeps selection bbox / hit-testing in sync with the
+   * already-live endpoint positions the renderer reads.
+   */
+  private recomputeDependentConnectorFrames(
+    s: YorkieSlide,
+    sourceId: string,
+  ): void {
+    const lookup = this.slideElementsLookup(s);
+    for (const el of s.elements) {
+      if (el.type !== 'connector') continue;
+      const c = el as unknown as {
+        start: Endpoint;
+        end: Endpoint;
+        frame: Frame;
+      };
+      const dependsOnUs =
+        (c.start.kind === 'attached' && c.start.elementId === sourceId) ||
+        (c.end.kind   === 'attached' && c.end.elementId   === sourceId);
+      if (dependsOnUs) {
+        const plain = unwrapElement(el) as unknown as ConnectorElement;
+        c.frame = computeConnectorFrame(plain, lookup);
+      }
     }
   }
 }
