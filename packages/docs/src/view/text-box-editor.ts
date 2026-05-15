@@ -28,7 +28,7 @@
  * Refs `packages/slides/spike/docs-richtext-audit.md` "Required exports"
  * and `docs/tasks/active/20260507-slides-phase5a-plan.md` Task 3.
  */
-import type { Block, PageSetup } from '../model/types.js';
+import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import { createEmptyBlock } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
@@ -119,6 +119,69 @@ export interface TextBoxEditorAPI {
    * cursor blink, and flush a final `onCommit`. Idempotent.
    */
   detach(): void;
+
+  // ─── Text-formatting surface (mirrors EditorAPI) ───────────────────────────
+  // These are needed so shared text-formatting toolbar components can drive
+  // both the docs full editor and the slides text-box editor through a single
+  // `TextFormattingEditor` interface (structural typing).
+
+  /** Get the inline style at the current cursor/selection anchor. */
+  getSelectionStyle(): Partial<InlineStyle>;
+
+  /** Apply inline style to the current selection. No-op when nothing is selected. */
+  applyStyle(style: Partial<InlineStyle>): void;
+
+  /**
+   * Apply block style to blocks covered by the current selection (or the
+   * block at cursor when there is no selection).
+   */
+  applyBlockStyle(style: Partial<BlockStyle>): void;
+
+  /** Get the block type at the cursor position. */
+  getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+
+  /**
+   * Set the block type for the block at cursor.
+   * `Title` and `Subtitle` are valid `BlockType` values but are silently
+   * ignored inside text-boxes — they are document-level concepts.
+   */
+  setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+
+  /** Toggle list type on the block at cursor. */
+  toggleList(kind: 'ordered' | 'unordered'): void;
+
+  /** Increase indent of blocks in the current selection. */
+  indent(): void;
+
+  /** Decrease indent of blocks in the current selection. */
+  outdent(): void;
+
+  /** Insert a hyperlink on the current selection (or insert URL text if no selection). */
+  insertLink(url: string): void;
+
+  /** Remove the hyperlink at the current cursor position. */
+  removeLink(): void;
+
+  /** Get the href of the link at the current cursor position, if any. */
+  getLinkAtCursor(): string | undefined;
+
+  /**
+   * Programmatically trigger the link request (same as Ctrl+K). Fires the
+   * `onLinkRequest` callback supplied in the options, if any.
+   */
+  requestLink(): void;
+
+  /** Undo. */
+  undo(): void;
+
+  /** Redo. */
+  redo(): void;
+
+  /**
+   * Register a callback for cursor position changes. The callback receives
+   * the cursor position and, when a selection exists, its anchor/focus.
+   */
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
 }
 
 /**
@@ -216,6 +279,10 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
 
+  // Callback registered via onCursorMove(). Declared here so renderNow
+  // can reference it in the closure before api is constructed.
+  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
+
   // Painting. `paintLayout` handles the run / line / list-marker walk;
   // we only need to translate the cursor / selection rectangles from
   // page-space (what Cursor.getPixelPosition + Selection.getRects
@@ -278,6 +345,15 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       requestRender,
     });
     ctx.restore();
+
+    // Notify cursor-move subscribers (e.g. toolbar controls that read
+    // getSelectionStyle() to update bold/italic toggles).
+    if (cursorMoveCallback) {
+      const selRange = selection.hasSelection() && selection.range
+        ? { anchor: selection.range.anchor, focus: selection.range.focus }
+        : null;
+      cursorMoveCallback(cursor.position, selRange);
+    }
   };
 
   const requestRender = (): void => {
@@ -390,6 +466,28 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     textarea.addEventListener('keydown', handleEscape, true);
   }
 
+  // ── Helper: iterate every block covered by the current selection. ──────────
+  // Text-boxes don't have tables, so the implementation is simpler than the
+  // full-document equivalent in editor.ts.
+  const forEachBlockInSelection = (fn: (block: Block) => void): void => {
+    if (selection.hasSelection() && selection.range) {
+      const range = selection.range;
+      const startIdx = doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          fn(doc.document.blocks[i]);
+        }
+        return;
+      }
+    }
+    // Cursor-only: operate on the block at cursor.
+    const block = doc.findBlock(cursor.position.blockId);
+    if (block) fn(block);
+  };
+
   const api: TextBoxEditorAPI = {
     focus(): void {
       textEditor.focus();
@@ -425,6 +523,220 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         textarea.removeEventListener('keydown', handleEscape, true);
         textarea.remove();
       }
+    },
+
+    // ── Formatting surface ────────────────────────────────────────────────────
+
+    getSelectionStyle(): Partial<InlineStyle> {
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) return {};
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset <= inlineEnd) {
+          return { ...inline.style };
+        }
+        pos = inlineEnd;
+      }
+      const last = block.inlines[block.inlines.length - 1];
+      return last ? { ...last.style } : {};
+    },
+
+    applyStyle(style: Partial<InlineStyle>): void {
+      if (!selection.hasSelection() || !selection.range) return;
+      docStore.snapshot();
+      const range = selection.range;
+      doc.applyInlineStyle(range, style);
+      const startIdx = doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        layoutCache = undefined;
+      }
+      requestRender();
+    },
+
+    applyBlockStyle(style: Partial<BlockStyle>): void {
+      docStore.snapshot();
+      forEachBlockInSelection((block) => {
+        doc.applyBlockStyle(block.id, style);
+      });
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number } {
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) return { type: 'paragraph' as BlockType };
+      return {
+        type: block.type,
+        headingLevel: block.headingLevel,
+        listKind: block.listKind,
+        listLevel: block.listLevel,
+      };
+    },
+
+    setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void {
+      // Title/Subtitle/PageBreak/HorizontalRule/Table are not meaningful
+      // inside text-boxes; silently ignore them so structural typing works
+      // without breaking callers that pass those values through a shared API.
+      if (type === 'title' || type === 'subtitle' || type === 'horizontal-rule' || type === 'table' || type === 'page-break') return;
+      docStore.snapshot();
+      doc.setBlockType(cursor.position.blockId, type, opts);
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    toggleList(kind: 'ordered' | 'unordered'): void {
+      docStore.snapshot();
+      forEachBlockInSelection((block) => {
+        if (block.type === 'list-item' && block.listKind === kind) {
+          doc.setBlockType(block.id, 'paragraph');
+        } else {
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: kind,
+            listLevel: block.listLevel ?? 0,
+          });
+        }
+      });
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    indent(): void {
+      const MAX_LIST_LEVEL = 8;
+      const INDENT_STEP = 36;
+      docStore.snapshot();
+      forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel >= MAX_LIST_LEVEL) return;
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel + 1,
+          });
+        } else {
+          doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
+        }
+      });
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    outdent(): void {
+      const INDENT_STEP = 36;
+      docStore.snapshot();
+      forEachBlockInSelection((block) => {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel <= 0) return;
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel - 1,
+          });
+        } else {
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) return;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
+        }
+      });
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    insertLink(url: string): void {
+      if (selection.hasSelection() && selection.range) {
+        docStore.snapshot();
+        const range = selection.range;
+        doc.applyInlineStyle(range, { href: url });
+        layoutCache = undefined;
+        requestRender();
+      } else {
+        docStore.snapshot();
+        const pos = cursor.position;
+        doc.insertText(pos, url);
+        const range = {
+          anchor: { blockId: pos.blockId, offset: pos.offset },
+          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+        };
+        doc.applyInlineStyle(range, { href: url });
+        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
+        layoutCache = undefined;
+        requestRender();
+      }
+    },
+
+    removeLink(): void {
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) return;
+      const inlines = block.inlines;
+      let cursorInlineIdx = -1;
+      const offsets: number[] = [0];
+      for (let i = 0; i < inlines.length; i++) {
+        const inlineEnd = offsets[i] + inlines[i].text.length;
+        offsets.push(inlineEnd);
+        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
+          cursorInlineIdx = i;
+        }
+      }
+      if (cursorInlineIdx < 0) return;
+      const href = inlines[cursorInlineIdx].style.href;
+      let lo = cursorInlineIdx;
+      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
+      let hi = cursorInlineIdx;
+      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
+      docStore.snapshot();
+      const range = {
+        anchor: { blockId: block.id, offset: offsets[lo] },
+        focus: { blockId: block.id, offset: offsets[hi + 1] },
+      };
+      doc.applyInlineStyle(range, { href: undefined });
+      layoutCache = undefined;
+      requestRender();
+    },
+
+    getLinkAtCursor(): string | undefined {
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) return undefined;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
+          return inline.style.href;
+        }
+        if (cursor.position.offset === inlineEnd && inline.style.href) {
+          return inline.style.href;
+        }
+        pos = inlineEnd;
+      }
+      return undefined;
+    },
+
+    requestLink(): void {
+      textEditor.onLinkRequest?.();
+    },
+
+    undo(): void {
+      docStore.undo();
+      doc.refresh();
+      layoutCache = undefined;
+      recomputeLayout();
+      requestRender();
+    },
+
+    redo(): void {
+      docStore.redo();
+      doc.refresh();
+      layoutCache = undefined;
+      recomputeLayout();
+      requestRender();
+    },
+
+    onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void {
+      cursorMoveCallback = cb;
     },
   };
 

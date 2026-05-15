@@ -25,6 +25,10 @@ import {
   initializeTextBox,
   type Block,
   type TextBoxEditorAPI,
+  type InlineStyle,
+  type BlockStyle,
+  type BlockType,
+  type HeadingLevel,
 } from '@wafflebase/docs';
 import type { Frame } from '../../model/element';
 
@@ -71,6 +75,27 @@ export interface SlidesTextBoxEditor {
    * "click inside the editing text-box vs outside" cheaply).
    */
   readonly container: HTMLDivElement;
+
+  // ─── Text-formatting surface (mirrors TextBoxEditorAPI) ───────────────────
+  // Delegated straight through to the underlying docs TextBoxEditorAPI so
+  // shared text-formatting toolbar components can drive the slides text-box
+  // editor via the same `TextFormattingEditor` interface as the docs editor.
+
+  getSelectionStyle(): Partial<InlineStyle>;
+  applyStyle(style: Partial<InlineStyle>): void;
+  applyBlockStyle(style: Partial<BlockStyle>): void;
+  getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+  toggleList(kind: 'ordered' | 'unordered'): void;
+  indent(): void;
+  outdent(): void;
+  insertLink(url: string): void;
+  removeLink(): void;
+  getLinkAtCursor(): string | undefined;
+  requestLink(): void;
+  undo(): void;
+  redo(): void;
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
@@ -171,5 +196,52 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
       container.remove();
     },
     container,
+
+    // ── Formatting surface — delegate straight through to docs TextBoxEditorAPI ─
+    getSelectionStyle(): Partial<InlineStyle> {
+      return api.getSelectionStyle();
+    },
+    applyStyle(style: Partial<InlineStyle>): void {
+      api.applyStyle(style);
+    },
+    applyBlockStyle(style: Partial<BlockStyle>): void {
+      api.applyBlockStyle(style);
+    },
+    getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number } {
+      return api.getBlockType();
+    },
+    setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void {
+      api.setBlockType(type, opts);
+    },
+    toggleList(kind: 'ordered' | 'unordered'): void {
+      api.toggleList(kind);
+    },
+    indent(): void {
+      api.indent();
+    },
+    outdent(): void {
+      api.outdent();
+    },
+    insertLink(url: string): void {
+      api.insertLink(url);
+    },
+    removeLink(): void {
+      api.removeLink();
+    },
+    getLinkAtCursor(): string | undefined {
+      return api.getLinkAtCursor();
+    },
+    requestLink(): void {
+      api.requestLink();
+    },
+    undo(): void {
+      api.undo();
+    },
+    redo(): void {
+      api.redo();
+    },
+    onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void {
+      api.onCursorMove(cb);
+    },
   };
 }

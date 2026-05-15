@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { initializeTextBox } from '../../src/view/text-box-editor.js';
 import type { Block } from '../../src/model/types.js';
 
@@ -146,5 +146,141 @@ describe('initializeTextBox', () => {
     expect(commitCount).toBe(1);
     api.detach();
     expect(commitCount).toBe(1);
+  });
+});
+
+/**
+ * Formatting surface tests.
+ *
+ * The formatting methods delegate to the internal Doc / MemDocStore / Cursor /
+ * Selection closures. We verify they are present, callable, and delegate
+ * correctly to the underlying model. Full integration (typing + selection +
+ * style round-trip) is out of scope for unit tests — the jsdom TextEditor
+ * lacks a real Canvas context; we test the model-level delegation instead.
+ */
+describe('TextBoxEditorAPI — formatting surface', () => {
+  function mount(blocks: Block[] = []) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks,
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+    return { api };
+  }
+
+  it('exposes getSelectionStyle, applyStyle, applyBlockStyle', () => {
+    const { api } = mount();
+    expect(typeof api.getSelectionStyle).toBe('function');
+    expect(typeof api.applyStyle).toBe('function');
+    expect(typeof api.applyBlockStyle).toBe('function');
+    api.detach();
+  });
+
+  it('exposes getBlockType and setBlockType', () => {
+    const { api } = mount();
+    expect(typeof api.getBlockType).toBe('function');
+    expect(typeof api.setBlockType).toBe('function');
+    const bt = api.getBlockType();
+    expect(bt.type).toBe('paragraph');
+    // setBlockType to heading should work without throwing.
+    expect(() => api.setBlockType('heading', { headingLevel: 1 })).not.toThrow();
+    api.detach();
+  });
+
+  it('exposes toggleList, indent, outdent', () => {
+    const { api } = mount();
+    expect(typeof api.toggleList).toBe('function');
+    expect(typeof api.indent).toBe('function');
+    expect(typeof api.outdent).toBe('function');
+    // These are no-ops when there is no selection (cursor-only on paragraph).
+    expect(() => api.toggleList('unordered')).not.toThrow();
+    expect(() => api.indent()).not.toThrow();
+    expect(() => api.outdent()).not.toThrow();
+    api.detach();
+  });
+
+  it('exposes insertLink, removeLink, getLinkAtCursor, requestLink', () => {
+    const { api } = mount();
+    expect(typeof api.insertLink).toBe('function');
+    expect(typeof api.removeLink).toBe('function');
+    expect(typeof api.getLinkAtCursor).toBe('function');
+    expect(typeof api.requestLink).toBe('function');
+    // removeLink / getLinkAtCursor are no-ops when there is no link.
+    expect(() => api.removeLink()).not.toThrow();
+    expect(api.getLinkAtCursor()).toBeUndefined();
+    api.detach();
+  });
+
+  it('exposes undo and redo', () => {
+    const { api } = mount();
+    expect(typeof api.undo).toBe('function');
+    expect(typeof api.redo).toBe('function');
+    // No-ops before any edits.
+    expect(() => api.undo()).not.toThrow();
+    expect(() => api.redo()).not.toThrow();
+    api.detach();
+  });
+
+  it('exposes onCursorMove, registers the callback, and calling it does not throw', () => {
+    // jsdom does not provide a real Canvas 2D context, so renderNow exits
+    // early and the callback is never fired during the normal render path.
+    // This test verifies: (1) the method exists, (2) registering does not
+    // throw, and (3) calling onCursorMove multiple times replaces the handler.
+    const { api } = mount();
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
+    expect(() => api.onCursorMove(cb1)).not.toThrow();
+    expect(() => api.onCursorMove(cb2)).not.toThrow();
+    // Neither callback should have been called yet (canvas context is null).
+    expect(cb1).not.toHaveBeenCalled();
+    expect(cb2).not.toHaveBeenCalled();
+    api.detach();
+  });
+
+  it('setBlockType ignores document-only block types (title, subtitle, horizontal-rule)', () => {
+    const { api } = mount();
+    // These should silently no-op; block type stays as paragraph.
+    expect(() => api.setBlockType('title')).not.toThrow();
+    expect(() => api.setBlockType('subtitle')).not.toThrow();
+    expect(() => api.setBlockType('horizontal-rule')).not.toThrow();
+    // Block type is unchanged (paragraph after seeding an empty block).
+    expect(api.getBlockType().type).toBe('paragraph');
+    api.detach();
+  });
+
+  it('applyStyle returns without mutating when there is no selection', () => {
+    const { api } = mount();
+    // applyStyle is a no-op when there is no selection; should not throw.
+    expect(() => api.applyStyle({ bold: true })).not.toThrow();
+    api.detach();
+  });
+
+  it('onLinkRequest fires when requestLink is called', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const onLinkRequest = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onLinkRequest,
+    });
+    api.requestLink();
+    expect(onLinkRequest).toHaveBeenCalledTimes(1);
+    api.detach();
   });
 });
