@@ -86,6 +86,7 @@ export type ShapeKind =
 export type Stroke = {
   color: ThemeColor | string;
   width: number;
+  /** Dash pattern. Rendering is wired up in Task 8 (shape-controls + renderer). */
   dash?: 'solid' | 'dashed' | 'dotted';
 };
 

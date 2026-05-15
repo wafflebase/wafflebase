@@ -50,6 +50,7 @@ export function drawActionButton(
   if (glyphBuilder) {
     const path = glyphBuilder({ w, h });
     const glyphSource = data.stroke?.color ?? ACTION_BUTTON_GLYPH_FALLBACK;
+    // resolveStrokeColor is used here for its ThemeColor|string union handling, not because the glyph is stroked.
     const glyphResolved = resolveStrokeColor(glyphSource, theme);
     const bodyResolved = data.fill ? resolveColor(data.fill, theme) : null;
     ctx.fillStyle =

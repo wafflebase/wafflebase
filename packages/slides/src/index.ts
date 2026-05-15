@@ -37,6 +37,7 @@ export type {
   ShapeElement,
   ShapeKind,
   ShapeStroke,
+  Stroke,
   TextElement,
 } from './model/element';
 export { generateId } from './model/element';
