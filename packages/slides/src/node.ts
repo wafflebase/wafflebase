@@ -73,3 +73,15 @@ export {
   ADJUSTMENT_HANDLES,
 } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize, AdjustmentHandle } from './view/canvas/shapes/builder';
+
+// PPTX import — best-effort. Reaches for `DOMParser` at runtime, so
+// Node consumers (the CLI) must install a polyfill before calling. The
+// CLI's `dom-polyfill.ts` already does this as a side-effect import for
+// the docs DOCX importer; the same polyfill covers slides.
+export { importPptx } from './import/pptx';
+export type {
+  ImportPptxOptions,
+  ImportPptxResult,
+  UploadImage,
+} from './import/pptx';
+export { ImportReport } from './import/pptx/report';

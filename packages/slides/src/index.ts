@@ -1,3 +1,14 @@
+// PPTX import — best-effort. Browser usage relies on the host's
+// `DOMParser`; Node consumers should import from `@wafflebase/slides/node`
+// instead so the dual-entry build can keep the polyfill story explicit.
+export { importPptx } from './import/pptx';
+export type {
+  ImportPptxOptions,
+  ImportPptxResult,
+  UploadImage,
+} from './import/pptx';
+export { ImportReport } from './import/pptx/report';
+
 // Model
 export type {
   Background,
