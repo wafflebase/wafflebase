@@ -333,3 +333,260 @@ describe('renderOverlay — connector endpoint handles', () => {
     expect(overlay.querySelector('[data-handle="rotate"]')).not.toBeNull();
   });
 });
+
+describe('renderOverlay — connection-points affordance', () => {
+  // Helper to build a rect at the given frame. The 4-cardinal sites
+  // for a rect at (200, 200, 100, 100) are:
+  //   N (0): (250, 200)
+  //   E (1): (300, 250)
+  //   S (2): (250, 300)
+  //   W (3): (200, 250)
+  function rectAt(
+    id: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): Element {
+    return {
+      id,
+      type: 'shape',
+      frame: { x, y, w, h, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+    };
+  }
+
+  function connectorAt(): Element {
+    return {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 1000, y: 1000 },
+      end: { kind: 'free', x: 1100, y: 1100 },
+      arrowheads: {},
+      frame: { x: 1000, y: 1000, w: 100, h: 100, rotation: 0 },
+    } as unknown as Element;
+  }
+
+  it('renders connection-site dots for the nearest shape when cursor is within hover radius', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    // Cursor at the centre of the rect — well within 24px.
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll('[data-connection-site]');
+    expect(dots.length).toBe(4); // four cardinal sites
+  });
+
+  it("doesn't render connection-site dots when cursor is too far from any shape", () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    // Rect centre is (250, 250); cursor far away.
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 1000, y: 1000 }, zoom: 1 },
+    });
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
+  });
+
+  it('highlights a connection-site dot when the cursor is within snap radius', () => {
+    const overlay = makeOverlay();
+    // Small rect so the cursor can land within hover radius of the
+    // centre AND within snap radius of a single site. 20x20 at (240,
+    // 240): centre = (250, 250); N site = (250, 240); distance N to
+    // centre = 10 (well inside the 24 hover radius). Cursor on N site
+    // is 0 from N → highlighted; 14.14 from E/W and 20 from S → none
+    // of those highlight.
+    const rect = rectAt('r1', 240, 240, 20, 20);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 250, y: 240 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll<HTMLDivElement>(
+      '[data-connection-site]',
+    );
+    expect(dots.length).toBe(4);
+    const highlighted = Array.from(dots).filter((d) =>
+      d.className.includes('wfb-slides-connection-site-highlighted'),
+    );
+    // Exactly the N site (at (250, 240)) is within 12px of cursor (250,240).
+    expect(highlighted.length).toBe(1);
+    // The N dot uses the highlighted size (12px), positioned so its centre
+    // is at (250, 240).
+    expect(parseFloat(highlighted[0].style.left)).toBeCloseTo(250 - 12 / 2);
+    expect(parseFloat(highlighted[0].style.top)).toBeCloseTo(240 - 12 / 2);
+  });
+
+  it('uses default 8px dot size when cursor is outside snap radius but inside hover radius', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    // Cursor near the centre — every site is > 12px away but rect centre
+    // is < 24px away, so the affordance fires with no highlighted dots.
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll<HTMLDivElement>(
+      '[data-connection-site]',
+    );
+    expect(dots.length).toBe(4);
+    for (const d of dots) {
+      expect(d.className).not.toContain('wfb-slides-connection-site-highlighted');
+      // Default dot size is 8px.
+      expect(parseFloat(d.style.width)).toBe(8);
+      expect(parseFloat(d.style.height)).toBe(8);
+    }
+  });
+
+  it('skips connector elements when picking the nearest shape', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 400, 400, 100, 100); // centre (450, 450) — far
+    const conn = connectorAt(); // bbox centre (1050, 1050)
+    // Cursor sits between rect and connector — neither rect centre nor
+    // connector centre is inside 24px; affordance should be empty.
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect, conn],
+      connectorAffordance: { cursor: { x: 700, y: 700 }, zoom: 1 },
+    });
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
+
+    // Now place the cursor right on top of the connector's bbox centre.
+    // A connector element exposes connection sites in theory, but the
+    // affordance must skip connectors so no dots render.
+    overlay.innerHTML = '';
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect, conn],
+      connectorAffordance: { cursor: { x: 1050, y: 1050 }, zoom: 1 },
+    });
+    // No non-connector shape is within hover radius of the cursor, and
+    // the connector itself is skipped — so no dots.
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
+  });
+
+  it('renders dots for only the single nearest shape (multi-shape does not flood overlay)', () => {
+    const overlay = makeOverlay();
+    // Two overlapping rects with different centres. r1 centre = (250, 250),
+    // r2 centre = (260, 260). Cursor at (252, 252) is closer to r1.
+    const r1 = rectAt('r1', 200, 200, 100, 100);
+    const r2 = rectAt('r2', 210, 210, 100, 100);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [r1, r2],
+      connectorAffordance: { cursor: { x: 252, y: 252 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll('[data-connection-site]');
+    // Only one shape contributes; 4 sites per shape.
+    expect(dots.length).toBe(4);
+    // r1's N site is at (250, 200). r2's N site is at (260, 210).
+    // Confirm the rendered N dot belongs to r1.
+    const n = overlay.querySelector<HTMLDivElement>(
+      '[data-connection-site="0"]',
+    )!;
+    // Dot is centred on the site, so left = site.x - size/2. Size depends
+    // on highlight state, but we don't care — just verify x matches r1.
+    const size = parseFloat(n.style.width);
+    expect(parseFloat(n.style.left)).toBeCloseTo(250 - size / 2);
+  });
+
+  it('no affordance dots when connectorAffordance is omitted', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+    });
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
+  });
+
+  it('scales dot positions by host scale (pixel-constant size)', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    // At scale 0.5, the N site at logical (250, 200) maps to host (125, 100).
+    // Cursor on top of the centre (logical 250, 250); zoom passed as 0.5
+    // so the hover-radius check uses 24/0.5 = 48 logical px.
+    renderOverlay(overlay, [], {
+      scale: 0.5,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 0.5 },
+    });
+    const n = overlay.querySelector<HTMLDivElement>(
+      '[data-connection-site="0"]',
+    )!;
+    const size = parseFloat(n.style.width);
+    // Dot size stays in host pixels (8 or 12), positioned around the
+    // scaled site coords.
+    expect(parseFloat(n.style.left)).toBeCloseTo(125 - size / 2);
+    expect(parseFloat(n.style.top)).toBeCloseTo(100 - size / 2);
+  });
+
+  it('zoom in expands the hover-radius logical reach (24 host px / zoom)', () => {
+    const overlay = makeOverlay();
+    // Rect centre at (300, 300); cursor at (270, 270) → distance ≈ 42 px.
+    // At zoom=1, hover radius is 24 logical → too far, no dots.
+    // At zoom=0.5, hover radius is 48 logical → in range, dots render.
+    const rect = rectAt('r1', 250, 250, 100, 100);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 270, y: 270 }, zoom: 1 },
+    });
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(0);
+
+    overlay.innerHTML = '';
+    renderOverlay(overlay, [], {
+      scale: 0.5,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 270, y: 270 }, zoom: 0.5 },
+    });
+    expect(overlay.querySelectorAll('[data-connection-site]').length).toBe(4);
+  });
+
+  it('connection-site dots have pointer-events: none so they do not block dragging', () => {
+    const overlay = makeOverlay();
+    const rect = rectAt('r1', 200, 200, 100, 100);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll<HTMLDivElement>(
+      '[data-connection-site]',
+    );
+    expect(dots.length).toBeGreaterThan(0);
+    for (const d of dots) {
+      expect(d.style.pointerEvents).toBe('none');
+    }
+  });
+});

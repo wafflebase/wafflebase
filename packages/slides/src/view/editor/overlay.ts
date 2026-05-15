@@ -1,6 +1,10 @@
 import type { ConnectorElement, Endpoint } from '../../model/connector';
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import {
+  getConnectionSites,
+  siteWorldPos,
+} from '../canvas/connection-sites';
 import { resolveEndpoint } from '../canvas/connector-frame';
 import type { SnapGuide } from './snap';
 import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
@@ -8,9 +12,15 @@ import {
   adjustmentLocalToWorld,
   defaultAdjustmentsFor,
 } from './interactions/adjustment';
+import {
+  SHAPE_HOVER_RADIUS,
+  SITE_SNAP_RADIUS,
+} from './interactions/insert-connector';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
+const SITE_DOT_SIZE = 8;           // px (default)
+const SITE_DOT_HIGHLIGHT_SIZE = 12; // px (within snap radius)
 
 export interface OverlayOptions {
   /** Host pixels per logical slide pixel. */
@@ -29,6 +39,21 @@ export interface OverlayOptions {
    * map, so callers that don't render connectors can omit it.
    */
   allElements?: readonly Element[];
+  /**
+   * When present, render the connection-points overlay (Task 13): blue
+   * dots at the connection sites of the single nearest non-connector
+   * element under `cursor`. `cursor` is in slide-logical coords; `zoom`
+   * is the host-pixels-per-slide-pixel scale, used to keep the dots
+   * pixel-constant in size and to convert the screen-pixel
+   * `SHAPE_HOVER_RADIUS` / `SITE_SNAP_RADIUS` constants into slide-
+   * logical distances for the proximity check. Caller sets this during
+   * connector-insert drag and connector-endpoint drag; the overlay
+   * silently omits the dots in any other mode.
+   */
+  connectorAffordance?: {
+    cursor: { x: number; y: number };
+    zoom: number;
+  };
 }
 
 /**
@@ -50,6 +75,15 @@ export function renderOverlay(
   options: OverlayOptions,
 ): void {
   overlay.innerHTML = '';
+
+  // Connector affordance (Task 13): blue dots over the nearest shape's
+  // connection sites. Rendered first so the selection handles paint on
+  // top, but since the affordance only fires while a connector drag is
+  // live (no selection handles visible during insert; only endpoint
+  // handles during endpoint drag) there's never meaningful overlap.
+  // `pointer-events: none` on each dot keeps them out of the drag.
+  renderConnectionPointsOverlay(overlay, options);
+
   if (selectedElements.length === 0) return;
 
   // Connectors get a custom selection treatment: exactly two endpoint
@@ -340,5 +374,98 @@ function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElem
   el.style.border = '1px solid #000';
   el.style.transform = 'rotate(45deg)'; // diamond
   el.style.cursor = 'pointer';
+  return el;
+}
+
+/**
+ * Render the connection-points affordance — blue dots over the
+ * connection sites of the single nearest non-connector element under
+ * the cursor. No-op unless the caller passed `connectorAffordance`.
+ *
+ * Nearest-element filter: among all non-connector elements whose
+ * centre is within `SHAPE_HOVER_RADIUS / zoom` (slide-logical) of the
+ * cursor, pick the one with the smallest centre→cursor distance. The
+ * filter prevents stacked shapes from flooding the overlay with dots.
+ *
+ * Highlight rule: a dot is highlighted (larger) when the cursor is
+ * within `SITE_SNAP_RADIUS / zoom` of the site's world position —
+ * matches the snap rule in `findSnapTarget` so the affordance always
+ * agrees with what the live drag will commit.
+ *
+ * `SHAPE_HOVER_RADIUS` and `SITE_SNAP_RADIUS` are screen-pixel
+ * distances; dividing by zoom converts them to slide-logical for the
+ * distance check against world coordinates. The rendered dots are
+ * pixel-constant size (host pixels), so we multiply the site's world
+ * position by `scale` (host px / slide px) to place them.
+ */
+function renderConnectionPointsOverlay(
+  overlay: HTMLDivElement,
+  options: OverlayOptions,
+): void {
+  const aff = options.connectorAffordance;
+  if (!aff) return;
+  const elements = options.allElements ?? [];
+  if (elements.length === 0) return;
+
+  const { cursor, zoom } = aff;
+  const hoverRadiusLogical = SHAPE_HOVER_RADIUS / zoom;
+  const hoverR2 = hoverRadiusLogical * hoverRadiusLogical;
+
+  let nearest: Element | null = null;
+  let bestD2 = hoverR2;
+  for (const el of elements) {
+    if (el.type === 'connector') continue;
+    const cx = el.frame.x + el.frame.w / 2;
+    const cy = el.frame.y + el.frame.h / 2;
+    const dx = cx - cursor.x;
+    const dy = cy - cursor.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      nearest = el;
+    }
+  }
+  if (!nearest) return;
+
+  const snapRadiusLogical = SITE_SNAP_RADIUS / zoom;
+  const sites = getConnectionSites(nearest);
+  for (let i = 0; i < sites.length; i++) {
+    const w = siteWorldPos(nearest, sites[i]);
+    const cursorD = Math.hypot(w.x - cursor.x, w.y - cursor.y);
+    const highlighted = cursorD < snapRadiusLogical;
+    overlay.appendChild(
+      makeConnectionSiteDot(
+        i,
+        w.x * options.scale,
+        w.y * options.scale,
+        highlighted,
+      ),
+    );
+  }
+}
+
+function makeConnectionSiteDot(
+  index: number,
+  cx: number,
+  cy: number,
+  highlighted: boolean,
+): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.connectionSite = String(index);
+  el.className = `wfb-slides-connection-site${
+    highlighted ? ' wfb-slides-connection-site-highlighted' : ''
+  }`;
+  const size = highlighted ? SITE_DOT_HIGHLIGHT_SIZE : SITE_DOT_SIZE;
+  el.style.position = 'absolute';
+  el.style.left = `${cx - size / 2}px`;
+  el.style.top = `${cy - size / 2}px`;
+  el.style.width = `${size}px`;
+  el.style.height = `${size}px`;
+  el.style.background = '#3a7';
+  el.style.border = '1px solid #fff';
+  el.style.borderRadius = '50%';
+  el.style.boxSizing = 'border-box';
+  // Affordance only — must not intercept the live connector drag.
+  el.style.pointerEvents = 'none';
   return el;
 }
