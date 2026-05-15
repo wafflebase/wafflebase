@@ -36,9 +36,11 @@ export const SHAPE_HOVER_RADIUS = 24;
 export const SITE_SNAP_RADIUS = 12;
 
 /**
- * Minimum drag distance before a connector-insert commits. A click or
+ * Minimum drag distance (in **screen pixels**, like `SHAPE_HOVER_RADIUS`
+ * and `SITE_SNAP_RADIUS`) before a connector-insert commits. A click or
  * micro-drag cancels insertion — connectors with near-zero length are
- * almost always accidental.
+ * almost always accidental. Callers convert to slide-logical distance
+ * by dividing by `zoom` so the threshold feels the same at any zoom.
  */
 export const MIN_DRAG_DISTANCE = 4;
 
@@ -164,7 +166,10 @@ export function finalizeInsert(
 ): string | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  if (Math.hypot(dx, dy) < MIN_DRAG_DISTANCE) return null;
+  // `MIN_DRAG_DISTANCE` is in screen pixels; cursor deltas above are in
+  // slide-logical units. Divide by zoom to get the matching logical
+  // threshold so the deadband feels identical at every zoom level.
+  if (Math.hypot(dx, dy) < MIN_DRAG_DISTANCE / zoom) return null;
   const init = buildConnectorInit(variant, start, end, elements, zoom);
   let id: string | null = null;
   store.batch(() => {

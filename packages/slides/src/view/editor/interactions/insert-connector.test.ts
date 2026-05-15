@@ -186,6 +186,73 @@ describe('finalizeInsert', () => {
   });
 });
 
+describe('finalizeInsert deadband at non-1 zoom', () => {
+  // Pre-fix the threshold was raw slide-logical (MIN_DRAG_DISTANCE = 4
+  // logical), which decoupled from the sibling screen-pixel constants
+  // (SHAPE_HOVER_RADIUS, SITE_SNAP_RADIUS) at zoom != 1. After the fix
+  // 4 is interpreted as screen pixels: the logical threshold scales
+  // with `/ zoom`, matching the snap radii.
+
+  it('zoom=0.5 — a 5-logical-px (2.5-screen-px) drag cancels (pre-fix would commit)', () => {
+    // This is the load-bearing regression case. Pre-fix the raw
+    // threshold was 4 *logical*, so a 5-logical drag committed even at
+    // zoom=0.5 (where 5 logical = only 2.5 screen px — invisible to
+    // the user). Post-fix the threshold scales: at zoom=0.5 it's
+    // 4/0.5 = 8 logical, so 5 logical correctly cancels.
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => { slideId = store.addSlide('blank'); });
+    const elements = store.read().slides[0].elements;
+    const id = finalizeInsert(
+      store,
+      slideId,
+      'line',
+      { x: 100, y: 100 },
+      { x: 105, y: 100 }, // 5 logical = 2.5 screen px at zoom=0.5
+      elements,
+      0.5,
+    );
+    expect(id).toBeNull();
+  });
+
+  it('zoom=0.5 — a 12-logical-px (6-screen-px) drag commits', () => {
+    // Above the scaled threshold (8 logical at zoom=0.5).
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => { slideId = store.addSlide('blank'); });
+    const elements = store.read().slides[0].elements;
+    const id = finalizeInsert(
+      store,
+      slideId,
+      'line',
+      { x: 100, y: 100 },
+      { x: 112, y: 100 },
+      elements,
+      0.5,
+    );
+    expect(id).not.toBeNull();
+  });
+
+  it('zoom=2 — a 3-logical-px (6-screen-px) drag commits (post-fix)', () => {
+    // The matching positive case. At zoom=2 the threshold shrinks to
+    // 4/2 = 2 logical, so 3 logical (6 screen px) clearly commits.
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => { slideId = store.addSlide('blank'); });
+    const elements = store.read().slides[0].elements;
+    const id = finalizeInsert(
+      store,
+      slideId,
+      'line',
+      { x: 100, y: 100 },
+      { x: 103, y: 100 },
+      elements,
+      2,
+    );
+    expect(id).not.toBeNull();
+  });
+});
+
 describe('finalizeInsert undo hygiene', () => {
   it('sub-threshold drag does not grow the undo stack', () => {
     // Real `MemSlidesStore` so we exercise the actual batch/undo

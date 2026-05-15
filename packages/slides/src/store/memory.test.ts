@@ -562,6 +562,73 @@ describe('MemSlidesStore — connector methods', () => {
     }
   });
 
+  it('duplicateSlide rewrites attached connector endpoint ids on the copy', () => {
+    const { store, slideId, targetId, connectorId } = setup();
+    let copyId = '';
+    store.batch(() => { copyId = store.duplicateSlide(slideId); });
+    const doc = store.read();
+    const copySlide = doc.slides.find((s) => s.id === copyId)!;
+    // The copy contains regenerated ids — neither matches the source.
+    expect(copySlide.elements.map((e) => e.id))
+      .not.toContain(targetId);
+    expect(copySlide.elements.map((e) => e.id))
+      .not.toContain(connectorId);
+    // Locate the copy's connector + its target by type, not by id.
+    const copyConnector = copySlide.elements.find((e) => e.type === 'connector');
+    const copyTarget = copySlide.elements.find((e) => e.type === 'shape');
+    expect(copyConnector?.type).toBe('connector');
+    expect(copyTarget?.type).toBe('shape');
+    if (copyConnector?.type === 'connector' && copyTarget) {
+      // The copy's connector must attach to the COPY's target, not the
+      // original target. Pre-fix, the connector still pointed at
+      // `targetId` and resolveEndpoint's missing-target fallback would
+      // snap it to (0, 0) when rendered on the copy slide.
+      expect(copyConnector.end).toEqual({
+        kind: 'attached',
+        elementId: copyTarget.id,
+        siteIndex: 0,
+      });
+      // Cached frame must also be derived from the rewritten endpoint
+      // (i.e. the copy's target's N site at (200, 100)), so the bbox
+      // matches the original.
+      const orig = doc.slides
+        .find((s) => s.id === slideId)!.elements
+        .find((e) => e.id === connectorId);
+      if (orig?.type === 'connector') {
+        expect(copyConnector.frame).toEqual(orig.frame);
+      }
+    }
+  });
+
+  it('addElement recomputes frame for connector even if init.frame is degenerate', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 100, y: 100 },
+        end:   { kind: 'free', x: 400, y: 200 },
+        arrowheads: {},
+        // Deliberately degenerate — simulates a future paste/import
+        // path that stores a stale or zero frame.
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 2 },
+      });
+    });
+    const c = store.read().slides[0].elements.find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') {
+      // Frame derived from endpoints, not the degenerate input.
+      expect(c.frame.w).toBeGreaterThan(0);
+      expect(c.frame.h).toBeGreaterThan(0);
+      expect(c.frame.x).toBeLessThanOrEqual(100);
+      expect(c.frame.y).toBeLessThanOrEqual(100);
+    }
+  });
+
   it('updateElementFrame on attached target recomputes connector frame', () => {
     const { store, slideId, targetId, connectorId } = setup();
     const slide1 = store.read().slides.find((s) => s.id === slideId)!;

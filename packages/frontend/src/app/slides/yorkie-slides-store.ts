@@ -481,10 +481,43 @@ export class YorkieSlidesStore implements SlidesStore {
       const src = r.slides[idx];
       const sourceBackground = yorkieToPlain<YorkieSlide['background']>((src as { background: unknown }).background);
       const sourceLayoutId = (src as { layoutId: string }).layoutId;
+      // Regenerate element ids and build an oldId → newId map. Without
+      // remapping, every attached connector endpoint on a duplicated
+      // slide would still point at the source slide's element id —
+      // which resolves correctly on the source but to (0,0) on the
+      // copy (resolveEndpoint's missing-target fallback).
+      const idMap = new Map<string, string>();
       const sourceElements = ((src as { elements: unknown[] }).elements ?? []).map((e) => {
         const plain = unwrapElement(e);
-        return { ...plain, id: generateId() } as YorkieElement;
+        const newElementId = generateId();
+        idMap.set((plain as { id: string }).id, newElementId);
+        return { ...plain, id: newElementId } as YorkieElement;
       });
+      // Rewrite connector endpoints to the new id space, then recompute
+      // the cached frame off the rewritten endpoints.
+      const lookup = new Map(
+        sourceElements.map((e) => [(e as { id: string }).id, e] as const),
+      );
+      for (const e of sourceElements) {
+        if ((e as { type: string }).type !== 'connector') continue;
+        const c = e as unknown as {
+          start: Endpoint;
+          end: Endpoint;
+          frame: Frame;
+        };
+        for (const side of ['start', 'end'] as const) {
+          const ep = c[side];
+          if (ep.kind === 'attached') {
+            const mapped = idMap.get(ep.elementId);
+            if (mapped) c[side] = { ...ep, elementId: mapped };
+          }
+        }
+        const plain = e as unknown as ConnectorElement;
+        c.frame = computeConnectorFrame(
+          plain,
+          lookup as unknown as ReadonlyMap<string, ModelElement>,
+        );
+      }
       const sourceNotes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
       const newSlide: YorkieSlide = {
         id: newId,
@@ -663,9 +696,21 @@ export class YorkieSlidesStore implements SlidesStore {
           frame: { ...init.frame },
           data: { blocks: clone(blocks) },
         } as YorkieElement);
-      } else {
-        s.elements.push({ ...clone(init), id } as YorkieElement);
+        return;
       }
+      if (init.type === 'connector') {
+        // Connectors carry a derived `frame` cache. The insert call path
+        // (buildConnectorInit) pre-fills it correctly, but any future
+        // paste/import path could store a degenerate `{0,0,0,0}` frame
+        // and silently break selection bbox. Recompute defensively from
+        // the endpoints + current slide elements.
+        const lookup = this.slideElementsLookup(s);
+        const next = { ...clone(init), id } as ConnectorElement;
+        next.frame = computeConnectorFrame(next, lookup);
+        s.elements.push(next as unknown as YorkieElement);
+        return;
+      }
+      s.elements.push({ ...clone(init), id } as YorkieElement);
     });
     return id;
   }

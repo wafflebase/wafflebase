@@ -112,7 +112,32 @@ export class MemSlidesStore implements SlidesStore {
     const source = this.doc.slides[index];
     const copy: Slide = clone(source);
     copy.id = generateId();
-    copy.elements = copy.elements.map((e) => ({ ...e, id: generateId() }));
+    // Regenerate element ids and build oldId → newId map so attached
+    // endpoints on connectors can be rewritten to reference the new ids.
+    // Without this, every duplicated slide with an attached connector
+    // would silently leave the connector pointing at the source slide's
+    // element id — which still resolves on the source but resolves to
+    // (0,0) on the copy (resolveEndpoint's missing-target fallback).
+    const idMap = new Map<string, string>();
+    copy.elements = copy.elements.map((e) => {
+      const newId = generateId();
+      idMap.set(e.id, newId);
+      return { ...e, id: newId };
+    });
+    // Rewrite connector endpoints; recompute their cached frame off the
+    // new id space.
+    const lookup = new Map(copy.elements.map((e) => [e.id, e] as const));
+    for (const e of copy.elements) {
+      if (e.type !== 'connector') continue;
+      for (const side of ['start', 'end'] as const) {
+        const ep = e[side];
+        if (ep.kind === 'attached') {
+          const mapped = idMap.get(ep.elementId);
+          if (mapped) e[side] = { ...ep, elementId: mapped };
+        }
+      }
+      e.frame = computeConnectorFrame(e, lookup);
+    }
     this.doc.slides.splice(index + 1, 0, copy);
     return copy.id;
   }
@@ -190,6 +215,15 @@ export class MemSlidesStore implements SlidesStore {
     const slide = this.requireSlide(slideId);
     const id = generateId();
     const element = { ...clone(init), id } as Element;
+    // Connectors carry a derived `frame` cache; the insert call path uses
+    // `buildConnectorInit` which pre-fills it correctly, but any future
+    // paste/import path could persist a degenerate `{0,0,0,0}` frame and
+    // silently break the selection bbox. Recompute defensively here so
+    // the cache is always derived from the endpoints.
+    if (element.type === 'connector') {
+      const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+      element.frame = computeConnectorFrame(element, lookup);
+    }
     slide.elements.push(element);
     return id;
   }
@@ -437,13 +471,11 @@ export class MemSlidesStore implements SlidesStore {
         }
       }
       if (mutated) {
-        // Rebuild the lookup so any subsequent connector sees the
-        // freshly-detached state — though in practice we only read the
-        // frames of *other* elements, so this is defensive.
-        el.frame = computeConnectorFrame(
-          el,
-          new Map(slide.elements.map((e) => [e.id, e] as const)),
-        );
+        // Reuse the outer `lookup` — `computeConnectorFrame` only
+        // consults it for `attached` endpoints, and we just rewrote
+        // both touched endpoints to `free`, so rebuilding the Map
+        // would be pure overhead.
+        el.frame = computeConnectorFrame(el, lookup);
       }
     }
   }

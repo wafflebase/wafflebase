@@ -21,6 +21,7 @@ import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
   buildConnectorInit,
   finalizeInsert as finalizeConnectorInsert,
+  MIN_DRAG_DISTANCE as CONNECTOR_MIN_DRAG_DISTANCE,
   snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
@@ -1390,10 +1391,15 @@ class SlidesEditorImpl implements SlidesEditor {
       if (!moved) {
         const dx = cur.x - startCursor.x;
         const dy = cur.y - startCursor.y;
-        // 1 logical-pixel deadband so a pure click on the handle doesn't
-        // reinterpret the endpoint (e.g. detach an attached endpoint
-        // because the cursor's free position landed off-site).
-        if (dx * dx + dy * dy < 1) return;
+        // Use the same screen-pixel constant as insert so click-vs-drag
+        // feels identical across modes (insert / endpoint-drag) and
+        // across zoom levels. `MIN_DRAG_DISTANCE` is in screen pixels;
+        // `dx`/`dy` are slide-logical, so divide by zoom for the
+        // matching logical threshold. A pure click then never
+        // reinterprets the endpoint (e.g. detaches an attached
+        // endpoint because the free cursor landed off-site).
+        const threshold = CONNECTOR_MIN_DRAG_DISTANCE / this.scale();
+        if (dx * dx + dy * dy < threshold * threshold) return;
         moved = true;
       }
       recompute(cur);
