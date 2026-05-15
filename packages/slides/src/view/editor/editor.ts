@@ -540,8 +540,9 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = new Set(this.selection.get());
     if (selectedIds.size === 0) return;
     const slideId = slide.id;
-    // Collect selected indices, operate from highest to lowest to avoid
-    // index shifts corrupting earlier moves within the same batch.
+    // Collect selected indices, operate from highest to lowest (descending sort)
+    // so that moving element at index i to i+1 only shifts the element that was
+    // at i+1 — elements at lower indices are untouched, keeping stored indices valid.
     const entries = slide.elements
       .map((el, i) => ({ id: el.id, i }))
       .filter((e) => selectedIds.has(e.id))
@@ -564,7 +565,9 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = new Set(this.selection.get());
     if (selectedIds.size === 0) return;
     const slideId = slide.id;
-    // Operate from lowest index to highest to avoid index shifts.
+    // Ascending sort: moving element at index i to i-1 only shifts the element
+    // that was at i-1 — elements at higher indices are untouched, so the stored
+    // indices of elements processed later remain correct without a live re-read.
     const entries = slide.elements
       .map((el, i) => ({ id: el.id, i }))
       .filter((e) => selectedIds.has(e.id))

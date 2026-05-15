@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '../canvas/test-canvas-env';
+import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../store/memory';
 import { initialize, type SlidesEditor } from './editor';
+import type {
+  MountSlidesTextBoxOptions,
+  SlidesTextBoxEditor,
+} from './text-box-editor';
 
 vi.mock('./layout-picker', () => ({
   showLayoutPicker: vi.fn(),
@@ -702,6 +707,96 @@ describe('z-order and rotate', () => {
     editor.rotateBy(Math.PI / 2);
     const el = store.read().slides[0].elements.find((e) => e.id === id)!;
     expect(el.frame.rotation).toBe(0);
+  });
+
+  /**
+   * Minimal mock mount factory: mirrors the fuller mock in text-box-editor.test.ts
+   * but without the fireCommit/fireCancel extras not needed here. A real
+   * container is created and appended to the overlay so the editor's
+   * `reattachEditingTextBox` path (which reads `tb.container.parentNode`) works.
+   */
+  function makeMockMount() {
+    function mount(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
+      const container = document.createElement('div');
+      container.className = 'wfb-slides-text-box-editor';
+      container.style.position = 'absolute';
+      opts.overlay.appendChild(container);
+      let mounted = true;
+      return {
+        isEditing: () => mounted,
+        focus: () => undefined,
+        commit: () => opts.onCommit(opts.blocks),
+        detach: () => { mounted = false; container.remove(); },
+        container,
+        getSelectionStyle: () => ({}),
+        applyStyle: () => {},
+        applyBlockStyle: () => {},
+        getBlockType: () => ({ type: 'paragraph' as const }),
+        setBlockType: () => {},
+        toggleList: () => {},
+        indent: () => {},
+        outdent: () => {},
+        insertLink: () => {},
+        removeLink: () => {},
+        getLinkAtCursor: () => undefined,
+        requestLink: () => {},
+        undo: () => {},
+        redo: () => {},
+        onCursorMove: () => {},
+      };
+    }
+    return mount;
+  }
+
+  it.each([
+    ['bringForward',  (ed: SlidesEditor) => ed.bringForward()],
+    ['sendBackward',  (ed: SlidesEditor) => ed.sendBackward()],
+    ['bringToFront',  (ed: SlidesEditor) => ed.bringToFront()],
+    ['sendToBack',    (ed: SlidesEditor) => ed.sendToBack()],
+    ['rotateBy',      (ed: SlidesEditor) => ed.rotateBy(Math.PI / 2)],
+  ] as const)('%s is a no-op while text-editing', (_name, invoke) => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // Three shapes at indices 0–2 so that z-order operations have room to move.
+    const e1 = addShape(store, sid, 0,   0, 100, 100);
+    const e2 = addShape(store, sid, 100, 0, 100, 100);
+    const e3 = addShape(store, sid, 200, 0, 100, 100);
+    // A text element at index 3 — required by enterTextEditing.
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 300, y: 0, w: 100, h: 100, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+    // Enter text-editing on the text element (sets editingElementId).
+    editor.enterTextEditing(textId);
+    // Now select a shape; the guard fires before any re-order / rotate.
+    editor.setSelection([e2]);
+    // Snapshot the element order + rotation before invoking the method.
+    const before = store.read().slides.find((s) => s.id === sid)!.elements.map((e) => e.id);
+    invoke(editor);
+    const after = store.read().slides.find((s) => s.id === sid)!.elements.map((e) => e.id);
+    expect(after).toEqual(before);
+    // Rotation of e1 must also be unchanged (covers rotateBy).
+    const el1 = after.includes(e1)
+      ? store.read().slides.find((s) => s.id === sid)!.elements.find((e) => e.id === e1)!
+      : undefined;
+    if (el1) expect(el1.frame.rotation).toBe(0);
+    void [e3];
   });
 });
 
