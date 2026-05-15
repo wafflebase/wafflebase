@@ -144,6 +144,37 @@ export interface SlidesEditor {
    */
   getEditingElementId(): string | null;
   /**
+   * `true` while a text element is in edit mode (i.e. the inline docs
+   * text-box editor is mounted and has focus). Use `onTextEditingChange`
+   * to react to transitions.
+   */
+  isTextEditing(): boolean;
+  /**
+   * Subscribe to text-editing state changes. The callback fires once on
+   * entry (after `editingElementId` is set) and once on exit (after it
+   * is cleared). Returns an unsubscribe function.
+   */
+  onTextEditingChange(cb: () => void): () => void;
+  /**
+   * The active `SlidesTextBoxEditor` while a text element is being
+   * edited, or `null` when no text-box is mounted. Use together with
+   * `isTextEditing()` to bind text-formatting controls to the editor.
+   */
+  getActiveTextEditor(): SlidesTextBoxEditor | null;
+  /**
+   * Programmatically enter text-edit mode on the given element. The
+   * element must be a `text` type on the current slide; no-op otherwise.
+   * Equivalent to a double-click on the element — the docs text-box is
+   * mounted and focused. Safe to call from toolbar buttons and tests.
+   */
+  enterTextEditing(elementId: string): void;
+  /**
+   * Exit text-edit mode, committing any in-flight changes to the store.
+   * No-op when not currently editing. Equivalent to clicking outside the
+   * text-box or pressing Esc (with commit, not discard).
+   */
+  exitTextEditing(): void;
+  /**
    * Subscribe to current-slide changes. Fires whenever
    * `setCurrentSlide` actually changes the rendered slide id.
    * Distinct from `onSelectionChange` because element selection
@@ -242,6 +273,10 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private editingElementId: string | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
+  /** Listeners for text-editing state changes (enter + exit). */
+  private textEditingListeners: Array<() => void> = [];
+  /** The currently active text-box editor, or null when not editing. */
+  private activeTextEditor: SlidesTextBoxEditor | null = null;
   /**
    * Last context-menu click position in viewport (clientX/clientY)
    * coords. Captured in onContextMenu so that menu-item `run`
@@ -559,6 +594,31 @@ class SlidesEditorImpl implements SlidesEditor {
     return this.editingElementId;
   }
 
+  isTextEditing(): boolean {
+    return this.editingElementId !== null;
+  }
+
+  onTextEditingChange(cb: () => void): () => void {
+    this.textEditingListeners.push(cb);
+    return () => {
+      this.textEditingListeners = this.textEditingListeners.filter((c) => c !== cb);
+    };
+  }
+
+  getActiveTextEditor(): SlidesTextBoxEditor | null {
+    return this.activeTextEditor;
+  }
+
+  enterTextEditing(elementId: string): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    this.enterEditMode(slide.id, elementId);
+  }
+
+  exitTextEditing(): void {
+    this.exitEditMode('commit');
+  }
+
   markDirty(): void {
     this.renderer.markDirty();
   }
@@ -867,6 +927,8 @@ class SlidesEditorImpl implements SlidesEditor {
       },
     });
     this.editingTextBox = tb;
+    this.activeTextEditor = tb;
+    for (const cb of this.textEditingListeners) cb();
     // Repaint the slide canvas so the element being edited disappears
     // (render() filters it out while editingElementId is non-null), then
     // refresh the overlay (which also hides the resize/rotate handles
@@ -903,6 +965,8 @@ class SlidesEditorImpl implements SlidesEditor {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
     this.editingElementId = null;
+    this.activeTextEditor = null;
+    for (const cb of this.textEditingListeners) cb();
     if (tb !== null) {
       tb.detach();
     }
