@@ -3,9 +3,12 @@ import type { PlaceholderStyle } from '../../model/master';
 import { placeholderHintFor } from '../../model/placeholder-hints';
 import type { SlidesDocument } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
+import { drawConnector } from './connector-renderer';
 import { drawShape } from './shape-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
+
+const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
 
 /**
  * Draw an element in world coordinates. Sets up the frame transform
@@ -28,7 +31,15 @@ export function drawElement(
   doc: SlidesDocument,
   theme: Theme,
   onAssetLoad: () => void,
+  elementsLookup: ReadonlyMap<string, Element> = EMPTY_LOOKUP,
 ): void {
+  // Connectors paint directly in world coordinates and need a lookup map
+  // to resolve attached endpoints — skip the per-element frame transform.
+  if (element.type === 'connector') {
+    drawConnector(ctx, element, elementsLookup, theme);
+    return;
+  }
+
   const { frame } = element;
   ctx.save();
   // try/finally so the ctx state is always restored, even if a
@@ -77,10 +88,6 @@ export function drawElement(
       case 'image':
         drawImage(ctx, size, element.data, onAssetLoad);
         break;
-      case 'connector':
-        throw new Error(
-          'connector rendering not implemented yet (PR1 Task 9)',
-        );
     }
   } finally {
     ctx.restore();

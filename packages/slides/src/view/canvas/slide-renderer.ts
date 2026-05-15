@@ -130,8 +130,14 @@ export function drawSlide(
   // logical 1920×1080 region *after* this full-canvas color fill so the
   // image still represents the slide and the surrounding strip stays
   // background-color.
+  // Element lookup is consumed by the connector renderer to resolve
+  // attached endpoints. Built once per slide-render so each connector
+  // doesn't rebuild it.
+  const elementsLookup = new Map<string, Element>(
+    slide.elements.map((e) => [e.id, e] as const),
+  );
   for (const element of slide.elements) {
-    drawElement(ctx, element, doc, theme, onAssetLoad);
+    drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
   }
 
   if (ghost !== undefined) {
@@ -142,7 +148,7 @@ export function drawSlide(
     // up at the same readable opacity without per-renderer tweaks.
     ctx.save();
     ctx.globalAlpha = GHOST_ALPHA;
-    drawElement(ctx, ghost, doc, theme, onAssetLoad);
+    drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
     ctx.restore();
   }
 }
