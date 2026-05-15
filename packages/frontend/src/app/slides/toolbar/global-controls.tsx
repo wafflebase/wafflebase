@@ -23,7 +23,6 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { PresentButton } from "../slides-present-button";
 import { ThemedColorPicker } from "../themed-color-picker";
 
 // ---------------------------------------------------------------------------
@@ -103,8 +102,6 @@ export interface RightGlobalsProps {
   isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
-  onStartPresentation?: (from: "current" | "first") => void;
-  slideCount?: number;
 }
 
 /**
@@ -120,8 +117,6 @@ export function RightGlobals({
   isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
-  onStartPresentation,
-  slideCount = 0,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   const onBackgroundChange = useCallback(
@@ -199,15 +194,6 @@ export function RightGlobals({
           </TooltipTrigger>
           <TooltipContent>Theme</TooltipContent>
         </Tooltip>
-      )}
-      {onStartPresentation && (
-        <>
-          <ToolbarSeparator className="mx-1" />
-          <PresentButton
-            disabled={!store || slideCount === 0}
-            onStart={onStartPresentation}
-          />
-        </>
       )}
     </div>
   );

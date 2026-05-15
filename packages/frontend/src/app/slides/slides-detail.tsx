@@ -19,6 +19,7 @@ import type { YorkieSlidesRoot } from "@/types/slides-document";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesToolbar } from "./toolbar";
 import { SlidesPresentationMode } from "./slides-presentation-mode";
+import { PresentButton } from "./slides-present-button";
 import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
@@ -238,6 +239,10 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <PresentButton
+              disabled={!store || slideCount === 0}
+              onStart={handleStartPresentation}
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -251,8 +256,6 @@ function SlidesLayout({ documentId }: { documentId: string }) {
             upload={uploadFn}
             onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
             themePanelOpen={themePanelOpen}
-            onStartPresentation={handleStartPresentation}
-            slideCount={slideCount}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <SlidesView

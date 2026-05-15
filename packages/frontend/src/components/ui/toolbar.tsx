@@ -36,11 +36,14 @@ function ToolbarSeparator({
   orientation,
   ...props
 }: React.ComponentProps<typeof Separator>) {
+  // bg-border (--border at oklch 0.92) is too faint to read as a divider
+  // against the toolbar background. Bump the contrast so the vertical line
+  // is actually visible between button groups.
   return (
     <Separator
       {...props}
       orientation="vertical"
-      className={cn("mx-2 h-5", className)}
+      className={cn("mx-2 !h-5 bg-zinc-300 dark:bg-zinc-700", className)}
     />
   );
 }

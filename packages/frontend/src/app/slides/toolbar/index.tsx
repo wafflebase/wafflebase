@@ -17,8 +17,6 @@ export interface SlidesToolbarProps {
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
-  onStartPresentation?: (from: "current" | "first") => void;
-  slideCount?: number;
 }
 
 /**
@@ -36,8 +34,6 @@ export function SlidesToolbar({
   upload,
   onToggleThemePanel,
   themePanelOpen,
-  onStartPresentation,
-  slideCount = 0,
 }: SlidesToolbarProps) {
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
@@ -95,8 +91,6 @@ export function SlidesToolbar({
         isTextEditing={state.kind === "text-edit"}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}
-        onStartPresentation={onStartPresentation}
-        slideCount={slideCount}
       />
     </Toolbar>
   );
