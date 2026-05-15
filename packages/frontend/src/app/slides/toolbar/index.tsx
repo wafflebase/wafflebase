@@ -71,12 +71,7 @@ export function SlidesToolbar({
         className="flex flex-1 items-center gap-1"
       >
         {state.kind === "idle" && (
-          <IdleSection
-            editor={editor}
-            store={store}
-            theme={theme}
-            onImagePick={onImagePick}
-          />
+          <IdleSection editor={editor} onImagePick={onImagePick} />
         )}
         {state.kind === "object" && (
           <ObjectSection
@@ -92,9 +87,11 @@ export function SlidesToolbar({
           <TextEditSection state={state} />
         )}
       </div>
+      <ToolbarSeparator className="mx-1" />
       <RightGlobals
         editor={editor}
         store={store}
+        theme={theme}
         isTextEditing={state.kind === "text-edit"}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}

@@ -2,20 +2,18 @@ import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 /**
- * IdleSection (.tsx) cannot be rendered by the Node --experimental-strip-types
- * test runner because it contains JSX. The resolve-hooks stub swaps all .tsx
- * files for no-op exports so transitive imports don't crash.
+ * Slide-background handler logic (now hosted by RightGlobals — moved out of
+ * IdleSection so the picker is reachable from every toolbar state, grouped
+ * with the Theme button on the right).
  *
- * The testable surface is the `onBackgroundChange` handler logic: given a
- * ThemeColor, it must call `store.batch` and `store.updateSlideBackground`
- * with the current slide ID and `{ fill: color }`.
- *
- * Full interaction tests (open dropdown → pick color → background updates)
- * belong in the browser interaction suite (tests/visual / Playwright) once
- * the new toolbar is wired into slides-detail.tsx.
+ * The .tsx components can't be rendered by the Node --experimental-strip-types
+ * runner (resolve-hooks stubs all .tsx imports). The testable surface is the
+ * handler itself: given a ThemeColor, call store.batch + store.updateSlideBackground
+ * with the current slide ID and { fill: color }. Full interaction tests live
+ * in the browser harness.
  */
 
-describe('IdleSection onBackgroundChange logic', () => {
+describe('Slide background onBackgroundChange logic', () => {
   /**
    * Extracts the handler logic from the component: given a store and slideId,
    * returns a function that mirrors what onBackgroundChange does in the component.

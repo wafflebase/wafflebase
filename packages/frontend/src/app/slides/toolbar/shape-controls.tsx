@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { IconColorSwatch } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
@@ -121,6 +122,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      {isShape && <ToolbarSeparator className="mx-1" />}
       <BorderPicker
         value={firstStroke}
         theme={theme}

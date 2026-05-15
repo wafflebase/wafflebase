@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { IconColorSwatch } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
@@ -164,6 +165,8 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         onChange={onStrokeChange}
         disabled={!store || !slideId}
       />
+
+      <ToolbarSeparator className="mx-1" />
 
       {/* Font family — themed font picker */}
       <DropdownMenu>

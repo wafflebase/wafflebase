@@ -1,13 +1,30 @@
-import { useEffect, useState } from "react";
-import { IconArrowBackUp, IconArrowForwardUp, IconPalette } from "@tabler/icons-react";
-import type { SlidesEditor, SlidesStore } from "@wafflebase/slides";
+import { useCallback, useEffect, useState } from "react";
+import {
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconColorSwatch,
+  IconPalette,
+} from "@tabler/icons-react";
+import type {
+  SlidesEditor,
+  SlidesStore,
+  Theme,
+  ThemeColor,
+} from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
+import { ToolbarSeparator } from "@/components/ui/toolbar";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { PresentButton } from "../slides-present-button";
+import { ThemedColorPicker } from "../themed-color-picker";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -81,6 +98,7 @@ export function UndoRedoGroup({ store }: UndoRedoGroupProps) {
 export interface RightGlobalsProps {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
+  theme?: Theme | null;
   /** When true, shows a Done button to exit text editing (Esc-equivalent). */
   isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
@@ -98,28 +116,74 @@ export interface RightGlobalsProps {
 export function RightGlobals({
   editor,
   store,
+  theme,
   isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
   onStartPresentation,
   slideCount = 0,
 }: RightGlobalsProps) {
+  const slideId = editor?.getCurrentSlideId();
+  const onBackgroundChange = useCallback(
+    (color: ThemeColor) => {
+      if (!store || !slideId) return;
+      store.batch(() => store.updateSlideBackground(slideId, { fill: color }));
+    },
+    [store, slideId],
+  );
+
+  const hasSlideStyleGroup = !!store;
+  const hasPanelGroup = !!onToggleThemePanel;
+
   return (
     <div className="ml-auto flex items-center gap-1">
       {isTextEditing && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => editor?.exitTextEditing()}
-              aria-label="Done editing text"
-              className="inline-flex h-7 items-center justify-center rounded-md px-3 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Done
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Exit text edit (Esc)</TooltipContent>
-        </Tooltip>
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => editor?.exitTextEditing()}
+                aria-label="Done editing text"
+                className="inline-flex h-7 items-center justify-center rounded-md px-3 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Done
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Exit text edit (Esc)</TooltipContent>
+          </Tooltip>
+          {(hasSlideStyleGroup || hasPanelGroup) && (
+            <ToolbarSeparator className="mx-1" />
+          )}
+        </>
+      )}
+      {hasSlideStyleGroup && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Slide background"
+                  disabled={!store || !slideId || !theme}
+                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <IconColorSwatch size={16} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Slide background</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-auto p-2">
+            {theme && (
+              <ThemedColorPicker
+                value={undefined}
+                theme={theme}
+                onChange={onBackgroundChange}
+              />
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       {onToggleThemePanel && (
         <Tooltip>
@@ -137,10 +201,13 @@ export function RightGlobals({
         </Tooltip>
       )}
       {onStartPresentation && (
-        <PresentButton
-          disabled={!store || slideCount === 0}
-          onStart={onStartPresentation}
-        />
+        <>
+          <ToolbarSeparator className="mx-1" />
+          <PresentButton
+            disabled={!store || slideCount === 0}
+            onStart={onStartPresentation}
+          />
+        </>
       )}
     </div>
   );

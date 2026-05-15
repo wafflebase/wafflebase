@@ -10,6 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ToolbarSeparator } from '@/components/ui/toolbar';
 import {
   IconReplace,
   IconCrop,
@@ -137,6 +138,8 @@ export function ImageControls({
         </TooltipTrigger>
         <TooltipContent>Reset crop</TooltipContent>
       </Tooltip>
+
+      <ToolbarSeparator className="mx-1" />
 
       {/* Alt text */}
       <AltTextDropdown
