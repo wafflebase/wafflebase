@@ -4,6 +4,7 @@ import type { ToolbarState } from './state';
 import { InsertGroup } from './insert-group';
 import { ArrangeMenu } from './arrange-menu';
 import { ShapeControls } from './shape-controls';
+import { ImageControls } from './image-controls';
 
 export interface ObjectSectionProps {
   state: Extract<ToolbarState, { kind: 'object' }>;
@@ -11,6 +12,7 @@ export interface ObjectSectionProps {
   store: SlidesStore | null;
   theme?: Theme | null;
   onImagePick: () => void;
+  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
 }
 
 /**
@@ -18,12 +20,13 @@ export interface ObjectSectionProps {
  *
  * Routes on `state.selectionType`:
  * - `shape` / `connector` → ShapeControls (Fill + Border)
- * - `image` / `text-element` / `mixed` → contextual format zone left empty;
- *   Tasks 9 and 10 fill these in.
+ * - `image` → ImageControls (Replace / Crop placeholder / Reset crop / Alt)
+ * - `text-element` / `mixed` → contextual format zone left empty;
+ *   Task 10 fills text-element in.
  *
  * Arrange menu always appears at the end regardless of selection type.
  */
-export function ObjectSection({ state, editor, store, theme, onImagePick }: ObjectSectionProps) {
+export function ObjectSection({ state, editor, store, theme, onImagePick, upload }: ObjectSectionProps) {
   const showShapeControls =
     state.selectionType === 'shape' || state.selectionType === 'connector';
 
@@ -33,6 +36,9 @@ export function ObjectSection({ state, editor, store, theme, onImagePick }: Obje
       <ToolbarSeparator className="mx-1" />
       {showShapeControls && (
         <ShapeControls editor={editor} store={store} theme={theme} ids={state.ids} />
+      )}
+      {state.selectionType === 'image' && (
+        <ImageControls editor={editor} store={store} ids={state.ids} upload={upload} />
       )}
       <ToolbarSeparator className="mx-1" />
       <ArrangeMenu editor={editor} selectionSize={state.ids.length} />

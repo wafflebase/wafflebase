@@ -12,6 +12,8 @@ export interface SlidesToolbarProps {
   store?: SlidesStore | null;
   theme?: Theme | null;
   onImagePick: () => void;
+  /** Upload pipeline for both Insert and Replace image paths. */
+  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
   onStartPresentation?: (from: "current" | "first") => void;
@@ -31,6 +33,7 @@ export function SlidesToolbar({
   store = null,
   theme,
   onImagePick,
+  upload,
   onToggleThemePanel,
   themePanelOpen,
   onStartPresentation,
@@ -82,6 +85,7 @@ export function SlidesToolbar({
             store={store}
             theme={theme}
             onImagePick={onImagePick}
+            upload={upload}
           />
         )}
         {state.kind === "text-edit" && null}

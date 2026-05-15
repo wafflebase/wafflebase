@@ -304,7 +304,17 @@ export class MemSlidesStore implements SlidesStore {
       );
     }
     // discriminated union — patch only the data sub-object.
-    e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
+    // Apply the patch key-by-key so that explicit `undefined` values remove
+    // the key (JSON.stringify strips undefined, so we cannot use clone here).
+    const merged: Record<string, unknown> = { ...(e.data as object) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) {
+        delete merged[k];
+      } else {
+        merged[k] = clone(v);
+      }
+    }
+    e.data = merged as typeof e.data;
   }
 
   updateConnectorEndpoint(
