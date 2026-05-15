@@ -16,7 +16,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { IconColorSwatch } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
-import { applyShapeFill, readShapeFill } from '../themed-color-picker-helpers';
+import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
 
 export interface ShapeControlsProps {
@@ -53,7 +53,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         for (const id of ids) {
           const el = slide.elements.find((e) => e.id === id);
           if (el?.type === 'shape') {
-            applyShapeFill(store, slideId, el as ShapeElement, color);
+            store.updateElementData(slideId, id, { fill: color });
           }
         }
       });
