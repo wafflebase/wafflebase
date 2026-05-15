@@ -16,22 +16,22 @@ const rect = (id: string, x: number, y: number): Element => ({
 });
 
 describe('findSnapTarget', () => {
-  it('snaps to the nearest site within 12px', () => {
+  it('snaps to the nearest site within 12px at zoom=1', () => {
     const els = [rect('r1', 100, 100)];
     // r1 N site is at (150, 100).
-    const hit = findSnapTarget({ x: 155, y: 105 }, els);
+    const hit = findSnapTarget({ x: 155, y: 105 }, els, 1);
     expect(hit).toMatchObject({ elementId: 'r1', siteIndex: 0 });
   });
 
-  it('returns null outside the snap radius', () => {
+  it('returns null outside the snap radius at zoom=1', () => {
     const els = [rect('r1', 100, 100)];
-    const hit = findSnapTarget({ x: 200, y: 300 }, els);
+    const hit = findSnapTarget({ x: 200, y: 300 }, els, 1);
     expect(hit).toBeNull();
   });
 
   it('skips connector elements (no sites on connectors)', () => {
     const fakeConnector = { id: 'c1', type: 'connector' } as unknown as Element;
-    const hit = findSnapTarget({ x: 0, y: 0 }, [fakeConnector]);
+    const hit = findSnapTarget({ x: 0, y: 0 }, [fakeConnector], 1);
     expect(hit).toBeNull();
   });
 
@@ -39,15 +39,48 @@ describe('findSnapTarget', () => {
     const els = [rect('r1', 100, 100), rect('r2', 200, 100)];
     // r1 E site = (200, 150); r2 W site = (200, 150). Same coord. Either
     // is acceptable. Cursor at (198, 150) → both within snap radius.
-    const hit = findSnapTarget({ x: 198, y: 150 }, els);
+    const hit = findSnapTarget({ x: 198, y: 150 }, els, 1);
     expect(hit).not.toBeNull();
     expect(['r1', 'r2']).toContain(hit!.elementId);
+  });
+
+  // Zoom mismatch regression (slides-connectors PR1): the constant
+  // SITE_SNAP_RADIUS is screen pixels, so the slide-logical threshold
+  // shrinks as zoom grows. At zoom=2, 1 logical = 2 screen px → the
+  // 12-screen-px snap window equals 6 logical units. At zoom=0.5,
+  // 1 logical = 0.5 screen px → the window equals 24 logical units.
+  // These two tests lock in that semantic so the snap rule stays in
+  // sync with the overlay highlight rule (overlay.ts also divides by
+  // zoom).
+  it('does not snap at zoom=2 when distance > 12 screen px', () => {
+    const els = [rect('r1', 100, 100)];
+    // r1 N site at (150, 100); cursor 8 logical units away. At zoom=2
+    // that's 16 screen px — outside the 12 screen px snap window.
+    const hit = findSnapTarget({ x: 158, y: 100 }, els, 2);
+    expect(hit).toBeNull();
+  });
+
+  it('snaps at zoom=2 when distance < 12 screen px', () => {
+    const els = [rect('r1', 100, 100)];
+    // r1 N site at (150, 100); cursor 5 logical units away. At zoom=2
+    // that's 10 screen px — inside the 12 screen px snap window.
+    const hit = findSnapTarget({ x: 155, y: 100 }, els, 2);
+    expect(hit).toMatchObject({ elementId: 'r1', siteIndex: 0 });
+  });
+
+  it('snaps at zoom=0.5 when within the widened logical window', () => {
+    const els = [rect('r1', 100, 100)];
+    // r1 N site at (150, 100); cursor 20 logical units away. At
+    // zoom=0.5 that's 10 screen px — well inside the 12-screen-px
+    // snap window, which corresponds to 24 logical at this zoom.
+    const hit = findSnapTarget({ x: 170, y: 100 }, els, 0.5);
+    expect(hit).toMatchObject({ elementId: 'r1', siteIndex: 0 });
   });
 });
 
 describe('snappedEndpoint', () => {
   it('returns free when no snap', () => {
-    expect(snappedEndpoint({ x: 500, y: 500 }, [])).toEqual({
+    expect(snappedEndpoint({ x: 500, y: 500 }, [], 1)).toEqual({
       kind: 'free',
       x: 500,
       y: 500,
@@ -56,7 +89,7 @@ describe('snappedEndpoint', () => {
 
   it('returns attached on snap', () => {
     const els = [rect('r1', 100, 100)];
-    expect(snappedEndpoint({ x: 150, y: 100 }, els)).toEqual({
+    expect(snappedEndpoint({ x: 150, y: 100 }, els, 1)).toEqual({
       kind: 'attached',
       elementId: 'r1',
       siteIndex: 0,
@@ -90,6 +123,7 @@ describe('finalizeInsert', () => {
       { x: 100, y: 100 },
       { x: 102, y: 102 }, // hypot ≈ 2.83 < MIN_DRAG_DISTANCE (4)
       [],
+      1,
     );
     expect(id).toBeNull();
     expect((store.addElement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
@@ -107,6 +141,7 @@ describe('finalizeInsert', () => {
       { x: 100, y: 100 },
       { x: 400, y: 400 },
       [],
+      1,
     );
     expect(id).toBe('new-id');
     expect(calls).toHaveLength(1);
@@ -127,6 +162,7 @@ describe('finalizeInsert', () => {
       { x: 100, y: 100 },
       { x: 400, y: 400 },
       [],
+      1,
     );
     const init = (calls[0] as { init: { arrowheads: { end?: { kind: string; size: string } } } }).init;
     expect(init.arrowheads.end).toEqual({ kind: 'triangle', size: 'md' });
@@ -142,6 +178,7 @@ describe('finalizeInsert', () => {
       { x: 150, y: 100 }, // r1 N site
       { x: 450, y: 100 }, // r2 N site
       els,
+      1,
     );
     const init = (calls[0] as { init: { start: unknown; end: unknown } }).init;
     expect(init.start).toEqual({ kind: 'attached', elementId: 'r1', siteIndex: 0 });
@@ -179,6 +216,7 @@ describe('finalizeInsert undo hygiene', () => {
       { x: 100, y: 100 },
       { x: 102, y: 100 }, // 2px < MIN_DRAG_DISTANCE (4)
       elements,
+      1,
     );
     expect(id).toBeNull();
 
@@ -206,6 +244,7 @@ describe('finalizeInsert undo hygiene', () => {
       { x: 100, y: 100 },
       { x: 400, y: 100 }, // 300px well above threshold
       elements,
+      1,
     );
     expect(id).not.toBeNull();
     // Two undo entries: addSlide + finalizeInsert.

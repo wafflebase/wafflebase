@@ -17,17 +17,21 @@ import { computeConnectorFrame } from '../../canvas/connector-frame';
 export type ConnectorInsertVariant = 'line' | 'arrow';
 
 /**
- * Distance (in slide-logical units) within which a cursor counts as
- * "over" a shape for connection-points display. Currently consumed by
- * the overlay (Task 13); exported so the overlay and snap helpers share
- * one source of truth.
+ * Distance (in screen pixels, DPR-corrected at draw time) within which
+ * a cursor counts as "over" a shape for connection-points display.
+ * Callers convert to slide-logical distance by dividing by the current
+ * `zoom` so the affordance feels the same to the user at any zoom
+ * level. Consumed by the overlay (Task 13) and the snap helpers below;
+ * exported so both stay in sync.
  */
 export const SHAPE_HOVER_RADIUS = 24;
 
 /**
- * Distance within which the cursor snaps to a connection site. Smaller
- * than `SHAPE_HOVER_RADIUS` so the user sees the dots first, then has
- * to deliberately move closer to commit to a snap.
+ * Distance (in screen pixels) within which the cursor snaps to a
+ * connection site. Smaller than `SHAPE_HOVER_RADIUS` so the user sees
+ * the dots first, then has to deliberately move closer to commit to a
+ * snap. Like `SHAPE_HOVER_RADIUS`, this is a screen-pixel constant —
+ * callers divide by `zoom` to get the slide-logical threshold.
  */
 export const SITE_SNAP_RADIUS = 12;
 
@@ -47,17 +51,25 @@ export interface SnapHit {
 
 /**
  * Find the nearest connection site to `cursor` across all candidate
- * elements. Returns null if no site is within `SITE_SNAP_RADIUS`.
- * Connector elements have no connection sites and are skipped, so a
- * fresh connector never accidentally snaps to a sibling connector's
- * endpoint.
+ * elements. Returns null if no site is within `SITE_SNAP_RADIUS` screen
+ * pixels (converted to slide-logical distance via `zoom`). Connector
+ * elements have no connection sites and are skipped, so a fresh
+ * connector never accidentally snaps to a sibling connector's endpoint.
+ *
+ * `zoom` must match the host's current scale so the snap rule agrees
+ * with the overlay's highlight rule — both interpret `SITE_SNAP_RADIUS`
+ * as screen pixels and apply the same `/zoom` correction.
  */
 export function findSnapTarget(
   cursor: { x: number; y: number },
   elements: readonly Element[],
+  zoom: number,
 ): SnapHit | null {
   let best: SnapHit | null = null;
-  let bestD2 = SITE_SNAP_RADIUS * SITE_SNAP_RADIUS;
+  // Constants are screen pixels; divide by zoom to get the slide-
+  // logical threshold the squared comparison below works in.
+  const snapLogical = SITE_SNAP_RADIUS / zoom;
+  let bestD2 = snapLogical * snapLogical;
   for (const el of elements) {
     if (el.type === 'connector') continue;
     const sites = getConnectionSites(el);
@@ -78,13 +90,16 @@ export function findSnapTarget(
 /**
  * Resolve the cursor to an `Endpoint`. When the cursor is within the
  * snap radius of a connection site, returns an `attached` endpoint;
- * otherwise a `free` endpoint at the raw cursor position.
+ * otherwise a `free` endpoint at the raw cursor position. `zoom` is
+ * forwarded to `findSnapTarget` so the screen-pixel threshold stays
+ * consistent across zoom levels.
  */
 export function snappedEndpoint(
   cursor: { x: number; y: number },
   elements: readonly Element[],
+  zoom: number,
 ): Endpoint {
-  const hit = findSnapTarget(cursor, elements);
+  const hit = findSnapTarget(cursor, elements, zoom);
   if (hit) {
     return { kind: 'attached', elementId: hit.elementId, siteIndex: hit.siteIndex };
   }
@@ -102,9 +117,10 @@ export function buildConnectorInit(
   start: { x: number; y: number },
   end: { x: number; y: number },
   elements: readonly Element[],
+  zoom: number,
 ): Omit<ConnectorElement, 'id'> {
-  const startEp = snappedEndpoint(start, elements);
-  const endEp = snappedEndpoint(end, elements);
+  const startEp = snappedEndpoint(start, elements, zoom);
+  const endEp = snappedEndpoint(end, elements, zoom);
 
   const arrowheads: ConnectorElement['arrowheads'] =
     variant === 'arrow'
@@ -144,11 +160,12 @@ export function finalizeInsert(
   start: { x: number; y: number },
   end: { x: number; y: number },
   elements: readonly Element[],
+  zoom: number,
 ): string | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   if (Math.hypot(dx, dy) < MIN_DRAG_DISTANCE) return null;
-  const init = buildConnectorInit(variant, start, end, elements);
+  const init = buildConnectorInit(variant, start, end, elements, zoom);
   let id: string | null = null;
   store.batch(() => {
     id = store.addElement(slideId, init);

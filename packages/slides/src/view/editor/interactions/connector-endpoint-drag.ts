@@ -5,8 +5,9 @@ import { snappedEndpoint } from './insert-connector';
 
 /**
  * Move one endpoint of a selected connector. Snaps to a connection
- * site when the cursor is within `SITE_SNAP_RADIUS` of one, otherwise
- * drops as a `free` endpoint at the raw cursor position.
+ * site when the cursor is within `SITE_SNAP_RADIUS` screen pixels of
+ * one (converted to slide-logical via `zoom`), otherwise drops as a
+ * `free` endpoint at the raw cursor position.
  *
  * The connector itself is excluded from snap candidates so an endpoint
  * cannot self-link (and so other connectors — which have no connection
@@ -26,8 +27,9 @@ export function dragEndpoint(
   side: 'start' | 'end',
   cursor: { x: number; y: number },
   elements: readonly Element[],
+  zoom: number,
 ): void {
   const candidates = elements.filter((e) => e.id !== connector.id);
-  const endpoint = snappedEndpoint(cursor, candidates);
+  const endpoint = snappedEndpoint(cursor, candidates, zoom);
   store.updateConnectorEndpoint(slideId, connector.id, side, endpoint);
 }

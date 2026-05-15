@@ -1093,7 +1093,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent) => {
       endPoint = this.clientToLogical(ev.clientX, ev.clientY);
       this.connectorCursor = endPoint;
-      const init = buildConnectorInit(variant, start, endPoint, slide.elements);
+      const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
       const ghost = { ...init, id: '__preview__' } as Element;
       this.renderer.forceRender(slide, this.options.store.read(), ghost);
       // Repaint the overlay so the connection-points dots track the
@@ -1124,6 +1124,7 @@ class SlidesEditorImpl implements SlidesEditor {
         start,
         endPoint,
         slide.elements,
+        this.scale(),
       );
       if (newId !== null) this.selection.set([newId]);
       this.setInsertMode(null);
@@ -1355,7 +1356,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const candidates = startSlide.elements.filter(
         (e) => e.id !== startConnector.id,
       );
-      liveEndpoint = snappedEndpoint(cur, candidates);
+      liveEndpoint = snappedEndpoint(cur, candidates, this.scale());
       liveCursor = cur;
     };
 
@@ -1420,6 +1421,7 @@ class SlidesEditorImpl implements SlidesEditor {
           side,
           liveCursor,
           startSlide.elements,
+          this.scale(),
         );
       });
       this.renderer.markDirty();
