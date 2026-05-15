@@ -44,12 +44,11 @@ export function SlidesToolbar({
     }
     const refresh = () => setState(getToolbarState(editor, store));
     refresh();
-    const storeWithChange = store as { onChange?: (cb: () => void) => () => void } | null;
     const offs = [
       editor.onSelectionChange(refresh),
       editor.onCurrentSlideChange(refresh),
       editor.onTextEditingChange(refresh),
-      storeWithChange?.onChange?.(refresh) ?? (() => {}),
+      store?.onChange?.(refresh) ?? (() => {}),
     ];
     return () => offs.forEach((off) => off());
   }, [editor, store]);

@@ -37,10 +37,7 @@ export function UndoRedoGroup({ store }: UndoRedoGroupProps) {
       setRedoable(store.canRedo());
     };
     refresh();
-    // onChange is present on YorkieSlidesStore but not on the base
-    // SlidesStore interface; use optional chaining to handle both.
-    const storeWithChange = store as { onChange?: (cb: () => void) => () => void };
-    return storeWithChange.onChange?.(refresh);
+    return store.onChange?.(refresh);
   }, [store]);
 
   return (

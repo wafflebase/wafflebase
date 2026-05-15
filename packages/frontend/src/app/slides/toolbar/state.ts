@@ -2,7 +2,7 @@ import type { SlidesEditor, SlidesStore, SlidesTextBoxEditor, Element } from '@w
 
 export type ToolbarState =
   | { kind: 'idle' }
-  | { kind: 'object'; selectionType: 'shape' | 'image' | 'text-element' | 'mixed'; ids: readonly string[] }
+  | { kind: 'object'; selectionType: 'shape' | 'connector' | 'image' | 'text-element' | 'mixed'; ids: readonly string[] }
   | { kind: 'text-edit'; elementId: string; textEditor: SlidesTextBoxEditor };
 
 export function getToolbarState(
@@ -30,15 +30,16 @@ export function getToolbarState(
   }
   if (types.size === 0) return { kind: 'idle' };
   const single = types.size === 1 ? (types.values().next().value as Element['type']) : null;
-  let selectionType: 'shape' | 'image' | 'text-element' | 'mixed';
+  let selectionType: 'shape' | 'connector' | 'image' | 'text-element' | 'mixed';
   if (!single) {
     selectionType = 'mixed';
   } else if (single === 'text') {
     selectionType = 'text-element';
   } else if (single === 'image') {
     selectionType = 'image';
+  } else if (single === 'connector') {
+    selectionType = 'connector';
   } else {
-    // 'shape' and 'connector' both map to 'shape' toolbar controls
     selectionType = 'shape';
   }
   return { kind: 'object', selectionType, ids: selection };

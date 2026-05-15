@@ -99,6 +99,15 @@ export interface SlidesStore {
 
   /** Group all mutations made inside `fn` into one undo entry. */
   batch(fn: () => void): void;
+
+  // --- change notifications ---
+
+  /**
+   * Subscribe to store-level changes (e.g. Yorkie remote updates).
+   * Optional: in-memory stores may omit this; the UI handles its
+   * absence gracefully.
+   */
+  onChange?(cb: () => void): () => void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;

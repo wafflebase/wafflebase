@@ -123,6 +123,18 @@ function makeTextElement(id: string) {
   };
 }
 
+function makeConnectorElement(id: string) {
+  return {
+    id,
+    type: 'connector' as const,
+    frame: { x: 0, y: 0, w: 100, h: 10, rotation: 0 },
+    routing: 'straight' as const,
+    start: { kind: 'free' as const, x: 0, y: 0 },
+    end: { kind: 'free' as const, x: 100, y: 0 },
+    arrowheads: {},
+  };
+}
+
 // ---------------------------------------------------------------------------
 // idle cases
 // ---------------------------------------------------------------------------
@@ -259,5 +271,28 @@ test("getToolbarState includes all selected ids in the ids array", () => {
   if (state.kind === "object") {
     assert.equal(state.selectionType, "shape");
     assert.deepEqual(Array.from(state.ids), ["el-1", "el-2"]);
+  }
+});
+
+test("getToolbarState returns object with selectionType 'connector' for single connector selection", () => {
+  const editor = makeEditor({ selection: ["el-conn"], currentSlideId: "slide-1" });
+  const store = makeStore([makeSlide("slide-1", [makeConnectorElement("el-conn")])]);
+  const state = getToolbarState(editor, store);
+  assert.equal(state.kind, "object");
+  if (state.kind === "object") {
+    assert.equal(state.selectionType, "connector");
+    assert.deepEqual(Array.from(state.ids), ["el-conn"]);
+  }
+});
+
+test("getToolbarState returns 'mixed' when selection spans connector and shape", () => {
+  const editor = makeEditor({ selection: ["el-conn", "el-shape"], currentSlideId: "slide-1" });
+  const store = makeStore([
+    makeSlide("slide-1", [makeConnectorElement("el-conn"), makeShapeElement("el-shape")]),
+  ]);
+  const state = getToolbarState(editor, store);
+  assert.equal(state.kind, "object");
+  if (state.kind === "object") {
+    assert.equal(state.selectionType, "mixed");
   }
 });
