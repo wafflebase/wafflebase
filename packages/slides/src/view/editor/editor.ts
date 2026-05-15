@@ -274,7 +274,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private editingElementId: string | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
-  private textEditingListeners: Array<() => void> = [];
+  private textEditingListeners = new Set<() => void>();
   /** The currently active text-box editor, or null when not editing. */
   private activeTextEditor: SlidesTextBoxEditor | null = null;
   /**
@@ -599,9 +599,9 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   onTextEditingChange(cb: () => void): () => void {
-    this.textEditingListeners.push(cb);
+    this.textEditingListeners.add(cb);
     return () => {
-      this.textEditingListeners = this.textEditingListeners.filter((c) => c !== cb);
+      this.textEditingListeners.delete(cb);
     };
   }
 
