@@ -5,7 +5,7 @@ import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { BUILT_IN_THEMES } from '../../themes';
 import type { Theme } from '../../model/theme';
 import { emuScale, DEFAULT_WIDESCREEN_EMU } from './geometry';
-import { parseSlide, type LayoutPathToId } from './slide';
+import { parseSlide, type LayoutPathToInfo } from './slide';
 import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
 import { parseRels, resolveRelsTarget } from './rels';
@@ -83,7 +83,7 @@ export async function importPptx(
         importedTheme?.id ?? 'default-light',
         report,
       )
-    : { master: undefined, layouts: [] as Layout[], layoutMap: new Map() as LayoutPathToId };
+    : { master: undefined, layouts: [] as Layout[], layoutMap: new Map() as LayoutPathToInfo };
 
   const themes: Theme[] = importedTheme
     ? [importedTheme, ...BUILT_IN_THEMES.filter((t) => t.id !== importedTheme.id)]
@@ -184,7 +184,7 @@ async function loadMasterAndLayouts(
   masterTarget: string,
   themeId: string,
   report: ImportReport,
-): Promise<{ master: Master | undefined; layouts: Layout[]; layoutMap: LayoutPathToId }> {
+): Promise<{ master: Master | undefined; layouts: Layout[]; layoutMap: LayoutPathToInfo }> {
   const masterPath = resolveRelsTarget(ownerPart, masterTarget);
   const masterXml = await archive.readText(masterPath);
   if (!masterXml) return { master: undefined, layouts: [], layoutMap: new Map() };
@@ -198,7 +198,7 @@ async function loadMasterAndLayouts(
   const rels = relsXml ? parseRels(relsXml) : new Map();
 
   const layouts: Layout[] = [];
-  const layoutMap: LayoutPathToId = new Map();
+  const layoutMap: LayoutPathToInfo = new Map();
   for (const rel of rels.values()) {
     if (rel.type !== 'slideLayout') continue;
     const layoutPath = resolveRelsTarget(masterPath, rel.target);
@@ -206,7 +206,10 @@ async function loadMasterAndLayouts(
     if (!layoutXml) continue;
     const imported = parseLayout(layoutXml, layoutPath, report);
     layouts.push(imported.layout);
-    layoutMap.set(layoutPath, imported.layout.id);
+    layoutMap.set(layoutPath, {
+      builtInId: imported.layout.id,
+      placeholderSizes: imported.placeholderSizes,
+    });
   }
 
   return { master, layouts, layoutMap };

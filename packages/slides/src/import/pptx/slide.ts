@@ -11,15 +11,22 @@ import type { PptxArchive } from './unzip';
 import type { UploadImage } from './index';
 import { child, descendant, parseXml } from './xml';
 
-/** Maps from imported OOXML layout part path → the built-in layout id we chose. */
-export type LayoutPathToId = Map<string, string>;
+/** Per-layout resolution data: built-in id + placeholder default sizes. */
+export interface LayoutResolution {
+  builtInId: string;
+  /** Map of `"{ooxmlType}:{idx}"` → default fontSize in points. */
+  placeholderSizes: Map<string, number>;
+}
+
+/** Maps from imported OOXML layout part path → resolution data. */
+export type LayoutPathToInfo = Map<string, LayoutResolution>;
 
 export interface ParseSlideOptions {
   archive: PptxArchive;
   /** e.g. `'ppt/slides/slide1.xml'` */
   partPath: string;
   /** Pre-built mapping for resolving each slide's layout rel to a built-in layout id. */
-  layoutMap: LayoutPathToId;
+  layoutMap: LayoutPathToInfo;
   uploadImage?: UploadImage;
   scale: EmuScale;
   report: ImportReport;
@@ -37,7 +44,9 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   const rels = relsXml ? parseRels(relsXml) : new Map<string, PptxRel>();
 
   // Resolve the layout — slide picks its layout via `slideLayout` rel.
-  const layoutId = pickLayoutId(rels, opts.partPath, opts.layoutMap) ?? 'title-body';
+  const layoutInfo = pickLayoutInfo(rels, opts.partPath, opts.layoutMap);
+  const layoutId = layoutInfo?.builtInId ?? 'title-body';
+  const placeholderSizes = layoutInfo?.placeholderSizes ?? new Map<string, number>();
 
   // Background may be on the slide's `<p:cSld>` (override) or inherited
   // from the master. v1 records an override only when present.
@@ -54,6 +63,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     scale: opts.scale,
     report: opts.report,
     idMap: new Map(),
+    placeholderSizes,
   };
   const elements = spTree ? await parseSpTree(spTree, ctx) : [];
 
@@ -68,11 +78,11 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   };
 }
 
-function pickLayoutId(
+function pickLayoutInfo(
   rels: Map<string, PptxRel>,
   slidePart: string,
-  layoutMap: LayoutPathToId,
-): string | undefined {
+  layoutMap: LayoutPathToInfo,
+): LayoutResolution | undefined {
   for (const rel of rels.values()) {
     if (rel.type !== 'slideLayout') continue;
     const path = resolveRelsTarget(slidePart, rel.target);

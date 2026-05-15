@@ -1,5 +1,7 @@
 import type {
   Element as SlideElement,
+  PlaceholderRef,
+  PlaceholderType,
   ShapeElement,
   ShapeStroke,
   TextElement,
@@ -47,6 +49,12 @@ export interface SlideParseContext {
    * endpoints.
    */
   idMap: Map<number, string>;
+  /**
+   * Default font sizes per layout placeholder, keyed by `"{ooxmlType}:{idx}"`.
+   * Slide-level runs whose `<a:rPr>` lacks an explicit `sz` inherit from
+   * here when the parent shape has a matching `<p:ph>` reference.
+   */
+  placeholderSizes: Map<string, number>;
 }
 
 /**
@@ -218,6 +226,9 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined 
 
   const txBody = child(sp, 'txBody');
   const elementId = idForSp(sp, ctx);
+  const placeholderInfo = readPlaceholderInfo(nvSpPr);
+  const placeholderRef = placeholderInfo?.ref;
+  const layoutSizeKey = placeholderInfo?.ooxmlKey;
 
   // Effects — only `outerShdw` is reported; for v1 we drop it.
   const effectLst = spPr ? child(spPr, 'effectLst') : undefined;
@@ -228,7 +239,7 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined 
   // Pure text box — `txBox=1` shapes have no fill/stroke and exist only
   // as a host for `<p:txBody>`. Emit a TextElement.
   if (isTextBox && txBody) {
-    return buildTextElement(elementId, frame, txBody, ctx);
+    return buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey);
   }
 
   // Shape with a `prstGeom` — emit a ShapeElement; if it also has text,
@@ -241,10 +252,57 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined 
 
   // No prstGeom but has text — treat as plain text box.
   if (txBody) {
-    return buildTextElement(elementId, frame, txBody, ctx);
+    return buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey);
   }
 
   return undefined;
+}
+
+/**
+ * OOXML `<p:ph type>` → our `PlaceholderType`. Tokens we don't model
+ * (`ftr`, `sldNum`, `hdr`, `dt`, `pic`, `chart`, `media`, ...) return
+ * `undefined`, leaving the element with no `placeholderRef`.
+ */
+const OOXML_PH_TO_TYPE: Record<string, PlaceholderType> = {
+  title: 'title',
+  ctrTitle: 'title',
+  subTitle: 'subtitle',
+  body: 'body',
+};
+
+/**
+ * Heuristic default font sizes by placeholder role, in points. OOXML
+ * lets the master/layout placeholder style chain set these per-deck —
+ * faithful inheritance is v1.5 work. Until then, these defaults match
+ * Google Slides' built-in template sizes for the common roles so title
+ * runs don't render at the docs renderer's 11 pt fallback.
+ */
+const PLACEHOLDER_DEFAULT_FONT_SIZE: Record<PlaceholderType, number> = {
+  title: 36,
+  subtitle: 24,
+  body: 18,
+  caption: 14,
+  'big-number': 96,
+};
+
+function readPlaceholderInfo(
+  nvSpPr: Element | undefined,
+): { ref: PlaceholderRef | undefined; ooxmlKey: string } | undefined {
+  if (!nvSpPr) return undefined;
+  const nvPr = child(nvSpPr, 'nvPr');
+  if (!nvPr) return undefined;
+  const ph = child(nvPr, 'ph');
+  if (!ph) return undefined;
+  const rawType = attr(ph, 'type') ?? 'body';
+  const idxStr = attr(ph, 'idx') ?? '0';
+  const ooxmlKey = `${rawType}:${idxStr}`;
+  const type = OOXML_PH_TO_TYPE[rawType];
+  let ref: PlaceholderRef | undefined;
+  if (type) {
+    const index = Number(idxStr);
+    ref = { type, index: Number.isFinite(index) ? index : 0 };
+  }
+  return { ref, ooxmlKey };
 }
 
 function idForSp(sp: Element, ctx: SlideParseContext): string {
@@ -261,13 +319,28 @@ function buildTextElement(
   frame: SlideElement['frame'],
   txBody: Element,
   ctx: SlideParseContext,
+  placeholderRef: PlaceholderRef | undefined,
+  layoutSizeKey: string | undefined,
 ): TextElement {
+  // Inheritance order: layout placeholder default (parsed from the
+  // imported deck) → hardcoded per-type fallback for placeholders we
+  // recognise → leave undefined (docs renderer default).
+  const layoutSize = layoutSizeKey ? ctx.placeholderSizes.get(layoutSizeKey) : undefined;
+  const fallbackSize = placeholderRef
+    ? PLACEHOLDER_DEFAULT_FONT_SIZE[placeholderRef.type]
+    : undefined;
+  const defaultFontSize = layoutSize ?? fallbackSize;
   return {
     id,
     type: 'text',
     frame,
+    ...(placeholderRef ? { placeholderRef } : {}),
     data: {
-      blocks: parseTextBody(txBody, { rels: ctx.rels, report: ctx.report }),
+      blocks: parseTextBody(txBody, {
+        rels: ctx.rels,
+        report: ctx.report,
+        defaultFontSize,
+      }),
     },
   };
 }

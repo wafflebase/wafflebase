@@ -14,6 +14,14 @@ export interface TextParseContext {
   /** Slide-scoped rels — used to look up `<a:hlinkClick r:id="rIdN">` targets. */
   rels?: Map<string, PptxRel>;
   report: ImportReport;
+  /**
+   * Fallback `fontSize` (in points) applied to any `<a:r>` whose `<a:rPr>`
+   * lacks an `sz` attribute. OOXML inherits these from the master/layout
+   * placeholder style chain; for the v1 importer we use a single hint
+   * derived from the parent shape's `<p:ph type>` so title runs don't
+   * collapse to the docs default of 11 pt.
+   */
+  defaultFontSize?: number;
 }
 
 /**
@@ -145,6 +153,12 @@ function parseRun(
   const rPr = child(r, 'rPr');
   const style: InlineStyle = {};
 
+  // Apply placeholder-derived default first so an explicit `sz` below
+  // can override it.
+  if (ctx.defaultFontSize != null) {
+    style.fontSize = ctx.defaultFontSize * fontScale;
+  }
+
   if (rPr) {
     if (attr(rPr, 'b') === '1') style.bold = true;
     if (attr(rPr, 'i') === '1') style.italic = true;
@@ -161,7 +175,7 @@ function parseRun(
     }
 
     const sz = attrInt(rPr, 'sz');
-    if (sz != null) style.fontSize = (sz / 100) * fontScale; // sz is hundredths of pt
+    if (sz != null) style.fontSize = (sz / 100) * fontScale;
 
     // Font family — Latin face wins. East Asian fallback kicks in at
     // run text inspection time below.
