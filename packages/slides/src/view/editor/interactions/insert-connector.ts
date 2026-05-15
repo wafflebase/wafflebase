@@ -130,8 +130,12 @@ export function buildConnectorInit(
 
 /**
  * Finalize a connector-insert drag. Returns the new element id, or
- * null if the drag was too short to be meaningful. The caller is
- * responsible for batching this call and clearing insert mode after.
+ * null if the drag was too short to be meaningful. The store mutation
+ * is wrapped in `store.batch(...)` here — colocating the transaction
+ * boundary with the threshold gate means a sub-threshold click skips
+ * both the mutation AND the undo-snapshot the batch would push, so a
+ * stray click in connector-arm mode does not pollute the undo stack.
+ * Callers are responsible for clearing insert mode after.
  */
 export function finalizeInsert(
   store: SlidesStore,
@@ -145,5 +149,9 @@ export function finalizeInsert(
   const dy = end.y - start.y;
   if (Math.hypot(dx, dy) < MIN_DRAG_DISTANCE) return null;
   const init = buildConnectorInit(variant, start, end, elements);
-  return store.addElement(slideId, init);
+  let id: string | null = null;
+  store.batch(() => {
+    id = store.addElement(slideId, init);
+  });
+  return id;
 }

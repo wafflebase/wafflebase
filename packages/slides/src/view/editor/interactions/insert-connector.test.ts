@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Element } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
+import { MemSlidesStore } from '../../../store/memory';
 import {
   finalizeInsert,
   findSnapTarget,
@@ -71,6 +72,11 @@ describe('finalizeInsert', () => {
         calls.push({ slideId, init });
         return 'new-id';
       }),
+      // `finalizeInsert` now owns the `store.batch(...)` wrap, so the
+      // mock has to forward through it. The forwarding wrapper keeps
+      // the test focused on `addElement` payload while exercising the
+      // real call site.
+      batch: vi.fn((fn: () => void) => { fn(); }),
     } as unknown as SlidesStore;
     return { store, calls };
   }
@@ -87,6 +93,9 @@ describe('finalizeInsert', () => {
     );
     expect(id).toBeNull();
     expect((store.addElement as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    // Critical: the batch must be skipped too, otherwise a no-op
+    // undo entry gets snapshotted (see undo-hygiene regression below).
+    expect((store.batch as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
   it('creates a free-to-free line when no snap targets exist', () => {
@@ -137,5 +146,74 @@ describe('finalizeInsert', () => {
     const init = (calls[0] as { init: { start: unknown; end: unknown } }).init;
     expect(init.start).toEqual({ kind: 'attached', elementId: 'r1', siteIndex: 0 });
     expect(init.end).toEqual({ kind: 'attached', elementId: 'r2', siteIndex: 0 });
+  });
+});
+
+describe('finalizeInsert undo hygiene', () => {
+  it('sub-threshold drag does not grow the undo stack', () => {
+    // Real `MemSlidesStore` so we exercise the actual batch/undo
+    // semantics: `batch` unconditionally snapshots when `batchDepth`
+    // is 0, so the threshold gate has to live OUTSIDE the batch.
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+    });
+    // Baseline: exactly one undo entry from the slide creation above.
+    expect(store.canUndo()).toBe(true);
+    let undoDepth = 0;
+    while (store.canUndo()) {
+      store.undo();
+      undoDepth++;
+    }
+    expect(undoDepth).toBe(1);
+    // Replay to restore the slide so we can poke at it.
+    while (store.canRedo()) store.redo();
+    expect(store.canUndo()).toBe(true);
+
+    const elements = store.read().slides[0].elements;
+    const id = finalizeInsert(
+      store,
+      slideId,
+      'line',
+      { x: 100, y: 100 },
+      { x: 102, y: 100 }, // 2px < MIN_DRAG_DISTANCE (4)
+      elements,
+    );
+    expect(id).toBeNull();
+
+    // Undo state must be unchanged: still exactly one entry (the
+    // initial addSlide). If the batch had fired we'd see two.
+    let depthAfter = 0;
+    while (store.canUndo()) {
+      store.undo();
+      depthAfter++;
+    }
+    expect(depthAfter).toBe(1);
+  });
+
+  it('above-threshold drag adds exactly one undo entry', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+    });
+    const elements = store.read().slides[0].elements;
+    const id = finalizeInsert(
+      store,
+      slideId,
+      'line',
+      { x: 100, y: 100 },
+      { x: 400, y: 100 }, // 300px well above threshold
+      elements,
+    );
+    expect(id).not.toBeNull();
+    // Two undo entries: addSlide + finalizeInsert.
+    let depth = 0;
+    while (store.canUndo()) {
+      store.undo();
+      depth++;
+    }
+    expect(depth).toBe(2);
   });
 });

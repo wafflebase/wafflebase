@@ -1044,18 +1044,18 @@ class SlidesEditorImpl implements SlidesEditor {
     const onUp = () => {
       cleanup();
       if (cancelled) return; // ESC pressed mid-drag — discard.
-      let newId: string | null = null;
-      this.options.store.batch(() => {
-        newId = finalizeConnectorInsert(
-          this.options.store,
-          slide.id,
-          variant,
-          start,
-          endPoint,
-          slide.elements,
-        );
-        if (newId !== null) this.selection.set([newId]);
-      });
+      // `finalizeConnectorInsert` owns its own `store.batch(...)` so that a
+      // sub-threshold drag (< MIN_DRAG_DISTANCE) skips the batch entirely
+      // and doesn't pollute the undo stack with an empty snapshot.
+      const newId = finalizeConnectorInsert(
+        this.options.store,
+        slide.id,
+        variant,
+        start,
+        endPoint,
+        slide.elements,
+      );
+      if (newId !== null) this.selection.set([newId]);
       this.setInsertMode(null);
       this.renderer.markDirty();
       this.render();
