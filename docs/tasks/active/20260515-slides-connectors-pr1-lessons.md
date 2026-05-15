@@ -111,6 +111,68 @@ worth noting. **Test sketches in plans should be marked as
 "shape-only — verify actual helper API before copying"**, not
 copy-paste-ready.
 
+## Self code review — fixes landed in fix-up commit
+
+Senior self-review after Task 15 surfaced four "connector hygiene"
+defects all rooted in the same blind spot: when the model has a
+**derived `frame` cache** and **cross-element id references**, every
+mutation path that touches elements has to maintain both. The original
+implementation got the steady-state mutators right (`updateElementFrame`,
+`updateConnectorEndpoint`, `detachConnectorsTargeting`) but missed
+auxiliary paths.
+
+1. **`duplicateSlide` silently corrupted attached connector references.**
+   Both `MemSlidesStore` and `YorkieSlidesStore` regenerated element
+   ids on the copy but did NOT remap connector endpoints to the new
+   ids. Result: every duplicated slide carrying an attached connector
+   left the connector pointing at the original target's id —
+   `resolveEndpoint`'s "target not found in lookup" fallback then
+   snapped that endpoint to `(0, 0)` whenever it rendered on the copy.
+   Fix: build an `oldId → newId` map while regenerating ids, then
+   rewrite each connector's `start.elementId` / `end.elementId` from
+   the map and recompute `frame` off the rewritten endpoints.
+   Regression test in `memory.test.ts`.
+
+2. **`MIN_DRAG_DISTANCE` was the only screen/logical mismatch left.**
+   `SHAPE_HOVER_RADIUS` and `SITE_SNAP_RADIUS` were already fixed
+   (Task 13 review) to be screen-pixel and divided by `zoom`.
+   `MIN_DRAG_DISTANCE = 4` was still raw slide-logical, and the
+   `editor.ts:startConnectorEndpointDrag` deadband was `< 1` (also
+   logical) — a different scale entirely. Fix: document `MIN_DRAG_DISTANCE`
+   as screen pixels, divide by `zoom` inside `finalizeInsert`, and
+   reuse the same constant (also `/ zoom`) for the endpoint-drag
+   deadband. **General principle: when one constant in a family
+   becomes screen-pixel, audit ALL siblings — half a conversion
+   produces silent zoom-dependent behavior.**
+
+3. **`addElement` trusted caller frames for connectors.** The insert
+   path (`buildConnectorInit`) pre-fills the frame correctly, but the
+   `addElement` contract still accepted a degenerate `{0,0,0,0}` frame
+   from any future paste/import path. Fix: when `init.type ===
+   'connector'`, recompute `frame` from endpoints inside `addElement`
+   (both stores). Defensive — the cache is always derived from the
+   endpoints regardless of the caller.
+
+4. **`MemSlidesStore.detachConnectorsTargeting` rebuilt the lookup
+   Map per mutated connector.** Dead work — the freshly-detached
+   endpoints are now `free`, so `computeConnectorFrame` doesn't
+   consult the lookup for them anyway. Fix: reuse the outer `lookup`
+   built at the top of the function. (The Yorkie variant already did
+   this — divergence between the two paths is itself a smell worth
+   flagging next time.)
+
+### Process lesson
+
+The defects share a pattern: **the original implementation was
+mutation-by-mutation, not invariant-by-invariant**. Each mutator was
+implemented correctly for its own happy path, but the *invariants*
+("connector.frame ≡ computeConnectorFrame(connector, lookup)",
+"connector.endpoint.elementId ∈ current slide elements") were never
+written down or systematically applied to auxiliary paths
+(duplicate / paste / import / addElement). For the PR2 elbow-bend work,
+write the invariants in the design doc first and gate every new
+mutator against them in code review.
+
 ## Deferred to PR2 / PR3
 
 Documented in the design doc but worth explicit mention:
@@ -128,15 +190,25 @@ Documented in the design doc but worth explicit mention:
 
 ## Non-blocking polish notes from reviews
 
-Not worth blocking PR1 but worth opportunistic cleanup:
+Not worth blocking PR1 but worth opportunistic cleanup. These were
+deferred during the self-review fix-up pass — fix them in PR2 / post-
+merge:
 
-- `editor.ts` is on a growth trajectory (1526 lines after this PR);
-  consider extracting connector-specific interaction orchestration to
-  `interactions/connector-endpoint-drag.ts` itself rather than living
-  inline on `SlidesEditorImpl`.
-- `detachConnectorsTargeting` rebuilds the `Map` lookup once per
-  mutated connector — O(n²) on `removeElements` with many ids. Trivial
-  at expected slide sizes; flag if profiling ever shows it.
+- **Hover-radius semantics.** `SHAPE_HOVER_RADIUS` currently measures
+  cursor distance to the shape *center* — should measure to the
+  nearest cardinal connection site. Affordance dots appear / vanish
+  with the wrong threshold for tall/wide shapes. Polish, but visually
+  noticeable.
+- **`editor.ts` size.** ~1530 lines now. Before PR2 lands elbow-bend
+  drag, extract the connector-drag orchestration (mousedown +
+  startConnectorEndpointDrag + recompute paint loop) into the existing
+  `interactions/` directory. The pure-function snap helpers already
+  live there; pulling the editor-level glue across will halve the size
+  delta PR2 adds.
+- **`MemSlidesStore.read()` migrates per call.** Render-loop overhead.
+  After PR2, profile the slide thumbnail panel under a 100-slide deck
+  and decide whether `read()` needs a dirty-tracked memo or whether
+  thumbnails should call a cheaper `readSlide(id)` accessor.
 - Arrowhead-renderer test coverage uses only `angle = 0`. Add at least
   one off-axis test (e.g. `π/2`) to lock in the perpendicular sign
   convention.
