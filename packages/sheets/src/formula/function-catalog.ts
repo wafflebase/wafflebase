@@ -138,9 +138,8 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'expression' },
       { name: 'case1' },
       { name: 'value1' },
-      { name: 'case2', optional: true, repeating: true },
+      { name: 'case2_or_default', optional: true, repeating: true },
       { name: 'value2', optional: true, repeating: true },
-      { name: 'default', optional: true },
     ],
   },
   {
@@ -3020,15 +3019,17 @@ export function findFunction(name: string): FunctionInfo | undefined {
 }
 
 /**
- * `formatSignature` renders a function signature like `SUM(number1, [number2], ...)`.
+ * `formatSignature` renders a function signature like `SUM(number1, [number2, ...])`.
+ * A `repeating` arg yields `name, ...` inside its (possibly optional) brackets,
+ * so each variadic slot is presented as one optional repeating placeholder.
  */
 export function formatSignature(info: FunctionInfo): string {
   const args = info.args.map((a) => {
-    let s = a.optional ? `[${a.name}]` : a.name;
+    let s = a.name;
     if (a.repeating) {
       s += ', ...';
     }
-    return s;
+    return a.optional ? `[${s}]` : s;
   });
   return `${info.name}(${args.join(', ')})`;
 }
