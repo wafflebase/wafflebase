@@ -220,6 +220,45 @@ export interface SlidesEditor {
    * No-op when fewer than 3 elements are selected.
    */
   distribute(axis: DistributeAxis): void;
+  /**
+   * Move selected elements one position toward the front (higher array
+   * index). Elements already at the end stay put. No-op when nothing is
+   * selected or a text-box is active.
+   *
+   * Operates from highest current index to lowest to avoid index shifts
+   * during the batch. Wrapped in `store.batch()` for atomic undo/redo.
+   */
+  bringForward(): void;
+  /**
+   * Move selected elements one position toward the back (lower array
+   * index). Elements already at index 0 stay put. No-op when nothing is
+   * selected or a text-box is active.
+   *
+   * Operates from lowest current index to highest to avoid index shifts.
+   * Wrapped in `store.batch()` for atomic undo/redo.
+   */
+  sendBackward(): void;
+  /**
+   * Move all selected elements to the front of the z-order, preserving
+   * their relative order among each other. No-op when nothing is selected
+   * or a text-box is active.
+   */
+  bringToFront(): void;
+  /**
+   * Move all selected elements to the back of the z-order, preserving
+   * their relative order among each other. No-op when nothing is selected
+   * or a text-box is active.
+   */
+  sendToBack(): void;
+  /**
+   * Rotate each selected element by `radians` around its own center,
+   * independently. The new `frame.rotation` is normalised into `[0, 2π)`.
+   *
+   * No-op when nothing is selected or a text-box is active.
+   * Each updated frame is written via `store.updateElementFrame` inside
+   * a single `store.batch()` for atomic undo/redo.
+   */
+  rotateBy(radians: number): void;
   detach(): void;
 }
 
@@ -492,6 +531,124 @@ class SlidesEditorImpl implements SlidesEditor {
     if (framesMap.size < 3) return;
     const updates = distributeFrames(framesMap, axis);
     this.applyFrameUpdates(slide.id, updates);
+  }
+
+  bringForward(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect selected indices, operate from highest to lowest to avoid
+    // index shifts corrupting earlier moves within the same batch.
+    const entries = slide.elements
+      .map((el, i) => ({ id: el.id, i }))
+      .filter((e) => selectedIds.has(e.id))
+      .sort((a, b) => b.i - a.i);
+    const length = slide.elements.length;
+    this.options.store.batch(() => {
+      for (const { id, i } of entries) {
+        const target = Math.min(i + 1, length - 1);
+        if (target !== i) this.options.store.reorderElement(slideId, id, target);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  sendBackward(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Operate from lowest index to highest to avoid index shifts.
+    const entries = slide.elements
+      .map((el, i) => ({ id: el.id, i }))
+      .filter((e) => selectedIds.has(e.id))
+      .sort((a, b) => a.i - b.i);
+    this.options.store.batch(() => {
+      for (const { id, i } of entries) {
+        const target = Math.max(i - 1, 0);
+        if (target !== i) this.options.store.reorderElement(slideId, id, target);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  bringToFront(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect in their current order (relative order preserved at the end).
+    const orderedIds = slide.elements
+      .filter((el) => selectedIds.has(el.id))
+      .map((el) => el.id);
+    this.options.store.batch(() => {
+      // Re-read the live slide on each iteration because reorderElement
+      // mutates the array in place (splice/insert), shifting indices.
+      // Moving in ascending original order and always appending at the
+      // current end yields the correct relative order.
+      for (const id of orderedIds) {
+        const live = this.options.store.read().slides.find((s) => s.id === slideId);
+        if (!live) continue;
+        this.options.store.reorderElement(slideId, id, live.elements.length - 1);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  sendToBack(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect in their current order (relative order preserved at the start).
+    const orderedIds = slide.elements
+      .filter((el) => selectedIds.has(el.id))
+      .map((el) => el.id);
+    this.options.store.batch(() => {
+      // Re-read the live slide on each iteration.
+      // Moving in ascending original order and always prepending at index 0
+      // reverses the relative order, so process in reverse to preserve it.
+      for (const id of [...orderedIds].reverse()) {
+        const live = this.options.store.read().slides.find((s) => s.id === slideId);
+        if (!live) continue;
+        this.options.store.reorderElement(slideId, id, 0);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  rotateBy(radians: number): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size === 0) return;
+    const TWO_PI = 2 * Math.PI;
+    this.options.store.batch(() => {
+      for (const [id, frame] of framesMap) {
+        const newRotation = ((frame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
+        this.options.store.updateElementFrame(slide.id, id, {
+          ...frame,
+          rotation: newRotation,
+        });
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
   }
 
   /**
