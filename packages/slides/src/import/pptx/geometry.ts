@@ -15,15 +15,37 @@ export interface EmuScale {
 }
 
 export function emuScale(slideSizeEmu: { cx: number; cy: number }): EmuScale {
-  return {
-    sx: 1920 / slideSizeEmu.cx,
-    sy: 1080 / slideSizeEmu.cy,
-  };
+  // Defensively guard against a deck whose `<p:sldSz>` is missing,
+  // zero, or NaN. Without this, every frame multiplies by Infinity /
+  // NaN and the entire import is unrecoverable. Fall through to the
+  // widescreen default so the slides still render.
+  const cx =
+    Number.isFinite(slideSizeEmu.cx) && slideSizeEmu.cx > 0
+      ? slideSizeEmu.cx
+      : DEFAULT_WIDESCREEN_EMU.cx;
+  const cy =
+    Number.isFinite(slideSizeEmu.cy) && slideSizeEmu.cy > 0
+      ? slideSizeEmu.cy
+      : DEFAULT_WIDESCREEN_EMU.cy;
+  return { sx: 1920 / cx, sy: 1080 / cy };
 }
 
 /** OOXML rotation is in 60000ths of a degree (`rot="5400000"` = 90°). */
 export function rotEmuToRad(rot: number): number {
   return (rot / 60_000) * (Math.PI / 180);
+}
+
+/**
+ * Convert an EMU stroke width to px using the deck's own scale.
+ *
+ * Frames are scaled per-axis (`sx`, `sy`), but stroke width is a single
+ * scalar — we use the mean of the two scales so a flipped or non-16:9
+ * deck still produces a stroke that's proportional to the rendered
+ * frame rather than the 96-dpi default the importer used to assume.
+ */
+export function emuToStrokePx(emuWidth: number, scale: EmuScale): number {
+  if (!Number.isFinite(emuWidth) || emuWidth < 0) return 0;
+  return emuWidth * ((scale.sx + scale.sy) / 2);
 }
 
 /**

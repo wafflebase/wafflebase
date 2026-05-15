@@ -1,7 +1,7 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, Slide } from '../../model/presentation';
 import { DEFAULT_BACKGROUND } from '../../model/presentation';
-import { parseColorFromContainer } from './color';
+import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
@@ -30,6 +30,8 @@ export interface ParseSlideOptions {
   uploadImage?: UploadImage;
   scale: EmuScale;
   report: ImportReport;
+  /** Master-level color map; identity for decks without `<p:clrMap>`. */
+  clrMap: ClrMap;
 }
 
 export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undefined> {
@@ -52,7 +54,9 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   // from the master. v1 records an override only when present.
   const cSld = child(slideEl, 'cSld');
   const bgEl = cSld ? child(cSld, 'bg') : undefined;
-  const background = bgEl ? parseSlideBackground(bgEl) : { ...DEFAULT_BACKGROUND };
+  const background = bgEl
+    ? parseSlideBackground(bgEl, opts.clrMap)
+    : { ...DEFAULT_BACKGROUND };
 
   const spTree = cSld ? child(cSld, 'spTree') : undefined;
   const ctx: SlideParseContext = {
@@ -64,6 +68,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     report: opts.report,
     idMap: new Map(),
     placeholderSizes,
+    clrMap: opts.clrMap,
   };
   const elements = spTree ? await parseSpTree(spTree, ctx) : [];
 
@@ -92,12 +97,12 @@ function pickLayoutInfo(
   return undefined;
 }
 
-function parseSlideBackground(bgEl: Element): Background {
+function parseSlideBackground(bgEl: Element, clrMap: ClrMap): Background {
   const bgPr = child(bgEl, 'bgPr');
   if (bgPr) {
     const solid = child(bgPr, 'solidFill');
     if (solid) {
-      const color = parseColorFromContainer(solid);
+      const color = parseColorFromContainer(solid, clrMap);
       if (color) return { fill: color };
     }
   }

@@ -67,7 +67,19 @@ export async function parsePic(
   const ext = mediaPath.split('.').pop()?.toLowerCase() ?? '';
   const mime = EXT_TO_MIME[ext] ?? 'application/octet-stream';
 
-  const src = await ctx.uploadImage(bytes, mime);
+  // Soft-skip on upload failure — a single broken image shouldn't tank
+  // the whole import. Counts towards `report.skippedImages` and the
+  // caller drops the element.
+  let src: string;
+  try {
+    src = await ctx.uploadImage(bytes, mime);
+  } catch (err) {
+    ctx.report.skippedImages += 1;
+    if (typeof console !== 'undefined') {
+      console.warn(`pptx import: image upload failed for ${mediaPath}:`, err);
+    }
+    return undefined;
+  }
 
   const crop = blipFill ? parseSrcRect(child(blipFill, 'srcRect')) : undefined;
 

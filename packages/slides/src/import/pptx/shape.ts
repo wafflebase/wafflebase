@@ -14,9 +14,9 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../../model/connector';
-import { parseColorFromContainer } from './color';
+import { parseColorFromContainer, type ClrMap } from './color';
 import type { EmuScale } from './geometry';
-import { parseXfrm, prstToShapeKind } from './geometry';
+import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
 import {
   applyGroupTransform,
   composeGroupTransform,
@@ -55,6 +55,12 @@ export interface SlideParseContext {
    * here when the parent shape has a matching `<p:ph>` reference.
    */
   placeholderSizes: Map<string, number>;
+  /**
+   * Master-level `<p:clrMap>` — applied when resolving slide-level
+   * `<a:schemeClr>` lookups so logical names like `bg2` route through
+   * the master's translation table.
+   */
+  clrMap: ClrMap;
 }
 
 /**
@@ -163,8 +169,8 @@ async function parseChild(
 ): Promise<SlideElement[] | undefined> {
   switch (el.localName) {
     case 'sp': {
-      const sp = parseSp(el, ctx);
-      return sp ? [sp] : undefined;
+      const sps = parseSp(el, ctx);
+      return sps.length > 0 ? sps : undefined;
     }
     case 'pic': {
       const picCtx: ImageParseContext = {
@@ -215,7 +221,7 @@ function withId(elem: SlideElement, ctx: SlideParseContext, sourceEl: Element): 
   return elem;
 }
 
-function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined {
+function parseSp(sp: Element, ctx: SlideParseContext): SlideElement[] {
   const nvSpPr = child(sp, 'nvSpPr');
   const cNvSpPr = nvSpPr ? child(nvSpPr, 'cNvSpPr') : undefined;
   const isTextBox = cNvSpPr ? attr(cNvSpPr, 'txBox') === '1' : false;
@@ -225,6 +231,7 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined 
   const frame = parseXfrm(xfrm, ctx.scale);
 
   const txBody = child(sp, 'txBody');
+  const hasText = !!txBody && hasVisibleText(txBody);
   const elementId = idForSp(sp, ctx);
   const placeholderInfo = readPlaceholderInfo(nvSpPr);
   const placeholderRef = placeholderInfo?.ref;
@@ -237,25 +244,51 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement | undefined 
   }
 
   // Pure text box — `txBox=1` shapes have no fill/stroke and exist only
-  // as a host for `<p:txBody>`. Emit a TextElement.
+  // as a host for `<p:txBody>`.
   if (isTextBox && txBody) {
-    return buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey);
+    return [buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey)];
   }
 
-  // Shape with a `prstGeom` — emit a ShapeElement; if it also has text,
-  // we layer a TextElement on top (caller will append both — but for v1
-  // we keep one element per source <p:sp> and prefer the shape).
+  // Shape with `prstGeom` — emit the shape, then layer a coincident
+  // TextElement on top when the shape also carries visible text (the
+  // "labelled rect / callout" pattern, ubiquitous in PowerPoint).
   const prstGeom = spPr ? child(spPr, 'prstGeom') : undefined;
   if (prstGeom) {
-    return buildShapeElement(elementId, frame, sp, prstGeom, ctx);
+    const shape = buildShapeElement(elementId, frame, sp, prstGeom, ctx);
+    if (!hasText) return [shape];
+    const text = buildTextElement(
+      generateId(),
+      frame,
+      txBody!,
+      ctx,
+      placeholderRef,
+      layoutSizeKey,
+    );
+    return [shape, text];
   }
 
   // No prstGeom but has text — treat as plain text box.
   if (txBody) {
-    return buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey);
+    return [buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey)];
   }
 
-  return undefined;
+  return [];
+}
+
+/**
+ * Returns true when `<p:txBody>` contains at least one non-empty
+ * `<a:t>`. PowerPoint emits empty `<a:p><a:endParaRPr/></a:p>` on every
+ * shape regardless of whether the user typed anything, and we don't
+ * want to layer a blank text element on top of every plain rectangle.
+ */
+function hasVisibleText(txBody: Element): boolean {
+  const ts = txBody.getElementsByTagName('*');
+  for (let i = 0; i < ts.length; i++) {
+    const el = ts[i];
+    if (el.localName !== 't') continue;
+    if ((el.textContent ?? '').length > 0) return true;
+  }
+  return false;
 }
 
 /**
@@ -340,6 +373,7 @@ function buildTextElement(
         rels: ctx.rels,
         report: ctx.report,
         defaultFontSize,
+        clrMap: ctx.clrMap,
       }),
     },
   };
@@ -359,8 +393,8 @@ function buildShapeElement(
   const adjustments = parseAdjustments(prstGeom);
 
   const spPr = child(sp, 'spPr');
-  const fill = parseShapeFill(spPr);
-  const stroke = parseShapeStroke(spPr);
+  const fill = parseShapeFill(spPr, ctx);
+  const stroke = parseShapeStroke(spPr, ctx);
 
   return {
     id,
@@ -391,23 +425,31 @@ function parseAdjustments(prstGeom: Element): number[] | undefined {
   return out.length ? out : undefined;
 }
 
-function parseShapeFill(spPr: Element | undefined): ShapeElement['data']['fill'] {
+function parseShapeFill(
+  spPr: Element | undefined,
+  ctx: SlideParseContext,
+): ShapeElement['data']['fill'] {
   if (!spPr) return undefined;
   const solid = child(spPr, 'solidFill');
-  if (solid) return parseColorFromContainer(solid);
+  if (solid) return parseColorFromContainer(solid, ctx.clrMap);
   // gradient, pattern, blip-fill on shape — out of v1 scope.
   return undefined;
 }
 
-function parseShapeStroke(spPr: Element | undefined): ShapeStroke | undefined {
+function parseShapeStroke(
+  spPr: Element | undefined,
+  ctx: SlideParseContext,
+): ShapeStroke | undefined {
   if (!spPr) return undefined;
   const ln = child(spPr, 'ln');
   if (!ln) return undefined;
-  // `<a:ln w>` is in EMU (9525 EMU = 1 px at 96 dpi).
+  // `<a:ln w>` is in EMU. Scale with the deck rather than a fixed
+  // 96 dpi so strokes stay proportional to scaled frame coordinates
+  // for both standard 16:9 (10″×5.625″) and widescreen decks.
   const w = attrInt(ln, 'w');
-  const width = w != null ? Math.max(0, w / 9525) : 1;
+  const width = w != null ? emuToStrokePx(w, ctx.scale) : 1;
   const solid = child(ln, 'solidFill');
-  const color = solid ? parseColorFromContainer(solid) : undefined;
+  const color = solid ? parseColorFromContainer(solid, ctx.clrMap) : undefined;
   if (!color) return undefined;
   return { color, width };
 }
@@ -417,6 +459,8 @@ function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | un
   const spPr = child(cxn, 'spPr');
   const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
   const frame = parseXfrm(xfrm, ctx.scale);
+  const flipH = xfrm ? attr(xfrm, 'flipH') === '1' : false;
+  const flipV = xfrm ? attr(xfrm, 'flipV') === '1' : false;
 
   const prstGeom = spPr ? child(spPr, 'prstGeom') : undefined;
   const prst = prstGeom ? attr(prstGeom, 'prst') ?? '' : '';
@@ -431,11 +475,11 @@ function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | un
   const stCxn = cNvCxnSpPr ? child(cNvCxnSpPr, 'stCxn') : undefined;
   const endCxn = cNvCxnSpPr ? child(cNvCxnSpPr, 'endCxn') : undefined;
 
-  const start = resolveEndpoint(stCxn, frame, 'start', ctx);
-  const end = resolveEndpoint(endCxn, frame, 'end', ctx);
+  const start = resolveEndpoint(stCxn, frame, 'start', ctx, flipH, flipV);
+  const end = resolveEndpoint(endCxn, frame, 'end', ctx, flipH, flipV);
 
   const ln = spPr ? child(spPr, 'ln') : undefined;
-  const stroke = parseShapeStroke(spPr);
+  const stroke = parseShapeStroke(spPr, ctx);
   const arrowheads = ln
     ? {
         start: parseArrowhead(child(ln, 'headEnd')),
@@ -460,6 +504,8 @@ function resolveEndpoint(
   frame: SlideElement['frame'],
   which: 'start' | 'end',
   ctx: SlideParseContext,
+  flipH: boolean,
+  flipV: boolean,
 ): Endpoint {
   if (cxn) {
     const idAttr = attrInt(cxn, 'id');
@@ -471,9 +517,14 @@ function resolveEndpoint(
       }
     }
   }
-  // Fall back to absolute frame corners. `frame` is already in px.
-  const x = which === 'start' ? frame.x : frame.x + frame.w;
-  const y = which === 'start' ? frame.y : frame.y + frame.h;
+  // Fall back to absolute frame corners. The default `straightConnector1`
+  // routes (x,y) → (x+w, y+h). `flipH`/`flipV` swap the active corner
+  // on each axis independently — e.g. a `flipH` connector starts at
+  // top-right and ends at bottom-left.
+  const startHorizontal = (which === 'start') !== flipH;
+  const startVertical = (which === 'start') !== flipV;
+  const x = startHorizontal ? frame.x : frame.x + frame.w;
+  const y = startVertical ? frame.y : frame.y + frame.h;
   return { kind: 'free', x, y };
 }
 

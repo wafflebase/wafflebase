@@ -7,6 +7,7 @@ import {
 } from "@wafflebase/slides";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
+import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
@@ -150,6 +151,11 @@ export function SlidesView({
           clearPendingImport(documentId);
         } catch (err) {
           console.error("Failed to apply pending PPTX import", err);
+          toast.error(
+            err instanceof Error
+              ? `Failed to load imported deck: ${err.message}`
+              : "Failed to load imported deck.",
+          );
         }
       }
     }

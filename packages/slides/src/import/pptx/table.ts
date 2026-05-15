@@ -1,7 +1,7 @@
 import type { Element as SlideElement, Frame, ShapeElement, TextElement } from '../../model/element';
 import { generateId } from '../../model/element';
 import { parseColorFromContainer } from './color';
-import { parseXfrm } from './geometry';
+import { emuToStrokePx, parseXfrm } from './geometry';
 import type { SlideParseContext } from './shape';
 import { parseTextBody } from './text';
 import { attr, attrInt, child, children, descendant } from './xml';
@@ -77,12 +77,25 @@ export function parseTable(
           id: generateId(),
           type: 'text',
           frame: cellFrame,
-          data: { blocks: parseTextBody(txBody, { rels: ctx.rels, report: ctx.report }) },
+          data: {
+            blocks: parseTextBody(txBody, {
+              rels: ctx.rels,
+              report: ctx.report,
+              clrMap: ctx.clrMap,
+            }),
+          },
         };
         out.push(txt);
       }
 
-      x += colWidth;
+      // Advance by the effective horizontal span so the next `<a:tc>`
+      // (typically a column-merge placeholder) lands at the right
+      // column index even if PPTX omits the corresponding `hMerge`.
+      const span = colSpan && colSpan > 1 ? colSpan : 1;
+      let stepW = 0;
+      for (let s = 0; s < span; s++) stepW += colWidthsPx[c + s] || 0;
+      x += stepW;
+      c += span - 1;
     }
     y += rowHeight;
   }
@@ -109,11 +122,12 @@ function buildCellBorder(
     if (!ln) continue;
     const solid = child(ln, 'solidFill');
     if (!solid) continue;
-    const color = parseColorFromContainer(solid);
+    const color = parseColorFromContainer(solid, ctx.clrMap);
     if (!color) continue;
-    // EMU width → px width (~9525 EMU = 1 px at 96 dpi).
+    // Scale EMU stroke width with the deck so cell borders stay
+    // proportional to the rendered cell rect.
     const wEmu = attrInt(ln, 'w');
-    const width = wEmu != null ? Math.max(0, wEmu / 9525) : 1;
+    const width = wEmu != null ? emuToStrokePx(wEmu, ctx.scale) : 1;
     // Bump approximation counter once per cell, not per border.
     ctx.report.tableBordersApproximated += 1;
     return {

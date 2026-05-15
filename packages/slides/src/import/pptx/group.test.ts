@@ -79,4 +79,37 @@ describe('composeGroupTransform + applyGroupTransform', () => {
     const t = composeGroupTransform(IDENTITY_TRANSFORM, grp, SCALE);
     expect(t).toBe(IDENTITY_TRANSFORM);
   });
+
+  it('rotates child centers around the group pivot when rot ≠ 0', () => {
+    // Group centered at world (1000, 1000), 200×200 in raw EMU,
+    // rotated 90° (`rot=5400000`). chOff/chExt identity → localScale 1.
+    const grp = grpSp(`<p:grpSp>
+      <p:grpSpPr>
+        <a:xfrm rot="5400000">
+          <a:off x="900" y="900"/>
+          <a:ext cx="200" cy="200"/>
+          <a:chOff x="900" y="900"/>
+          <a:chExt cx="200" cy="200"/>
+        </a:xfrm>
+      </p:grpSpPr>
+    </p:grpSp>`);
+    const t = composeGroupTransform(IDENTITY_TRANSFORM, grp, SCALE);
+
+    // A child sitting at the right edge of the group (center at the
+    // east point) should after a +90° rotation land at the south point.
+    const child = {
+      x: 1050 * SCALE.sx - 10,
+      y: 1000 * SCALE.sy - 10,
+      w: 20,
+      h: 20,
+      rotation: 0,
+    };
+    const world = applyGroupTransform(child, t);
+
+    const expectedCenterX = 1000 * SCALE.sx;
+    const expectedCenterY = 1050 * SCALE.sy;
+    expect(world.x + world.w / 2).toBeCloseTo(expectedCenterX, 6);
+    expect(world.y + world.h / 2).toBeCloseTo(expectedCenterY, 6);
+    expect(world.rotation).toBeCloseTo(Math.PI / 2, 9);
+  });
 });

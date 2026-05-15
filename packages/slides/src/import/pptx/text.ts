@@ -1,6 +1,6 @@
 import type { Block, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
-import { parseColorFromContainer } from './color';
+import { parseColorFromContainer, type ClrMap } from './color';
 import { containsHangul, parsePrimaryTypeface } from './font';
 import { ImportReport } from './report';
 import type { PptxRel } from './rels';
@@ -22,6 +22,8 @@ export interface TextParseContext {
    * collapse to the docs default of 11 pt.
    */
   defaultFontSize?: number;
+  /** Master-level `<p:clrMap>` translation table for `<a:schemeClr>` lookups. */
+  clrMap?: ClrMap;
 }
 
 /**
@@ -184,14 +186,14 @@ function parseRun(
 
     const solidFill = child(rPr, 'solidFill');
     if (solidFill) {
-      const color = parseColorFromContainer(solidFill);
+      const color = parseColorFromContainer(solidFill, ctx.clrMap);
       if (color) style.color = color;
     }
 
     // Text highlight (`<a:highlight>` — a:solidFill-like container).
     const highlight = child(rPr, 'highlight');
     if (highlight) {
-      const bg = parseColorFromContainer(highlight);
+      const bg = parseColorFromContainer(highlight, ctx.clrMap);
       if (bg) style.backgroundColor = bg;
     }
 
@@ -203,7 +205,13 @@ function parseRun(
       const rid =
         hlink.getAttributeNS(NS.R, 'id') || hlink.getAttribute('r:id') || undefined;
       const rel = rid ? ctx.rels?.get(rid) : undefined;
-      if (rel?.target) style.href = rel.target;
+      // Only forward *external* http/https links. Internal slide-jump
+      // rels (e.g. `Type=".../slide" Target="slide3.xml"`) are not
+      // representable in docs `Inline.style.href`, and untrusted PPTX
+      // can embed `javascript:` / `data:` schemes as an XSS vector.
+      if (rel?.external && rel.target && isSafeHref(rel.target)) {
+        style.href = rel.target;
+      }
     }
   }
 
@@ -216,6 +224,21 @@ function parseRun(
   }
 
   return { text, style };
+}
+
+/**
+ * Allowlist of URL schemes safe to forward as `Inline.style.href`.
+ * Everything else (javascript:, data:, vbscript:, file:, ...) is
+ * dropped — PPTX is an untrusted format and the docs renderer turns
+ * any non-empty `href` into a click target.
+ */
+function isSafeHref(target: string): boolean {
+  // Relative or protocol-relative URLs are safe (they resolve under
+  // the host's own origin).
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(target)) return true;
+  if (/^mailto:/i.test(target)) return true;
+  if (/^https?:/i.test(target)) return true;
+  return false;
 }
 
 function emptyBlock(): Block {

@@ -24,6 +24,7 @@ function ctx(report = new ImportReport()): SlideParseContext {
     report,
     idMap: new Map(),
     placeholderSizes: new Map(),
+    clrMap: new Map(),
   };
 }
 
@@ -87,6 +88,9 @@ describe('parseTable', () => {
     </p:graphicFrame>`;
     const report = new ImportReport();
     parseTable(frame(xml), ctx(report));
-    expect(report.tableMergesIgnored).toBe(2); // one gridSpan + one hMerge
+    // gridSpan=2 on the owning cell counts once; the cell it covers is
+    // skipped via column-index advance, so the matching `hMerge=1`
+    // placeholder is no longer double-counted.
+    expect(report.tableMergesIgnored).toBe(1);
   });
 });

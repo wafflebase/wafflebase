@@ -62,6 +62,25 @@ describe('parseColorElement', () => {
     // phClr is a placeholder-color reference that has no fixed mapping.
     expect(parseColorElement(colorEl(`<a:schemeClr val="phClr"/>`))).toBeUndefined();
   });
+
+  it('routes schemeClr through clrMap (benchmark bg2/tx2 swap)', () => {
+    const clrMap = new Map<string, string>([['bg2', 'dk2'], ['tx2', 'lt2']]);
+    // With the swap, slide-level `bg2` resolves to dk2 = textSecondary.
+    expect(parseColorElement(colorEl(`<a:schemeClr val="bg2"/>`), clrMap)).toEqual({
+      kind: 'role',
+      role: 'textSecondary',
+    });
+    // And `tx2` resolves to lt2 = backgroundAlt.
+    expect(parseColorElement(colorEl(`<a:schemeClr val="tx2"/>`), clrMap)).toEqual({
+      kind: 'role',
+      role: 'backgroundAlt',
+    });
+    // Identity entries fall through unchanged.
+    expect(parseColorElement(colorEl(`<a:schemeClr val="accent1"/>`), clrMap)).toEqual({
+      kind: 'role',
+      role: 'accent1',
+    });
+  });
 });
 
 describe('parseColorFromContainer', () => {

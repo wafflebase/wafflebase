@@ -24,6 +24,11 @@ export class ImportReport {
     if (this.shadowsDropped) parts.push(`${this.shadowsDropped} shadow(s) dropped`);
     if (this.textBoxesPreScaled) parts.push(`${this.textBoxesPreScaled} text box(es) pre-scaled`);
     if (this.unknownShapes) parts.push(`${this.unknownShapes} unknown shape(s) → rect`);
+    if (this.unknownLayoutTypes) parts.push(`${this.unknownLayoutTypes} unknown layout type(s)`);
+    if (this.tableMergesIgnored) parts.push(`${this.tableMergesIgnored} table merge(s) ignored`);
+    if (this.tableBordersApproximated) {
+      parts.push(`${this.tableBordersApproximated} table border(s) approximated`);
+    }
     if (this.skippedImages) parts.push(`${this.skippedImages} image(s) skipped`);
     if (parts.length === 0) return 'Imported with no fallbacks.';
     return `Imported with ${parts.join(', ')}.`;

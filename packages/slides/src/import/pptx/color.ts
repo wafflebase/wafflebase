@@ -2,6 +2,17 @@ import type { ColorRole, ThemeColor } from '../../model/theme';
 import { attr, attrInt, child, children } from './xml';
 
 /**
+ * OOXML `<p:clrMap>` translation table: logical scheme name (e.g.
+ * `bg1`, `tx2`) → actual scheme slot name (e.g. `lt1`, `dk2`). The
+ * benchmark deck swaps `bg2` and `tx2` from their identity defaults,
+ * so a slide that references `bg2` should resolve to `dk2`, not `lt2`.
+ *
+ * An empty/missing map is the identity mapping (every key maps to
+ * itself).
+ */
+export type ClrMap = Map<string, string>;
+
+/**
  * Map OOXML `<a:schemeClr val>` tokens to our `ColorRole` keys.
  *
  * OOXML exposes both the original PowerPoint role names (dk1/lt1) and
@@ -53,21 +64,30 @@ const PRESET_COLORS: Record<string, string> = {
  * `<a:schemeClr>` / `<a:sysClr>` / `<a:prstClr>`, optionally with
  * `<a:tint>` / `<a:shade>` modifiers.
  *
+ * `clrMap`, when provided, translates logical scheme names through
+ * the master's `<p:clrMap>` before looking them up in `SCHEME_TO_ROLE`.
+ *
  * Returns `undefined` when no recognised color child is present.
  */
-export function parseColorFromContainer(container: Element): ThemeColor | undefined {
+export function parseColorFromContainer(
+  container: Element,
+  clrMap?: ClrMap,
+): ThemeColor | undefined {
   for (let i = 0; i < container.childNodes.length; i++) {
     const n = container.childNodes[i];
     if (n.nodeType !== 1) continue;
     const el = n as Element;
-    const color = parseColorElement(el);
+    const color = parseColorElement(el, clrMap);
     if (color) return color;
   }
   return undefined;
 }
 
 /** Parse a single `<a:srgbClr>` / `<a:schemeClr>` / `<a:sysClr>` / `<a:prstClr>` element. */
-export function parseColorElement(el: Element): ThemeColor | undefined {
+export function parseColorElement(
+  el: Element,
+  clrMap?: ClrMap,
+): ThemeColor | undefined {
   switch (el.localName) {
     case 'srgbClr': {
       const val = attr(el, 'val');
@@ -77,7 +97,8 @@ export function parseColorElement(el: Element): ThemeColor | undefined {
     case 'schemeClr': {
       const val = attr(el, 'val');
       if (!val) return undefined;
-      const role = SCHEME_TO_ROLE[val];
+      const mapped = clrMap?.get(val) ?? val;
+      const role = SCHEME_TO_ROLE[mapped];
       if (!role) return undefined; // unknown scheme token (e.g. phClr in placeholders)
       return applyModifiers({ kind: 'role', role }, el);
     }

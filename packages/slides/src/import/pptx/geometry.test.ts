@@ -27,6 +27,17 @@ describe('emuScale', () => {
     expect(9_144_000 * s.sx).toBeCloseTo(1920, 6);
     expect(5_143_500 * s.sy).toBeCloseTo(1080, 6);
   });
+
+  it('falls back to widescreen defaults for invalid dimensions', () => {
+    const widescreen = emuScale(DEFAULT_WIDESCREEN_EMU);
+    expect(emuScale({ cx: 0, cy: 0 })).toEqual(widescreen);
+    expect(emuScale({ cx: -1, cy: 100 })).toEqual({ sx: widescreen.sx, sy: 1080 / 100 });
+    expect(emuScale({ cx: Number.NaN, cy: Number.NaN })).toEqual(widescreen);
+    expect(emuScale({ cx: Number.POSITIVE_INFINITY, cy: 100 })).toEqual({
+      sx: widescreen.sx,
+      sy: 1080 / 100,
+    });
+  });
 });
 
 describe('rotEmuToRad', () => {

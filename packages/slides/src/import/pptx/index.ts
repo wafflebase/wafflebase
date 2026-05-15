@@ -4,6 +4,7 @@ import { DEFAULT_MASTER } from '../../model/master';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { BUILT_IN_THEMES } from '../../themes';
 import type { Theme } from '../../model/theme';
+import type { ClrMap } from './color';
 import { emuScale, DEFAULT_WIDESCREEN_EMU } from './geometry';
 import { parseSlide, type LayoutPathToInfo } from './slide';
 import { unzipPptx, type PptxArchive } from './unzip';
@@ -83,7 +84,12 @@ export async function importPptx(
         importedTheme?.id ?? 'default-light',
         report,
       )
-    : { master: undefined, layouts: [] as Layout[], layoutMap: new Map() as LayoutPathToInfo };
+    : {
+        master: undefined,
+        layouts: [] as Layout[],
+        layoutMap: new Map() as LayoutPathToInfo,
+        clrMap: new Map() as ClrMap,
+      };
 
   const themes: Theme[] = importedTheme
     ? [importedTheme, ...BUILT_IN_THEMES.filter((t) => t.id !== importedTheme.id)]
@@ -109,6 +115,7 @@ export async function importPptx(
       uploadImage: opts.uploadImage,
       scale,
       report,
+      clrMap: masterAndLayouts.clrMap,
     });
     if (slide) slides.push(slide);
   }
@@ -184,12 +191,19 @@ async function loadMasterAndLayouts(
   masterTarget: string,
   themeId: string,
   report: ImportReport,
-): Promise<{ master: Master | undefined; layouts: Layout[]; layoutMap: LayoutPathToInfo }> {
+): Promise<{
+  master: Master | undefined;
+  layouts: Layout[];
+  layoutMap: LayoutPathToInfo;
+  clrMap: ClrMap;
+}> {
   const masterPath = resolveRelsTarget(ownerPart, masterTarget);
   const masterXml = await archive.readText(masterPath);
-  if (!masterXml) return { master: undefined, layouts: [], layoutMap: new Map() };
+  if (!masterXml) {
+    return { master: undefined, layouts: [], layoutMap: new Map(), clrMap: new Map() };
+  }
 
-  const master = parseMaster(masterXml, `imported-${masterPath}`, themeId);
+  const { master, clrMap } = parseMaster(masterXml, `imported-${masterPath}`, themeId);
 
   // Each master's rels file lists the slideLayouts it owns. We import
   // them all; slides resolve to one via their own rels file.
@@ -212,7 +226,7 @@ async function loadMasterAndLayouts(
     });
   }
 
-  return { master, layouts, layoutMap };
+  return { master, layouts, layoutMap, clrMap };
 }
 
 /** `ppt/slideMasters/slideMaster1.xml` → `ppt/slideMasters/_rels/slideMaster1.xml.rels`. */

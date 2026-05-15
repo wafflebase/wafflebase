@@ -55,6 +55,27 @@ describe('parseTextBody — runs', () => {
     expect(inline.style.href).toBe('https://yorkie.dev/');
   });
 
+  it('drops unsafe schemes and internal-slide rels', () => {
+    const xssTxt = txBody(`<a:txBody><a:bodyPr/><a:p><a:r>
+      <a:rPr><a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></a:rPr>
+      <a:t>click</a:t>
+    </a:r></a:p></a:txBody>`);
+    const internalTxt = txBody(`<a:txBody><a:bodyPr/><a:p><a:r>
+      <a:rPr><a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId2"/></a:rPr>
+      <a:t>jump</a:t>
+    </a:r></a:p></a:txBody>`);
+    const rels = new Map<string, PptxRel>([
+      ['rId1', { type: 'hyperlink', target: 'javascript:alert(1)', external: true }],
+      ['rId2', { type: 'slide', target: 'slide3.xml', external: false }],
+    ]);
+    expect(
+      parseTextBody(xssTxt, { rels, report: new ImportReport() })[0].inlines[0].style.href,
+    ).toBeUndefined();
+    expect(
+      parseTextBody(internalTxt, { rels, report: new ImportReport() })[0].inlines[0].style.href,
+    ).toBeUndefined();
+  });
+
   it('falls back to Noto Sans KR when typeface is missing but Hangul is present', () => {
     const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:t>안녕</a:t></a:r></a:p></a:txBody>`);
     const inline = parseTextBody(t, { report: new ImportReport() })[0].inlines[0];

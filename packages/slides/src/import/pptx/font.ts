@@ -15,8 +15,11 @@ export function parsePrimaryTypeface(container: Element): string | undefined {
   const latin = child(container, 'latin');
   if (!latin) return undefined;
   const face = attr(latin, 'typeface');
-  if (!face) return undefined;
-  return face.length > 0 ? face : undefined;
+  if (face == null) return undefined;
+  // Treat whitespace-only typefaces the same as the empty string —
+  // they're an "inherit" sentinel, not a real font family name.
+  const trimmed = face.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /** Returns true if any character in the string is in a Hangul block. */
@@ -26,7 +29,9 @@ export function containsHangul(text: string): boolean {
     if (
       (code >= 0xac00 && code <= 0xd7a3) || // Hangul syllables
       (code >= 0x1100 && code <= 0x11ff) || // Hangul Jamo
-      (code >= 0x3130 && code <= 0x318f) // Hangul Compatibility Jamo
+      (code >= 0x3130 && code <= 0x318f) || // Hangul Compatibility Jamo
+      (code >= 0xa960 && code <= 0xa97f) || // Hangul Jamo Extended-A
+      (code >= 0xd7b0 && code <= 0xd7ff) // Hangul Jamo Extended-B
     ) {
       return true;
     }

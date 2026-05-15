@@ -91,6 +91,24 @@ describe('parsePic', () => {
     expect(result?.data.crop).toEqual({ x: 0.1, y: 0.2, w: 0.9, h: 0.8 });
   });
 
+  it('skips and bumps the report when uploadImage throws', async () => {
+    const report = new ImportReport();
+    const result = await parsePic(picEl(PIC), {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => {
+        throw new Error('network down');
+      },
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report,
+    });
+    expect(result).toBeUndefined();
+    expect(report.skippedImages).toBe(1);
+  });
+
   it('skips and bumps the report when the rel is missing', async () => {
     const report = new ImportReport();
     const result = await parsePic(picEl(PIC), {
