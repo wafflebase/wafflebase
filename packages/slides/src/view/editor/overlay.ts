@@ -378,14 +378,55 @@ function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElem
 }
 
 /**
+ * Pick the non-connector element whose nearest connection site sits
+ * closest to the cursor, provided that minimum distance is within
+ * `SHAPE_HOVER_RADIUS / zoom` (slide-logical). Returns null when no
+ * element qualifies — i.e. the cursor is too far from any site.
+ *
+ * Center-of-frame distance would gate the affordance based on bbox
+ * centre, which is wrong for large shapes: the cursor could sit
+ * exactly ON a connection site at the edge (the very position where
+ * snap is about to commit) yet still be outside the hover radius
+ * relative to the centre. Site-to-cursor distance agrees with the
+ * snap rule and the dot-highlight rule below.
+ */
+function findNearestConnectorTarget(
+  cursor: { x: number; y: number },
+  elements: readonly Element[],
+  zoom: number,
+): Element | null {
+  if (!Number.isFinite(zoom) || zoom <= 0) return null;
+  const hoverLogical = SHAPE_HOVER_RADIUS / zoom;
+  let best: Element | null = null;
+  let bestD2 = hoverLogical * hoverLogical;
+  for (const el of elements) {
+    if (el.type === 'connector') continue;
+    const sites = getConnectionSites(el);
+    for (const site of sites) {
+      const w = siteWorldPos(el, site);
+      const dx = w.x - cursor.x;
+      const dy = w.y - cursor.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = el;
+      }
+    }
+  }
+  return best;
+}
+
+/**
  * Render the connection-points affordance — blue dots over the
  * connection sites of the single nearest non-connector element under
  * the cursor. No-op unless the caller passed `connectorAffordance`.
  *
- * Nearest-element filter: among all non-connector elements whose
- * centre is within `SHAPE_HOVER_RADIUS / zoom` (slide-logical) of the
- * cursor, pick the one with the smallest centre→cursor distance. The
- * filter prevents stacked shapes from flooding the overlay with dots.
+ * Nearest-element filter: among all non-connector elements with at
+ * least one connection site within `SHAPE_HOVER_RADIUS / zoom`
+ * (slide-logical) of the cursor, pick the one with the smallest
+ * site→cursor distance. Site distance (not centre distance) means
+ * the affordance triggers exactly where snap will commit — even on
+ * the edge of a large shape.
  *
  * Highlight rule: a dot is highlighted (larger) when the cursor is
  * within `SITE_SNAP_RADIUS / zoom` of the site's world position —
@@ -408,23 +449,7 @@ function renderConnectionPointsOverlay(
   if (elements.length === 0) return;
 
   const { cursor, zoom } = aff;
-  const hoverRadiusLogical = SHAPE_HOVER_RADIUS / zoom;
-  const hoverR2 = hoverRadiusLogical * hoverRadiusLogical;
-
-  let nearest: Element | null = null;
-  let bestD2 = hoverR2;
-  for (const el of elements) {
-    if (el.type === 'connector') continue;
-    const cx = el.frame.x + el.frame.w / 2;
-    const cy = el.frame.y + el.frame.h / 2;
-    const dx = cx - cursor.x;
-    const dy = cy - cursor.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      nearest = el;
-    }
-  }
+  const nearest = findNearestConnectorTarget(cursor, elements, zoom);
   if (!nearest) return;
 
   const snapRadiusLogical = SITE_SNAP_RADIUS / zoom;

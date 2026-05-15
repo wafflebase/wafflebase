@@ -261,6 +261,15 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type === 'connector') {
+      // Connector frame is derived from endpoint positions — patching it
+      // directly would leave the cached bbox out of sync with the
+      // endpoints. Callers must mutate endpoints via
+      // `updateConnectorEndpoint`, which recomputes the frame for them.
+      throw new Error(
+        `Element ${elementId} is a connector; update its endpoints instead of its frame`,
+      );
+    }
     e.frame = { ...e.frame, ...frame };
     // Recompute cached frames of connectors whose endpoints attach to
     // this element. The renderer reads endpoints live, so the visual

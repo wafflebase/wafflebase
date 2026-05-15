@@ -115,7 +115,6 @@ export interface YorkieConnectorElement {
   id: string;
   type: 'connector';
   frame: YorkieFrame;
-  placeholderRef?: PlaceholderRef;
   routing: ConnectorRouting;
   start: Endpoint;
   end: Endpoint;

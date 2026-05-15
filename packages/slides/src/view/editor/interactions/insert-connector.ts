@@ -67,6 +67,9 @@ export function findSnapTarget(
   elements: readonly Element[],
   zoom: number,
 ): SnapHit | null {
+  // Guard against non-finite or non-positive zoom — division below would
+  // produce NaN / Infinity and falsely match every site.
+  if (!Number.isFinite(zoom) || zoom <= 0) return null;
   let best: SnapHit | null = null;
   // Constants are screen pixels; divide by zoom to get the slide-
   // logical threshold the squared comparison below works in.
@@ -164,6 +167,9 @@ export function finalizeInsert(
   elements: readonly Element[],
   zoom: number,
 ): string | null {
+  // Guard against non-finite or non-positive zoom — the deadband below
+  // would divide by zero / NaN and either reject or accept everything.
+  if (!Number.isFinite(zoom) || zoom <= 0) return null;
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   // `MIN_DRAG_DISTANCE` is in screen pixels; cursor deltas above are in

@@ -1648,9 +1648,14 @@ git commit -m "Render connection points overlay during connector insert"
 
 - [ ] **Step 14.1: Locate the toolbar's "insert shape" dropdown**
 
-The PR1 design says these are 4 tools, but PR1 ships only Line and
-Arrow. Add two entries to the existing shape picker dropdown (where
-`line` and `arrow` previously lived as `ShapeKind`). On click, call
+Historical note: this step originally added Line + Arrow into the
+existing ShapePicker dropdown (where `line` and `arrow` previously
+lived as `ShapeKind`). Smoke-test feedback was that mixing connector
+tools and pure shapes in one menu felt off — the connector tools have
+a different click-drag flow with snap affordances, and reusing the
+shape picker hid that distinction. PR1 instead introduces a dedicated
+`LinePicker` component beside the ShapePicker, owning only the
+connector entries. The wire-up on click still calls
 `editor.setInsertMode('connector:line')` /
 `editor.setInsertMode('connector:arrow')` (the new modes added in
 Task 11.4).

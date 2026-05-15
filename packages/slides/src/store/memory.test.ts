@@ -479,6 +479,15 @@ describe('MemSlidesStore — connector methods', () => {
     });
   });
 
+  it('updateElementFrame throws when target is a connector', () => {
+    const { store, slideId, connectorId } = setup();
+    expect(() => {
+      store.batch(() => {
+        store.updateElementFrame(slideId, connectorId, { x: 999 });
+      });
+    }).toThrow(/connector/i);
+  });
+
   it('removeElement of attached target converts endpoint to free at last world position', () => {
     const { store, slideId, targetId, connectorId } = setup();
     // Target N site = (200, 100).

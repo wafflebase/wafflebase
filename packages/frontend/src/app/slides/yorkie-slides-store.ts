@@ -292,7 +292,9 @@ export class YorkieSlidesStore implements SlidesStore {
           // routing as top-level fields (no `data` sub-object). Each is
           // a Yorkie proxy until we unwrap, so reading via the generic
           // `data`-only path above would drop them and crash the overlay
-          // when it tries `connector.start.kind`.
+          // when it tries `connector.start.kind`. Connectors are never
+          // placeholders (see `YorkieConnectorElement`), so we don't
+          // emit a `placeholderRef` field here.
           const c = el as unknown as {
             routing: ConnectorElement['routing'];
             start: Endpoint;
@@ -305,7 +307,6 @@ export class YorkieSlidesStore implements SlidesStore {
             id: el.id,
             type: 'connector',
             frame: yorkieToPlain<Frame>(el.frame),
-            placeholderRef,
             routing: c.routing,
             start: yorkieToPlain<Endpoint>(c.start),
             end: yorkieToPlain<Endpoint>(c.end),
@@ -760,6 +761,15 @@ export class YorkieSlidesStore implements SlidesStore {
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const e = s.elements.find((e) => e.id === elementId);
       if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type === 'connector') {
+        // Connector frame is derived from endpoint positions — patching it
+        // directly would leave the cached bbox out of sync with the
+        // endpoints. Callers must mutate endpoints via
+        // `updateConnectorEndpoint`, which recomputes the frame for them.
+        throw new Error(
+          `Element ${elementId} is a connector; update its endpoints instead of its frame`,
+        );
+      }
       e.frame = { ...e.frame, ...frame };
       // Refresh the cached frames of connectors whose endpoints attach to
       // this element. The renderer reads endpoints live, so the visual

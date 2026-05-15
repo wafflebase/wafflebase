@@ -54,7 +54,10 @@ function drawConnectorIcon(
     ctx.lineTo(baseX + px * headHalf, baseY + py * headHalf);
     ctx.lineTo(baseX - px * headHalf, baseY - py * headHalf);
     ctx.closePath();
-    ctx.stroke();
+    // Fill the arrowhead so the picker preview matches the runtime
+    // arrowhead-renderer (filled triangle), not a thin outlined wedge.
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
   }
 }
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Element, ShapeElement } from '../../model/element';
+import type { ConnectorElement } from '../../model/connector';
 import { renderOverlay } from './overlay';
 
 const HANDLE_SIZE = 8;
@@ -214,7 +215,7 @@ describe('renderOverlay — adjustment handles', () => {
 });
 
 describe('renderOverlay — connector endpoint handles', () => {
-  function freeConnector(): Element {
+  function freeConnector(): ConnectorElement {
     return {
       id: 'c1',
       type: 'connector',
@@ -223,19 +224,19 @@ describe('renderOverlay — connector endpoint handles', () => {
       end: { kind: 'free', x: 300, y: 100 },
       arrowheads: {},
       frame: { x: 100, y: 100, w: 200, h: 0, rotation: 0 },
-    } as unknown as Element;
+    };
   }
 
   function attachedToRect(
     site: number,
-  ): { connector: Element; host: Element } {
+  ): { connector: ConnectorElement; host: Element } {
     const host: Element = {
       id: 'r1',
       type: 'shape',
       frame: { x: 200, y: 200, w: 100, h: 100, rotation: 0 },
       data: { kind: 'rect' },
     };
-    const connector: Element = {
+    const connector: ConnectorElement = {
       id: 'c1',
       type: 'connector',
       routing: 'straight',
@@ -243,7 +244,7 @@ describe('renderOverlay — connector endpoint handles', () => {
       end: { kind: 'free', x: 400, y: 400 },
       arrowheads: {},
       frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
-    } as unknown as Element;
+    };
     return { connector, host };
   }
 
@@ -356,7 +357,7 @@ describe('renderOverlay — connection-points affordance', () => {
     };
   }
 
-  function connectorAt(): Element {
+  function connectorAt(): ConnectorElement {
     return {
       id: 'c1',
       type: 'connector',
@@ -365,19 +366,19 @@ describe('renderOverlay — connection-points affordance', () => {
       end: { kind: 'free', x: 1100, y: 1100 },
       arrowheads: {},
       frame: { x: 1000, y: 1000, w: 100, h: 100, rotation: 0 },
-    } as unknown as Element;
+    };
   }
 
   it('renders connection-site dots for the nearest shape when cursor is within hover radius', () => {
     const overlay = makeOverlay();
     const rect = rectAt('r1', 200, 200, 100, 100);
-    // Cursor at the centre of the rect — well within 24px.
+    // N site at (250, 200); cursor 15px below it — well within 24px.
     renderOverlay(overlay, [], {
       scale: 1,
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 250, y: 215 }, zoom: 1 },
     });
     const dots = overlay.querySelectorAll('[data-connection-site]');
     expect(dots.length).toBe(4); // four cardinal sites
@@ -431,14 +432,15 @@ describe('renderOverlay — connection-points affordance', () => {
   it('uses default 8px dot size when cursor is outside snap radius but inside hover radius', () => {
     const overlay = makeOverlay();
     const rect = rectAt('r1', 200, 200, 100, 100);
-    // Cursor near the centre — every site is > 12px away but rect centre
-    // is < 24px away, so the affordance fires with no highlighted dots.
+    // N site at (250, 200); cursor 18px below it — outside the 12px snap
+    // radius but inside the 24px hover radius. Affordance fires with no
+    // highlighted dots.
     renderOverlay(overlay, [], {
       scale: 1,
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 250, y: 218 }, zoom: 1 },
     });
     const dots = overlay.querySelectorAll<HTMLDivElement>(
       '[data-connection-site]',
@@ -485,8 +487,8 @@ describe('renderOverlay — connection-points affordance', () => {
 
   it('renders dots for only the single nearest shape (multi-shape does not flood overlay)', () => {
     const overlay = makeOverlay();
-    // Two overlapping rects with different centres. r1 centre = (250, 250),
-    // r2 centre = (260, 260). Cursor at (252, 252) is closer to r1.
+    // Two overlapping rects. r1 N site = (250, 200); r2 N site = (260, 210).
+    // Cursor at (250, 205) is 5px from r1 N, ~11.2px from r2 N → r1 wins.
     const r1 = rectAt('r1', 200, 200, 100, 100);
     const r2 = rectAt('r2', 210, 210, 100, 100);
     renderOverlay(overlay, [], {
@@ -494,13 +496,12 @@ describe('renderOverlay — connection-points affordance', () => {
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [r1, r2],
-      connectorAffordance: { cursor: { x: 252, y: 252 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 250, y: 205 }, zoom: 1 },
     });
     const dots = overlay.querySelectorAll('[data-connection-site]');
     // Only one shape contributes; 4 sites per shape.
     expect(dots.length).toBe(4);
-    // r1's N site is at (250, 200). r2's N site is at (260, 210).
-    // Confirm the rendered N dot belongs to r1.
+    // Confirm the rendered N dot belongs to r1 (at x=250, not 260).
     const n = overlay.querySelector<HTMLDivElement>(
       '[data-connection-site="0"]',
     )!;
@@ -526,14 +527,14 @@ describe('renderOverlay — connection-points affordance', () => {
     const overlay = makeOverlay();
     const rect = rectAt('r1', 200, 200, 100, 100);
     // At scale 0.5, the N site at logical (250, 200) maps to host (125, 100).
-    // Cursor on top of the centre (logical 250, 250); zoom passed as 0.5
-    // so the hover-radius check uses 24/0.5 = 48 logical px.
+    // Cursor at (250, 220) is 20px from N site; zoom=0.5 → hover radius is
+    // 24/0.5 = 48 logical px, so the site qualifies.
     renderOverlay(overlay, [], {
       scale: 0.5,
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 0.5 },
+      connectorAffordance: { cursor: { x: 250, y: 220 }, zoom: 0.5 },
     });
     const n = overlay.querySelector<HTMLDivElement>(
       '[data-connection-site="0"]',
@@ -574,12 +575,13 @@ describe('renderOverlay — connection-points affordance', () => {
   it('connection-site dots have pointer-events: none so they do not block dragging', () => {
     const overlay = makeOverlay();
     const rect = rectAt('r1', 200, 200, 100, 100);
+    // Cursor near N site so the affordance renders dots.
     renderOverlay(overlay, [], {
       scale: 1,
       slideWidth: SLIDE_W,
       slideHeight: SLIDE_H,
       allElements: [rect],
-      connectorAffordance: { cursor: { x: 250, y: 250 }, zoom: 1 },
+      connectorAffordance: { cursor: { x: 250, y: 215 }, zoom: 1 },
     });
     const dots = overlay.querySelectorAll<HTMLDivElement>(
       '[data-connection-site]',
@@ -588,5 +590,23 @@ describe('renderOverlay — connection-points affordance', () => {
     for (const d of dots) {
       expect(d.style.pointerEvents).toBe('none');
     }
+  });
+
+  it('renders dots when cursor sits ON a connection site of a large shape', () => {
+    const overlay = makeOverlay();
+    // Big placeholder-sized rect — centre is FAR from any of its edge sites.
+    // r1 at (100, 100, 400, 200): centre (300, 200), N=(300, 100), E=(500, 200).
+    // Cursor exactly on N → centre distance is 100 (way outside hover
+    // radius) but site distance is 0 → affordance must still fire.
+    const rect = rectAt('r1', 100, 100, 400, 200);
+    renderOverlay(overlay, [], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [rect],
+      connectorAffordance: { cursor: { x: 300, y: 100 }, zoom: 1 },
+    });
+    const dots = overlay.querySelectorAll('[data-connection-site]');
+    expect(dots.length).toBe(4);
   });
 });

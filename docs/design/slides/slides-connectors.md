@@ -48,9 +48,11 @@ endpoint-first data model.
   elbow connector, matching Google Slides.
 - **DOCX / PPTX import-export round-trip for connectors.** Tracked
   separately under `slides-themes-layouts-import` follow-ups.
-- **Yorkie schema migration.** The slides package currently uses an
-  in-memory store. Yorkie-backed `yorkie-slides-store.ts` updates ship
-  with the broader Phase 4 collaboration workstream.
+- **Yorkie schema migration.** Yorkie-backed `YorkieSlidesStore` ships
+  in this PR; the connector data path resolves through `read()` and the
+  new connector-mutation methods (`updateConnectorEndpoint`,
+  `updateConnectorArrowheads`), plus cascade sweep on element removal
+  and dependent-frame recompute on source moves.
 - **Backwards compatibility with the existing `kind: 'line'` /
   `'arrow'` shapes.** v0.1.0 alpha, no persisted user data to migrate
   — `ShapeKind` drops both values; any in-memory authored content is
@@ -124,7 +126,7 @@ Math.PI / 2`, `DIR_W = Math.PI`.
 
 **Registry** (`view/canvas/connection-sites/`):
 
-```
+```text
 index.ts       getConnectionSites(element): ConnectionSite[]
 defaults.ts    fourCardinal(): ConnectionSite[]  // N/E/S/W midpoints
 overrides.ts   CONNECTION_SITES: Map<ShapeKind, ConnectionSite[]>
@@ -228,7 +230,7 @@ self.x)` — pointing at the opposite endpoint.
 
 ### 4. Rendering Pipeline
 
-```
+```text
 view/canvas/
   connector-renderer.ts    Draws the resolved path (segments or bezier)
                            with the connector's stroke, then arrowheads.
@@ -238,7 +240,7 @@ view/canvas/
 
 Resolution sequence per frame (in `element-renderer.ts`):
 
-```
+```text
 ConnectorElement
   → resolve start/end Endpoint → world Point + exit angle
      (free: use stored x/y; attached: siteWorldPos(targetElement, site))
@@ -253,7 +255,7 @@ selection rectangles.
 
 ### 5. Editor Interactions
 
-```
+```text
 view/editor/
   interactions/
     insert-connector.ts            Connector-tool drag flow with snap.
@@ -347,7 +349,7 @@ same surface. Undo/redo wraps each call as a transaction.
 
 ### 7. File Organization
 
-```
+```text
 packages/slides/src/
 ├── model/
 │   ├── connector.ts                       NEW — Connector types
@@ -458,5 +460,5 @@ Three PRs sized for independent review and verification:
 | Removing `kind: 'line'` / `'arrow'` from `ShapeKind` is a breaking change to public types. | v0.1.0 alpha; no published consumer of the type. Sweep usages in monorepo before PR1 lands. Document the rename in PR1 description. |
 | Elbow routing algorithm produces awkward paths in edge cases (e.g. exit-direction angle ambiguity for free endpoints whose pair is at the same point). | Routing functions are pure and unit-tested; edge cases get explicit test coverage. Visual review during PR2 validates aesthetic correctness on real slides. |
 | Connection-site override registry needs maintenance as more shapes adopt non-default anchors. | Default 4-cardinal works for ~70% of the catalog already; overrides are additive and can ship incrementally in PR3 and beyond without breaking existing slides. |
-| Yorkie schema for the new element type is deferred — collaboration won't work until that lands. | Documented as a non-goal here. The element model is designed to serialize trivially (no derived state, no caches), so the Yorkie schema extension is mechanical when the collaboration workstream picks it up. |
+| Yorkie schema for the new element type needs to land for collaboration to work. | Yorkie-backed `YorkieSlidesStore` ships in this PR; the connector data path resolves through `read()` and the new connector-mutation methods, plus cascade sweep on element removal and dependent-frame recompute on source moves. |
 | User rotates a source shape with an attached connector and the connector's path no longer makes sense (e.g. crosses through the shape). | Acceptable behavior — Google Slides behaves identically. Users reroute manually. |
