@@ -1,13 +1,21 @@
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 export type AdjustmentHandleKind = `adjust-${number}`;
-export type HandleKind = ResizeHandle | 'rotate' | AdjustmentHandleKind;
+export type ConnectorEndpointHandle = 'start' | 'end';
+export type HandleKind =
+  | ResizeHandle
+  | 'rotate'
+  | AdjustmentHandleKind
+  | ConnectorEndpointHandle;
 
 const RESIZE_HANDLES: readonly string[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rotate'];
+const CONNECTOR_ENDPOINT_HANDLES: readonly string[] = ['start', 'end'];
 
 function isHandleKind(value: string | undefined): value is HandleKind {
   return (
     value !== undefined &&
-    (RESIZE_HANDLES.includes(value) || /^adjust-\d+$/.test(value))
+    (RESIZE_HANDLES.includes(value) ||
+      CONNECTOR_ENDPOINT_HANDLES.includes(value) ||
+      /^adjust-\d+$/.test(value))
   );
 }
 

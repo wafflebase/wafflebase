@@ -17,9 +17,11 @@ import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
+import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
   buildConnectorInit,
   finalizeInsert as finalizeConnectorInsert,
+  snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
 import { buildKeyRules } from './interactions/keyboard';
@@ -302,6 +304,11 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      // Pass the full slide so connector endpoint handles can resolve
+      // `attached` endpoints to world positions via the host element's
+      // frame. Free endpoints don't need this map but it's cheap to
+      // pass always.
+      allElements: slide.elements,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -1188,6 +1195,7 @@ class SlidesEditorImpl implements SlidesEditor {
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
       guides,
+      allElements: synthetic.elements,
     });
   }
 
@@ -1220,12 +1228,119 @@ class SlidesEditorImpl implements SlidesEditor {
       this.startRotate(clientX, clientY);
       return;
     }
+    if (handle === 'start' || handle === 'end') {
+      this.startConnectorEndpointDrag(handle, clientX, clientY);
+      return;
+    }
     if (handle.startsWith('adjust-')) {
       const handleIndex = parseInt(handle.slice('adjust-'.length), 10);
       this.startAdjustmentDrag(handleIndex, clientX, clientY);
       return;
     }
     this.startResize(handle as ResizeHandle, clientX, clientY);
+  }
+
+  /**
+   * Drag one endpoint of a selected connector. Snaps to connection
+   * sites of other elements within `SITE_SNAP_RADIUS` while the cursor
+   * moves; on mouseup the final endpoint is committed via a single
+   * batched `updateConnectorEndpoint` so undo treats the whole drag as
+   * one operation.
+   *
+   * During the drag we paint a synthesised slide with the connector's
+   * endpoint replaced by the in-progress value — same pattern as
+   * `paintLive` for shape drags, just keyed on the endpoint instead of
+   * the frame. The store is not touched until mouseup, so each move is
+   * one canvas paint, not one Yorkie op.
+   */
+  private startConnectorEndpointDrag(
+    side: 'start' | 'end',
+    clientX: number,
+    clientY: number,
+  ): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl || startEl.type !== 'connector') return;
+    const startConnector = startEl;
+    const slideId = startSlide.id;
+
+    const startCursor = this.clientToLogical(clientX, clientY);
+    let liveEndpoint = side === 'start' ? startConnector.start : startConnector.end;
+    let liveCursor = startCursor;
+    let moved = false;
+
+    const recompute = (cur: { x: number; y: number }) => {
+      // Other elements as snap candidates — exclude the connector itself
+      // so the endpoint can't self-link. Mirrors `dragEndpoint`'s filter
+      // but applied here so the live preview matches the eventual
+      // commit exactly.
+      const candidates = startSlide.elements.filter(
+        (e) => e.id !== startConnector.id,
+      );
+      liveEndpoint = snappedEndpoint(cur, candidates);
+      liveCursor = cur;
+    };
+
+    const paintLiveConnector = () => {
+      const synthetic = {
+        ...startSlide,
+        elements: startSlide.elements.map((el) => {
+          if (el.id !== elementId || el.type !== 'connector') return el;
+          return side === 'start'
+            ? { ...el, start: liveEndpoint }
+            : { ...el, end: liveEndpoint };
+        }),
+      };
+      this.renderer.forceRender(synthetic, this.options.store.read());
+      const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
+      renderOverlay(this.options.overlay, selected, {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+        allElements: synthetic.elements,
+      });
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      if (!moved) {
+        const dx = cur.x - startCursor.x;
+        const dy = cur.y - startCursor.y;
+        // 1 logical-pixel deadband so a pure click on the handle doesn't
+        // reinterpret the endpoint (e.g. detach an attached endpoint
+        // because the cursor's free position landed off-site).
+        if (dx * dx + dy * dy < 1) return;
+        moved = true;
+      }
+      recompute(cur);
+      paintLiveConnector();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (!moved) return; // pure click on the handle — no-op
+      // Commit the final endpoint via dragEndpoint so the snap rules
+      // match exactly between live preview and committed state.
+      this.options.store.batch(() => {
+        dragEndpoint(
+          this.options.store,
+          slideId,
+          startConnector,
+          side,
+          liveCursor,
+          startSlide.elements,
+        );
+      });
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private startAdjustmentDrag(
@@ -1322,6 +1437,7 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      allElements: synthetic.elements,
     });
   }
 

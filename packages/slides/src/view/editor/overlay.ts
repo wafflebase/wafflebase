@@ -1,5 +1,7 @@
+import type { ConnectorElement, Endpoint } from '../../model/connector';
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import { resolveEndpoint } from '../canvas/connector-frame';
 import type { SnapGuide } from './snap';
 import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
 import {
@@ -19,6 +21,14 @@ export interface OverlayOptions {
   slideHeight: number;
   /** Snap guides to render under the selection handles. Empty/omitted = none. */
   guides?: readonly SnapGuide[];
+  /**
+   * All elements on the active slide. Optional and only consulted when a
+   * selected connector has an `attached` endpoint — `resolveEndpoint`
+   * needs the host element's frame to compute the endpoint's world
+   * position. Free endpoints carry their own coords and don't need this
+   * map, so callers that don't render connectors can omit it.
+   */
+  allElements?: readonly Element[];
 }
 
 /**
@@ -42,6 +52,27 @@ export function renderOverlay(
   overlay.innerHTML = '';
   if (selectedElements.length === 0) return;
 
+  // Connectors get a custom selection treatment: exactly two endpoint
+  // handles (start + end) at the resolved endpoint world positions, no
+  // 8-corner resize handles, no rotate handle. A connector's frame is a
+  // computed bbox of its endpoints — resizing/rotating it directly is
+  // meaningless; the user edits the connector by dragging endpoints.
+  // Multi-selection mixing connectors with other elements falls back to
+  // the combined axis-aligned bbox (connectors contribute their frame
+  // to the bbox like any other element); endpoint handles only render
+  // when a single connector is selected.
+  if (
+    selectedElements.length === 1 &&
+    selectedElements[0].type === 'connector'
+  ) {
+    renderConnectorEndpointHandles(
+      overlay,
+      selectedElements[0] as ConnectorElement,
+      options,
+    );
+    return;
+  }
+
   if (selectedElements.length === 1 && selectedElements[0].frame.rotation !== 0) {
     renderRotatedHandles(overlay, selectedElements[0].frame, options);
     renderAdjustmentHandles(overlay, selectedElements[0], options);
@@ -58,6 +89,63 @@ export function renderOverlay(
       overlay.appendChild(makeGuide(g, options));
     }
   }
+}
+
+/**
+ * Render the two endpoint handles for a selected connector. Skips the
+ * resize/rotate frame entirely; a connector's frame is a derived bbox
+ * and direct manipulation of it has no meaning.
+ *
+ * Handle visual mirrors `connection-points-overlay` for affordance
+ * symmetry: `attached` endpoints are filled (the connector "sticks"
+ * to a shape), `free` endpoints are hollow (no host). `data-handle`
+ * carries the `'start'` / `'end'` kind so `handleHitTest` and the
+ * editor's drag dispatch can route the drag to `dragEndpoint`.
+ */
+function renderConnectorEndpointHandles(
+  overlay: HTMLDivElement,
+  connector: ConnectorElement,
+  options: OverlayOptions,
+): void {
+  const { scale, allElements } = options;
+  const map = new Map<string, Element>(
+    (allElements ?? []).map((e) => [e.id, e]),
+  );
+  const a = resolveEndpoint(connector.start, map);
+  const b = resolveEndpoint(connector.end, map);
+  overlay.appendChild(
+    makeEndpointHandle('start', connector.start, a.x * scale, a.y * scale),
+  );
+  overlay.appendChild(
+    makeEndpointHandle('end', connector.end, b.x * scale, b.y * scale),
+  );
+}
+
+function makeEndpointHandle(
+  kind: 'start' | 'end',
+  endpoint: Endpoint,
+  cx: number,
+  cy: number,
+): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.handle = kind;
+  const attached = endpoint.kind === 'attached';
+  el.className = `wfb-slides-handle wfb-slides-endpoint wfb-slides-endpoint-${kind} ${
+    attached ? 'wfb-slides-endpoint-attached' : 'wfb-slides-endpoint-free'
+  }`;
+  el.style.position = 'absolute';
+  el.style.left = `${cx - HANDLE_SIZE / 2}px`;
+  el.style.top = `${cy - HANDLE_SIZE / 2}px`;
+  el.style.width = `${HANDLE_SIZE}px`;
+  el.style.height = `${HANDLE_SIZE}px`;
+  // Filled circle when attached, hollow circle when free — matches the
+  // visual language of the connection-points overlay so the user can
+  // tell at a glance whether the endpoint is "sticking" to a shape.
+  el.style.background = attached ? '#3a7' : '#fff';
+  el.style.border = '1px solid #3a7';
+  el.style.borderRadius = '50%';
+  el.style.cursor = 'pointer';
+  return el;
 }
 
 function renderAxisAlignedHandles(

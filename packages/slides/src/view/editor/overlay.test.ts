@@ -212,3 +212,124 @@ describe('renderOverlay — adjustment handles', () => {
     expect(lastChild?.getAttribute('data-handle')).toMatch(/^adjust-/);
   });
 });
+
+describe('renderOverlay — connector endpoint handles', () => {
+  function freeConnector(): Element {
+    return {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'free', x: 100, y: 100 },
+      end: { kind: 'free', x: 300, y: 100 },
+      arrowheads: {},
+      frame: { x: 100, y: 100, w: 200, h: 0, rotation: 0 },
+    } as unknown as Element;
+  }
+
+  function attachedToRect(
+    site: number,
+  ): { connector: Element; host: Element } {
+    const host: Element = {
+      id: 'r1',
+      type: 'shape',
+      frame: { x: 200, y: 200, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const connector: Element = {
+      id: 'c1',
+      type: 'connector',
+      routing: 'straight',
+      start: { kind: 'attached', elementId: 'r1', siteIndex: site },
+      end: { kind: 'free', x: 400, y: 400 },
+      arrowheads: {},
+      frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+    } as unknown as Element;
+    return { connector, host };
+  }
+
+  it('renders exactly two endpoint handles (start + end) for a selected connector', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [freeConnector()], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+    });
+    const handles = overlay.querySelectorAll('[data-handle]');
+    expect(handles.length).toBe(2);
+    expect(overlay.querySelector('[data-handle="start"]')).not.toBeNull();
+    expect(overlay.querySelector('[data-handle="end"]')).not.toBeNull();
+  });
+
+  it('omits 8-corner resize handles and rotate handle for connectors', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [freeConnector()], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+    });
+    for (const k of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rotate']) {
+      expect(overlay.querySelector(`[data-handle="${k}"]`)).toBeNull();
+    }
+  });
+
+  it('places handles at free-endpoint coords', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [freeConnector()], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+    });
+    const start = overlay.querySelector<HTMLDivElement>('[data-handle="start"]')!;
+    expect(parseFloat(start.style.left)).toBe(100 - HANDLE_SIZE / 2);
+    expect(parseFloat(start.style.top)).toBe(100 - HANDLE_SIZE / 2);
+    const end = overlay.querySelector<HTMLDivElement>('[data-handle="end"]')!;
+    expect(parseFloat(end.style.left)).toBe(300 - HANDLE_SIZE / 2);
+    expect(parseFloat(end.style.top)).toBe(100 - HANDLE_SIZE / 2);
+  });
+
+  it('resolves attached endpoints through allElements', () => {
+    const overlay = makeOverlay();
+    const { connector, host } = attachedToRect(0); // N site
+    // r1 at (200, 200), 100×100 — N site = (250, 200).
+    renderOverlay(overlay, [connector], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [connector, host],
+    });
+    const start = overlay.querySelector<HTMLDivElement>('[data-handle="start"]')!;
+    expect(parseFloat(start.style.left)).toBe(250 - HANDLE_SIZE / 2);
+    expect(parseFloat(start.style.top)).toBe(200 - HANDLE_SIZE / 2);
+  });
+
+  it('marks attached vs free endpoints with distinct classes', () => {
+    const overlay = makeOverlay();
+    const { connector, host } = attachedToRect(0);
+    renderOverlay(overlay, [connector], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [connector, host],
+    });
+    const start = overlay.querySelector<HTMLDivElement>('[data-handle="start"]')!;
+    const end = overlay.querySelector<HTMLDivElement>('[data-handle="end"]')!;
+    expect(start.className).toContain('wfb-slides-endpoint-attached');
+    expect(end.className).toContain('wfb-slides-endpoint-free');
+  });
+
+  it('multi-select including a connector falls back to combined bbox handles', () => {
+    const overlay = makeOverlay();
+    const { connector, host } = attachedToRect(0);
+    renderOverlay(overlay, [connector, host], {
+      scale: 1,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      allElements: [connector, host],
+    });
+    // Resize/rotate handles return for multi-select; endpoint handles
+    // should NOT appear.
+    expect(overlay.querySelector('[data-handle="start"]')).toBeNull();
+    expect(overlay.querySelector('[data-handle="end"]')).toBeNull();
+    expect(overlay.querySelector('[data-handle="rotate"]')).not.toBeNull();
+  });
+});
