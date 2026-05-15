@@ -26,8 +26,7 @@ export interface SlidesToolbarProps {
  * slide group, theme toggle, present button) plus a contextual middle
  * slot that will be populated by Tasks 5-11.
  *
- * The old SlidesFormattingToolbar stays mounted in slides-detail.tsx
- * until Task 12 swaps it for this component.
+ * Replaces the old SlidesFormattingToolbar that was removed in Task 12.
  */
 export function SlidesToolbar({
   editor,

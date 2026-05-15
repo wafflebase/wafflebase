@@ -24,7 +24,7 @@ import {
 import { ThemePanel } from "@/app/slides/theme-panel";
 import { ThemedColorPicker } from "@/app/slides/themed-color-picker";
 import { ThemedFontPicker } from "@/app/slides/themed-font-picker";
-import { SlidesFormattingToolbar } from "@/app/slides/slides-formatting-toolbar";
+import { SlidesToolbar } from "@/app/slides/toolbar";
 
 interface SlidesScenario {
   id: string;
@@ -977,10 +977,11 @@ function SlidesToolbarScenario() {
   const store = useMemo(() => new MemSlidesStore(), []);
   return (
     <div className="rounded-md border bg-background">
-      <SlidesFormattingToolbar
+      <SlidesToolbar
         editor={null}
         store={store}
         theme={defaultLight}
+        onImagePick={() => undefined}
         onToggleThemePanel={() => undefined}
         themePanelOpen={false}
       />

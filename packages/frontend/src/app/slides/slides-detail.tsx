@@ -17,9 +17,10 @@ import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import { SlidesView, type SlidesEditor } from "./slides-view";
-import { SlidesFormattingToolbar } from "./slides-formatting-toolbar";
+import { SlidesToolbar } from "./toolbar";
 import { SlidesPresentationMode } from "./slides-presentation-mode";
-import { PresentButton } from "./slides-present-button";
+import { uploadImageFile } from "../spreadsheet/image-upload";
+import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
 
@@ -193,6 +194,34 @@ function SlidesLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
+  // Upload pipeline: wraps the workspace image API to match the shape
+  // expected by SlidesToolbar (and insert-image / replace-image helpers).
+  const workspaceId = documentData?.workspaceId;
+  const uploadFn = useCallback(
+    async (file: File): Promise<{ url: string; w: number; h: number }> => {
+      if (!workspaceId) throw new Error("Workspace not loaded yet");
+      const result = await uploadImageFile(file, workspaceId);
+      return { url: result.url, w: result.width, h: result.height };
+    },
+    [workspaceId],
+  );
+
+  // Opens a file picker and inserts the chosen image into the current slide.
+  const handleImagePick = useCallback(async () => {
+    if (!store) return;
+    const slideId = editor?.getCurrentSlideId();
+    if (!slideId) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      await insertImageOnSlide({ store, slideId, file, upload: uploadFn });
+    };
+    input.click();
+  }, [store, editor, uploadFn]);
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -209,21 +238,21 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <PresentButton
-              disabled={!store || slideCount === 0}
-              onStart={handleStartPresentation}
-            />
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <SlidesFormattingToolbar
+          <SlidesToolbar
             editor={editor}
             store={store}
             theme={activeTheme}
+            onImagePick={handleImagePick}
+            upload={uploadFn}
             onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
             themePanelOpen={themePanelOpen}
+            onStartPresentation={handleStartPresentation}
+            slideCount={slideCount}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <SlidesView
