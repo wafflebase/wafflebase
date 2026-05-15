@@ -28,14 +28,11 @@ export interface Point { x: number; y: number; }
  *     are square so their geometry isn't squashed.
  *   - Directional shapes (block arrows) are longer along their axis.
  *   - Banners are wide (visual affinity).
- *   - Lines are horizontal by default (h=0) — feels more intentional
- *     than the previous 200×100 diagonal.
  *   - Action buttons are small squares so the inner glyph stays
  *     proportionate.
  */
 interface Size { w: number; h: number; }
 
-const LINE_H: Size = { w: 400, h: 0 };
 const ARC_HALF: Size = { w: 320, h: 160 };
 const SHAPE_WIDE: Size = { w: 320, h: 200 };
 const SHAPE_WIDE_240: Size = { w: 240, h: 200 };
@@ -57,9 +54,6 @@ const DEFAULT_INSERT_SIZE: ReadonlyMap<ShapeKind, Size> = new Map<
   ShapeKind,
   Size
 >([
-  // Lines
-  ['line', LINE_H],
-  ['arrow', LINE_H],
   ['arc', ARC_HALF],
 
   // Basic — wide rectangular family
@@ -169,7 +163,7 @@ export function defaultInsertSize(kind: ShapeKind): Size {
  * inserted shape gets:
  *   - `filled`     — accent1 fill, no stroke (basic shapes, block arrows, equation)
  *   - `outlined`   — background fill, text-coloured stroke (callouts)
- *   - `lineSpecial`— stroke only (line); arrow also fills the head
+ *   - `lineSpecial`— stroke only (currently arc; open-path geometry)
  */
 type ShapeStyle = 'filled' | 'outlined' | 'lineSpecial';
 
@@ -177,9 +171,6 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ShapeKind,
   ShapeStyle
 >([
-  // Lines
-  ['line', 'lineSpecial'],
-  ['arrow', 'lineSpecial'],
   // Basic + Block Arrows + Equation + Stars → filled
   ...((
     [
@@ -210,10 +201,7 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
     ] as ShapeKind[]
   ).map((k) => [k, 'filled' as ShapeStyle] as const)),
-  // Arc → stroke-only (open path). Reuses `lineSpecial` since the
-  // dispatcher behaviour we need is the same: stroke = text colour,
-  // no fill. Adding a fourth ShapeStyle for one shape would be
-  // overkill; the visual outcome matches.
+  // Arc → stroke-only (open path).
   ['arc', 'lineSpecial'],
   // Callouts → outlined
   ['wedgeRectCallout', 'outlined'],
@@ -264,7 +252,6 @@ function defaultsForShape(
     case 'lineSpecial':
       return {
         stroke: { color: DEFAULT_TEXT_COLOR, width: DEFAULT_STROKE_WIDTH },
-        ...(kind === 'arrow' ? { fill: DEFAULT_TEXT_COLOR } : {}),
       };
     case 'outlined':
       return {

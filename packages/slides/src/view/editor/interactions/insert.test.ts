@@ -32,18 +32,6 @@ describe('buildInsertElement — drag-shaped shapes', () => {
   });
 });
 
-describe('buildInsertElement — line and arrow', () => {
-  it('places line/arrow as a thin box from start to end', () => {
-    const line = buildInsertElement('line', { x: 0, y: 0 }, { x: 100, y: 50 });
-    expect(line.type).toBe('shape');
-    expect(line.frame.w).toBe(100);
-    expect(line.frame.h).toBe(50);
-    if (line.type === 'shape' && line.data.kind === 'line') {
-      expect(line.data.stroke?.width).toBe(2);
-    }
-  });
-});
-
 describe('buildInsertElement — text', () => {
   it('returns a default-sized text box anchored at the start point', () => {
     const text = buildInsertElement('text', { x: 50, y: 50 }, { x: 50, y: 50 });
@@ -122,11 +110,6 @@ describe('buildInsertElement — no-drag click defaults', () => {
   it('ellipse → SHAPE_SQUARE (200×200)', () => {
     const init = buildInsertElement('ellipse', { x: 50, y: 50 }, { x: 50, y: 50 });
     expect(init.frame).toEqual({ x: 50, y: 50, w: 200, h: 200, rotation: 0 });
-  });
-
-  it('line → horizontal 400×0 (h=0, axis-only)', () => {
-    const init = buildInsertElement('line', { x: 0, y: 0 }, { x: 0, y: 0 });
-    expect(init.frame).toEqual({ x: 0, y: 0, w: 400, h: 0, rotation: 0 });
   });
 
   it('rightArrow → horizontal ARROW_H (320×160)', () => {

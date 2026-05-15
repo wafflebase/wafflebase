@@ -26,10 +26,7 @@ const CALLOUT_BUBBLE_PROXY: Partial<Record<ShapeKind, ShapeKind>> = {
  * by the toolbar's Shape ▾ picker so previews track geometry from
  * `PATH_BUILDERS` without a separate icon asset. Caller is expected to
  * have set `ctx.strokeStyle` to currentColor (or the desired colour)
- * before calling. `line`/`arrow` are special-cased to a simple
- * diagonal / arrow glyph for the picker; their canvas-time renderers
- * are intentionally not reused (those paint with theme fills tied to
- * frame size, which would not show up at picker scale).
+ * before calling.
  */
 export function renderShapeIcon(
   kind: ShapeKind,
@@ -44,23 +41,6 @@ export function renderShapeIcon(
     ctx.translate(inset, inset);
     ctx.lineWidth = STROKE_WIDTH;
     ctx.lineJoin = 'round';
-    if (kind === 'line') {
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(w, h);
-      ctx.stroke();
-      return;
-    }
-    if (kind === 'arrow') {
-      ctx.beginPath();
-      ctx.moveTo(0, h / 2);
-      ctx.lineTo(w * 0.75, h / 2);
-      ctx.moveTo(w * 0.55, h * 0.25);
-      ctx.lineTo(w * 0.75, h / 2);
-      ctx.lineTo(w * 0.55, h * 0.75);
-      ctx.stroke();
-      return;
-    }
     if (isActionButton(kind)) {
       // Action buttons aren't in PATH_BUILDERS — `drawActionButton`
       // handles the slide-canvas paint via the body + glyph pair.

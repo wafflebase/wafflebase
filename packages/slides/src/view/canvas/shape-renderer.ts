@@ -1,6 +1,6 @@
 import type { ShapeElement, ShapeKind } from '../../model/element';
 import { resolveColor, type Theme } from '../../model/theme';
-import { drawActionButton, drawArrow, drawLine } from './shape-special';
+import { drawActionButton } from './shape-special';
 import { PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
@@ -21,9 +21,9 @@ const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
  * Draw a shape into element-local coordinates (top-left at 0,0). The
  * caller is responsible for the frame transform (translate + rotate).
  *
- * line/arrow are special-cased (open path, two-tone arrow head). All
- * other kinds resolve through PATH_BUILDERS; unknown kinds fall back
- * to a placeholder rectangle so the slide always renders.
+ * Action buttons are special-cased (body + glyph). All other kinds
+ * resolve through PATH_BUILDERS; unknown kinds fall back to a
+ * placeholder rectangle so the slide always renders.
  */
 export function drawShape(
   ctx: CanvasRenderingContext2D,
@@ -31,8 +31,6 @@ export function drawShape(
   data: ShapeElement['data'],
   theme: Theme,
 ): void {
-  if (data.kind === 'line') return drawLine(ctx, size, data, theme);
-  if (data.kind === 'arrow') return drawArrow(ctx, size, data, theme);
   if (isActionButton(data.kind)) {
     return drawActionButton(ctx, size, data, theme);
   }

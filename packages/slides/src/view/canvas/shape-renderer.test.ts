@@ -79,68 +79,6 @@ describe('drawShape — ellipse', () => {
   });
 });
 
-describe('drawShape — line', () => {
-  it('strokes a single line from (0,0) to (w,h)', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({
-      kind: 'line', stroke: { color: srgb('#222'), width: 2 },
-    }), THEME);
-    expect(ctx.beginPath).toHaveBeenCalledTimes(1);
-    expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
-    expect(ctx.lineTo).toHaveBeenCalledWith(100, 60);
-    expect(ctx.stroke).toHaveBeenCalledTimes(1);
-  });
-
-  it('does nothing when no stroke is set (a line with no stroke is invisible)', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({ kind: 'line' }), THEME);
-    expect(ctx.stroke).not.toHaveBeenCalled();
-  });
-
-  it('resolves a role-bound stroke through the theme', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({
-      kind: 'line', stroke: { color: { kind: 'role', role: 'accent3' }, width: 1 },
-    }), THEME);
-    expect(ctx.strokeStyle).toBe('#cde'); // accent3
-  });
-});
-
-describe('drawShape — arrow', () => {
-  it('strokes the shaft and fills the head', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({
-      kind: 'arrow',
-      stroke: { color: srgb('#222'), width: 2 },
-      fill: srgb('#222'),
-    }), THEME);
-    // Shaft
-    expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
-    expect(ctx.lineTo).toHaveBeenCalledWith(100, 60);
-    expect(ctx.stroke).toHaveBeenCalled();
-    // Head (filled triangle) — three points + fill
-    expect(ctx.fill).toHaveBeenCalled();
-  });
-
-  it('resolves a role-bound fill through the theme', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({
-      kind: 'arrow',
-      stroke: { color: { kind: 'role', role: 'accent4' }, width: 2 },
-      fill: { kind: 'role', role: 'accent4' },
-    }), THEME);
-    expect(ctx.fillStyle).toBe('#def'); // accent4
-  });
-
-  it('falls back to the text role when neither fill nor stroke is set', () => {
-    const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({ kind: 'arrow' }), THEME);
-    // Head is still painted using the text role as a sensible default.
-    expect(ctx.fillStyle).toBe('#000'); // text
-    expect(ctx.fill).toHaveBeenCalled();
-  });
-});
-
 describe('drawShape — unknown kind fallback', () => {
   it('falls back to a placeholder rect for unregistered ShapeKind values', () => {
     const ctx = createCtxSpy();
