@@ -18,62 +18,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { IconChevronDown } from "@tabler/icons-react";
-
-/** Style option for the block-type dropdown (Google Docs style). */
-interface StyleOption {
-  label: string;
-  type: BlockType;
-  headingLevel?: HeadingLevel;
-  className: string;
-  shortcut?: string;
-}
-
-const STYLE_OPTIONS: StyleOption[] = [
-  {
-    label: "Normal text",
-    type: "paragraph",
-    className: "text-[13px]",
-    shortcut: "⌥0",
-  },
-  {
-    label: "Title",
-    type: "title",
-    className: "text-[22px] leading-tight",
-  },
-  {
-    label: "Subtitle",
-    type: "subtitle",
-    className: "text-[13px] text-muted-foreground",
-  },
-  {
-    label: "Heading 1",
-    type: "heading",
-    headingLevel: 1,
-    className: "text-[18px] font-bold",
-    shortcut: "⌥1",
-  },
-  {
-    label: "Heading 2",
-    type: "heading",
-    headingLevel: 2,
-    className: "text-[16px] font-bold",
-    shortcut: "⌥2",
-  },
-  {
-    label: "Heading 3",
-    type: "heading",
-    headingLevel: 3,
-    className: "text-[14px] font-bold",
-    shortcut: "⌥3",
-  },
-];
-
-function getBlockLabel(type: BlockType, headingLevel?: HeadingLevel): string {
-  if (type === "title") return "Title";
-  if (type === "subtitle") return "Subtitle";
-  if (type === "heading" && headingLevel) return `Heading ${headingLevel}`;
-  return "Normal text";
-}
+import { getFilteredStyleOptions, getBlockLabel } from "./text-style-options";
 
 const isMac =
   typeof navigator !== "undefined" &&
@@ -83,9 +28,23 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface TextStyleGroupProps {
   editor: TextFormattingEditor | null;
   disabled?: boolean;
+  /**
+   * When provided, only block-type options whose `type` is in this list are
+   * rendered. Omit (or pass `undefined`) to show the full set — preserves
+   * existing docs toolbar behaviour with no change.
+   *
+   * Task 11 (slides toolbar) will pass something like
+   * `['paragraph', 'heading']` to hide Title/Subtitle which silently no-op
+   * inside text boxes.
+   */
+  allowedBlockTypes?: ReadonlyArray<BlockType>;
 }
 
-export function TextStyleGroup({ editor, disabled = false }: TextStyleGroupProps) {
+export function TextStyleGroup({
+  editor,
+  disabled = false,
+  allowedBlockTypes,
+}: TextStyleGroupProps) {
   const handleBlockType = (
     type: BlockType,
     opts?: { headingLevel?: HeadingLevel }
@@ -96,6 +55,7 @@ export function TextStyleGroup({ editor, disabled = false }: TextStyleGroupProps
   };
 
   const blockType = editor ? editor.getBlockType() : null;
+  const visibleOptions = getFilteredStyleOptions(allowedBlockTypes);
 
   return (
     <DropdownMenu>
@@ -119,7 +79,7 @@ export function TextStyleGroup({ editor, disabled = false }: TextStyleGroupProps
         <TooltipContent>Styles</TooltipContent>
       </Tooltip>
       <DropdownMenuContent className="w-[210px]">
-        {STYLE_OPTIONS.map((opt) => (
+        {visibleOptions.map((opt) => (
           <DropdownMenuItem
             key={opt.label}
             className="flex items-center justify-between py-1"

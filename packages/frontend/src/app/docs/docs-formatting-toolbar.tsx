@@ -39,6 +39,7 @@ import {
   IconFileDownload,
   IconPhoto,
   IconDotsVertical,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
 import { TableGridPicker } from "./table-grid-picker";
@@ -386,6 +387,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
                   <IconAlignLeft size={16} />
+                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
