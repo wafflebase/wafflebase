@@ -4,11 +4,13 @@ import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
+import { IdleSection } from "./idle-section";
 
 export interface SlidesToolbarProps {
   editor: SlidesEditor | null;
   store?: SlidesStore | null;
   theme?: Theme | null;
+  onImagePick: () => void;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
   onStartPresentation?: (from: "current" | "first") => void;
@@ -26,8 +28,8 @@ export interface SlidesToolbarProps {
 export function SlidesToolbar({
   editor,
   store = null,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   theme,
+  onImagePick,
   onToggleThemePanel,
   themePanelOpen,
   onStartPresentation,
@@ -59,13 +61,19 @@ export function SlidesToolbar({
       <ToolbarSeparator className="mx-1" />
       <SlideGroup store={store} />
       <ToolbarSeparator className="mx-1" />
-      {/* Contextual middle — placeholder until Tasks 5-11 fill it in */}
+      {/* Contextual middle — populated by Tasks 5-11 */}
       <div
         data-testid="toolbar-contextual"
         className="flex flex-1 items-center gap-1"
       >
-        {/* state.kind === 'idle' / 'object' / 'text-edit' — render nothing for now */}
-        {state.kind === "idle" && null}
+        {state.kind === "idle" && (
+          <IdleSection
+            editor={editor}
+            store={store}
+            theme={theme}
+            onImagePick={onImagePick}
+          />
+        )}
         {state.kind === "object" && null}
         {state.kind === "text-edit" && null}
       </div>
