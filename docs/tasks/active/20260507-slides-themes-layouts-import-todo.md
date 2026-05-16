@@ -28,15 +28,21 @@ themed color/font pickers — together as one mental unit.
 
 User value: drag a `.pptx` and start working.
 
-- [ ] commit 1 — `feat(slides): pptx unzip + xml parser scaffold`
-- [ ] commit 2 — `feat(slides): pptx theme/master/layout parsers`
-- [ ] commit 3 — `feat(slides): pptx slide + shape parsers`
-- [ ] commit 4 — `feat(slides): pptx fallbacks (table/group/shape)`
-- [ ] commit 5 — `feat(frontend): import-pptx UI (button + drag-drop)`
-- [ ] commit 6 — `feat(cli): slides import command`
-- [ ] verify: 36-slide Yorkie 캐즘 deck round-trip e2e
-- [ ] verify: `pnpm verify:integration` (DB + Yorkie)
-- [ ] PR opened, reviewed, merged
+Tracked end-to-end in the paired `20260515-pptx-import-todo.md` (now
+archived under `docs/tasks/archive/2026/05/`). Shipped as PR #243
+(parser + frontend UI) and PR #245 (CLI + backend writer); benchmark
+36-slide Yorkie 캐즘 deck round-trips and is viewable at
+`/shared/17025f9e-cd3f-4793-91e3-593cd899e3fe`.
+
+- [x] commit 1 — `feat(slides): pptx unzip + xml parser scaffold`
+- [x] commit 2 — `feat(slides): pptx theme/master/layout parsers`
+- [x] commit 3 — `feat(slides): pptx slide + shape parsers`
+- [x] commit 4 — `feat(slides): pptx fallbacks (table/group/shape)`
+- [x] commit 5 — `feat(frontend): import-pptx UI (button + drag-drop)`
+- [x] commit 6 — `feat(cli): slides import command`
+- [x] verify: 36-slide Yorkie 캐즘 deck round-trip e2e
+- [x] verify: `pnpm verify:integration` (DB + Yorkie)
+- [x] PR opened, reviewed, merged
 
 ## PR3 — Customize the theme
 
