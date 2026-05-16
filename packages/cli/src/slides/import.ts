@@ -206,6 +206,12 @@ export async function runSlidesImport(
   const parsedNew = await safeImportPptx(buf, uploadImage, io, parser);
   if (parsedNew === null) return { exitCode: 1 };
   const { document: deck, report } = parsedNew;
+  // The parser fills `meta.title` with whatever string the .pptx carries
+  // (often "PowerPoint Presentation" or "Imported deck"). The user's
+  // `--title` flag is the source of truth for the deck name — keep the
+  // Yorkie root's title in lock-step with the Document row so the deck
+  // list, editor header, and GET /content all agree.
+  deck.meta.title = inferredTitle;
   if (dryRun) {
     io.stdout(
       JSON.stringify(
