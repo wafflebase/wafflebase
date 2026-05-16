@@ -94,11 +94,12 @@ export function DocsCommentPopover({
         e.stopPropagation();
       }}
     >
-      <div className="px-3 py-3">
+      <div className="px-4 py-4">
         <CommentThreadCard
           thread={thread}
           currentUserId={currentUser?.userId}
           readOnly={readOnly}
+          autoFocusReply
           onReply={onReply}
           onResolveToggle={onResolveToggle}
           onEdit={onEdit}
