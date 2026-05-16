@@ -1,7 +1,7 @@
 ---
 title: PPTX import — honor `<a:blip><a:alphaModFix>` image opacity
 date: 2026-05-17
-status: active
+status: complete
 ---
 
 # PPTX import — honor `<a:blip><a:alphaModFix>` image opacity
@@ -47,27 +47,27 @@ out-of-scope and remain in the existing "lossy import" toast.
 
 ## Plan
 
-- [ ] **RED** — failing importer test: `<a:alphaModFix amt="19000"/>`
+- [x] **RED** — failing importer test: `<a:alphaModFix amt="19000"/>`
       → `data.opacity ≈ 0.19`. No `alphaModFix` → `opacity` undefined.
       Clamp out-of-range `amt` values.
-- [ ] **RED** — failing renderer test: when `data.opacity < 1`, the
+- [x] **RED** — failing renderer test: when `data.opacity < 1`, the
       paint path wraps the `drawImage` in `save()` + `globalAlpha *= opacity`
       + `restore()`. When `opacity` is undefined or `1`, no change.
-- [ ] Add `opacity?: number` (0..1) to `ImageElement.data` in
+- [x] Add `opacity?: number` (0..1) to `ImageElement.data` in
       `packages/slides/src/model/element.ts`. Yorkie store passes plain
       `data` literals through, no schema change needed.
-- [ ] Importer: parse `<a:blip><a:alphaModFix amt="..."/>`. Divide by
+- [x] Importer: parse `<a:blip><a:alphaModFix amt="..."/>`. Divide by
       100,000, clamp to `[0, 1]`. Skip when `amt === 100000` (full
       opacity == default) so the field stays undefined for default
       cases.
-- [ ] Renderer: in `drawImage`, when `data.opacity` is set and `< 1`,
+- [x] Renderer: in `drawImage`, when `data.opacity` is set and `< 1`,
       `ctx.save()` → `ctx.globalAlpha *= data.opacity` → paint →
       `ctx.restore()`. Placeholder path stays at full alpha (fallback
       UI is intentionally always-visible).
-- [ ] Run `pnpm slides test` to confirm RED → GREEN for both targeted
+- [x] Run `pnpm slides test` to confirm RED → GREEN for both targeted
       tests, then `pnpm verify:fast`.
-- [ ] Self-review the diff with `superpowers:requesting-code-review`.
-- [ ] Capture lessons in
+- [x] Self-review the diff with `superpowers:requesting-code-review`.
+- [x] Capture lessons in
       `docs/tasks/active/20260517-pptx-image-opacity-lessons.md`.
 
 ## Non-goals

@@ -1,7 +1,7 @@
 ---
 title: PPTX `<a:alphaModFix>` opacity — lessons
 date: 2026-05-17
-status: active
+status: complete
 ---
 
 # Lessons — PPTX `<a:alphaModFix>` image opacity
