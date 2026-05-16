@@ -21,6 +21,7 @@ import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
+import { DocsCommentContextMenu } from "./comments/DocsCommentContextMenu";
 import { DocsCommentPopover } from "./comments/DocsCommentPopover";
 import { useDocsComments } from "./comments/docs-comments-controller";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
@@ -513,6 +514,14 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
       <DocsTableContextMenu
         editor={mountedEditor}
         containerRef={containerRef}
+      />
+      <DocsCommentContextMenu
+        editor={mountedEditor}
+        containerRef={containerRef}
+        readOnly={readOnly}
+        onInsertComment={() => {
+          comments.beginCompose();
+        }}
       />
       {comments.active && (
         <DocsCommentPopover
