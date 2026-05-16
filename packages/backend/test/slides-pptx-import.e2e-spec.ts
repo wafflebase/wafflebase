@@ -15,7 +15,7 @@
  * keeps the test runnable in CI without any external file.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
@@ -24,11 +24,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
-// Pull the fixture builder from the slides package — same code the
-// slides parser tests exercise. The relative path side-steps the
-// public `@wafflebase/slides` export surface, which intentionally
-// hides test-only utilities.
-import { buildMinimalPptx } from '../../slides/src/import/pptx/__fixtures__/build-minimal-pptx';
 import {
   clearDatabase,
   createUserFactory,
@@ -47,6 +42,19 @@ const describeFull =
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const CLI_BIN = resolve(REPO_ROOT, 'packages/cli/src/bin.ts');
+
+// Pre-generated synthetic .pptx fixture. Built by
+// `pnpm --filter @wafflebase/cli exec tsx scripts/gen-sample-pptx.mjs`.
+// Pre-generation matters because importing the slides fixture builder
+// from inside ts-jest pulls in JSZip through a CJS interop path that
+// ts-jest (with `module: commonjs`) compiles to `jszip_1.default()`,
+// which crashes since `jszip` doesn't export a `default` field. The
+// CLI's `tsx`-based script doesn't have that problem, so we pre-build
+// the bytes there and commit the result. Mirrors the docs-cli sample.
+const SAMPLE_PPTX_PATH = resolve(
+  __dirname,
+  'fixtures/slides-cli-sample.pptx',
+);
 
 interface CliResult {
   exitCode: number;
@@ -76,11 +84,21 @@ function runCli(
     child.stderr.on('data', (c: Buffer) => {
       stderr += c.toString();
     });
-    child.on('error', (err) => {
-      resolveResult({ exitCode: 1, stdout, stderr: stderr + String(err) });
+    // Resolve on `close` (not `exit`): `exit` can fire while stdout /
+    // stderr are still buffered, which would race the JSON.parse below.
+    // `close` waits for the streams to drain. Use `once` + a settled
+    // flag so a late `error` event after `close` cannot double-resolve.
+    let settled = false;
+    const finish = (result: CliResult) => {
+      if (settled) return;
+      settled = true;
+      resolveResult(result);
+    };
+    child.once('error', (err) => {
+      finish({ exitCode: 1, stdout, stderr: stderr + String(err) });
     });
-    child.on('exit', (code, signal) => {
-      resolveResult({
+    child.once('close', (code, signal) => {
+      finish({
         exitCode: signal ? 1 : (code ?? 1),
         stdout,
         stderr,
@@ -131,12 +149,10 @@ describeFull('slides CLI round-trip', () => {
 
     tempDir = mkdtempSync(join(tmpdir(), 'wfb-slides-cli-'));
 
-    // Build a tiny synthetic .pptx once. The CLI re-parses it per test
-    // so the data is fresh, but the bytes themselves don't change.
-    const arrayBuf = await buildMinimalPptx();
-    pptxBytes = Buffer.from(arrayBuf);
-    pptxPath = join(tempDir, 'sample.pptx');
-    writeFileSync(pptxPath, pptxBytes);
+    // Load the pre-generated synthetic .pptx — see SAMPLE_PPTX_PATH
+    // comment for why the bytes are committed instead of built inline.
+    pptxBytes = readFileSync(SAMPLE_PPTX_PATH);
+    pptxPath = SAMPLE_PPTX_PATH;
   }, 30_000);
 
   beforeEach(async () => {
@@ -245,6 +261,7 @@ describeFull('slides CLI round-trip', () => {
       cliEnv(),
       pptxBytes,
     );
+    expect(importResult.exitCode).toBe(0);
     const { id } = JSON.parse(importResult.stdout) as { id: string };
 
     // Now PUT a docs-shaped body — the controller's sniffer routes to
