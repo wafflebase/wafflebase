@@ -23,6 +23,7 @@ import {
   UnarySignContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
+import { findFunction, isValidArity } from './function-catalog';
 import { Grid, Range, Reference } from '../model/core/types';
 import { NumberArgs, StringArgs } from './arguments';
 import {
@@ -692,6 +693,12 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     if (name === 'LAMBDA') return this.evalLambda(ctx);
 
     if (FunctionMap.has(name)) {
+      const info = findFunction(name);
+      if (info) {
+        const argsCtx = ctx.args();
+        const argCount = argsCtx ? argsCtx.expr().length : 0;
+        if (!isValidArity(info, argCount)) return ErrNode.NA;
+      }
       const func = FunctionMap.get(name)!;
       return func(ctx, this.visit, this.grid);
     }

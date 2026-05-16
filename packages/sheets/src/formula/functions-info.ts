@@ -22,15 +22,7 @@ export function isblankFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -56,15 +48,7 @@ export function isnumberFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -98,15 +82,7 @@ export function istextFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -142,15 +118,7 @@ export function iserrorFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
   return { t: 'bool', v: value.t === 'err' };
@@ -165,15 +133,7 @@ export function iserrFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
   return { t: 'bool', v: value.t === 'err' && value.v !== ErrValue.NA };
@@ -188,15 +148,7 @@ export function isnaFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
   return { t: 'bool', v: value.t === 'err' && value.v === ErrValue.NA };
@@ -211,15 +163,7 @@ export function islogicalFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -249,15 +193,7 @@ export function isnontextFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -295,10 +231,7 @@ export function isevenFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'bool', v: Math.trunc(num.v) % 2 === 0 };
@@ -312,10 +245,7 @@ export function isoddFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'bool', v: Math.trunc(num.v) % 2 !== 0 };
@@ -329,15 +259,7 @@ export function isdateFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -365,10 +287,7 @@ export function isurlFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   const s = toStr(node, grid);
@@ -386,10 +305,7 @@ export function isformulaFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t !== 'ref' || !grid) return { t: 'bool', v: false };
@@ -407,10 +323,7 @@ export function isrefFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   return { t: 'bool', v: node.t === 'ref' };
@@ -424,15 +337,7 @@ export function nFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -463,15 +368,10 @@ export function nFunc(
  * NA() — returns the #N/A error value.
  */
 export function naFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (args && args.expr().length > 0) {
-    return ErrNode.NA;
-  }
-
   return ErrNode.NA;
 }
 
@@ -484,15 +384,7 @@ export function typeFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   switch (node.t) {
@@ -522,15 +414,7 @@ export function errortypeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   const errValue = resolveErrValue(node, grid);
@@ -562,10 +446,7 @@ export function formulatextFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t !== 'ref' || !grid) return ErrNode.NA;
@@ -585,10 +466,7 @@ export function cellInfoFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const infoType = toStr(visit(exprs[0]), grid);
   if (infoType.t === 'err') return infoType;
   const typeStr = infoType.v.toLowerCase();

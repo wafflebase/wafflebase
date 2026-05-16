@@ -16,10 +16,7 @@ export function deltaFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const n1 = NumberArgs.map(visit(exprs[0]), grid);
   if (n1.t === 'err') return n1;
@@ -42,10 +39,7 @@ export function gestepFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
@@ -68,10 +62,7 @@ export function erfFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const lower = NumberArgs.map(visit(exprs[0]), grid);
   if (lower.t === 'err') return lower;
@@ -93,10 +84,7 @@ export function erfcFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
@@ -112,10 +100,7 @@ export function convertFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const numNode = NumberArgs.map(visit(exprs[0]), grid);
   if (numNode.t === 'err') return numNode;
@@ -219,10 +204,7 @@ export function bitandFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -239,10 +221,7 @@ export function bitorFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -259,10 +238,7 @@ export function bitxorFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -279,10 +255,7 @@ export function bitlshiftFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -299,10 +272,7 @@ export function bitrshiftFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -319,10 +289,7 @@ export function hex2decFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const hex = s.v.trim();
@@ -343,10 +310,7 @@ export function dec2hexFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -377,10 +341,7 @@ export function bin2decFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const bin = s.v.trim();
@@ -401,10 +362,7 @@ export function dec2binFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -435,10 +393,7 @@ export function oct2decFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const oct = s.v.trim();
@@ -459,10 +414,7 @@ export function dec2octFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -493,10 +445,7 @@ export function hex2binFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 16);
@@ -520,10 +469,7 @@ export function hex2octFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 16);
@@ -547,10 +493,7 @@ export function bin2hexFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 2);
@@ -574,10 +517,7 @@ export function bin2octFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 2);
@@ -601,10 +541,7 @@ export function oct2hexFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 8);
@@ -628,10 +565,7 @@ export function oct2binFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 8);
@@ -655,10 +589,7 @@ export function complexFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const re = NumberArgs.map(visit(exprs[0]), grid);
   if (re.t === 'err') return re;
   const im = NumberArgs.map(visit(exprs[1]), grid);
@@ -692,10 +623,7 @@ export function imrealFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -711,10 +639,7 @@ export function imaginaryFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -730,10 +655,7 @@ export function imabsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -749,10 +671,7 @@ export function imsumFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   let re = 0, im = 0;
   for (const expr of exprs) {
     const s = toStr(visit(expr), grid);
@@ -773,10 +692,7 @@ export function imsubFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s1 = toStr(visit(exprs[0]), grid);
   if (s1.t === 'err') return s1;
   const c1 = parseComplex(s1.v);
@@ -796,10 +712,7 @@ export function improductFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   let re = 1, im = 0;
   for (const expr of exprs) {
     const s = toStr(visit(expr), grid);
@@ -822,10 +735,7 @@ export function imdivFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s1 = toStr(visit(exprs[0]), grid);
   if (s1.t === 'err') return s1;
   const c1 = parseComplex(s1.v);
@@ -876,10 +786,7 @@ export function impowerFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -1152,10 +1059,7 @@ export function besseljFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1173,10 +1077,7 @@ export function besselyFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1195,10 +1096,7 @@ export function besseliFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1216,10 +1114,7 @@ export function besselkFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1286,10 +1181,7 @@ function parseComplexArg(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): { re: number; im: number } | EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
