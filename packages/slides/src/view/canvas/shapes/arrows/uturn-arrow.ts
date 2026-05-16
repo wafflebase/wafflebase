@@ -22,13 +22,19 @@ import { insetAlongAxis } from '../handles';
 export const UTURN_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Shaft thickness', defaultValue: 20000, min: 0, max: 40000 },
   { name: 'Head length', defaultValue: 20000, min: 0, max: 50000 },
-  { name: 'Bend radius', defaultValue: 25000, min: 0, max: 50000 },
+  // Default 50000 chosen so editor-inserted shapes (saved without an
+  // explicit `adj3`) render at the maximum bend radius the clamp will
+  // allow, which collapses the two outer corners to a single
+  // semicircle on square / portrait aspects — the v0 appearance.
+  // OOXML's own default for `adj3` is 25000; PPTX imports carry that
+  // value explicitly and get the flat-top look that matches PowerPoint.
+  { name: 'Bend radius', defaultValue: 50000, min: 0, max: 50000 },
 ];
 
 export const buildUturnArrow: PathBuilder = ({ w, h }, adjustments) => {
   const a1 = adj(adjustments, 0, 20000);
   const a2 = adj(adjustments, 1, 20000);
-  const a3 = adj(adjustments, 2, 25000);
+  const a3 = adj(adjustments, 2, 50000);
   const ss = Math.min(w, h);
   const shaft = (a1 / 100000) * ss;
   const headLen = Math.min((a2 / 100000) * h, h);
@@ -44,11 +50,12 @@ export const buildUturnArrow: PathBuilder = ({ w, h }, adjustments) => {
   const innerRightX = rightCx - shaft / 2;
   // Outer corner radius. Clamped so the two outer corners don't
   // overlap horizontally and the bend can't dip into the arrowhead
-  // band vertically. When `adj3` is large enough that the requested
-  // radius would force the two corners to share a centre, both
-  // corners collapse and the path degenerates to the v0 semicircular
-  // top, so legacy shapes that relied on the old appearance are
-  // visually unchanged for square / portrait aspects.
+  // band vertically. When the clamp picks `(outerRightX − outerLeftX) /
+  // 2` (i.e. requested radius >= half the arm separation, which is
+  // typical for square / portrait shapes with the default `adj3`) the
+  // two corners share a centre and the path traces a single semicircle
+  // — the v0 appearance. Landscape shapes always trip the
+  // `h − headLen` cap, so the flat top appears there instead.
   const bendROuter = Math.max(0, Math.min(
     (a3 / 100000) * ss,
     (outerRightX - outerLeftX) / 2,

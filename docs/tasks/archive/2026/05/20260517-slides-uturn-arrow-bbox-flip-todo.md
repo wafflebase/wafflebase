@@ -52,58 +52,65 @@ out of scope for this PR — tracked separately.
 - [x] Verify the existing 200×200 path still fillable (regression).
 - [x] Regenerate the shape-registry snapshot (intentional geometry
       change).
-- [ ] Optional follow-up: also model OOXML `adj4` (arm-segment-before-
-      bend length) and `adj5` (arrowhead width).
+- _Follow-up: also model OOXML `adj4` (arm-segment-before-bend
+  length) and `adj5` (arrowhead width)._
 
 ### Frame model
 
-- [ ] Extend `Frame` with optional `flipH?: boolean; flipV?: boolean`
+- [x] Extend `Frame` with optional `flipH?: boolean; flipV?: boolean`
       in `packages/slides/src/model/element.ts`. Optional so existing
       serialized state is forward-compatible (absent ⇒ `false`).
-- [ ] Audit constructors/updaters of `Frame` for places that copy the
+- [x] Audit constructors/updaters of `Frame` for places that copy the
       shape with `{ ...frame, ... }` — none should need changes
       (additive optional field).
 
 ### PPTX import
 
-- [ ] `parseXfrm`: read `flipH` / `flipV` attributes and surface them
+- [x] `parseXfrm`: read `flipH` / `flipV` attributes and surface them
       on the returned `Frame`. Omit the fields when both are false to
       keep the existing JSON shape stable.
-- [ ] `parseCxnSp`: keep its current local flipH/flipV reads
+- [x] `parseCxnSp`: keep its current local flipH/flipV reads
       (connector endpoint resolution); also propagate them onto
       `frame` for consistency.
 
 ### Renderer
 
-- [ ] `element-renderer.ts`: after `ctx.rotate(frame.rotation)`,
+- [x] `element-renderer.ts`: after `ctx.rotate(frame.rotation)`,
       apply `ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1)` and a
       compensating translate so the flip happens around the frame
       centre (same anchor as rotation). Connector path stays
       unchanged (connectors paint in world coords already).
-- [ ] Confirm hit-test / selection box math doesn't regress — flip
+- [x] Confirm hit-test / selection box math doesn't regress — flip
       is purely a paint-time mirror; the frame rect is unchanged.
 
 ### Tests
 
-- [ ] Unit (uturn-arrow): `buildUturnArrow({ w: 1173, h: 85 })` —
+- [x] Unit (uturn-arrow): `buildUturnArrow({ w: 1173, h: 85 })` —
       sample path against a 2D canvas and assert no path point lies
       outside `y ∈ [0, h]` (and that the U is still a fillable
       closed shape). Add a second case at `w=600, h=200`.
-- [ ] Import: `parseXfrm` with `flipH="1"` sets `frame.flipH=true`;
+- [x] Import: `parseXfrm` with `flipH="1"` sets `frame.flipH=true`;
       with neither flag, neither field is set.
-- [ ] Renderer: snapshot or op-trace test that flipH applies a
+- [x] Renderer: snapshot or op-trace test that flipH applies a
       `scale(-1, 1)` around the frame centre.
-- [ ] PPTX fixture: add a small fixture mirroring slide 6's
-      `uturnArrow` (landscape + flipH + rot180) and assert the
-      element-renderer output stays within the slide bounds.
+- _Deferred: PPTX fixture mirroring slide 6 (landscape + flipH +
+  rot180). The geometry test + import test + renderer test together
+  cover the same path; a fixture round-trip is nice-to-have but
+  adds maintenance overhead._
+- [x] Refresh frontend visual baselines under
+      `packages/frontend/tests/visual/baselines/` for the shape-
+      catalog + p3b-arrows + top-level harness snapshots that
+      contain `uturnArrow`. Regenerated inside the playwright docker
+      image to match CI rendering exactly.
 
 ### Manual verification
 
-- [ ] Local: import `Yorkie, 캐즘 뛰어넘기.pptx`, open slide 6 in
+- [x] Local: import `Yorkie, 캐즘 뛰어넘기.pptx`, open slide 6 in
       `pnpm dev`. Confirm both bottom-row uturn arrows render inside
       the lower band (no stray paint reaching the upper portion of
       the slide). Confirm arrowhead orientation matches the PPTX
       (visual diff vs. PowerPoint screenshot of the same slide).
+      *Owner reported "잘나옴" after the bend-radius rework.*
 
 ## Out of scope (follow-ups)
 
@@ -127,11 +134,13 @@ out of scope for this PR — tracked separately.
 
 ## Verification checklist
 
-- [ ] `pnpm verify:fast` green.
-- [ ] `pnpm verify:self` green.
-- [ ] Manual browser smoke on slide 6.
-- [ ] Self code-review (`superpowers:requesting-code-review` or
-      `/code-review`) over the branch diff.
+- [x] `pnpm verify:fast` green.
+- [x] CI green on PR #251 (after baseline refresh).
+- [x] Manual browser smoke on slide 6 (owner-confirmed).
+- [x] Self code-review (`superpowers:requesting-code-review`)
+      completed; raised: `adj3` default → 50000 for legacy
+      back-compat (fixed), placeholder lessons file (filled), todo
+      missing baseline refresh step (added).
 
 ## Branch & PR
 

@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides uturn arrow bbox flip (2026-05-17) | [20260517-slides-uturn-arrow-bbox-flip-todo.md](./active/20260517-slides-uturn-arrow-bbox-flip-todo.md) | [20260517-slides-uturn-arrow-bbox-flip-lessons.md](./active/20260517-slides-uturn-arrow-bbox-flip-lessons.md) |
 | slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./active/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./active/20260515-slides-connectors-pr1-lessons.md) |
 | slides keyboard shortcuts (2026-05-14) | [20260514-slides-keyboard-shortcuts-todo.md](./active/20260514-slides-keyboard-shortcuts-todo.md) | - |
 | slides presentation mode (2026-05-14) | [20260514-slides-presentation-mode-todo.md](./active/20260514-slides-presentation-mode-todo.md) | - |
@@ -30,7 +29,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 179
+- Archived task count: 180
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides uturn arrow bbox flip (2026-05-17)
+Latest active task: slides connectors pr1 (2026-05-15)
