@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./active/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./active/20260515-pptx-import-lessons.md) |
 | slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./active/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./active/20260515-slides-connectors-pr1-lessons.md) |
 | slides keyboard shortcuts (2026-05-14) | [20260514-slides-keyboard-shortcuts-todo.md](./active/20260514-slides-keyboard-shortcuts-todo.md) | - |
 | slides presentation mode (2026-05-14) | [20260514-slides-presentation-mode-todo.md](./active/20260514-slides-presentation-mode-todo.md) | - |
@@ -31,7 +30,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 176
+- Archived task count: 177
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: pptx import (2026-05-15)
+Latest active task: slides connectors pr1 (2026-05-15)
