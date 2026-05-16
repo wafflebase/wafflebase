@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 175
+Total archived tasks: 176
 
-## 2026/05 (30 tasks)
+## 2026/05 (31 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides toolbar redesign (2026-05-15) | [20260515-slides-toolbar-redesign-todo.md](./2026/05/20260515-slides-toolbar-redesign-todo.md) | [20260515-slides-toolbar-redesign-lessons.md](./2026/05/20260515-slides-toolbar-redesign-lessons.md) |
 | slides click insert cursor (2026-05-14) | [20260514-slides-click-insert-cursor-todo.md](./2026/05/20260514-slides-click-insert-cursor-todo.md) | - |
 | slides shapes p3b (2026-05-13) | [20260513-slides-shapes-p3b-todo.md](./2026/05/20260513-slides-shapes-p3b-todo.md) | [20260513-slides-shapes-p3b-lessons.md](./2026/05/20260513-slides-shapes-p3b-lessons.md) |
 | comments collab fixes (2026-05-12) | [20260512-comments-collab-fixes-todo.md](./2026/05/20260512-comments-collab-fixes-todo.md) | [20260512-comments-collab-fixes-lessons.md](./2026/05/20260512-comments-collab-fixes-lessons.md) |

@@ -1,6 +1,6 @@
 # Slides Toolbar Redesign Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Spec:** `docs/design/slides/slides-toolbar-redesign.md`
 
@@ -29,7 +29,7 @@
 
 The redesign needs Border weight/dash for shapes and a stroke field on text elements (for box-level border in object-selected text state). Both are optional, so existing Yorkie documents stay valid.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `element.test.ts`:
 
@@ -62,7 +62,7 @@ describe('TextElement.data.stroke', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 ```bash
 pnpm --filter @wafflebase/slides test element
@@ -70,7 +70,7 @@ pnpm --filter @wafflebase/slides test element
 
 Expected: type errors / test failures referencing `dash` and missing `stroke`.
 
-- [ ] **Step 3: Add the optional fields**
+- [x] **Step 3: Add the optional fields**
 
 In `element.ts`, extend the existing types. Find `ShapeElement` and update its `stroke`:
 
@@ -102,7 +102,7 @@ type TextElement = ElementBase & {
 
 Export the `Stroke` type alias.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test element
@@ -110,7 +110,7 @@ pnpm --filter @wafflebase/slides test element
 
 Expected: PASS.
 
-- [ ] **Step 5: Verify no broken consumers**
+- [x] **Step 5: Verify no broken consumers**
 
 ```bash
 pnpm verify:fast
@@ -118,7 +118,7 @@ pnpm verify:fast
 
 Expected: PASS. Optional fields should not break any existing code paths.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts packages/slides/src/model/element.test.ts
@@ -143,7 +143,7 @@ EOF
 
 The toolbar state machine needs `isTextEditing()`, `onTextEditingChange(cb)`, and `getActiveTextEditor()` to switch into State 3. `editingElementId` already exists; we expose it as a higher-level API + event.
 
-- [ ] **Step 1: Locate where `editingElementId` is set/cleared**
+- [x] **Step 1: Locate where `editingElementId` is set/cleared**
 
 ```bash
 grep -n "this.editingElementId" packages/slides/src/view/editor/editor.ts
@@ -151,7 +151,7 @@ grep -n "this.editingElementId" packages/slides/src/view/editor/editor.ts
 
 Expected: lines ~832 (set on enter) and ~905 (clear on exit). Note the line numbers — both call sites need to fire the new event.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Add to `text-box-editor.test.ts` (or new editor test):
 
@@ -194,7 +194,7 @@ function makeTestEditor(store: MemSlidesStore, slideId: string): SlidesEditor { 
 
 If `makeTestEditor` doesn't exist, copy the canvas/overlay setup from another existing editor test (e.g. `select.test.ts`).
 
-- [ ] **Step 3: Run test to verify failure**
+- [x] **Step 3: Run test to verify failure**
 
 ```bash
 pnpm --filter @wafflebase/slides test editor
@@ -202,7 +202,7 @@ pnpm --filter @wafflebase/slides test editor
 
 Expected: FAIL — `isTextEditing` / `onTextEditingChange` / `getActiveTextEditor` not on SlidesEditor.
 
-- [ ] **Step 4: Implement on SlidesEditor**
+- [x] **Step 4: Implement on SlidesEditor**
 
 In `editor.ts`:
 
@@ -247,7 +247,7 @@ for (const cb of this.textEditingListeners) cb();
 
 e) Where text-editing is exited (~line 905, after `this.editingElementId = null;`), clear `this.activeTextEditor = null` and fire the same listeners.
 
-- [ ] **Step 5: Run test to verify pass**
+- [x] **Step 5: Run test to verify pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test editor
@@ -255,7 +255,7 @@ pnpm --filter @wafflebase/slides test editor
 
 Expected: PASS.
 
-- [ ] **Step 6: Run all slides tests**
+- [x] **Step 6: Run all slides tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -263,7 +263,7 @@ pnpm --filter @wafflebase/slides test
 
 Expected: PASS (no regressions in existing editor tests).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/src/view/editor/text-box-editor.test.ts
@@ -312,9 +312,9 @@ Also introduced `TextFormattingEditor` interface in `types.ts` (structural bridg
 
 - [x] **Step 7: Run docs unit + interaction tests** — All 773 tests pass.
 
-- [ ] **Step 8: Run docs visual harness** (skipped for now, manual smoke below)
+- [x] **Step 8: Run docs visual harness** (skipped for now, manual smoke below)
 
-- [ ] **Step 9: Manual smoke** (pending)
+- [x] **Step 9: Manual smoke** (pending)
 
 - [x] **Step 10: Commit** — `692950b1` (Commit A: text-box API) and `73a8339c` (Commit B: shared components)
 
@@ -331,7 +331,7 @@ Also introduced `TextFormattingEditor` interface in `types.ts` (structural bridg
 
 This task lays down the `slides/toolbar/` directory with the morphing shell, but the contextual middle is a placeholder. Old `slides-formatting-toolbar.tsx` stays mounted in `slides-detail.tsx` until Task 12. The new toolbar is tested in isolation.
 
-- [ ] **Step 1: Write the failing state-derivation test**
+- [x] **Step 1: Write the failing state-derivation test**
 
 `state.test.ts`:
 
@@ -366,7 +366,7 @@ describe('getToolbarState', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/state
@@ -374,7 +374,7 @@ pnpm --filter @wafflebase/frontend test toolbar/state
 
 Expected: FAIL — `getToolbarState` not defined.
 
-- [ ] **Step 3: Implement `state.ts`**
+- [x] **Step 3: Implement `state.ts`**
 
 ```ts
 import type { SlidesEditor, SlidesStore, Element } from '@wafflebase/slides';
@@ -417,7 +417,7 @@ export function getToolbarState(
 }
 ```
 
-- [ ] **Step 4: Run test to verify pass**
+- [x] **Step 4: Run test to verify pass**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/state
@@ -425,11 +425,11 @@ pnpm --filter @wafflebase/frontend test toolbar/state
 
 Expected: PASS.
 
-- [ ] **Step 5: Implement `slide-group.tsx`**
+- [x] **Step 5: Implement `slide-group.tsx`**
 
 Lift the `+ Slide ▾` split-button JSX from `slides-formatting-toolbar.tsx` lines ~263–294 into this new file. Same `onAddBlankSlide` + `onOpenLayoutPicker` props/logic. No behavior change.
 
-- [ ] **Step 6: Implement `global-controls.tsx`**
+- [x] **Step 6: Implement `global-controls.tsx`**
 
 Two exports: `<UndoRedoGroup store={store} />` and `<RightGlobals store={store} editor={editor} onToggleThemePanel={...} themePanelOpen={...} />`.
 
@@ -457,7 +457,7 @@ export function UndoRedoGroup({ store }: { store: SlidesStore | null }) {
 
 `RightGlobals` keeps the existing Theme toggle and adds the Present button (lift the JSX from `slides-present-button.tsx` if it's a thin wrapper, otherwise import the existing component).
 
-- [ ] **Step 7: Implement `index.tsx` (the morphing shell)**
+- [x] **Step 7: Implement `index.tsx` (the morphing shell)**
 
 ```tsx
 export function SlidesToolbar(props: SlidesToolbarProps) {
@@ -495,7 +495,7 @@ export function SlidesToolbar(props: SlidesToolbarProps) {
 }
 ```
 
-- [ ] **Step 8: Verify imports compile**
+- [x] **Step 8: Verify imports compile**
 
 ```bash
 pnpm --filter @wafflebase/frontend typecheck
@@ -503,7 +503,7 @@ pnpm --filter @wafflebase/frontend typecheck
 
 Expected: PASS. The component is unused so no runtime impact yet.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/
@@ -529,7 +529,7 @@ EOF
 
 The Insert group (Select / Text / Image / Shape ▾ / Line ▾) is shared by Idle and Object states. Image is new. The insert helper is centralised so the toolbar button, drag-drop, and clipboard paste paths all funnel through it (per spec risk row).
 
-- [ ] **Step 1: Write the failing helper test**
+- [x] **Step 1: Write the failing helper test**
 
 `insert-image.test.ts`:
 
@@ -554,13 +554,13 @@ describe('insertImageOnSlide', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 pnpm --filter @wafflebase/frontend test insert-image
 ```
 
-- [ ] **Step 3: Implement `insert-image.ts`**
+- [x] **Step 3: Implement `insert-image.ts`**
 
 ```ts
 export interface InsertImageArgs {
@@ -590,13 +590,13 @@ export async function insertImageOnSlide(args: InsertImageArgs): Promise<string>
 
 The default `upload` for the toolbar button uses the existing workspace image API used by drag-drop today — find it in the codebase and pass it in from the toolbar's parent.
 
-- [ ] **Step 4: Verify helper test passes**
+- [x] **Step 4: Verify helper test passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend test insert-image
 ```
 
-- [ ] **Step 5: Implement `insert-group.tsx`**
+- [x] **Step 5: Implement `insert-group.tsx`**
 
 Five toggles in order: Select, Text, Image (new), Shape (existing `<ShapePicker>`), Line (existing `<LinePicker>`). Take `editor`, `onImagePick: () => void`, and `disabled` props.
 
@@ -615,7 +615,7 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
 }
 ```
 
-- [ ] **Step 6: Add interaction test**
+- [x] **Step 6: Add interaction test**
 
 `insert-group.test.tsx`:
 
@@ -628,7 +628,7 @@ it('clicking the Image button calls onImagePick', async () => {
 });
 ```
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/insert-group insert-image
@@ -636,7 +636,7 @@ pnpm --filter @wafflebase/frontend test toolbar/insert-group insert-image
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/insert-group.tsx packages/frontend/src/app/slides/toolbar/insert-group.test.tsx packages/frontend/src/app/slides/insert-image.ts packages/frontend/src/app/slides/insert-image.test.ts
@@ -660,7 +660,7 @@ EOF
 
 Idle state: Insert group + Background button. Background opens the themed color picker; on change, `store.batch(() => store.updateSlideBackground(slideId, { fill }))`.
 
-- [ ] **Step 1: Implement `idle-section.tsx`**
+- [x] **Step 1: Implement `idle-section.tsx`**
 
 ```tsx
 export function IdleSection({ editor, store, theme, onImagePick }: IdleSectionProps) {
@@ -690,7 +690,7 @@ export function IdleSection({ editor, store, theme, onImagePick }: IdleSectionPr
 }
 ```
 
-- [ ] **Step 2: Wire into the shell**
+- [x] **Step 2: Wire into the shell**
 
 In `toolbar/index.tsx`, replace the idle placeholder:
 
@@ -702,7 +702,7 @@ In `toolbar/index.tsx`, replace the idle placeholder:
 
 The `onImagePick` prop bubbles up from the `<SlidesToolbar>` consumer (set in Task 12).
 
-- [ ] **Step 3: Add a test for background change**
+- [x] **Step 3: Add a test for background change**
 
 ```ts
 it('background change calls store.updateSlideBackground in a batch', async () => {
@@ -713,13 +713,13 @@ it('background change calls store.updateSlideBackground in a batch', async () =>
 });
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/idle
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/idle-section.tsx packages/frontend/src/app/slides/toolbar/idle-section.test.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -737,17 +737,17 @@ git commit -m "Add Idle section with Slide background button"
 
 One dropdown with sub-menus for Order, Align, Distribute, Rotate. Replaces the eight always-on align/distribute buttons.
 
-- [ ] **Step 1: Verify which Arrange-target methods exist on SlidesEditor**
+- [x] **Step 1: Verify which Arrange-target methods exist on SlidesEditor**
 
 ```bash
 grep -n "bringForward\|sendBackward\|bringToFront\|sendToBack\|rotateBy" packages/slides/src/view/editor/editor.ts
 ```
 
-- [ ] **Step 2: For any missing methods, add them on SlidesEditor**
+- [x] **Step 2: For any missing methods, add them on SlidesEditor**
 
 Each is a thin wrapper around `store.reorderElement` (for z-order) or `store.updateElementFrame` (for rotate). All wrap in `store.batch`. Add unit tests next to existing align/distribute tests in `editor.test.ts` covering: bringForward moves the element one slot toward the end; sendToBack moves to index 0; rotateBy(π/2) increments by 90°; rotateBy is no-op on empty selection.
 
-- [ ] **Step 3: Implement `arrange-menu.tsx`**
+- [x] **Step 3: Implement `arrange-menu.tsx`**
 
 ```tsx
 export function ArrangeMenu({ editor, selectionSize }: ArrangeMenuProps) {
@@ -788,7 +788,7 @@ export function ArrangeMenu({ editor, selectionSize }: ArrangeMenuProps) {
 }
 ```
 
-- [ ] **Step 4: Test enable/disable predicates**
+- [x] **Step 4: Test enable/disable predicates**
 
 ```tsx
 it('distribute items are disabled when selectionSize < 3', () => {
@@ -797,14 +797,14 @@ it('distribute items are disabled when selectionSize < 3', () => {
 });
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/arrange
 pnpm --filter @wafflebase/slides test editor
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/arrange-menu.tsx packages/frontend/src/app/slides/toolbar/arrange-menu.test.tsx packages/slides/src/view/editor/editor.ts packages/slides/src/view/editor/editor.test.ts
@@ -830,7 +830,7 @@ EOF
 
 Object section is a router on `selectionType`. Ships shape controls in this task (Fill + Border ▾ + Weight ▾ + Dash ▾) plus the Arrange menu at the end.
 
-- [ ] **Step 1: Write the router test**
+- [x] **Step 1: Write the router test**
 
 ```tsx
 it('renders shape controls for shape selection', () => {
@@ -844,7 +844,7 @@ it('renders mixed-controls for mixed selection', () => {
 });
 ```
 
-- [ ] **Step 2: Implement `object-section.tsx`**
+- [x] **Step 2: Implement `object-section.tsx`**
 
 ```tsx
 export function ObjectSection({ state, editor, store, theme, onImagePick }: Props) {
@@ -864,9 +864,9 @@ export function ObjectSection({ state, editor, store, theme, onImagePick }: Prop
 }
 ```
 
-- [ ] **Step 3: Implement `shape-controls.tsx`** with Fill (existing pattern from old toolbar) + `<BorderPicker>`. Border weight options `[0, 1, 2, 4, 8, 16]`; dash options `solid/dashed/dotted`. All writes go through `store.batch(() => store.updateElementData(slideId, elementId, { stroke: { color, width, dash } }))`.
+- [x] **Step 3: Implement `shape-controls.tsx`** with Fill (existing pattern from old toolbar) + `<BorderPicker>`. Border weight options `[0, 1, 2, 4, 8, 16]`; dash options `solid/dashed/dotted`. All writes go through `store.batch(() => store.updateElementData(slideId, elementId, { stroke: { color, width, dash } }))`.
 
-- [ ] **Step 4: Wire into `toolbar/index.tsx`**
+- [x] **Step 4: Wire into `toolbar/index.tsx`**
 
 Replace the object placeholder:
 
@@ -876,7 +876,7 @@ Replace the object placeholder:
 )}
 ```
 
-- [ ] **Step 5: Test border updates**
+- [x] **Step 5: Test border updates**
 
 ```ts
 it('changing border weight writes stroke.width', async () => {
@@ -886,14 +886,14 @@ it('changing border weight writes stroke.width', async () => {
 });
 ```
 
-- [ ] **Step 6: Run tests + verify gate**
+- [x] **Step 6: Run tests + verify gate**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar
 pnpm verify:fast
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/object-section.tsx packages/frontend/src/app/slides/toolbar/shape-controls.tsx packages/frontend/src/app/slides/toolbar/border-picker.tsx packages/frontend/src/app/slides/toolbar/object-section.test.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -910,7 +910,7 @@ git commit -m "Add object-section router with shape Fill + Border controls"
 
 **Scope decision (made upfront): ship Replace + Reset crop + Alt only. Crop button is a disabled placeholder with a TODO comment + entry in the lessons file.** Full crop UI (overlay handle behavior, editor `enterCropMode/exitCropMode`) is deferred to its own spec — too much editor surface to fold into this PR.
 
-- [ ] **Step 1: Confirm there is no existing crop API**
+- [x] **Step 1: Confirm there is no existing crop API**
 
 ```bash
 grep -rn "enterCropMode\|exitCropMode\|cropMode" packages/slides/src/view/editor/ | head
@@ -918,7 +918,7 @@ grep -rn "enterCropMode\|exitCropMode\|cropMode" packages/slides/src/view/editor
 
 Expected: no matches. (If matches exist, escalate — the plan's assumption was wrong.)
 
-- [ ] **Step 2: Implement `image-controls.tsx`**
+- [x] **Step 2: Implement `image-controls.tsx`**
 
 ```tsx
 export function ImageControls({ editor, store, ids }: Props) {
@@ -954,17 +954,17 @@ export function ImageControls({ editor, store, ids }: Props) {
 
 `replaceImage` is `insert-image.ts`'s sibling — same upload step, but writes via `updateElementData` instead of `addElement`.
 
-- [ ] **Step 3: Test Replace, Reset crop, Alt**
+- [x] **Step 3: Test Replace, Reset crop, Alt**
 
 Crop button is asserted as disabled (placeholder). Add a follow-up entry in the lessons file under "Follow-ups deferred to v1.1+".
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/image-controls
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/image-controls.tsx packages/frontend/src/app/slides/toolbar/image-controls.test.tsx packages/frontend/src/app/slides/replace-image.ts
@@ -981,7 +981,7 @@ git commit -m "Add Image controls: Replace / Crop / Reset crop / Alt text"
 
 Box-level controls when a text element is selected (not editing inside): Background fill, Border ▾, Font ▾, Size ▾. Font/Size apply to **all inlines** in the box at once via `store.withTextElement`.
 
-- [ ] **Step 1: Implement the component**
+- [x] **Step 1: Implement the component**
 
 ```tsx
 export function TextElementControls({ editor, store, theme, ids }: Props) {
@@ -1016,17 +1016,17 @@ export function TextElementControls({ editor, store, theme, ids }: Props) {
 
 `BorderPicker` was created in Task 8 — reuse it.
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
 Verify Font family change writes `fontFamily` to all inlines in all blocks of the selected text element.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar/text-element
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/text-element-controls.tsx packages/frontend/src/app/slides/toolbar/text-element-controls.test.tsx
@@ -1044,7 +1044,7 @@ git commit -m "Add box-level controls for text element selection"
 
 Compose the shared text-formatting groups and add a Done button that exits text editing.
 
-- [ ] **Step 1: Implement `text-edit-section.tsx`**
+- [x] **Step 1: Implement `text-edit-section.tsx`**
 
 ```tsx
 export function TextEditSection({ state, editor }: { state: Extract<ToolbarState, { kind: 'text-edit' }>; editor: SlidesEditor | null }) {
@@ -1062,11 +1062,11 @@ export function TextEditSection({ state, editor }: { state: Extract<ToolbarState
 
 The Insert group is **not** rendered in this state — confirm that `toolbar/index.tsx`'s rendering branch for `text-edit` doesn't include `<InsertGroup>`.
 
-- [ ] **Step 2: Add Done button to `RightGlobals`**
+- [x] **Step 2: Add Done button to `RightGlobals`**
 
 In `global-controls.tsx`'s `RightGlobals`, render a Done button when `editor?.isTextEditing()` is true (or pass an `isTextEditing` flag down). The button calls the existing Esc-equivalent — `editor.exitTextEditing?.()` or whatever the codebase calls it (grep).
 
-- [ ] **Step 3: Wire into the shell**
+- [x] **Step 3: Wire into the shell**
 
 ```tsx
 {state.kind === 'text-edit' && (
@@ -1074,7 +1074,7 @@ In `global-controls.tsx`'s `RightGlobals`, render a Done button when `editor?.is
 )}
 ```
 
-- [ ] **Step 4: State-transition test**
+- [x] **Step 4: State-transition test**
 
 ```ts
 it('entering text edit swaps the contextual section', async () => {
@@ -1087,13 +1087,13 @@ it('entering text edit swaps the contextual section', async () => {
 });
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test toolbar
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/text-edit-section.tsx packages/frontend/src/app/slides/toolbar/text-edit-section.test.tsx packages/frontend/src/app/slides/toolbar/global-controls.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -1110,13 +1110,13 @@ git commit -m "Add text-edit section composing shared formatting groups + Done b
 
 Swap the import. Old file is deleted in the same commit so no dead code lingers.
 
-- [ ] **Step 1: Find the import + render of the old toolbar**
+- [x] **Step 1: Find the import + render of the old toolbar**
 
 ```bash
 grep -n "SlidesFormattingToolbar\|slides-formatting-toolbar" packages/frontend/src/app/slides/slides-detail.tsx
 ```
 
-- [ ] **Step 2: Replace the import**
+- [x] **Step 2: Replace the import**
 
 ```tsx
 import { SlidesToolbar } from "./toolbar";
@@ -1137,17 +1137,17 @@ Update the JSX to pass through the same props plus `onImagePick` (a function tha
 
 `handleImagePick` opens a hidden `<input type="file" accept="image/*">` (use the existing pattern from docs's `image-insert.ts` if applicable).
 
-- [ ] **Step 3: Verify the Present button location**
+- [x] **Step 3: Verify the Present button location**
 
 If Present moved into `RightGlobals`, remove the standalone `<SlidesPresentButton>` mount from `slides-detail.tsx` (or wherever it lives). If Present was passed as a slot/prop into the toolbar, ensure it's not duplicated.
 
-- [ ] **Step 4: Delete old toolbar file**
+- [x] **Step 4: Delete old toolbar file**
 
 ```bash
 git rm packages/frontend/src/app/slides/slides-formatting-toolbar.tsx
 ```
 
-- [ ] **Step 5: Run all frontend tests**
+- [x] **Step 5: Run all frontend tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test
@@ -1155,7 +1155,7 @@ pnpm --filter @wafflebase/frontend test
 
 Expected: PASS.
 
-- [ ] **Step 6: Run verify:fast**
+- [x] **Step 6: Run verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -1163,7 +1163,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 7: Manual smoke**
+- [x] **Step 7: Manual smoke**
 
 `pnpm dev`, open a slides document. Verify each state transition:
 - Idle: Background button works, Image button uploads + inserts, Undo/Redo enables/disables.
@@ -1175,7 +1175,7 @@ Expected: PASS.
 - Theme panel toggle still works.
 - Present button still launches presentation mode.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/slides-detail.tsx
@@ -1199,13 +1199,13 @@ EOF
 
 Six scenarios capture each toolbar state for snapshot regression: idle, shape-selected, image-selected, text-element-selected, text-editing-active, multi-select.
 
-- [ ] **Step 1: Locate existing slides scenarios**
+- [x] **Step 1: Locate existing slides scenarios**
 
 ```bash
 grep -n "registerScenario\|scenario\|baseline" packages/frontend/src/app/harness/visual/slides-scenarios.tsx | head
 ```
 
-- [ ] **Step 2: Add the six new scenarios**
+- [x] **Step 2: Add the six new scenarios**
 
 Each scenario seeds a `MemSlidesStore` with the right elements and selection state, then mounts `<SlidesToolbar>` plus a minimal slide canvas at fixed dimensions for stable snapshots.
 
@@ -1221,7 +1221,7 @@ registerScenario('slides-toolbar-shape-selected', () => {
 // ... image-selected, text-element-selected, text-editing-active, multi-select
 ```
 
-- [ ] **Step 3: Run visual harness; accept new baselines for the six new scenarios**
+- [x] **Step 3: Run visual harness; accept new baselines for the six new scenarios**
 
 ```bash
 pnpm verify:browser:docker
@@ -1229,7 +1229,7 @@ pnpm verify:browser:docker
 
 Expected: six new baselines added; **existing slides scenarios should not diff** unless they used the old toolbar's specific layout (e.g. align buttons in the bar). For any pre-existing scenario diff, eyeball the snapshot to confirm the change is the expected redesign — if so, accept; if not, investigate.
 
-- [ ] **Step 4: Run full verify gate**
+- [x] **Step 4: Run full verify gate**
 
 ```bash
 pnpm verify:full
@@ -1237,11 +1237,11 @@ pnpm verify:full
 
 (Or `pnpm verify:self` if integration is too slow locally.) Expected: PASS.
 
-- [ ] **Step 5: Update `docs/design/README.md`**
+- [x] **Step 5: Update `docs/design/README.md`**
 
 Append the new spec link under the Slides section per the template comment in the spec.
 
-- [ ] **Step 6: Create lessons file (skeleton)**
+- [x] **Step 6: Create lessons file (skeleton)**
 
 ```bash
 touch docs/tasks/active/20260515-slides-toolbar-redesign-lessons.md
@@ -1264,11 +1264,11 @@ Initial content:
 - Crop UI polish if shipped as a placeholder in Task 9.
 ```
 
-- [ ] **Step 7: Self-review with code-reviewer skill**
+- [x] **Step 7: Self-review with code-reviewer skill**
 
 Per project workflow (CLAUDE.md), dispatch `superpowers:requesting-code-review` over the full branch diff before pushing. Apply blocking findings; record non-blocking ones in lessons.
 
-- [ ] **Step 8: Open PR**
+- [x] **Step 8: Open PR**
 
 Title: `Redesign Slides toolbar with single morphing layout` (≤70 chars).
 
@@ -1282,7 +1282,7 @@ Body Summary:
 
 Test plan: 6 visual harness scenarios; interaction tests for state transitions; manual smoke per Task 12 step 7.
 
-- [ ] **Step 9: Archive task on merge**
+- [x] **Step 9: Archive task on merge**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index

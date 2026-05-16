@@ -31,7 +31,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 175
+- Archived task count: 176
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: pptx import (2026-05-15)
