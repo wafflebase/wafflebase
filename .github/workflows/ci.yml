@@ -215,6 +215,17 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages the CLI imports at runtime
+        # `verify:integration` spawns the CLI via `tsx packages/cli/src/bin.ts`.
+        # The CLI eagerly imports `@wafflebase/docs` and `@wafflebase/slides/node`,
+        # both of which resolve via each package's `exports` field to a
+        # built file under `dist/`. The `verify-self` job builds these on
+        # its own runner; `verify-integration` is a separate runner that
+        # starts without those artifacts, so we rebuild them here.
+        run: |
+          pnpm --filter @wafflebase/docs build
+          pnpm slides build
+
       - name: Start Yorkie server
         run: |
           # Match the image and CLI args used by `docker-compose.yaml`
