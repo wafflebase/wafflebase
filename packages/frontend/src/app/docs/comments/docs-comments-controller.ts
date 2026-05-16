@@ -190,7 +190,7 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
   }, []);
 
   const beginCompose = useCallback((): boolean => {
-    if (readOnly || !editor) return false;
+    if (readOnly || !editor || !currentUser) return false;
     const sel = editor.getActiveSelection();
     if (!sel) return false;
     const docModel = editor.getDoc().document;
@@ -206,7 +206,7 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     pendingRangeRef.current = { startPath: s, endPath: e, blockId, quotedText };
     setComposeOpen(true);
     return true;
-  }, [editor, readOnly]);
+  }, [editor, readOnly, currentUser]);
 
   const submitNewComment = useCallback(
     async (body: string) => {

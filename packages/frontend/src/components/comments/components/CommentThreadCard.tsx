@@ -51,7 +51,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
         ))}
       </ul>
 
-      {!readOnly && (
+      {!readOnly && currentUserId && (
         <div className="border-t pt-3">
           <CommentComposer
             submitLabel="Reply"
@@ -61,7 +61,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
         </div>
       )}
 
-      {!readOnly && (
+      {!readOnly && currentUserId && (
         <div className="flex justify-end">
           <Button
             type="button"
