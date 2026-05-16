@@ -76,6 +76,7 @@ export function DocsCommentPopover({
       ref={ref}
       role="dialog"
       aria-label="Comment thread"
+      data-comments-overlay=""
       className="fixed z-50 rounded-md border bg-popover text-popover-foreground shadow-lg"
       style={{
         width: POPOVER_WIDTH,
@@ -84,14 +85,12 @@ export function DocsCommentPopover({
         visibility: pos ? "visible" : "hidden",
       }}
       onMouseDown={(e) => {
-        // Stop both mousedown and click from bubbling to the container's
-        // click listener, which otherwise hit-tests at the click point
-        // and dismisses the popover (setActive(null)) before our own
-        // button onClick handlers can run. Without this, Resolve / Edit /
-        // Delete / Reply effectively just close the popover.
-        e.stopPropagation();
-      }}
-      onClick={(e) => {
+        // Stop the popover's own mousedown from reaching the text
+        // editor under the canvas (would clear the active selection).
+        // The container's native click listener that drives marker
+        // hit-testing is filtered by data-comments-overlay above, not
+        // by React-level stopPropagation here — native bubbling runs
+        // before React's synthetic dispatch.
         e.stopPropagation();
       }}
     >

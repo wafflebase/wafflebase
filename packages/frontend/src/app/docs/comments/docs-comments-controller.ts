@@ -142,11 +142,21 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
   }, [storeReady, doc, editor]);
 
   // Click on a marker → open popover. Click anywhere else → dismiss.
-  // The editor takes raw client coords and handles ruler/scroll/zoom
-  // internally so this stays a thin event listener.
+  //
+  // Clicks inside the comment popover or side panel bubble up to this
+  // native listener faster than React's synthetic event delegation can
+  // run the popover's onClick. Without the early bail-out, a click on
+  // a button inside the popover hit-tests at the button's coordinates,
+  // finds no marker, calls setActive(null), and unmounts the popover
+  // before its own button handler ever fires — Resolve / Edit / Delete
+  // appeared to do nothing but close the popover.
   useEffect(() => {
     if (!container || !editor) return;
     const onClick = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target && target.closest('[data-comments-overlay]')) {
+        return;
+      }
       const markerId = editor.getCommentMarkerAt(e.clientX, e.clientY);
       if (!markerId) {
         setActive(null);

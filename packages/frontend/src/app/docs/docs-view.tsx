@@ -544,6 +544,7 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
         <div
           role="dialog"
           aria-label="Insert comment"
+          data-comments-overlay=""
           className="fixed left-1/2 top-1/3 z-50 w-80 -translate-x-1/2 rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
         >
           <CommentComposer
@@ -556,7 +557,7 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
         </div>
       )}
       {comments.panelOpen && (
-        <div className="absolute right-0 top-0 z-40 h-full">
+        <div data-comments-overlay="" className="absolute right-0 top-0 z-40 h-full">
           <CommentSidePanel
             threads={[...comments.state.open, ...comments.state.resolved]}
             orphanedThreads={comments.state.orphaned}
