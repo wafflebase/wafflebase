@@ -479,12 +479,18 @@ export class DocxImporter {
       for (let c = 0; c < nCols; c++) {
         const cell = cells[c];
         if (cell.colSpan === 0) continue;
+        // Pick fallback sides from the owner's merged extent, not from
+        // the iteration indices: an owner whose right side reaches the
+        // grid edge should inherit tblBorders.right even when its
+        // top-left position is interior.
+        const endCol = Math.min(nCols - 1, c + Math.max(1, cell.colSpan ?? 1) - 1);
+        const endRow = Math.min(nRows - 1, r + Math.max(1, cell.rowSpan ?? 1) - 1);
         const topFallback = r === 0 ? tblBorders.top : tblBorders.insideH;
         const bottomFallback =
-          r === nRows - 1 ? tblBorders.bottom : tblBorders.insideH;
+          endRow === nRows - 1 ? tblBorders.bottom : tblBorders.insideH;
         const leftFallback = c === 0 ? tblBorders.left : tblBorders.insideV;
         const rightFallback =
-          c === nCols - 1 ? tblBorders.right : tblBorders.insideV;
+          endCol === nCols - 1 ? tblBorders.right : tblBorders.insideV;
         if (!cell.style.borderTop && topFallback) {
           cell.style.borderTop = { ...topFallback };
         }

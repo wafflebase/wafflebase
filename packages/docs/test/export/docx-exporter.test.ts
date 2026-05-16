@@ -198,6 +198,39 @@ describe('DocxExporter', () => {
     expect(cells[1].blocks[0].inlines[0].text).toBe('B');
   });
 
+  it('should emit gridAfter for trailing placeholders with no vMerge owner above', async () => {
+    const cell = (text: string, colSpan?: number) => ({
+      blocks: [{ id: generateBlockId(), type: 'paragraph' as const, inlines: [{ text, style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+      style: {},
+      ...(colSpan !== undefined ? { colSpan } : {}),
+    });
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [{
+            cells: [cell('A'), cell('', 0)],
+          }],
+          columnWidths: [0.5, 0.5],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const docXml = await (await (await import('jszip')).default.loadAsync(await blob.arrayBuffer())).file('word/document.xml')!.async('string');
+    expect(docXml).toContain('<w:gridAfter w:val="1"/>');
+    expect(docXml).not.toContain('<w:vMerge/>');
+
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    const cells = reimported.blocks[0].tableData!.rows[0].cells;
+    expect(cells).toHaveLength(2);
+    expect(cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(cells[1].colSpan).toBe(0);
+  });
+
   it('should produce a valid .docx zip', async () => {
     const doc: Document = {
       blocks: [{

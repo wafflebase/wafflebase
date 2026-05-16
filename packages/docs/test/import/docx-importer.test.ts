@@ -234,6 +234,42 @@ describe('DocxImporter', () => {
     expect(cell.style.borderRight?.color).toBe('#FF0000');
   });
 
+  it('should treat a merged owner reaching the table edge as an edge cell for tblBorders inheritance', async () => {
+    // Owner spans both columns of a 2-col table; its right edge is the
+    // table's right edge, so the right fallback must be tblBorders.right
+    // (red), not insideV (green). The same rule applies to bottom for
+    // rowSpan and to left/top by symmetry.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:insideH w:sz="4" w:color="00FF00" w:val="single"/>
+          <w:insideV w:sz="4" w:color="00FF00" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="2"/></w:tcPr>
+            <w:p><w:r><w:t>wide</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const owner = doc.blocks[0].tableData!.rows[0].cells[0];
+    expect(owner.colSpan).toBe(2);
+    expect(owner.style.borderRight?.color).toBe('#FF0000');
+    expect(owner.style.borderLeft?.color).toBe('#FF0000');
+    expect(owner.style.borderTop?.color).toBe('#FF0000');
+  });
+
   it('should ignore w:trHeight with hRule=auto', async () => {
     // hRule=auto means the value is suggestive only; we treat the row as
     // auto-sized so the layout matches Word's behavior on these rows.
