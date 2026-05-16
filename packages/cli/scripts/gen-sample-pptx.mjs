@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 // Relative import — `__fixtures__/` is not in the slides package's
 // public exports map (and shouldn't be), but `tsx` resolves the TS
 // source directly across workspace boundaries.
-import { buildMinimalPptx } from '../../slides/src/import/pptx/__fixtures__/build-minimal-pptx.ts';
+import { buildMinimalPptx } from '../../slides/test/import/pptx/__fixtures__/build-minimal-pptx.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../..');

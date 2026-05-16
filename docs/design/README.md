@@ -67,6 +67,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-presentation-mode.md](slides/slides-presentation-mode.md)                     | Slides presentation mode v1 — local-only fullscreen player, keyboard nav, click-to-advance, end screen, fullscreen-overlay fallback                                                    |
 | [slides-connectors.md](slides/slides-connectors.md)                                   | Slides connectors — endpoint-driven Line/Arrow/Elbow/Curved with per-shape connection sites, auto routing, snap-on-draw UX, 3-PR rollout                                              |
 | [slides-toolbar-redesign.md](slides/slides-toolbar-redesign.md)                       | Slides toolbar redesign — single morphing toolbar (Idle / Object / Text-editing) replacing the always-on layout, Arrange dropdown consolidating align/distribute/order/rotate, shared text-formatting components |
+| [slides-text-engine-audit.md](slides/slides-text-engine-audit.md)                     | Spike audit (Phase 5 prep) — docs RichText reuse plan: extract `paintLayout`/`findPositionAtPixel`/`initializeTextBox`, no fork                                                                              |
 
 ## Common
 
