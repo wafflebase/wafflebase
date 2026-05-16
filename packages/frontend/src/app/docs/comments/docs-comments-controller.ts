@@ -37,6 +37,15 @@ export interface UseDocsCommentsOpts {
   container: HTMLDivElement | null;
   currentUser: CommentAuthor | null;
   readOnly: boolean;
+  /**
+   * Optional controlled state for the side panel. When `panelOpen` and
+   * `onPanelOpenChange` are both provided, the hook delegates the
+   * open/close state to the caller — used so a parent component can
+   * mount a topbar toggle next to its own state. When omitted, the
+   * hook owns the state internally and `Cmd+Alt+Shift+M` toggles it.
+   */
+  panelOpen?: boolean;
+  onPanelOpenChange?: (open: boolean) => void;
 }
 
 export interface UseDocsCommentsHandle {
@@ -82,7 +91,18 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     resolved: [],
   });
   const [active, setActive] = useState<ActivePopover | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [internalPanelOpen, setInternalPanelOpen] = useState(false);
+  const controlledPanelOpen = opts.panelOpen;
+  const onPanelOpenChange = opts.onPanelOpenChange;
+  const panelOpen =
+    controlledPanelOpen !== undefined ? controlledPanelOpen : internalPanelOpen;
+  const setPanelOpen = useCallback(
+    (next: boolean) => {
+      if (onPanelOpenChange) onPanelOpenChange(next);
+      else setInternalPanelOpen(next);
+    },
+    [onPanelOpenChange],
+  );
   const [composeOpen, setComposeOpen] = useState(false);
   const pendingRangeRef = useRef<{
     startPath: number[];
@@ -191,8 +211,11 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     }
   }, [state, active]);
 
-  const togglePanel = useCallback(() => setPanelOpen((v) => !v), []);
-  const closePanel = useCallback(() => setPanelOpen(false), []);
+  const togglePanel = useCallback(
+    () => setPanelOpen(!panelOpen),
+    [panelOpen, setPanelOpen],
+  );
+  const closePanel = useCallback(() => setPanelOpen(false), [setPanelOpen]);
   const dismissPopover = useCallback(() => setActive(null), []);
   const closeCompose = useCallback(() => {
     setComposeOpen(false);

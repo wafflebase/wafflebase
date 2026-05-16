@@ -99,6 +99,14 @@ interface DocsViewProps {
   onJumpHandleReady?: (handle: JumpHandle | null) => void;
   readOnly?: boolean;
   /**
+   * Controlled state for the comments side panel. Provide this from a
+   * parent (e.g. DocsLayout) that owns a topbar toggle button. When
+   * omitted, the panel state is internal and only the keyboard
+   * shortcut can toggle it.
+   */
+  commentsPanelOpen?: boolean;
+  onCommentsPanelOpenChange?: (open: boolean) => void;
+  /**
    * Optional document id used to consume any pending DOCX import that
    * was staged before navigation (see `pending-imports.ts`). When set,
    * the imported `Document` is applied via `store.setDocument()` once
@@ -114,7 +122,14 @@ interface DocsViewProps {
  * It also subscribes to presence changes for peer cursors with label visibility
  * and hover detection.
  */
-export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentId }: DocsViewProps) {
+export function DocsView({
+  onEditorReady,
+  onJumpHandleReady,
+  readOnly,
+  commentsPanelOpen,
+  onCommentsPanelOpenChange,
+  documentId,
+}: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // State-mirrored handle on the same DOM node, so effects that depend
   // on the container (the comments controller's click handler) re-bind
@@ -158,6 +173,8 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
     container: containerEl,
     currentUser,
     readOnly: Boolean(readOnly),
+    panelOpen: commentsPanelOpen,
+    onPanelOpenChange: onCommentsPanelOpenChange,
   });
 
   const peerLabelTimers = useRef<Map<string, number>>(new Map());
