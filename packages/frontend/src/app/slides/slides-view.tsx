@@ -7,10 +7,12 @@ import {
 } from "@wafflebase/slides";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
+import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
+import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 
 export type { SlidesEditor } from "@wafflebase/slides";
@@ -97,6 +99,7 @@ function computeFitSize(availWidth: number, availHeight: number): {
  * PDF exporter does.
  */
 export function SlidesView({
+  documentId,
   onEditorReady,
   onStoreReady,
   onStartPresentation,
@@ -124,6 +127,38 @@ export function SlidesView({
     if (!didMount || !doc) return;
     const container = containerRef.current;
     if (!container) return;
+
+    // Consume any PPTX import staged for this document by the deck list
+    // BEFORE ensureSlidesRoot runs. Pushing the imported deck into the
+    // Yorkie root preempts the empty-deck initializer (which only fires
+    // when `root.meta` is null). We peek-then-clear so a thrown update
+    // leaves the entry in place for the next mount to retry.
+    if (documentId) {
+      const pending = peekPendingImport(documentId);
+      if (pending) {
+        try {
+          doc.update((r) => {
+            r.meta = {
+              title: pending.meta.title,
+              themeId: pending.meta.themeId,
+              masterId: pending.meta.masterId,
+            };
+            r.themes = pending.themes;
+            r.masters = pending.masters;
+            r.layouts = pending.layouts as unknown as YorkieSlidesRoot["layouts"];
+            r.slides = pending.slides as unknown as YorkieSlidesRoot["slides"];
+          });
+          clearPendingImport(documentId);
+        } catch (err) {
+          console.error("Failed to apply pending PPTX import", err);
+          toast.error(
+            err instanceof Error
+              ? `Failed to load imported deck: ${err.message}`
+              : "Failed to load imported deck.",
+          );
+        }
+      }
+    }
 
     ensureSlidesRoot(doc);
 

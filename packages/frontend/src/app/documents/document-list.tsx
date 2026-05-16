@@ -74,6 +74,8 @@ import {
 } from "@/api/workspaces";
 import { pickAndImportDocx } from "@/app/docs/docx-actions";
 import { setPendingImport } from "@/app/docs/pending-imports";
+import { pickAndImportPptx } from "@/app/slides/pptx-actions";
+import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   switch (doc.type) {
@@ -250,6 +252,38 @@ export function DocumentList({
     }
   };
 
+  const handleImportPptx = async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const result = await pickAndImportPptx();
+      if (!result) return;
+
+      const title =
+        result.fileName.replace(/\.pptx$/i, "") || "Imported Presentation";
+      const created = workspaceId
+        ? await createWorkspaceDocument(workspaceId, { title, type: "slides" })
+        : await createDocument({ title, type: "slides" });
+
+      // Stash for SlidesView to consume on mount.
+      setPendingPptxImport(String(created.id), result.document);
+      const summary = result.report.summary();
+      toast.success(
+        summary === "Imported with no fallbacks."
+          ? `Imported "${title}"`
+          : `Imported "${title}" — ${summary}`,
+      );
+      navigate(getDocumentPath(created));
+    } catch (err) {
+      console.error("PPTX import failed", err);
+      toast.error(
+        err instanceof Error ? `Import failed: ${err.message}` : "Import failed",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
     onSuccess: () => {
@@ -377,6 +411,13 @@ export function DocumentList({
             >
               <FileDown className="mr-2 h-4 w-4 text-blue-500" />
               Import DOCX
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={importing}
+              onClick={handleImportPptx}
+            >
+              <FileDown className="mr-2 h-4 w-4 text-orange-500" />
+              Import PPTX
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
