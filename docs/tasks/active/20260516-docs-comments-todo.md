@@ -49,7 +49,7 @@ docs canvas pipeline.
 Define the anchor-generic data model and a pure in-memory store. No
 React, no Yorkie.
 
-- [ ] **1.1** Write failing tests in `thread.test.ts`:
+- [x] **1.1** Write failing tests in `thread.test.ts`:
   - `createThread` rejects empty body (after trim)
   - `createThread` accepts newlines in body
   - `appendReply` rejects empty body
@@ -57,20 +57,20 @@ React, no Yorkie.
   - `deleteComment` on `comments[0]` returns `null` (thread cascades)
   - `setResolved(true)` requires `resolvedBy` + sets `resolvedAt`
   - `setResolved(false)` clears `resolvedAt` and `resolvedBy`
-- [ ] **1.2** Write failing tests in `mem-comment-store.test.ts`:
+- [x] **1.2** Write failing tests in `mem-comment-store.test.ts`:
   - `addThread` returns the persisted thread; `listThreads()` includes it
   - `addReply` appends to `comments[]`
   - `editComment` updates body + `editedAt`
   - `deleteComment` of root removes thread; non-root keeps thread
   - `setThreadResolved(true)` then `listThreads({resolved: true})` lists it
   - `subscribe` fires on every mutation; returns working unsubscribe
-- [ ] **1.3** Implement `types.ts` — `CommentAuthor`, `Comment`,
+- [x] **1.3** Implement `types.ts` — `CommentAuthor`, `Comment`,
   `Thread<A>`, `CommentAnchor` union with **both** `sheet-cell` and
   `docs-range` variants (schema locked for sheets migration follow-up).
-- [ ] **1.4** Implement `thread.ts` pure helpers.
-- [ ] **1.5** Implement `comment-store.ts` interface.
-- [ ] **1.6** Implement `mem-comment-store.ts`.
-- [ ] **1.7** Tests pass. `pnpm verify:fast` green.
+- [x] **1.4** Implement `thread.ts` pure helpers.
+- [x] **1.5** Implement `comment-store.ts` interface.
+- [x] **1.6** Implement `mem-comment-store.ts`.
+- [x] **1.7** Tests pass. `pnpm verify:fast` green.
 
 ---
 
