@@ -115,6 +115,15 @@ interface DocsViewProps {
  */
 export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentId }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // State-mirrored handle on the same DOM node, so effects that depend
+  // on the container (the comments controller's click handler) re-bind
+  // when the element actually mounts instead of relying on a follow-up
+  // re-render triggered by mountedEditor.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const setContainerNode = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
   const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
@@ -145,7 +154,7 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
   const comments = useDocsComments({
     doc: doc ?? null,
     editor: mountedEditor,
-    container: containerRef.current,
+    container: containerEl,
     currentUser,
     readOnly: Boolean(readOnly),
   });
@@ -486,7 +495,7 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+    <div ref={setContainerNode} className="relative flex-1 w-full min-h-0">
       <DocsLinkPopover
         editor={mountedEditor}
         containerRef={containerRef}

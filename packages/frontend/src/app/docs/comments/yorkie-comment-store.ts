@@ -62,9 +62,16 @@ function copyComment(c: Comment): Comment {
 }
 
 /**
- * Detach a Thread from its Yorkie CRDT proxy by deep-copying into a
- * plain JS object. structuredClone fails on CRDT proxies, so callers
- * that hand threads to React or pure helpers must go through this.
+ * Detach a Thread from its Yorkie CRDT proxy by deep-copying its
+ * comments / author / timestamp fields into plain JS objects.
+ *
+ * `posRange` is deliberately left as-is. Stored as a Yorkie array, its
+ * `toJSON()` returns a string-escaped serialization that does not
+ * round-trip through `JSON.parse(JSON.stringify(...))` — the SDK's
+ * `posRangeToPathRange` then can't read it. Holding the proxy
+ * reference is safe: the Yorkie document outlives any thread snapshot
+ * we hand out, and the only consumer (`resolveDocsAnchor`) calls a
+ * read-only SDK method on it.
  */
 export function copyDocsThread(
   t: Thread<DocsRangeAnchor>,

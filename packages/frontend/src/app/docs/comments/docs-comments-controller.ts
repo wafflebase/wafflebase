@@ -142,18 +142,16 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
   }, [storeReady, doc, editor]);
 
   // Click on a marker → open popover. Click anywhere else → dismiss.
+  // The editor takes raw client coords and handles ruler/scroll/zoom
+  // internally so this stays a thin event listener.
   useEffect(() => {
     if (!container || !editor) return;
     const onClick = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      const x = e.clientX - rect.left + container.scrollLeft;
-      const y = e.clientY - rect.top + container.scrollTop;
-      const markerId = editor.getCommentMarkerAt(x, y);
+      const markerId = editor.getCommentMarkerAt(e.clientX, e.clientY);
       if (!markerId) {
         setActive(null);
         return;
       }
-      // Resolve the thread from current snapshot.
       const thread =
         state.open.find((t) => t.id === markerId) ??
         state.orphaned.find((t) => t.id === markerId);
@@ -168,14 +166,14 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
   }, [container, editor, state]);
 
   // Refresh the active popover's thread snapshot whenever state changes
-  // (e.g. after a reply / resolve), so the popover always shows the
-  // latest comments without forcing the user to reopen it.
+  // (e.g. after a reply), so the popover always shows the latest
+  // comments without forcing the user to reopen it. If the thread moves
+  // to `resolved` (its marker disappears from the canvas) or to
+  // `orphaned` (no marker either), dismiss the popover — leaving it
+  // open over an anchor the user can no longer see is confusing.
   useEffect(() => {
     if (!active) return;
-    const fresh =
-      state.open.find((t) => t.id === active.thread.id) ??
-      state.orphaned.find((t) => t.id === active.thread.id) ??
-      state.resolved.find((t) => t.id === active.thread.id);
+    const fresh = state.open.find((t) => t.id === active.thread.id);
     if (!fresh) {
       setActive(null);
     } else if (fresh !== active.thread) {
@@ -215,12 +213,12 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
       const store = storeRef.current;
       const pending = pendingRangeRef.current;
       if (!store || !pending || !currentUser) return;
-      try {
-        await store.addThread(pending, body, currentUser);
-      } finally {
-        pendingRangeRef.current = null;
-        setComposeOpen(false);
-      }
+      // Close the composer only on success. If addThread throws, leave
+      // it open so the user can retry; CommentComposer already logs the
+      // error and keeps the body intact (it clears only on resolve).
+      await store.addThread(pending, body, currentUser);
+      pendingRangeRef.current = null;
+      setComposeOpen(false);
     },
     [currentUser],
   );

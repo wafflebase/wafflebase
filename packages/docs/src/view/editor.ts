@@ -113,11 +113,13 @@ export interface EditorAPI {
    */
   setCommentMarkers(markers: CommentMarker[]): void;
   /**
-   * Return the marker id under (x, y) in logical canvas coordinates, or
-   * null when no marker is hit. When rects overlap, the marker drawn
-   * last wins.
+   * Return the marker id under a viewport-relative (clientX, clientY)
+   * point, or null when no marker is hit. The editor converts to
+   * canvas-internal document coordinates (accounting for ruler offset,
+   * scroll, and zoom) before hit-testing. When rects overlap, the
+   * marker drawn last wins.
    */
-  getCommentMarkerAt(x: number, y: number): string | null;
+  getCommentMarkerAt(clientX: number, clientY: number): string | null;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -1982,7 +1984,10 @@ export function initialize(
       commentMarkers = markers;
       render();
     },
-    getCommentMarkerAt: (x: number, y: number) => findMarkerAt(commentMarkerRects, x, y),
+    getCommentMarkerAt: (clientX: number, clientY: number) => {
+      const { x, y } = clientToDocCoords(clientX, clientY);
+      return findMarkerAt(commentMarkerRects, x, y);
+    },
     clearSearchMatches: (moveCursorToActive?: boolean) => {
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
