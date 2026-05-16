@@ -43,6 +43,30 @@ export function docPositionToTreePath(
 }
 
 /**
+ * Reverse of `docPositionToTreePath`. Translate a Yorkie Tree path
+ * `[blockIdx, inlineIdx, charOffset]` back into a `DocPosition` against
+ * the current document model. Missing tail components default to 0,
+ * which matches Yorkie's behavior when an endpoint is at the start of a
+ * block. Returns null when the block index is out of range.
+ */
+export function pathToDocPosition(
+  doc: Document,
+  path: number[],
+): DocPosition | null {
+  const blockIdx = path[0] ?? 0;
+  const inlineIdx = path[1] ?? 0;
+  const charOffset = path[2] ?? 0;
+  const block = doc.blocks[blockIdx];
+  if (!block) return null;
+  let offset = 0;
+  const limit = Math.min(inlineIdx, block.inlines.length);
+  for (let i = 0; i < limit; i++) {
+    offset += block.inlines[i].text.length;
+  }
+  return { blockId: block.id, offset: offset + charOffset };
+}
+
+/**
  * Capture `{ blockId, quotedText }` for a DocRange. quotedText is the text
  * inside the range, capped at `maxChars` chars with an ellipsis when
  * truncated. blockId is taken from the normalized start position.

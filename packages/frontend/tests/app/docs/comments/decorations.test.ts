@@ -1,0 +1,145 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { DEFAULT_BLOCK_STYLE, DEFAULT_INLINE_STYLE } from '@wafflebase/docs';
+import type { Block, Document } from '@wafflebase/docs';
+
+import { pathToDocPosition } from '../../../../src/app/docs/comments/docs-anchor.ts';
+import { computeCommentMarkers } from '../../../../src/app/docs/comments/decorations.ts';
+import type {
+  DocsRangeAnchor,
+  Thread,
+} from '../../../../src/types/comments.ts';
+
+function block(id: string, ...texts: string[]): Block {
+  return {
+    id,
+    type: 'paragraph',
+    style: { ...DEFAULT_BLOCK_STYLE },
+    inlines: texts.length
+      ? texts.map((t) => ({ text: t, style: { ...DEFAULT_INLINE_STYLE } }))
+      : [{ text: '', style: { ...DEFAULT_INLINE_STYLE } }],
+  };
+}
+
+function doc(...blocks: Block[]): Document {
+  return { blocks };
+}
+
+const author = { userId: 'u1', username: 'alice' };
+const fakePos = { __pos: 'p' } as unknown as DocsRangeAnchor['posRange'];
+
+function makeThread(
+  id: string,
+  blockId: string,
+  resolved = false,
+): Thread<DocsRangeAnchor> {
+  return {
+    id,
+    anchor: { kind: 'docs-range', blockId, posRange: fakePos, quotedText: 'world' },
+    comments: [{ id: 'c-' + id, author, body: 'q', createdAt: 0 }],
+    resolved,
+    createdAt: 0,
+  };
+}
+
+describe('pathToDocPosition', () => {
+  it('reverses docPositionToTreePath for top-level blocks', () => {
+    const d = doc(block('b1', 'Hello', ' world'));
+    assert.deepEqual(pathToDocPosition(d, [0, 0, 0]), { blockId: 'b1', offset: 0 });
+    assert.deepEqual(pathToDocPosition(d, [0, 0, 5]), { blockId: 'b1', offset: 5 });
+    assert.deepEqual(pathToDocPosition(d, [0, 1, 2]), { blockId: 'b1', offset: 7 });
+  });
+
+  it('resolves the second block and into its second inline', () => {
+    const d = doc(block('b1', 'aaa'), block('b2', 'Hello', ' world'));
+    assert.deepEqual(pathToDocPosition(d, [1, 1, 3]), { blockId: 'b2', offset: 8 });
+  });
+
+  it('returns null when blockIdx is out of range', () => {
+    const d = doc(block('b1', 'hi'));
+    assert.equal(pathToDocPosition(d, [42, 0, 0]), null);
+  });
+
+  it('treats missing inline/char path components as zero', () => {
+    const d = doc(block('b1', 'hello'));
+    assert.deepEqual(pathToDocPosition(d, [0]), { blockId: 'b1', offset: 0 });
+  });
+});
+
+describe('computeCommentMarkers', () => {
+  it('emits one marker per live thread with anchor/focus DocPositions', () => {
+    const d = doc(block('b1', 'Hello world'));
+    const tree = {
+      posRangeToPathRange: () => [
+        [0, 0, 6],
+        [0, 0, 11],
+      ] as [number[], number[]],
+    };
+    const t = makeThread('t1', 'b1');
+    const markers = computeCommentMarkers([t], d, tree);
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].id, 't1');
+    assert.deepEqual(markers[0].anchor, { blockId: 'b1', offset: 6 });
+    assert.deepEqual(markers[0].focus, { blockId: 'b1', offset: 11 });
+  });
+
+  it('drops resolved threads', () => {
+    const d = doc(block('b1', 'Hello'));
+    const tree = {
+      posRangeToPathRange: () => [
+        [0, 0, 0],
+        [0, 0, 5],
+      ] as [number[], number[]],
+    };
+    const markers = computeCommentMarkers(
+      [makeThread('t1', 'b1', true)],
+      d,
+      tree,
+    );
+    assert.deepEqual(markers, []);
+  });
+
+  it('drops orphan threads (resolveDocsAnchor → orphan)', () => {
+    const d = doc(block('b1', 'Hello'));
+    const tree = {
+      posRangeToPathRange: () => {
+        throw new Error('deleted');
+      },
+    };
+    const markers = computeCommentMarkers([makeThread('t1', 'b1')], d, tree);
+    assert.deepEqual(markers, []);
+  });
+
+  it('drops threads whose resolved path has no matching block', () => {
+    const d = doc(block('b1', 'Hello'));
+    const tree = {
+      posRangeToPathRange: () => [
+        [42, 0, 0],
+        [42, 0, 1],
+      ] as [number[], number[]],
+    };
+    const markers = computeCommentMarkers([makeThread('t1', 'b1')], d, tree);
+    assert.deepEqual(markers, []);
+  });
+
+  it('handles multiple threads, preserving input order', () => {
+    const d = doc(block('b1', 'one'), block('b2', 'two'));
+    let call = 0;
+    const ranges: Array<[number[], number[]]> = [
+      [[0, 0, 0], [0, 0, 3]],
+      [[1, 0, 0], [1, 0, 3]],
+    ];
+    const tree = {
+      posRangeToPathRange: () => ranges[call++],
+    };
+    const markers = computeCommentMarkers(
+      [makeThread('t1', 'b1'), makeThread('t2', 'b2')],
+      d,
+      tree,
+    );
+    assert.equal(markers.length, 2);
+    assert.equal(markers[0].id, 't1');
+    assert.equal(markers[1].id, 't2');
+  });
+});

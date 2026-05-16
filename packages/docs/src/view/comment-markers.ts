@@ -1,7 +1,20 @@
 /**
- * A rectangle the editor draws as a comment highlight. The `id` is an
- * opaque handle the caller can map back to its own data (typically a
- * thread id) when the user clicks the marker.
+ * A range the editor should draw as a comment highlight. The `id` is an
+ * opaque handle the caller maps back to its own data (typically a thread
+ * id) when the user clicks the marker. The editor turns each marker
+ * into one-or-more rectangles via the standard selection layout, so
+ * markers automatically follow resize, zoom, and line-wrap changes.
+ */
+export interface CommentMarker {
+  id: string;
+  anchor: { blockId: string; offset: number };
+  focus: { blockId: string; offset: number };
+}
+
+/**
+ * A rectangle the editor has drawn. The id is propagated from the
+ * source `CommentMarker` so the caller can resolve clicks back to a
+ * thread. Owned by the canvas — callers should not synthesize these.
  */
 export interface HighlightRect {
   id: string;

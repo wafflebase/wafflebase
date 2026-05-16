@@ -173,16 +173,19 @@ Small, comment-naive change to the docs package. Modeled directly on
 Convert a thread list + current tree state into `HighlightRect[]` ready
 for the editor.
 
-- [ ] **5.1** Write failing tests for:
+- [x] **5.1** Write failing tests for:
   - Live anchor on a single line → one rect
   - Live anchor across a line wrap → multiple rects (one per visual line)
   - Live anchor across a page break → rects partitioned correctly
   - Resolved thread → contributes no rect
   - Orphan thread → contributes no rect
   - Two overlapping live threads → distinct rects with distinct ids
-- [ ] **5.2** Implement `decorations.ts` using the existing
-  `computeSelectionRects` helper from `packages/docs/src/view/`.
-- [ ] **5.3** Tests pass.
+- [x] **5.2** Implement `decorations.ts`. Markers are
+  selection-range data (`{id, anchor, focus}`), not pre-computed rects;
+  the docs editor calls `computeSelectionRects` per render so markers
+  follow resize/zoom/wrap automatically (Task 4 surface refactored to
+  match).
+- [x] **5.3** Tests pass (`pnpm verify:fast` green, 778 tests).
 
 ---
 

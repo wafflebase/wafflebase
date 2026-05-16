@@ -126,7 +126,7 @@ export { Selection } from './view/selection.js';
 export { Ruler, RULER_SIZE } from './view/ruler.js';
 export { FindReplaceState } from './view/find-replace.js';
 export type { SearchMatch, SearchOptions } from './model/types.js';
-export type { HighlightRect } from './view/comment-markers.js';
+export type { CommentMarker, HighlightRect } from './view/comment-markers.js';
 export { findMarkerAt } from './view/comment-markers.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';

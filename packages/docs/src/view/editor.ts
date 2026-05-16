@@ -12,7 +12,7 @@ import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, ge
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
-import { findMarkerAt, type HighlightRect } from './comment-markers.js';
+import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
@@ -99,15 +99,17 @@ export interface EditorAPI {
   /** Clear all search match highlights and optionally move cursor to active match */
   clearSearchMatches(moveCursorToActive?: boolean): void;
   /**
-   * Set the rectangles for comment markers. Comment-naive: the editor
-   * draws them as yellow highlights but does not interpret the ids.
+   * Set the comment markers. The editor turns each marker's range into
+   * highlight rects via the same selection layout used by search match
+   * and peer cursors, so markers track resize / zoom / line wrap
+   * automatically. Comment-naive: the editor does not interpret ids.
    * Pass an empty array to clear. Replaces any previous set.
    */
-  setCommentMarkers(rects: HighlightRect[]): void;
+  setCommentMarkers(markers: CommentMarker[]): void;
   /**
    * Return the marker id under (x, y) in logical canvas coordinates, or
-   * null when no marker is hit. When rects overlap, the last-added rect
-   * wins.
+   * null when no marker is hit. When rects overlap, the marker drawn
+   * last wins.
    */
   getCommentMarkerAt(x: number, y: number): string | null;
   /** Insert a table at the current cursor position */
@@ -493,7 +495,9 @@ export function initialize(
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
-  let commentMarkers: HighlightRect[] = [];
+  let commentMarkers: CommentMarker[] = [];
+  // Cache of rects from the last render(). Read by getCommentMarkerAt.
+  let commentMarkerRects: HighlightRect[] = [];
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -849,6 +853,22 @@ export function initialize(
       );
     }
 
+    // Compute comment marker rectangles. Cached on the closure so
+    // getCommentMarkerAt can hit-test the rects the user actually sees.
+    commentMarkerRects = [];
+    for (const marker of commentMarkers) {
+      const rects = computeSelectionRects(
+        { anchor: marker.anchor, focus: marker.focus },
+        paginatedLayout,
+        layout,
+        measurer,
+        logicalCanvasWidth,
+      );
+      for (const r of rects) {
+        commentMarkerRects.push({ id: marker.id, ...r });
+      }
+    }
+
     const editCtx = textEditor?.getEditContext() ?? 'body';
 
     // Compute header/footer cursor and selection
@@ -979,7 +999,7 @@ export function initialize(
       selectedImageRect,
       imageResizeHudText,
       dragImageRun,
-      commentMarkers,
+      commentMarkerRects,
     );
 
     // Draw drag guideline if active. Guideline coords are in unscaled
@@ -1941,11 +1961,11 @@ export function initialize(
         }
       }
     },
-    setCommentMarkers: (rects: HighlightRect[]) => {
-      commentMarkers = rects;
+    setCommentMarkers: (markers: CommentMarker[]) => {
+      commentMarkers = markers;
       render();
     },
-    getCommentMarkerAt: (x: number, y: number) => findMarkerAt(commentMarkers, x, y),
+    getCommentMarkerAt: (x: number, y: number) => findMarkerAt(commentMarkerRects, x, y),
     clearSearchMatches: (moveCursorToActive?: boolean) => {
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
