@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, KeyboardEvent } from "react";
+
 import { Button } from "@/components/ui/button";
 
 const MAX_TEXTAREA_HEIGHT_PX = 200;
@@ -19,12 +20,12 @@ type CommentComposerProps = {
 };
 
 /**
- * Reusable plain-text comment input form with submit/cancel actions.
- * Used for both new threads and replies.
+ * Plain-text comment input form with submit/cancel actions. Used for
+ * new threads and replies, by any consumer (docs, sheets, slides).
  *
- * Keyboard shortcuts:
+ * Keyboard:
  * - Cmd/Ctrl+Enter: submit
- * - Escape: cancel (only if onCancel is provided)
+ * - Escape: cancel (only when onCancel is provided)
  */
 export function CommentComposer({
   initialBody = "",
@@ -39,10 +40,10 @@ export function CommentComposer({
   const trimmed = body.trim();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-grow the textarea to fit content. Reset to "auto" first so the
-  // measured scrollHeight reflects only what's currently typed (otherwise
-  // the height never shrinks back when the user deletes lines). Capped at
-  // MAX_TEXTAREA_HEIGHT_PX so a runaway paste does not eat the popover.
+  // Auto-grow the textarea. Reset to "auto" first so scrollHeight reflects
+  // current content (otherwise the height never shrinks when lines are
+  // deleted). Capped at MAX_TEXTAREA_HEIGHT_PX so a runaway paste does
+  // not eat the popover.
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -53,13 +54,10 @@ export function CommentComposer({
       ta.scrollHeight > MAX_TEXTAREA_HEIGHT_PX ? "auto" : "hidden";
   }, [body]);
 
-  // Force focus into the textarea on mount when requested. React's autoFocus
-  // prop is unreliable when the popover opens from a Radix context-menu /
-  // dropdown click: Radix uses its own deferred focus restoration to focus the
-  // trigger, and depending on whether it lands as a microtask, RAF, or
-  // setTimeout, a single RAF here can lose the race. Two RAFs gives Radix's
-  // restore a frame to settle first; the second RAF then steals focus back.
-  // We also retry once via setTimeout in case both fire before Radix runs.
+  // Force focus when requested. React's autoFocus is unreliable when the
+  // popover opens from a Radix context-menu / dropdown: Radix uses its
+  // own deferred focus restoration, which can outrun a single RAF. Two
+  // RAFs + a 50ms fallback wins the race in practice.
   useEffect(() => {
     if (!autoFocus) return;
     let cancelled = false;
@@ -105,9 +103,6 @@ export function CommentComposer({
     }
   };
 
-  // Compact: smaller textarea sized to match comment body display (text-xs).
-  // Submit button only appears once user has typed non-empty content.
-  // Height is set programmatically by the auto-grow effect, so resize is off.
   const textareaClass = compact
     ? "flex w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
     : "flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
@@ -127,7 +122,6 @@ export function CommentComposer({
         aria-label="Comment body"
         className={textareaClass}
       />
-      {/* In compact mode, only show buttons when the user has typed something */}
       {(!compact || trimmed.length > 0) && (
         <div className="flex justify-end gap-2">
           {onCancel && (

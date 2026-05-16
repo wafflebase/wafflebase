@@ -56,6 +56,14 @@ async function syncClients(
 export interface TwoUserDocsContext {
   storeA: YorkieDocStore;
   storeB: YorkieDocStore;
+  /**
+   * Raw Yorkie documents. Exposed so tests can attach feature-specific
+   * stores (e.g. YorkieCommentStore) onto the same Yorkie handle, which
+   * lets them assert CRDT semantics for comment-store mutations end-to-end.
+   * Typed as `object` to match the helper's SDK-stub-friendly type erasure.
+   */
+  docA: object;
+  docB: object;
   sync(): Promise<void>;
   cleanup(): Promise<void>;
 }
@@ -114,6 +122,8 @@ export async function createTwoUserDocs(
     return {
       storeA,
       storeB,
+      docA,
+      docB,
       async sync() {
         await syncClients([
           { client: clientA, doc: docA },

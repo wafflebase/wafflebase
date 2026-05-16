@@ -178,6 +178,18 @@ export class DocCanvas {
      * overlay floating off the committed image.
      */
     dragImageRun?: LayoutRun,
+    /**
+     * Yellow highlight rectangles for comment markers. Drawn in the same
+     * z-order pass as search matches (behind selections, above inline
+     * backgrounds). Comment-naive — the canvas does not interpret the ids.
+     */
+    commentMarkers?: ReadonlyArray<{
+      id: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -383,6 +395,19 @@ export class DocCanvas {
               this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
             }
           }
+        }
+      }
+
+      // Draw comment marker highlights for this page (same z-order as
+      // search matches). Background + 1px underline at the bottom edge
+      // (Google Docs parity).
+      if (commentMarkers) {
+        for (const rect of commentMarkers) {
+          if (rect.y + rect.height <= pageY || rect.y >= pageY + page.height) continue;
+          this.ctx.fillStyle = 'rgba(251, 188, 4, 0.25)';
+          this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          this.ctx.fillStyle = '#fbbc04';
+          this.ctx.fillRect(rect.x, rect.y + rect.height - 1, rect.width, 1);
         }
       }
 

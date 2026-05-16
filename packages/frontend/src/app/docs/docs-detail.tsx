@@ -12,7 +12,7 @@ import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { IconFolder, IconSettings, IconDatabase, IconMessage } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { DocsPresence } from "@/types/users";
@@ -29,6 +29,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<EditorAPI | null>(null);
   const [editContext, setEditContext] = useState<EditContext>('body');
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
 
   const { doc } = useDocument<YorkieDocsRoot, DocsPresence>();
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
@@ -177,6 +178,17 @@ function DocsLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
+                commentsPanelOpen ? "bg-muted" : ""
+              }`}
+              aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
+              aria-pressed={commentsPanelOpen}
+              onClick={() => setCommentsPanelOpen((v) => !v)}
+            >
+              <IconMessage size={16} />
+            </button>
             <ShareDialog documentId={documentId} />
             <UserPresence
               onSelectPeer={handleSelectPeer}
@@ -194,6 +206,8 @@ function DocsLayout({ documentId }: { documentId: string }) {
             onEditorReady={setEditor}
             onJumpHandleReady={setJumpHandle}
             documentId={documentId}
+            commentsPanelOpen={commentsPanelOpen}
+            onCommentsPanelOpenChange={setCommentsPanelOpen}
           />
         </div>
       </SidebarInset>

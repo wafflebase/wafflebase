@@ -17,7 +17,7 @@ import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
-import { IconDatabase, IconTable } from "@tabler/icons-react";
+import { IconDatabase, IconMessage, IconTable } from "@tabler/icons-react";
 
 type PeerJumpTarget = {
   activeCell: NonNullable<UserPresenceType["activeCell"]>;
@@ -172,6 +172,7 @@ function SharedDocumentLayout({
 function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
   const [editor, setEditor] = useState<EditorAPI | null>(null);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -184,11 +185,29 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
             </span>
           )}
         </div>
-        <UserPresence />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
+              commentsPanelOpen ? "bg-muted" : ""
+            }`}
+            aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
+            aria-pressed={commentsPanelOpen}
+            onClick={() => setCommentsPanelOpen((v) => !v)}
+          >
+            <IconMessage size={16} />
+          </button>
+          <UserPresence />
+        </div>
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!readOnly && <DocsFormattingToolbar editor={editor} />}
-        <DocsView onEditorReady={setEditor} readOnly={readOnly} />
+        <DocsView
+          onEditorReady={setEditor}
+          readOnly={readOnly}
+          commentsPanelOpen={commentsPanelOpen}
+          onCommentsPanelOpenChange={setCommentsPanelOpen}
+        />
       </div>
     </div>
   );
