@@ -46,7 +46,7 @@ In `packages/slides/src/import/pptx/table.ts`:
       (x=1216). Slide 33 "Yorkie 개발" (right edge 1187) leaves 39 px
       before "hackerwins" (x=1226). Before the fix the texts touched at
       the shared border.
-- [ ] Step 7 — Commit + push, open PR.
+- [x] Step 7 — Commit + push, open PR (#249, CI green, MERGEABLE).
 
 ## Out of scope
 

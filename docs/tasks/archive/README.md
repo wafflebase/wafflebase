@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 177
+Total archived tasks: 179
 
-## 2026/05 (32 tasks)
+## 2026/05 (34 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pptx table cell margins (2026-05-16) | [20260516-pptx-table-cell-margins-todo.md](./2026/05/20260516-pptx-table-cell-margins-todo.md) | [20260516-pptx-table-cell-margins-lessons.md](./2026/05/20260516-pptx-table-cell-margins-lessons.md) |
 | pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./2026/05/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./2026/05/20260515-pptx-import-lessons.md) |
 | slides toolbar redesign (2026-05-15) | [20260515-slides-toolbar-redesign-todo.md](./2026/05/20260515-slides-toolbar-redesign-todo.md) | [20260515-slides-toolbar-redesign-lessons.md](./2026/05/20260515-slides-toolbar-redesign-lessons.md) |
 | slides click insert cursor (2026-05-14) | [20260514-slides-click-insert-cursor-todo.md](./2026/05/20260514-slides-click-insert-cursor-todo.md) | - |
