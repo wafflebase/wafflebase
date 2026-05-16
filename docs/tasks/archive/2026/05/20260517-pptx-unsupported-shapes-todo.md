@@ -44,22 +44,22 @@ Total: 11 new `ShapeKind` values + 1 alias. Roadmap moves
 
 ## Todo
 
-- [ ] Confirm patterns by reading existing builders (`buildRightArrow`, `buildQuadArrow`, `buildWedgeRectCallout`, `buildPentagonArrow`)
-- [ ] `packages/slides/src/view/canvas/shapes/callouts/right-arrow-callout.ts` with shared `ARROW_CALLOUT_ADJUSTMENTS`
-- [ ] `left-arrow-callout.ts` / `up-arrow-callout.ts` / `down-arrow-callout.ts` (mirror/rotate of right)
-- [ ] `left-right-arrow-callout.ts` / `up-down-arrow-callout.ts` (bidirectional body in middle)
-- [ ] `quad-arrow-callout.ts`
-- [ ] `packages/slides/src/view/canvas/shapes/basic/left-bracket.ts` (open path, rounded corners)
-- [ ] `right-bracket.ts` / `left-brace.ts` / `right-brace.ts`
-- [ ] Extend `ShapeKind` union in `packages/slides/src/model/element.ts`
-- [ ] Register PATH_BUILDERS / ADJUSTMENT_SPECS / ADJUSTMENT_HANDLES in `packages/slides/src/view/canvas/shapes/index.ts`
-- [ ] Add `homePlate` → `pentagonArrow` alias in `packages/slides/src/import/pptx/geometry.ts` (`prstToShapeKind`)
-- [ ] Flip the three negative assertions in `packages/slides/test/import/pptx/geometry.test.ts` to positive + add alias test
-- [ ] Unit tests for new builders (nominal frame, 0×0 degenerate)
-- [ ] Update `docs/design/slides/slides-shapes.md` shape count 117 → 128 + new categories
-- [ ] `pnpm verify:fast` green
-- [ ] Visual smoke check via `pnpm dev` on slide 7 / 28 / 31
-- [ ] Open PR; capture lessons; `pnpm tasks:archive && pnpm tasks:index`
+- [x] Confirm patterns by reading existing builders (`buildRightArrow`, `buildQuadArrow`, `buildWedgeRectCallout`, `buildPentagonArrow`)
+- [x] `packages/slides/src/view/canvas/shapes/callouts/right-arrow-callout.ts` with shared `ARROW_CALLOUT_ADJUSTMENTS`
+- [x] `left-arrow-callout.ts` / `up-arrow-callout.ts` / `down-arrow-callout.ts` (mirror/rotate of right)
+- [x] `left-right-arrow-callout.ts` / `up-down-arrow-callout.ts` (bidirectional body in middle)
+- [x] `quad-arrow-callout.ts`
+- [x] `packages/slides/src/view/canvas/shapes/basic/left-bracket.ts` (open path, rounded corners)
+- [x] `right-bracket.ts` / `left-brace.ts` / `right-brace.ts`
+- [x] Extend `ShapeKind` union in `packages/slides/src/model/element.ts`
+- [x] Register PATH_BUILDERS / ADJUSTMENT_SPECS / ADJUSTMENT_HANDLES in `packages/slides/src/view/canvas/shapes/index.ts`
+- [x] Add `homePlate` → `pentagonArrow` alias in `packages/slides/src/import/pptx/geometry.ts` (`prstToShapeKind`)
+- [x] Flip the three negative assertions in `packages/slides/test/import/pptx/geometry.test.ts` to positive + add alias test
+- [x] Unit tests for new builders (nominal frame, 0×0 degenerate)
+- [x] Update `docs/design/slides/slides-shapes.md` shape count 117 → 128 + new categories
+- [x] `pnpm verify:fast` green
+- [x] Visual smoke check via `pnpm dev` on slide 7 / 28 / 31
+- [x] Open PR; capture lessons; `pnpm tasks:archive && pnpm tasks:index`
 
 ## Notes
 
