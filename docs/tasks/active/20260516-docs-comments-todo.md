@@ -249,13 +249,40 @@ together.
 
 ---
 
-## Task 8 — Visual harness
+## Task 8 — Integration tests (multi-user concurrent) + visual harness deferred
+
+The original Task 8 was a Playwright-driven visual harness. The
+project doesn't have a docs-comments visual scaffold yet (the existing
+visual harness routes are sheets-only), and standing one up cleanly is
+a non-trivial side quest that competes with the higher-value
+end-to-end CRDT coverage. So Task 8 is split: Yorkie-level multi-user
+concurrent tests land here, and the Playwright visual harness moves to
+a follow-up PR where it can land with proper baselines.
+
+
 
 **Files:**
 
 - Create: `packages/frontend/visual/docs-comments.spec.ts`
 
-Cases:
+**This PR — multi-user CRDT integration tests** (`.integration.ts`,
+gated by `YORKIE_RPC_ADDR`):
+
+- [x] Concurrent `addThread` on the same range — both preserved with
+  distinct ids
+- [x] Concurrent `addReply` on the same thread — both preserved,
+  deterministic order
+- [x] Concurrent `setThreadResolved` (true vs false) — replicas
+  converge (LWW)
+- [x] A deletes anchor block → B sees orphan; A undoes → B sees live
+  again (anchor stability under structural edits)
+- [ ] Run live against `docker compose up -d` — blocked by a
+  pre-existing `dist/node.js` export gap on `@wafflebase/docs`
+  (`applyDeleteText` and similar are exported by the browser build
+  but not the node entry). All existing `.integration.ts` files share
+  this gate, so the fix lands in a separate PR.
+
+**Visual harness — deferred to follow-up PR:**
 
 - [ ] Range selection + `Cmd+Alt+M` opens composer focused at input
 - [ ] Highlight render across a line wrap (per-line rects)
