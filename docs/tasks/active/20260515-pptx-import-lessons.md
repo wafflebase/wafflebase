@@ -26,6 +26,47 @@ as the work plays out.
 
 ## CLI parity with `docs import`
 
+The slides CLI orchestrator (`runSlidesImport`) is a near-clone of
+`runDocsImport`, with two intentional shape changes worth calling out:
+
+1. **Parser injection.** Docs uses the parser inline via `safeImportDocx`;
+   tests round-trip a real `.docx` through `DocxExporter` to exercise it.
+   Slides has no exporter, so committing a binary fixture or running a
+   full `.pptx` builder in every orchestrator unit test bloats the file.
+   `RunSlidesImportArgs.parser` is the cheap escape hatch — production
+   defaults to `importPptx` from `./pptx-import.js`, tests pass a stub
+   that returns a synthetic `SlidesDocument`.
+
+2. **Report surfacing.** Docs has no equivalent of `ImportReport`, so the
+   CLI prints `{ id, title }` and exits. Slides exposes the full report
+   (`groupsFlattened`, `tablesFlattened`, etc.) as a `report` field on
+   the success envelope. Agentic callers can parse counters without
+   regex-matching the toast string.
+
+## Backend content endpoint dispatch
+
+`PUT /api/v1/workspaces/:wid/documents/:did/content` now serves both
+docs and slides. The controller loads the persisted document type first
+and routes to either `writeDocsRoot` (Yorkie Tree CRDT) or
+`writeSlidesRoot` (plain JSON bulk-assign), with a body sniffer that
+picks the validator arm: `Array.isArray(body.slides)` → slides,
+`Array.isArray(body.blocks)` → docs. Mismatched shape/type combinations
+return 400 before any Yorkie attach fires.
+
+Renaming the controller would have made the dual responsibility more
+visible, but the rename diff would have churned every import site for
+no behavioural gain. Left the file name and added a docstring instead.
+
+## Body shape sniffing vs DB type lookup
+
+A naive design would require the client to pass a `?kind=slides` query
+parameter, but the persisted document type is the source of truth — the
+client already knows which deck they're writing to. The sniff is just a
+defense against malformed payloads reaching either writer (which would
+otherwise crash on dereference); it doesn't decide which arm runs. The
+DB type check still throws BadRequest when the body's shape disagrees,
+so the caller learns about the mismatch immediately.
+
 ## Shared OOXML library — follow-up candidates
 
 Decision (2026-05-15): keep slides PPTX parsing self-contained for PR2;
