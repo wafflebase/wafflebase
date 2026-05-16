@@ -90,6 +90,12 @@ export interface EditorAPI {
   onCursorLinkChange(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
   /** Get the cursor's screen (viewport) coordinates for popover positioning */
   getCursorScreenRect(): { x: number; y: number; height: number } | undefined;
+  /**
+   * Read the active selection range. Returns null when the user has only
+   * a caret (no actual range). Used by callers that need a `DocRange` —
+   * e.g. opening a composer over the current selection.
+   */
+  getActiveSelection(): { anchor: DocPosition; focus: DocPosition } | null;
   /** Register a callback for Cmd/Ctrl+F find requests */
   onFindRequest(cb: () => void): void;
   /** Register a callback for Cmd/Ctrl+H find & replace requests */
@@ -1894,6 +1900,17 @@ export function initialize(
         pos = inlineEnd;
       }
       return undefined;
+    },
+    getActiveSelection: () => {
+      if (!selection.hasSelection() || !selection.range) return null;
+      const r = selection.range;
+      if (
+        r.anchor.blockId === r.focus.blockId &&
+        r.anchor.offset === r.focus.offset
+      ) {
+        return null;
+      }
+      return { anchor: r.anchor, focus: r.focus };
     },
     getCursorScreenRect: () => {
       const vw = (container.parentElement ?? container).getBoundingClientRect().width;

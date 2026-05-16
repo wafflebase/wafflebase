@@ -229,20 +229,23 @@ row-renderer prop.
 Wire the store, decorations, editor setter, and React components
 together.
 
-- [ ] **7.1** `DocsCommentPopover` — positions itself near the clicked
-  marker; falls back to flipped position when near the canvas edge.
-  Re-uses `CommentThreadCard` and `CommentComposer`.
-- [ ] **7.2** `docs-comments-controller.ts` — subscribes to
-  `CommentStore.subscribe()`, recomputes rects on thread or tree
-  change, calls `editor.setCommentMarkers(rects)`, listens for marker
-  clicks via `editor.getCommentMarkerAt`, opens the popover.
-- [ ] **7.3** `docs-view.tsx` — instantiates `YorkieCommentStore`
-  sharing the Yorkie document with `YorkieDocStore`; mounts side panel;
-  wires entry points: right-click "Insert comment", toolbar comment
-  icon, `Cmd+Alt+M` (composer at current selection),
-  `Cmd+Alt+Shift+M` (toggle panel).
-- [ ] **7.4** Read-only mode honored — composer disabled, edit/delete
-  hidden.
+- [x] **7.1** `DocsCommentPopover` — fixed-positioned popover anchored
+  near the clicked marker; clamps to viewport horizontally and flips
+  above the marker when there isn't room below. Reuses
+  `CommentThreadCard` and `CommentComposer`.
+- [x] **7.2** `docs-comments-controller.ts` — `useDocsComments` hook
+  owns the YorkieCommentStore, subscribes to changes, computes marker
+  ranges and pushes them to the editor, dispatches container clicks
+  to `editor.getCommentMarkerAt`, exposes side-panel / popover /
+  compose state.
+- [x] **7.3** `docs-view.tsx` — instantiates the comment store (shares
+  the Yorkie document with `YorkieDocStore`), mounts side panel and
+  popover, wires `Cmd+Alt+M` (compose at selection) and
+  `Cmd+Alt+Shift+M` (toggle panel). Right-click and toolbar entry
+  points deferred to Task 8 polish.
+- [x] **7.4** Read-only mode honored — composer disabled when there is
+  no current user; edit/delete hidden via `CommentThreadCard`'s
+  author check; resolve/reply buttons hidden under `readOnly`.
 
 ---
 

@@ -5,15 +5,24 @@ import {
   type PeerCursor,
 } from "@wafflebase/docs";
 import { getPeerCursorColor } from "@wafflebase/sheets";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useDocument, Tree } from "@yorkie-js/react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
+import type { CommentAuthor } from "@/types/comments";
+import { fetchMeOptional } from "@/api/auth";
+import { Button } from "@/components/ui/button";
+import { CommentComposer } from "@/components/comments/components/CommentComposer";
+import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
+import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
+import { DocsCommentPopover } from "./comments/DocsCommentPopover";
+import { useDocsComments } from "./comments/docs-comments-controller";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { insertImageFromFile } from "./image-insert";
 
@@ -118,6 +127,28 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
   } | null>(null);
   const { doc, loading, error } = useDocument<YorkieDocsRoot>();
   const { resolvedTheme } = useTheme();
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMeOptional,
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUser = useMemo<CommentAuthor | null>(() => {
+    if (!me) return null;
+    return {
+      userId: String(me.id),
+      username: me.username,
+      photo: me.photo || undefined,
+    };
+  }, [me]);
+
+  const comments = useDocsComments({
+    doc: doc ?? null,
+    editor: mountedEditor,
+    container: containerRef.current,
+    currentUser,
+    readOnly: Boolean(readOnly),
+  });
 
   const peerLabelTimers = useRef<Map<string, number>>(new Map());
   const prevPeerCursorPos = useRef<Map<string, string>>(new Map());
@@ -424,6 +455,24 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
     }
   }, [resolvedTheme, buildPeerCursors]);
 
+  // Keyboard shortcuts for comments.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || !e.altKey) return;
+      if (e.key === "M" || e.key === "m") {
+        if (e.shiftKey) {
+          e.preventDefault();
+          comments.togglePanel();
+        } else {
+          if (comments.beginCompose()) e.preventDefault();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [comments]);
+
   if (loading) {
     return <Loader />;
   }
@@ -456,6 +505,82 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
         editor={mountedEditor}
         containerRef={containerRef}
       />
+      {comments.active && (
+        <DocsCommentPopover
+          thread={comments.active.thread}
+          anchorRect={comments.active.anchorRect}
+          currentUser={currentUser ?? undefined}
+          readOnly={readOnly}
+          onReply={(body) => comments.reply(comments.active!.thread.id, body)}
+          onResolveToggle={() => comments.toggleResolved(comments.active!.thread)}
+          onEdit={(commentId, body) =>
+            comments.editComment(comments.active!.thread.id, commentId, body)
+          }
+          onDelete={(commentId) =>
+            comments.deleteComment(comments.active!.thread.id, commentId)
+          }
+          onDismiss={comments.dismissPopover}
+        />
+      )}
+      {comments.composeOpen && (
+        <div
+          role="dialog"
+          aria-label="Insert comment"
+          className="fixed left-1/2 top-1/3 z-50 w-80 -translate-x-1/2 rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
+        >
+          <CommentComposer
+            submitLabel="Comment"
+            autoFocus
+            onSubmit={comments.submitNewComment}
+            onCancel={comments.closeCompose}
+            disabled={!currentUser}
+          />
+        </div>
+      )}
+      {comments.panelOpen && (
+        <div className="absolute right-0 top-0 z-40 h-full">
+          <CommentSidePanel
+            threads={[...comments.state.open, ...comments.state.resolved]}
+            orphanedThreads={comments.state.orphaned}
+            onJumpTo={(t) => {
+              comments.jumpToThread(t);
+            }}
+            onClose={comments.closePanel}
+            renderAnchorLabel={(t) =>
+              t.anchor.quotedText ? (
+                <span className="italic">
+                  &ldquo;{t.anchor.quotedText.slice(0, 40)}
+                  {t.anchor.quotedText.length > 40 ? "…" : ""}&rdquo;
+                </span>
+              ) : null
+            }
+            renderOrphan={(t) => (
+              <OrphanedCard
+                quotedText={t.anchor.quotedText}
+                root={t.comments[0]}
+                commentCount={t.comments.length}
+                trailing={
+                  !readOnly && currentUser ? (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px]"
+                        onClick={() => {
+                          void comments.toggleResolved(t);
+                        }}
+                      >
+                        {t.resolved ? "Reopen" : "Resolve"}
+                      </Button>
+                    </div>
+                  ) : null
+                }
+              />
+            )}
+          />
+        </div>
+      )}
     </div>
   );
 }

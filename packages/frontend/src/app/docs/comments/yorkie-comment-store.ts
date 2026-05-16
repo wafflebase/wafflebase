@@ -1,4 +1,4 @@
-import type yorkie from '@yorkie-js/sdk';
+import type { Document } from '@yorkie-js/react';
 
 import type { CommentStore } from '@/components/comments/comment-store.ts';
 import type {
@@ -97,14 +97,14 @@ function assertNonEmptyBody(body: string): string {
 export class YorkieCommentStore
   implements CommentStore<DocsRangeAnchor, PendingDocsAnchor>
 {
-  private readonly doc: yorkie.Document<YorkieDocsRoot>;
+  private readonly doc: Document<YorkieDocsRoot>;
   private readonly newId: () => string;
   private readonly now: () => number;
   private readonly subscribers = new Set<() => void>();
   private readonly unsubscribeRoot: () => void;
 
   constructor(
-    doc: yorkie.Document<YorkieDocsRoot>,
+    doc: Document<YorkieDocsRoot>,
     opts: YorkieCommentStoreOptions = {},
   ) {
     this.doc = doc;
