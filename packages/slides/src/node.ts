@@ -33,6 +33,9 @@ export type {
 } from './model/presentation';
 export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentation';
 
+export type { ColorScheme, FontScheme, Theme, ThemeColor, ThemeFont } from './model/theme';
+export type { Master, MasterBackground } from './model/master';
+
 export type {
   Crop,
   Element,

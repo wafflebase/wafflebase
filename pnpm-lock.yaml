@@ -228,6 +228,9 @@ importers:
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs
+      '@wafflebase/slides':
+        specifier: workspace:*
+        version: link:../slides
       '@xmldom/xmldom':
         specifier: ^0.9.10
         version: 0.9.10
