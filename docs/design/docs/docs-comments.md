@@ -73,7 +73,7 @@ follow-up PR. Slides comments and mentions/notifications follow after that.
 
 This PR is a single mergeable unit. Sheets is untouched.
 
-```
+```text
 packages/frontend/src/components/comments/        NEW — shared, anchor-generic
 ├── types.ts
 │   ├── CommentAuthor
@@ -424,7 +424,7 @@ older ones at the same spot).
 
 #### 7.1 Component tree (docs)
 
-```
+```text
 DocsView
 ├── DocsCanvas (DocsEditor)
 │   └── (canvas) yellow rects from editor.setCommentMarkers(...)
@@ -472,7 +472,7 @@ threads change or the document re-paginates.
 
 #### 8.1 Unit (Vitest)
 
-```
+```text
 packages/frontend/src/components/comments/__tests__/
 ├── thread.test.ts        # thread/comment creation, body validation, root
 │                         # delete cascade, edit timestamps, resolve transitions
@@ -487,7 +487,7 @@ packages/frontend/src/app/docs/comments/__tests__/
 
 #### 8.2 Yorkie integration (frontend, e2e)
 
-```
+```text
 packages/frontend/src/app/docs/__tests__/comments.test.ts
 ├── concurrent thread creation on the same range — both preserved
 ├── concurrent replies — both preserved, deterministic order
@@ -500,7 +500,7 @@ packages/frontend/src/app/docs/__tests__/comments.test.ts
 
 #### 8.3 Visual / interaction (browser harness)
 
-```
+```text
 packages/frontend/visual/docs-comments.spec.ts
 ├── range selection + Cmd+Alt+M opens composer focused
 ├── highlight render across a line wrap (per-line rects)

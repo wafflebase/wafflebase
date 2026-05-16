@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Check, MoreHorizontal } from "lucide-react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import type {
   Thread,
 } from "@/types/comments";
 
+import { AuthorAvatar } from "./AuthorAvatar";
 import { CommentComposer } from "./CommentComposer";
 
 type Props<A extends CommentAnchor> = {
@@ -66,14 +66,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
     return (
       <div key={c.id} className="group flex flex-col gap-1">
         <header className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Avatar className="h-5 w-5 shrink-0">
-            {c.author.photo && (
-              <AvatarImage src={c.author.photo} alt={c.author.username} />
-            )}
-            <AvatarFallback className="text-[9px]">
-              {c.author.username.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+          <AuthorAvatar author={c.author} size="md" />
           <strong className="font-medium text-foreground">
             {c.author.username}
           </strong>

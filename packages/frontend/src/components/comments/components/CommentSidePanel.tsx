@@ -1,14 +1,11 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
-import type {
-  CommentAnchor,
-  CommentAuthor,
-  Thread,
-} from "@/types/comments";
+import type { CommentAnchor, Thread } from "@/types/comments";
+
+import { AuthorAvatar } from "./AuthorAvatar";
 
 type Props<A extends CommentAnchor> = {
   /** All live (non-orphan) threads, both open and resolved. */
@@ -74,7 +71,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
         </Button>
       </header>
 
-      <div role="tablist" className="flex border-b">
+      <div className="flex border-b">
         <TabButton
           active={tab === "open"}
           onClick={() => setTab("open")}
@@ -168,27 +165,15 @@ function TabButton({
   return (
     <button
       type="button"
-      role="tab"
+      aria-pressed={active}
       className={`flex-1 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground hover:text-foreground"
       }`}
-      aria-selected={active}
       onClick={onClick}
     >
       {label}
     </button>
-  );
-}
-
-function AuthorAvatar({ author }: { author: CommentAuthor }) {
-  return (
-    <Avatar className="h-4 w-4 shrink-0">
-      {author.photo && <AvatarImage src={author.photo} alt={author.username} />}
-      <AvatarFallback className="text-[8px]">
-        {author.username.slice(0, 2).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
   );
 }

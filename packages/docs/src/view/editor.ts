@@ -1912,7 +1912,13 @@ export function initialize(
       ) {
         return null;
       }
-      return { anchor: r.anchor, focus: r.focus };
+      // Return defensive copies — the editor mutates selection.range
+      // in place as the user moves the caret, and callers (controllers
+      // building a PendingDocsAnchor) need a stable snapshot.
+      return {
+        anchor: { blockId: r.anchor.blockId, offset: r.anchor.offset },
+        focus: { blockId: r.focus.blockId, offset: r.focus.offset },
+      };
     },
     getCursorScreenRect: () => {
       const vw = (container.parentElement ?? container).getBoundingClientRect().width;
@@ -1981,7 +1987,14 @@ export function initialize(
       }
     },
     setCommentMarkers: (markers: CommentMarker[]) => {
-      commentMarkers = markers;
+      // Clone so callers can keep their own list (e.g. memoize the
+      // marker array between renders) without our cached rect pass
+      // observing later mutations.
+      commentMarkers = markers.map((m) => ({
+        id: m.id,
+        anchor: { blockId: m.anchor.blockId, offset: m.anchor.offset },
+        focus: { blockId: m.focus.blockId, offset: m.focus.offset },
+      }));
       render();
     },
     getCommentMarkerAt: (clientX: number, clientY: number) => {

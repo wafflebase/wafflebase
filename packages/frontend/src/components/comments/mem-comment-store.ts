@@ -50,7 +50,7 @@ export class MemCommentStore<A extends CommentAnchor = CommentAnchor>
     );
     this.threads.set(thread.id, thread);
     this.notify();
-    return thread;
+    return cloneThread(thread);
   }
 
   async addReply(
@@ -62,7 +62,7 @@ export class MemCommentStore<A extends CommentAnchor = CommentAnchor>
     const next = addReplyPure(thread, body, author, this.newId, this.now);
     this.threads.set(threadId, next);
     this.notify();
-    return next.comments[next.comments.length - 1];
+    return { ...next.comments[next.comments.length - 1] };
   }
 
   async editComment(
@@ -99,7 +99,7 @@ export class MemCommentStore<A extends CommentAnchor = CommentAnchor>
   }
 
   async listThreads(opts?: { resolved?: boolean }): Promise<Thread<A>[]> {
-    const all = Array.from(this.threads.values());
+    const all = Array.from(this.threads.values()).map(cloneThread);
     if (opts?.resolved === undefined) return all;
     return all.filter((t) => t.resolved === opts.resolved);
   }
@@ -120,4 +120,22 @@ export class MemCommentStore<A extends CommentAnchor = CommentAnchor>
   private notify(): void {
     for (const cb of this.subscribers) cb();
   }
+}
+
+/**
+ * Shallow-deep clone — Thread fields are plain JSON-compatible data,
+ * so a one-pass copy is enough to keep returned threads from sharing
+ * references with the store's internal Map.
+ */
+function cloneThread<A extends CommentAnchor>(t: Thread<A>): Thread<A> {
+  const copy: Thread<A> = {
+    id: t.id,
+    anchor: { ...t.anchor } as A,
+    comments: t.comments.map((c) => ({ ...c, author: { ...c.author } })),
+    resolved: t.resolved,
+    createdAt: t.createdAt,
+  };
+  if (t.resolvedAt !== undefined) copy.resolvedAt = t.resolvedAt;
+  if (t.resolvedBy !== undefined) copy.resolvedBy = { ...t.resolvedBy };
+  return copy;
 }

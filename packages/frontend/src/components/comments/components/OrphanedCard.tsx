@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatRelativeTime } from "@/lib/utils";
-import type { Comment, CommentAuthor } from "@/types/comments";
+import type { Comment } from "@/types/comments";
+
+import { AuthorAvatar } from "./AuthorAvatar";
 
 type Props = {
   /** Snapshot of the original anchored text, captured at thread creation. */
@@ -59,13 +60,3 @@ export function OrphanedCard({ quotedText, root, commentCount, trailing }: Props
   );
 }
 
-function AuthorAvatar({ author }: { author: CommentAuthor }) {
-  return (
-    <Avatar className="h-4 w-4 shrink-0">
-      {author.photo && <AvatarImage src={author.photo} alt={author.username} />}
-      <AvatarFallback className="text-[8px]">
-        {author.username.slice(0, 2).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
-  );
-}
