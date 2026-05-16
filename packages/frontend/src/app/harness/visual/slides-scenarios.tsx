@@ -11,6 +11,8 @@ import {
   type PlaceholderType,
   type ShapeKind,
   type SlidesDocument,
+  type SlidesEditor,
+  type SlidesTextBoxEditor,
   type Theme,
   type ThemeColor,
 } from "@wafflebase/slides";
@@ -24,7 +26,7 @@ import {
 import { ThemePanel } from "@/app/slides/theme-panel";
 import { ThemedColorPicker } from "@/app/slides/themed-color-picker";
 import { ThemedFontPicker } from "@/app/slides/themed-font-picker";
-import { SlidesFormattingToolbar } from "@/app/slides/slides-formatting-toolbar";
+import { SlidesToolbar } from "@/app/slides/toolbar";
 
 interface SlidesScenario {
   id: string;
@@ -791,6 +793,91 @@ function SlideCanvas({
   );
 }
 
+// ---- Toolbar mock editor ----
+
+/**
+ * Minimal SlidesEditor stub for toolbar harness scenarios.
+ *
+ * The toolbar only uses:
+ *   - onSelectionChange / onCurrentSlideChange / onTextEditingChange
+ *   - getSelection() / getCurrentSlideId() / isTextEditing()
+ *   - getEditingElementId() / getActiveTextEditor()
+ *
+ * Every other method is a no-op so the toolbar renders in the desired
+ * state without needing a real canvas + DOM overlay + mounted editor.
+ */
+function makeStubEditor(opts: {
+  selection?: readonly string[];
+  slideId?: string;
+  textEditing?: boolean;
+  editingElementId?: string | null;
+  textEditor?: SlidesTextBoxEditor | null;
+}): SlidesEditor {
+  const {
+    selection = [],
+    slideId = "slide-1",
+    textEditing = false,
+    editingElementId = null,
+    textEditor = null,
+  } = opts;
+
+  const noop = () => () => {};
+  const stub: SlidesEditor = {
+    render: () => {},
+    markDirty: () => {},
+    getSelection: () => selection,
+    setSelection: () => {},
+    onSelectionChange: noop,
+    onCurrentSlideChange: noop,
+    onTextEditingChange: noop,
+    onInsertModeChange: noop,
+    setInsertMode: () => {},
+    getInsertMode: () => null,
+    isConnectorMode: () => false,
+    getCurrentSlideId: () => slideId,
+    setCurrentSlide: () => {},
+    isTextEditing: () => textEditing,
+    getEditingElementId: () => editingElementId,
+    getActiveTextEditor: () => textEditor,
+    enterTextEditing: () => {},
+    exitTextEditing: () => {},
+    setHostSize: () => {},
+    align: () => {},
+    distribute: () => {},
+    bringForward: () => {},
+    sendBackward: () => {},
+    bringToFront: () => {},
+    sendToBack: () => {},
+    rotateBy: () => {},
+    detach: () => {},
+  };
+  return stub;
+}
+
+/**
+ * Build a MemSlidesStore prepopulated with a single slide that contains
+ * the given elements. The slide id is always "slide-1" for stub-editor
+ * compatibility.
+ */
+function makeToolbarStore(elements: Element[]): MemSlidesStore {
+  const store = new MemSlidesStore();
+  store.batch(() => {
+    const slideId = store.addSlide("blank");
+    // We need slide-1 as the id for the stub editor. Easiest approach:
+    // read the generated id and work with it — the stub editor returns
+    // slideId dynamically, so we capture what addSlide gave us.
+    // Actually, MemSlidesStore generates a random UUID; the stub editor
+    // returns "slide-1". To keep them in sync we rebuild the store with
+    // a known-id document instead.
+    void slideId;
+  });
+  // Rebuild with a fixed slide id so stub editor's "slide-1" matches.
+  const doc = store.read();
+  doc.slides[0].id = "slide-1";
+  doc.slides[0].elements = elements;
+  return new MemSlidesStore(doc);
+}
+
 // ---- Scenarios ----
 
 const PICKER_THEME: Theme = defaultLight;
@@ -854,12 +941,56 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     render: () => <SlideCanvas doc={makeLayoutDoc("big-number")} />,
   },
   // UI surfaces — toolbar, theme panel, and combined picker dropdowns.
+  // The original idle scenario (slides-toolbar) exercises the no-selection
+  // state; the six new scenarios below exercise each toolbar mode.
   {
     id: "slides-toolbar",
     title: "Formatting toolbar",
     description:
       "Slides toolbar with insert buttons, contextual Fill / Font triggers, and theme toggle. Mounted with a memory store and the default-light theme.",
     render: () => <SlidesToolbarScenario />,
+  },
+  {
+    id: "slides-toolbar-idle",
+    title: "Toolbar — idle (no selection)",
+    description:
+      "Toolbar with a stub editor that returns an empty selection. Shows the idle section: Insert group, slide-background color button, plus global undo/redo/slide/theme/present controls.",
+    render: () => <SlidesToolbarIdleScenario />,
+  },
+  {
+    id: "slides-toolbar-shape-selected",
+    title: "Toolbar — shape selected",
+    description:
+      "Toolbar with a single shape selected. Contextual middle shows the Insert group + Fill color + Border picker + Arrange menu.",
+    render: () => <SlidesToolbarShapeScenario />,
+  },
+  {
+    id: "slides-toolbar-image-selected",
+    title: "Toolbar — image selected",
+    description:
+      "Toolbar with a single image element selected. Contextual middle shows Replace / Crop (disabled placeholder) / Reset / Alt + Arrange.",
+    render: () => <SlidesToolbarImageScenario />,
+  },
+  {
+    id: "slides-toolbar-text-element-selected",
+    title: "Toolbar — text element selected",
+    description:
+      "Toolbar with a single text element selected (not yet in text-edit mode). Contextual middle shows Background fill + Border + Font family + Font size + Arrange.",
+    render: () => <SlidesToolbarTextElementScenario />,
+  },
+  {
+    id: "slides-toolbar-text-editing",
+    title: "Toolbar — text editing active",
+    description:
+      "Toolbar while a text-box editor is active (text-edit mode). Shows TextStyleGroup + TextFormatGroup + TextParagraphGroup with a stub SlidesTextBoxEditor. Done button appears in RightGlobals.",
+    render: () => <SlidesToolbarTextEditingScenario />,
+  },
+  {
+    id: "slides-toolbar-multi-select",
+    title: "Toolbar — multi-select (mixed types)",
+    description:
+      "Toolbar with two elements of different types selected (shape + image = mixed). Contextual format zone is empty; only the Insert group + Arrange menu appear.",
+    render: () => <SlidesToolbarMultiSelectScenario />,
   },
   {
     id: "slides-theme-panel",
@@ -977,10 +1108,308 @@ function SlidesToolbarScenario() {
   const store = useMemo(() => new MemSlidesStore(), []);
   return (
     <div className="rounded-md border bg-background">
-      <SlidesFormattingToolbar
+      <SlidesToolbar
         editor={null}
         store={store}
         theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Scenario: toolbar idle state with a real stub editor (no selection).
+ * Exercises the IdleSection path: Insert group + slide-background button.
+ */
+function SlidesToolbarIdleScenario() {
+  const store = useMemo(() => makeToolbarStore([]), []);
+  const editor = useMemo(() => makeStubEditor({ slideId: "slide-1" }), []);
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Scenario: toolbar with one shape selected.
+ * Exercises the ObjectSection/ShapeControls path: Fill color + Border + Arrange.
+ */
+function SlidesToolbarShapeScenario() {
+  const elements = useMemo<Element[]>(
+    () => [
+      {
+        id: "shape-1",
+        type: "shape",
+        frame: { x: 400, y: 300, w: 300, h: 200, rotation: 0 },
+        data: {
+          kind: "rect" as ShapeKind,
+          fill: { kind: "role", role: "accent1" },
+        },
+      } as Element,
+    ],
+    [],
+  );
+  const store = useMemo(() => makeToolbarStore(elements), [elements]);
+  const editor = useMemo(
+    () => makeStubEditor({ selection: ["shape-1"], slideId: "slide-1" }),
+    [],
+  );
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Scenario: toolbar with one image element selected.
+ * Exercises the ObjectSection/ImageControls path: Replace + Crop (disabled) + Reset + Alt + Arrange.
+ */
+function SlidesToolbarImageScenario() {
+  const elements = useMemo<Element[]>(
+    () => [
+      {
+        id: "image-1",
+        type: "image",
+        frame: { x: 400, y: 200, w: 400, h: 300, rotation: 0 },
+        data: {
+          url: "https://placehold.co/400x300",
+          naturalWidth: 400,
+          naturalHeight: 300,
+        },
+      } as Element,
+    ],
+    [],
+  );
+  const store = useMemo(() => makeToolbarStore(elements), [elements]);
+  const editor = useMemo(
+    () => makeStubEditor({ selection: ["image-1"], slideId: "slide-1" }),
+    [],
+  );
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Scenario: toolbar with one text element selected (not in text-edit mode).
+ * Exercises the ObjectSection/TextElementControls path:
+ * Background fill + Border + Font family + Font size + Arrange.
+ */
+function SlidesToolbarTextElementScenario() {
+  const elements = useMemo<Element[]>(
+    () => [
+      {
+        id: "text-1",
+        type: "text",
+        frame: { x: 200, y: 200, w: 600, h: 200, rotation: 0 },
+        data: {
+          blocks: [
+            {
+              id: "b1",
+              type: "paragraph",
+              inlines: [{ text: "Hello slides" }],
+              style: {
+                alignment: "left",
+                lineHeight: 1.2,
+                marginTop: 0,
+                marginBottom: 0,
+                textIndent: 0,
+                marginLeft: 0,
+              },
+            },
+          ],
+        },
+      } as Element,
+    ],
+    [],
+  );
+  const store = useMemo(() => makeToolbarStore(elements), [elements]);
+  const editor = useMemo(
+    () => makeStubEditor({ selection: ["text-1"], slideId: "slide-1" }),
+    [],
+  );
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Minimal SlidesTextBoxEditor stub for the text-editing toolbar scenario.
+ * Only the methods used by TextStyleGroup / TextFormatGroup / TextParagraphGroup
+ * need to return sensible values; everything else is a no-op.
+ */
+function makeStubTextBoxEditor(): SlidesTextBoxEditor {
+  const noop = () => {};
+  return {
+    isEditing: () => true,
+    focus: noop,
+    detach: noop,
+    commit: noop,
+    container: document.createElement("div"),
+    getSelectionStyle: () => ({
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      fontSize: 18,
+    }),
+    applyStyle: noop,
+    applyBlockStyle: noop,
+    getBlockType: () => ({ type: "paragraph" as const }),
+    setBlockType: noop,
+    toggleList: noop,
+    indent: noop,
+    outdent: noop,
+    insertLink: noop,
+    removeLink: noop,
+    getLinkAtCursor: () => undefined,
+    requestLink: noop,
+    undo: noop,
+    redo: noop,
+    onCursorMove: noop,
+  };
+}
+
+/**
+ * Scenario: toolbar while a text-box editor is active.
+ * Exercises the TextEditSection path:
+ * TextStyleGroup + TextFormatGroup + TextParagraphGroup + Done button.
+ */
+function SlidesToolbarTextEditingScenario() {
+  const textEditor = useMemo(() => makeStubTextBoxEditor(), []);
+  const elements = useMemo<Element[]>(
+    () => [
+      {
+        id: "text-edit-1",
+        type: "text",
+        frame: { x: 200, y: 200, w: 600, h: 200, rotation: 0 },
+        data: {
+          blocks: [
+            {
+              id: "b1",
+              type: "paragraph",
+              inlines: [{ text: "Editing..." }],
+              style: {
+                alignment: "left",
+                lineHeight: 1.2,
+                marginTop: 0,
+                marginBottom: 0,
+                textIndent: 0,
+                marginLeft: 0,
+              },
+            },
+          ],
+        },
+      } as Element,
+    ],
+    [],
+  );
+  const store = useMemo(() => makeToolbarStore(elements), [elements]);
+  const editor = useMemo(
+    () =>
+      makeStubEditor({
+        selection: ["text-edit-1"],
+        slideId: "slide-1",
+        textEditing: true,
+        editingElementId: "text-edit-1",
+        textEditor,
+      }),
+    [textEditor],
+  );
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
+        onToggleThemePanel={() => undefined}
+        themePanelOpen={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * Scenario: toolbar with two elements of different types selected (mixed).
+ * Exercises the ObjectSection with selectionType = 'mixed':
+ * contextual format zone is empty; only Insert group + Arrange appear.
+ */
+function SlidesToolbarMultiSelectScenario() {
+  const elements = useMemo<Element[]>(
+    () => [
+      {
+        id: "shape-ms",
+        type: "shape",
+        frame: { x: 200, y: 200, w: 300, h: 200, rotation: 0 },
+        data: {
+          kind: "ellipse" as ShapeKind,
+          fill: { kind: "role", role: "accent1" },
+        },
+      } as Element,
+      {
+        id: "image-ms",
+        type: "image",
+        frame: { x: 600, y: 200, w: 300, h: 200, rotation: 0 },
+        data: {
+          url: "https://placehold.co/300x200",
+          naturalWidth: 300,
+          naturalHeight: 200,
+        },
+      } as Element,
+    ],
+    [],
+  );
+  const store = useMemo(() => makeToolbarStore(elements), [elements]);
+  const editor = useMemo(
+    () =>
+      makeStubEditor({ selection: ["shape-ms", "image-ms"], slideId: "slide-1" }),
+    [],
+  );
+  return (
+    <div className="rounded-md border bg-background">
+      <SlidesToolbar
+        editor={editor}
+        store={store}
+        theme={defaultLight}
+        onImagePick={() => undefined}
         onToggleThemePanel={() => undefined}
         themePanelOpen={false}
       />

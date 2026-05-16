@@ -1,6 +1,7 @@
 import type { ConnectorElement } from '../../model/connector';
 import type { Element } from '../../model/element';
-import { resolveColor, type Theme } from '../../model/theme';
+import { type Theme } from '../../model/theme';
+import { resolveStrokeColor } from './render-context';
 import { drawArrowhead } from './arrowhead-renderer';
 import { resolveEndpoint } from './connector-frame';
 import { routeStraight } from './routing';
@@ -31,7 +32,7 @@ export function drawConnector(
     color: { kind: 'role' as const, role: 'text' as const },
     width: 2,
   };
-  const strokeColor = resolveColor(stroke.color, theme);
+  const strokeColor = resolveStrokeColor(stroke.color, theme);
 
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = stroke.width;

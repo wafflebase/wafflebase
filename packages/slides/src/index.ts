@@ -48,6 +48,7 @@ export type {
   ShapeElement,
   ShapeKind,
   ShapeStroke,
+  Stroke,
   TextElement,
 } from './model/element';
 export { generateId } from './model/element';
@@ -100,6 +101,7 @@ export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shape
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)

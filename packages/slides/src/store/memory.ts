@@ -6,6 +6,7 @@ import type {
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
 import type { ArrowheadStyle, Endpoint } from '../model/connector';
+import type { Stroke } from '../model/element';
 import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
@@ -303,7 +304,17 @@ export class MemSlidesStore implements SlidesStore {
       );
     }
     // discriminated union — patch only the data sub-object.
-    e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
+    // Apply the patch key-by-key so that explicit `undefined` values remove
+    // the key (JSON.stringify strips undefined, so we cannot use clone here).
+    const merged: Record<string, unknown> = { ...(e.data as object) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) {
+        delete merged[k];
+      } else {
+        merged[k] = clone(v);
+      }
+    }
+    e.data = merged as typeof e.data;
   }
 
   updateConnectorEndpoint(
@@ -351,6 +362,22 @@ export class MemSlidesStore implements SlidesStore {
       }
     }
     e.arrowheads = next;
+  }
+
+  updateConnectorStroke(
+    slideId: string, elementId: string, stroke: Stroke | undefined,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    if (stroke === undefined) {
+      delete e.stroke;
+    } else {
+      e.stroke = clone(stroke);
+    }
   }
 
   reorderElement(

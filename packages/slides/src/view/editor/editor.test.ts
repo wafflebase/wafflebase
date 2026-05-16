@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '../canvas/test-canvas-env';
+import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../store/memory';
 import { initialize, type SlidesEditor } from './editor';
+import type {
+  MountSlidesTextBoxOptions,
+  SlidesTextBoxEditor,
+} from './text-box-editor';
 
 vi.mock('./layout-picker', () => ({
   showLayoutPicker: vi.fn(),
@@ -560,6 +565,237 @@ describe('align/distribute', () => {
     expect(elements.find((e) => e.id === aId)!.frame).toEqual(originalA);
     expect(elements.find((e) => e.id === bId)!.frame).toEqual(originalB);
     expect(elements.find((e) => e.id === cId)!.frame).toEqual(originalC);
+  });
+});
+
+describe('z-order and rotate', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  function addShape(
+    store: MemSlidesStore,
+    sid: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotation = 0,
+  ): string {
+    let id = '';
+    store.batch(() => {
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x, y, w, h, rotation },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return id;
+  }
+
+  it('bringForward moves element at index 1 to index 2 in a 3-element slide', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    const cId = addShape(store, sid, 200, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([bId]);
+    editor.bringForward();
+    const elements = store.read().slides[0].elements;
+    expect(elements.map((e) => e.id)).toEqual([aId, cId, bId]);
+  });
+
+  it('bringForward is a no-op for element already at the end', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([bId]);
+    editor.bringForward();
+    const elements = store.read().slides[0].elements;
+    expect(elements.map((e) => e.id)).toEqual([aId, bId]);
+  });
+
+  it('bringForward is a no-op when selection is empty', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // no setSelection
+    editor.bringForward();
+    expect(store.read().slides[0].elements.map((e) => e.id)).toEqual([aId, bId]);
+  });
+
+  it('sendToBack moves element at index 2 to index 0', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    const cId = addShape(store, sid, 200, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([cId]);
+    editor.sendToBack();
+    const elements = store.read().slides[0].elements;
+    expect(elements.map((e) => e.id)).toEqual([cId, aId, bId]);
+  });
+
+  it('bringToFront moves selected elements to the end preserving relative order', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    const cId = addShape(store, sid, 200, 0, 100, 100);
+    const dId = addShape(store, sid, 300, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, cId]);
+    editor.bringToFront();
+    const elements = store.read().slides[0].elements;
+    // b and d unselected stay, then a and c at the end in original order
+    expect(elements.map((e) => e.id)).toEqual([bId, dId, aId, cId]);
+  });
+
+  it('sendBackward moves element one position toward index 0', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 0, 0, 100, 100);
+    const bId = addShape(store, sid, 100, 0, 100, 100);
+    const cId = addShape(store, sid, 200, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([bId]);
+    editor.sendBackward();
+    expect(store.read().slides[0].elements.map((e) => e.id)).toEqual([bId, aId, cId]);
+  });
+
+  it('rotateBy π/2 on a frame with rotation 0 results in rotation π/2', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const id = addShape(store, sid, 0, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([id]);
+    editor.rotateBy(Math.PI / 2);
+    const el = store.read().slides[0].elements.find((e) => e.id === id)!;
+    expect(el.frame.rotation).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('rotateBy normalises rotation into [0, 2π)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const id = addShape(store, sid, 0, 0, 100, 100, (3 * Math.PI) / 2);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([id]);
+    // 3π/2 + π = 5π/2; normalised → π/2
+    editor.rotateBy(Math.PI);
+    const el = store.read().slides[0].elements.find((e) => e.id === id)!;
+    expect(el.frame.rotation).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('rotateBy is a no-op when selection is empty', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const id = addShape(store, sid, 0, 0, 100, 100);
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // no setSelection
+    editor.rotateBy(Math.PI / 2);
+    const el = store.read().slides[0].elements.find((e) => e.id === id)!;
+    expect(el.frame.rotation).toBe(0);
+  });
+
+  /**
+   * Minimal mock mount factory: mirrors the fuller mock in text-box-editor.test.ts
+   * but without the fireCommit/fireCancel extras not needed here. A real
+   * container is created and appended to the overlay so the editor's
+   * `reattachEditingTextBox` path (which reads `tb.container.parentNode`) works.
+   */
+  function makeMockMount() {
+    function mount(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
+      const container = document.createElement('div');
+      container.className = 'wfb-slides-text-box-editor';
+      container.style.position = 'absolute';
+      opts.overlay.appendChild(container);
+      let mounted = true;
+      return {
+        isEditing: () => mounted,
+        focus: () => undefined,
+        commit: () => opts.onCommit(opts.blocks),
+        detach: () => { mounted = false; container.remove(); },
+        container,
+        getSelectionStyle: () => ({}),
+        applyStyle: () => {},
+        applyBlockStyle: () => {},
+        getBlockType: () => ({ type: 'paragraph' as const }),
+        setBlockType: () => {},
+        toggleList: () => {},
+        indent: () => {},
+        outdent: () => {},
+        insertLink: () => {},
+        removeLink: () => {},
+        getLinkAtCursor: () => undefined,
+        requestLink: () => {},
+        undo: () => {},
+        redo: () => {},
+        onCursorMove: () => {},
+      };
+    }
+    return mount;
+  }
+
+  it.each([
+    ['bringForward',  (ed: SlidesEditor) => ed.bringForward()],
+    ['sendBackward',  (ed: SlidesEditor) => ed.sendBackward()],
+    ['bringToFront',  (ed: SlidesEditor) => ed.bringToFront()],
+    ['sendToBack',    (ed: SlidesEditor) => ed.sendToBack()],
+    ['rotateBy',      (ed: SlidesEditor) => ed.rotateBy(Math.PI / 2)],
+  ] as const)('%s is a no-op while text-editing', (_name, invoke) => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // Three shapes at indices 0–2 so that z-order operations have room to move.
+    const e1 = addShape(store, sid, 0,   0, 100, 100);
+    const e2 = addShape(store, sid, 100, 0, 100, 100);
+    const e3 = addShape(store, sid, 200, 0, 100, 100);
+    // A text element at index 3 — required by enterTextEditing.
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 300, y: 0, w: 100, h: 100, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+    // Enter text-editing on the text element (sets editingElementId).
+    editor.enterTextEditing(textId);
+    // Now select a shape; the guard fires before any re-order / rotate.
+    editor.setSelection([e2]);
+    // Snapshot the element order + rotation before invoking the method.
+    const before = store.read().slides.find((s) => s.id === sid)!.elements.map((e) => e.id);
+    invoke(editor);
+    const after = store.read().slides.find((s) => s.id === sid)!.elements.map((e) => e.id);
+    expect(after).toEqual(before);
+    // Rotation of the actually-selected shape must also be unchanged
+    // (covers rotateBy — selection is [e2]).
+    const el2 = store.read().slides.find((s) => s.id === sid)!.elements.find((e) => e.id === e2)!;
+    expect(el2.frame.rotation).toBe(0);
+    void [e1, e3];
   });
 });
 

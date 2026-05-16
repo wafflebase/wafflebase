@@ -15,6 +15,8 @@ import {
   type Slide as ModelSlide,
   type SlidesDocument,
   type SlidesStore,
+  type Stroke,
+  type TextElement,
   type Theme,
   BUILT_IN_LAYOUTS,
   applyLayoutToSlide,
@@ -278,13 +280,23 @@ export class YorkieSlidesStore implements SlidesStore {
           el.placeholderRef,
         );
         if (el.type === 'text') {
-          const blocks = yorkieToPlain<Block[]>((el.data as { blocks?: unknown }).blocks) ?? [];
+          const rawData = (el.data ?? {}) as Record<string, unknown>;
+          const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
+          // Preserve box-level fields (fill, stroke, …) alongside the
+          // CRDT-backed `blocks` Tree. The Tree itself is bridged through
+          // `withTextElement`, but ancillary `data` keys are plain values
+          // and would otherwise be dropped on every read.
+          const extras: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawData)) {
+            if (k === 'blocks') continue;
+            extras[k] = yorkieToPlain<unknown>(v);
+          }
           return {
             id: el.id,
             type: 'text',
             frame: yorkieToPlain<Frame>(el.frame),
             placeholderRef,
-            data: { blocks },
+            data: { ...extras, blocks } as TextElement['data'],
           };
         }
         if (el.type === 'connector') {
@@ -795,14 +807,23 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       // For text elements, text content goes through `withTextElement`; we
       // ignore any `blocks` field in the patch to avoid clobbering.
+      const source = { ...(patch as object) } as Record<string, unknown>;
       if (e.type === 'text') {
-        const safe = { ...(patch as object) } as Record<string, unknown>;
-        delete safe.blocks;
-        if (Object.keys(safe).length === 0) return;
-        e.data = { ...(e.data as object), ...clone(safe) } as typeof e.data;
-        return;
+        delete source.blocks;
+        if (Object.keys(source).length === 0) return;
       }
-      e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
+      // Apply key-by-key so explicit `undefined` removes the key. JSON.stringify
+      // strips undefined, so the clone-and-spread approach silently dropped
+      // clears (e.g. `{ crop: undefined }` for Reset Crop).
+      const merged: Record<string, unknown> = { ...(e.data as object) };
+      for (const [k, v] of Object.entries(source)) {
+        if (v === undefined) {
+          delete merged[k];
+        } else {
+          merged[k] = clone(v);
+        }
+      }
+      e.data = merged as typeof e.data;
     });
   }
 
@@ -874,6 +895,29 @@ export class YorkieSlidesStore implements SlidesStore {
         }
       }
       c.arrowheads = next;
+    });
+  }
+
+  updateConnectorStroke(
+    slideId: string,
+    elementId: string,
+    stroke: Stroke | undefined,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const e = s.elements.find((e) => e.id === elementId);
+      if (!e) throw new Error(`Element not found: ${elementId}`);
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as { stroke?: Stroke };
+      if (stroke === undefined) {
+        delete c.stroke;
+      } else {
+        c.stroke = clone(stroke);
+      }
     });
   }
 

@@ -1,5 +1,16 @@
+import type { Stroke } from '../../model/element';
 import type { SlidesDocument } from '../../model/presentation';
-import type { Theme } from '../../model/theme';
+import { resolveColor, type Theme, type ThemeColor } from '../../model/theme';
+
+/**
+ * Resolve a stroke color that may be either a legacy ThemeColor discriminated
+ * union (stored in older Yorkie documents) or a plain CSS/hex string (produced
+ * by the toolbar redesign and all new editing paths).
+ */
+export function resolveStrokeColor(color: Stroke['color'], theme: Theme): string {
+  if (typeof color === 'string') return color;
+  return resolveColor(color as ThemeColor, theme);
+}
 
 /**
  * Render-time context bundle threaded through every canvas painter so

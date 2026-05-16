@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { BlockType, EditorAPI, EditContext, HeadingLevel } from "@wafflebase/docs";
-import { Toggle } from "@/components/ui/toggle";
+import type { EditorAPI, EditContext } from "@wafflebase/docs";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
@@ -30,7 +29,6 @@ import {
   IconHighlight,
   IconArrowBackUp,
   IconArrowForwardUp,
-  IconChevronDown,
   IconList,
   IconListNumbers,
   IconIndentDecrease,
@@ -41,78 +39,23 @@ import {
   IconFileDownload,
   IconPhoto,
   IconDotsVertical,
+  IconChevronDown,
 } from "@tabler/icons-react";
+import { Toggle } from "@/components/ui/toggle";
 import { TableGridPicker } from "./table-grid-picker";
 import { exportDocxAndDownload } from "./docx-actions";
 import { exportPdfAndDownload } from "./pdf-actions";
 import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
 import { toast } from "sonner";
+import {
+  TextStyleGroup,
+  TextFormatGroup,
+  TextParagraphGroup,
+} from "@/components/text-formatting";
+import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
+import { isMac, modKey } from "@/components/text-formatting/platform";
 
-/** Style option for the block-type dropdown (Google Docs style). */
-interface StyleOption {
-  label: string;
-  type: BlockType;
-  headingLevel?: HeadingLevel;
-  className: string;
-  shortcut?: string;
-}
-
-const STYLE_OPTIONS: StyleOption[] = [
-  { label: "Normal text", type: "paragraph", className: "text-[13px]", shortcut: "⌥0" },
-  { label: "Title", type: "title", className: "text-[22px] leading-tight" },
-  { label: "Subtitle", type: "subtitle", className: "text-[13px] text-muted-foreground" },
-  { label: "Heading 1", type: "heading", headingLevel: 1, className: "text-[18px] font-bold", shortcut: "⌥1" },
-  { label: "Heading 2", type: "heading", headingLevel: 2, className: "text-[16px] font-bold", shortcut: "⌥2" },
-  { label: "Heading 3", type: "heading", headingLevel: 3, className: "text-[14px] font-bold", shortcut: "⌥3" },
-];
-
-function getBlockLabel(type: BlockType, headingLevel?: HeadingLevel): string {
-  if (type === "title") return "Title";
-  if (type === "subtitle") return "Subtitle";
-  if (type === "heading" && headingLevel) return `Heading ${headingLevel}`;
-  return "Normal text";
-}
-
-const isMac =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-const modKey = isMac ? "⌘" : "Ctrl";
-
-function AlignmentDropdown({ onAlign }: { onAlign: (alignment: "left" | "center" | "right" | "justify") => void }) {
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
-              <IconAlignLeft size={16} />
-              <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Text alignment</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent className="w-[200px]">
-        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("left")}>
-          <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-          <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("center")}>
-          <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-          <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("right")}>
-          <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-          <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("justify")}>
-          <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-          <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
+// ─── Docs-specific sub-components ────────────────────────────────────────────
 
 function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   const [open, setOpen] = useState(false);
@@ -278,6 +221,8 @@ function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
   );
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
 interface DocsFormattingToolbarProps {
   editor: EditorAPI | null;
   editContext?: EditContext;
@@ -323,61 +268,6 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
   const handleUndo = useCallback(() => editor?.undo(), [editor]);
   const handleRedo = useCallback(() => editor?.redo(), [editor]);
 
-  const toggleBold = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ bold: !current.bold });
-  }, [editor]);
-
-  const toggleItalic = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ italic: !current.italic });
-  }, [editor]);
-
-  const toggleUnderline = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ underline: !current.underline });
-  }, [editor]);
-
-  const handleInsertLink = useCallback(() => {
-    if (!editor) return;
-    editor.requestLink();
-  }, [editor]);
-
-  const handleBlockType = useCallback(
-    (type: BlockType, opts?: { headingLevel?: HeadingLevel }) => {
-      editor?.setBlockType(type, opts);
-      editor?.focus();
-    },
-    [editor],
-  );
-
-  const handleAlign = useCallback(
-    (alignment: "left" | "center" | "right" | "justify") => {
-      editor?.applyBlockStyle({ alignment });
-      editor?.focus();
-    },
-    [editor],
-  );
-
-  const handleTextColor = useCallback(
-    (color: string) => {
-      editor?.applyStyle({ color });
-      editor?.focus();
-    },
-    [editor],
-  );
-
-  const handleHighlightColor = useCallback(
-    (backgroundColor: string) => {
-      editor?.applyStyle({ backgroundColor });
-      editor?.focus();
-    },
-    [editor],
-  );
-
   const handleInsertPageNumber = useCallback(() => {
     editor?.insertPageNumber();
     editor?.focus();
@@ -386,7 +276,39 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
   const isHeaderFooter = editContext === 'header' || editContext === 'footer';
   const contextLabel = editContext === 'header' ? 'Header' : 'Footer';
 
+  // ── Header / Footer editing context ──────────────────────────────────────
+  // A slimmed-down toolbar: B/I/U, colors, alignment, page number.
+  // Does not use the shared formatting groups because the header/footer
+  // surface is intentionally narrower (no lists, no link, no styles dropdown).
   if (isHeaderFooter) {
+    const toggleBold = () => {
+      if (!editor) return;
+      const current = editor.getSelectionStyle();
+      editor.applyStyle({ bold: !current.bold });
+    };
+    const toggleItalic = () => {
+      if (!editor) return;
+      const current = editor.getSelectionStyle();
+      editor.applyStyle({ italic: !current.italic });
+    };
+    const toggleUnderline = () => {
+      if (!editor) return;
+      const current = editor.getSelectionStyle();
+      editor.applyStyle({ underline: !current.underline });
+    };
+    const handleTextColor = (color: string) => {
+      editor?.applyStyle({ color });
+      editor?.focus();
+    };
+    const handleHighlightColor = (backgroundColor: string) => {
+      editor?.applyStyle({ backgroundColor });
+      editor?.focus();
+    };
+    const handleAlign = (alignment: "left" | "center" | "right" | "justify") => {
+      editor?.applyBlockStyle({ alignment });
+      editor?.focus();
+    };
+
     return (
       <Toolbar>
         <span className="mr-2 text-xs text-muted-foreground">{contextLabel}</span>
@@ -456,7 +378,37 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <ToolbarSeparator />
 
         {/* ── Alignment ── */}
-        <AlignmentDropdown onAlign={handleAlign} />
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
+                  <IconAlignLeft size={16} />
+                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Text alignment</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent className="w-[200px]">
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+              <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+              <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+              <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+              <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <ToolbarSeparator />
 
@@ -477,6 +429,25 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
       </Toolbar>
     );
   }
+
+  // ── Body editing context ──────────────────────────────────────────────────
+  // Full toolbar — uses shared text-formatting components for the text
+  // formatting controls; docs-specific items (table, image, export, overflow
+  // mobile menu) remain inline.
+
+  // The mobile overflow menu still needs to drive the same operations.
+  // Define minimal local callbacks for the mobile menu only.
+  const handleAlignMobile = (alignment: "left" | "center" | "right" | "justify") => {
+    editor?.applyBlockStyle({ alignment });
+    editor?.focus();
+  };
+  const handleBlockTypeMobile = (type: Parameters<EditorAPI["setBlockType"]>[0], opts?: Parameters<EditorAPI["setBlockType"]>[1]) => {
+    editor?.setBlockType(type, opts);
+    editor?.focus();
+  };
+  const handleInsertLinkMobile = () => {
+    editor?.requestLink();
+  };
 
   return (
     <Toolbar>
@@ -514,144 +485,18 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
       {/* ── Styles (desktop only) ── */}
       {!isMobile && (
         <>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
-                    aria-label="Text style"
-                  >
-                    <span className="truncate">
-                      {editor ? getBlockLabel(
-                        editor.getBlockType().type,
-                        editor.getBlockType().headingLevel,
-                      ) : "Normal text"}
-                    </span>
-                    <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Styles</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent className="w-[210px]">
-              {STYLE_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.label}
-                  className="flex items-center justify-between py-1"
-                  onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
-                >
-                  <span className={opt.className}>{opt.label}</span>
-                  {opt.shortcut && (
-                    <span className="ml-4 text-[11px] text-muted-foreground">{modKey}+{opt.shortcut}</span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
+          <TextStyleGroup editor={editor} />
           <ToolbarSeparator />
         </>
       )}
 
-      {/* ── Font Styles ── */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleBold}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Bold"
-          >
-            <IconBold size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Bold ({modKey}+B)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleItalic}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Italic"
-          >
-            <IconItalic size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Italic ({modKey}+I)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleUnderline}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Underline"
-          >
-            <IconUnderline size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Underline ({modKey}+U)</TooltipContent>
-      </Tooltip>
-
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="Text color"
-              >
-                <IconTypography size={16} />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Text color</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
-          <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="Highlight color"
-              >
-                <IconHighlight size={16} />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Highlight color</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
-          <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* ── Text format (B/I/U, colors, link) ── */}
+      <TextFormatGroup editor={editor} />
 
       {/* ── Insert / Block Styles / Export (desktop only) ── */}
       {!isMobile && (
         <>
           <ToolbarSeparator />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                onClick={handleInsertLink}
-                aria-label="Insert link"
-              >
-                <IconLink size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
-          </Tooltip>
 
           <InsertImageDropdown editor={editor} />
 
@@ -659,60 +504,8 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
           <ToolbarSeparator />
 
-          {/* ── Block Styles ── */}
-          <AlignmentDropdown onAlign={handleAlign} />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
-                aria-label="Numbered list"
-              >
-                <IconListNumbers size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
-                aria-label="Bulleted list"
-              >
-                <IconList size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                onClick={() => { editor?.outdent(); editor?.focus(); }}
-                aria-label="Decrease indent"
-              >
-                <IconIndentDecrease size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                onClick={() => { editor?.indent(); editor?.focus(); }}
-                aria-label="Increase indent"
-              >
-                <IconIndentIncrease size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
-          </Tooltip>
+          {/* ── Paragraph styles (align, lists, indent) ── */}
+          <TextParagraphGroup editor={editor} />
 
           <ToolbarSeparator />
 
@@ -763,9 +556,9 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
                 <DropdownMenuItem
                   key={opt.label}
                   onClick={() =>
-                    handleBlockType(
+                    handleBlockTypeMobile(
                       opt.type,
-                      opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined,
+                      "headingLevel" in opt ? { headingLevel: opt.headingLevel } : undefined,
                     )
                   }
                 >
@@ -774,7 +567,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
               ))}
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Insert</DropdownMenuLabel>
-              <DropdownMenuItem onClick={handleInsertLink}>
+              <DropdownMenuItem onClick={handleInsertLinkMobile}>
                 <IconLink size={16} className="mr-2" />
                 Link
               </DropdownMenuItem>
@@ -806,19 +599,19 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Align</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleAlign("left")}>
+              <DropdownMenuItem onClick={() => handleAlignMobile("left")}>
                 <IconAlignLeft size={16} className="mr-2" />
                 Left
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("center")}>
+              <DropdownMenuItem onClick={() => handleAlignMobile("center")}>
                 <IconAlignCenter size={16} className="mr-2" />
                 Center
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("right")}>
+              <DropdownMenuItem onClick={() => handleAlignMobile("right")}>
                 <IconAlignRight size={16} className="mr-2" />
                 Right
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("justify")}>
+              <DropdownMenuItem onClick={() => handleAlignMobile("justify")}>
                 <IconAlignJustified size={16} className="mr-2" />
                 Justify
               </DropdownMenuItem>

@@ -81,6 +81,16 @@ export interface SlidesStore {
     },
   ): void;
 
+  /**
+   * Update a connector's stroke. Pass `undefined` to remove the stroke
+   * (connector falls back to its default rendering style).
+   */
+  updateConnectorStroke(
+    slideId: string,
+    elementId: string,
+    stroke: import('../model/element').Stroke | undefined,
+  ): void;
+
   // --- text bridges (Phase 5 wires these to docs Tree) ---
 
   /** Mutate the rich-text body of a text element via the docs Tree. */
@@ -99,6 +109,15 @@ export interface SlidesStore {
 
   /** Group all mutations made inside `fn` into one undo entry. */
   batch(fn: () => void): void;
+
+  // --- change notifications ---
+
+  /**
+   * Subscribe to store-level changes (e.g. Yorkie remote updates).
+   * Optional: in-memory stores may omit this; the UI handles its
+   * absence gracefully.
+   */
+  onChange?(cb: () => void): () => void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;

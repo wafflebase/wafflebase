@@ -92,3 +92,4 @@ describe('isElementEmpty', () => {
     expect(isElementEmpty(el)).toBe(false);
   });
 });
+

@@ -68,6 +68,23 @@ function makeMockMount(): {
         opts.onCancel();
       },
       opts,
+      // Formatting surface — no-op stubs for the mock (real delegation is
+      // tested separately via the docs TextBoxEditorAPI tests).
+      getSelectionStyle: () => ({}),
+      applyStyle: () => {},
+      applyBlockStyle: () => {},
+      getBlockType: () => ({ type: 'paragraph' as const }),
+      setBlockType: () => {},
+      toggleList: () => {},
+      indent: () => {},
+      outdent: () => {},
+      insertLink: () => {},
+      removeLink: () => {},
+      getLinkAtCursor: () => undefined,
+      requestLink: () => {},
+      undo: () => {},
+      redo: () => {},
+      onCursorMove: () => {},
     };
     current = tb;
     return tb;
@@ -340,5 +357,154 @@ describe('slides text-box editor wiring', () => {
     expect(tb.isEditing()).toBe(false);
     // Container removed from overlay.
     expect(overlay.contains(tb.container)).toBe(false);
+  });
+});
+
+describe('SlidesEditor text-editing API', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  it('isTextEditing() returns false before any edit, true between enter/exit, false after', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount, current } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    expect(editor.isTextEditing()).toBe(false);
+
+    editor.enterTextEditing(elementId);
+    expect(editor.isTextEditing()).toBe(true);
+
+    current()!.fireCommit([paragraph('done')]);
+    expect(editor.isTextEditing()).toBe(false);
+  });
+
+  it('onTextEditingChange fires once on enter and once on exit', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount, current } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    let calls = 0;
+    editor.onTextEditingChange(() => { calls++; });
+
+    editor.enterTextEditing(elementId);
+    expect(calls).toBe(1);
+
+    current()!.fireCommit([paragraph('done')]);
+    expect(calls).toBe(2);
+  });
+
+  it('getActiveTextEditor() returns null when not editing, non-null when editing', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount, current } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    expect(editor.getActiveTextEditor()).toBeNull();
+
+    editor.enterTextEditing(elementId);
+    expect(editor.getActiveTextEditor()).not.toBeNull();
+
+    current()!.fireCommit([paragraph('done')]);
+    expect(editor.getActiveTextEditor()).toBeNull();
+  });
+
+  it('unsubscribe returned from onTextEditingChange removes the listener', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount, current } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    let calls = 0;
+    const off = editor.onTextEditingChange(() => { calls++; });
+
+    editor.enterTextEditing(elementId);
+    expect(calls).toBe(1);
+
+    off();
+
+    current()!.fireCommit([paragraph('done')]);
+    // Listener was removed — should NOT fire on exit.
+    expect(calls).toBe(1);
+  });
+
+  it('exitTextEditing() commits and exits edit mode', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    editor.enterTextEditing(elementId);
+    expect(editor.isTextEditing()).toBe(true);
+
+    editor.exitTextEditing();
+    expect(editor.isTextEditing()).toBe(false);
+    expect(editor.getActiveTextEditor()).toBeNull();
+  });
+
+  it('getActiveTextEditor() exposes the formatting surface of SlidesTextBoxEditor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = (() => {
+      let id = '';
+      const slideId = store.read().slides[0].id;
+      store.batch(() => { id = store.addElement(slideId, { type: 'text', frame: { x: 100, y: 100, w: 400, h: 200, rotation: 0 }, data: { blocks: [paragraph('hello')] } }); });
+      return { elementId: id };
+    })();
+    const { mount } = makeMockMount();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, mountTextBox: mount });
+
+    editor.enterTextEditing(elementId);
+    const textEditor = editor.getActiveTextEditor();
+    expect(textEditor).not.toBeNull();
+
+    // Verify all formatting methods are present and callable.
+    expect(typeof textEditor!.getSelectionStyle).toBe('function');
+    expect(typeof textEditor!.applyStyle).toBe('function');
+    expect(typeof textEditor!.applyBlockStyle).toBe('function');
+    expect(typeof textEditor!.getBlockType).toBe('function');
+    expect(typeof textEditor!.setBlockType).toBe('function');
+    expect(typeof textEditor!.toggleList).toBe('function');
+    expect(typeof textEditor!.indent).toBe('function');
+    expect(typeof textEditor!.outdent).toBe('function');
+    expect(typeof textEditor!.insertLink).toBe('function');
+    expect(typeof textEditor!.removeLink).toBe('function');
+    expect(typeof textEditor!.getLinkAtCursor).toBe('function');
+    expect(typeof textEditor!.requestLink).toBe('function');
+    expect(typeof textEditor!.undo).toBe('function');
+    expect(typeof textEditor!.redo).toBe('function');
+    expect(typeof textEditor!.onCursorMove).toBe('function');
   });
 });

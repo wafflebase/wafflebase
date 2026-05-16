@@ -1,6 +1,7 @@
 import type { ShapeElement, ShapeKind } from '../../model/element';
 import { resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
+import { resolveStrokeColor } from './render-context';
 import { PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
@@ -53,7 +54,7 @@ export function drawShape(
     ctx.fill(path, EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero');
   }
   if (data.stroke) {
-    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
+    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
     // Round joins so concave corners (e.g. plus / mathPlus inner
     // notches) don't sprout miter spikes that look like a small
@@ -74,7 +75,7 @@ function drawPlaceholderRect(
     ctx.fillRect(0, 0, w, h);
   }
   if (data.stroke) {
-    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
+    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
     ctx.strokeRect(0, 0, w, h);
   }

@@ -144,6 +144,37 @@ export interface SlidesEditor {
    */
   getEditingElementId(): string | null;
   /**
+   * `true` while a text element is in edit mode (i.e. the inline docs
+   * text-box editor is mounted and has focus). Use `onTextEditingChange`
+   * to react to transitions.
+   */
+  isTextEditing(): boolean;
+  /**
+   * Subscribe to text-editing state changes. The callback fires once on
+   * entry (after `editingElementId` is set) and once on exit (after it
+   * is cleared). Returns an unsubscribe function.
+   */
+  onTextEditingChange(cb: () => void): () => void;
+  /**
+   * The active `SlidesTextBoxEditor` while a text element is being
+   * edited, or `null` when no text-box is mounted. Use together with
+   * `isTextEditing()` to bind text-formatting controls to the editor.
+   */
+  getActiveTextEditor(): SlidesTextBoxEditor | null;
+  /**
+   * Programmatically enter text-edit mode on the given element. The
+   * element must be a `text` type on the current slide; no-op otherwise.
+   * Equivalent to a double-click on the element — the docs text-box is
+   * mounted and focused. Safe to call from toolbar buttons and tests.
+   */
+  enterTextEditing(elementId: string): void;
+  /**
+   * Exit text-edit mode, committing any in-flight changes to the store.
+   * No-op when not currently editing. Equivalent to clicking outside the
+   * text-box or pressing Esc (with commit, not discard).
+   */
+  exitTextEditing(): void;
+  /**
    * Subscribe to current-slide changes. Fires whenever
    * `setCurrentSlide` actually changes the rendered slide id.
    * Distinct from `onSelectionChange` because element selection
@@ -189,6 +220,45 @@ export interface SlidesEditor {
    * No-op when fewer than 3 elements are selected.
    */
   distribute(axis: DistributeAxis): void;
+  /**
+   * Move selected elements one position toward the front (higher array
+   * index). Elements already at the end stay put. No-op when nothing is
+   * selected or a text-box is active.
+   *
+   * Operates from highest current index to lowest to avoid index shifts
+   * during the batch. Wrapped in `store.batch()` for atomic undo/redo.
+   */
+  bringForward(): void;
+  /**
+   * Move selected elements one position toward the back (lower array
+   * index). Elements already at index 0 stay put. No-op when nothing is
+   * selected or a text-box is active.
+   *
+   * Operates from lowest current index to highest to avoid index shifts.
+   * Wrapped in `store.batch()` for atomic undo/redo.
+   */
+  sendBackward(): void;
+  /**
+   * Move all selected elements to the front of the z-order, preserving
+   * their relative order among each other. No-op when nothing is selected
+   * or a text-box is active.
+   */
+  bringToFront(): void;
+  /**
+   * Move all selected elements to the back of the z-order, preserving
+   * their relative order among each other. No-op when nothing is selected
+   * or a text-box is active.
+   */
+  sendToBack(): void;
+  /**
+   * Rotate each selected element by `radians` around its own center,
+   * independently. The new `frame.rotation` is normalised into `[0, 2π)`.
+   *
+   * No-op when nothing is selected or a text-box is active.
+   * Each updated frame is written via `store.updateElementFrame` inside
+   * a single `store.batch()` for atomic undo/redo.
+   */
+  rotateBy(radians: number): void;
   detach(): void;
 }
 
@@ -242,6 +312,10 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private editingElementId: string | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
+  /** Listeners for text-editing state changes (enter + exit). */
+  private textEditingListeners = new Set<() => void>();
+  /** The currently active text-box editor, or null when not editing. */
+  private activeTextEditor: SlidesTextBoxEditor | null = null;
   /**
    * Last context-menu click position in viewport (clientX/clientY)
    * coords. Captured in onContextMenu so that menu-item `run`
@@ -459,6 +533,127 @@ class SlidesEditorImpl implements SlidesEditor {
     this.applyFrameUpdates(slide.id, updates);
   }
 
+  bringForward(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect selected indices, operate from highest to lowest (descending sort)
+    // so that moving element at index i to i+1 only shifts the element that was
+    // at i+1 — elements at lower indices are untouched, keeping stored indices valid.
+    const entries = slide.elements
+      .map((el, i) => ({ id: el.id, i }))
+      .filter((e) => selectedIds.has(e.id))
+      .sort((a, b) => b.i - a.i);
+    const length = slide.elements.length;
+    this.options.store.batch(() => {
+      for (const { id, i } of entries) {
+        const target = Math.min(i + 1, length - 1);
+        if (target !== i) this.options.store.reorderElement(slideId, id, target);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  sendBackward(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Ascending sort: moving element at index i to i-1 only shifts the element
+    // that was at i-1 — elements at higher indices are untouched, so the stored
+    // indices of elements processed later remain correct without a live re-read.
+    const entries = slide.elements
+      .map((el, i) => ({ id: el.id, i }))
+      .filter((e) => selectedIds.has(e.id))
+      .sort((a, b) => a.i - b.i);
+    this.options.store.batch(() => {
+      for (const { id, i } of entries) {
+        const target = Math.max(i - 1, 0);
+        if (target !== i) this.options.store.reorderElement(slideId, id, target);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  bringToFront(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect in their current order (relative order preserved at the end).
+    const orderedIds = slide.elements
+      .filter((el) => selectedIds.has(el.id))
+      .map((el) => el.id);
+    this.options.store.batch(() => {
+      // Re-read the live slide on each iteration because reorderElement
+      // mutates the array in place (splice/insert), shifting indices.
+      // Moving in ascending original order and always appending at the
+      // current end yields the correct relative order.
+      for (const id of orderedIds) {
+        const live = this.options.store.read().slides.find((s) => s.id === slideId);
+        if (!live) continue;
+        this.options.store.reorderElement(slideId, id, live.elements.length - 1);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  sendToBack(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return;
+    const slideId = slide.id;
+    // Collect in their current order (relative order preserved at the start).
+    const orderedIds = slide.elements
+      .filter((el) => selectedIds.has(el.id))
+      .map((el) => el.id);
+    this.options.store.batch(() => {
+      // Re-read the live slide on each iteration.
+      // Moving in ascending original order and always prepending at index 0
+      // reverses the relative order, so process in reverse to preserve it.
+      for (const id of [...orderedIds].reverse()) {
+        const live = this.options.store.read().slides.find((s) => s.id === slideId);
+        if (!live) continue;
+        this.options.store.reorderElement(slideId, id, 0);
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+  }
+
+  rotateBy(radians: number): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const framesMap = this.collectSelectedFrames(slide);
+    if (framesMap.size === 0) return;
+    const TWO_PI = 2 * Math.PI;
+    this.options.store.batch(() => {
+      for (const [id, frame] of framesMap) {
+        const newRotation = ((frame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
+        this.options.store.updateElementFrame(slide.id, id, {
+          ...frame,
+          rotation: newRotation,
+        });
+      }
+    });
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
   /**
    * Collect frames for currently-selected elements that still exist on
    * the given slide. Defends against ids that were removed remotely
@@ -557,6 +752,31 @@ class SlidesEditorImpl implements SlidesEditor {
 
   getEditingElementId(): string | null {
     return this.editingElementId;
+  }
+
+  isTextEditing(): boolean {
+    return this.editingElementId !== null;
+  }
+
+  onTextEditingChange(cb: () => void): () => void {
+    this.textEditingListeners.add(cb);
+    return () => {
+      this.textEditingListeners.delete(cb);
+    };
+  }
+
+  getActiveTextEditor(): SlidesTextBoxEditor | null {
+    return this.activeTextEditor;
+  }
+
+  enterTextEditing(elementId: string): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    this.enterEditMode(slide.id, elementId);
+  }
+
+  exitTextEditing(): void {
+    this.exitEditMode('commit');
   }
 
   markDirty(): void {
@@ -867,6 +1087,8 @@ class SlidesEditorImpl implements SlidesEditor {
       },
     });
     this.editingTextBox = tb;
+    this.activeTextEditor = tb;
+    for (const cb of this.textEditingListeners) cb();
     // Repaint the slide canvas so the element being edited disappears
     // (render() filters it out while editingElementId is non-null), then
     // refresh the overlay (which also hides the resize/rotate handles
@@ -903,6 +1125,8 @@ class SlidesEditorImpl implements SlidesEditor {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
     this.editingElementId = null;
+    this.activeTextEditor = null;
+    for (const cb of this.textEditingListeners) cb();
     if (tb !== null) {
       tb.detach();
     }
