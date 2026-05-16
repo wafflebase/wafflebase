@@ -8,81 +8,134 @@ import { polylineArc } from '../curves';
 import { insetAlongAxis } from '../handles';
 
 /**
- * `uturnArrow` — U-shape: vertical arm going up on the left,
- * 180° arc over the top, vertical arm coming down on the right
- * with an arrowhead at the bottom. V0 uses two polyline arcs
- * (outer + inner) for the 180° turn.
+ * `uturnArrow` — flat-top U with rounded corners and an arrowhead at
+ * the bottom of the right arm. Three adjustments:
+ *
+ * - `adj1` (shaft thickness, % of `min(w, h)`)
+ * - `adj2` (arrowhead length, % of `h`)
+ * - `adj3` (outer corner radius, % of `min(w, h)`) — small ⇒ near-
+ *   right-angle look, large ⇒ collapses to the v0 semicircular top.
+ *
+ * `adj4`/`adj5` from OOXML are not modelled yet — PPTX-imported shapes
+ * fall through their defaults.
  */
 export const UTURN_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Shaft thickness', defaultValue: 20000, min: 0, max: 40000 },
   { name: 'Head length', defaultValue: 20000, min: 0, max: 50000 },
+  // Default 50000 chosen so editor-inserted shapes (saved without an
+  // explicit `adj3`) render at the maximum bend radius the clamp will
+  // allow, which collapses the two outer corners to a single
+  // semicircle on square / portrait aspects — the v0 appearance.
+  // OOXML's own default for `adj3` is 25000; PPTX imports carry that
+  // value explicitly and get the flat-top look that matches PowerPoint.
+  { name: 'Bend radius', defaultValue: 50000, min: 0, max: 50000 },
 ];
 
 export const buildUturnArrow: PathBuilder = ({ w, h }, adjustments) => {
   const a1 = adj(adjustments, 0, 20000);
   const a2 = adj(adjustments, 1, 20000);
-  const shaft = (a1 / 100000) * Math.min(w, h);
-  const headLen = (a2 / 100000) * h;
+  const a3 = adj(adjustments, 2, 50000);
+  const ss = Math.min(w, h);
+  const shaft = (a1 / 100000) * ss;
+  const headLen = Math.min((a2 / 100000) * h, h);
   const headHalf = shaft * 0.75;
-  // Arrowhead on the right arm, tip pointing down at the bottom.
+  // Arm centerlines. The right arm carries the arrowhead, whose right
+  // shoulder is flush with the bbox right edge; both arms share the
+  // same outer-wall offset so the U is symmetric.
   const rightCx = w - headHalf;
   const leftCx = headHalf;
-  // Top of the U-turn — semicircle whose centre is between leftCx
-  // and rightCx, sitting at the same y as both arm tops.
-  const turnCx = (leftCx + rightCx) / 2;
-  // Radii chosen so the semicircle endpoints land flush with the arm
-  // walls: outer at `(leftCx - shaft/2)` / `(rightCx + shaft/2)`, inner
-  // at `(leftCx + shaft/2)` / `(rightCx - shaft/2)`. The earlier
-  // `outerR = turnCx` produced visible notches because the arc extended
-  // past the arm walls by `shaft/2`.
-  const outerR = (rightCx - leftCx) / 2 + shaft / 2;
-  const innerR = Math.max(0, (rightCx - leftCx) / 2 - shaft / 2);
-  const turnCy = outerR;
+  const outerLeftX = leftCx - shaft / 2;
+  const outerRightX = rightCx + shaft / 2;
+  const innerLeftX = leftCx + shaft / 2;
+  const innerRightX = rightCx - shaft / 2;
+  // Outer corner radius. Clamped so the two outer corners don't
+  // overlap horizontally and the bend can't dip into the arrowhead
+  // band vertically. When the clamp picks `(outerRightX − outerLeftX) /
+  // 2` (i.e. requested radius >= half the arm separation, which is
+  // typical for square / portrait shapes with the default `adj3`) the
+  // two corners share a centre and the path traces a single semicircle
+  // — the v0 appearance. Landscape shapes always trip the
+  // `h − headLen` cap, so the flat top appears there instead.
+  const bendROuter = Math.max(0, Math.min(
+    (a3 / 100000) * ss,
+    (outerRightX - outerLeftX) / 2,
+    Math.max(0, h - headLen),
+  ));
+  // Inner corner radius. When the bend is thinner than the shaft we
+  // can't fit an inner arc — the inner walls just rise to the inner
+  // top y and connect with a flat segment (sharp inner corner).
+  const bendRInner = Math.max(0, bendROuter - shaft);
+  const innerHasArc = bendRInner > 0;
+  const innerWallTopY = innerHasArc ? bendROuter : shaft;
+  const innerTopEndX = innerHasArc ? outerLeftX + bendROuter : innerLeftX;
+
   const path = new Path2D();
-  // CW from bottom-left of left arm.
-  path.moveTo(leftCx - shaft / 2, h);
-  path.lineTo(leftCx - shaft / 2, turnCy);
-  // Outer semicircle CW from (leftCx - shaft/2, turnCy) at θ = π
-  // around the top to (rightCx + shaft/2, turnCy) at θ = 0. In
-  // screen-y-down: going through θ = -π/2 (top) requires the arc
-  // direction be π → 0 with a step through negative y...
-  // polylineArc(turnCx, turnCy, outerR, outerR, π, 0) traces
-  // BELOW (positive y), but we want above. Use θ from π through
-  // 3π/2 (negative y → top in screen) back to 2π.
-  const outer = polylineArc(
-    turnCx,
-    turnCy,
-    outerR,
-    outerR,
-    Math.PI,
-    2 * Math.PI,
-    16,
-  );
-  for (const p of outer) path.lineTo(p.x, p.y);
-  // Down the right arm to head start.
-  path.lineTo(rightCx + shaft / 2, h - headLen);
-  // Arrowhead.
+  // CW outer, starting from bottom-left of left arm.
+  path.moveTo(outerLeftX, h);
+  path.lineTo(outerLeftX, bendROuter);
+  if (bendROuter > 0) {
+    const arc = polylineArc(
+      outerLeftX + bendROuter,
+      bendROuter,
+      bendROuter,
+      bendROuter,
+      Math.PI,
+      1.5 * Math.PI,
+      8,
+    );
+    for (const p of arc) path.lineTo(p.x, p.y);
+  }
+  // Flat outer top.
+  path.lineTo(outerRightX - bendROuter, 0);
+  if (bendROuter > 0) {
+    const arc = polylineArc(
+      outerRightX - bendROuter,
+      bendROuter,
+      bendROuter,
+      bendROuter,
+      1.5 * Math.PI,
+      2 * Math.PI,
+      8,
+    );
+    for (const p of arc) path.lineTo(p.x, p.y);
+  }
+  // Down the right arm outer wall to head start.
+  path.lineTo(outerRightX, h - headLen);
+  // Arrowhead — right shoulder, tip, left shoulder, back to inner wall.
   path.lineTo(w, h - headLen);
   path.lineTo(rightCx, h);
   path.lineTo(rightCx - headHalf, h - headLen);
-  path.lineTo(rightCx - shaft / 2, h - headLen);
-  path.lineTo(rightCx - shaft / 2, turnCy);
-  // Inner semicircle back (reverse of outer).
-  if (innerR > 0) {
-    const inner = polylineArc(
-      turnCx,
-      turnCy,
-      innerR,
-      innerR,
+  path.lineTo(innerRightX, h - headLen);
+  // Up the right arm inner wall.
+  path.lineTo(innerRightX, innerWallTopY);
+  if (innerHasArc) {
+    const arc = polylineArc(
+      outerRightX - bendROuter,
+      bendROuter,
+      bendRInner,
+      bendRInner,
       2 * Math.PI,
-      Math.PI,
-      16,
+      1.5 * Math.PI,
+      8,
     );
-    for (const p of inner) path.lineTo(p.x, p.y);
-  } else {
-    path.lineTo(turnCx, turnCy);
+    for (const p of arc) path.lineTo(p.x, p.y);
   }
-  path.lineTo(leftCx + shaft / 2, h);
+  // Flat inner top at y = shaft (top wall thickness = shaft).
+  path.lineTo(innerTopEndX, shaft);
+  if (innerHasArc) {
+    const arc = polylineArc(
+      outerLeftX + bendROuter,
+      bendROuter,
+      bendRInner,
+      bendRInner,
+      1.5 * Math.PI,
+      Math.PI,
+      8,
+    );
+    for (const p of arc) path.lineTo(p.x, p.y);
+  }
+  // Down the left arm inner wall.
+  path.lineTo(innerLeftX, h);
   path.closePath();
   return path;
 };

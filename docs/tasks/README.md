@@ -29,7 +29,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 179
+- Archived task count: 180
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: slides connectors pr1 (2026-05-15)

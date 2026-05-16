@@ -9829,6 +9829,14 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 0,
         },
         {
+          "x": 50,
+          "y": 0,
+        },
+        {
+          "x": 50,
+          "y": 0,
+        },
+        {
           "x": 58.779064,
           "y": 0.864662,
         },
@@ -9915,6 +9923,14 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 54.877258,
           "y": 20.480368,
+        },
+        {
+          "x": 50,
+          "y": 20,
+        },
+        {
+          "x": 50,
+          "y": 20,
         },
         {
           "x": 50,
