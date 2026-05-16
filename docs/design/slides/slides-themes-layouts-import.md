@@ -362,7 +362,7 @@ choice is **reuse existing**.
 | `<p:cxnSp>` | ShapeElement (line/arrow) | ✅ |
 | `<p:grpSp>` | Flatten: child frames composed with group transform | ⚠️ (group lost) |
 | `<p:graphicFrame><a:tbl>` | Matrix of TextElements + border ShapeElements per cell | ⚠️ (until docs-tables integration in v1.5) |
-| `<a:blip>` `alphaModFix` | applied as image alpha | ⚠️ |
+| `<a:blip>` `alphaModFix` | `amt / 100_000` → `ImageElement.data.opacity` (clamped to `[0, 1]`; dropped at 1) | ✅ |
 | `<a:blip>` recolor / duotone | dropped | ❌ |
 | `frame.rotation` (`rot`) | EMU degrees → radians | ✅ |
 | `<a:schemeClr>` | `ThemeColor { kind: 'role' }` | ✅ |

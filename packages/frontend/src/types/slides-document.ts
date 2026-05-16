@@ -88,6 +88,7 @@ export interface YorkieImageElement {
     src: string;
     crop?: { x: number; y: number; w: number; h: number };
     alt?: string;
+    opacity?: number;
   };
 }
 
