@@ -1,7 +1,7 @@
 import type { Frame } from '../../model/element';
 import type { ShapeKind } from '../../model/element';
 import { PATH_BUILDERS } from '../../view/canvas/shapes';
-import { attrInt, child } from './xml';
+import { attr, attrInt, child } from './xml';
 
 /** EMU per inch — fundamental OOXML constant. */
 export const EMU_PER_INCH = 914_400;
@@ -62,13 +62,20 @@ export function parseXfrm(xfrm: Element | undefined, scale: EmuScale): Frame {
   const cx = ext ? (attrInt(ext, 'cx') ?? 0) : 0;
   const cy = ext ? (attrInt(ext, 'cy') ?? 0) : 0;
   const rot = attrInt(xfrm, 'rot') ?? 0;
-  return {
+  const flipH = attr(xfrm, 'flipH') === '1';
+  const flipV = attr(xfrm, 'flipV') === '1';
+  const frame: Frame = {
     x: x * scale.sx,
     y: y * scale.sy,
     w: cx * scale.sx,
     h: cy * scale.sy,
     rotation: rot ? rotEmuToRad(rot) : 0,
   };
+  // Only carry the flip fields when set so unflipped frames keep their
+  // existing JSON shape (Yorkie state and snapshots stay stable).
+  if (flipH) frame.flipH = true;
+  if (flipV) frame.flipV = true;
+  return frame;
 }
 
 /**

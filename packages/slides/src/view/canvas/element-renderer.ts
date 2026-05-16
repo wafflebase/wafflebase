@@ -47,11 +47,20 @@ export function drawElement(
   // (e.g. malformed image data) leaks the rotate / translate transform
   // into every subsequent element on the slide.
   try {
-    if (frame.rotation === 0) {
+    const flipped = frame.flipH || frame.flipV;
+    if (frame.rotation === 0 && !flipped) {
       ctx.translate(frame.x, frame.y);
     } else {
+      // Centre-relative transform: rotate, then flip, then move the
+      // local origin back to the frame top-left. Flip uses the same
+      // centre as rotation, matching OOXML <a:xfrm flipH/flipV>
+      // semantics. The frame rect itself is unchanged, so hit-test
+      // and selection-box math stay valid.
       ctx.translate(frame.x + frame.w / 2, frame.y + frame.h / 2);
-      ctx.rotate(frame.rotation);
+      if (frame.rotation !== 0) ctx.rotate(frame.rotation);
+      if (flipped) {
+        ctx.scale(frame.flipH ? -1 : 1, frame.flipV ? -1 : 1);
+      }
       ctx.translate(-frame.w / 2, -frame.h / 2);
     }
     const size = { w: frame.w, h: frame.h };

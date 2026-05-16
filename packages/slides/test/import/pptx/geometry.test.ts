@@ -71,6 +71,38 @@ describe('parseXfrm', () => {
       rotation: 0,
     });
   });
+
+  it('reads flipH / flipV when set, omits the fields when absent', () => {
+    const s = emuScale(DEFAULT_WIDESCREEN_EMU);
+    const noFlip = parseXfrm(
+      parseXml(
+        `<a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>`,
+      ).documentElement,
+      s,
+    );
+    expect('flipH' in noFlip).toBe(false);
+    expect('flipV' in noFlip).toBe(false);
+
+    // Mirrors slide 6 of "Yorkie, 캐즘 뛰어넘기.pptx".
+    const both = parseXfrm(
+      parseXml(
+        `<a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" flipH="1" rot="10800000"><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>`,
+      ).documentElement,
+      s,
+    );
+    expect(both.flipH).toBe(true);
+    expect('flipV' in both).toBe(false);
+    expect(both.rotation).toBeCloseTo(Math.PI, 9);
+
+    const flipV = parseXfrm(
+      parseXml(
+        `<a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" flipV="1"><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>`,
+      ).documentElement,
+      s,
+    );
+    expect('flipH' in flipV).toBe(false);
+    expect(flipV.flipV).toBe(true);
+  });
 });
 
 describe('prstToShapeKind', () => {

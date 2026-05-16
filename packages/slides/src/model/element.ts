@@ -9,6 +9,16 @@ export type Frame = {
   h: number;
   /** Rotation around the element center, in radians. */
   rotation: number;
+  /**
+   * Horizontal/vertical mirroring around the frame centre, applied
+   * after `rotation`. Optional so older serialized state (and
+   * elements that never need a flip) keeps its current JSON shape;
+   * absent ⇒ no flip. Matches OOXML `<a:xfrm flipH/flipV>` semantics
+   * — the path is mirrored at paint time only, the frame rect is
+   * unchanged so hit-test and selection box stay the same.
+   */
+  flipH?: boolean;
+  flipV?: boolean;
 };
 
 export type ImageRef = {

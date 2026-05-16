@@ -33,10 +33,23 @@ const DOC: SlidesDocument = {
   slides: [],
 };
 
-const shapeAt = (x: number, y: number, rotation = 0): Element => ({
+const shapeAt = (
+  x: number,
+  y: number,
+  rotation = 0,
+  flip?: { flipH?: boolean; flipV?: boolean },
+): Element => ({
   id: 'e1',
   type: 'shape',
-  frame: { x, y, w: 100, h: 60, rotation },
+  frame: {
+    x,
+    y,
+    w: 100,
+    h: 60,
+    rotation,
+    ...(flip?.flipH ? { flipH: true } : {}),
+    ...(flip?.flipV ? { flipV: true } : {}),
+  },
   data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
@@ -61,8 +74,53 @@ describe('drawElement — frame transform', () => {
     // 1) translate to frame centre = (10 + 50, 20 + 30) = (60, 50)
     expect(ctx.translate).toHaveBeenNthCalledWith(1, 60, 50);
     expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 4);
+    expect(ctx.scale).not.toHaveBeenCalled();
     // 2) translate back to top-left = (-w/2, -h/2)
     expect(ctx.translate).toHaveBeenNthCalledWith(2, -50, -30);
+  });
+
+  it('applies scale(-1, 1) around the frame centre when flipH is set', () => {
+    const ctx = createCtxSpy();
+    drawElement(
+      asCtx(ctx),
+      shapeAt(10, 20, 0, { flipH: true }),
+      DOC,
+      THEME,
+      () => undefined,
+    );
+    // Order: translate-to-centre, scale, translate-back. No rotate (rotation=0).
+    expect(ctx.translate).toHaveBeenNthCalledWith(1, 60, 50);
+    expect(ctx.rotate).not.toHaveBeenCalled();
+    expect(ctx.scale).toHaveBeenCalledWith(-1, 1);
+    expect(ctx.translate).toHaveBeenNthCalledWith(2, -50, -30);
+  });
+
+  it('combines rotation and flipH (matches OOXML rot + flipH semantics)', () => {
+    const ctx = createCtxSpy();
+    // Slide 6 case: rot=180° + flipH=1.
+    drawElement(
+      asCtx(ctx),
+      shapeAt(10, 20, Math.PI, { flipH: true }),
+      DOC,
+      THEME,
+      () => undefined,
+    );
+    expect(ctx.translate).toHaveBeenNthCalledWith(1, 60, 50);
+    expect(ctx.rotate).toHaveBeenCalledWith(Math.PI);
+    expect(ctx.scale).toHaveBeenCalledWith(-1, 1);
+    expect(ctx.translate).toHaveBeenNthCalledWith(2, -50, -30);
+  });
+
+  it('applies scale(1, -1) for flipV alone', () => {
+    const ctx = createCtxSpy();
+    drawElement(
+      asCtx(ctx),
+      shapeAt(10, 20, 0, { flipV: true }),
+      DOC,
+      THEME,
+      () => undefined,
+    );
+    expect(ctx.scale).toHaveBeenCalledWith(1, -1);
   });
 
   it('dispatches to drawShape for shape elements', () => {
