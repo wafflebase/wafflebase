@@ -975,9 +975,19 @@ export class TextEditor {
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
 
-    // Ignore clicks on non-canvas UI elements (e.g. context menu buttons)
+    // Ignore clicks on non-canvas UI elements (context menu buttons,
+    // floating popovers, side panels, composer textareas). Without
+    // letting them through the editor would call preventDefault() and
+    // strip focus from anything the user actually clicked on.
     const target = e.target as HTMLElement;
-    if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button, [role="menu"], [role="menuitem"]')) return;
+    if (
+      target.tagName === 'BUTTON' ||
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.closest(
+        'button, [role="menu"], [role="menuitem"], [role="dialog"], [data-comments-overlay]',
+      )
+    ) return;
 
     // Right-click: preserve the existing selection so context menus
     // (table cell merge, "Insert comment" on a text range) can operate
