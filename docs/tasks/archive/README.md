@@ -6,13 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 177
+Total archived tasks: 182
 
-## 2026/05 (32 tasks)
+## 2026/05 (37 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
+| slides uturn arrow bbox flip (2026-05-17) | [20260517-slides-uturn-arrow-bbox-flip-todo.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-todo.md) | [20260517-slides-uturn-arrow-bbox-flip-lessons.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-lessons.md) |
 | docs comments (2026-05-16) | [20260516-docs-comments-todo.md](./2026/05/20260516-docs-comments-todo.md) | [20260516-docs-comments-lessons.md](./2026/05/20260516-docs-comments-lessons.md) |
+| pptx table cell margins (2026-05-16) | [20260516-pptx-table-cell-margins-todo.md](./2026/05/20260516-pptx-table-cell-margins-todo.md) | [20260516-pptx-table-cell-margins-lessons.md](./2026/05/20260516-pptx-table-cell-margins-lessons.md) |
+| pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./2026/05/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./2026/05/20260515-pptx-import-lessons.md) |
 | slides toolbar redesign (2026-05-15) | [20260515-slides-toolbar-redesign-todo.md](./2026/05/20260515-slides-toolbar-redesign-todo.md) | [20260515-slides-toolbar-redesign-lessons.md](./2026/05/20260515-slides-toolbar-redesign-lessons.md) |
 | slides click insert cursor (2026-05-14) | [20260514-slides-click-insert-cursor-todo.md](./2026/05/20260514-slides-click-insert-cursor-todo.md) | - |
 | slides shapes p3b (2026-05-13) | [20260513-slides-shapes-p3b-todo.md](./2026/05/20260513-slides-shapes-p3b-todo.md) | [20260513-slides-shapes-p3b-lessons.md](./2026/05/20260513-slides-shapes-p3b-lessons.md) |
@@ -42,6 +46,7 @@ Total archived tasks: 177
 | docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./2026/05/20260502-docs-cli-todo.md) | [20260502-docs-cli-lessons.md](./2026/05/20260502-docs-cli-lessons.md) |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./2026/05/20260501-release-0.3.6-todo.md) | - |
+| table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./2026/05/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |
 

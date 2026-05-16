@@ -19,20 +19,18 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | - |
-| pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./active/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./active/20260515-pptx-import-lessons.md) |
 | slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./active/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./active/20260515-slides-connectors-pr1-lessons.md) |
 | slides keyboard shortcuts (2026-05-14) | [20260514-slides-keyboard-shortcuts-todo.md](./active/20260514-slides-keyboard-shortcuts-todo.md) | - |
 | slides presentation mode (2026-05-14) | [20260514-slides-presentation-mode-todo.md](./active/20260514-slides-presentation-mode-todo.md) | - |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
-| table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./active/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 177
+- Archived task count: 182
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: docs comments followup (2026-05-17)
