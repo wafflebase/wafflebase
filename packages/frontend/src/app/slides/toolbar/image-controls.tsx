@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ImageElement, SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import {
   DropdownMenu,
@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
+import { toast } from 'sonner';
 import {
   IconReplace,
   IconCrop,
@@ -59,13 +60,18 @@ export function ImageControls({
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      await replaceImageOnSlide({
-        store,
-        slideId,
-        elementId: firstId,
-        file,
-        upload,
-      });
+      try {
+        await replaceImageOnSlide({
+          store,
+          slideId,
+          elementId: firstId,
+          file,
+          upload,
+        });
+      } catch (err) {
+        console.error('Failed to replace image', err);
+        toast.error('Failed to replace image');
+      }
     };
     input.click();
   }, [store, slideId, firstId, upload]);
@@ -158,6 +164,12 @@ interface AltTextDropdownProps {
 
 function AltTextDropdown({ value, onSave, disabled }: AltTextDropdownProps) {
   const [draft, setDraft] = useState(value);
+  // Re-sync when the parent swaps to a different image (or the value
+  // changes from a remote edit) — without this, stale alt text bleeds
+  // across selections and saves back over the new image.
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
 
   return (
     <DropdownMenu>

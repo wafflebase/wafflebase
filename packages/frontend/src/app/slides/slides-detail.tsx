@@ -209,7 +209,7 @@ function SlidesLayout({ documentId }: { documentId: string }) {
 
   // Opens a file picker and inserts the chosen image into the current slide.
   const handleImagePick = useCallback(async () => {
-    if (!store) return;
+    if (!store || !workspaceId) return;
     const slideId = editor?.getCurrentSlideId();
     if (!slideId) return;
     const input = document.createElement("input");
@@ -218,10 +218,15 @@ function SlidesLayout({ documentId }: { documentId: string }) {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      await insertImageOnSlide({ store, slideId, file, upload: uploadFn });
+      try {
+        await insertImageOnSlide({ store, slideId, file, upload: uploadFn });
+      } catch (err) {
+        console.error("Failed to insert image", err);
+        toast.error("Failed to insert image");
+      }
     };
     input.click();
-  }, [store, editor, uploadFn]);
+  }, [store, editor, uploadFn, workspaceId]);
 
   return (
     <SidebarProvider>

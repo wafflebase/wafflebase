@@ -279,6 +279,10 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // Callback registered via onCursorMove(). Declared here so renderNow
   // can reference it in the closure before api is constructed.
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
+  // Last-fired position so renderNow only invokes the callback when the
+  // cursor or selection actually moved — without this, cursor-blink
+  // re-renders thrash subscribers (e.g. format toolbars) every ~500 ms.
+  let lastCursorMoveKey: string | null = null;
 
   // Painting. `paintLayout` handles the run / line / list-marker walk;
   // we only need to translate the cursor / selection rectangles from
@@ -344,12 +348,17 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     ctx.restore();
 
     // Notify cursor-move subscribers (e.g. toolbar controls that read
-    // getSelectionStyle() to update bold/italic toggles).
+    // getSelectionStyle() to update bold/italic toggles). Skip when
+    // neither cursor nor selection has shifted since the last fire.
     if (cursorMoveCallback) {
       const selRange = selection.hasSelection() && selection.range
         ? { anchor: selection.range.anchor, focus: selection.range.focus }
         : null;
-      cursorMoveCallback(cursor.position, selRange);
+      const key = JSON.stringify({ cur: cursor.position, sel: selRange });
+      if (key !== lastCursorMoveKey) {
+        lastCursorMoveKey = key;
+        cursorMoveCallback(cursor.position, selRange);
+      }
     }
   };
 

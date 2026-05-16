@@ -16,6 +16,7 @@ import {
   type SlidesDocument,
   type SlidesStore,
   type Stroke,
+  type TextElement,
   type Theme,
   BUILT_IN_LAYOUTS,
   applyLayoutToSlide,
@@ -279,13 +280,23 @@ export class YorkieSlidesStore implements SlidesStore {
           el.placeholderRef,
         );
         if (el.type === 'text') {
-          const blocks = yorkieToPlain<Block[]>((el.data as { blocks?: unknown }).blocks) ?? [];
+          const rawData = (el.data ?? {}) as Record<string, unknown>;
+          const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
+          // Preserve box-level fields (fill, stroke, …) alongside the
+          // CRDT-backed `blocks` Tree. The Tree itself is bridged through
+          // `withTextElement`, but ancillary `data` keys are plain values
+          // and would otherwise be dropped on every read.
+          const extras: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawData)) {
+            if (k === 'blocks') continue;
+            extras[k] = yorkieToPlain<unknown>(v);
+          }
           return {
             id: el.id,
             type: 'text',
             frame: yorkieToPlain<Frame>(el.frame),
             placeholderRef,
-            data: { blocks },
+            data: { ...extras, blocks } as TextElement['data'],
           };
         }
         if (el.type === 'connector') {

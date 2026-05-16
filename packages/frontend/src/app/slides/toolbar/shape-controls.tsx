@@ -98,7 +98,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
                 <button
                   type="button"
                   aria-label="Fill color"
-                  disabled={!store || !slideId}
+                  disabled={!store || !slideId || !theme}
                   className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 >
                   <IconColorSwatch size={16} />

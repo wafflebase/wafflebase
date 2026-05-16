@@ -791,12 +791,11 @@ describe('z-order and rotate', () => {
     invoke(editor);
     const after = store.read().slides.find((s) => s.id === sid)!.elements.map((e) => e.id);
     expect(after).toEqual(before);
-    // Rotation of e1 must also be unchanged (covers rotateBy).
-    const el1 = after.includes(e1)
-      ? store.read().slides.find((s) => s.id === sid)!.elements.find((e) => e.id === e1)!
-      : undefined;
-    if (el1) expect(el1.frame.rotation).toBe(0);
-    void [e3];
+    // Rotation of the actually-selected shape must also be unchanged
+    // (covers rotateBy — selection is [e2]).
+    const el2 = store.read().slides.find((s) => s.id === sid)!.elements.find((e) => e.id === e2)!;
+    expect(el2.frame.rotation).toBe(0);
+    void [e1, e3];
   });
 });
 

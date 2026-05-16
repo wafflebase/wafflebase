@@ -21,6 +21,7 @@ import {
   IconBold,
   IconItalic,
   IconUnderline,
+  IconStrikethrough,
   IconTypography,
   IconHighlight,
   IconLink,
@@ -35,6 +36,8 @@ interface TextFormatGroupProps {
 }
 
 export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupProps) {
+  const selectionStyle = editor?.getSelectionStyle();
+
   const toggleBold = useCallback(() => {
     if (!editor) return;
     const current = editor.getSelectionStyle();
@@ -51,6 +54,12 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
     if (!editor) return;
     const current = editor.getSelectionStyle();
     editor.applyStyle({ underline: !current.underline });
+  }, [editor]);
+
+  const toggleStrike = useCallback(() => {
+    if (!editor) return;
+    const current = editor.getSelectionStyle();
+    editor.applyStyle({ strikethrough: !current.strikethrough });
   }, [editor]);
 
   const handleTextColor = useCallback(
@@ -85,6 +94,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
+            pressed={!!selectionStyle?.bold}
             onPressedChange={toggleBold}
             className="h-7 w-7 cursor-pointer"
             aria-label="Bold"
@@ -101,6 +111,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
+            pressed={!!selectionStyle?.italic}
             onPressedChange={toggleItalic}
             className="h-7 w-7 cursor-pointer"
             aria-label="Italic"
@@ -117,6 +128,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
+            pressed={!!selectionStyle?.underline}
             onPressedChange={toggleUnderline}
             className="h-7 w-7 cursor-pointer"
             aria-label="Underline"
@@ -126,6 +138,23 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
           </Toggle>
         </TooltipTrigger>
         <TooltipContent>Underline ({modKey}+U)</TooltipContent>
+      </Tooltip>
+
+      {/* Strikethrough */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={!!selectionStyle?.strikethrough}
+            onPressedChange={toggleStrike}
+            className="h-7 w-7 cursor-pointer"
+            aria-label="Strikethrough"
+            disabled={isDisabled}
+          >
+            <IconStrikethrough size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Strikethrough</TooltipContent>
       </Tooltip>
 
       {/* Text color */}
