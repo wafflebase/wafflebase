@@ -12,6 +12,7 @@ import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, ge
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
+import { findMarkerAt, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
@@ -97,6 +98,18 @@ export interface EditorAPI {
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
   /** Clear all search match highlights and optionally move cursor to active match */
   clearSearchMatches(moveCursorToActive?: boolean): void;
+  /**
+   * Set the rectangles for comment markers. Comment-naive: the editor
+   * draws them as yellow highlights but does not interpret the ids.
+   * Pass an empty array to clear. Replaces any previous set.
+   */
+  setCommentMarkers(rects: HighlightRect[]): void;
+  /**
+   * Return the marker id under (x, y) in logical canvas coordinates, or
+   * null when no marker is hit. When rects overlap, the last-added rect
+   * wins.
+   */
+  getCommentMarkerAt(x: number, y: number): string | null;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -480,6 +493,7 @@ export function initialize(
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
+  let commentMarkers: HighlightRect[] = [];
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -965,6 +979,7 @@ export function initialize(
       selectedImageRect,
       imageResizeHudText,
       dragImageRun,
+      commentMarkers,
     );
 
     // Draw drag guideline if active. Guideline coords are in unscaled
@@ -1926,6 +1941,11 @@ export function initialize(
         }
       }
     },
+    setCommentMarkers: (rects: HighlightRect[]) => {
+      commentMarkers = rects;
+      render();
+    },
+    getCommentMarkerAt: (x: number, y: number) => findMarkerAt(commentMarkers, x, y),
     clearSearchMatches: (moveCursorToActive?: boolean) => {
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {

@@ -149,16 +149,17 @@ existing `YorkieDocStore` so `addThread` can run inside a single
 Small, comment-naive change to the docs package. Modeled directly on
 `setSearchMatches`.
 
-- [ ] **4.1** Add `HighlightRect` type (id + x/y/w/h) and
+- [x] **4.1** Add `HighlightRect` type (id + x/y/w/h) and
   `setCommentMarkers(rects)` / `getCommentMarkerAt(x, y)` to the
-  `DocsEditor` interface.
-- [ ] **4.2** Write failing tests:
-  - `setCommentMarkers([])` clears any prior set
-  - `getCommentMarkerAt` returns the id of an overlapping rect, or `null`
-- [ ] **4.3** Wire the rect list through the canvas render pass —
-  yellow background + 1px underline, drawn between block backgrounds
-  and the inline text (same z-order as search highlights).
-- [ ] **4.4** Tests pass. `pnpm verify:fast` green.
+  `DocsEditor` interface. `HighlightRect` / `findMarkerAt` are
+  re-exported from `@wafflebase/docs`.
+- [x] **4.2** Pure-helper tests in `test/view/comment-markers.test.ts`
+  (5 tests): hit detection, edge inclusion, last-wins on overlap.
+  Editor-surface integration is covered by the visual harness in Task 8.
+- [x] **4.3** Wire the rect list through `DocCanvas.render` — yellow
+  background + 1px underline at the bottom edge, same z-order as
+  search-match highlights.
+- [x] **4.4** `pnpm verify:fast` green (778 tests, +5).
 
 ---
 
