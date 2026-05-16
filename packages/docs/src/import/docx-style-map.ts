@@ -159,6 +159,8 @@ export function mapTableCellProperties(tcPr: Element): {
   borderBottom?: { width: number; color: string; style: 'solid' | 'none' };
   borderLeft?: { width: number; color: string; style: 'solid' | 'none' };
   borderRight?: { width: number; color: string; style: 'solid' | 'none' };
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  padding?: number;
   colSpan?: number;
   vMerge?: 'restart' | 'continue';
 } {
@@ -182,6 +184,37 @@ export function mapTableCellProperties(tcPr: Element): {
     result.vMerge = val === 'restart' ? 'restart' : 'continue';
   }
 
+  const vAlign = getW(tcPr, 'vAlign');
+  if (vAlign) {
+    const val = getWAttr(vAlign, 'val');
+    // OOXML uses "center"; the docs model uses "middle".
+    if (val === 'top' || val === 'bottom') {
+      result.verticalAlign = val;
+    } else if (val === 'center') {
+      result.verticalAlign = 'middle';
+    }
+  }
+
+  const tcMar = getW(tcPr, 'tcMar');
+  if (tcMar) {
+    // The docs model carries one padding value per cell, so collapse the
+    // four DOCX margins to their maximum: a too-small value would let text
+    // collide with the cell border, while a too-large value only inflates
+    // whitespace.
+    let maxTwips = -Infinity;
+    for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+      const sideEl = getW(tcMar, side);
+      if (!sideEl) continue;
+      const type = getWAttr(sideEl, 'type');
+      if (type && type !== 'dxa') continue;
+      const w = getWAttr(sideEl, 'w');
+      if (!w) continue;
+      const parsed = parseInt(w, 10);
+      if (Number.isFinite(parsed) && parsed > maxTwips) maxTwips = parsed;
+    }
+    if (maxTwips >= 0) result.padding = twipsToPx(maxTwips);
+  }
+
   const tcBorders = getW(tcPr, 'tcBorders');
   if (tcBorders) {
     const sides = [
@@ -192,20 +225,57 @@ export function mapTableCellProperties(tcPr: Element): {
     ] as const;
     for (const [side, key] of sides) {
       const borderEl = getW(tcBorders, side);
-      if (borderEl) {
-        const sz = getWAttr(borderEl, 'sz');
-        const color = getWAttr(borderEl, 'color');
-        const val = getWAttr(borderEl, 'val');
-        result[key] = {
-          width: sz ? parseInt(sz, 10) / 8 : 1, // eighths of a point → px approximation
-          color: color && color !== 'auto' ? `#${color}` : '#000000',
-          style: val === 'none' || val === 'nil' ? 'none' : 'solid',
-        };
-      }
+      if (borderEl) result[key] = parseBorderElement(borderEl);
     }
   }
 
   return result;
+}
+
+/**
+ * Parse a single <w:top>/<w:bottom>/.../<w:insideH>/<w:insideV> border
+ * descriptor shared by <w:tcBorders> and <w:tblBorders>.
+ */
+function parseBorderElement(borderEl: Element): {
+  width: number;
+  color: string;
+  style: 'solid' | 'none';
+} {
+  const sz = getWAttr(borderEl, 'sz');
+  const color = getWAttr(borderEl, 'color');
+  const val = getWAttr(borderEl, 'val');
+  return {
+    width: sz ? parseInt(sz, 10) / 8 : 1, // eighths of a point → px approximation
+    color: color && color !== 'auto' ? `#${color}` : '#000000',
+    style: val === 'none' || val === 'nil' ? 'none' : 'solid',
+  };
+}
+
+export interface TableLevelBorders {
+  top?: { width: number; color: string; style: 'solid' | 'none' };
+  bottom?: { width: number; color: string; style: 'solid' | 'none' };
+  left?: { width: number; color: string; style: 'solid' | 'none' };
+  right?: { width: number; color: string; style: 'solid' | 'none' };
+  insideH?: { width: number; color: string; style: 'solid' | 'none' };
+  insideV?: { width: number; color: string; style: 'solid' | 'none' };
+}
+
+/**
+ * Map <w:tblPr>/<w:tblBorders> to a table-level border set. Returns null
+ * when no tblBorders is present or no recognized side is set. The four
+ * outer sides apply to grid-edge cells; insideH/insideV apply to interior
+ * cell sides — callers handle the inheritance fallback.
+ */
+export function mapTableLevelBorders(tblPr: Element): TableLevelBorders | null {
+  const tblBorders = getW(tblPr, 'tblBorders');
+  if (!tblBorders) return null;
+  const result: TableLevelBorders = {};
+  const sides = ['top', 'bottom', 'left', 'right', 'insideH', 'insideV'] as const;
+  for (const side of sides) {
+    const borderEl = getW(tblBorders, side);
+    if (borderEl) result[side] = parseBorderElement(borderEl);
+  }
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 const HIGHLIGHT_COLORS: Record<string, string> = {

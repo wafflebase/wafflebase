@@ -12,20 +12,29 @@ exporter disambiguation are tracked here.
 
 ## Table style / structure gaps (priority: medium)
 
-- [ ] **1. `w:tcMar`** (cell margin/padding) — map to `CellStyle.padding`
-- [ ] **2. `w:vAlign`** (cell vertical alignment) — map to `CellStyle.verticalAlign`
-- [ ] **3. `w:tblBorders` inheritance** — fall back to table-level
+- [x] **1. `w:tcMar`** (cell margin/padding) — map to `CellStyle.padding`
+      (importer only; max of specified dxa sides since the model carries
+      one value)
+- [x] **2. `w:vAlign`** (cell vertical alignment) — map to `CellStyle.verticalAlign`
+      (importer only; OOXML "center" → model "middle")
+- [x] **3. `w:tblBorders` inheritance** — fall back to table-level
       `tblBorders` when a cell has no `tcBorders` of its own
-- [ ] **4. `w:trHeight`** — map to `TableData.rowHeights`
+      (importer only; outer 4 sides for grid-edge cells, insideH/insideV
+      for interior sides; covered merge placeholders skipped)
+- [x] **4. `w:trHeight`** — map to `TableData.rowHeights`
+      (importer only; hRule=auto skipped, atLeast/exact treated as minimum
+      height matching model semantics)
 
 ## Exporter hardening
 
-- [ ] **E1. Disambiguate `colSpan === 0` in exporter** —
+- [x] **E1. Disambiguate `colSpan === 0` in exporter** —
       `docx-exporter.ts` maps any covered placeholder to `<w:vMerge/>`.
       Fix to distinguish:
       - horizontal merge (absorbed by prior `gridSpan`) — skip tc
       - vertical merge (owner in earlier row) — emit `<w:vMerge/>`
       - `gridBefore`/`gridAfter` — emit via `trPr` skip markers
+      Reconstructed at export time by walking each row's owners and
+      checking rowSpan reach in prior rows; no model change needed.
 
 ## Revisit later
 

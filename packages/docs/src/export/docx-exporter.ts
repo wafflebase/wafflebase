@@ -206,11 +206,66 @@ ${bodyXml}
       .map((w) => `<w:gridCol w:w="${Math.round(w * totalTwips)}"/>`)
       .join('');
 
-    const rows = tableData.rows.map((row) => {
-      const cells = row.cells.map((cell) => {
+    const rows = tableData.rows.map((row, rowIdx) => {
+      const nCols = row.cells.length;
+
+      // Classify every covered (`colSpan === 0`) position so we can emit
+      // the right OOXML for each one, instead of unconditionally writing
+      // <w:vMerge/> like a naive walk would. There are three distinct
+      // sources for a covered position:
+      //   - horizontal merge absorption: an earlier cell in the row has
+      //     gridSpan > 1 that already covers this column; the OOXML form
+      //     is to emit no <w:tc> at all for it.
+      //   - vertical merge continuation: a cell in an earlier row at this
+      //     column has rowSpan that reaches this row; the OOXML form is a
+      //     <w:tc> with <w:vMerge/>.
+      //   - row skip markers: leading or trailing covered positions with
+      //     neither a horizontal owner in this row nor a vertical owner
+      //     above; the OOXML form is <w:trPr><w:gridBefore/> or
+      //     <w:gridAfter/> with the skip count, and no <w:tc>.
+      const hAbsorbed = new Array(nCols).fill(false);
+      for (let c = 0; c < nCols; c++) {
+        const span = row.cells[c].colSpan;
+        if (span && span > 1) {
+          for (let k = 1; k < span && c + k < nCols; k++) {
+            hAbsorbed[c + k] = true;
+          }
+        }
+      }
+      const hasVOwnerAbove = (c: number): boolean => {
+        for (let r = rowIdx - 1; r >= 0; r--) {
+          const above = tableData.rows[r]?.cells[c];
+          if (!above || above.colSpan === 0) continue;
+          const spans = above.rowSpan ?? 1;
+          return spans >= rowIdx - r + 1;
+        }
+        return false;
+      };
+
+      let gridBefore = 0;
+      while (gridBefore < nCols) {
+        const c = gridBefore;
+        if (hAbsorbed[c]) break;
+        if (row.cells[c].colSpan !== 0) break;
+        if (hasVOwnerAbove(c)) break;
+        gridBefore++;
+      }
+      let gridAfter = 0;
+      while (gridAfter < nCols - gridBefore) {
+        const c = nCols - 1 - gridAfter;
+        if (hAbsorbed[c]) break;
+        if (row.cells[c].colSpan !== 0) break;
+        if (hasVOwnerAbove(c)) break;
+        gridAfter++;
+      }
+
+      const cells: string[] = [];
+      for (let c = gridBefore; c < nCols - gridAfter; c++) {
+        if (hAbsorbed[c]) continue;
+        const cell = row.cells[c];
         if (cell.colSpan === 0) {
-          // Covered cell (vMerge continue)
-          return `<w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>`;
+          cells.push(`<w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>`);
+          continue;
         }
 
         const tcPrParts: string[] = [];
@@ -225,9 +280,15 @@ ${bodyXml}
         const cellContent = cell.blocks
           .map((b) => DocxExporter.blockToXml(b, imageEntries))
           .join('');
-        return `<w:tc>${tcPr}${cellContent || '<w:p/>'}</w:tc>`;
-      }).join('');
-      return `<w:tr>${cells}</w:tr>`;
+        cells.push(`<w:tc>${tcPr}${cellContent || '<w:p/>'}</w:tc>`);
+      }
+
+      const trPrParts: string[] = [];
+      if (gridBefore > 0) trPrParts.push(`<w:gridBefore w:val="${gridBefore}"/>`);
+      if (gridAfter > 0) trPrParts.push(`<w:gridAfter w:val="${gridAfter}"/>`);
+      const trPr = trPrParts.length > 0 ? `<w:trPr>${trPrParts.join('')}</w:trPr>` : '';
+
+      return `<w:tr>${trPr}${cells.join('')}</w:tr>`;
     }).join('');
 
     return `    <w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid>${gridCols}</w:tblGrid>${rows}</w:tbl>`;

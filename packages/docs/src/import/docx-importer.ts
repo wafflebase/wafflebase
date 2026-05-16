@@ -2,8 +2,12 @@ import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, TableRow, TableCell, HeaderFooter, PageSetup } from '../model/types.js';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE } from '../model/types.js';
 import { parseRelationships, parseParagraph, parsePageSetup, type RelEntry } from './docx-parser.js';
-import { mapTableCellProperties } from './docx-style-map.js';
-import { emusToPx } from './units.js';
+import {
+  mapTableCellProperties,
+  mapTableLevelBorders,
+  type TableLevelBorders,
+} from './docx-style-map.js';
+import { emusToPx, twipsToPx } from './units.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -221,6 +225,9 @@ export class DocxImporter {
     // to 1/6 of the content width in the real-world form.docx case).
     // The row walk below is also direct-child only, so keeping the
     // grid lookup symmetric avoids that class of leak.
+    const tblPr = DocxImporter.findDirectChild(tblEl, 'tblPr');
+    const tblBorders = tblPr ? mapTableLevelBorders(tblPr) : null;
+
     const colWidthsRaw: number[] = [];
     const tblGrid = DocxImporter.findDirectChild(tblEl, 'tblGrid');
     if (tblGrid) {
@@ -246,6 +253,10 @@ export class DocxImporter {
 
     // Parse rows — only direct child <w:tr> elements
     const rows: TableRow[] = [];
+    // Sparse: only rows whose <w:trHeight> declares a non-auto height land
+    // here; the field stays undefined if nothing constrains the row.
+    const rowHeights: (number | undefined)[] = [];
+    let hasRowHeight = false;
     // Track the currently-open vMerge group per column. Each group is
     // resolved (its rowSpan written) either when the column starts a new
     // group or at the end after all rows are walked. This handles multiple
@@ -290,6 +301,14 @@ export class DocxImporter {
         numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridBefore') : 0;
       const gridAfter =
         numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridAfter') : 0;
+      const rowIdx = rows.length;
+      if (trPr) {
+        const heightPx = DocxImporter.readTrHeight(trPr);
+        if (heightPx !== null) {
+          rowHeights[rowIdx] = heightPx;
+          hasRowHeight = true;
+        }
+      }
 
       const cells: TableCell[] = [];
       for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());
@@ -390,6 +409,8 @@ export class DocxImporter {
             borderBottom: cellProps.borderBottom,
             borderLeft: cellProps.borderLeft,
             borderRight: cellProps.borderRight,
+            verticalAlign: cellProps.verticalAlign,
+            padding: cellProps.padding ?? DEFAULT_CELL_STYLE.padding,
           },
           colSpan: colSpan > 1 ? colSpan : undefined,
         });
@@ -423,7 +444,12 @@ export class DocxImporter {
       resolveVMergeGroup(colIdx, tracker);
     }
 
+    if (tblBorders) {
+      DocxImporter.applyTblBordersInheritance(rows, tblBorders);
+    }
+
     const tableData: TableData = { rows, columnWidths };
+    if (hasRowHeight) tableData.rowHeights = rowHeights;
 
     return {
       id: generateBlockId(),
@@ -432,6 +458,74 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Apply table-level <w:tblBorders> as a fallback for every cell side
+   * that lacks an explicit <w:tcBorders> entry. Outer sides
+   * (top/bottom/left/right) cover grid-edge cells; insideH and insideV
+   * cover interior sides between cells. Covered merge placeholders are
+   * skipped because the owning cell already handles the merged region's
+   * borders.
+   */
+  private static applyTblBordersInheritance(
+    rows: TableRow[],
+    tblBorders: TableLevelBorders,
+  ): void {
+    const nRows = rows.length;
+    for (let r = 0; r < nRows; r++) {
+      const cells = rows[r].cells;
+      const nCols = cells.length;
+      for (let c = 0; c < nCols; c++) {
+        const cell = cells[c];
+        if (cell.colSpan === 0) continue;
+        // Pick fallback sides from the owner's merged extent, not from
+        // the iteration indices: an owner whose right side reaches the
+        // grid edge should inherit tblBorders.right even when its
+        // top-left position is interior.
+        const endCol = Math.min(nCols - 1, c + Math.max(1, cell.colSpan ?? 1) - 1);
+        const endRow = Math.min(nRows - 1, r + Math.max(1, cell.rowSpan ?? 1) - 1);
+        const topFallback = r === 0 ? tblBorders.top : tblBorders.insideH;
+        const bottomFallback =
+          endRow === nRows - 1 ? tblBorders.bottom : tblBorders.insideH;
+        const leftFallback = c === 0 ? tblBorders.left : tblBorders.insideV;
+        const rightFallback =
+          endCol === nCols - 1 ? tblBorders.right : tblBorders.insideV;
+        if (!cell.style.borderTop && topFallback) {
+          cell.style.borderTop = { ...topFallback };
+        }
+        if (!cell.style.borderBottom && bottomFallback) {
+          cell.style.borderBottom = { ...bottomFallback };
+        }
+        if (!cell.style.borderLeft && leftFallback) {
+          cell.style.borderLeft = { ...leftFallback };
+        }
+        if (!cell.style.borderRight && rightFallback) {
+          cell.style.borderRight = { ...rightFallback };
+        }
+      }
+    }
+  }
+
+  /**
+   * Read <w:trHeight> and return a constraining row height in CSS px.
+   * Returns null when the row is auto-sized: missing element, hRule="auto"
+   * (the OOXML default when hRule is absent), or a non-positive value.
+   * "atLeast" and "exact" are both treated as a minimum row height —
+   * the docs model has no max-height enforcement, so "exact" degrades to
+   * a minimum constraint matching `TableData.rowHeights` semantics.
+   */
+  private static readTrHeight(trPr: Element): number | null {
+    const el = DocxImporter.findDirectChild(trPr, 'trHeight');
+    if (!el) return null;
+    const hRule =
+      el.getAttributeNS(W, 'hRule') || el.getAttribute('w:hRule') || 'auto';
+    if (hRule === 'auto') return null;
+    const val = el.getAttributeNS(W, 'val') || el.getAttribute('w:val');
+    if (!val) return null;
+    const twips = parseInt(val, 10);
+    if (!Number.isFinite(twips) || twips <= 0) return null;
+    return twipsToPx(twips);
   }
 
   /**
