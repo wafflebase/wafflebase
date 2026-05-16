@@ -18,9 +18,6 @@ function grpSp(xml: string): Element {
 
 describe('composeGroupTransform + applyGroupTransform', () => {
   it('translates children when chOff matches a non-zero local origin', () => {
-    // Group at world (300, 400), 600 wide × 200 tall.
-    // Local space starts at (100, 100), extent 600×200 → no scale change.
-    // A child at local (200, 100) should land at world (400, 400).
     const grp = grpSp(`<p:grpSp>
       <p:grpSpPr>
         <a:xfrm>
@@ -47,8 +44,6 @@ describe('composeGroupTransform + applyGroupTransform', () => {
   });
 
   it('rescales when chExt differs from ext', () => {
-    // Group at world (0,0), 1000×1000 px-EMU.
-    // Local space 0..2000 → child halves in world.
     const grp = grpSp(`<p:grpSp>
       <p:grpSpPr>
         <a:xfrm>
@@ -81,8 +76,7 @@ describe('composeGroupTransform + applyGroupTransform', () => {
   });
 
   it('rotates child centers around the group pivot when rot ≠ 0', () => {
-    // Group centered at world (1000, 1000), 200×200 in raw EMU,
-    // rotated 90° (`rot=5400000`). chOff/chExt identity → localScale 1.
+    // Group centered at world (1000, 1000), 200×200 raw EMU, rotated 90°.
     const grp = grpSp(`<p:grpSp>
       <p:grpSpPr>
         <a:xfrm rot="5400000">
@@ -95,8 +89,6 @@ describe('composeGroupTransform + applyGroupTransform', () => {
     </p:grpSp>`);
     const t = composeGroupTransform(IDENTITY_TRANSFORM, grp, SCALE);
 
-    // A child sitting at the right edge of the group (center at the
-    // east point) should after a +90° rotation land at the south point.
     const child = {
       x: 1050 * SCALE.sx - 10,
       y: 1000 * SCALE.sy - 10,
@@ -106,10 +98,59 @@ describe('composeGroupTransform + applyGroupTransform', () => {
     };
     const world = applyGroupTransform(child, t);
 
-    const expectedCenterX = 1000 * SCALE.sx;
-    const expectedCenterY = 1050 * SCALE.sy;
-    expect(world.x + world.w / 2).toBeCloseTo(expectedCenterX, 6);
-    expect(world.y + world.h / 2).toBeCloseTo(expectedCenterY, 6);
+    expect(world.x + world.w / 2).toBeCloseTo(1000 * SCALE.sx, 6);
+    expect(world.y + world.h / 2).toBeCloseTo(1050 * SCALE.sy, 6);
     expect(world.rotation).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('composes nested rotated groups via full matrix multiplication', () => {
+    // Outer group rotated 90° around (1000, 1000):
+    //   any local point (lx, ly) → (1000 + (1000 - ly), 1000 + (lx - 1000))
+    //   i.e. (2000 - ly, lx)
+    // Inner group sits at (1100, 1000) (east of the outer's pivot),
+    // rotated by another 90°. After outer rotation, the inner's center
+    // lands at world (1000, 1100) → south of the outer pivot.
+    // Then the inner's 90° spins its own children around that location.
+    const outer = grpSp(`<p:grpSp>
+      <p:grpSpPr>
+        <a:xfrm rot="5400000">
+          <a:off x="900" y="900"/>
+          <a:ext cx="200" cy="200"/>
+          <a:chOff x="900" y="900"/>
+          <a:chExt cx="200" cy="200"/>
+        </a:xfrm>
+      </p:grpSpPr>
+    </p:grpSp>`);
+    const inner = grpSp(`<p:grpSp>
+      <p:grpSpPr>
+        <a:xfrm rot="5400000">
+          <a:off x="1090" y="990"/>
+          <a:ext cx="20" cy="20"/>
+          <a:chOff x="1090" y="990"/>
+          <a:chExt cx="20" cy="20"/>
+        </a:xfrm>
+      </p:grpSpPr>
+    </p:grpSp>`);
+    const tOuter = composeGroupTransform(IDENTITY_TRANSFORM, outer, SCALE);
+    const tInner = composeGroupTransform(tOuter, inner, SCALE);
+
+    // A point at the inner group's own center, in inner-local coords.
+    const localCenterX = 1100 * SCALE.sx;
+    const localCenterY = 1000 * SCALE.sy;
+    const child = {
+      x: localCenterX - 5,
+      y: localCenterY - 5,
+      w: 10,
+      h: 10,
+      rotation: 0,
+    };
+    const world = applyGroupTransform(child, tInner);
+
+    // Inner's own center, after outer's 90° spin, lands at the outer
+    // pivot's south point: world (1000 * sx, 1100 * sy).
+    expect(world.x + world.w / 2).toBeCloseTo(1000 * SCALE.sx, 6);
+    expect(world.y + world.h / 2).toBeCloseTo(1100 * SCALE.sy, 6);
+    // Cumulative rotation = outer + inner = 180°.
+    expect(world.rotation).toBeCloseTo(Math.PI, 6);
   });
 });

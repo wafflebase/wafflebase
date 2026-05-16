@@ -1,6 +1,7 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, Slide } from '../../model/presentation';
 import { DEFAULT_BACKGROUND } from '../../model/presentation';
+import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
@@ -9,7 +10,7 @@ import { parseSpTree, type SlideParseContext } from './shape';
 import { parseTextBody } from './text';
 import type { PptxArchive } from './unzip';
 import type { UploadImage } from './index';
-import { child, descendant, parseXml } from './xml';
+import { attr, child, descendant, parseXml } from './xml';
 
 /** Per-layout resolution data: built-in id + placeholder default sizes. */
 export interface LayoutResolution {
@@ -56,7 +57,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   const bgEl = cSld ? child(cSld, 'bg') : undefined;
   const background = bgEl
     ? parseSlideBackground(bgEl, opts.clrMap)
-    : { ...DEFAULT_BACKGROUND };
+    : clone(DEFAULT_BACKGROUND);
 
   const spTree = cSld ? child(cSld, 'spTree') : undefined;
   const ctx: SlideParseContext = {
@@ -106,7 +107,7 @@ function parseSlideBackground(bgEl: Element, clrMap: ClrMap): Background {
       if (color) return { fill: color };
     }
   }
-  return { ...DEFAULT_BACKGROUND };
+  return clone(DEFAULT_BACKGROUND);
 }
 
 async function parseNotes(
@@ -129,13 +130,18 @@ async function parseNotes(
   if (!notesXml) return [];
 
   const notesDoc = parseXml(notesXml);
-  // `<p:notes><p:cSld><p:spTree>` holds the notes placeholders; we read
-  // the body placeholder's <p:txBody>.
+  // `<p:notes><p:cSld><p:spTree>` holds the notes placeholders. A
+  // notes slide typically contains several shapes — slide image,
+  // body placeholder, slide number, header/footer/date — and only
+  // `<p:ph type="body">` carries the speaker notes content.
   const spTree = descendant(notesDoc, 'spTree');
   if (!spTree) return [];
 
-  // Find the first `<p:sp>` whose `<p:nvSpPr><p:nvPr><p:ph type="body">`.
-  // For v1 we take the largest text body content from the notes spTree.
+  // First pass: look for the body placeholder specifically (PowerPoint
+  // emits `<p:ph type="body">` for the notes text host).
+  let bodyTxBody: Element | undefined;
+  let fallbackTxBody: Element | undefined;
+  let fallbackLength = 0;
   for (let i = 0; i < spTree.childNodes.length; i++) {
     const n = spTree.childNodes[i];
     if (n.nodeType !== 1) continue;
@@ -143,9 +149,29 @@ async function parseNotes(
     if (el.localName !== 'sp') continue;
     const txBody = child(el, 'txBody');
     if (!txBody) continue;
-    return parseTextBody(txBody, { report });
+
+    const nvSpPr = child(el, 'nvSpPr');
+    const nvPr = nvSpPr ? child(nvSpPr, 'nvPr') : undefined;
+    const ph = nvPr ? child(nvPr, 'ph') : undefined;
+    const phType = ph ? attr(ph, 'type') : undefined;
+    if (phType === 'body') {
+      bodyTxBody = txBody;
+      break;
+    }
+    // Track the longest non-placeholder txBody as a fallback in case
+    // the deck omits the body placeholder type entirely.
+    if (!ph || (phType !== 'sldNum' && phType !== 'hdr' && phType !== 'dt')) {
+      const len = (txBody.textContent ?? '').length;
+      if (len > fallbackLength) {
+        fallbackTxBody = txBody;
+        fallbackLength = len;
+      }
+    }
   }
-  return [];
+
+  const chosen = bodyTxBody ?? fallbackTxBody;
+  if (!chosen) return [];
+  return parseTextBody(chosen, { report });
 }
 
 function relsSiblingFor(partPath: string): string {

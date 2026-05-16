@@ -19,6 +19,7 @@ import type { EmuScale } from './geometry';
 import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
 import {
   applyGroupTransform,
+  applyGroupTransformToPoint,
   composeGroupTransform,
   IDENTITY_TRANSFORM,
   type GroupTransform,
@@ -121,16 +122,14 @@ function applyTransformToElement(
       elem.start.kind === 'free'
         ? {
             kind: 'free' as const,
-            x: transform.parentOffX + (elem.start.x - transform.childBaseX) * transform.scaleX,
-            y: transform.parentOffY + (elem.start.y - transform.childBaseY) * transform.scaleY,
+            ...applyGroupTransformToPoint(elem.start.x, elem.start.y, transform),
           }
         : elem.start;
     const end =
       elem.end.kind === 'free'
         ? {
             kind: 'free' as const,
-            x: transform.parentOffX + (elem.end.x - transform.childBaseX) * transform.scaleX,
-            y: transform.parentOffY + (elem.end.y - transform.childBaseY) * transform.scaleY,
+            ...applyGroupTransformToPoint(elem.end.x, elem.end.y, transform),
           }
         : elem.end;
     return {

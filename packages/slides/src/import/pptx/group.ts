@@ -4,53 +4,52 @@ import { parseXfrm } from './geometry';
 import { child } from './xml';
 
 /**
- * Affine transform that maps a child's local frame (in deck-px,
+ * 2D affine transform that maps a child's local frame (in deck-px,
  * already scaled by `parseXfrm`) into the world frame after a group
  * has been "ungrouped" inline.
  *
+ *   [a c tx]
+ *   [b d ty]   →  world = M · local
+ *   [0 0  1]
+ *
+ * The matrix bakes in every enclosing group's translate / scale /
+ * rotation, so nested rotated groups compose correctly via standard
+ * matrix multiplication. `rotation` is the cumulative element-self
+ * rotation that gets added to each child's own `frame.rotation` (the
+ * canvas renderer rotates each element around its own center, so the
+ * world-space orbit is handled by the matrix while the in-place spin
+ * is handled by `rotation`).
+ *
  * OOXML group spPr exposes four boxes:
- *   `<a:off>`   — group's position in the parent space
- *   `<a:ext>`   — group's size in the parent space
+ *   `<a:off>`   — group position in the parent space
+ *   `<a:ext>`   — group size in the parent space
  *   `<a:chOff>` — local origin (subtracted from each child)
- *   `<a:chExt>` — local extent (the denominator of the local scale)
+ *   `<a:chExt>` — local extent (denominator of the local scale)
  *
- * Child position before rotation is then:
- *   `offset + (child_local - chOff) * (ext / chExt)`
- *
- * Rotation is applied last: each child's *center* is rotated around the
- * group's world center, then the group's rotation is added to the
- * child's own. Nested rotated groups are approximated — inner pivot is
- * computed pre-rotation of the outer (correct when outer rotation = 0,
- * which is the only case the benchmark deck and most real decks hit).
+ * The group's own transform is composed of (applied to a local point):
+ *   1. translate by `-chOff`
+ *   2. scale by `ext / chExt`
+ *   3. translate by `off`
+ *   4. rotate by `rot` around the group's center `off + ext / 2`
  */
 export interface GroupTransform {
-  parentOffX: number;
-  parentOffY: number;
-  scaleX: number;
-  scaleY: number;
-  childBaseX: number;
-  childBaseY: number;
-  /** Group rotation in radians, applied around (pivotX, pivotY). */
+  a: number; b: number;
+  c: number; d: number;
+  tx: number; ty: number;
   rotation: number;
-  /** Rotation pivot in world coordinates (group's center). */
-  pivotX: number;
-  pivotY: number;
 }
 
 export const IDENTITY_TRANSFORM: GroupTransform = {
-  parentOffX: 0,
-  parentOffY: 0,
-  scaleX: 1,
-  scaleY: 1,
-  childBaseX: 0,
-  childBaseY: 0,
+  a: 1, b: 0,
+  c: 0, d: 1,
+  tx: 0, ty: 0,
   rotation: 0,
-  pivotX: 0,
-  pivotY: 0,
 };
 
 /**
- * Build the cumulative transform for descending into a `<p:grpSp>`.
+ * Build the cumulative transform for descending into a `<p:grpSp>` —
+ * `parent * group` so the parent applies *after* the group's own
+ * transform (i.e., child → group local → parent world).
  */
 export function composeGroupTransform(
   parent: GroupTransform,
@@ -61,9 +60,8 @@ export function composeGroupTransform(
   const xfrm = grpSpPr ? child(grpSpPr, 'xfrm') : undefined;
   if (!xfrm) return parent;
 
-  // Read the group's own frame in the local px space (already scaled).
+  // Group's own frame in the local px space (already scaled).
   const off = parseXfrm(xfrm, scale);
-
   const chOffEl = child(xfrm, 'chOff');
   const chExtEl = child(xfrm, 'chExt');
   const chOffX = chOffEl ? Number(chOffEl.getAttribute('x') ?? '0') * scale.sx : 0;
@@ -71,67 +69,101 @@ export function composeGroupTransform(
   const chExtW = chExtEl ? Number(chExtEl.getAttribute('cx') ?? '0') * scale.sx : off.w;
   const chExtH = chExtEl ? Number(chExtEl.getAttribute('cy') ?? '0') * scale.sy : off.h;
 
-  // Local scale factors: how the local space stretches onto the parent
-  // space. When `chExt` matches `ext` (most common), this is identity.
   const localSx = chExtW > 0 ? off.w / chExtW : 1;
   const localSy = chExtH > 0 ? off.h / chExtH : 1;
 
-  // Pivot of THIS group in world coordinates = center of the group's
-  // own frame after the parent's translate+scale (but ignoring the
-  // parent's rotation — see GroupTransform jsdoc).
-  const groupCenterX = off.x + off.w / 2;
-  const groupCenterY = off.y + off.h / 2;
-  const pivotX =
-    parent.parentOffX + (groupCenterX - parent.childBaseX) * parent.scaleX;
-  const pivotY =
-    parent.parentOffY + (groupCenterY - parent.childBaseY) * parent.scaleY;
-
-  return {
-    parentOffX: parent.parentOffX + (off.x - parent.childBaseX) * parent.scaleX,
-    parentOffY: parent.parentOffY + (off.y - parent.childBaseY) * parent.scaleY,
-    scaleX: parent.scaleX * localSx,
-    scaleY: parent.scaleY * localSy,
-    childBaseX: chOffX,
-    childBaseY: chOffY,
-    rotation: parent.rotation + off.rotation,
-    pivotX,
-    pivotY,
+  // Matrix for this group: translate(off) · scale(localSx, localSy) · translate(-chOff)
+  //   = [localSx  0       off.x - localSx*chOffX]
+  //     [0        localSy off.y - localSy*chOffY]
+  let m: GroupTransform = {
+    a: localSx, b: 0,
+    c: 0, d: localSy,
+    tx: off.x - localSx * chOffX,
+    ty: off.y - localSy * chOffY,
+    rotation: 0,
   };
+
+  // Rotate around the group's own center (parent-relative coords).
+  if (off.rotation) {
+    const pivotX = off.x + off.w / 2;
+    const pivotY = off.y + off.h / 2;
+    m = composeMatrix(rotationAround(off.rotation, pivotX, pivotY), m);
+    m.rotation = off.rotation;
+  }
+
+  // Final composition: parent · group.
+  const composed = composeMatrix(parent, m);
+  composed.rotation = parent.rotation + m.rotation;
+  return composed;
 }
 
 /**
  * Apply a group transform to a child's local frame, returning the
- * world frame. Non-zero group rotation rotates the child's center
- * around the group's pivot rather than just adding to the child's own
- * rotation in place.
+ * world frame. The element's own rotation is preserved; the group's
+ * accumulated rotation is added on top so the renderer's "rotate
+ * around own center" maps to the correct visual orientation.
  */
 export function applyGroupTransform(frame: Frame, t: GroupTransform): Frame {
-  // Pre-rotation world position via affine.
-  const x0 = t.parentOffX + (frame.x - t.childBaseX) * t.scaleX;
-  const y0 = t.parentOffY + (frame.y - t.childBaseY) * t.scaleY;
-  const w = frame.w * t.scaleX;
-  const h = frame.h * t.scaleY;
+  // Apply matrix to the child's center.
+  const cxLocal = frame.x + frame.w / 2;
+  const cyLocal = frame.y + frame.h / 2;
+  const cxWorld = t.a * cxLocal + t.c * cyLocal + t.tx;
+  const cyWorld = t.b * cxLocal + t.d * cyLocal + t.ty;
 
-  if (!t.rotation) {
-    return { x: x0, y: y0, w, h, rotation: frame.rotation };
-  }
+  // Extract scale along each axis. For pure rotation / translation /
+  // scale (no shear) this is exact; shear cases (rare in OOXML) will
+  // still produce a reasonable approximation.
+  const scaleX = Math.sqrt(t.a * t.a + t.b * t.b);
+  const scaleY = Math.sqrt(t.c * t.c + t.d * t.d);
+  const w = frame.w * scaleX;
+  const h = frame.h * scaleY;
 
-  // Rotate the child's center around the group's world pivot, then
-  // recover the top-left from the rotated center using the (still
-  // axis-aligned in local frame terms) child dimensions.
-  const cxLocal = x0 + w / 2;
-  const cyLocal = y0 + h / 2;
-  const cos = Math.cos(t.rotation);
-  const sin = Math.sin(t.rotation);
-  const dx = cxLocal - t.pivotX;
-  const dy = cyLocal - t.pivotY;
-  const cxWorld = t.pivotX + dx * cos - dy * sin;
-  const cyWorld = t.pivotY + dx * sin + dy * cos;
   return {
     x: cxWorld - w / 2,
     y: cyWorld - h / 2,
     w,
     h,
     rotation: frame.rotation + t.rotation,
+  };
+}
+
+/**
+ * Apply a group transform to a single point (used for connector
+ * free endpoints, which are bare `(x, y)` rather than a full frame).
+ */
+export function applyGroupTransformToPoint(
+  x: number,
+  y: number,
+  t: GroupTransform,
+): { x: number; y: number } {
+  return {
+    x: t.a * x + t.c * y + t.tx,
+    y: t.b * x + t.d * y + t.ty,
+  };
+}
+
+/** Compose two affine matrices: result = outer · inner (apply inner first). */
+function composeMatrix(outer: GroupTransform, inner: GroupTransform): GroupTransform {
+  return {
+    a: outer.a * inner.a + outer.c * inner.b,
+    b: outer.b * inner.a + outer.d * inner.b,
+    c: outer.a * inner.c + outer.c * inner.d,
+    d: outer.b * inner.c + outer.d * inner.d,
+    tx: outer.a * inner.tx + outer.c * inner.ty + outer.tx,
+    ty: outer.b * inner.tx + outer.d * inner.ty + outer.ty,
+    rotation: outer.rotation,
+  };
+}
+
+/** R(θ, pivot) = T(pivot) · R(θ) · T(-pivot). */
+function rotationAround(theta: number, pivotX: number, pivotY: number): GroupTransform {
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    a: cos, b: sin,
+    c: -sin, d: cos,
+    tx: pivotX * (1 - cos) + sin * pivotY,
+    ty: pivotY * (1 - cos) - sin * pivotX,
+    rotation: 0,
   };
 }
