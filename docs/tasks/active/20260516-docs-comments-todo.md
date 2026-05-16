@@ -83,7 +83,7 @@ React, no Yorkie.
 
 The anchor stability layer. Pure functions over a `yorkie.Tree`.
 
-- [ ] **2.1** Write failing tests for:
+- [x] **2.1** Write failing tests for:
   - `selectionToPath` — converts `DocSelection` (block id + offset) to
     Yorkie path `[blockIdx, inlineIdx, charOffset]`
   - `extractAnchorContext` — returns `{blockId, quotedText}` capped at
@@ -94,8 +94,10 @@ The anchor stability layer. Pure functions over a `yorkie.Tree`.
     reference deleted nodes (mock `posRangeToPathRange` to throw)
   - Round-trip: build posRange from a selection, resolve it back —
     paths match
-- [ ] **2.2** Implement `docs-anchor.ts`.
-- [ ] **2.3** Tests pass. `pnpm verify:fast` green.
+- [x] **2.2** Implement `docs-anchor.ts`.
+  Top-level blocks only; table-cell path prefixing is added in Task 3
+  (Yorkie store needs the same helper).
+- [x] **2.3** Tests pass. `pnpm verify:fast` green.
 
 ---
 
