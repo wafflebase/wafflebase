@@ -79,6 +79,19 @@ export function parseXfrm(xfrm: Element | undefined, scale: EmuScale): Frame {
 }
 
 /**
+ * OOXML preset-geometry names that don't match a `ShapeKind` id
+ * one-to-one. Most of these are historical synonyms: the OOXML
+ * preset's traditional name vs. the descriptive name we picked for
+ * the renderer. Keep this list small; if a preset has meaningfully
+ * different geometry it should get its own `ShapeKind`.
+ */
+const PRST_ALIASES: Record<string, ShapeKind> = {
+  // `homePlate` and `pentagonArrow` are the same baseball-home-plate
+  // pentagon pointing right. PPTX exports use `homePlate`.
+  homePlate: 'pentagonArrow',
+};
+
+/**
  * Look up an OOXML preset-geometry name in the registered `ShapeKind`
  * set. Most prst names are identical to our kind ids — when they are,
  * the cast is valid because the strings match.
@@ -88,6 +101,8 @@ export function parseXfrm(xfrm: Element | undefined, scale: EmuScale): Frame {
  * to `rect` and bump `report.unknownShapes`.
  */
 export function prstToShapeKind(prst: string): ShapeKind | undefined {
+  const aliased = PRST_ALIASES[prst];
+  if (aliased && PATH_BUILDERS.has(aliased)) return aliased;
   const candidate = prst as ShapeKind;
   if (PATH_BUILDERS.has(candidate)) return candidate;
   return undefined;

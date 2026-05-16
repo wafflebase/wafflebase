@@ -19,6 +19,27 @@ const placeholderWarned = new Set<string>();
 const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
 
 /**
+ * Shape kinds whose `PathBuilder` returns an open (un-`closePath`'d)
+ * polyline. Stroking traces just the visible outline as intended,
+ * but `ctx.fill()` auto-closes the path with a straight line —
+ * producing a misleading filled shape (e.g. an open `leftBracket`
+ * fills as a C-rect rather than a thin bracket outline).
+ *
+ * Brackets and braces are the only such kinds today: OOXML defines
+ * them with separate fill / stroke paths that we collapse into a
+ * single stroke-oriented polyline. Real-world PPTX usage is
+ * overwhelmingly `<a:noFill/>` (the user-supplied Yorkie deck has
+ * stroke-only brackets), but a future deck with a filled bracket
+ * would silently render incorrectly without this guard.
+ */
+const OPEN_PATH_KINDS: ReadonlySet<ShapeKind> = new Set([
+  'leftBracket',
+  'rightBracket',
+  'leftBrace',
+  'rightBrace',
+]);
+
+/**
  * Draw a shape into element-local coordinates (top-left at 0,0). The
  * caller is responsible for the frame transform (translate + rotate).
  *
@@ -49,7 +70,7 @@ export function drawShape(
     return;
   }
   const path = builder(size, data.adjustments);
-  if (data.fill) {
+  if (data.fill && !OPEN_PATH_KINDS.has(data.kind)) {
     ctx.fillStyle = resolveColor(data.fill, theme);
     ctx.fill(path, EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero');
   }

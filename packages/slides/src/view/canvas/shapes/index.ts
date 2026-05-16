@@ -262,6 +262,40 @@ import {
   CLOUD_CALLOUT_ADJUSTMENTS,
   CLOUD_CALLOUT_HANDLES,
 } from './callouts/cloud-callout';
+import {
+  ARROW_CALLOUT_ADJUSTMENTS,
+  buildRightArrowCallout,
+  RIGHT_ARROW_CALLOUT_HANDLES,
+} from './callouts/right-arrow-callout';
+import { buildLeftArrowCallout, LEFT_ARROW_CALLOUT_HANDLES } from './callouts/left-arrow-callout';
+import { buildUpArrowCallout, UP_ARROW_CALLOUT_HANDLES } from './callouts/up-arrow-callout';
+import { buildDownArrowCallout, DOWN_ARROW_CALLOUT_HANDLES } from './callouts/down-arrow-callout';
+import {
+  BI_ARROW_CALLOUT_ADJUSTMENTS,
+  buildLeftRightArrowCallout,
+  LEFT_RIGHT_ARROW_CALLOUT_HANDLES,
+} from './callouts/left-right-arrow-callout';
+import {
+  buildUpDownArrowCallout,
+  UP_DOWN_ARROW_CALLOUT_HANDLES,
+} from './callouts/up-down-arrow-callout';
+import {
+  buildQuadArrowCallout,
+  QUAD_ARROW_CALLOUT_ADJUSTMENTS,
+  QUAD_ARROW_CALLOUT_HANDLES,
+} from './callouts/quad-arrow-callout';
+import {
+  BRACKET_ADJUSTMENTS,
+  buildLeftBracket,
+  LEFT_BRACKET_HANDLES,
+} from './basic/left-bracket';
+import { buildRightBracket, RIGHT_BRACKET_HANDLES } from './basic/right-bracket';
+import {
+  BRACE_ADJUSTMENTS,
+  buildLeftBrace,
+  LEFT_BRACE_HANDLES,
+} from './basic/left-brace';
+import { buildRightBrace, RIGHT_BRACE_HANDLES } from './basic/right-brace';
 import { buildMathPlus, MATH_PLUS_ADJUSTMENTS, MATH_PLUS_HANDLES } from './equation/math-plus';
 import { buildMathMinus, MATH_MINUS_HANDLES } from './equation/math-minus';
 import { buildMathMultiply, MATH_MULTIPLY_HANDLES } from './equation/math-multiply';
@@ -406,6 +440,17 @@ PATH_BUILDERS.set('wedgeRectCallout', buildWedgeRectCallout);
 PATH_BUILDERS.set('wedgeRoundRectCallout', buildWedgeRoundRectCallout);
 PATH_BUILDERS.set('wedgeEllipseCallout', buildWedgeEllipseCallout);
 PATH_BUILDERS.set('cloudCallout', buildCloudCallout);
+PATH_BUILDERS.set('rightArrowCallout', buildRightArrowCallout);
+PATH_BUILDERS.set('leftArrowCallout', buildLeftArrowCallout);
+PATH_BUILDERS.set('upArrowCallout', buildUpArrowCallout);
+PATH_BUILDERS.set('downArrowCallout', buildDownArrowCallout);
+PATH_BUILDERS.set('leftRightArrowCallout', buildLeftRightArrowCallout);
+PATH_BUILDERS.set('upDownArrowCallout', buildUpDownArrowCallout);
+PATH_BUILDERS.set('quadArrowCallout', buildQuadArrowCallout);
+PATH_BUILDERS.set('leftBracket', buildLeftBracket);
+PATH_BUILDERS.set('rightBracket', buildRightBracket);
+PATH_BUILDERS.set('leftBrace', buildLeftBrace);
+PATH_BUILDERS.set('rightBrace', buildRightBrace);
 PATH_BUILDERS.set('mathPlus', buildMathPlus);
 PATH_BUILDERS.set('mathMinus', buildMathMinus);
 PATH_BUILDERS.set('mathMultiply', buildMathMultiply);
@@ -490,6 +535,28 @@ ADJUSTMENT_SPECS.set(
 );
 ADJUSTMENT_SPECS.set('wedgeEllipseCallout', WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('cloudCallout', CLOUD_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('rightArrowCallout', ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftArrowCallout', ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('upArrowCallout', ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('downArrowCallout', ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftRightArrowCallout', BI_ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('upDownArrowCallout', BI_ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('quadArrowCallout', QUAD_ARROW_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftBracket', BRACKET_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('rightBracket', BRACKET_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftBrace', BRACE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('rightBrace', BRACE_ADJUSTMENTS);
+ADJUSTMENT_HANDLES.set('rightArrowCallout', RIGHT_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('leftArrowCallout', LEFT_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('upArrowCallout', UP_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('downArrowCallout', DOWN_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('leftRightArrowCallout', LEFT_RIGHT_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('upDownArrowCallout', UP_DOWN_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('quadArrowCallout', QUAD_ARROW_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('leftBracket', LEFT_BRACKET_HANDLES);
+ADJUSTMENT_HANDLES.set('rightBracket', RIGHT_BRACKET_HANDLES);
+ADJUSTMENT_HANDLES.set('leftBrace', LEFT_BRACE_HANDLES);
+ADJUSTMENT_HANDLES.set('rightBrace', RIGHT_BRACE_HANDLES);
 ADJUSTMENT_SPECS.set('mathPlus', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathMinus', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathMultiply', MATH_PLUS_ADJUSTMENTS);
