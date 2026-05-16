@@ -84,7 +84,14 @@ export function DocsCommentPopover({
         visibility: pos ? "visible" : "hidden",
       }}
       onMouseDown={(e) => {
-        // Prevent the popover-click from racing the global dismiss listener.
+        // Stop both mousedown and click from bubbling to the container's
+        // click listener, which otherwise hit-tests at the click point
+        // and dismisses the popover (setActive(null)) before our own
+        // button onClick handlers can run. Without this, Resolve / Edit /
+        // Delete / Reply effectively just close the popover.
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
         e.stopPropagation();
       }}
     >
