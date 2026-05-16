@@ -27,12 +27,14 @@ exporter disambiguation are tracked here.
 
 ## Exporter hardening
 
-- [ ] **E1. Disambiguate `colSpan === 0` in exporter** —
+- [x] **E1. Disambiguate `colSpan === 0` in exporter** —
       `docx-exporter.ts` maps any covered placeholder to `<w:vMerge/>`.
       Fix to distinguish:
       - horizontal merge (absorbed by prior `gridSpan`) — skip tc
       - vertical merge (owner in earlier row) — emit `<w:vMerge/>`
       - `gridBefore`/`gridAfter` — emit via `trPr` skip markers
+      Reconstructed at export time by walking each row's owners and
+      checking rowSpan reach in prior rows; no model change needed.
 
 ## Revisit later
 

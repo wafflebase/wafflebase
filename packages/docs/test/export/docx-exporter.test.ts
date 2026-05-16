@@ -85,6 +85,119 @@ describe('DocxExporter', () => {
     expect(reimported.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A1');
   });
 
+  it('should skip horizontal merge placeholder cells (no extra w:tc with w:vMerge)', async () => {
+    // Owner with colSpan=2 covers the next grid column; the placeholder
+    // at cell index 1 must NOT round-trip as a stray vMerge continuation,
+    // because that would push the trailing real cell off the grid.
+    const cell = (text: string, colSpan?: number) => ({
+      blocks: [{ id: generateBlockId(), type: 'paragraph' as const, inlines: [{ text, style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+      style: {},
+      ...(colSpan !== undefined ? { colSpan } : {}),
+    });
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [{
+            cells: [cell('AB', 2), cell('', 0), cell('C')],
+          }],
+          columnWidths: [1 / 3, 1 / 3, 1 / 3],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const docXml = await zip.file('word/document.xml')!.async('string');
+    // The single row must contain exactly two <w:tc> elements (owner + C),
+    // not three with a spurious <w:vMerge/>.
+    const tcCount = (docXml.match(/<w:tc[ >]/g) ?? []).length;
+    expect(tcCount).toBe(2);
+    expect(docXml).not.toContain('<w:vMerge/>');
+
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    const cells = reimported.blocks[0].tableData!.rows[0].cells;
+    expect(cells).toHaveLength(3);
+    expect(cells[0].colSpan).toBe(2);
+    expect(cells[1].colSpan).toBe(0);
+    expect(cells[2].blocks[0].inlines[0].text).toBe('C');
+  });
+
+  it('should round-trip vertical merge with w:vMerge restart/continue', async () => {
+    const cell = (text: string, opts: { colSpan?: number; rowSpan?: number } = {}) => ({
+      blocks: [{ id: generateBlockId(), type: 'paragraph' as const, inlines: [{ text, style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+      style: {},
+      ...(opts.colSpan !== undefined ? { colSpan: opts.colSpan } : {}),
+      ...(opts.rowSpan !== undefined ? { rowSpan: opts.rowSpan } : {}),
+    });
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [
+            { cells: [cell('A', { rowSpan: 2 }), cell('B1')] },
+            { cells: [cell('', { colSpan: 0 }), cell('B2')] },
+          ],
+          columnWidths: [0.5, 0.5],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const docXml = await (await (await import('jszip')).default.loadAsync(await blob.arrayBuffer())).file('word/document.xml')!.async('string');
+    expect(docXml).toContain('w:vMerge w:val="restart"');
+    expect(docXml).toMatch(/<w:vMerge\/>/);
+
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    const rows = reimported.blocks[0].tableData!.rows;
+    expect(rows[0].cells[0].rowSpan).toBe(2);
+    expect(rows[1].cells[0].colSpan).toBe(0);
+    expect(rows[1].cells[1].blocks[0].inlines[0].text).toBe('B2');
+  });
+
+  it('should emit gridBefore for leading placeholders with no vMerge owner above', async () => {
+    // Leading covered cell in the first row cannot be a vMerge continue
+    // (no row above), so it must round-trip as <w:gridBefore w:val="1"/>
+    // rather than a stray <w:vMerge/> tc.
+    const cell = (text: string, colSpan?: number) => ({
+      blocks: [{ id: generateBlockId(), type: 'paragraph' as const, inlines: [{ text, style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+      style: {},
+      ...(colSpan !== undefined ? { colSpan } : {}),
+    });
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [{
+            cells: [cell('', 0), cell('B')],
+          }],
+          columnWidths: [0.5, 0.5],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const docXml = await (await (await import('jszip')).default.loadAsync(await blob.arrayBuffer())).file('word/document.xml')!.async('string');
+    expect(docXml).toContain('<w:gridBefore w:val="1"/>');
+    expect(docXml).not.toContain('<w:vMerge/>');
+
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    const cells = reimported.blocks[0].tableData!.rows[0].cells;
+    expect(cells).toHaveLength(2);
+    expect(cells[0].colSpan).toBe(0);
+    expect(cells[1].blocks[0].inlines[0].text).toBe('B');
+  });
+
   it('should produce a valid .docx zip', async () => {
     const doc: Document = {
       blocks: [{
