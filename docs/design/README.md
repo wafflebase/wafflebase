@@ -52,6 +52,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-copy-paste.md](docs/docs-table-copy-paste.md)                        | Docs table copy-paste — cell-range clipboard, whole-table block, external HTML table paste        |
 | [docs-table-row-splitting.md](docs/docs-table-row-splitting.md)                  | Table row splitting — split tall table rows across pages, recursive nested table support          |
 | [docs-peer-jump.md](docs/docs-peer-jump.md)                                      | Click peer avatar to scroll to that collaborator's caret in the docs editor                       |
+| [docs-comments.md](docs/docs-comments.md)                                        | Docs comments — text-range threads, CRDT-stable posRange anchors, orphan preservation, shared frontend module |
 
 ## Slides
 
