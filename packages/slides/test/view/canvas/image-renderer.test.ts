@@ -118,6 +118,63 @@ describe('drawImage', () => {
     expect(fillTextCalls).toContain('cat photo');
   });
 
+  it('wraps drawImage with save/restore + globalAlpha when opacity < 1', async () => {
+    const ctx = createCtxSpy();
+    drawImage(asCtx(ctx), size, data({ opacity: 0.19 }), () => undefined);
+    await flushMicrotasks();
+
+    drawImage(asCtx(ctx), size, data({ opacity: 0.19 }), () => undefined);
+    expect(ctx.save).toHaveBeenCalledTimes(1);
+    expect(ctx.restore).toHaveBeenCalledTimes(1);
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    // globalAlpha must have been set before drawImage was invoked.
+    const drawImageInvocationOrder = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const saveInvocationOrder = (ctx.save as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const restoreInvocationOrder = (ctx.restore as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(saveInvocationOrder).toBeLessThan(drawImageInvocationOrder);
+    expect(drawImageInvocationOrder).toBeLessThan(restoreInvocationOrder);
+  });
+
+  it('does NOT touch save/restore or globalAlpha when opacity is undefined', async () => {
+    const ctx = createCtxSpy();
+    drawImage(asCtx(ctx), size, data(), () => undefined);
+    await flushMicrotasks();
+
+    drawImage(asCtx(ctx), size, data(), () => undefined);
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    expect(ctx.save).not.toHaveBeenCalled();
+    expect(ctx.restore).not.toHaveBeenCalled();
+    expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it('does NOT touch save/restore when opacity is 1 (no-op)', async () => {
+    const ctx = createCtxSpy();
+    drawImage(asCtx(ctx), size, data({ opacity: 1 }), () => undefined);
+    await flushMicrotasks();
+
+    drawImage(asCtx(ctx), size, data({ opacity: 1 }), () => undefined);
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    expect(ctx.save).not.toHaveBeenCalled();
+    expect(ctx.restore).not.toHaveBeenCalled();
+  });
+
+  it('multiplies opacity into the existing globalAlpha rather than replacing it', async () => {
+    const ctx = createCtxSpy();
+    drawImage(asCtx(ctx), size, data({ opacity: 0.5 }), () => undefined);
+    await flushMicrotasks();
+
+    // Capture globalAlpha at the moment drawImage is actually called.
+    let alphaAtPaint = -1;
+    (ctx.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      alphaAtPaint = ctx.globalAlpha;
+    });
+
+    // Pre-existing ghost-layer alpha — the renderer must compose, not clobber.
+    ctx.globalAlpha = 0.5;
+    drawImage(asCtx(ctx), size, data({ opacity: 0.5 }), () => undefined);
+    expect(alphaAtPaint).toBeCloseTo(0.25, 5);
+  });
+
   it('passes the crop rectangle (in source pixels) to ctx.drawImage', async () => {
     const ctx = createCtxSpy();
     drawImage(asCtx(ctx), size, data(), () => undefined);

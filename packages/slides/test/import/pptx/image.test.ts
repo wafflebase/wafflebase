@@ -122,4 +122,101 @@ describe('parsePic', () => {
     expect(result).toBeUndefined();
     expect(report.skippedImages).toBe(1);
   });
+
+  it('maps <a:alphaModFix amt="19000"/> to data.opacity ≈ 0.19', async () => {
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"><a:alphaModFix amt="19000"/></a:blip>
+        <a:stretch><a:fillRect/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.opacity).toBeCloseTo(0.19, 5);
+  });
+
+  it('leaves opacity undefined when no alphaModFix is present', async () => {
+    const result = await parsePic(picEl(PIC), {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.opacity).toBeUndefined();
+  });
+
+  it('treats alphaModFix amt="100000" as default (no opacity field)', async () => {
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"><a:alphaModFix amt="100000"/></a:blip>
+        <a:stretch><a:fillRect/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.opacity).toBeUndefined();
+  });
+
+  it('clamps out-of-range alphaModFix amt values to [0, 1]', async () => {
+    const high = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"><a:alphaModFix amt="150000"/></a:blip>
+        <a:stretch><a:fillRect/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const highResult = await parsePic(high, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    // >= 100% clamps to 1, which is the default, so opacity stays undefined.
+    expect(highResult?.data.opacity).toBeUndefined();
+
+    const low = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"><a:alphaModFix amt="-5000"/></a:blip>
+        <a:stretch><a:fillRect/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const lowResult = await parsePic(low, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(lowResult?.data.opacity).toBe(0);
+  });
 });

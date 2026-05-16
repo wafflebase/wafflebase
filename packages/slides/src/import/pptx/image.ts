@@ -82,6 +82,7 @@ export async function parsePic(
   }
 
   const crop = blipFill ? parseSrcRect(child(blipFill, 'srcRect')) : undefined;
+  const opacity = blip ? parseAlphaModFix(child(blip, 'alphaModFix')) : undefined;
 
   return {
     id: generateId(),
@@ -90,8 +91,23 @@ export async function parsePic(
     data: {
       src,
       ...(crop ? { crop } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
     },
   };
+}
+
+/**
+ * `<a:alphaModFix amt="19000"/>` — `amt` is in thousandths of a
+ * percent (100_000 = fully opaque). Returns `undefined` when missing
+ * or when the value rounds to a no-op (>= 1) so default-opacity
+ * images don't carry a redundant field.
+ */
+function parseAlphaModFix(alphaModFix: Element | undefined): number | undefined {
+  if (!alphaModFix) return undefined;
+  const amt = attrInt(alphaModFix, 'amt');
+  if (typeof amt !== 'number') return undefined;
+  const opacity = Math.max(0, Math.min(1, amt / 100_000));
+  return opacity < 1 ? opacity : undefined;
 }
 
 /**

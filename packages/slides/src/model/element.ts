@@ -137,6 +137,12 @@ export type ImageElement = ElementBase & {
     src: string;
     crop?: Crop;
     alt?: string;
+    /**
+     * Pre-multiplied alpha applied at paint time. Range `[0, 1]`.
+     * Imported from OOXML `<a:blip><a:alphaModFix amt="..."/>` (PPTX).
+     * `undefined` / `1` paint at full opacity (no save/restore cost).
+     */
+    opacity?: number;
   };
 };
 

@@ -21,6 +21,15 @@ export function drawImage(
 ): boolean {
   const img = getOrLoadImage(data.src, onLoad);
   if (img) {
+    // `opacity < 1` comes from PPTX `<a:alphaModFix>`. Multiplying
+    // into the existing `globalAlpha` (instead of replacing it) keeps
+    // outer ghost/selection passes composing correctly.
+    const opacity = data.opacity;
+    const useAlpha = typeof opacity === 'number' && opacity < 1;
+    if (useAlpha) {
+      ctx.save();
+      ctx.globalAlpha = ctx.globalAlpha * opacity;
+    }
     if (data.crop) {
       const sx = data.crop.x * img.naturalWidth;
       const sy = data.crop.y * img.naturalHeight;
@@ -30,6 +39,7 @@ export function drawImage(
     } else {
       ctx.drawImage(img, 0, 0, w, h);
     }
+    if (useAlpha) ctx.restore();
     return true;
   }
   // Image failed to load — paint a placeholder so the user can see the
