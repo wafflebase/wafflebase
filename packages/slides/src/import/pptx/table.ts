@@ -7,6 +7,32 @@ import { parseTextBody } from './text';
 import { attr, attrInt, child, children, descendant } from './xml';
 
 /**
+ * ECMA-376 default `<a:tcPr>` cell insets in EMU. PowerPoint omits the
+ * attributes when the slide uses these defaults, so without a fallback
+ * every imported cell paints text edge-to-edge and adjacent
+ * right/left-aligned content visually merges.
+ */
+const DEFAULT_CELL_MARGIN_LR_EMU = 91_440;
+const DEFAULT_CELL_MARGIN_TB_EMU = 45_720;
+
+interface CellMargins {
+  marL: number;
+  marR: number;
+  marT: number;
+  marB: number;
+}
+
+function parseCellMargins(cell: Element): CellMargins {
+  const tcPr = child(cell, 'tcPr');
+  return {
+    marL: (tcPr && attrInt(tcPr, 'marL')) ?? DEFAULT_CELL_MARGIN_LR_EMU,
+    marR: (tcPr && attrInt(tcPr, 'marR')) ?? DEFAULT_CELL_MARGIN_LR_EMU,
+    marT: (tcPr && attrInt(tcPr, 'marT')) ?? DEFAULT_CELL_MARGIN_TB_EMU,
+    marB: (tcPr && attrInt(tcPr, 'marB')) ?? DEFAULT_CELL_MARGIN_TB_EMU,
+  };
+}
+
+/**
  * Flatten `<p:graphicFrame><a:tbl>` into a matrix of TextElements (one
  * per cell) overlaid on a borderless rect per cell to carry the cell's
  * stroke. Cells with `<a:gridSpan>` / `<a:rowSpan>` are reported but
@@ -73,10 +99,22 @@ export function parseTable(
 
       const txBody = child(cell, 'txBody');
       if (txBody) {
+        const margins = parseCellMargins(cell);
+        const insetX = margins.marL * ctx.scale.sx;
+        const insetY = margins.marT * ctx.scale.sy;
+        const insetW = (margins.marL + margins.marR) * ctx.scale.sx;
+        const insetH = (margins.marT + margins.marB) * ctx.scale.sy;
+        const textFrame: Frame = {
+          x: cellFrame.x + insetX,
+          y: cellFrame.y + insetY,
+          w: Math.max(0, cellFrame.w - insetW),
+          h: Math.max(0, cellFrame.h - insetH),
+          rotation: 0,
+        };
         const txt: TextElement = {
           id: generateId(),
           type: 'text',
-          frame: cellFrame,
+          frame: textFrame,
           data: {
             blocks: parseTextBody(txBody, {
               rels: ctx.rels,

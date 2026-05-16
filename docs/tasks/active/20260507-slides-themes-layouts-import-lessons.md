@@ -51,4 +51,36 @@ PR1 merge or in a follow-up cleanup commit:
   a richer hex input + recent-color memory, (c) match Google Slides' standard-color palette
   more deliberately (we currently reuse the docs `TEXT_COLORS` constant).
 
+## PR2 post-merge audit (2026-05-16, Yorkie 캐즘 deck)
+
+Visual audit of the 36-slide benchmark imported via PR2/#243 (deck at
+`/shared/17025f9e-cd3f-4793-91e3-593cd899e3fe`). Overall fidelity is
+good: hyperlinks render, connectors route, images upload, notes and
+fonts survive. Two findings worth tracking:
+
+- ~~**Table cell margins (`<a:tcPr marL/marR/marT/marB>`) ignored.**~~
+  Fixed in follow-up `20260516-pptx-table-cell-margins-todo.md`: parse
+  `<a:tcPr>` `marL/marR/marT/marB` with ECMA-376 defaults
+  (marL=marR=91440 EMU, marT=marB=45720 EMU) and inset the text frame
+  while keeping the border rect on the cell's outer frame. Visible on
+  the benchmark in slides 24, 25, 26, 27 (전파/저장 grid:
+  "저장 XMemory") and 33, 34, 35 ("Yorkie 개발hackerwins").
+- **GIF images render as a still frame.** Slide 36's
+  `media/image24.gif` survives the upload path but plays no animation.
+  Acceptable for v1 (the design doc never promised motion media) — note
+  for future media support.
+
+Non-issues confirmed during audit (logged so the next pass doesn't
+re-investigate):
+
+- Many sidebar thumbnails appear "blank" at 206×116 because thick body
+  text shrinks to sub-pixel sizes; the main canvas shows full content
+  (e.g. slide 13 thumb looks empty but the slide is the full
+  Liveblocks-positioning chart). Thumb scaling is a rendering choice,
+  not an import regression.
+- Slides 33-36 having a black canvas matches the original master/layout
+  background — not a theming bug.
+- Notes that look empty (e.g. slides 33-35, 36) are genuinely empty
+  in the source deck.
+
 ## Brainstorming

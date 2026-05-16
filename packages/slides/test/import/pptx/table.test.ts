@@ -64,13 +64,44 @@ describe('parseTable', () => {
   it('positions cells using cumulative col/row widths from the grid', () => {
     const out = parseTable(frame(SMALL_TABLE), ctx());
     const texts = out.filter((e) => e.type === 'text') as TextElement[];
-    // A1 at top-left of the table.
-    expect(texts[0].frame.x).toBeCloseTo(1_000_000 * SCALE.sx, 6);
-    expect(texts[0].frame.y).toBeCloseTo(2_000_000 * SCALE.sy, 6);
-    // B1 to the right by 1000000 EMU.
-    expect(texts[1].frame.x).toBeCloseTo(2_000_000 * SCALE.sx, 6);
+    // Text frames inset by ECMA-376 default cell margins
+    // (marL=91440 EMU, marT=45720 EMU). Cell outer rect stays at the
+    // table-grid position; insets are visible on the BORDER rect tests.
+    const DLR = 91_440;
+    const DTB = 45_720;
+    // A1 top-left, inset.
+    expect(texts[0].frame.x).toBeCloseTo((1_000_000 + DLR) * SCALE.sx, 6);
+    expect(texts[0].frame.y).toBeCloseTo((2_000_000 + DTB) * SCALE.sy, 6);
+    // B1 to the right by 1000000 EMU, same inset.
+    expect(texts[1].frame.x).toBeCloseTo((2_000_000 + DLR) * SCALE.sx, 6);
     // A2 below row 1.
-    expect(texts[2].frame.y).toBeCloseTo(3_000_000 * SCALE.sy, 6);
+    expect(texts[2].frame.y).toBeCloseTo((3_000_000 + DTB) * SCALE.sy, 6);
+    // Width shrinks by marL+marR (default 2*91440).
+    expect(texts[0].frame.w).toBeCloseTo((1_000_000 - 2 * DLR) * SCALE.sx, 6);
+  });
+
+  it('honors explicit `<a:tcPr marL marR marT marB>` insets', () => {
+    const xml = `<p:graphicFrame>
+      <p:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></p:xfrm>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+        <a:tbl>
+          <a:tblGrid><a:gridCol w="2000000"/></a:tblGrid>
+          <a:tr h="1000000">
+            <a:tc>
+              <a:txBody><a:bodyPr/><a:p><a:r><a:t>X</a:t></a:r></a:p></a:txBody>
+              <a:tcPr marL="200000" marR="300000" marT="100000" marB="50000"/>
+            </a:tc>
+          </a:tr>
+        </a:tbl>
+      </a:graphicData></a:graphic>
+    </p:graphicFrame>`;
+    const out = parseTable(frame(xml), ctx());
+    const texts = out.filter((e) => e.type === 'text') as TextElement[];
+    expect(texts).toHaveLength(1);
+    expect(texts[0].frame.x).toBeCloseTo(200_000 * SCALE.sx, 6);
+    expect(texts[0].frame.y).toBeCloseTo(100_000 * SCALE.sy, 6);
+    expect(texts[0].frame.w).toBeCloseTo((2_000_000 - 500_000) * SCALE.sx, 6);
+    expect(texts[0].frame.h).toBeCloseTo((1_000_000 - 150_000) * SCALE.sy, 6);
   });
 
   it('counts merges via gridSpan/rowSpan/vMerge', () => {
