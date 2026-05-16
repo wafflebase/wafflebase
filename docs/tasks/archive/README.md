@@ -42,6 +42,7 @@ Total archived tasks: 177
 | docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./2026/05/20260502-docs-cli-todo.md) | [20260502-docs-cli-lessons.md](./2026/05/20260502-docs-cli-lessons.md) |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./2026/05/20260501-release-0.3.6-todo.md) | - |
+| table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./2026/05/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |
 
