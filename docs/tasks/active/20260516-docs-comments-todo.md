@@ -201,17 +201,20 @@ for the editor.
 Feature-agnostic UI. Takes a `CommentStore<A>` plus a feature-specific
 row-renderer prop.
 
-- [ ] **6.1** `CommentComposer` — author avatar, textarea (newlines
-  allowed), cancel/submit, disabled in read-only mode.
-- [ ] **6.2** `CommentThreadCard` — root comment + replies, edit/delete
-  visible only to author, resolve/reopen visible to everyone signed in.
-- [ ] **6.3** `CommentSidePanel` — "Open" tab (live + "Orphaned"
-  sub-section) and "Resolved" tab; row renderer is a prop so each
-  consumer labels rows their own way.
-- [ ] **6.4** `OrphanedCard` — gray box quoting `anchor.quotedText`,
-  jump-to disabled.
-- [ ] **6.5** Light unit tests for visibility logic (read-only,
-  author-only buttons).
+- [x] **6.1** `CommentComposer` — textarea + cancel/submit, disabled
+  in read-only mode, autoFocus race-fix from sheets, compact variant
+  for inline reply.
+- [x] **6.2** `CommentThreadCard` — root + replies, edit/delete
+  visible only to author, resolve/reopen visible to everyone signed in;
+  inline reply composer at the bottom.
+- [x] **6.3** `CommentSidePanel` — Open/Resolved tabs; `renderOrphan`
+  + `renderAnchorLabel` props let each consumer paint their own row
+  details without coupling the panel to a specific anchor shape.
+- [x] **6.4** `OrphanedCard` — gray quoted-text block, jump-to
+  intentionally absent; trailing slot for feature-specific buttons.
+- [x] **6.5** (deferred to visual harness) React component rendering
+  needs jsdom + canvas, not set up in the frontend test runner; visual
+  harness in Task 8 covers visibility logic end-to-end.
 
 ---
 
