@@ -8,7 +8,7 @@ target-version: 0.4.1
 ## Summary
 
 The `@wafflebase/slides` package ships an OOXML-aligned shape library:
-**117 `ShapeKind` values** rendered through a single path-builder
+**128 `ShapeKind` values** rendered through a single path-builder
 registry (plus a special-cased dispatcher for `line` / `arrow` /
 action buttons), with per-shape adjustments stored as
 `data.adjustments?: number[]` and edited via yellow-diamond drag
@@ -73,7 +73,8 @@ export type ShapeKind =
   // Basic shapes (P1: 15, P3-B: +29) — rect, …, snipRoundRect
   // Block arrows (P1: 8, P3-B: +13) — rightArrow, …, swooshArrow
   // Banners (P3-B: 5) — ribbon, …, leftRightRibbon
-  // Callouts (P1: 4, P3-B: +3 line callouts) — wedgeRectCallout, …, borderCallout3
+  // Callouts (P1: 4, P3-B: +3 line callouts, P3-C: +7 arrow callouts) — wedgeRectCallout, …, quadArrowCallout
+  // Brackets/braces (P3-C: 4) — leftBracket, rightBracket, leftBrace, rightBrace
   // Equation (6) — mathPlus, …, mathNotEqual
   // Stars (6) — star4, …, star10
   // Flowchart (14) — flowChartTerminator, …, flowChartDisplay
@@ -375,6 +376,7 @@ their own entry:
 | `flowChartAlternateProcess` | `roundRect` | identical geometry |
 | `flowChartDecision` | `diamond` | identical geometry |
 | `flowChartData` | `parallelogram` | identical geometry |
+| `homePlate` | `pentagonArrow` | historical synonym — same baseball-home-plate pentagon |
 
 The importer (when shipped — tracked under
 `slides-themes-layouts-import.md`) maps these aliases through its
@@ -394,6 +396,7 @@ The library is delivered incrementally:
 | ~~P3-A.1 — Pilot handles~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for 9 pilot shapes (4 axis types)~~ |
 | ~~P3-A.2 — Sweep~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for remaining 24 parametric shapes~~ |
 | ~~P3-B — GS parity~~ | ~~117~~ | ~~+ 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons~~ | ~~handles ship with shape (`drawActionButton` for action buttons; new `angular` axis for arc-based shapes)~~ |
+| ~~P3-C — Import gaps~~ | ~~128~~ | ~~+ 7 arrow callouts + 4 brackets/braces; `homePlate` import alias~~ | ~~handles ship with shape~~ |
 | P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) |
 
 Each phase is tracked as a task pair in `docs/tasks/` (search

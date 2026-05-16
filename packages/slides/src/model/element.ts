@@ -59,10 +59,15 @@ export type ShapeKind =
   // Banners (5, P3-B T5)
   | 'ribbon' | 'ribbon2' | 'horizontalScroll' | 'verticalScroll'
   | 'leftRightRibbon'
-  // Callouts (4 P1 + 3 line callouts)
+  // Callouts (4 P1 + 3 line callouts + 7 arrow callouts)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'
   | 'borderCallout1' | 'borderCallout2' | 'borderCallout3'
+  | 'rightArrowCallout' | 'leftArrowCallout'
+  | 'upArrowCallout' | 'downArrowCallout'
+  | 'leftRightArrowCallout' | 'upDownArrowCallout' | 'quadArrowCallout'
+  // Brackets / braces (4) — open-path, stroke-oriented
+  | 'leftBracket' | 'rightBracket' | 'leftBrace' | 'rightBrace'
   // Equation (6)
   | 'mathPlus' | 'mathMinus' | 'mathMultiply'
   | 'mathDivide' | 'mathEqual' | 'mathNotEqual'

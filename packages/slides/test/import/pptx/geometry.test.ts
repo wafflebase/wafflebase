@@ -123,11 +123,28 @@ describe('prstToShapeKind', () => {
     }
   });
 
-  it('returns undefined for unknown / unmapped names', () => {
-    // Yorkie 캐즘 deck has 3 of these — caller falls back to rect.
-    expect(prstToShapeKind('rightArrowCallout')).toBeUndefined();
-    expect(prstToShapeKind('leftBracket')).toBeUndefined();
-    expect(prstToShapeKind('homePlate')).toBeUndefined();
+  it('resolves arrow callouts and brackets directly', () => {
+    // Yorkie 캐즘 deck slide 7 / 28 — used to fall back to rect.
+    expect(prstToShapeKind('rightArrowCallout')).toBe('rightArrowCallout');
+    expect(prstToShapeKind('leftArrowCallout')).toBe('leftArrowCallout');
+    expect(prstToShapeKind('upArrowCallout')).toBe('upArrowCallout');
+    expect(prstToShapeKind('downArrowCallout')).toBe('downArrowCallout');
+    expect(prstToShapeKind('leftRightArrowCallout')).toBe('leftRightArrowCallout');
+    expect(prstToShapeKind('upDownArrowCallout')).toBe('upDownArrowCallout');
+    expect(prstToShapeKind('quadArrowCallout')).toBe('quadArrowCallout');
+    expect(prstToShapeKind('leftBracket')).toBe('leftBracket');
+    expect(prstToShapeKind('rightBracket')).toBe('rightBracket');
+    expect(prstToShapeKind('leftBrace')).toBe('leftBrace');
+    expect(prstToShapeKind('rightBrace')).toBe('rightBrace');
+  });
+
+  it('aliases homePlate to pentagonArrow', () => {
+    // Yorkie 캐즘 deck slide 31 — PPTX uses the historical name
+    // `homePlate` for what we call `pentagonArrow`.
+    expect(prstToShapeKind('homePlate')).toBe('pentagonArrow');
+  });
+
+  it('returns undefined for genuinely unknown names', () => {
     expect(prstToShapeKind('totallyMadeUp')).toBeUndefined();
   });
 });
