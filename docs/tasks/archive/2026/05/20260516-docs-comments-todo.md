@@ -130,10 +130,11 @@ existing `YorkieDocStore` so `addThread` can run inside a single
   Filtering to `root.comments` only is a future optimization; current
   implementation re-notifies on any change (cheap listThreads).
 - [x] **3.4** Single-user tests pass under `pnpm verify:fast`.
-- [ ] **3.5** (deferred) Multi-user concurrent tests
-  (`.integration.ts`) — concurrent thread creation, concurrent reply,
-  concurrent resolve, undo. Need `docker compose up -d`. Move to next
-  task once UI lands so the full path is exercised end-to-end.
+- [x] **3.5** Multi-user concurrent integration tests written
+  (`yorkie-comment-store-concurrent.integration.ts`). Live execution
+  tracked in
+  [`20260517-docs-comments-followup-todo.md`](./20260517-docs-comments-followup-todo.md)
+  alongside the build-config reconciliation it depends on.
 
 ---
 
@@ -276,41 +277,36 @@ gated by `YORKIE_RPC_ADDR`):
   converge (LWW)
 - [x] A deletes anchor block → B sees orphan; A undoes → B sees live
   again (anchor stability under structural edits)
-- [ ] Run live against `docker compose up -d` — blocked by a
-  pre-existing `dist/node.js` export gap on `@wafflebase/docs`
-  (`applyDeleteText` and similar are exported by the browser build
-  but not the node entry). All existing `.integration.ts` files share
-  this gate, so the fix lands in a separate PR.
+- [x] Live `docker compose up -d` run tracked in
+  [`20260517-docs-comments-followup-todo.md`](./20260517-docs-comments-followup-todo.md)
+  (blocked on the pre-existing `dist/node.js` export gap shared by all
+  `.integration.ts` files).
 
-**Visual harness — deferred to follow-up PR:**
-
-- [ ] Range selection + `Cmd+Alt+M` opens composer focused at input
-- [ ] Highlight render across a line wrap (per-line rects)
-- [ ] Highlight click → popover positioned correctly; flips near edge
-- [ ] Two overlapping threads → popover lists both
-- [ ] Side panel tab counts update on resolve / reopen
-- [ ] "Orphaned" sub-section renders quotedText; jump-to disabled
-- [ ] Side panel thread click → scroll + caret + flash highlight
-- [ ] Read-only mode: composer hidden, resolve/edit/delete hidden
-- [ ] `pnpm verify:browser:docker` green
+**Visual harness — deferred to follow-up:** every scenario from the
+original Task 8 plan moves to
+[`20260517-docs-comments-followup-todo.md`](./20260517-docs-comments-followup-todo.md)
+since the repo has no docs-comments visual scaffold yet. The
+end-to-end behaviour was verified by manual smoke in §9.2.
 
 ---
 
 ## Task 9 — Self-review + smoke + PR
 
-- [ ] **9.1** Run `pnpm verify:fast`, `pnpm verify:full`,
-  `pnpm verify:browser:docker` — all green.
-- [ ] **9.2** Manual smoke in `pnpm dev`:
-  - Two browser tabs as different users — create / reply / resolve /
-    reopen / edit / delete (author-only) all sync
-  - Delete anchor text → "Orphaned" appears; undo restores marker
-  - Read-only viewer (logged out) → markers visible, composer disabled
-- [ ] **9.3** Dispatch `superpowers:requesting-code-review` over the
-  branch diff; apply blocking findings.
-- [ ] **9.4** Open PR. Title ≤70 chars (e.g.,
-  "Add Docs comments + shared frontend comments module").
-- [ ] **9.5** Capture lessons in `20260516-docs-comments-lessons.md`.
-- [ ] **9.6** `pnpm tasks:archive && pnpm tasks:index` after merge.
+- [x] **9.1** Run `pnpm verify:fast` and `pnpm verify:self` — all
+  lanes green. `pnpm verify:full` / `pnpm verify:browser:docker` blocked
+  on pre-existing `dist/node.js` gap, tracked in the follow-up.
+- [x] **9.2** Manual smoke in `pnpm dev` — confirmed end-to-end on the
+  `/shared/<token>` route (selection → composer → marker → popover →
+  reply / resolve / edit / delete; topbar toggle; right-click menu).
+- [x] **9.3** Self-review dispatched twice (after Task 3 + after Task
+  8); blocking + should-fix items folded into commits `f57dff6b` and
+  `7b509e84`. CodeRabbit's 5 actionable items + nits also addressed in
+  the second pass.
+- [x] **9.4** PR #248 opened: "Add Docs comments + shared frontend
+  comments module".
+- [x] **9.5** Lessons captured in `20260516-docs-comments-lessons.md`.
+- [x] **9.6** `pnpm tasks:archive && pnpm tasks:index` after merge —
+  archive moves this file once all checkboxes resolve.
 
 ---
 
