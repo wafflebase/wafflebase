@@ -60,10 +60,7 @@ function twoArgs(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
 ): [EvalNode, EvalNode] | ErrNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   return [visit(exprs[0]), visit(exprs[1])];
 }
 
@@ -72,10 +69,7 @@ function oneArg(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   return visit(exprs[0]);
 }
 
@@ -240,10 +234,7 @@ export function isbetweenFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = resolveScalar(visit(exprs[0]), grid);
   const lower = resolveScalar(visit(exprs[1]), grid);
@@ -282,10 +273,7 @@ export function concatFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   let result = '';
   for (const expr of exprs) {
@@ -301,10 +289,7 @@ export function uniqueFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;

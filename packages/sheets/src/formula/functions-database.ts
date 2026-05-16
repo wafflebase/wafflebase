@@ -199,10 +199,7 @@ function extractDatabaseValues(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): { values: number[]; strValues: string[] } | EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   // Parse database range
   const dbNode = visit(exprs[0]);

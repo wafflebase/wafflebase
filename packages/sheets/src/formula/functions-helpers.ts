@@ -330,4 +330,3 @@ export function wildcardToRegex(pattern: string): string {
 
   return regex;
 }
-

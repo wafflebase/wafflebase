@@ -16,15 +16,7 @@ export function ifFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const condition = BoolArgs.map(visit(exprs[0]), grid);
   if (condition.t === 'err') {
@@ -52,15 +44,7 @@ export function ifsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length % 2 !== 0) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   for (let i = 0; i < exprs.length; i += 2) {
     const condition = BoolArgs.map(visit(exprs[i]), grid);
@@ -85,15 +69,7 @@ export function switchFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const expression = toStr(visit(exprs[0]), grid);
   if (expression.t === 'err') {
@@ -131,12 +107,7 @@ export function andFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  for (const node of BoolArgs.iterate(args, visit, grid)) {
+  for (const node of BoolArgs.iterate(ctx.args()!, visit, grid)) {
     if (node.t === 'err') {
       return node;
     }
@@ -158,12 +129,7 @@ export function orFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  for (const node of BoolArgs.iterate(args, visit, grid)) {
+  for (const node of BoolArgs.iterate(ctx.args()!, visit, grid)) {
     if (node.t === 'err') {
       return node;
     }
@@ -185,15 +151,7 @@ export function notFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = BoolArgs.map(visit(exprs[0]), grid);
   if (value.t === 'err') {
@@ -211,13 +169,8 @@ export function xorFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
   let trueCount = 0;
-  for (const node of BoolArgs.iterate(args, visit, grid)) {
+  for (const node of BoolArgs.iterate(ctx.args()!, visit, grid)) {
     if (node.t === 'err') {
       return node;
     }
@@ -237,15 +190,7 @@ export function chooseFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const indexNode = NumberArgs.map(visit(exprs[0]), grid);
   if (indexNode.t === 'err') {
@@ -269,15 +214,7 @@ export function iferrorFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
   if (value.t === 'err') {
@@ -296,15 +233,7 @@ export function ifnaFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
   if (value.t === 'err' && value.v === ErrValue.NA) {
