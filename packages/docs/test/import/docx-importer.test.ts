@@ -165,6 +165,75 @@ describe('DocxImporter', () => {
     expect(td.rowHeights![1]).toBeUndefined();
   });
 
+  it('should inherit w:tblBorders onto cell sides without explicit tcBorders', async () => {
+    // Outer 4 sides red; insideH/insideV green. A 2×2 grid lets us assert
+    // outer cells get red on their grid-edge sides and green on the
+    // shared interior sides.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:insideH w:sz="4" w:color="00FF00" w:val="single"/>
+          <w:insideV w:sz="4" w:color="00FF00" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const rows = doc.blocks[0].tableData!.rows;
+    // Top-left: outer red on top/left, interior green on bottom/right.
+    expect(rows[0].cells[0].style.borderTop?.color).toBe('#FF0000');
+    expect(rows[0].cells[0].style.borderLeft?.color).toBe('#FF0000');
+    expect(rows[0].cells[0].style.borderBottom?.color).toBe('#00FF00');
+    expect(rows[0].cells[0].style.borderRight?.color).toBe('#00FF00');
+    // Bottom-right: interior green on top/left, outer red on bottom/right.
+    expect(rows[1].cells[1].style.borderTop?.color).toBe('#00FF00');
+    expect(rows[1].cells[1].style.borderLeft?.color).toBe('#00FF00');
+    expect(rows[1].cells[1].style.borderBottom?.color).toBe('#FF0000');
+    expect(rows[1].cells[1].style.borderRight?.color).toBe('#FF0000');
+  });
+
+  it('should not let w:tblBorders override an explicit w:tcBorders side', async () => {
+    // Cell sets only top; tblBorders should fill the remaining sides
+    // while leaving the cell's explicit blue top untouched.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:tcBorders>
+              <w:top w:sz="4" w:color="0000FF" w:val="single"/>
+            </w:tcBorders></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+    expect(cell.style.borderTop?.color).toBe('#0000FF');
+    expect(cell.style.borderBottom?.color).toBe('#FF0000');
+    expect(cell.style.borderLeft?.color).toBe('#FF0000');
+    expect(cell.style.borderRight?.color).toBe('#FF0000');
+  });
+
   it('should ignore w:trHeight with hRule=auto', async () => {
     // hRule=auto means the value is suggestive only; we treat the row as
     // auto-sized so the layout matches Word's behavior on these rows.

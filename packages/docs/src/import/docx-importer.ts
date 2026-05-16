@@ -2,7 +2,11 @@ import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, TableRow, TableCell, HeaderFooter, PageSetup } from '../model/types.js';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE } from '../model/types.js';
 import { parseRelationships, parseParagraph, parsePageSetup, type RelEntry } from './docx-parser.js';
-import { mapTableCellProperties } from './docx-style-map.js';
+import {
+  mapTableCellProperties,
+  mapTableLevelBorders,
+  type TableLevelBorders,
+} from './docx-style-map.js';
 import { emusToPx, twipsToPx } from './units.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -221,6 +225,9 @@ export class DocxImporter {
     // to 1/6 of the content width in the real-world form.docx case).
     // The row walk below is also direct-child only, so keeping the
     // grid lookup symmetric avoids that class of leak.
+    const tblPr = DocxImporter.findDirectChild(tblEl, 'tblPr');
+    const tblBorders = tblPr ? mapTableLevelBorders(tblPr) : null;
+
     const colWidthsRaw: number[] = [];
     const tblGrid = DocxImporter.findDirectChild(tblEl, 'tblGrid');
     if (tblGrid) {
@@ -437,6 +444,10 @@ export class DocxImporter {
       resolveVMergeGroup(colIdx, tracker);
     }
 
+    if (tblBorders) {
+      DocxImporter.applyTblBordersInheritance(rows, tblBorders);
+    }
+
     const tableData: TableData = { rows, columnWidths };
     if (hasRowHeight) tableData.rowHeights = rowHeights;
 
@@ -447,6 +458,47 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Apply table-level <w:tblBorders> as a fallback for every cell side
+   * that lacks an explicit <w:tcBorders> entry. Outer sides
+   * (top/bottom/left/right) cover grid-edge cells; insideH and insideV
+   * cover interior sides between cells. Covered merge placeholders are
+   * skipped because the owning cell already handles the merged region's
+   * borders.
+   */
+  private static applyTblBordersInheritance(
+    rows: TableRow[],
+    tblBorders: TableLevelBorders,
+  ): void {
+    const nRows = rows.length;
+    for (let r = 0; r < nRows; r++) {
+      const cells = rows[r].cells;
+      const nCols = cells.length;
+      for (let c = 0; c < nCols; c++) {
+        const cell = cells[c];
+        if (cell.colSpan === 0) continue;
+        const topFallback = r === 0 ? tblBorders.top : tblBorders.insideH;
+        const bottomFallback =
+          r === nRows - 1 ? tblBorders.bottom : tblBorders.insideH;
+        const leftFallback = c === 0 ? tblBorders.left : tblBorders.insideV;
+        const rightFallback =
+          c === nCols - 1 ? tblBorders.right : tblBorders.insideV;
+        if (!cell.style.borderTop && topFallback) {
+          cell.style.borderTop = { ...topFallback };
+        }
+        if (!cell.style.borderBottom && bottomFallback) {
+          cell.style.borderBottom = { ...bottomFallback };
+        }
+        if (!cell.style.borderLeft && leftFallback) {
+          cell.style.borderLeft = { ...leftFallback };
+        }
+        if (!cell.style.borderRight && rightFallback) {
+          cell.style.borderRight = { ...rightFallback };
+        }
+      }
+    }
   }
 
   /**

@@ -17,8 +17,10 @@ exporter disambiguation are tracked here.
       one value)
 - [x] **2. `w:vAlign`** (cell vertical alignment) — map to `CellStyle.verticalAlign`
       (importer only; OOXML "center" → model "middle")
-- [ ] **3. `w:tblBorders` inheritance** — fall back to table-level
+- [x] **3. `w:tblBorders` inheritance** — fall back to table-level
       `tblBorders` when a cell has no `tcBorders` of its own
+      (importer only; outer 4 sides for grid-edge cells, insideH/insideV
+      for interior sides; covered merge placeholders skipped)
 - [x] **4. `w:trHeight`** — map to `TableData.rowHeights`
       (importer only; hRule=auto skipped, atLeast/exact treated as minimum
       height matching model semantics)
