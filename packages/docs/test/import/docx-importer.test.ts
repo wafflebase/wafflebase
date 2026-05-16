@@ -101,6 +101,86 @@ describe('DocxImporter', () => {
     expect(doc.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A1');
   });
 
+  it('should import w:tcMar onto cell.style.padding', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:tcMar>
+              <w:top w:w="120" w:type="dxa"/>
+              <w:bottom w:w="120" w:type="dxa"/>
+              <w:left w:w="120" w:type="dxa"/>
+              <w:right w:w="120" w:type="dxa"/>
+            </w:tcMar></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    // 120 twips ≈ 8 px.
+    expect(doc.blocks[0].tableData!.rows[0].cells[0].style.padding).toBeCloseTo(
+      8,
+      0,
+    );
+  });
+
+  it('should import w:vAlign onto cell.style.verticalAlign', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:vAlign w:val="center"/></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(
+      doc.blocks[0].tableData!.rows[0].cells[0].style.verticalAlign,
+    ).toBe('middle');
+  });
+
+  it('should import w:trHeight onto tableData.rowHeights for atLeast', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:trPr><w:trHeight w:val="480" w:hRule="atLeast"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>tall row</w:t></w:r></w:p></w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>default row</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.rowHeights).toBeDefined();
+    // 480 twips = 32 px.
+    expect(td.rowHeights![0]).toBeCloseTo(32, 0);
+    expect(td.rowHeights![1]).toBeUndefined();
+  });
+
+  it('should ignore w:trHeight with hRule=auto', async () => {
+    // hRule=auto means the value is suggestive only; we treat the row as
+    // auto-sized so the layout matches Word's behavior on these rows.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:trPr><w:trHeight w:val="480" w:hRule="auto"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>auto despite val</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.blocks[0].tableData!.rowHeights).toBeUndefined();
+  });
+
   it('should derive column widths from the outer tblGrid ratios', async () => {
     // Outer table: 3 cols with widths 1000/2000/3000 (1/6, 2/6, 3/6 of total).
     const buffer = await createMinimalDocx(`

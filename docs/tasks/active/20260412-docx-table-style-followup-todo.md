@@ -12,11 +12,16 @@ exporter disambiguation are tracked here.
 
 ## Table style / structure gaps (priority: medium)
 
-- [ ] **1. `w:tcMar`** (cell margin/padding) — map to `CellStyle.padding`
-- [ ] **2. `w:vAlign`** (cell vertical alignment) — map to `CellStyle.verticalAlign`
+- [x] **1. `w:tcMar`** (cell margin/padding) — map to `CellStyle.padding`
+      (importer only; max of specified dxa sides since the model carries
+      one value)
+- [x] **2. `w:vAlign`** (cell vertical alignment) — map to `CellStyle.verticalAlign`
+      (importer only; OOXML "center" → model "middle")
 - [ ] **3. `w:tblBorders` inheritance** — fall back to table-level
       `tblBorders` when a cell has no `tcBorders` of its own
-- [ ] **4. `w:trHeight`** — map to `TableData.rowHeights`
+- [x] **4. `w:trHeight`** — map to `TableData.rowHeights`
+      (importer only; hRule=auto skipped, atLeast/exact treated as minimum
+      height matching model semantics)
 
 ## Exporter hardening
 

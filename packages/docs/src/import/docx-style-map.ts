@@ -159,6 +159,8 @@ export function mapTableCellProperties(tcPr: Element): {
   borderBottom?: { width: number; color: string; style: 'solid' | 'none' };
   borderLeft?: { width: number; color: string; style: 'solid' | 'none' };
   borderRight?: { width: number; color: string; style: 'solid' | 'none' };
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  padding?: number;
   colSpan?: number;
   vMerge?: 'restart' | 'continue';
 } {
@@ -180,6 +182,37 @@ export function mapTableCellProperties(tcPr: Element): {
   if (vMerge) {
     const val = getWAttr(vMerge, 'val');
     result.vMerge = val === 'restart' ? 'restart' : 'continue';
+  }
+
+  const vAlign = getW(tcPr, 'vAlign');
+  if (vAlign) {
+    const val = getWAttr(vAlign, 'val');
+    // OOXML uses "center"; the docs model uses "middle".
+    if (val === 'top' || val === 'bottom') {
+      result.verticalAlign = val;
+    } else if (val === 'center') {
+      result.verticalAlign = 'middle';
+    }
+  }
+
+  const tcMar = getW(tcPr, 'tcMar');
+  if (tcMar) {
+    // The docs model carries one padding value per cell, so collapse the
+    // four DOCX margins to their maximum: a too-small value would let text
+    // collide with the cell border, while a too-large value only inflates
+    // whitespace.
+    let maxTwips = -Infinity;
+    for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+      const sideEl = getW(tcMar, side);
+      if (!sideEl) continue;
+      const type = getWAttr(sideEl, 'type');
+      if (type && type !== 'dxa') continue;
+      const w = getWAttr(sideEl, 'w');
+      if (!w) continue;
+      const parsed = parseInt(w, 10);
+      if (Number.isFinite(parsed) && parsed > maxTwips) maxTwips = parsed;
+    }
+    if (maxTwips >= 0) result.padding = twipsToPx(maxTwips);
   }
 
   const tcBorders = getW(tcPr, 'tcBorders');
