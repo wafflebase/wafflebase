@@ -153,6 +153,15 @@ describe('resolveDocsAnchor', () => {
     assert.deepEqual(result, { kind: 'orphan' });
   });
 
+  it('returns orphan when SDK collapses path below text level (block deleted)', () => {
+    // Observed SDK behavior on full block deletion: returns [[bi],[bi]] with
+    // 1-level paths instead of throwing.
+    const tree = {
+      posRangeToPathRange: () => [[0], [0]] as [number[], number[]],
+    };
+    assert.deepEqual(resolveDocsAnchor(tree, anchor('b1')), { kind: 'orphan' });
+  });
+
   it('round-trip: pathRangeToPosRange → resolveDocsAnchor returns the same paths', () => {
     // Simulated Yorkie behavior with an opaque posRange value.
     const treePath: [number[], number[]] = [

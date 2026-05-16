@@ -187,10 +187,11 @@ JSON-serializable struct. The dependency is intentional and contained to
 this one field; owning a hand-rolled duplicate type would be more fragile.
 
 **Orphan state is computed, not stored.** A docs-range thread is "orphan"
-when `tree.posRangeToPathRange(anchor.posRange)` throws because both
-endpoints reference deleted nodes. Storing `orphaned: true` would invite
-divergent transitions between clients; lazy resolution at read time keeps
-a single source of truth.
+when `tree.posRangeToPathRange(anchor.posRange)` either throws or returns
+a path shorter than `[blockIdx, inlineIdx, charOffset]` (the SDK collapses
+both endpoints onto a deleted node's tomb and yields a 1-level path).
+Storing `orphaned: true` would invite divergent transitions between
+clients; lazy resolution at read time keeps a single source of truth.
 
 #### Invariants
 
@@ -286,7 +287,7 @@ considered:
 | Two users resolve the same thread concurrently            | LWW on `resolved`                         | Final state consistent |
 | One user deletes anchored text, another edits a comment   | Tree edit + JSON edit independent         | Comment survives; client renders orphan card on next read |
 | Anchor text partially deleted                             | Yorkie shrinks `posRange` automatically   | Marker tracks surviving characters |
-| Anchored block fully deleted                              | Both posRange endpoints reference deleted nodes | `posRangeToPathRange` throws → orphan |
+| Anchored block fully deleted                              | Both endpoints collapse onto deleted node | `posRangeToPathRange` returns a 1-level path → orphan |
 | Range spans two blocks, only one deleted                  | One endpoint survives; Yorkie stitches    | Marker covers the surviving portion |
 
 `Thread.comments: Comment[]` is a Yorkie array CRDT, so concurrent replies
@@ -347,6 +348,10 @@ export function resolveDocsAnchor(
  | { kind: 'orphan' } {
   try {
     const [startPath, endPath] = tree.posRangeToPathRange(anchor.posRange);
+    // A text-level position has 3 components — [blockIdx, inlineIdx, charOffset].
+    // The SDK collapses both endpoints to a shorter path (e.g. [blockIdx]) when
+    // the anchored block is fully deleted; treat that as orphan.
+    if (startPath.length < 3 || endPath.length < 3) return { kind: 'orphan' };
     return { kind: 'live', startPath, endPath };
   } catch {
     return { kind: 'orphan' };

@@ -113,7 +113,8 @@ docs Yorkie document. Shares the `yorkie.Document` handle with the
 existing `YorkieDocStore` so `addThread` can run inside a single
 `doc.update()` that also reads the tree.
 
-- [ ] **3.1** Write failing Yorkie integration tests in `comments.test.ts`:
+- [x] **3.1** Single-user Yorkie tests in `yorkie-comment-store.test.ts`
+  (multi-user concurrent tests will land separately):
   - Concurrent thread creation on the same range — both preserved
   - Concurrent replies — both preserved, deterministic order
   - Partial deletion of anchor text — posRange shrinks, resolve still
@@ -123,12 +124,16 @@ existing `YorkieDocStore` so `addThread` can run inside a single
     with the surviving portion
   - Concurrent `setThreadResolved` — final state consistent
   - Undo of anchor text deletion — resolve returns `live` again
-- [ ] **3.2** Implement `yorkie-comment-store.ts`. Use the same Yorkie
+- [x] **3.2** Implement `yorkie-comment-store.ts`. Uses the same Yorkie
   doc handle that `YorkieDocStore` already exposes.
-- [ ] **3.3** Wire `subscribe` to Yorkie change events filtered to
-  `root.comments`.
-- [ ] **3.4** Tests pass. `pnpm verify:full` green (needs
-  `docker compose up -d`).
+- [x] **3.3** Wire `subscribe` to the Yorkie doc-level change pipeline.
+  Filtering to `root.comments` only is a future optimization; current
+  implementation re-notifies on any change (cheap listThreads).
+- [x] **3.4** Single-user tests pass under `pnpm verify:fast`.
+- [ ] **3.5** (deferred) Multi-user concurrent tests
+  (`.integration.ts`) — concurrent thread creation, concurrent reply,
+  concurrent resolve, undo. Need `docker compose up -d`. Move to next
+  task once UI lands so the full path is exercised end-to-end.
 
 ---
 

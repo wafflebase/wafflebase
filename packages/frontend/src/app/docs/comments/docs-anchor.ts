@@ -8,16 +8,12 @@ import type {
   DocRange,
   Document,
 } from '@wafflebase/docs';
-import type { Tree, TreePosStructRange } from '@yorkie-js/sdk';
+import type { Tree } from '@yorkie-js/sdk';
+import type { DocsRangeAnchor } from '@/types/comments.ts';
 
 const DEFAULT_QUOTED_MAX_CHARS = 240;
 
-export interface DocsRangeAnchor {
-  kind: 'docs-range';
-  blockId: string;
-  posRange: TreePosStructRange;
-  quotedText: string;
-}
+export type { DocsRangeAnchor };
 
 export interface AnchorContext {
   blockId: string;
@@ -72,9 +68,15 @@ export function extractAnchorContext(
 }
 
 /**
- * Resolve a docs-range anchor against the current tree state. Returns
- * 'orphan' iff the SDK throws when converting posRange → path range, which
- * happens when both endpoints reference deleted nodes.
+ * Resolve a docs-range anchor against the current tree state.
+ *
+ * Returns `orphan` when the SDK either throws (rare in current SDK
+ * versions) or returns a degraded path. A text-level position always has
+ * 3 components — `[blockIdx, inlineIdx, charOffset]`. When the SDK
+ * collapses both endpoints onto a deleted node's tomb it returns a
+ * shorter path (e.g. `[blockIdx]`), which is the post-deletion signal we
+ * key on. Anything shorter than 3 components on either endpoint is
+ * treated as orphan.
  */
 export function resolveDocsAnchor(
   tree: Pick<Tree, 'posRangeToPathRange'>,
@@ -82,6 +84,9 @@ export function resolveDocsAnchor(
 ): ResolvedAnchor {
   try {
     const [startPath, endPath] = tree.posRangeToPathRange(anchor.posRange);
+    if (startPath.length < 3 || endPath.length < 3) {
+      return { kind: 'orphan' };
+    }
     return { kind: 'live', startPath, endPath };
   } catch {
     return { kind: 'orphan' };

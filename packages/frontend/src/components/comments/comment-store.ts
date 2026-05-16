@@ -5,8 +5,18 @@ import type {
   Thread,
 } from './types.ts';
 
-export interface CommentStore<A extends CommentAnchor = CommentAnchor> {
-  addThread(anchor: A, body: string, author: CommentAuthor): Promise<Thread<A>>;
+/**
+ * `AnchorInput` is what the caller passes to addThread; `A` is what's
+ * persisted. They are usually the same — sheets passes its stored
+ * `sheet-cell` anchor directly. Docs differs: the caller passes path
+ * endpoints that the Yorkie store turns into a CRDT-stable `posRange`
+ * inside the same `doc.update()` transaction.
+ */
+export interface CommentStore<
+  A extends CommentAnchor = CommentAnchor,
+  AnchorInput = A,
+> {
+  addThread(input: AnchorInput, body: string, author: CommentAuthor): Promise<Thread<A>>;
   addReply(threadId: string, body: string, author: CommentAuthor): Promise<Comment>;
   editComment(threadId: string, commentId: string, body: string): Promise<void>;
   deleteComment(threadId: string, commentId: string): Promise<void>;

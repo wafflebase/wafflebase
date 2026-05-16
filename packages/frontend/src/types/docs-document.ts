@@ -1,10 +1,13 @@
 import { Tree } from '@yorkie-js/sdk';
+import type { DocsRangeAnchor, Thread } from '@/types/comments.ts';
 
 /**
  * Yorkie document root for the docs (rich-text) editor.
  *
  * - `content`: yorkie.Tree holding the block/inline structure
  * - `pageSetup`: document-level metadata (paper size, margins)
+ * - `comments`: threaded comments keyed by thread id, materialized on
+ *   first insertion. Existing documents without the field stay valid.
  */
 export type YorkieDocsRoot = {
   content: Tree;
@@ -13,6 +16,7 @@ export type YorkieDocsRoot = {
     orientation: 'portrait' | 'landscape';
     margins: { top: number; bottom: number; left: number; right: number };
   };
+  comments?: { [threadId: string]: Thread<DocsRangeAnchor> };
 };
 
 /**
