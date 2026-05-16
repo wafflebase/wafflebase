@@ -61,9 +61,13 @@ describe('pathToDocPosition', () => {
     assert.equal(pathToDocPosition(d, [42, 0, 0]), null);
   });
 
-  it('treats missing inline/char path components as zero', () => {
+  it('returns null for a path shorter than [block, inline, char]', () => {
+    // Yorkie returns shortened paths only when both endpoints reference
+    // a deleted node (orphan signal). resolveDocsAnchor already keys on
+    // length < 3 to bail; pathToDocPosition mirrors that — it never has
+    // to invent an offset for a degenerate path.
     const d = doc(block('b1', 'hello'));
-    assert.deepEqual(pathToDocPosition(d, [0]), { blockId: 'b1', offset: 0 });
+    assert.equal(pathToDocPosition(d, [0]), null);
   });
 });
 
