@@ -90,5 +90,48 @@ updated to reflect this split.
 
 ## Observations during implementation
 
-_Filled per PR. Format: `**Where:**`, `**What:**`, `**Why surprising:**`,
-`**Resolution:**`._
+### PR 1a (Pointer Events migration) + 1b (mobile mount)
+
+**Where:** `packages/slides/src/view/editor/hit-test.ts`
+**What:** A flat `tolerance` of 22px around 9 handles (8 resize + rotate)
+sitting close together on a small selection causes the expanded hit
+rectangles to overlap. The previous first-match-wins iteration then
+picked handles by DOM order, which felt non-deterministic from a
+user-finger perspective ("I clearly aimed at SE but got E").
+**Why surprising:** Tolerance was conceived as "expand a single hit
+target so fingers don't miss it." Real selections crowd many handles
+into a small area where the expansion creates ambiguity.
+**Resolution:** `handleHitTest` now picks the handle whose center is
+closest to the point among all whose expanded rect contains the
+point. Desktop with `tolerance=0` is unchanged in the common case
+(only one rect contains the point) and slightly more correct when
+visual overlaps exist. Two new unit tests cover the overlap path.
+
+**Where:** docs `TextEditor` mounted via `mountSlidesTextBox` on iOS
+Safari (sim).
+**What:** Double-tap to enter text edit works (text-box mounts, virtual
+keyboard appears). But Korean IME (Hangul) composition produces
+incorrect characters / extra cursor movements while typing. English
+typing seems fine on the sim — but the sim uses Mac IME, so this
+hasn't been verified on a real iPhone yet.
+**Why surprising:** Desktop Hangul typing in the same docs text editor
+works correctly. The iOS virtual keyboard's `compositionstart` /
+`compositionupdate` / `compositionend` ordering differs from desktop
+in subtle ways (and from Android too). The docs IME path was tuned
+for desktop semantics.
+**Resolution:** Out of scope for Task 1b — fixing this is Task 2 (text
+edit + bottom-sheet) since that PR is text-edit-focused. Logged here
+so it doesn't get lost. Task 2 acceptance: real iPhone hangul typing
+matches desktop within reason; if a docs-side patch is needed it
+lands in `packages/docs` as a separate commit referenced from Task 2.
+
+**Where:** `packages/frontend/public/_spike-login.html`
+**What:** One-shot HTML page that reads `#s=<session>&r=<refresh>` from
+URL hash, writes `wafflebase_session` / `wafflebase_refresh` cookies
+on `localhost` (port-agnostic per cookie spec), redirects to `next`.
+Used to drop the iPhone simulator's Safari into an authenticated
+session without walking the GitHub OAuth flow.
+**Why surprising:** N/A — listed here so future spike work re-creates
+it the same way. The file is spike-only and **must not be committed**;
+delete after each spike session.
+**Resolution:** Re-create locally per spike, deleted before each commit.
