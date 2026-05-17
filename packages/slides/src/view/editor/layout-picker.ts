@@ -127,7 +127,7 @@ export function showLayoutPicker(
     if (closed) return;
     closed = true;
     document.removeEventListener('keydown', onKey, true);
-    document.removeEventListener('mousedown', onOutside, true);
+    document.removeEventListener('pointerdown', onOutside, true);
     popover.remove();
     opts.onClose();
   }
@@ -149,7 +149,7 @@ export function showLayoutPicker(
     close();
   }
   document.addEventListener('keydown', onKey, true);
-  document.addEventListener('mousedown', onOutside, true);
+  document.addEventListener('pointerdown', onOutside, true);
 
   host.appendChild(popover);
 

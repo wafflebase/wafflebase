@@ -91,7 +91,7 @@ describe('initialize', () => {
   });
 
   function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
-    target.dispatchEvent(new MouseEvent('mousedown', {
+    target.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: x, clientY: y, shiftKey: shift, bubbles: true,
     }));
   }
@@ -129,8 +129,8 @@ describe('initialize', () => {
     // Select + start drag at (200, 150) — middle of the shape.
     dispatchMouseDown(canvas, 200, 150);
     // Drag to (350, 250).
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 350, clientY: 250, bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 350, clientY: 250, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 350, clientY: 250, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { clientX: 350, clientY: 250, bubbles: true }));
     // Frame should have moved by (150, 100). Snap might tweak by ≤ 8 px.
     const frame = store.read().slides[0].elements[0].frame;
     expect(Math.abs(frame.x - 250)).toBeLessThanOrEqual(8);
@@ -165,8 +165,8 @@ describe('initialize', () => {
     // preserved so the follow-up drag moves both elements.
     dispatchMouseDown(canvas, 150, 150);
     expect(editor.getSelection()).toEqual([aId, bId]);
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 180, bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 200, clientY: 180, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 180, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { clientX: 200, clientY: 180, bubbles: true }));
     const elements = store.read().slides[0].elements;
     const a = elements.find((el) => el.id === aId)!;
     const b = elements.find((el) => el.id === bId)!;
@@ -193,7 +193,7 @@ describe('initialize', () => {
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     // Select the element first (mousedown inside its frame).
     dispatchMouseDown(canvas, 150, 150);
-    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 150, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 150, clientY: 150, bubbles: true }));
     // Now there should be handles in overlay. Find the 'e' handle's
     // logical center: the bbox right edge is at x=300 (200 + 100), y centre 150.
     // Overlay coordinates equal logical at scale=1, getBoundingClientRect
@@ -208,8 +208,8 @@ describe('initialize', () => {
     const startX = left + 4;
     const startY = top + 4;
     dispatchMouseDown(canvas, startX, startY);
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: startX + 50, clientY: startY, bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: startX + 50, clientY: startY, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: startX + 50, clientY: startY, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { clientX: startX + 50, clientY: startY, bubbles: true }));
     expect(store.read().slides[0].elements[0].frame.w).toBe(250);
     void elementId;
   });
@@ -230,16 +230,16 @@ describe('initialize', () => {
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     dispatchMouseDown(canvas, 150, 150);
-    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 150, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 150, clientY: 150, bubbles: true }));
     const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
     const left = parseFloat(eHandle.style.left);
     const top = parseFloat(eHandle.style.top);
     // Dispatch on the HANDLE element (real-browser path), not on canvas.
-    eHandle.dispatchEvent(new MouseEvent('mousedown', {
+    eHandle.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: left + 4, clientY: top + 4, bubbles: true,
     }));
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
     expect(store.read().slides[0].elements[0].frame.w).toBe(230);
   });
 
@@ -248,8 +248,8 @@ describe('initialize', () => {
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     editor.setInsertMode('rect');
     dispatchMouseDown(canvas, 100, 100);
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 200, bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { clientX: 300, clientY: 200, bubbles: true }));
     const elements = store.read().slides[0].elements;
     expect(elements.length).toBe(1);
     expect(elements[0].frame).toEqual({ x: 100, y: 100, w: 200, h: 100, rotation: 0 });
@@ -272,7 +272,7 @@ describe('initialize', () => {
     expect(editor.getSelection().length).toBe(1);
     // Then click empty space and immediately mouseup (no drag).
     dispatchMouseDown(canvas, 800, 800);
-    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 800, clientY: 800, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 800, clientY: 800, bubbles: true }));
     expect(editor.getSelection()).toEqual([]);
   });
 
@@ -301,12 +301,12 @@ describe('initialize', () => {
     // Begin a drag — past the click threshold so the click branch
     // (default-size insert) doesn't fire on the synthetic mouseup.
     dispatchMouseDown(canvas, 100, 100);
-    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 200, bubbles: true }));
     // Mid-drag ESC: capture-phase handler should abort, no element
     // committed, insert mode disarmed.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     // Even if the user releases after ESC, no commit should land.
-    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 300, clientY: 200, bubbles: true }));
     return Promise.resolve().then(() => {
       expect(store.read().slides[0].elements.length).toBe(0);
       expect(editor!.getInsertMode()).toBe(null);
@@ -322,7 +322,7 @@ describe('initialize', () => {
     // observe the private field directly, but `setInsertMode(null)`
     // is documented to cancel the rAF + drop the preview; without
     // that, a pending rAF would later call into a stale renderer.
-    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 100, bubbles: true }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }));
     // Disarming should not throw and should leave the cursor cleared
     // — together these imply the cleanup path ran without trying to
     // paint against a torn-down renderer on a later rAF tick.
@@ -864,11 +864,11 @@ describe('Editor — adjustment drag (Task 12)', () => {
 
     // Dispatch on the handle element (real-browser path — the overlay listener
     // in the editor catches it and routes to startAdjustmentDrag).
-    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
     // Move >2px to cross the threshold (which is 2px in world coords; scale=1
     // so 10px clientX change == 10px world change, well past the threshold).
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 10, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 10, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
 
     // The store must now have adjustments set (non-default) on the element.
     const adjustments = readAdjustments(store, elementId);
@@ -889,10 +889,10 @@ describe('Editor — adjustment drag (Task 12)', () => {
     const cx = left + 4;
     const cy = top + 4;
 
-    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
     // Move only 1px — below the 2px threshold (sqrt(1²+0²)=1 < 2).
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 1, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 1, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 1, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: cx + 1, clientY: cy }));
 
     // No store update → adjustments field absent (never written).
     const adjustments = readAdjustments(store, elementId);
@@ -908,9 +908,9 @@ describe('Editor — adjustment drag (Task 12)', () => {
     const cx = left + 4;
     const cy = top + 4;
 
-    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 10, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 10, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
 
     // Selection must still contain the element after the drag commits.
     expect(editor!.getSelection()).toEqual([elementId]);
@@ -980,8 +980,8 @@ describe('Editor — connector endpoint drag deadband', () => {
     // mousedown + mouseup at exactly the same coords — pure click, no
     // movement. The 1px deadband in startConnectorEndpointDrag must
     // skip the store.batch wrap and leave the undo stack untouched.
-    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: cx, clientY: cy }));
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx, clientY: cy }));
 
     // One undo drains the bootstrap entry; if the deadband had pushed
     // a second entry, `canUndo()` would still be true here.
@@ -1002,9 +1002,9 @@ describe('Editor — connector endpoint drag deadband', () => {
     const cy = top + 4;
 
     // Move 5px — comfortably past the 1px deadband (sqrt(5²+0²)=5 > 1).
-    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 5, clientY: cy }));
-    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 5, clientY: cy }));
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 5, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: cx + 5, clientY: cy }));
 
     // Two entries now: bootstrap + drag commit. One undo pops the
     // drag entry but leaves the bootstrap entry behind — so `canUndo()`

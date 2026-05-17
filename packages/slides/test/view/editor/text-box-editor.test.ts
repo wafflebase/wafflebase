@@ -121,7 +121,7 @@ function dispatchDblClick(target: EventTarget, x: number, y: number): void {
 }
 
 function dispatchMouseDown(target: EventTarget, x: number, y: number): void {
-  target.dispatchEvent(new MouseEvent('mousedown', {
+  target.dispatchEvent(new PointerEvent('pointerdown', {
     clientX: x, clientY: y, bubbles: true,
   }));
 }
