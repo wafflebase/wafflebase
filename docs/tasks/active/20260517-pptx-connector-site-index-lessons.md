@@ -31,6 +31,15 @@ that exists in the source, especially if it cites a package boundary
 (slides → docs). Run the cross-package build before assuming the bug
 is in your branch.
 
+## Backward compatibility for already-imported decks
+
+Decks that were imported *before* this fix have the buggy `siteIndex`
+values persisted in Yorkie (1↔3 swapped at the storage layer). They
+will continue to render at the wrong edge until re-imported — the fix
+only changes the import path, not stored data. Acceptable here because
+PPTX import is one-shot and re-importing is cheap; calling it out so
+nobody is surprised when an old shared link still looks wrong.
+
 ## TDD for `parseCxnSp` — go through `parseSpTree`, not the private function
 
 `parseCxnSp` is module-private. Testing through the exported
