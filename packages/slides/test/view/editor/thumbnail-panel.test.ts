@@ -69,10 +69,185 @@ describe('mountThumbnailPanel', () => {
     expect(handle.getSelectedSlideIds()).toEqual([]);
   });
 
-  it('dispose detaches editor selection subscription', () => {
+  it('dispose detaches editor current-slide subscription', () => {
     const { panel, store, editor } = makeFixture();
     const handle = mountThumbnailPanel(panel, store, editor);
     expect(() => handle.dispose()).not.toThrow();
+  });
+});
+
+describe('mountThumbnailPanel — scroll preservation across re-render', () => {
+  it('restores parent scrollTop after innerHTML wipe (simulated browser clamp)', () => {
+    const { panel, store, editor } = makeFixture();
+    // Wrap the panel in a scrollable host so findScrollParent (overflowY=auto)
+    // picks it up. Mirrors the slides-view layout.
+    panel.remove();
+    const scrollable = document.createElement('div');
+    scrollable.style.overflowY = 'auto';
+    scrollable.appendChild(panel);
+    document.body.appendChild(scrollable);
+    mountThumbnailPanel(panel, store, editor);
+
+    // jsdom doesn't compute layout, so scrollTop isn't clamped automatically.
+    // Simulate the real-browser clamp synchronously: the moment innerHTML is
+    // wiped, slam scrollTop to 0 — what Chrome does when scrollHeight briefly
+    // drops below the current scroll offset. The panel must capture scrollTop
+    // BEFORE the wipe and restore it AFTER appending children.
+    let scrollTopVal = 250;
+    Object.defineProperty(scrollable, 'scrollTop', {
+      get: () => scrollTopVal,
+      set: (v: number) => { scrollTopVal = v; },
+      configurable: true,
+    });
+    const innerHTMLDesc = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      'innerHTML',
+    )!;
+    Object.defineProperty(panel, 'innerHTML', {
+      get() { return innerHTMLDesc.get!.call(this); },
+      set(value: string) {
+        innerHTMLDesc.set!.call(this, value);
+        if (value === '') scrollTopVal = 0; // simulated clamp
+      },
+      configurable: true,
+    });
+
+    // Click a different thumbnail — triggers render().
+    const slideIds = store.read().slides.map((s) => s.id);
+    const second = panel.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+
+    expect(scrollable.scrollTop).toBe(250);
+  });
+});
+
+describe('mountThumbnailPanel — arrow key navigation', () => {
+  function keydown(target: HTMLElement, key: string) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+    );
+  }
+
+  it('ArrowDown advances to the next slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    keydown(panel, 'ArrowDown');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[1]);
+  });
+
+  it('ArrowUp reverses to the previous slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    editor.setCurrentSlide(slideIds[1]);
+    keydown(panel, 'ArrowUp');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('ArrowUp on the first slide is a no-op', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    keydown(panel, 'ArrowUp');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('ArrowDown on the last slide is a no-op', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    editor.setCurrentSlide(slideIds[slideIds.length - 1]);
+    keydown(panel, 'ArrowDown');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[slideIds.length - 1]);
+  });
+
+  it('panel handler is a no-op when a modifier key (Cmd/Ctrl/Alt) is held', () => {
+    // Modifier+arrow combinations are owned by other key rules (e.g.
+    // Cmd+Arrow z-order in interactions/keyboard.ts). The panel must
+    // bail so those keep working when the panel happens to have focus.
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(event);
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('panel handler defers to the canvas nudge rule when an element is selected', () => {
+    // Clicking a thumbnail focuses the panel; clicking a canvas element
+    // afterwards leaves focus on the panel (the canvas isn't focusable).
+    // ArrowUp/Down would then steal the user's element-nudge — we must
+    // bail when getSelection() is non-empty so the document-level rule
+    // can run.
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    // Add an element so we have something to "select".
+    let elementId = '';
+    store.batch(() => {
+      elementId = store.addElement(slideIds[0], {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor.setSelection([elementId]);
+    // Dispatch on `panel` (target=panel). The panel listener fires
+    // first (and must bail); the bubble to `document` reaches the
+    // editor's keyRules where the canvas-nudge rule matches.
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(event);
+
+    // Panel handler bailed → current slide unchanged, selection
+    // preserved. The element-nudge rule consumed the event downstream.
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    expect(editor.getSelection()).toEqual([elementId]);
+    const movedY = store.read().slides[0].elements[0].frame.y;
+    expect(movedY).toBeGreaterThan(100);
+  });
+
+  it('ArrowDown calls preventDefault on a successful move (blocks default page scroll)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('clicking a thumbnail focuses the panel so subsequent arrow keys route here', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    const second = panel.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.activeElement).toBe(panel);
+  });
+
+  it('panel is keyboard-focusable (tabIndex=0)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    expect(panel.tabIndex).toBe(0);
   });
 });
 

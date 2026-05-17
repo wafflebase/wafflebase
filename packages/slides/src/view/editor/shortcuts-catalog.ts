@@ -52,6 +52,7 @@ export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { category: 'Slide', keys: ['Mod+Shift+D'],     description: 'Duplicate the current slide' },
   { category: 'Slide', keys: ['Mod+D'],           description: 'Duplicate selected elements (or current slide if none)' },
   { category: 'Slide', keys: ['Page Up', 'Page Down'], description: 'Go to previous / next slide' },
+  { category: 'Slide', keys: ['Arrow ↑', 'Arrow ↓'],   description: 'Go to previous / next slide (thumbnail panel focused)' },
 
   // Clipboard ------------------------------------------------------------
   { category: 'Clipboard', keys: ['Mod+C'],       description: 'Copy selected elements' },
