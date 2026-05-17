@@ -123,6 +123,7 @@ function SlidesLayout({ documentId }: { documentId: string }) {
       <MobileSlidesView
         documentId={documentId}
         title={documentData?.title}
+        mode="edit"
       />
     );
   }

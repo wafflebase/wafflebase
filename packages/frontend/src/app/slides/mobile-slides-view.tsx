@@ -11,7 +11,9 @@ import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   SlideRenderer,
+  initializeEditor,
   type SlidesDocument,
+  type SlidesEditor,
 } from "@wafflebase/slides";
 import { Loader } from "@/components/loader";
 import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
@@ -46,20 +48,36 @@ interface MobileSlidesViewProps {
   title?: string;
   /** Override the back action; defaults to `navigate(-1)`. */
   onBack?: () => void;
+  /**
+   * `'view'` mounts a read-only `SlideRenderer` (Phase A behavior).
+   * `'edit'` mounts the full `SlidesEditor` with touch-friendly
+   * handle tolerance and iOS callout suppression (Phase B). Default
+   * `'edit'`; the caller (`slides-detail.tsx`) flips to `'view'`
+   * for shared-link viewers without edit permission.
+   */
+  mode?: "view" | "edit";
 }
 
+/** Touch hit slack passed to the editor in `edit` mode. 22px expands
+ * each 8px visual handle into ~44px hit area — Apple HIG min. */
+const TOUCH_HANDLE_TOLERANCE = 22;
+
 /**
- * Read-only mobile shell for the slides editor. Mounted by
- * `slides-detail.tsx`'s `SlidesLayout` when `useIsMobile()` is true,
- * replacing the full desktop chrome (sidebar / site header / toolbar
- * / SlidesView). The editor module is intentionally not mounted —
- * read-only is enforced by construction. Slide painting reuses
- * `SlideRenderer` directly the same way `view/present/presenter.ts`
- * does, so the canvas pipeline stays in one place.
+ * Mobile shell for the slides deck. Mounted by `slides-detail.tsx`'s
+ * `SlidesLayout` when `useIsMobile()` is true, replacing the full
+ * desktop chrome (sidebar / site header / toolbar / SlidesView).
+ *
+ * `mode='view'` keeps Phase A's read-only `SlideRenderer` path with
+ * left/right swipe slide nav. `mode='edit'` (default) mounts the
+ * full `SlidesEditor` against canvas + overlay, with touch hit
+ * tolerance forwarded so fingertips can grab handles. Editing
+ * mutations flow through the existing `SlidesStore`, so Yorkie
+ * sync and undo/redo are inherited from desktop.
  */
 export function MobileSlidesView({
   title,
   onBack,
+  mode = "edit",
 }: MobileSlidesViewProps) {
   const navigate = useNavigate();
   const { doc, loading, error } = useDocument<
@@ -131,18 +149,27 @@ export function MobileSlidesView({
 
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<SlidesEditor | null>(null);
+
+  // Swipe nav is only enabled in `view` mode. In `edit` mode the
+  // editor owns horizontal pointer (drag-to-move), and any tap that
+  // crosses the swipe threshold would compete with the drag.
   const swipeOptions = useMemo(
-    () => ({ onSwipeLeft: nextSlide, onSwipeRight: prevSlide }),
-    [nextSlide, prevSlide],
+    () =>
+      mode === "view"
+        ? { onSwipeLeft: nextSlide, onSwipeRight: prevSlide }
+        : { onSwipeLeft: () => {}, onSwipeRight: () => {} },
+    [mode, nextSlide, prevSlide],
   );
   usePointerSwipe(canvasHostRef, swipeOptions);
 
-  // Canvas painting. A single SlideRenderer is bound to the current
-  // host size; on resize it's rebuilt (cheap constructor) inside a
-  // RAF-coalesced ResizeObserver callback so window drags don't spam
-  // re-instantiation. Repaint is triggered by changes to the current
-  // slide id or by the store's onChange (covers remote peer edits).
+  // View mode — read-only SlideRenderer (Phase A). A single
+  // SlideRenderer is bound to the current host size; on resize it's
+  // rebuilt (cheap constructor) inside a RAF-coalesced ResizeObserver
+  // callback. Repaint triggers on slide id changes or store.onChange.
   useEffect(() => {
+    if (mode !== "view") return;
     const canvas = canvasRef.current;
     const host = canvasHostRef.current;
     if (!canvas || !host || !store) return;
@@ -191,10 +218,6 @@ export function MobileSlidesView({
     ro.observe(host);
     applyFit();
 
-    // Pick up peer edits (remote-change → store.onChange) and apply
-    // them to the next paint. Local writes never originate from this
-    // mobile view, but onChange fires for them too on the desktop
-    // editor side — harmless duplicate refresh.
     const unsubscribe = store.onChange(() => {
       lastDoc = store.read();
       paint();
@@ -205,7 +228,122 @@ export function MobileSlidesView({
       unsubscribe();
       renderer = null;
     };
-  }, [store, currentSlideId]);
+  }, [mode, store, currentSlideId]);
+
+  // Edit mode — mount the full SlidesEditor. Reuses the desktop
+  // editor's programmatic surface (`enterTextEditing`, `setSelection`,
+  // `setCurrentSlide`, `store.*`). The Pointer Events migration in
+  // the slides package makes touch drag/resize/rotate work; the
+  // `touchHandleTolerance` option expands the 8px visual handles to
+  // ~44px touch targets without growing the handles themselves.
+  useEffect(() => {
+    if (mode !== "edit") return;
+    const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
+    const host = canvasHostRef.current;
+    if (!canvas || !overlay || !host || !store) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Handles render with [data-handle] inside an overlay whose
+    // own pointer-events is `none` (so empty-area taps fall through
+    // to the canvas). The handles opt back in via this style.
+    const styleTag = document.createElement("style");
+    styleTag.textContent =
+      "[data-handle] { pointer-events: auto !important; }";
+    document.head.appendChild(styleTag);
+
+    let hostW = 0;
+    let hostH = 0;
+
+    function applyFit(): boolean {
+      const rect = host!.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const fit = computeFitSize(rect.width, rect.height);
+      hostW = Math.round(fit.width);
+      hostH = Math.round(fit.height);
+      canvas!.width = hostW * dpr;
+      canvas!.height = hostH * dpr;
+      canvas!.style.width = `${hostW}px`;
+      canvas!.style.height = `${hostH}px`;
+      overlay!.style.width = `${hostW}px`;
+      overlay!.style.height = `${hostH}px`;
+      return true;
+    }
+
+    if (!applyFit()) {
+      hostW = 1;
+      hostH = 1;
+    }
+
+    const editor = initializeEditor({
+      canvas,
+      overlay,
+      store,
+      hostWidth: hostW,
+      hostHeight: hostH,
+      dpr,
+      touchHandleTolerance: TOUCH_HANDLE_TOLERANCE,
+    });
+    editorRef.current = editor;
+
+    if (currentSlideId) editor.setCurrentSlide(currentSlideId);
+    editor.render();
+
+    let rafScheduled = false;
+    const ro = new ResizeObserver(() => {
+      if (rafScheduled) return;
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        rafScheduled = false;
+        const rect = host!.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const fit = computeFitSize(rect.width, rect.height);
+        const nextW = Math.round(fit.width);
+        const nextH = Math.round(fit.height);
+        if (nextW === hostW && nextH === hostH) return;
+        hostW = nextW;
+        hostH = nextH;
+        canvas!.width = hostW * dpr;
+        canvas!.height = hostH * dpr;
+        canvas!.style.width = `${hostW}px`;
+        canvas!.style.height = `${hostH}px`;
+        overlay!.style.width = `${hostW}px`;
+        overlay!.style.height = `${hostH}px`;
+        editor.setHostSize(hostW, hostH);
+      });
+    });
+    ro.observe(host);
+
+    // Mirror editor-driven slide changes back into React state so the
+    // footer indicator updates if anything other than the arrows
+    // changes the current slide.
+    const offSlideChange = editor.onCurrentSlideChange(() => {
+      const id = editor.getCurrentSlideId();
+      if (id && id !== currentSlideId) setCurrentSlideId(id);
+    });
+
+    return () => {
+      offSlideChange();
+      ro.disconnect();
+      editorRef.current = null;
+      styleTag.remove();
+    };
+    // currentSlideId is intentionally NOT a dep: it would tear down
+    // the editor on every footer-arrow tap. The cross-direction
+    // sync from React → editor lives in its own effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, store]);
+
+  // Push React-side slide changes (footer arrows) into the editor so
+  // the canvas re-paints without an editor teardown.
+  useEffect(() => {
+    if (mode !== "edit") return;
+    const editor = editorRef.current;
+    if (!editor || !currentSlideId) return;
+    if (editor.getCurrentSlideId() !== currentSlideId) {
+      editor.setCurrentSlide(currentSlideId);
+    }
+  }, [mode, currentSlideId]);
 
   const handleBack = useCallback(() => {
     if (onBack) onBack();
@@ -309,13 +447,51 @@ export function MobileSlidesView({
           alignItems: "center",
           justifyContent: "center",
           background: "#000",
-          touchAction: "pan-y",
+          // edit: canvas owns horizontal pointer (drag-to-move), so
+          // disable all browser touch gestures (pinch, pan, double-tap
+          // zoom). view: allow vertical pan for short pages, but the
+          // canvas-host fills the screen so this rarely matters.
+          touchAction: mode === "edit" ? "none" : "pan-y",
+          // iOS long-press callout (text/image preview) is NOT a
+          // contextmenu event — onContextMenu can't block it. The
+          // CSS combo below is what stops it from appearing on top
+          // of the editor's own selection / context menu.
+          WebkitTouchCallout: mode === "edit" ? "none" : undefined,
+          WebkitUserSelect: mode === "edit" ? "none" : undefined,
+          userSelect: mode === "edit" ? "none" : undefined,
         }}
+        onContextMenu={
+          mode === "edit" ? (e) => e.preventDefault() : undefined
+        }
       >
-        <canvas
-          ref={canvasRef}
-          aria-label={`Slide ${Math.max(currentIndex + 1, 0)} of ${snapshot.slideIds.length}`}
-        />
+        {mode === "edit" ? (
+          // Wrapper holds canvas + overlay aligned by absolute
+          // positioning. Editor mount writes both their CSS sizes.
+          <div style={{ position: "relative" }}>
+            <canvas
+              ref={canvasRef}
+              aria-label={`Slide ${Math.max(currentIndex + 1, 0)} of ${snapshot.slideIds.length}`}
+              style={{ display: "block" }}
+            />
+            <div
+              ref={overlayRef}
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                // pointer-events:none so empty-area taps fall
+                // through to canvas; handle children opt back in
+                // via the injected `[data-handle]` style.
+                pointerEvents: "none",
+              }}
+            />
+          </div>
+        ) : (
+          <canvas
+            ref={canvasRef}
+            aria-label={`Slide ${Math.max(currentIndex + 1, 0)} of ${snapshot.slideIds.length}`}
+          />
+        )}
       </div>
 
       <footer
