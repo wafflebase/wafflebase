@@ -334,6 +334,13 @@ export function mountThumbnailPanel(
   container.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // Defer to the canvas element-nudge rule (interactions/keyboard.ts)
+    // when the user has a canvas selection. After clicking a thumbnail
+    // the panel container keeps focus (canvas isn't focusable, so
+    // selecting an element on the canvas doesn't move focus away), and
+    // without this gate ArrowUp/Down would steal the user's nudge —
+    // switching slides AND clearing their selection.
+    if (editor.getSelection().length > 0) return;
     const slides = store.read().slides;
     if (slides.length === 0) return;
     const currentId = editor.getCurrentSlideId();
