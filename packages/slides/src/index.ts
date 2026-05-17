@@ -12,6 +12,7 @@ export { ImportReport } from './import/pptx/report';
 // Model
 export type {
   Background,
+  BackgroundImage,
   Layout,
   Meta,
   PlaceholderSpec,
@@ -30,7 +31,12 @@ export type {
   ThemeFont,
 } from './model/theme';
 export { resolveColor, resolveFont } from './model/theme';
-export type { Master, PlaceholderStyle, MasterBackground } from './model/master';
+export type {
+  Master,
+  PlaceholderStyle,
+  MasterBackground,
+  MasterBackgroundImage,
+} from './model/master';
 export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
@@ -42,7 +48,6 @@ export type {
   ElementType,
   Frame,
   ImageElement,
-  ImageRef,
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,

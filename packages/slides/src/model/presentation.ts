@@ -1,11 +1,25 @@
 import type { Block } from '@wafflebase/docs';
-import type { Element, ElementInit, ImageRef, PlaceholderType } from './element';
+import type { Crop, Element, ElementInit, PlaceholderType } from './element';
 import type { Theme, ThemeColor } from './theme';
 import type { Master } from './master';
 
+/**
+ * Image fill behind a slide. Painted inside the logical 1920×1080
+ * region after `fill`; transparent regions of the image reveal the
+ * solid color underneath. Stretch mode only — there is no tile/repeat
+ * variant yet.
+ */
+export type BackgroundImage = {
+  src: string;
+  /** `[0, 1]`. Imported from OOXML `<a:blip><a:alphaModFix>`. */
+  opacity?: number;
+  /** `<a:srcRect>` sub-rectangle of the source image, in 0..1 coords. */
+  crop?: Crop;
+};
+
 export type Background = {
   fill: ThemeColor;
-  image?: ImageRef;
+  image?: BackgroundImage;
 };
 
 export type Slide = {

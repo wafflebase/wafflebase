@@ -25,6 +25,7 @@
 
 export type {
   Background,
+  BackgroundImage,
   Layout,
   Meta,
   PlaceholderSpec,
@@ -34,7 +35,7 @@ export type {
 export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentation';
 
 export type { ColorScheme, FontScheme, Theme, ThemeColor, ThemeFont } from './model/theme';
-export type { Master, MasterBackground } from './model/master';
+export type { Master, MasterBackground, MasterBackgroundImage } from './model/master';
 
 export type {
   Crop,
@@ -44,7 +45,6 @@ export type {
   ElementType,
   Frame,
   ImageElement,
-  ImageRef,
   ShapeElement,
   ShapeKind,
   ShapeStroke,

@@ -29,19 +29,26 @@ export interface ImageParseContext {
 }
 
 /**
- * Parse `<p:pic>` into an `ImageElement`. Returns `undefined` and bumps
- * `report.skippedImages` when the blip is missing, the rel doesn't
- * resolve, or no `uploadImage` callback is configured.
+ * Resolved `<a:blipFill>` data, shared by `<p:pic>` (foreground image)
+ * and `<p:bgPr>` (slide / master background) parsing.
  */
-export async function parsePic(
-  pic: Element,
-  ctx: ImageParseContext,
-): Promise<ImageElement | undefined> {
-  const spPr = child(pic, 'spPr');
-  const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
-  const frame = parseXfrm(xfrm, ctx.scale);
+export type ParsedBlip = {
+  src: string;
+  opacity?: number;
+  crop?: Crop;
+};
 
-  const blipFill = child(pic, 'blipFill');
+/**
+ * Resolve `<a:blipFill>` → uploaded src + optional opacity/crop.
+ * Returns `undefined` and bumps `report.skippedImages` when the blip
+ * is missing, the rel doesn't resolve, or no `uploadImage` callback
+ * is configured. Soft-fails on upload errors (logs and counts skip)
+ * so a single broken image cannot tank the whole import.
+ */
+export async function parseBlipFill(
+  blipFill: Element | undefined,
+  ctx: ImageParseContext,
+): Promise<ParsedBlip | undefined> {
   const blip = blipFill ? child(blipFill, 'blip') : undefined;
   const rid = blip
     ? blip.getAttributeNS(NS.R, 'embed') || blip.getAttribute('r:embed') || undefined
@@ -67,9 +74,6 @@ export async function parsePic(
   const ext = mediaPath.split('.').pop()?.toLowerCase() ?? '';
   const mime = EXT_TO_MIME[ext] ?? 'application/octet-stream';
 
-  // Soft-skip on upload failure — a single broken image shouldn't tank
-  // the whole import. Counts towards `report.skippedImages` and the
-  // caller drops the element.
   let src: string;
   try {
     src = await ctx.uploadImage(bytes, mime);
@@ -83,16 +87,35 @@ export async function parsePic(
 
   const crop = blipFill ? parseSrcRect(child(blipFill, 'srcRect')) : undefined;
   const opacity = blip ? parseAlphaModFix(child(blip, 'alphaModFix')) : undefined;
+  return {
+    src,
+    ...(crop ? { crop } : {}),
+    ...(opacity !== undefined ? { opacity } : {}),
+  };
+}
+
+/**
+ * Parse `<p:pic>` into an `ImageElement`. Returns `undefined` and bumps
+ * `report.skippedImages` when the blip is missing, the rel doesn't
+ * resolve, or no `uploadImage` callback is configured.
+ */
+export async function parsePic(
+  pic: Element,
+  ctx: ImageParseContext,
+): Promise<ImageElement | undefined> {
+  const spPr = child(pic, 'spPr');
+  const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
+  const frame = parseXfrm(xfrm, ctx.scale);
+
+  const blipFill = child(pic, 'blipFill');
+  const blip = await parseBlipFill(blipFill, ctx);
+  if (!blip) return undefined;
 
   return {
     id: generateId(),
     type: 'image',
     frame,
-    data: {
-      src,
-      ...(crop ? { crop } : {}),
-      ...(opacity !== undefined ? { opacity } : {}),
-    },
+    data: blip,
   };
 }
 
