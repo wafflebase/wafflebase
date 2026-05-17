@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 182
+Total archived tasks: 184
 
-## 2026/05 (37 tasks)
+## 2026/05 (39 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
 | pptx unsupported shapes (2026-05-17) | [20260517-pptx-unsupported-shapes-todo.md](./2026/05/20260517-pptx-unsupported-shapes-todo.md) | [20260517-pptx-unsupported-shapes-lessons.md](./2026/05/20260517-pptx-unsupported-shapes-lessons.md) |
+| slides thumbnail scroll arrow (2026-05-17) | [20260517-slides-thumbnail-scroll-arrow-todo.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-todo.md) | [20260517-slides-thumbnail-scroll-arrow-lessons.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-lessons.md) |
 | slides uturn arrow bbox flip (2026-05-17) | [20260517-slides-uturn-arrow-bbox-flip-todo.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-todo.md) | [20260517-slides-uturn-arrow-bbox-flip-lessons.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-lessons.md) |
 | docs comments (2026-05-16) | [20260516-docs-comments-todo.md](./2026/05/20260516-docs-comments-todo.md) | [20260516-docs-comments-lessons.md](./2026/05/20260516-docs-comments-lessons.md) |
 | pptx table cell margins (2026-05-16) | [20260516-pptx-table-cell-margins-todo.md](./2026/05/20260516-pptx-table-cell-margins-todo.md) | [20260516-pptx-table-cell-margins-lessons.md](./2026/05/20260516-pptx-table-cell-margins-lessons.md) |
