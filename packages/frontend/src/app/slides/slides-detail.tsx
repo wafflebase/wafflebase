@@ -58,14 +58,58 @@ function resolveStartSlideId(
 
 /**
  * SlidesLayout — dispatches between the desktop chrome and the
- * read-only mobile shell based on viewport width. The mobile branch
- * intentionally skips the desktop sidebar, site header, toolbar, and
- * SlidesView so a <768px viewport gets the entire vertical space for
- * the slide canvas (see docs/design/slides/slides-mobile-view.md).
+ * read-only mobile shell based on viewport width, and owns the
+ * shared document-not-found / permission guard that both branches
+ * rely on. Hoisting the metadata fetch up here keeps mobile from
+ * silently attaching to a Yorkie doc for an id the backend has
+ * already rejected (without this, navigating to /p/<bad-id> on
+ * mobile would create an empty deck instead of redirecting away).
+ *
+ * The mobile branch intentionally skips the desktop sidebar, site
+ * header, toolbar, and SlidesView so a <768px viewport gets the
+ * entire vertical space for the slide canvas (see
+ * docs/design/slides/slides-mobile-view.md).
  */
 function SlidesLayout({ documentId }: { documentId: string }) {
   const isMobile = useIsMobile();
-  if (isMobile) return <MobileSlidesView documentId={documentId} />;
+  const navigate = useNavigate();
+
+  const { data: documentData, isError: isDocumentError } = useQuery({
+    queryKey: ["document", documentId],
+    queryFn: () => fetchDocument(documentId),
+    retry: false,
+  });
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+  });
+
+  // Resolve the fallback workspace slug for the redirect target, so
+  // a not-found redirect lands the user back on their workspace's
+  // document list rather than the global /documents page when
+  // possible.
+  const fallbackSlug =
+    workspaces.find((w) => w.id === documentData?.workspaceId)?.slug ??
+    workspaces[0]?.slug;
+
+  useEffect(() => {
+    if (isDocumentError) {
+      toast.error("Document not found");
+      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
+        replace: true,
+      });
+    }
+  }, [isDocumentError, navigate, fallbackSlug]);
+
+  if (isMobile) {
+    return (
+      <MobileSlidesView
+        documentId={documentId}
+        title={documentData?.title}
+      />
+    );
+  }
   return <DesktopSlidesLayout documentId={documentId} />;
 }
 
@@ -146,7 +190,11 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: documentData, isError: isDocumentError } = useQuery({
+  // The not-found / permission redirect lives in `SlidesLayout` (the
+  // parent) so the mobile branch enforces the same guard. The query
+  // call below reuses react-query's cache — same key as the parent's
+  // — so no second network request is issued.
+  const { data: documentData } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
@@ -167,16 +215,6 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
-  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
-
-  useEffect(() => {
-    if (isDocumentError) {
-      toast.error("Document not found");
-      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
-        replace: true,
-      });
-    }
-  }, [isDocumentError, navigate, fallbackSlug]);
 
   const items = useMemo(() => {
     const wsRoot = workspaceSlug ? `/w/${workspaceSlug}` : "/documents";
