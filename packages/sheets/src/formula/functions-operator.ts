@@ -6,6 +6,10 @@ import { toStr, firstCellValue } from './functions-helpers';
 import { NumberArgs, BoolArgs } from './arguments';
 import { isSrng } from '../model/core/coordinates';
 
+function numResult(value: number): NumNode | ErrNode {
+  return Number.isFinite(value) ? { t: 'num', v: value } : ErrNode.NUM;
+}
+
 /**
  * Resolves a single-cell ref or scalar node to a scalar EvalNode,
  * mirroring the comparison logic in formula.ts `resolveValue`.
@@ -87,7 +91,7 @@ export function addFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v + nb.v };
+  return numResult(na.v + nb.v);
 }
 
 export function minusFunc(
@@ -102,7 +106,7 @@ export function minusFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v - nb.v };
+  return numResult(na.v - nb.v);
 }
 
 export function multiplyFunc(
@@ -117,7 +121,7 @@ export function multiplyFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v * nb.v };
+  return numResult(na.v * nb.v);
 }
 
 export function divideFunc(
@@ -133,7 +137,7 @@ export function divideFunc(
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
   if (nb.v === 0) return ErrNode.DIV0;
-  return { t: 'num', v: na.v / nb.v };
+  return numResult(na.v / nb.v);
 }
 
 export function powFunc(
@@ -148,7 +152,7 @@ export function powFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: Math.pow(na.v, nb.v) };
+  return numResult(Math.pow(na.v, nb.v));
 }
 
 // ─── Unary ───────────────────────────────────────────────────────────────────
@@ -162,7 +166,7 @@ export function uminusFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: -n.v };
+  return numResult(-n.v);
 }
 
 export function uplusFunc(
@@ -174,7 +178,7 @@ export function uplusFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: n.v };
+  return numResult(n.v);
 }
 
 export function unaryPercentFunc(
@@ -186,7 +190,7 @@ export function unaryPercentFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: n.v / 100 };
+  return numResult(n.v / 100);
 }
 
 // ─── Comparison ──────────────────────────────────────────────────────────────

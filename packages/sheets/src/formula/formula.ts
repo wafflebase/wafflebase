@@ -479,7 +479,7 @@ export function evaluateWithSpill(formula: string, grid?: Grid): string | SpillR
     if (!parsed || hasSyntaxErrors(parsed)) return ErrValue.ERROR;
 
     const evaluator = new Evaluator(grid);
-    const node = evaluator.visit(parsed.tree);
+    const node = normalizeFormulaResult(evaluator.visit(parsed.tree));
 
     if (node.t === 'arr') {
       return {
@@ -506,7 +506,7 @@ export function evaluate(formula: string, grid?: Grid): string {
     }
 
     const evaluator = new Evaluator(grid);
-    const node = evaluator.visit(parsed.tree);
+    const node = normalizeFormulaResult(evaluator.visit(parsed.tree));
     if (node.t === 'ref' && grid) {
       if (isSrng(node.v)) {
         return ErrValue.VALUE;
@@ -650,6 +650,31 @@ export type EvalNode =
   | ArrNode
   | LambdaNode;
 
+const MAX_FORMULA_NUMBER = 1.7976931e308;
+
+function isFormulaNumber(value: number): boolean {
+  return Number.isFinite(value) && Math.abs(value) <= MAX_FORMULA_NUMBER;
+}
+
+function numResult(value: number): NumNode | ErrNode {
+  return isFormulaNumber(value) ? { t: 'num', v: value } : ErrNode.NUM;
+}
+
+function normalizeFormulaResult(node: EvalNode): EvalNode {
+  if (node.t === 'num') {
+    return numResult(node.v);
+  }
+
+  if (node.t === 'arr') {
+    return {
+      ...node,
+      v: node.v.map((row) => row.map((cell) => normalizeFormulaResult(cell))),
+    };
+  }
+
+  return node;
+}
+
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
  * `antlr/Formula.g4` file.
@@ -700,12 +725,12 @@ class Evaluator implements FormulaVisitor<EvalNode> {
         if (!isValidArity(info, argCount)) return ErrNode.NA;
       }
       const func = FunctionMap.get(name)!;
-      return func(ctx, this.visit, this.grid);
+      return normalizeFormulaResult(func(ctx, this.visit, this.grid));
     }
 
     const scopeVal = this.scope.get(name);
     if (scopeVal?.t === 'lambda') {
-      return this.invokeLambda(scopeVal, ctx.args());
+      return normalizeFormulaResult(this.invokeLambda(scopeVal, ctx.args()));
     }
 
     return ErrNode.NAME;
@@ -724,10 +749,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitNumber(ctx: NumberContext): EvalNode {
-    return {
-      t: 'num',
-      v: Number(ctx.text),
-    };
+    return numResult(Number(ctx.text));
   }
 
   visitBoolean(ctx: BooleanContext): EvalNode {
@@ -749,10 +771,10 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.ADD) {
-      return { t: 'num', v: left.v + right.v };
+      return numResult(left.v + right.v);
     }
 
-    return { t: 'num', v: left.v - right.v };
+    return numResult(left.v - right.v);
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
@@ -767,14 +789,14 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.MUL) {
-      return { t: 'num', v: left.v * right.v };
+      return numResult(left.v * right.v);
     }
 
     if (right.v === 0) {
       return ErrNode.DIV0;
     }
 
-    return { t: 'num', v: left.v / right.v };
+    return numResult(left.v / right.v);
   }
 
   visitConcat(ctx: ConcatContext): EvalNode {
@@ -874,7 +896,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.SUB) {
-      return { t: 'num', v: -operand.v };
+      return numResult(-operand.v);
     }
 
     return operand;
@@ -915,7 +937,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     if (callee.t !== 'lambda') {
       return ErrNode.ERROR;
     }
-    return this.invokeLambda(callee, ctx.args());
+    return normalizeFormulaResult(this.invokeLambda(callee, ctx.args()));
   }
 
   private evalLet(ctx: FunctionContext): EvalNode {
