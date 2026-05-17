@@ -498,6 +498,20 @@ function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | un
   };
 }
 
+/**
+ * OOXML's `rect`/`roundRect` `cxnLst` is ordered T, L, B, R; Waffle's
+ * `FOUR_CARDINAL` is ordered N, E, S, W (i.e. T, R, B, L). Indices 1
+ * and 3 swap; 0 and 2 are unchanged. Out-of-range indices pass through
+ * unchanged — connectors with `>3` siteIndex would currently render at
+ * the (0,0) fallback regardless, but per-shape cxnLst overrides will
+ * arrive with slides-connectors PR2.
+ */
+function ooxmlToWaffleSiteIndex(idx: number): number {
+  if (idx === 1) return 3;
+  if (idx === 3) return 1;
+  return idx;
+}
+
 function resolveEndpoint(
   cxn: Element | undefined,
   frame: SlideElement['frame'],
@@ -512,7 +526,11 @@ function resolveEndpoint(
     if (idAttr != null) {
       const mapped = ctx.idMap.get(idAttr);
       if (mapped) {
-        return { kind: 'attached', elementId: mapped, siteIndex: idxAttr ?? 0 };
+        return {
+          kind: 'attached',
+          elementId: mapped,
+          siteIndex: ooxmlToWaffleSiteIndex(idxAttr ?? 0),
+        };
       }
     }
   }
