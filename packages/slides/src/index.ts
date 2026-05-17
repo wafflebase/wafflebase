@@ -47,6 +47,7 @@ export type {
   ElementInit,
   ElementType,
   Frame,
+  GroupElement,
   ImageElement,
   PlaceholderRef,
   PlaceholderType,
@@ -57,6 +58,14 @@ export type {
   TextElement,
 } from './model/element';
 export { generateId } from './model/element';
+
+export {
+  applyGroupTransform,
+  findElementPath,
+  groupToTransform,
+  isDescendantOf,
+  normalizeToGroupLocal,
+} from './model/group';
 
 export type {
   ArrowheadKind,

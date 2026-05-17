@@ -162,11 +162,19 @@ export type ShapeElement = ElementBase & {
   };
 };
 
+export type GroupElement = ElementBase & {
+  type: 'group';
+  data: {
+    children: Element[]; // frames are in group-local coords (0..w × 0..h)
+  };
+};
+
 export type Element =
   | TextElement
   | ImageElement
   | ShapeElement
-  | ConnectorElement;
+  | ConnectorElement
+  | GroupElement;
 
 export type ElementType = Element['type'];
 
@@ -175,7 +183,8 @@ export type ElementInit =
   | Omit<TextElement, 'id'>
   | Omit<ImageElement, 'id'>
   | Omit<ShapeElement, 'id'>
-  | Omit<ConnectorElement, 'id'>;
+  | Omit<ConnectorElement, 'id'>
+  | Omit<GroupElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {
