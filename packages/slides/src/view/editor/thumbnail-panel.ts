@@ -178,7 +178,27 @@ export function mountThumbnailPanel(
     ];
   };
 
+  // Walk up to the closest scrollable ancestor so we can capture and
+  // restore its scrollTop across the innerHTML wipe. Without this the
+  // browser clamps scrollTop to 0 the instant the wiped children leave
+  // scrollHeight smaller than the current scroll offset — every click
+  // would otherwise snap the panel back to the first slide.
+  const findScrollParent = (
+    el: HTMLElement | null,
+  ): HTMLElement | null => {
+    for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+      const overflowY =
+        typeof getComputedStyle === 'function'
+          ? getComputedStyle(n).overflowY
+          : n.style.overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') return n;
+    }
+    return null;
+  };
+
   const render = (): void => {
+    const scrollParent = findScrollParent(container);
+    const savedScrollTop = scrollParent?.scrollTop ?? 0;
     container.innerHTML = '';
     const dims = computeThumbDims(container.clientWidth);
     // Read DPR per render so a window dragged between Retina and a
@@ -244,11 +264,11 @@ export function mountThumbnailPanel(
           return;
         }
         selectedSlideIds = [slide.id];
+        // Focus the panel so subsequent ArrowUp/ArrowDown navigate
+        // slides. preventScroll avoids the browser auto-scrolling the
+        // panel to the focused element — we manage scroll explicitly.
+        container.focus({ preventScroll: true });
         editor.setCurrentSlide(slide.id);
-        // setCurrentSlide may not fire onSelectionChange (when element
-        // selection was already empty). Force a re-render so the
-        // .current highlight updates.
-        render();
       });
 
       // HTML5 drag-and-drop reorder. jsdom only partially implements
@@ -294,12 +314,48 @@ export function mountThumbnailPanel(
 
       container.appendChild(item);
     }
+    if (scrollParent) scrollParent.scrollTop = savedScrollTop;
   };
 
-  // Re-render when the editor's selection changes — this is a cheap
-  // proxy for many editor mutations (selection clear on slide switch,
-  // etc.) and the thumbnail draw is fast.
-  const off = editor.onSelectionChange(() => render());
+  // Re-render whenever the editor's current slide changes — this is
+  // the only state the panel reflects (the `.current` highlight). The
+  // panel used to subscribe to onSelectionChange as a proxy, but that
+  // fired on every element click on the canvas, causing wasted renders
+  // and (with the old non-scroll-preserving render) a snap-to-top each
+  // time selection cleared.
+  const off = editor.onCurrentSlideChange(() => render());
+
+  // Make the panel a keyboard-focusable host so ArrowUp/Down navigate
+  // slides when the user clicks a thumbnail or tabs in. No visible
+  // focus ring on the container itself — the `.current` thumb already
+  // shows where we are.
+  if (!container.hasAttribute('tabindex')) container.tabIndex = 0;
+  container.style.outline = 'none';
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const slides = store.read().slides;
+    if (slides.length === 0) return;
+    const currentId = editor.getCurrentSlideId();
+    const idx = slides.findIndex((s) => s.id === currentId);
+    if (idx === -1) return;
+    const nextIdx =
+      e.key === 'ArrowUp'
+        ? Math.max(0, idx - 1)
+        : Math.min(slides.length - 1, idx + 1);
+    if (nextIdx === idx) return;
+    e.preventDefault();
+    selectedSlideIds = [slides[nextIdx].id];
+    editor.setCurrentSlide(slides[nextIdx].id);
+    // The onCurrentSlideChange listener has already re-rendered, so
+    // the new thumb element exists. Scroll it into view if off-screen.
+    // scrollIntoView is missing from jsdom; the optional-chain guard
+    // keeps unit tests happy.
+    const newItem = container.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slides[nextIdx].id}"]`,
+    );
+    newItem?.scrollIntoView?.({ block: 'nearest' });
+  });
 
   // Re-render when the panel's host element changes width (user drags
   // the column resizer in slides-view.tsx). Skip the no-op tick where

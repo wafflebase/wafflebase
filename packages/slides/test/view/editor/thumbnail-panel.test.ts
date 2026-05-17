@@ -76,6 +76,118 @@ describe('mountThumbnailPanel', () => {
   });
 });
 
+describe('mountThumbnailPanel — scroll preservation across re-render', () => {
+  it('restores parent scrollTop after innerHTML wipe (simulated browser clamp)', () => {
+    const { panel, store, editor } = makeFixture();
+    // Wrap the panel in a scrollable host so findScrollParent (overflowY=auto)
+    // picks it up. Mirrors the slides-view layout.
+    panel.remove();
+    const scrollable = document.createElement('div');
+    scrollable.style.overflowY = 'auto';
+    scrollable.appendChild(panel);
+    document.body.appendChild(scrollable);
+    mountThumbnailPanel(panel, store, editor);
+
+    // jsdom doesn't compute layout, so scrollTop isn't clamped automatically.
+    // Simulate the real-browser clamp synchronously: the moment innerHTML is
+    // wiped, slam scrollTop to 0 — what Chrome does when scrollHeight briefly
+    // drops below the current scroll offset. The panel must capture scrollTop
+    // BEFORE the wipe and restore it AFTER appending children.
+    let scrollTopVal = 250;
+    Object.defineProperty(scrollable, 'scrollTop', {
+      get: () => scrollTopVal,
+      set: (v: number) => { scrollTopVal = v; },
+      configurable: true,
+    });
+    const innerHTMLDesc = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      'innerHTML',
+    )!;
+    Object.defineProperty(panel, 'innerHTML', {
+      get() { return innerHTMLDesc.get!.call(this); },
+      set(value: string) {
+        innerHTMLDesc.set!.call(this, value);
+        if (value === '') scrollTopVal = 0; // simulated clamp
+      },
+      configurable: true,
+    });
+
+    // Click a different thumbnail — triggers render().
+    const slideIds = store.read().slides.map((s) => s.id);
+    const second = panel.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+
+    expect(scrollable.scrollTop).toBe(250);
+  });
+});
+
+describe('mountThumbnailPanel — arrow key navigation', () => {
+  function keydown(target: HTMLElement, key: string) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+    );
+  }
+
+  it('ArrowDown advances to the next slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    keydown(panel, 'ArrowDown');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[1]);
+  });
+
+  it('ArrowUp reverses to the previous slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    editor.setCurrentSlide(slideIds[1]);
+    keydown(panel, 'ArrowUp');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('ArrowUp on the first slide is a no-op', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+    keydown(panel, 'ArrowUp');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('ArrowDown on the last slide is a no-op', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    editor.setCurrentSlide(slideIds[slideIds.length - 1]);
+    keydown(panel, 'ArrowDown');
+    expect(editor.getCurrentSlideId()).toBe(slideIds[slideIds.length - 1]);
+  });
+
+  it('ignores arrow keys with modifier (Cmd/Ctrl/Alt) so existing shortcuts pass through', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+    panel.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(editor.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('panel is keyboard-focusable (tabIndex=0)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    expect(panel.tabIndex).toBe(0);
+  });
+});
+
 describe('mountThumbnailPanel — responsive sizing + DPR', () => {
   it('thumbnail outer box scales to the container width with 16:9 inner', () => {
     const { panel, store, editor } = makeFixture();
