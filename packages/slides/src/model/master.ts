@@ -1,3 +1,4 @@
+import type { Crop } from './element';
 import type { ColorRole, FontRole, ThemeColor } from './theme';
 
 export type PlaceholderStyle = {
@@ -8,8 +9,17 @@ export type PlaceholderStyle = {
   lineHeight: number;
 };
 
+/** Same shape as `BackgroundImage` in `presentation.ts`; kept inline
+ *  here to avoid a circular dependency between master and presentation. */
+export type MasterBackgroundImage = {
+  src: string;
+  opacity?: number;
+  crop?: Crop;
+};
+
 export type MasterBackground = {
   fill: ThemeColor;
+  image?: MasterBackgroundImage;
 };
 
 export type Master = {

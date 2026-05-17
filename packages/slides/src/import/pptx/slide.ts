@@ -4,6 +4,7 @@ import { DEFAULT_BACKGROUND } from '../../model/presentation';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
+import { parseBlipFill, type ImageParseContext } from './image';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
 import { parseSpTree, type SlideParseContext } from './shape';
@@ -55,8 +56,16 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   // from the master. v1 records an override only when present.
   const cSld = child(slideEl, 'cSld');
   const bgEl = cSld ? child(cSld, 'bg') : undefined;
+  const imageCtx: ImageParseContext = {
+    archive: opts.archive,
+    slidePartPath: opts.partPath,
+    rels,
+    uploadImage: opts.uploadImage,
+    scale: opts.scale,
+    report: opts.report,
+  };
   const background = bgEl
-    ? parseSlideBackground(bgEl, opts.clrMap)
+    ? await parseSlideBackground(bgEl, opts.clrMap, imageCtx)
     : clone(DEFAULT_BACKGROUND);
 
   const spTree = cSld ? child(cSld, 'spTree') : undefined;
@@ -98,9 +107,26 @@ function pickLayoutInfo(
   return undefined;
 }
 
-function parseSlideBackground(bgEl: Element, clrMap: ClrMap): Background {
+async function parseSlideBackground(
+  bgEl: Element,
+  clrMap: ClrMap,
+  imageCtx: ImageParseContext,
+): Promise<Background> {
   const bgPr = child(bgEl, 'bgPr');
   if (bgPr) {
+    // blipFill (image background) — populate `image` alongside the
+    // theme-role fill so transparent regions of the image still show
+    // a sensible color underneath, and so an upload failure doesn't
+    // leave us with a missing background entirely.
+    const blipFill = child(bgPr, 'blipFill');
+    if (blipFill) {
+      const blip = await parseBlipFill(blipFill, imageCtx);
+      if (blip) {
+        return { fill: clone(DEFAULT_BACKGROUND).fill, image: blip };
+      }
+      // Upload failed / blip unresolved — fall through so the slide
+      // still gets the theme background instead of nothing.
+    }
     const solid = child(bgPr, 'solidFill');
     if (solid) {
       const color = parseColorFromContainer(solid, clrMap);

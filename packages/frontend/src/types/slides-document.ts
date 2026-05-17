@@ -51,7 +51,11 @@ export interface YorkieSlide {
    */
   background: {
     fill?: ThemeColor;
-    image?: { src: string; w: number; h: number };
+    image?: {
+      src: string;
+      opacity?: number;
+      crop?: { x: number; y: number; w: number; h: number };
+    };
   };
   elements: YorkieElement[];
   notes: Block[];

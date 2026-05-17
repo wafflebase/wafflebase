@@ -21,13 +21,6 @@ export type Frame = {
   flipV?: boolean;
 };
 
-export type ImageRef = {
-  src: string;
-  /** Natural pixel dimensions, used to constrain crop and aspect. */
-  w: number;
-  h: number;
-};
-
 /** Crop rectangle in image-relative coordinates (0..1 on each axis). */
 export type Crop = { x: number; y: number; w: number; h: number };
 

@@ -2,6 +2,7 @@ import type { Master, MasterBackground } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
+import { parseBlipFill, type ImageParseContext } from './image';
 import { attr, child, descendant, parseXml } from './xml';
 
 /**
@@ -32,7 +33,12 @@ export interface ImportedMaster {
   clrMap: ClrMap;
 }
 
-export function parseMaster(xml: string, id: string, themeId: string): ImportedMaster {
+export async function parseMaster(
+  xml: string,
+  id: string,
+  themeId: string,
+  imageCtx: ImageParseContext,
+): Promise<ImportedMaster> {
   const doc = parseXml(xml);
   const sldMaster = descendant(doc, 'sldMaster');
   const cSld = sldMaster ? child(sldMaster, 'cSld') : undefined;
@@ -42,7 +48,9 @@ export function parseMaster(xml: string, id: string, themeId: string): ImportedM
   // Master `<p:bg>` is parsed without `clrMap` — backgrounds almost
   // always use direct scheme slot names (`lt1` / `dk1`) rather than the
   // logical `bg1` / `tx1` aliases that `<p:clrMap>` rewires.
-  const background = bg ? parseBackground(bg) : clone(DEFAULT_MASTER.background);
+  const background = bg
+    ? await parseBackground(bg, imageCtx)
+    : clone(DEFAULT_MASTER.background);
 
   // `clone()` deep-copies so the imported master can mutate its
   // background / placeholderStyles without leaking back into
@@ -93,12 +101,22 @@ function parseClrMap(sldMaster: Element): ClrMap {
   return map;
 }
 
-function parseBackground(bg: Element): MasterBackground {
+async function parseBackground(
+  bg: Element,
+  imageCtx: ImageParseContext,
+): Promise<MasterBackground> {
   // `<p:bg>` wraps either `<p:bgPr>` (literal fill) or `<p:bgRef>` (style
-  // matrix index). v1 supports only `bgPr → solidFill` and falls back
-  // for anything else.
+  // matrix index). v2 adds blipFill alongside solidFill; bgRef is still
+  // unhandled and falls through to the default.
   const bgPr = child(bg, 'bgPr');
   if (bgPr) {
+    const blipFill = child(bgPr, 'blipFill');
+    if (blipFill) {
+      const blip = await parseBlipFill(blipFill, imageCtx);
+      if (blip) {
+        return { fill: clone(DEFAULT_MASTER.background).fill, image: blip };
+      }
+    }
     const solid = child(bgPr, 'solidFill');
     if (solid) {
       const color = parseColorFromContainer(solid);

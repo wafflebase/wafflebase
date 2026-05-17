@@ -1,8 +1,9 @@
 import type { Element } from '../../model/element';
-import type { Slide, SlidesDocument } from '../../model/presentation';
+import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { resolveColor } from '../../model/theme';
 import { drawElement } from './element-renderer';
+import { drawImage } from './image-renderer';
 import { getActiveTheme } from './render-context';
 
 /** Global alpha applied to the hover-ghost element so the user can see
@@ -125,11 +126,18 @@ export function drawSlide(
   ctx.fillRect(0, 0, hostWidth * dpr, hostHeight * dpr);
   ctx.scale(scale, scale);
 
-  // Iterate elements in array order = z-order, last is front. Image-fill
-  // backgrounds are v2 — when they land, paint the image inside the
-  // logical 1920×1080 region *after* this full-canvas color fill so the
-  // image still represents the slide and the surrounding strip stays
-  // background-color.
+  // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted
+  // *after* the full-canvas color fill so the surrounding strip stays
+  // background-color and transparent regions of the image still show
+  // the color underneath. Stretch to the logical 1920×1080 region
+  // because that's what OOXML `<a:stretch><a:fillRect/></a:stretch>`
+  // means; tile mode is a v3 problem.
+  const bgImage = pickBackgroundImage(slide, doc);
+  if (bgImage) {
+    drawImage(ctx, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT }, bgImage, onAssetLoad);
+  }
+
+  // Iterate elements in array order = z-order, last is front.
   // Element lookup is consumed by the connector renderer to resolve
   // attached endpoints. Built once per slide-render so each connector
   // doesn't rebuild it.
@@ -151,4 +159,18 @@ export function drawSlide(
     drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
     ctx.restore();
   }
+}
+
+/**
+ * Slide-level image background takes precedence; otherwise inherit
+ * from the deck's master so master-only image decks still render.
+ * Returns `undefined` when neither is set.
+ */
+function pickBackgroundImage(
+  slide: Slide,
+  doc: SlidesDocument,
+): BackgroundImage | undefined {
+  if (slide.background.image) return slide.background.image;
+  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+  return master?.background.image;
 }

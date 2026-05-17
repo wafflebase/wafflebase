@@ -14,6 +14,7 @@ import { parseTheme } from './theme';
 import { parseMaster } from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
+import type { ImageParseContext } from './image';
 
 export type UploadImage = (bytes: Uint8Array, mime: string) => Promise<string>;
 
@@ -83,6 +84,8 @@ export async function importPptx(
         masterTarget,
         importedTheme?.id ?? 'default-light',
         report,
+        opts.uploadImage,
+        scale,
       )
     : {
         master: undefined,
@@ -191,6 +194,8 @@ async function loadMasterAndLayouts(
   masterTarget: string,
   themeId: string,
   report: ImportReport,
+  uploadImage: UploadImage | undefined,
+  scale: ReturnType<typeof emuScale>,
 ): Promise<{
   master: Master | undefined;
   layouts: Layout[];
@@ -203,13 +208,28 @@ async function loadMasterAndLayouts(
     return { master: undefined, layouts: [], layoutMap: new Map(), clrMap: new Map() };
   }
 
-  const { master, clrMap } = parseMaster(masterXml, `imported-${masterPath}`, themeId);
-
   // Each master's rels file lists the slideLayouts it owns. We import
-  // them all; slides resolve to one via their own rels file.
+  // them all; slides resolve to one via their own rels file. Loaded
+  // before `parseMaster` so the same `rels` map can resolve any
+  // master-level blipFill background.
   const relsPath = relsSiblingFor(masterPath);
   const relsXml = await archive.readText(relsPath);
   const rels = relsXml ? parseRels(relsXml) : new Map();
+
+  const masterImageCtx: ImageParseContext = {
+    archive,
+    slidePartPath: masterPath,
+    rels,
+    uploadImage,
+    scale,
+    report,
+  };
+  const { master, clrMap } = await parseMaster(
+    masterXml,
+    `imported-${masterPath}`,
+    themeId,
+    masterImageCtx,
+  );
 
   const layouts: Layout[] = [];
   const layoutMap: LayoutPathToInfo = new Map();
