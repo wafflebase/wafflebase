@@ -59,8 +59,12 @@ export type {
 } from './model/element';
 export { generateId } from './model/element';
 
+export type { GroupTransform } from './model/group';
 export {
+  IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
+  composeAncestorTransform,
+  composeGroupMatrix,
   findElementPath,
   groupToTransform,
   isGroupDescendantOf,

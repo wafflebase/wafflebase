@@ -263,6 +263,49 @@ describe('group()', () => {
     expect(afterUndo.map(e => e.id)).toContain(a);
     expect(afterUndo.map(e => e.id)).toContain(b);
   });
+
+  it('computes rotation-aware AABB across rotated and axis-aligned candidates', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+
+    // Shape A: 100×40 at (0,0) rotated 90°.
+    // Center is at (50, 20). With cos(π/2)=0, sin(π/2)=1 the corners map to:
+    //   [70,-30], [70,70], [30,70], [30,-30]
+    // AABB: x:[30,70], y:[-30,70]
+    let a!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 40, rotation: Math.PI / 2 },
+        data: { kind: 'rect' },
+      });
+    });
+
+    // Shape B: 50×50 at (100,100) with no rotation.
+    // AABB: x:[100,150], y:[100,150]
+    let b!: string;
+    store.batch(() => {
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+
+    let groupId!: string;
+    store.batch(() => { ({ groupId } = store.group(sid, [a, b])); });
+
+    // Combined AABB: minX=30, maxX=150, minY=-30, maxY=150
+    // → frame: { x:30, y:-30, w:120, h:180, rotation:0 }
+    const slide = store.read().slides[0];
+    const g = slide.elements.find(e => e.id === groupId)!;
+    expect(g.frame.rotation).toBe(0);
+    expect(g.frame.x).toBeCloseTo(30, 4);
+    expect(g.frame.y).toBeCloseTo(-30, 4);
+    expect(g.frame.w).toBeCloseTo(120, 4);
+    expect(g.frame.h).toBeCloseTo(180, 4);
+  });
 });
 
 describe('ungroup() stub', () => {

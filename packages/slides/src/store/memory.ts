@@ -22,12 +22,13 @@ import {
   resolveEndpoint,
 } from '../view/canvas/connector-frame';
 import {
+  IDENTITY_GROUP_TRANSFORM,
+  composeAncestorTransform,
   findElementPath,
-  groupToTransform,
   normalizeToGroupLocal,
 } from '../model/group';
-import type { GroupTransform } from '../import/pptx/group';
-import { IDENTITY_TRANSFORM } from '../import/pptx/group';
+import type { GroupTransform } from '../model/group';
+import { applyGroupTransform as applyMatrix } from '../import/pptx/group';
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -470,30 +471,21 @@ export class MemSlidesStore implements SlidesStore {
       }
     }
 
-    // Invariant 5: cycle prevention — assert no candidate is an ancestor of itself.
-    // (Impossible since all share a parent, but defensive check.)
-    for (const el of candidatesInOrder) {
-      if (el.type === 'group') {
-        for (const other of candidatesInOrder) {
-          if (other.type === 'group' && other.id !== el.id) {
-            // They share the same parent so neither can be inside the other.
-            // Nothing to check; the invariant holds trivially.
-          }
-        }
-      }
-    }
+    // Cycle prevention is structurally satisfied by the shared-parent invariant
+    // (Invariant 3): because all candidates share the same parent, no candidate
+    // can be an ancestor of another, so no runtime cycle check is needed here.
 
     // Compute the cumulative transform from slide-root to the parent's coordinate
     // space. If the shared parent is slide-root the cumulative transform is identity.
     // If the shared parent is a group, compose the chain of ancestor transforms.
-    const ancestorTransform = computeAncestorTransform(slide.elements, firstParentKey);
+    const ancestorTransform = resolveAncestorTransform(slide.elements, firstParentKey);
 
     // Compute world frames for each candidate using the ancestor transform.
     // For a slide-root parent the ancestor transform is identity, so world ≡ frame.
     // For a parent that is a group, the ancestor transform brings group-local coords
     // into world space.
     const worldFrames = candidatesInOrder.map(el =>
-      applyTransformToFrame(el.frame, ancestorTransform),
+      applyFrameWithTransform(el.frame, ancestorTransform),
     );
 
     // Compute the rotated-corner AABB over all world frames.
@@ -518,7 +510,7 @@ export class MemSlidesStore implements SlidesStore {
     // (the parent's local space). Convert the group's world frame back to
     // that local space using the inverse of the ancestor transform, then
     // normalize each child into group-local.
-    const groupLocalFrame = applyInverseTransformToFrame(groupWorldFrame, ancestorTransform);
+    const groupLocalFrame = applyInverseFrameWithTransform(groupWorldFrame, ancestorTransform);
 
     // Temporary GroupElement used to compute normalizeToGroupLocal.
     // We need a GroupElement with the world-frame geometry for the helper.
@@ -529,9 +521,9 @@ export class MemSlidesStore implements SlidesStore {
       data: { children: [] },
     };
 
-    const childrenWithLocalFrames: Element[] = candidatesInOrder.map(el => ({
+    const childrenWithLocalFrames: Element[] = candidatesInOrder.map((el, i) => ({
       ...clone(el),
-      frame: normalizeToGroupLocal(worldFrames[candidatesInOrder.indexOf(el)], tempGroup),
+      frame: normalizeToGroupLocal(worldFrames[i], tempGroup),
     }));
 
     const groupId = generateId();
@@ -703,96 +695,58 @@ export class MemSlidesStore implements SlidesStore {
  * Compose a chain of group transforms from the slide-root down to a given
  * parent id. Returns the identity transform when `parentId` is '' (slide root).
  * The result maps the parent's local coordinates to world coordinates.
+ *
+ * Throws if `parentId` is non-empty but the path is not found — the
+ * same-parent invariant has already validated existence by this point, so a
+ * missing path indicates a programming error rather than a user error.
  */
-function computeAncestorTransform(
+function resolveAncestorTransform(
   slideElements: Element[],
   parentId: string,
 ): GroupTransform {
-  if (parentId === '') return { ...IDENTITY_TRANSFORM };
+  if (parentId === '') return { ...IDENTITY_GROUP_TRANSFORM };
 
   // Walk findElementPath to build the ancestor chain from root → parent.
   const path = findElementPath(slideElements, parentId);
-  if (!path) return { ...IDENTITY_TRANSFORM };
-
-  // Compose transforms along the chain. Each GroupElement in the path
-  // contributes a transform that maps group-local → parent-local.
-  // We want: slide-root-local ← ... ← direct-parent-local
-  // i.e., compose from outermost to innermost.
-  let t: GroupTransform = { ...IDENTITY_TRANSFORM };
-  for (const el of path) {
-    if (el.type !== 'group') break; // leaf reached, stop
-    const gt = groupToTransform(el);
-    t = composeLocalTransforms(t, gt);
+  if (!path) {
+    throw new Error(`[slides] group(): parentId not found on slide: ${parentId}`);
   }
-  return t;
-}
 
-/**
- * Compose two transforms: result maps child-local → world when
- * `outer` is world-of-outer and `inner` is local-to-outer.
- * outer · inner (inner applied first).
- */
-function composeLocalTransforms(
-  outer: GroupTransform,
-  inner: GroupTransform,
-): GroupTransform {
-  return {
-    a: outer.a * inner.a + outer.c * inner.b,
-    b: outer.b * inner.a + outer.d * inner.b,
-    c: outer.a * inner.c + outer.c * inner.d,
-    d: outer.b * inner.c + outer.d * inner.d,
-    tx: outer.a * inner.tx + outer.c * inner.ty + outer.tx,
-    ty: outer.b * inner.tx + outer.d * inner.ty + outer.ty,
-    rotation: outer.rotation + inner.rotation,
-  };
+  // Collect only the GroupElement ancestors (all entries in `path` for a
+  // group parent will be groups up to and including the parent itself).
+  const groupAncestors = path.filter((el): el is GroupElement => el.type === 'group');
+
+  // Delegate to the canonical helper in model/group.ts.
+  return composeAncestorTransform(groupAncestors);
 }
 
 /**
  * Apply a GroupTransform to a Frame's center point and produce a world frame.
  * For slide-root children the transform is identity, so this is a no-op.
- * Only handles translation/rotation (no scale), which covers the group→world
- * direction when the frame was already stored in local coordinates.
+ * Delegates to `applyMatrix` (the PPTX-import helper) for consistency.
  */
-function applyTransformToFrame(frame: Frame, t: GroupTransform): Frame {
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
-  const cxWorld = t.a * cx + t.c * cy + t.tx;
-  const cyWorld = t.b * cx + t.d * cy + t.ty;
-  return {
-    x: cxWorld - frame.w / 2,
-    y: cyWorld - frame.h / 2,
-    w: frame.w,
-    h: frame.h,
-    rotation: frame.rotation + t.rotation,
-  };
+function applyFrameWithTransform(frame: Frame, t: GroupTransform): Frame {
+  return applyMatrix(frame, t);
 }
 
 /**
- * Inverse of `applyTransformToFrame` — maps world frame back to local frame
+ * Inverse of `applyFrameWithTransform` — maps world frame back to local frame
  * relative to the ancestor described by `t`.
  * For slide-root (identity transform) this is a no-op.
  */
-function applyInverseTransformToFrame(frame: Frame, t: GroupTransform): Frame {
+function applyInverseFrameWithTransform(frame: Frame, t: GroupTransform): Frame {
   const det = t.a * t.d - t.b * t.c; // 1 for pure rotation
   if (Math.abs(det) < 1e-10) return frame; // degenerate, return as-is
-  const invA = t.d / det;
-  const invB = -t.b / det;
-  const invC = -t.c / det;
-  const invD = t.a / det;
-  const invTx = -(t.d * t.tx - t.c * t.ty) / det;
-  const invTy = (t.b * t.tx - t.a * t.ty) / det;
-
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
-  const cxLocal = invA * cx + invC * cy + invTx;
-  const cyLocal = invB * cx + invD * cy + invTy;
-  return {
-    x: cxLocal - frame.w / 2,
-    y: cyLocal - frame.h / 2,
-    w: frame.w,
-    h: frame.h,
-    rotation: frame.rotation - t.rotation,
+  const inv: GroupTransform = {
+    a:  t.d / det,
+    b: -t.b / det,
+    c: -t.c / det,
+    d:  t.a / det,
+    tx: -(t.d * t.tx - t.c * t.ty) / det,
+    ty:  (t.b * t.tx - t.a * t.ty) / det,
+    rotation: -t.rotation,
   };
+  return applyMatrix(frame, inv);
 }
 
 /**

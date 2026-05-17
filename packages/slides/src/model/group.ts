@@ -2,6 +2,50 @@ import type { Element, Frame, GroupElement } from './element';
 import { applyGroupTransform as applyMatrix } from '../import/pptx/group';
 import type { GroupTransform } from '../import/pptx/group';
 
+export type { GroupTransform } from '../import/pptx/group';
+
+/** Identity matrix (no translation, no rotation). */
+export const IDENTITY_GROUP_TRANSFORM: GroupTransform = {
+  a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0, rotation: 0,
+};
+
+/**
+ * Compose two transforms: `result = outer · inner` (apply inner first).
+ * Accumulates rotation additively so callers that care about the
+ * cumulative rotation can read `result.rotation` directly.
+ */
+export function composeGroupMatrix(
+  outer: GroupTransform,
+  inner: GroupTransform,
+): GroupTransform {
+  return {
+    a:  outer.a * inner.a + outer.c * inner.b,
+    b:  outer.b * inner.a + outer.d * inner.b,
+    c:  outer.a * inner.c + outer.c * inner.d,
+    d:  outer.b * inner.c + outer.d * inner.d,
+    tx: outer.a * inner.tx + outer.c * inner.ty + outer.tx,
+    ty: outer.b * inner.tx + outer.d * inner.ty + outer.ty,
+    rotation: outer.rotation + inner.rotation,
+  };
+}
+
+/**
+ * Compose the chain of group transforms along an ancestor path. Each
+ * entry in `ancestors` is a group element; the resulting matrix maps
+ * a point in the innermost group's local space to the outermost
+ * parent's space (slide root if `ancestors` starts from a slide-root
+ * group).
+ */
+export function composeAncestorTransform(
+  ancestors: GroupElement[],
+): GroupTransform {
+  let m = IDENTITY_GROUP_TRANSFORM;
+  for (const g of ancestors) {
+    m = composeGroupMatrix(m, groupToTransform(g));
+  }
+  return m;
+}
+
 /**
  * Build the affine transform that maps group-local coords to the
  * parent (world) space.  Children live in (0..w × 0..h) so the
