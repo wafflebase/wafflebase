@@ -52,6 +52,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-copy-paste.md](docs/docs-table-copy-paste.md)                        | Docs table copy-paste — cell-range clipboard, whole-table block, external HTML table paste        |
 | [docs-table-row-splitting.md](docs/docs-table-row-splitting.md)                  | Table row splitting — split tall table rows across pages, recursive nested table support          |
 | [docs-peer-jump.md](docs/docs-peer-jump.md)                                      | Click peer avatar to scroll to that collaborator's caret in the docs editor                       |
+| [docs-local-caret-anchoring.md](docs/docs-local-caret-anchoring.md)              | Local caret anchoring — Yorkie Tree-anchored caret/selection, resolves to DocPosition at render time (issue #237) |
 
 ## Slides
 
