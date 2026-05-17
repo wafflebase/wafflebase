@@ -19,9 +19,10 @@ import { mountSlidesTextBox } from '../../../src/view/editor/text-box-editor';
  * host and logical coordinates.
  */
 function flushRaf(): Promise<void> {
-  // Drain rAF/microtask queues that the docs text-box editor uses for
-  // paint scheduling. jsdom polyfills rAF via setTimeout, so a few
-  // sequential macrotask flushes are enough.
+  // Wait one frame so the docs text-box editor's rAF-scheduled
+  // renderNow (and the cursor-blink restart that piggybacks on it)
+  // actually fires. jsdom polyfills rAF via setTimeout; `setTimeout(0)`
+  // is too tight to drain both.
   return new Promise((resolve) => setTimeout(resolve, 16));
 }
 
@@ -108,8 +109,13 @@ describe('mountSlidesTextBox click positioning at scale != 1', () => {
     await flushRaf();
 
     expect(lastCursor).not.toBeNull();
-    // Bug repro: offset would be 0. Fixed: offset is near 8 (end of text).
-    expect(lastCursor!.offset).toBeGreaterThan(0);
+    // Pre-fix: offset == 0 (snap to line start because logical click x
+    // fell before firstRun.x). Post-fix: logical x = 195/0.5 = 390;
+    // right-aligned "XXXXXXXX" runs from logical 336 to 400, so the
+    // localRunX = 54 sits ~6 px before the 7th boundary at 56 — snap
+    // to offset 7. A tight equality catches scale-direction inversions
+    // (e.g. `1/scale`) which would push the offset elsewhere.
+    expect(lastCursor!.offset).toBe(7);
 
     tb.detach();
   });
@@ -161,7 +167,10 @@ describe('mountSlidesTextBox click positioning at scale != 1', () => {
     await flushRaf();
 
     expect(lastCursor).not.toBeNull();
-    expect(lastCursor!.offset).toBeGreaterThan(7);
+    // Pre-fix: logical x ≈ 40 → offset ≈ 5 (mid-text wrong position).
+    // Post-fix: logical x ≈ 80 → offset === 10. Equality catches
+    // scale-direction inversions and partial-scale-propagation regressions.
+    expect(lastCursor!.offset).toBe(10);
 
     tb.detach();
   });
