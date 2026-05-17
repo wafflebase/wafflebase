@@ -7,6 +7,12 @@ import {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  SlideRenderer,
+  type SlidesDocument,
+} from "@wafflebase/slides";
 import { Loader } from "@/components/loader";
 import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
@@ -16,6 +22,23 @@ import {
   YorkieSlidesStore,
   ensureSlidesRoot,
 } from "./yorkie-slides-store";
+
+const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
+
+/**
+ * Picks the largest 16:9 box that fits inside the available area.
+ * Duplicated from `view/present/presenter.ts` and `slides-view.tsx`
+ * on purpose — the slides package can't depend on the frontend, and
+ * the math is small (see slides-mobile-view design doc).
+ */
+function computeFitSize(
+  availWidth: number,
+  availHeight: number,
+): { width: number; height: number } {
+  const widthFit = { width: availWidth, height: availWidth / SLIDE_ASPECT };
+  if (widthFit.height <= availHeight) return widthFit;
+  return { width: availHeight * SLIDE_ASPECT, height: availHeight };
+}
 
 interface MobileSlidesViewProps {
   documentId: string;
@@ -109,11 +132,82 @@ export function MobileSlidesView({
   }, [currentIndex, snapshot.slideIds]);
 
   const canvasHostRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const swipeOptions = useMemo(
     () => ({ onSwipeLeft: nextSlide, onSwipeRight: prevSlide }),
     [nextSlide, prevSlide],
   );
   usePointerSwipe(canvasHostRef, swipeOptions);
+
+  // Canvas painting. A single SlideRenderer is bound to the current
+  // host size; on resize it's rebuilt (cheap constructor) inside a
+  // RAF-coalesced ResizeObserver callback so window drags don't spam
+  // re-instantiation. Repaint is triggered by changes to the current
+  // slide id or by the store's onChange (covers remote peer edits).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const host = canvasHostRef.current;
+    if (!canvas || !host || !store) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    let renderer: SlideRenderer | null = null;
+    let lastDoc: SlidesDocument = store.read();
+
+    function paint() {
+      if (!renderer) return;
+      const slide = lastDoc.slides.find((s) => s.id === currentSlideId);
+      if (!slide) return;
+      renderer.markDirty();
+      renderer.render(slide, lastDoc);
+    }
+
+    function applyFit() {
+      const rect = host!.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const fit = computeFitSize(rect.width, rect.height);
+      const cssW = Math.round(fit.width);
+      const cssH = Math.round(fit.height);
+      canvas!.width = Math.round(cssW * dpr);
+      canvas!.height = Math.round(cssH * dpr);
+      canvas!.style.width = `${cssW}px`;
+      canvas!.style.height = `${cssH}px`;
+      renderer = new SlideRenderer(ctx!, {
+        hostWidth: cssW,
+        hostHeight: cssH,
+        dpr,
+      });
+      paint();
+    }
+
+    let rafScheduled = false;
+    const ro = new ResizeObserver(() => {
+      if (rafScheduled) return;
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        rafScheduled = false;
+        applyFit();
+      });
+    });
+    ro.observe(host);
+    applyFit();
+
+    // Pick up peer edits (remote-change → store.onChange) and apply
+    // them to the next paint. Local writes never originate from this
+    // mobile view, but onChange fires for them too on the desktop
+    // editor side — harmless duplicate refresh.
+    const unsubscribe = store.onChange(() => {
+      lastDoc = store.read();
+      paint();
+    });
+
+    return () => {
+      ro.disconnect();
+      unsubscribe();
+      renderer = null;
+    };
+  }, [store, currentSlideId]);
 
   const handleBack = useCallback(() => {
     if (onBack) onBack();
@@ -220,7 +314,10 @@ export function MobileSlidesView({
           touchAction: "pan-y",
         }}
       >
-        {/* Canvas mounts here in Task 3. */}
+        <canvas
+          ref={canvasRef}
+          aria-label={`Slide ${Math.max(currentIndex + 1, 0)} of ${snapshot.slideIds.length}`}
+        />
       </div>
 
       <footer
