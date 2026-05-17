@@ -102,6 +102,22 @@ export function composeGroupTransform(
  * world frame. The element's own rotation is preserved; the group's
  * accumulated rotation is added on top so the renderer's "rotate
  * around own center" maps to the correct visual orientation.
+ *
+ * When the child carries its own rotation θ and the group applies a
+ * non-uniform per-axis scale, the child's `w` / `h` are *not* the
+ * dimensions that get directly scaled — the visible (post-rotation)
+ * extents are. PowerPoint / Google Slides emit `<a:chExt>` to match
+ * the rotated visual bbox of their children, so we have to find new
+ * `w'` / `h'` such that the rotated rectangle's visual bbox after
+ * import equals the visual bbox before import multiplied per-axis:
+ *
+ *   w' · |cos θ| + h' · |sin θ| = (w · |cos θ| + h · |sin θ|) · scaleX
+ *   w' · |sin θ| + h' · |cos θ| = (w · |sin θ| + h · |cos θ|) · scaleY
+ *
+ * Determinant = cos² - sin² = cos(2θ). The system degenerates at
+ * θ ≡ 45° (mod 90°); for those rare cases a rotated rectangle cannot
+ * satisfy both visual extents under non-uniform scale, so we fall
+ * back to the unrotated scaling (`w*scaleX`, `h*scaleY`).
  */
 export function applyGroupTransform(frame: Frame, t: GroupTransform): Frame {
   // Apply matrix to the child's center.
@@ -115,8 +131,8 @@ export function applyGroupTransform(frame: Frame, t: GroupTransform): Frame {
   // still produce a reasonable approximation.
   const scaleX = Math.sqrt(t.a * t.a + t.b * t.b);
   const scaleY = Math.sqrt(t.c * t.c + t.d * t.d);
-  const w = frame.w * scaleX;
-  const h = frame.h * scaleY;
+
+  const { w, h } = scaleRotatedFrame(frame.w, frame.h, frame.rotation, scaleX, scaleY);
 
   return {
     x: cxWorld - w / 2,
@@ -125,6 +141,46 @@ export function applyGroupTransform(frame: Frame, t: GroupTransform): Frame {
     h,
     rotation: frame.rotation + t.rotation,
   };
+}
+
+function scaleRotatedFrame(
+  w: number,
+  h: number,
+  rotation: number,
+  scaleX: number,
+  scaleY: number,
+): { w: number; h: number } {
+  // Fast path: uniform scale, or no rotation (θ ≡ 0 mod 180°). In both
+  // cases the visual bbox aligns with (w, h), so per-axis scaling is
+  // exact and matches the prior behaviour.
+  if (scaleX === scaleY || rotation === 0) {
+    return { w: w * scaleX, h: h * scaleY };
+  }
+  // |cos θ| / |sin θ| — the visual bbox is rotation-quadrant-invariant
+  // (θ and θ + π/2 swap the axes rather than negate them), so the
+  // solver only cares about absolute values.
+  const cosA = Math.abs(Math.cos(rotation));
+  const sinA = Math.abs(Math.sin(rotation));
+  // det = cos² - sin² = cos(2θ). Near zero at 45° / 135° / ...; no
+  // axis-aligned rectangle can hit both target extents in that case.
+  const det = cosA * cosA - sinA * sinA;
+  if (Math.abs(det) < 1e-6) {
+    return { w: w * scaleX, h: h * scaleY };
+  }
+  const A = (w * cosA + h * sinA) * scaleX;
+  const B = (w * sinA + h * cosA) * scaleY;
+  const wNew = (cosA * A - sinA * B) / det;
+  const hNew = (cosA * B - sinA * A) / det;
+  // A negative wNew / hNew means the visual-bbox invariant can't be
+  // satisfied by an axis-aligned rectangle with positive sides under
+  // this scale + rotation combo (same failure mode as the singular
+  // det; the algebraic solver flips signs at the boundary). Fall back
+  // to per-axis scaling so downstream renderers / hit-test math never
+  // see a negative frame extent.
+  if (wNew <= 0 || hNew <= 0) {
+    return { w: w * scaleX, h: h * scaleY };
+  }
+  return { w: wNew, h: hNew };
 }
 
 /**
