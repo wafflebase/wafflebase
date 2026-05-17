@@ -124,9 +124,10 @@ describe('mountSlidesTextBox click positioning at scale != 1', () => {
     // Long left-aligned line so click-x and offset-N are distinguishable
     // with vs. without the fix. Text is 20 chars × 8 px = 160 logical wide;
     // visible (at scale 0.5) at host x ∈ [0, 80]. A click at host x = 40
-    // (≈midpoint of visible text) maps to logical x = 80 → ~offset 10.
-    // With the bug, logical x = 40 → ~offset 5 — so the assertion
-    // `offset > 7` cleanly fails pre-fix and passes post-fix.
+    // (≈midpoint of visible text) maps to logical x = 80 → offset 10
+    // post-fix; with the bug, logical x = 40 → offset 5. The post-fix
+    // assertion below is `toBe(10)`, which is far enough from 5 to be
+    // a clean pre-fix failure.
     const SCALE = 0.5;
     const FRAME = { x: 0, y: 0, w: 400, h: 100, rotation: 0 };
 
