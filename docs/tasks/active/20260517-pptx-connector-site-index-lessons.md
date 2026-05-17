@@ -31,6 +31,31 @@ that exists in the source, especially if it cites a package boundary
 (slides → docs). Run the cross-package build before assuming the bug
 is in your branch.
 
+## Paint-transform and site-resolution must mirror each other
+
+`element-renderer.ts:50-64` paints a flipped shape with
+`translate(centre) → rotate → scale(flip) → translate(-w/2,-h/2)`,
+so the path is visually mirrored around the frame centre. But
+`siteWorldPos` was only applying rotation — it ignored
+`frame.flipH`/`frame.flipV`. Result: attached connectors landed on
+the *pre-mirror* edge while the shape painted as mirrored, so
+connectors visually hit the wrong side. Discovered after the
+import-time idx swap fix because slide 24 has no flipped shapes (so
+the runtime gap was invisible), but slide 26's right-side MVC group
+mirrors every shape via `flipH=1`.
+
+**Apply when:** adding any geometry/transform path that has both a
+paint side and a "where did this end up in world space" side.
+Whatever the paint code does, the resolver must do too — and in the
+same order. The two are coupled invariants; drifting them is how
+clicks miss, snap markers float, and connectors mis-route.
+
+OOXML semantics back this up: `cxnLst` entries are declared in
+pre-flip local coords, and the runtime is expected to apply the
+shape's flip transform when resolving them. PowerPoint/Google Slides
+behave the same way — flipping a shape also moves attached
+connectors to the visually-mirrored edge.
+
 ## Backward compatibility for already-imported decks
 
 Decks that were imported *before* this fix have the buggy `siteIndex`
