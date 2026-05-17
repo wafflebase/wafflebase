@@ -103,6 +103,14 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * user requests link insertion. No-op when omitted.
    */
   onLinkRequest?: () => void;
+  /**
+   * Extra hit-test slack (in CSS pixels) around resize / rotate /
+   * adjustment handles. The visual handle stays at its 8px size; this
+   * only expands the area where a pointer counts as "on" the handle.
+   * Default 0 keeps desktop precision. The mobile shell passes ~22
+   * (≈ 44px diameter) so fingertips can reliably grab handles.
+   */
+  touchHandleTolerance?: number;
 }
 
 export interface SlidesEditor {
@@ -1522,6 +1530,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.options.overlay,
       clientX - rect.left,
       clientY - rect.top,
+      this.options.touchHandleTolerance,
     );
   }
 
