@@ -50,6 +50,13 @@ export function attachPointerSwipe(
   let pointerId: number | null = null;
 
   const onDown = (e: PointerEvent) => {
+    // Ignore additional pointerdowns while we're tracking another
+    // pointer. Without this, a second finger landing mid-swipe would
+    // overwrite the first finger's start coordinates and pointerId,
+    // turning the in-flight gesture into nonsense. `pointerId` is
+    // cleared on pointerup / pointercancel, so a fresh gesture
+    // starts cleanly after either path.
+    if (pointerId !== null) return;
     phase = "pending";
     startX = e.clientX;
     startY = e.clientY;

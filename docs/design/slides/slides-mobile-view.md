@@ -91,7 +91,7 @@ New file: `packages/frontend/src/app/slides/mobile-slides-view.tsx`.
 **DOM structure** (built as JSX, unlike the desktop view which
 hand-builds DOM for the vanilla editor):
 
-```
+```html
 <div class="mobile-slides">
   <header>
     <button aria-label="Back to deck list">‹</button>

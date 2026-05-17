@@ -227,3 +227,59 @@ test("attachPointerSwipe — events from a different pointerId are ignored mid-g
 
   cleanup();
 });
+
+test("attachPointerSwipe — second pointerdown mid-gesture is ignored", () => {
+  // Without the active-pointer guard in onDown, a second finger
+  // landing mid-swipe would overwrite startX/startY/pointerId and
+  // the first finger's gesture would silently turn into the second
+  // finger's half-formed gesture on release.
+  const el = makeFakeEl();
+  let left = 0;
+  const cleanup = attachPointerSwipe(el as unknown as HTMLElement, {
+    onSwipeLeft: () => left++,
+    onSwipeRight: () => {},
+  });
+
+  el.__fire("pointerdown", ev("down", 200, 100, 0));
+  // Second pointer lands mid-gesture — must be ignored and must NOT
+  // reset the tracked start coordinates. If the guard regresses, the
+  // start would jump to (50, 100) and the pointer-1 move/up would no
+  // longer compute a left-swipe.
+  el.__fire("pointerdown", {
+    pointerId: 2,
+    clientX: 50,
+    clientY: 100,
+    timeStamp: 30,
+    cancelable: true,
+    preventDefault: () => {},
+  });
+  el.__fire("pointermove", ev("move", 120, 100, 50)); // pointer 1, dx = -80
+  el.__fire("pointerup", ev("up", 120, 100, 100));
+
+  assert.equal(left, 1);
+  cleanup();
+});
+
+test("attachPointerSwipe — a fresh pointerdown is accepted after pointercancel", () => {
+  // pointercancel must leave the hook ready for the next gesture.
+  // Without this, a single browser-cancelled swipe would dead-lock
+  // the element until the user navigates away.
+  const el = makeFakeEl();
+  let left = 0;
+  const cleanup = attachPointerSwipe(el as unknown as HTMLElement, {
+    onSwipeLeft: () => left++,
+    onSwipeRight: () => {},
+  });
+
+  el.__fire("pointerdown", ev("down", 200, 100, 0));
+  el.__fire("pointermove", ev("move", 120, 100, 50));
+  el.__fire("pointercancel", ev("cancel", 120, 100, 60));
+
+  // New gesture — must be accepted, not swallowed by leftover state.
+  el.__fire("pointerdown", ev("down", 300, 100, 200));
+  el.__fire("pointermove", ev("move", 220, 100, 250));
+  el.__fire("pointerup", ev("up", 220, 100, 300));
+
+  assert.equal(left, 1);
+  cleanup();
+});
