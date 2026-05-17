@@ -1028,6 +1028,13 @@ class SlidesEditorImpl implements SlidesEditor {
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hit = topmostUnderPoint(slide, x, y);
     if (hit === null) return;
+    // The text-box editor's container lives inside the overlay, so a
+    // dblclick *inside* the active editor bubbles up here. Re-entering
+    // edit mode on the same element would commit + remount the
+    // text-box, resetting the docs cursor to offset 0 and wiping the
+    // word selection the inner TextEditor's second mousedown just
+    // made. Bail out and let the inner editor own the dblclick.
+    if (hit === this.editingElementId) return;
     const element = slide.elements.find((el) => el.id === hit);
     if (!element || element.type !== 'text') return;
     e.preventDefault();
