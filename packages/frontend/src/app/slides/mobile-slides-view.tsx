@@ -53,11 +53,9 @@ interface MobileSlidesViewProps {
  * `slides-detail.tsx`'s `SlidesLayout` when `useIsMobile()` is true,
  * replacing the full desktop chrome (sidebar / site header / toolbar
  * / SlidesView). The editor module is intentionally not mounted —
- * read-only is enforced by construction.
- *
- * The canvas painting wiring lands in the next commit. This commit
- * builds out the React shell, navigation state, swipe gesture, and
- * Present-mode launch so the structure is reviewable on its own.
+ * read-only is enforced by construction. Slide painting reuses
+ * `SlideRenderer` directly the same way `view/present/presenter.ts`
+ * does, so the canvas pipeline stays in one place.
  */
 export function MobileSlidesView({
   title,
