@@ -120,6 +120,22 @@ describe('Formula', () => {
     expect(evaluate('=COUNT({1,2,3})')).toBe('3');
   });
 
+  it('should use boolean array products with SUMPRODUCT', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'North' } as Cell);
+    grid.set('A2', { v: 'South' } as Cell);
+    grid.set('A3', { v: 'North' } as Cell);
+    grid.set('B1', { v: '10' } as Cell);
+    grid.set('B2', { v: '20' } as Cell);
+    grid.set('B3', { v: '30' } as Cell);
+
+    expect(evaluate('=SUMPRODUCT((A1:A3="North")*B1:B3)', grid)).toBe('40');
+  });
+
+  it('should reject SUMPRODUCT arrays with different shapes', () => {
+    expect(evaluate('=SUMPRODUCT({1,2,3,4},{1,2;3,4})')).toBe('#VALUE!');
+  });
+
   it('should use array literals in arithmetic', () => {
     expect(evaluate('={1,2,3}+10')).toBe('11');
   });

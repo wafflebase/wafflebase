@@ -31,6 +31,7 @@ import {
   parseRef,
   parseRange,
   isCrossSheetRef,
+  toSrefs,
 } from '../model/core/coordinates';
 
 /**
@@ -481,7 +482,7 @@ export function evaluateWithSpill(formula: string, grid?: Grid): string | SpillR
     const evaluator = new Evaluator(grid);
     const node = evaluator.visit(parsed.tree);
 
-    if (node.t === 'arr') {
+    if (node.t === 'arr' && node.spill !== false) {
       return {
         values: node.v.map((row) => row.map((cell) => evalNodeToStr(cell, grid))),
         rows: node.rows,
@@ -629,7 +630,7 @@ export const ErrNode = {
 
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
-export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
+export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number; spill?: boolean };
 export type LambdaNode = {
   t: 'lambda';
   params: string[];
@@ -649,6 +650,12 @@ export type EvalNode =
   | EmptyNode
   | ArrNode
   | LambdaNode;
+
+type MatrixArray = {
+  values: EvalNode[][];
+  rows: number;
+  cols: number;
+};
 
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
@@ -738,12 +745,17 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitAddSub(ctx: AddSubContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    const leftRaw = this.visit(ctx.expr(0));
+    const rightRaw = this.visit(ctx.expr(1));
+    const matrixResult = this.numericArrayBinary(leftRaw, rightRaw, ctx._op.type);
+    if (matrixResult) return matrixResult;
+
+    const left = NumberArgs.map(leftRaw, this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    const right = NumberArgs.map(rightRaw, this.grid);
     if (right.t === 'err') {
       return right;
     }
@@ -756,12 +768,17 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    const leftRaw = this.visit(ctx.expr(0));
+    const rightRaw = this.visit(ctx.expr(1));
+    const matrixResult = this.numericArrayBinary(leftRaw, rightRaw, ctx._op.type);
+    if (matrixResult) return matrixResult;
+
+    const left = NumberArgs.map(leftRaw, this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    const right = NumberArgs.map(rightRaw, this.grid);
     if (right.t === 'err') {
       return right;
     }
@@ -792,18 +809,25 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitComparison(ctx: ComparisonContext): EvalNode {
-    const left = this.resolveValue(this.visit(ctx.expr(0)));
+    const leftRaw = this.visit(ctx.expr(0));
+    const rightRaw = this.visit(ctx.expr(1));
+    const matrixResult = this.comparisonArrayBinary(leftRaw, rightRaw, ctx._op.type);
+    if (matrixResult) return matrixResult;
+
+    const left = this.resolveValue(leftRaw);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = this.resolveValue(this.visit(ctx.expr(1)));
+    const right = this.resolveValue(rightRaw);
     if (right.t === 'err') {
       return right;
     }
 
-    const op = ctx._op.type;
+    return this.compareValues(left, right, ctx._op.type);
+  }
 
+  private compareValues(left: EvalNode, right: EvalNode, op: number): EvalNode {
     // Different types: EQ→false, NEQ→true, order: num < str < bool
     if (left.t !== right.t) {
       if (op === FormulaParser.EQ) return { t: 'bool', v: false };
@@ -834,6 +858,118 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     const lv = (left as NumNode).v;
     const rv = (right as NumNode).v;
     return this.compareBool(op, lv < rv ? -1 : lv > rv ? 1 : 0);
+  }
+
+  private numericArrayBinary(leftRaw: EvalNode, rightRaw: EvalNode, op: number): EvalNode | null {
+    const leftMatrix = this.toMatrixArray(leftRaw);
+    if (leftMatrix && 't' in leftMatrix) return leftMatrix;
+    const rightMatrix = this.toMatrixArray(rightRaw);
+    if (rightMatrix && 't' in rightMatrix) return rightMatrix;
+    if (!leftMatrix && !rightMatrix) return null;
+
+    const rows = leftMatrix?.rows ?? rightMatrix!.rows;
+    const cols = leftMatrix?.cols ?? rightMatrix!.cols;
+    if (leftMatrix && rightMatrix && (leftMatrix.rows !== rightMatrix.rows || leftMatrix.cols !== rightMatrix.cols)) {
+      return ErrNode.VALUE;
+    }
+
+    const leftScalar = leftMatrix ? null : NumberArgs.map(leftRaw, this.grid);
+    if (leftScalar?.t === 'err') return leftScalar;
+    const rightScalar = rightMatrix ? null : NumberArgs.map(rightRaw, this.grid);
+    if (rightScalar?.t === 'err') return rightScalar;
+
+    const result: EvalNode[][] = [];
+    for (let row = 0; row < rows; row++) {
+      const resultRow: EvalNode[] = [];
+      for (let col = 0; col < cols; col++) {
+        const leftNode = leftMatrix ? NumberArgs.map(leftMatrix.values[row]?.[col] ?? { t: 'empty' }, this.grid) : leftScalar!;
+        if (leftNode.t === 'err') return leftNode;
+        const rightNode = rightMatrix ? NumberArgs.map(rightMatrix.values[row]?.[col] ?? { t: 'empty' }, this.grid) : rightScalar!;
+        if (rightNode.t === 'err') return rightNode;
+
+        if (op === FormulaParser.ADD) {
+          resultRow.push({ t: 'num', v: leftNode.v + rightNode.v });
+        } else if (op === FormulaParser.SUB) {
+          resultRow.push({ t: 'num', v: leftNode.v - rightNode.v });
+        } else if (op === FormulaParser.MUL) {
+          resultRow.push({ t: 'num', v: leftNode.v * rightNode.v });
+        } else {
+          if (rightNode.v === 0) return ErrNode.DIV0;
+          resultRow.push({ t: 'num', v: leftNode.v / rightNode.v });
+        }
+      }
+      result.push(resultRow);
+    }
+
+    return { t: 'arr', v: result, rows, cols, spill: false };
+  }
+
+  private comparisonArrayBinary(leftRaw: EvalNode, rightRaw: EvalNode, op: number): EvalNode | null {
+    const leftMatrix = this.toMatrixArray(leftRaw);
+    if (leftMatrix && 't' in leftMatrix) return leftMatrix;
+    const rightMatrix = this.toMatrixArray(rightRaw);
+    if (rightMatrix && 't' in rightMatrix) return rightMatrix;
+    if (!leftMatrix && !rightMatrix) return null;
+
+    const rows = leftMatrix?.rows ?? rightMatrix!.rows;
+    const cols = leftMatrix?.cols ?? rightMatrix!.cols;
+    if (leftMatrix && rightMatrix && (leftMatrix.rows !== rightMatrix.rows || leftMatrix.cols !== rightMatrix.cols)) {
+      return ErrNode.VALUE;
+    }
+
+    const leftScalar = leftMatrix ? null : this.resolveValue(leftRaw);
+    if (leftScalar?.t === 'err') return leftScalar;
+    const rightScalar = rightMatrix ? null : this.resolveValue(rightRaw);
+    if (rightScalar?.t === 'err') return rightScalar;
+
+    const result: EvalNode[][] = [];
+    for (let row = 0; row < rows; row++) {
+      const resultRow: EvalNode[] = [];
+      for (let col = 0; col < cols; col++) {
+        const leftNode = leftMatrix ? leftMatrix.values[row]?.[col] ?? { t: 'empty' } : leftScalar!;
+        const rightNode = rightMatrix ? rightMatrix.values[row]?.[col] ?? { t: 'empty' } : rightScalar!;
+        const compared = this.compareValues(leftNode, rightNode, op);
+        if (compared.t === 'err') return compared;
+        resultRow.push(compared);
+      }
+      result.push(resultRow);
+    }
+
+    return { t: 'arr', v: result, rows, cols, spill: false };
+  }
+
+  private toMatrixArray(node: EvalNode): MatrixArray | ErrNode | null {
+    if (node.t === 'arr') {
+      return { values: node.v, rows: node.rows, cols: node.cols };
+    }
+
+    if (node.t !== 'ref' || !this.grid || !isSrng(node.v)) {
+      return null;
+    }
+
+    try {
+      const [start, end] = parseRange(node.v);
+      const rows = Math.abs(end.r - start.r) + 1;
+      const cols = Math.abs(end.c - start.c) + 1;
+      const refs = Array.from(toSrefs([node.v]));
+      const values: EvalNode[][] = [];
+
+      for (let row = 0; row < rows; row++) {
+        const resultRow: EvalNode[] = [];
+        for (let col = 0; col < cols; col++) {
+          const ref = refs[row * cols + col];
+          if (!ref) return ErrNode.VALUE;
+          const value = this.resolveValue({ t: 'ref', v: ref });
+          if (value.t === 'err') return value;
+          resultRow.push(value);
+        }
+        values.push(resultRow);
+      }
+
+      return { values, rows, cols };
+    } catch {
+      return ErrNode.VALUE;
+    }
   }
 
   private resolveValue(node: EvalNode): EvalNode {
