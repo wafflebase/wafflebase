@@ -175,4 +175,61 @@ describe('mountSlidesTextBox click positioning at scale != 1', () => {
 
     tb.detach();
   });
+
+  it('y-axis: a click on a specific paragraph lands in that paragraph at scale != 1', async () => {
+    // Y-axis sibling of the x-axis bug: TextEditor's pointer math does
+    // `(clientY - rect.top - canvasOffsetTop) / scale`. The shim hands
+    // back `canvasOffsetTop = -Theme.pageGap` (logical pixels) where
+    // host pixels are required, so every click y is inflated by an
+    // extra `(1 - scale) * pageGap / scale` logical pixels — at
+    // scale = 0.5 that's an extra 40 px, enough to skip 2-3 paragraphs
+    // and route the caret to the wrong block. User-visible symptom:
+    // clicking paragraph 2 lands the caret in paragraph 3.
+    const SCALE = 0.5;
+    const FRAME = { x: 0, y: 0, w: 400, h: 400, rotation: 0 };
+
+    let lastCursor: { blockId: string; offset: number } | null = null;
+    const tb = mountSlidesTextBox({
+      overlay,
+      frame: FRAME,
+      scale: SCALE,
+      blocks: [
+        { id: 'p1', type: 'paragraph', inlines: [{ text: 'first', style: {} }], style: {} },
+        { id: 'p2', type: 'paragraph', inlines: [{ text: 'second', style: {} }], style: {} },
+        { id: 'p3', type: 'paragraph', inlines: [{ text: 'third', style: {} }], style: {} },
+        { id: 'p4', type: 'paragraph', inlines: [{ text: 'fourth', style: {} }], style: {} },
+      ] as Block[],
+      onCommit: (): void => {},
+      onCancel: (): void => {},
+    });
+    tb.onCursorMove((pos): void => {
+      lastCursor = { blockId: pos.blockId, offset: pos.offset };
+    });
+    tb.focus();
+    await flushRaf();
+
+    mockBoundingRect(tb.container, FRAME.w * SCALE, FRAME.h * SCALE);
+
+    // Click at host y = 15. Post-fix logical y = 30 → middle of p2.
+    // Pre-fix logical y = (15 + 40) / 0.5 = 110 — far past p4 — but the
+    // paginated wrapper clamps "past last line on page" to the nearest
+    // line, which empirically lands on p3 (one paragraph too far). The
+    // user-visible symptom matches: clicking p2 puts the caret in p3.
+    tb.container.dispatchEvent(
+      new MouseEvent('mousedown', {
+        clientX: 10,
+        clientY: 15,
+        button: 0,
+        bubbles: true,
+      }),
+    );
+
+    await flushRaf();
+    await flushRaf();
+
+    expect(lastCursor).not.toBeNull();
+    expect(lastCursor!.blockId).toBe('p2');
+
+    tb.detach();
+  });
 });
