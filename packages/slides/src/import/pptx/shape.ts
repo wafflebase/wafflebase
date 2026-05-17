@@ -498,6 +498,31 @@ function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | un
   };
 }
 
+/**
+ * Translate an OOXML `cxnLst` index to a Waffle `FOUR_CARDINAL` index.
+ *
+ * Correct for the T,L,B,R family (`rect`, `roundRect`, the various
+ * `*Rect` variants, `plaque`, `bevel`, `flowChartTerminator`, …), whose
+ * OOXML order is `T(0), L(1), B(2), R(3)`. Waffle's `FOUR_CARDINAL` is
+ * `N(0), E(1), S(2), W(3)` — i.e. `T, R, B, L` — so indices 1 and 3
+ * swap; 0 and 2 are unchanged.
+ *
+ * Other preset shapes (`ellipse`, `triangle`, arrows, callouts, …)
+ * declare their own `cxnLst` ordering and length. Today this is
+ * harmless because `getConnectionSites()` always returns
+ * `FOUR_CARDINAL` regardless of shape kind, so non-T,L,B,R targets
+ * resolve to a 4-cardinal site either way. When slides-connectors PR2
+ * lands per-`ShapeKind` overrides, this helper must grow into a
+ * per-shape `cxnLst → FOUR_CARDINAL` (or per-shape sites) table; until
+ * then, out-of-range indices pass through unchanged and fall back to
+ * `sites[0]` (N) at render time (`connector-frame.ts`).
+ */
+const OOXML_TO_WAFFLE_RECT_SITE_INDEX: readonly number[] = [0, 3, 2, 1];
+
+function ooxmlToWaffleSiteIndex(idx: number): number {
+  return OOXML_TO_WAFFLE_RECT_SITE_INDEX[idx] ?? idx;
+}
+
 function resolveEndpoint(
   cxn: Element | undefined,
   frame: SlideElement['frame'],
@@ -512,7 +537,11 @@ function resolveEndpoint(
     if (idAttr != null) {
       const mapped = ctx.idMap.get(idAttr);
       if (mapped) {
-        return { kind: 'attached', elementId: mapped, siteIndex: idxAttr ?? 0 };
+        return {
+          kind: 'attached',
+          elementId: mapped,
+          siteIndex: ooxmlToWaffleSiteIndex(idxAttr ?? 0),
+        };
       }
     }
   }
