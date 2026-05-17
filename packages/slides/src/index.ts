@@ -63,6 +63,7 @@ export type { GroupTransform } from './model/group';
 export {
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
+  applyInverseMatrix,
   composeAncestorTransform,
   composeGroupMatrix,
   findElementPath,

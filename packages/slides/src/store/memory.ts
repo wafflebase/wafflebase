@@ -23,6 +23,7 @@ import {
 } from '../view/canvas/connector-frame';
 import {
   IDENTITY_GROUP_TRANSFORM,
+  applyInverseMatrix,
   composeAncestorTransform,
   findElementPath,
   normalizeToGroupLocal,
@@ -510,7 +511,7 @@ export class MemSlidesStore implements SlidesStore {
     // (the parent's local space). Convert the group's world frame back to
     // that local space using the inverse of the ancestor transform, then
     // normalize each child into group-local.
-    const groupLocalFrame = applyInverseFrameWithTransform(groupWorldFrame, ancestorTransform);
+    const groupLocalFrame = applyInverseMatrix(groupWorldFrame, ancestorTransform);
 
     // Temporary GroupElement used to compute normalizeToGroupLocal.
     // We need a GroupElement with the world-frame geometry for the helper.
@@ -727,26 +728,6 @@ function resolveAncestorTransform(
  */
 function applyFrameWithTransform(frame: Frame, t: GroupTransform): Frame {
   return applyMatrix(frame, t);
-}
-
-/**
- * Inverse of `applyFrameWithTransform` — maps world frame back to local frame
- * relative to the ancestor described by `t`.
- * For slide-root (identity transform) this is a no-op.
- */
-function applyInverseFrameWithTransform(frame: Frame, t: GroupTransform): Frame {
-  const det = t.a * t.d - t.b * t.c; // 1 for pure rotation
-  if (Math.abs(det) < 1e-10) return frame; // degenerate, return as-is
-  const inv: GroupTransform = {
-    a:  t.d / det,
-    b: -t.b / det,
-    c: -t.c / det,
-    d:  t.a / det,
-    tx: -(t.d * t.tx - t.c * t.ty) / det,
-    ty:  (t.b * t.tx - t.a * t.ty) / det,
-    rotation: -t.rotation,
-  };
-  return applyMatrix(frame, inv);
 }
 
 /**

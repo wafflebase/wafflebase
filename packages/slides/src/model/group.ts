@@ -72,18 +72,26 @@ export function applyGroupTransform(child: Frame, group: GroupElement): Frame {
   return applyMatrix(child, groupToTransform(group));
 }
 
-/** Inverse: child's world frame → group-local frame. */
-export function normalizeToGroupLocal(world: Frame, group: GroupElement): Frame {
-  const t = groupToTransform(group);
-  const det = t.a * t.d - t.b * t.c; // = 1 for pure rotation
+/**
+ * Inverse of applyMatrix(frame, t): given a frame in the world space
+ * produced by `t`, return its frame in `t`'s local space. Used by the
+ * store when grouping elements whose ancestors are themselves groups.
+ */
+export function applyInverseMatrix(frame: Frame, t: GroupTransform): Frame {
+  const det = t.a * t.d - t.b * t.c;
   const inv: GroupTransform = {
-    a: t.d / det, b: -t.b / det,
-    c: -t.c / det, d: t.a / det,
+    a:  t.d / det, b: -t.b / det,
+    c: -t.c / det, d:  t.a / det,
     tx: -(t.d * t.tx - t.c * t.ty) / det,
-    ty: (t.b * t.tx - t.a * t.ty) / det,
+    ty:  (t.b * t.tx - t.a * t.ty) / det,
     rotation: -t.rotation,
   };
-  return applyMatrix(world, inv);
+  return applyMatrix(frame, inv);
+}
+
+/** Inverse: child's world frame → group-local frame. */
+export function normalizeToGroupLocal(world: Frame, group: GroupElement): Frame {
+  return applyInverseMatrix(world, groupToTransform(group));
 }
 
 /** Walk slide.elements DFS; return the chain from slide-root → element (leaf last). */
