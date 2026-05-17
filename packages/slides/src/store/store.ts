@@ -61,6 +61,27 @@ export interface SlidesStore {
   /** toIndex: 0 = back, length-1 = front. */
   reorderElement(slideId: string, elementId: string, toIndex: number): void;
 
+  // --- group / ungroup ---
+
+  /**
+   * Wrap the given element ids in a new GroupElement.
+   * All ids must exist on `slideId`, share the same parent (slide root or
+   * one group), and carry no `placeholderRef`.
+   * Returns `{ groupId, excludedConnectorIds }` where `excludedConnectorIds`
+   * is always `[]` until Task 11 fills it in.
+   */
+  group(
+    slideId: string,
+    elementIds: string[],
+  ): { groupId: string; excludedConnectorIds: string[] };
+
+  /**
+   * Dissolve a GroupElement back into its parent, restoring each child to
+   * world-space coordinates. Returns the ids of the promoted children.
+   * (stub — implemented in Task 3)
+   */
+  ungroup(slideId: string, groupId: string): string[];
+
   // --- connector-level ---
 
   /** Update an endpoint of an existing connector. */

@@ -7,7 +7,7 @@ import type {
 import type { Block } from '@wafflebase/docs';
 import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { Stroke } from '../model/element';
-import type { Element, ElementInit, Frame } from '../model/element';
+import type { Element, ElementInit, Frame, GroupElement } from '../model/element';
 import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
@@ -21,6 +21,13 @@ import {
   computeConnectorFrame,
   resolveEndpoint,
 } from '../view/canvas/connector-frame';
+import {
+  findElementPath,
+  groupToTransform,
+  normalizeToGroupLocal,
+} from '../model/group';
+import type { GroupTransform } from '../import/pptx/group';
+import { IDENTITY_TRANSFORM } from '../import/pptx/group';
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -391,6 +398,177 @@ export class MemSlidesStore implements SlidesStore {
     slide.elements.splice(clamped, 0, el);
   }
 
+  // --- group / ungroup ---
+
+  group(
+    slideId: string,
+    elementIds: string[],
+  ): { groupId: string; excludedConnectorIds: string[] } {
+    this.requireBatch();
+
+    // Invariant 1: need at least two elements.
+    if (elementIds.length < 2) {
+      throw new Error(
+        `[slides] group() requires at least 2 elements, got ${elementIds.length}`,
+      );
+    }
+
+    const slide = this.requireSlide(slideId);
+
+    // Invariant 2: all ids must exist somewhere on this slide.
+    const paths = new Map<string, Element[]>();
+    for (const id of elementIds) {
+      const path = findElementPath(slide.elements, id);
+      if (!path) {
+        throw new Error(`[slides] group(): element not found: ${id}`);
+      }
+      paths.set(id, path);
+    }
+
+    // Invariant 3: all candidates must share the same parent.
+    // The "parent key" is the id of the direct parent, or '' for slide root.
+    const parentKeyOf = (id: string): string => {
+      const path = paths.get(id)!;
+      if (path.length === 1) return ''; // slide-root
+      return path[path.length - 2].id;
+    };
+    const firstParentKey = parentKeyOf(elementIds[0]);
+    for (const id of elementIds.slice(1)) {
+      if (parentKeyOf(id) !== firstParentKey) {
+        throw new Error(
+          `[slides] group(): all elements must share the same parent`,
+        );
+      }
+    }
+
+    // Resolve the parent array (either slide.elements or a group's children).
+    let parentArray: Element[];
+    if (firstParentKey === '') {
+      parentArray = slide.elements;
+    } else {
+      const parentPath = findElementPath(slide.elements, firstParentKey);
+      if (!parentPath) {
+        throw new Error(`[slides] group(): parent not found: ${firstParentKey}`);
+      }
+      const parentEl = parentPath[parentPath.length - 1];
+      if (parentEl.type !== 'group') {
+        throw new Error(`[slides] group(): parent is not a group: ${firstParentKey}`);
+      }
+      parentArray = parentEl.data.children;
+    }
+
+    // Resolve actual element objects in parent-array order.
+    const candidateSet = new Set(elementIds);
+    const candidatesInOrder = parentArray.filter(e => candidateSet.has(e.id));
+
+    // Invariant 4: no placeholderRef on any candidate.
+    for (const el of candidatesInOrder) {
+      if (el.placeholderRef != null) {
+        throw new Error(
+          `[slides] group(): placeholderRef cannot be grouped (element ${el.id})`,
+        );
+      }
+    }
+
+    // Invariant 5: cycle prevention — assert no candidate is an ancestor of itself.
+    // (Impossible since all share a parent, but defensive check.)
+    for (const el of candidatesInOrder) {
+      if (el.type === 'group') {
+        for (const other of candidatesInOrder) {
+          if (other.type === 'group' && other.id !== el.id) {
+            // They share the same parent so neither can be inside the other.
+            // Nothing to check; the invariant holds trivially.
+          }
+        }
+      }
+    }
+
+    // Compute the cumulative transform from slide-root to the parent's coordinate
+    // space. If the shared parent is slide-root the cumulative transform is identity.
+    // If the shared parent is a group, compose the chain of ancestor transforms.
+    const ancestorTransform = computeAncestorTransform(slide.elements, firstParentKey);
+
+    // Compute world frames for each candidate using the ancestor transform.
+    // For a slide-root parent the ancestor transform is identity, so world ≡ frame.
+    // For a parent that is a group, the ancestor transform brings group-local coords
+    // into world space.
+    const worldFrames = candidatesInOrder.map(el =>
+      applyTransformToFrame(el.frame, ancestorTransform),
+    );
+
+    // Compute the rotated-corner AABB over all world frames.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const wf of worldFrames) {
+      const corners = frameCorners(wf);
+      for (const [cx, cy] of corners) {
+        if (cx < minX) minX = cx;
+        if (cy < minY) minY = cy;
+        if (cx > maxX) maxX = cx;
+        if (cy > maxY) maxY = cy;
+      }
+    }
+    const groupWorldFrame: Frame = {
+      x: minX, y: minY,
+      w: maxX - minX, h: maxY - minY,
+      rotation: 0,
+    };
+
+    // Build the new GroupElement. Children's frames are group-local.
+    // The new group lives in the same coordinate space as the candidates
+    // (the parent's local space). Convert the group's world frame back to
+    // that local space using the inverse of the ancestor transform, then
+    // normalize each child into group-local.
+    const groupLocalFrame = applyInverseTransformToFrame(groupWorldFrame, ancestorTransform);
+
+    // Temporary GroupElement used to compute normalizeToGroupLocal.
+    // We need a GroupElement with the world-frame geometry for the helper.
+    const tempGroup: GroupElement = {
+      id: '__tmp__',
+      type: 'group',
+      frame: groupWorldFrame,
+      data: { children: [] },
+    };
+
+    const childrenWithLocalFrames: Element[] = candidatesInOrder.map(el => ({
+      ...clone(el),
+      frame: normalizeToGroupLocal(worldFrames[candidatesInOrder.indexOf(el)], tempGroup),
+    }));
+
+    const groupId = generateId();
+    const newGroup: GroupElement = {
+      id: groupId,
+      type: 'group',
+      frame: groupLocalFrame,
+      data: { children: childrenWithLocalFrames },
+    };
+
+    // Invariant 6: insert the group at the position of the front-most
+    // (highest index) selected element in the parent array, remove candidates.
+    const candidateIndices = candidatesInOrder.map(el =>
+      parentArray.findIndex(p => p.id === el.id),
+    );
+    const frontMostIndex = Math.max(...candidateIndices);
+
+    // Remove all candidates from the parent array.
+    for (const el of candidatesInOrder) {
+      const idx = parentArray.findIndex(p => p.id === el.id);
+      if (idx !== -1) parentArray.splice(idx, 1);
+    }
+
+    // Insert the new group at the adjusted position.
+    // After removals, how many elements before frontMostIndex were removed?
+    const removedBefore = candidateIndices.filter(i => i < frontMostIndex).length;
+    const insertAt = Math.max(0, frontMostIndex - removedBefore);
+    parentArray.splice(insertAt, 0, newGroup);
+
+    return { groupId, excludedConnectorIds: [] };
+  }
+
+  ungroup(_slideId: string, _groupId: string): string[] {
+    this.requireBatch();
+    throw new Error('[slides] ungroup(): not implemented');
+  }
+
   // --- text bridges ---
 
   withTextElement(
@@ -515,4 +693,128 @@ export class MemSlidesStore implements SlidesStore {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level helpers for group() math
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose a chain of group transforms from the slide-root down to a given
+ * parent id. Returns the identity transform when `parentId` is '' (slide root).
+ * The result maps the parent's local coordinates to world coordinates.
+ */
+function computeAncestorTransform(
+  slideElements: Element[],
+  parentId: string,
+): GroupTransform {
+  if (parentId === '') return { ...IDENTITY_TRANSFORM };
+
+  // Walk findElementPath to build the ancestor chain from root → parent.
+  const path = findElementPath(slideElements, parentId);
+  if (!path) return { ...IDENTITY_TRANSFORM };
+
+  // Compose transforms along the chain. Each GroupElement in the path
+  // contributes a transform that maps group-local → parent-local.
+  // We want: slide-root-local ← ... ← direct-parent-local
+  // i.e., compose from outermost to innermost.
+  let t: GroupTransform = { ...IDENTITY_TRANSFORM };
+  for (const el of path) {
+    if (el.type !== 'group') break; // leaf reached, stop
+    const gt = groupToTransform(el);
+    t = composeLocalTransforms(t, gt);
+  }
+  return t;
+}
+
+/**
+ * Compose two transforms: result maps child-local → world when
+ * `outer` is world-of-outer and `inner` is local-to-outer.
+ * outer · inner (inner applied first).
+ */
+function composeLocalTransforms(
+  outer: GroupTransform,
+  inner: GroupTransform,
+): GroupTransform {
+  return {
+    a: outer.a * inner.a + outer.c * inner.b,
+    b: outer.b * inner.a + outer.d * inner.b,
+    c: outer.a * inner.c + outer.c * inner.d,
+    d: outer.b * inner.c + outer.d * inner.d,
+    tx: outer.a * inner.tx + outer.c * inner.ty + outer.tx,
+    ty: outer.b * inner.tx + outer.d * inner.ty + outer.ty,
+    rotation: outer.rotation + inner.rotation,
+  };
+}
+
+/**
+ * Apply a GroupTransform to a Frame's center point and produce a world frame.
+ * For slide-root children the transform is identity, so this is a no-op.
+ * Only handles translation/rotation (no scale), which covers the group→world
+ * direction when the frame was already stored in local coordinates.
+ */
+function applyTransformToFrame(frame: Frame, t: GroupTransform): Frame {
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const cxWorld = t.a * cx + t.c * cy + t.tx;
+  const cyWorld = t.b * cx + t.d * cy + t.ty;
+  return {
+    x: cxWorld - frame.w / 2,
+    y: cyWorld - frame.h / 2,
+    w: frame.w,
+    h: frame.h,
+    rotation: frame.rotation + t.rotation,
+  };
+}
+
+/**
+ * Inverse of `applyTransformToFrame` — maps world frame back to local frame
+ * relative to the ancestor described by `t`.
+ * For slide-root (identity transform) this is a no-op.
+ */
+function applyInverseTransformToFrame(frame: Frame, t: GroupTransform): Frame {
+  const det = t.a * t.d - t.b * t.c; // 1 for pure rotation
+  if (Math.abs(det) < 1e-10) return frame; // degenerate, return as-is
+  const invA = t.d / det;
+  const invB = -t.b / det;
+  const invC = -t.c / det;
+  const invD = t.a / det;
+  const invTx = -(t.d * t.tx - t.c * t.ty) / det;
+  const invTy = (t.b * t.tx - t.a * t.ty) / det;
+
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const cxLocal = invA * cx + invC * cy + invTx;
+  const cyLocal = invB * cx + invD * cy + invTy;
+  return {
+    x: cxLocal - frame.w / 2,
+    y: cyLocal - frame.h / 2,
+    w: frame.w,
+    h: frame.h,
+    rotation: frame.rotation - t.rotation,
+  };
+}
+
+/**
+ * Return the 4 corners of a frame (accounting for rotation around its center).
+ * Used to compute the tight AABB over all rotated candidate frames.
+ */
+function frameCorners(frame: Frame): [number, number][] {
+  const { x, y, w, h, rotation } = frame;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const hw = w / 2;
+  const hh = h / 2;
+  // Corners relative to center, then rotated, then translated to world.
+  return [
+    [-hw, -hh],
+    [+hw, -hh],
+    [+hw, +hh],
+    [-hw, +hh],
+  ].map(([lx, ly]) => [
+    cx + lx * cos - ly * sin,
+    cy + lx * sin + ly * cos,
+  ] as [number, number]);
 }
