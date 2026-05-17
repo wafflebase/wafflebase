@@ -95,6 +95,17 @@ export interface TextBoxEditorOptions {
   dpr?: number;
 
   /**
+   * Host-pixels-per-logical-pixel for the surrounding viewport. Slides
+   * sizes the text-box container in host pixels (`frame * scale`) but
+   * the layout is computed in logical pixels (`contentWidth`); the
+   * editor's pointer math divides `(clientX - rect.left)` by this value
+   * so click coords land in the same coordinate space as `run.x` (which
+   * includes alignment offsets). When the container's CSS size already
+   * matches `contentWidth` / `contentHeight`, omit this (defaults to 1).
+   */
+  scale?: number;
+
+  /**
    * Called when the user presses Cmd/Ctrl+K inside the text-box. The
    * host typically opens a link popover anchored near the caret. The
    * shim wires this through to the underlying `TextEditor`'s
@@ -241,6 +252,7 @@ function buildShimPaginatedLayout(
 export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI {
   const { container, canvas, contentWidth, contentHeight } = opts;
   const dpr = opts.dpr ?? 1;
+  const scale = opts.scale ?? 1;
 
   // Seed an in-memory store with the supplied blocks. Empty input gets
   // a single empty paragraph so cursor placement and the very first
@@ -377,7 +389,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // `initialize` constructs, except every page-aware getter is replaced
   // with a shim:
   //   - getCanvasWidth: contentWidth (so pageX = 0 in pagination math)
-  //   - getScaleFactor: 1 (slides handles scale via CSS transform)
+  //   - getScaleFactor: opts.scale (host pixels per logical pixel) so
+  //     `(clientX - rect.left) / s` converts clicks back into the same
+  //     logical-pixel space as `run.x`. Slides passes the live zoom
+  //     here; full-document docs callers pass 1 (their container's CSS
+  //     size already matches contentWidth).
   //   - getCanvasOffsetTop: -Theme.pageGap so pointer math compensates
   //     for getPageYOffset(0) === Theme.pageGap, landing localY = 0 at
   //     the canvas top edge.
@@ -390,7 +406,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     () => paginatedLayout,
     () => measurer,
     () => contentWidth,
-    () => 1,
+    () => scale,
     () => -Theme.pageGap,
     requestRender,
     () => docStore.snapshot(),

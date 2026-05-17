@@ -171,6 +171,13 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     contentWidth: frame.w,
     contentHeight: frame.h,
     dpr: dpr * scale,
+    // The container CSS size is `frame * scale` host pixels but
+    // `contentWidth/Height` are in logical pixels — pass `scale` so the
+    // docs editor's pointer math divides clicks back into the logical
+    // coord space `run.x` lives in. Without this, clicks at scale != 1
+    // land at offset 0 (especially visible with center/right alignment
+    // because `localX < firstRun.x` snaps to the start of the line).
+    scale,
     onCommit: handleCommit,
     onCancel: handleCancel,
     onLinkRequest,
