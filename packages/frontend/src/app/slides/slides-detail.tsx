@@ -74,7 +74,11 @@ function SlidesLayout({ documentId }: { documentId: string }) {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
-  const { data: documentData, isError: isDocumentError } = useQuery({
+  const {
+    data: documentData,
+    isError: isDocumentError,
+    isLoading: isDocumentLoading,
+  } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
@@ -101,6 +105,18 @@ function SlidesLayout({ documentId }: { documentId: string }) {
       });
     }
   }, [isDocumentError, navigate, fallbackSlug]);
+
+  // Gate the mount on the document existence check. Without this gate
+  // both branches would mount during the loading window, kicking off
+  // a Yorkie attach for the requested id before the backend has had
+  // a chance to confirm the user is allowed to read it — a peer who
+  // already had the deck open would briefly leak its contents
+  // through the Yorkie subscription. Holding both branches behind
+  // the loader closes that window; the error branch returns null
+  // because the useEffect above is already racing toward the
+  // redirect.
+  if (isDocumentLoading) return <Loader />;
+  if (isDocumentError) return null;
 
   if (isMobile) {
     return (
