@@ -71,6 +71,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-text-engine-audit.md](slides/slides-text-engine-audit.md)                     | Spike audit (Phase 5 prep) — docs RichText reuse plan: extract `paintLayout`/`findPositionAtPixel`/`initializeTextBox`, no fork                                                                              |
 | [slides-mobile-view.md](slides/slides-mobile-view.md)                                 | Mobile view (read-only) — viewport-768 branch in SlidesView, dedicated MobileSlidesView reusing SlideRenderer, swipe nav, Present entry, no editor mount                                                    |
 | [slides-mobile-edit.md](slides/slides-mobile-edit.md)                                 | Mobile light edit (Phase B) — mount full SlidesEditor on touch, hit-test tolerance, bottom-sheet text formatting, slide-ops FAB, undo/redo header, perm-gated read-only fallback                            |
+| [slides-group.md](slides/slides-group.md)                                             | Group / ungroup — nested element tree with group-local child coords, Google Slides drill-in selection, PPTX `<p:grpSp>` preservation, recursive renderer / hit-test / PDF export                              |
 
 ## Common
 
