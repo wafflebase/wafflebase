@@ -14,8 +14,10 @@ import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
+import { MobileSlidesView } from "./mobile-slides-view";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesToolbar } from "./toolbar";
 import { SlidesPresentationMode } from "./slides-presentation-mode";
@@ -55,11 +57,24 @@ function resolveStartSlideId(
 }
 
 /**
- * SlidesLayout — sidebar + header chrome around the slides editor.
+ * SlidesLayout — dispatches between the desktop chrome and the
+ * read-only mobile shell based on viewport width. The mobile branch
+ * intentionally skips the desktop sidebar, site header, toolbar, and
+ * SlidesView so a <768px viewport gets the entire vertical space for
+ * the slide canvas (see docs/design/slides/slides-mobile-view.md).
+ */
+function SlidesLayout({ documentId }: { documentId: string }) {
+  const isMobile = useIsMobile();
+  if (isMobile) return <MobileSlidesView documentId={documentId} />;
+  return <DesktopSlidesLayout documentId={documentId} />;
+}
+
+/**
+ * DesktopSlidesLayout — sidebar + header chrome around the slides editor.
  * Mirrors `DocsLayout` so the three document types share a single
  * visual language.
  */
-function SlidesLayout({ documentId }: { documentId: string }) {
+function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
