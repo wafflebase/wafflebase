@@ -63,7 +63,7 @@ export {
   applyGroupTransform,
   findElementPath,
   groupToTransform,
-  isDescendantOf,
+  isGroupDescendantOf,
   normalizeToGroupLocal,
 } from './model/group';
 

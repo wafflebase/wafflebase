@@ -9,9 +9,6 @@ import type { GroupTransform } from '../import/pptx/group';
  * world-space centre followed by translation of the group origin.
  */
 export function groupToTransform(group: GroupElement): GroupTransform {
-  // children live in (0..w × 0..h), so scale is identity.
-  // The group transform is: translate(group.frame.x, group.frame.y)
-  // then rotate by group.frame.rotation around the group center.
   const { x, y, w, h, rotation } = group.frame;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
@@ -39,7 +36,7 @@ export function normalizeToGroupLocal(world: Frame, group: GroupElement): Frame 
     a: t.d / det, b: -t.b / det,
     c: -t.c / det, d: t.a / det,
     tx: -(t.d * t.tx - t.c * t.ty) / det,
-    ty: -(-t.b * t.tx + t.a * t.ty) / det,
+    ty: (t.b * t.tx - t.a * t.ty) / det,
     rotation: -t.rotation,
   };
   return applyMatrix(world, inv);
@@ -60,14 +57,19 @@ export function findElementPath(
   return null;
 }
 
-/** Returns true if `candidateAncestor.id` is `target` or an ancestor of `target`. */
-export function isDescendantOf(
+/**
+ * Returns true if `candidateAncestor.id === target.id` (self) or
+ * `target` is nested inside `candidateAncestor`'s `children` tree.
+ * Used exclusively for cycle prevention in `store.group()`: checks
+ * whether a candidate *group* would land inside the source group.
+ */
+export function isGroupDescendantOf(
   candidateAncestor: GroupElement,
-  target: Element,
+  target: GroupElement,
 ): boolean {
   if (candidateAncestor.id === target.id) return true;
   for (const child of candidateAncestor.data.children) {
-    if (child.type === 'group' && isDescendantOf(child, target)) return true;
+    if (child.type === 'group' && isGroupDescendantOf(child, target)) return true;
   }
   return false;
 }

@@ -5,7 +5,7 @@ import {
   applyGroupTransform,
   findElementPath,
   groupToTransform,
-  isDescendantOf,
+  isGroupDescendantOf,
   normalizeToGroupLocal,
 } from '../../src/model/group';
 
@@ -134,43 +134,31 @@ describe('findElementPath', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. isDescendantOf
+// 3. isGroupDescendantOf
 // ---------------------------------------------------------------------------
 
-describe('isDescendantOf', () => {
-  it('returns true when the element is the candidateAncestor itself', () => {
+describe('isGroupDescendantOf', () => {
+  it('detects self', () => {
     const g = group('g1', { x: 0, y: 0, w: 50, h: 50 }, []);
-    expect(isDescendantOf(g, g)).toBe(true);
+    expect(isGroupDescendantOf(g, g)).toBe(true);
   });
 
-  it('returns true for a direct child', () => {
-    const s = shape('s1', { x: 0, y: 0, w: 10, h: 10 });
-    const g = group('g1', { x: 0, y: 0, w: 50, h: 50 }, [s]);
-    // isDescendantOf traverses children, so direct child is found
-    // only if it's a group. Direct non-group children are NOT searched
-    // (the function only recurses into group children).
-    // However, per spec, "self" (g.id === target.id) is checked first.
-    // The child 's1' is NOT a group so it isn't traversed — this is by design.
-    // Self check:
-    expect(isDescendantOf(g, g)).toBe(true);
+  it('detects direct group child', () => {
+    const inner = group('inner', { x: 0, y: 0, w: 50, h: 50 }, []);
+    const outer = group('outer', { x: 0, y: 0, w: 100, h: 100 }, [inner]);
+    expect(isGroupDescendantOf(outer, inner)).toBe(true);
   });
 
-  it('returns true for a nested group descendant', () => {
+  it('detects descendant across nesting', () => {
     const inner = group('inner', { x: 0, y: 0, w: 30, h: 30 }, []);
     const outer = group('outer', { x: 0, y: 0, w: 100, h: 100 }, [inner]);
-    expect(isDescendantOf(outer, inner)).toBe(true);
-  });
-
-  it('returns false when target is not in the subtree', () => {
-    const s = shape('s1', { x: 0, y: 0, w: 10, h: 10 });
-    const g = group('g1', { x: 0, y: 0, w: 50, h: 50 }, []);
-    expect(isDescendantOf(g, s)).toBe(false);
+    expect(isGroupDescendantOf(outer, inner)).toBe(true);
   });
 
   it('returns false for sibling groups', () => {
     const g1 = group('g1', { x: 0, y: 0, w: 50, h: 50 }, []);
     const g2 = group('g2', { x: 60, y: 0, w: 50, h: 50 }, []);
-    expect(isDescendantOf(g1, g2)).toBe(false);
+    expect(isGroupDescendantOf(g1, g2)).toBe(false);
   });
 });
 

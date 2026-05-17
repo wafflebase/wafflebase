@@ -149,7 +149,7 @@ applyGroupTransform(childFrame: Frame, group: GroupElement): Frame;
 normalizeToGroupLocal(worldFrame: Frame, group: GroupElement): Frame;
 
 // Walk to find an element by id; returns the path from slide root.
-findElementPath(slide: Slide, elementId: string): Element[] | null;
+findElementPath(elements: Element[], elementId: string): Element[] | null;
 ```
 
 The existing `composeGroupTransform(parent, grpSpEl, scale)` and

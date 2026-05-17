@@ -167,6 +167,9 @@ export type GroupElement = ElementBase & {
   data: {
     children: Element[]; // frames are in group-local coords (0..w × 0..h)
   };
+  // Note: `placeholderRef` (inherited from ElementBase) is invalid on groups
+  // and will be rejected at runtime by MemSlidesStore.group(). Placeholders
+  // represent layout slots and are slide-direct only.
 };
 
 export type Element =
