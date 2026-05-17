@@ -171,6 +171,36 @@ describe('slides text-box editor wiring', () => {
     expect(current()!.isEditing()).toBe(true);
   });
 
+  it('double-click inside an already-editing text element does NOT remount', () => {
+    // Regression: dblclick inside an edited text-box was bubbling to the
+    // slides overlay listener, which called enterEditMode on the same
+    // element. enterEditMode short-circuits "already editing" via
+    // exitEditMode('commit') → mountTextBox again, which resets the
+    // docs cursor to offset 0 and wipes any word selection the inner
+    // TextEditor just made on the second mousedown. The slides editor
+    // should ignore dblclicks whose hit-target IS the editing element
+    // and let the docs TextEditor own word selection.
+    const { canvas, overlay, store } = makeFixture();
+    addTextElement(store);
+    let mountCount = 0;
+    const inner = makeMockMount();
+    const mount = (opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor => {
+      mountCount++;
+      return inner.mount(opts);
+    };
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 200, 200);
+    expect(mountCount).toBe(1);
+    // Dispatch a second dblclick at the same point. The hit-target is
+    // still the editing element — slides editor must NOT remount.
+    dispatchDblClick(canvas, 220, 200);
+    expect(mountCount).toBe(1);
+  });
+
   it('double-click on a non-text element does not enter edit mode', () => {
     const { canvas, overlay, store } = makeFixture();
     const slideId = store.read().slides[0].id;
