@@ -14,8 +14,10 @@ import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
+import { MobileSlidesView } from "./mobile-slides-view";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesToolbar } from "./toolbar";
 import { SlidesPresentationMode } from "./slides-presentation-mode";
@@ -55,11 +57,84 @@ function resolveStartSlideId(
 }
 
 /**
- * SlidesLayout — sidebar + header chrome around the slides editor.
+ * SlidesLayout — dispatches between the desktop chrome and the
+ * read-only mobile shell based on viewport width, and owns the
+ * shared document-not-found / permission guard that both branches
+ * rely on. Hoisting the metadata fetch up here keeps mobile from
+ * silently attaching to a Yorkie doc for an id the backend has
+ * already rejected (without this, navigating to /p/<bad-id> on
+ * mobile would create an empty deck instead of redirecting away).
+ *
+ * The mobile branch intentionally skips the desktop sidebar, site
+ * header, toolbar, and SlidesView so a <768px viewport gets the
+ * entire vertical space for the slide canvas (see
+ * docs/design/slides/slides-mobile-view.md).
+ */
+function SlidesLayout({ documentId }: { documentId: string }) {
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+
+  const {
+    data: documentData,
+    isError: isDocumentError,
+    isLoading: isDocumentLoading,
+  } = useQuery({
+    queryKey: ["document", documentId],
+    queryFn: () => fetchDocument(documentId),
+    retry: false,
+  });
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+  });
+
+  // Resolve the fallback workspace slug for the redirect target, so
+  // a not-found redirect lands the user back on their workspace's
+  // document list rather than the global /documents page when
+  // possible.
+  const fallbackSlug =
+    workspaces.find((w) => w.id === documentData?.workspaceId)?.slug ??
+    workspaces[0]?.slug;
+
+  useEffect(() => {
+    if (isDocumentError) {
+      toast.error("Document not found");
+      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
+        replace: true,
+      });
+    }
+  }, [isDocumentError, navigate, fallbackSlug]);
+
+  // Gate the mount on the document existence check. Without this gate
+  // both branches would mount during the loading window, kicking off
+  // a Yorkie attach for the requested id before the backend has had
+  // a chance to confirm the user is allowed to read it — a peer who
+  // already had the deck open would briefly leak its contents
+  // through the Yorkie subscription. Holding both branches behind
+  // the loader closes that window; the error branch returns null
+  // because the useEffect above is already racing toward the
+  // redirect.
+  if (isDocumentLoading) return <Loader />;
+  if (isDocumentError) return null;
+
+  if (isMobile) {
+    return (
+      <MobileSlidesView
+        documentId={documentId}
+        title={documentData?.title}
+      />
+    );
+  }
+  return <DesktopSlidesLayout documentId={documentId} />;
+}
+
+/**
+ * DesktopSlidesLayout — sidebar + header chrome around the slides editor.
  * Mirrors `DocsLayout` so the three document types share a single
  * visual language.
  */
-function SlidesLayout({ documentId }: { documentId: string }) {
+function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
@@ -131,7 +206,11 @@ function SlidesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: documentData, isError: isDocumentError } = useQuery({
+  // The not-found / permission redirect lives in `SlidesLayout` (the
+  // parent) so the mobile branch enforces the same guard. The query
+  // call below reuses react-query's cache — same key as the parent's
+  // — so no second network request is issued.
+  const { data: documentData } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
@@ -152,16 +231,6 @@ function SlidesLayout({ documentId }: { documentId: string }) {
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
-  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
-
-  useEffect(() => {
-    if (isDocumentError) {
-      toast.error("Document not found");
-      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
-        replace: true,
-      });
-    }
-  }, [isDocumentError, navigate, fallbackSlug]);
 
   const items = useMemo(() => {
     const wsRoot = workspaceSlug ? `/w/${workspaceSlug}` : "/documents";
