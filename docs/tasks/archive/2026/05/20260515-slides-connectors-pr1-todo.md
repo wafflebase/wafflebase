@@ -112,7 +112,7 @@ files (`shape-renderer.test.ts`, `shape-icon.test.ts`,
 immediately. Task 10 owns the `ShapeKind` removal together with all
 the call-site and test-file cleanup it triggers.
 
-- [ ] **Step 1.1: Write `connector.ts` with all types**
+- [x] **Step 1.1: Write `connector.ts` with all types**
 
 ```ts
 // packages/slides/src/model/connector.ts
@@ -147,7 +147,7 @@ export type ConnectorElement = ElementBase & {
 };
 ```
 
-- [ ] **Step 1.2: Update `element.ts` to include connector**
+- [x] **Step 1.2: Update `element.ts` to include connector**
 
 Open `packages/slides/src/model/element.ts`. Leave `ShapeKind` as
 it is (still contains `'line' | 'arrow'` for now — Task 10 removes
@@ -174,7 +174,7 @@ export type ElementInit =
   | Omit<ConnectorElement, 'id'>;
 ```
 
-- [ ] **Step 1.3: Resolve exhaustive-switch compile errors**
+- [x] **Step 1.3: Resolve exhaustive-switch compile errors**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
 
@@ -198,12 +198,12 @@ than a switch, add an analogous unreachable branch. Goal: `tsc`
 passes with **zero errors**. Do NOT add eslint-disable comments;
 do NOT implement real behavior; do NOT touch test files.
 
-- [ ] **Step 1.4: Verify `pnpm verify:fast` is green**
+- [x] **Step 1.4: Verify `pnpm verify:fast` is green**
 
 Existing tests should all still pass — Task 1 is purely additive,
 no behavior changes.
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add packages/slides/src/model/connector.ts \
@@ -222,7 +222,7 @@ git commit -m "Add ConnectorElement type to slides element union"
 - Create: `packages/slides/src/view/canvas/connection-sites/index.ts`
 - Create: `packages/slides/src/view/canvas/connection-sites/connection-sites.test.ts`
 
-- [ ] **Step 2.1: Write `connection-site.ts`**
+- [x] **Step 2.1: Write `connection-site.ts`**
 
 ```ts
 // packages/slides/src/model/connection-site.ts
@@ -242,7 +242,7 @@ export const DIR_W = Math.PI;
 export const DIR_N = -Math.PI / 2;
 ```
 
-- [ ] **Step 2.2: Write `defaults.ts`**
+- [x] **Step 2.2: Write `defaults.ts`**
 
 ```ts
 // packages/slides/src/view/canvas/connection-sites/defaults.ts
@@ -262,7 +262,7 @@ export function fourCardinal(): readonly ConnectionSite[] {
 }
 ```
 
-- [ ] **Step 2.3: Write `index.ts` (registry + `siteWorldPos`)**
+- [x] **Step 2.3: Write `index.ts` (registry + `siteWorldPos`)**
 
 ```ts
 // packages/slides/src/view/canvas/connection-sites/index.ts
@@ -303,7 +303,7 @@ export function siteWorldPos(
 }
 ```
 
-- [ ] **Step 2.4: Write failing tests**
+- [x] **Step 2.4: Write failing tests**
 
 ```ts
 // packages/slides/src/view/canvas/connection-sites/connection-sites.test.ts
@@ -355,7 +355,7 @@ describe('siteWorldPos', () => {
 });
 ```
 
-- [ ] **Step 2.5: Run tests, verify pass**
+- [x] **Step 2.5: Run tests, verify pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- connection-sites
@@ -363,7 +363,7 @@ pnpm --filter @wafflebase/slides test -- connection-sites
 
 Expected: all 4 tests pass.
 
-- [ ] **Step 2.6: Commit**
+- [x] **Step 2.6: Commit**
 
 ```bash
 git add packages/slides/src/model/connection-site.ts \
@@ -379,7 +379,7 @@ git commit -m "Add ConnectionSite type and 4-cardinal default registry"
 - Create: `packages/slides/src/view/canvas/routing.ts`
 - Create: `packages/slides/src/view/canvas/routing.test.ts`
 
-- [ ] **Step 3.1: Write failing test**
+- [x] **Step 3.1: Write failing test**
 
 ```ts
 // packages/slides/src/view/canvas/routing.test.ts
@@ -399,7 +399,7 @@ describe('routeStraight', () => {
 });
 ```
 
-- [ ] **Step 3.2: Run test, verify it fails**
+- [x] **Step 3.2: Run test, verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- routing
@@ -407,7 +407,7 @@ pnpm --filter @wafflebase/slides test -- routing
 
 Expected: `Cannot find module './routing'`.
 
-- [ ] **Step 3.3: Implement**
+- [x] **Step 3.3: Implement**
 
 ```ts
 // packages/slides/src/view/canvas/routing.ts
@@ -419,9 +419,9 @@ export function routeStraight(a: Point, b: Point): SegmentPath {
 }
 ```
 
-- [ ] **Step 3.4: Run, verify pass**
+- [x] **Step 3.4: Run, verify pass**
 
-- [ ] **Step 3.5: Commit**
+- [x] **Step 3.5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/routing.ts \
@@ -440,7 +440,7 @@ stroke width. It's a derived cache the store maintains.
 - Create: `packages/slides/src/view/canvas/connector-frame.ts`
 - Create: `packages/slides/src/view/canvas/connector-frame.test.ts`
 
-- [ ] **Step 4.1: Write failing tests**
+- [x] **Step 4.1: Write failing tests**
 
 ```ts
 // packages/slides/src/view/canvas/connector-frame.test.ts
@@ -510,9 +510,9 @@ describe('computeConnectorFrame', () => {
 });
 ```
 
-- [ ] **Step 4.2: Run test, verify it fails**
+- [x] **Step 4.2: Run test, verify it fails**
 
-- [ ] **Step 4.3: Implement**
+- [x] **Step 4.3: Implement**
 
 ```ts
 // packages/slides/src/view/canvas/connector-frame.ts
@@ -555,9 +555,9 @@ export function computeConnectorFrame(
 }
 ```
 
-- [ ] **Step 4.4: Run, verify pass**
+- [x] **Step 4.4: Run, verify pass**
 
-- [ ] **Step 4.5: Commit**
+- [x] **Step 4.5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/connector-frame.ts \
@@ -572,7 +572,7 @@ git commit -m "Add computeConnectorFrame deriving bbox from endpoints"
 **Files:**
 - Modify: `packages/slides/src/store/store.ts`
 
-- [ ] **Step 5.1: Edit store.ts**
+- [x] **Step 5.1: Edit store.ts**
 
 In `SlidesStore` interface, after the existing `reorderElement`
 method, **insert**:
@@ -603,14 +603,14 @@ method, **insert**:
 `ConnectorElement` is part of `ElementInit` via the union extension
 in Task 1.)
 
-- [ ] **Step 5.2: TypeScript should now flag unimplemented store
+- [x] **Step 5.2: TypeScript should now flag unimplemented store
   methods**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
 Expected: `MemSlidesStore` is missing the new methods. **Note the
 file/line** — Task 6 implements them.
 
-- [ ] **Step 5.3: Commit (separately for clean review history)**
+- [x] **Step 5.3: Commit (separately for clean review history)**
 
 ```bash
 git add packages/slides/src/store/store.ts
@@ -625,7 +625,7 @@ git commit -m "Add connector mutation methods to SlidesStore interface"
 - Modify: `packages/slides/src/store/memory.ts`
 - Modify: `packages/slides/src/store/memory.test.ts`
 
-- [ ] **Step 6.1: Read existing memory.ts to find where
+- [x] **Step 6.1: Read existing memory.ts to find where
   `updateElementFrame` lives**
 
 ```bash
@@ -639,7 +639,7 @@ history (look for the project's existing helper, e.g.
 silently no-op consistently with surrounding code. **Follow the
 same conventions used by `updateElementData`**.
 
-- [ ] **Step 6.2: Write failing tests**
+- [x] **Step 6.2: Write failing tests**
 
 ```ts
 // packages/slides/src/store/memory.test.ts — append to existing file
@@ -724,13 +724,13 @@ Adapt `MemSlidesStore` constructor invocation and the layout id to
 the project's existing pattern (open `memory.test.ts` to copy the
 working setup).
 
-- [ ] **Step 6.3: Run tests, verify they fail (method not found)**
+- [x] **Step 6.3: Run tests, verify they fail (method not found)**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- memory
 ```
 
-- [ ] **Step 6.4: Implement in `memory.ts`**
+- [x] **Step 6.4: Implement in `memory.ts`**
 
 Open `memory.ts`. Add the two new methods, following the existing
 mutation pattern (history push, in-place mutation, render notify):
@@ -792,7 +792,7 @@ Add a helper `elementsLookup(slideId)` that returns a
 `Map<id, Element>` for `computeConnectorFrame`. It should be a
 trivial loop over the slide's elements (no caching needed for PR1).
 
-- [ ] **Step 6.5: Implement cascade sweep in `removeElement`**
+- [x] **Step 6.5: Implement cascade sweep in `removeElement`**
 
 Find `removeElement(slideId, elementId)`. Before the actual removal,
 add:
@@ -830,7 +830,7 @@ cascade-fix into one transaction.
 `removeElement` per id — the cascade runs each time, which is
 correct.
 
-- [ ] **Step 6.6: Run all store tests, verify pass**
+- [x] **Step 6.6: Run all store tests, verify pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- memory
@@ -838,7 +838,7 @@ pnpm --filter @wafflebase/slides test -- memory
 
 Expected: existing tests still pass, new connector tests pass.
 
-- [ ] **Step 6.7: Commit**
+- [x] **Step 6.7: Commit**
 
 ```bash
 git add packages/slides/src/store/memory.ts \
@@ -857,7 +857,7 @@ Open / diamond / circle / square arrive in PR3.
 - Create: `packages/slides/src/view/canvas/arrowhead-renderer.ts`
 - Create: `packages/slides/src/view/canvas/arrowhead-renderer.test.ts`
 
-- [ ] **Step 7.1: Write failing test**
+- [x] **Step 7.1: Write failing test**
 
 ```ts
 // packages/slides/src/view/canvas/arrowhead-renderer.test.ts
@@ -885,7 +885,7 @@ describe('drawArrowhead', () => {
 Inspect it before writing the test if the API differs from the
 sketch above.
 
-- [ ] **Step 7.2: Implement**
+- [x] **Step 7.2: Implement**
 
 ```ts
 // packages/slides/src/view/canvas/arrowhead-renderer.ts
@@ -929,9 +929,9 @@ export function drawArrowhead(
 }
 ```
 
-- [ ] **Step 7.3: Run, verify pass**
+- [x] **Step 7.3: Run, verify pass**
 
-- [ ] **Step 7.4: Commit**
+- [x] **Step 7.4: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/arrowhead-renderer.ts \
@@ -947,7 +947,7 @@ git commit -m "Add triangle arrowhead renderer"
 - Create: `packages/slides/src/view/canvas/connector-renderer.ts`
 - Create: `packages/slides/src/view/canvas/connector-renderer.test.ts`
 
-- [ ] **Step 8.1: Inspect existing `shape-renderer.ts` for the
+- [x] **Step 8.1: Inspect existing `shape-renderer.ts` for the
   theme-color resolution pattern**
 
 ```bash
@@ -958,7 +958,7 @@ grep -n "resolveColor\|theme\|stroke" \
 Use the same color-resolution helper the existing shape renderer
 uses for stroke colors.
 
-- [ ] **Step 8.2: Write failing test**
+- [x] **Step 8.2: Write failing test**
 
 ```ts
 // packages/slides/src/view/canvas/connector-renderer.test.ts
@@ -1003,7 +1003,7 @@ describe('drawConnector', () => {
 });
 ```
 
-- [ ] **Step 8.3: Implement**
+- [x] **Step 8.3: Implement**
 
 ```ts
 // packages/slides/src/view/canvas/connector-renderer.ts
@@ -1080,9 +1080,9 @@ packages/slides/src/view/canvas/` to find the existing helper, and
 import it (or replicate inline if it's only available as a private
 function in another file).
 
-- [ ] **Step 8.4: Run, verify pass**
+- [x] **Step 8.4: Run, verify pass**
 
-- [ ] **Step 8.5: Commit**
+- [x] **Step 8.5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/connector-renderer.ts \
@@ -1097,12 +1097,12 @@ git commit -m "Add connector renderer drawing straight path and arrowheads"
 **Files:**
 - Modify: `packages/slides/src/view/canvas/element-renderer.ts`
 
-- [ ] **Step 9.1: Read existing `element-renderer.ts`**
+- [x] **Step 9.1: Read existing `element-renderer.ts`**
 
 Find the dispatcher block that switches on `el.type` (the existing
 TODO stub from Task 1.3 lives here).
 
-- [ ] **Step 9.2: Add the connector branch**
+- [x] **Step 9.2: Add the connector branch**
 
 Replace the stub for `el.type === 'connector'` with a call to
 `drawConnector`. Connector rendering does **not** apply the
@@ -1125,7 +1125,7 @@ const lookup = new Map<string, Element>(
 Pass `lookup` as a parameter, not a closure capture, so unit tests
 can inject targeted maps.
 
-- [ ] **Step 9.3: Run all existing canvas tests**
+- [x] **Step 9.3: Run all existing canvas tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- canvas
@@ -1133,7 +1133,7 @@ pnpm --filter @wafflebase/slides test -- canvas
 
 Expected: everything still passes; no regressions.
 
-- [ ] **Step 9.4: Commit**
+- [x] **Step 9.4: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/element-renderer.ts
@@ -1173,26 +1173,26 @@ so the old special-cased shape paths can be deleted safely.
   `buildInsertElement('arrow', …)` tests (the connector insert flow
   is covered by `insert-connector.test.ts`)
 
-- [ ] **Step 10.1: Delete `drawLine` and `drawArrow` from
+- [x] **Step 10.1: Delete `drawLine` and `drawArrow` from
   `shape-special.ts`**
 
 Keep `drawActionButton` (still used). Remove the two functions and
 their exports.
 
-- [ ] **Step 10.2: Remove `line`/`arrow` branches from
+- [x] **Step 10.2: Remove `line`/`arrow` branches from
   `shape-renderer.ts`**
 
 Find the dispatcher's special-case block (look for `kind === 'line'`
 and `kind === 'arrow'`). Delete those branches and the associated
 imports.
 
-- [ ] **Step 10.3: Remove `line`/`arrow` branches from
+- [x] **Step 10.3: Remove `line`/`arrow` branches from
   `shape-icon.ts`**
 
 Drop the two conditional branches that match `kind === 'line'` and
 `kind === 'arrow'` (around lines 47 and 54 at time of writing).
 
-- [ ] **Step 10.4: Clean `interactions/insert.ts`**
+- [x] **Step 10.4: Clean `interactions/insert.ts`**
 
 Delete:
 - The `LINE_H` size constant.
@@ -1202,14 +1202,14 @@ Delete:
 - Any `kind === 'arrow'` (or `'line'`) conditional inside
   `buildInsertElement` (it's dead once the kinds are gone).
 
-- [ ] **Step 10.5: Remove `'line' | 'arrow'` from `ShapeKind` in
+- [x] **Step 10.5: Remove `'line' | 'arrow'` from `ShapeKind` in
   `element.ts`**
 
 Delete the `| 'line' | 'arrow'` entries plus the surrounding
 `// Lines (special-cased renderers in shape-special.ts)` comment
 line.
 
-- [ ] **Step 10.6: Update the existing tests**
+- [x] **Step 10.6: Update the existing tests**
 
 In `shape-renderer.test.ts`, remove the 6 test cases that construct
 `{ kind: 'line' }` or `{ kind: 'arrow' }` shapes (they're now
@@ -1224,7 +1224,7 @@ and the assertions that narrow on `line.data.kind === 'line'`. The
 connector insert flow is now covered by
 `insert-connector.test.ts` (Task 11).
 
-- [ ] **Step 10.7: Find any remaining references**
+- [x] **Step 10.7: Find any remaining references**
 
 ```bash
 grep -rn "kind: 'line'\|kind: 'arrow'\|'line' \| 'arrow'\|drawLine\|drawArrow\|LINE_H" \
@@ -1234,7 +1234,7 @@ grep -rn "kind: 'line'\|kind: 'arrow'\|'line' \| 'arrow'\|drawLine\|drawArrow\|L
 Expected output: empty (or only matches inside comments that
 should also be cleaned).
 
-- [ ] **Step 10.8: Verify build + tests still pass**
+- [x] **Step 10.8: Verify build + tests still pass**
 
 ```bash
 pnpm verify:fast
@@ -1242,7 +1242,7 @@ pnpm verify:fast
 
 Must be green.
 
-- [ ] **Step 10.9: Commit**
+- [x] **Step 10.9: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts \
@@ -1264,7 +1264,7 @@ git commit -m "Drop line and arrow from ShapeKind in favor of connectors"
 - Create: `packages/slides/src/view/editor/interactions/insert-connector.ts`
 - Modify: `packages/slides/src/view/editor/editor.ts`
 
-- [ ] **Step 11.1: Inspect existing `insert.ts` and `select.ts` for
+- [x] **Step 11.1: Inspect existing `insert.ts` and `select.ts` for
   the interaction pattern**
 
 ```bash
@@ -1276,7 +1276,7 @@ Pattern to match: pointer event handlers, slide-local coordinate
 transform, snap helpers, finalize-on-mouseup → store mutation →
 revert to select mode.
 
-- [ ] **Step 11.2: Implement `insert-connector.ts`**
+- [x] **Step 11.2: Implement `insert-connector.ts`**
 
 ```ts
 // packages/slides/src/view/editor/interactions/insert-connector.ts
@@ -1380,7 +1380,7 @@ export function finalizeInsert(
 export const __testing__ = { SHAPE_HOVER_RADIUS };
 ```
 
-- [ ] **Step 11.3: Write a test for `findSnapTarget` and
+- [x] **Step 11.3: Write a test for `findSnapTarget` and
   `finalizeInsert`**
 
 ```ts
@@ -1432,7 +1432,7 @@ describe('snappedEndpoint', () => {
 });
 ```
 
-- [ ] **Step 11.4: Wire into `editor.ts`**
+- [x] **Step 11.4: Wire into `editor.ts`**
 
 Open `editor.ts`. Find where `setInsertMode` (or the existing
 shape-insert pointer plumbing) lives. Add a new insert mode key
@@ -1447,14 +1447,14 @@ The connection-points overlay (Task 13) is activated by the editor
 setting a flag like `editor.isConnectorMode === true`. Wire that
 flag here so the overlay can subscribe to it.
 
-- [ ] **Step 11.5: Run tests, verify pass**
+- [x] **Step 11.5: Run tests, verify pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- insert-connector
 pnpm --filter @wafflebase/slides exec tsc --noEmit
 ```
 
-- [ ] **Step 11.6: Commit**
+- [x] **Step 11.6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/insert-connector.ts \
@@ -1472,7 +1472,7 @@ git commit -m "Add connector insert interaction with snap-on-draw"
 - Modify: `packages/slides/src/view/editor/selection.ts` (or wherever
   selection-handle drag is dispatched)
 
-- [ ] **Step 12.1: Implement endpoint drag**
+- [x] **Step 12.1: Implement endpoint drag**
 
 ```ts
 // packages/slides/src/view/editor/interactions/connector-endpoint-drag.ts
@@ -1499,7 +1499,7 @@ export function dragEndpoint(
 }
 ```
 
-- [ ] **Step 12.2: Write a thin test (mostly covered by Task 11's
+- [x] **Step 12.2: Write a thin test (mostly covered by Task 11's
   snap tests; just verify the store call shape)**
 
 ```ts
@@ -1529,7 +1529,7 @@ describe('dragEndpoint', () => {
 });
 ```
 
-- [ ] **Step 12.3: Wire into selection handle drag**
+- [x] **Step 12.3: Wire into selection handle drag**
 
 Open `selection.ts` (or whichever file the package uses for handle
 hit-testing — `grep -rn "handle" packages/slides/src/view/editor/`).
@@ -1542,9 +1542,9 @@ selection.ts code that decides which handles to render.
 The connector's `selection handles` for PR1 are exactly two: at the
 start and end endpoint world positions.
 
-- [ ] **Step 12.4: Run tests + tsc**
+- [x] **Step 12.4: Run tests + tsc**
 
-- [ ] **Step 12.5: Commit**
+- [x] **Step 12.5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/connector-endpoint-drag.ts \
@@ -1565,7 +1565,7 @@ mode.
 **Files:**
 - Modify: `packages/slides/src/view/editor/overlay.ts`
 
-- [ ] **Step 13.1: Inspect existing overlay**
+- [x] **Step 13.1: Inspect existing overlay**
 
 ```bash
 sed -n '1,60p' packages/slides/src/view/editor/overlay.ts
@@ -1574,7 +1574,7 @@ sed -n '1,60p' packages/slides/src/view/editor/overlay.ts
 Identify how the overlay subscribes to editor state and how it
 mounts elements onto the DOM layer.
 
-- [ ] **Step 13.2: Add overlay logic**
+- [x] **Step 13.2: Add overlay logic**
 
 Inside `overlay.ts`, add a routine that runs each frame while
 `editor.isConnectorMode === true`:
@@ -1624,13 +1624,13 @@ existing handle/overlay rendering in `overlay.ts`.
 The "nearest-only" filter keeps multiple stacked shapes from
 flooding the screen with dots.
 
-- [ ] **Step 13.3: Manual smoke** (no unit test for DOM overlay
+- [x] **Step 13.3: Manual smoke** (no unit test for DOM overlay
   — visual verification suffices)
 
 After implementing, run `pnpm dev` (Task 16) and visually verify
 the overlay appears as expected.
 
-- [ ] **Step 13.4: Commit**
+- [x] **Step 13.4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/overlay.ts
@@ -1646,7 +1646,7 @@ git commit -m "Render connection points overlay during connector insert"
   `grep -rn "shape picker\|toolbar\|setInsertMode" \
   packages/frontend/src/app/slides packages/slides/src`)
 
-- [ ] **Step 14.1: Locate the toolbar's "insert shape" dropdown**
+- [x] **Step 14.1: Locate the toolbar's "insert shape" dropdown**
 
 Historical note: this step originally added Line + Arrow into the
 existing ShapePicker dropdown (where `line` and `arrow` previously
@@ -1660,7 +1660,7 @@ connector entries. The wire-up on click still calls
 `editor.setInsertMode('connector:arrow')` (the new modes added in
 Task 11.4).
 
-- [ ] **Step 14.2: Add an icon for each**
+- [x] **Step 14.2: Add an icon for each**
 
 Use the existing icon convention (lucide-react or whatever the
 toolbar uses for the shape picker — check sibling entries).
@@ -1668,13 +1668,13 @@ toolbar uses for the shape picker — check sibling entries).
 For Line, a 45° stroke; for Arrow, the same with a triangle on the
 end.
 
-- [ ] **Step 14.3: Manual smoke**
+- [x] **Step 14.3: Manual smoke**
 
 Open `pnpm dev` and check the toolbar shows Line + Arrow tools, and
 clicking either enters insert mode with the connection-points
 overlay visible.
 
-- [ ] **Step 14.4: Commit**
+- [x] **Step 14.4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides   # adjust to actual paths
@@ -1685,7 +1685,7 @@ git commit -m "Add Line and Arrow tools to slides toolbar"
 
 ### Task 15: Verify + final smoke
 
-- [ ] **Step 15.1: Run `pnpm verify:fast`**
+- [x] **Step 15.1: Run `pnpm verify:fast`**
 
 ```bash
 pnpm verify:fast
@@ -1693,7 +1693,7 @@ pnpm verify:fast
 
 Expected: Exit 0 (lint + unit tests pass).
 
-- [ ] **Step 15.2: Manual browser smoke** (per project workflow)
+- [x] **Step 15.2: Manual browser smoke** (per project workflow)
 
 ```bash
 pnpm dev
@@ -1713,13 +1713,13 @@ Verify in browser:
   onto another shape → re-attaches.
 - Resize/rotate handles do **not** appear on connectors.
 
-- [ ] **Step 15.3: Update README and design index if needed**
+- [x] **Step 15.3: Update README and design index if needed**
 
 Both already done in the design step (the design doc was added to
 `docs/design/README.md`); nothing further here unless the toolbar
 docs need a tweak.
 
-- [ ] **Step 15.4: Capture lessons file** (per project workflow)
+- [x] **Step 15.4: Capture lessons file** (per project workflow)
 
 ```bash
 $EDITOR docs/tasks/active/20260515-slides-connectors-pr1-lessons.md
@@ -1728,14 +1728,14 @@ $EDITOR docs/tasks/active/20260515-slides-connectors-pr1-lessons.md
 Record any surprises (e.g. an attached endpoint world-position
 calculation gotcha, a snap-radius tuning decision).
 
-- [ ] **Step 15.5: Self-review with code-review skill** (per project
+- [x] **Step 15.5: Self-review with code-review skill** (per project
   workflow)
 
 Run the project's code-review skill over the full branch diff
 before pushing. Apply blocking findings; note non-blocking as known
 limitations.
 
-- [ ] **Step 15.6: Sync, push, open PR**
+- [x] **Step 15.6: Sync, push, open PR**
 
 ```bash
 git fetch origin && git rebase origin/main
@@ -1752,13 +1752,13 @@ gh pr create --title \
 
 ## Test plan
 - [x] `pnpm verify:fast` green
-- [ ] Browser smoke: Line, Arrow, attach, follow on move, cascade on delete
-- [ ] Reviewer verifies the four cardinal sites render in correct positions
+- [x] Browser smoke: Line, Arrow, attach, follow on move, cascade on delete
+- [x] Reviewer verifies the four cardinal sites render in correct positions
 EOF
 )"
 ```
 
-- [ ] **Step 15.7: Archive task after PR merges**
+- [x] **Step 15.7: Archive task after PR merges**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index

@@ -105,14 +105,14 @@ unchanged; iOS touch drag will fire move events for the first time.
 
 **Steps:**
 
-- [ ] **1a.1** Branch from latest main (already on this branch —
+- [x] **1a.1** Branch from latest main (already on this branch —
   `slides/mobile-edit-pointer-events`):
 
   ```bash
   git status            # confirm clean working tree on this branch
   ```
 
-- [ ] **1a.2** In `packages/slides/src/view/editor/editor.ts`,
+- [x] **1a.2** In `packages/slides/src/view/editor/editor.ts`,
   replace event-type strings — `mousedown` → `pointerdown`,
   `mousemove` → `pointermove`, `mouseup` → `pointerup`. Update
   callback parameter types from `(e: MouseEvent)` to
@@ -127,7 +127,7 @@ unchanged; iOS touch drag will fire move events for the first time.
   3. Cleanup `removeEventListener` calls — must match the listener
      they tear down.
 
-- [ ] **1a.3** Repeat for sibling files. They cover panel widgets:
+- [x] **1a.3** Repeat for sibling files. They cover panel widgets:
 
   - `thumbnail-panel.ts` — slide-strip drag-to-reorder.
   - `context-menu.ts` — right-click context menu show/hide
@@ -135,7 +135,7 @@ unchanged; iOS touch drag will fire move events for the first time.
     only the pair-internal mousedown/move/up listeners change).
   - `layout-picker.ts` — layout swatch hover/click panel.
 
-- [ ] **1a.4** Run `pnpm verify:fast`. Expect zero new failures —
+- [x] **1a.4** Run `pnpm verify:fast`. Expect zero new failures —
   the existing slides editor unit tests use synthetic events; if
   any test dispatches a literal `new MouseEvent('mousedown', ...)`
   the test still works because pointer-event listeners do NOT fire
@@ -146,7 +146,7 @@ unchanged; iOS touch drag will fire move events for the first time.
   grep -rnE "new MouseEvent\(|dispatchEvent.*mouse" packages/slides --include="*.ts" --include="*.test.ts"
   ```
 
-- [ ] **1a.5** Desktop smoke (`pnpm dev`, wide window):
+- [x] **1a.5** Desktop smoke (`pnpm dev`, wide window):
   - Open a deck, click an element → selection box appears
   - Drag an element → moves smoothly
   - Drag a corner handle → resizes
@@ -161,10 +161,10 @@ unchanged; iOS touch drag will fire move events for the first time.
     canvas). If this fails, add `setPointerCapture` on the
     triggering pointerdown.
 
-- [ ] **1a.6** Self-review with `/code-review` over the branch diff.
+- [x] **1a.6** Self-review with `/code-review` over the branch diff.
   Apply blocking findings.
 
-- [ ] **1a.7** Commit (one commit — this is a single mechanical
+- [x] **1a.7** Commit (one commit — this is a single mechanical
   refactor, not a sequence of independent fixes):
 
   ```bash
@@ -192,7 +192,7 @@ unchanged; iOS touch drag will fire move events for the first time.
   )"
   ```
 
-- [ ] **1a.8** Hold the push. Wait for Task 1b commits, then push
+- [x] **1a.8** Hold the push. Wait for Task 1b commits, then push
   the batch and open a single PR that covers 1a + 1b — the migration
   has no behavior change on its own and the meaningful test is
   Task 1b's mobile mount. (If 1a's diff is too large to comfortably
@@ -215,12 +215,12 @@ every "blocked" row from the spike lands its fix in this PR (Pointer
 Events covers the drag/resize/rotate gap from 1a; the long-press
 callout suppression lands here in 1b.5).
 
-- [ ] **1.1** Continue on `slides/mobile-edit-pointer-events` (or
+- [x] **1.1** Continue on `slides/mobile-edit-pointer-events` (or
   whichever branch holds the 1a commit). 1a and 1b ship as a single
   PR unless the 1a diff turns out to be too large to review
   comfortably alongside 1b.
 
-- [ ] **1.2** Add a `tolerance?: number` parameter to `handleHitTest`
+- [x] **1.2** Add a `tolerance?: number` parameter to `handleHitTest`
   in `packages/slides/src/view/editor/hit-test.ts`. Default 0 (no
   behavior change for desktop). When > 0, every handle's hit
   rectangle expands by `tolerance` on each side. Add a pure-logic
@@ -252,7 +252,7 @@ callout suppression lands here in 1b.5).
   Update all `handleHitTest` callers — none should change behavior
   (omit `tolerance` to keep default 0).
 
-- [ ] **1.3** Add a `mode?: 'edit' | 'view'` prop to
+- [x] **1.3** Add a `mode?: 'edit' | 'view'` prop to
   `MobileSlidesView`. Default `'edit'`. The `'view'` branch keeps
   the current `SlideRenderer` path word-for-word. The `'edit'`
   branch builds canvas + overlay + `SlidesEditor` (pattern copied
@@ -264,13 +264,13 @@ callout suppression lands here in 1b.5).
   changes were narrower, do those instead — but always preserve
   the desktop default of 0.)
 
-- [ ] **1.4** In `slides-detail.tsx`'s `SlidesLayout`, leave
+- [x] **1.4** In `slides-detail.tsx`'s `SlidesLayout`, leave
   `mode` defaulted (don't pass it yet). Permission-gated `'view'`
   wiring lands in Task 4. Phase A's `<MobileSlidesView documentId={...} />`
   becomes `<MobileSlidesView documentId={...} mode="edit" />` —
   explicit at the call site.
 
-- [ ] **1.5** Suppress iOS long-press callout (the spike's second
+- [x] **1.5** Suppress iOS long-press callout (the spike's second
   blocked row). In the `'edit'` branch of `MobileSlidesView`, add
   to the canvas-host inline style:
 
@@ -287,13 +287,13 @@ callout suppression lands here in 1b.5).
   inside `edit` mode (right-click context menu still belongs to
   the editor).
 
-- [ ] **1.6** Run gate locally:
+- [x] **1.6** Run gate locally:
 
   ```bash
   pnpm verify:fast
   ```
 
-- [ ] **1.7** Manual smoke (per [Phase A feedback memory on browser
+- [x] **1.7** Manual smoke (per [Phase A feedback memory on browser
   verification](../../tasks/active/20260517-slides-mobile-view-lessons.md)):
 
   - iPhone 16 sim re-run of the spike matrix (the sim is the
@@ -309,10 +309,10 @@ callout suppression lands here in 1b.5).
     reproduce either. Open via `vite --host` on iPhone Safari +
     Android Chrome.
 
-- [ ] **1.8** Self-review with `/code-review` over the full
+- [x] **1.8** Self-review with `/code-review` over the full
   branch diff (covers 1a + 1b commits). Apply blocking findings.
 
-- [ ] **1.9** Commit each scoped change separately (per
+- [x] **1.9** Commit each scoped change separately (per
   `feedback_workflow_preferences`), push the batch at the end:
 
   ```bash
@@ -348,7 +348,7 @@ callout suppression lands here in 1b.5).
 - Create: `packages/frontend/src/app/slides/mobile-text-format-sheet.tsx`
 - Modify: `packages/frontend/src/app/slides/mobile-slides-view.tsx`
 
-- [ ] **2.1** Audit `SlidesTextBoxEditor`'s public surface against
+- [x] **2.1** Audit `SlidesTextBoxEditor`'s public surface against
   what `toolbar/text-edit-section.tsx` calls today. List any
   desktop-only helpers (e.g. format toggles that live on the toolbar
   component rather than the editor). Move format read/write into
@@ -356,7 +356,7 @@ callout suppression lands here in 1b.5).
   source of truth. The desktop toolbar refactors to call the new
   methods in the same PR.
 
-- [ ] **2.2** Create `mobile-text-format-sheet.tsx`. Component
+- [x] **2.2** Create `mobile-text-format-sheet.tsx`. Component
   takes `editor: SlidesEditor` and `currentTextEditor: SlidesTextBoxEditor | null`
   as props. Renders nothing when `currentTextEditor` is null. When
   present, renders a 64px-high bottom-anchored bar with:
@@ -372,18 +372,18 @@ callout suppression lands here in 1b.5).
   `currentTextEditor.onSelectionChange` so toggle state stays
   current as the user moves the caret.
 
-- [ ] **2.3** In `MobileSlidesView`'s `edit` branch, mount the
+- [x] **2.3** In `MobileSlidesView`'s `edit` branch, mount the
   sheet. When the sheet is visible, shrink `canvas-host` by 64px and
   call `editor.setHostSize(newW, newH)` so the canvas re-fits — the
   selected text element stays in view. Reverse on unmount.
 
-- [ ] **2.4** Real-device pass on iOS Safari + Android Chrome:
+- [x] **2.4** Real-device pass on iOS Safari + Android Chrome:
   double-tap a text element, type Korean (IME),
   toggle bold/italic mid-typing, change font size, change color,
   tap outside to commit. Verify the same edits sync to a second
   browser tab (collaboration regression check).
 
-- [ ] **2.5** `pnpm verify:fast`, self-review, commit-by-commit
+- [x] **2.5** `pnpm verify:fast`, self-review, commit-by-commit
   push, PR.
 
 ---
@@ -398,22 +398,22 @@ callout suppression lands here in 1b.5).
 - Create: `packages/frontend/src/app/slides/mobile-slide-ops-fab.tsx`
 - Modify: `packages/frontend/src/app/slides/mobile-slides-view.tsx`
 
-- [ ] **3.1** Extend `SlidesStore` with
+- [x] **3.1** Extend `SlidesStore` with
   `onHistoryChange(cb: () => void): () => void`. Implement on both
   stores. `MemSlidesStore` fires it on every successful mutation
   inside `withHistory`; `YorkieSlidesStore` fires it after the
   Yorkie `doc.update` callback resolves.
 
-- [ ] **3.2** Add `canUndo() / canRedo()` if not already present on
+- [x] **3.2** Add `canUndo() / canRedo()` if not already present on
   `SlidesStore`. (Spec on existing implementation — they probably
   exist on `SlidesEditor`, may need to surface on the store.)
 
-- [ ] **3.3** In the mobile header, add two icon buttons between
+- [x] **3.3** In the mobile header, add two icon buttons between
   Back and Title: undo (↶), redo (↷). Both have 44×44 touch targets.
   Bind `disabled` to `store.canUndo()` / `canRedo()`; re-derive on
   `store.onHistoryChange`.
 
-- [ ] **3.4** Create `mobile-slide-ops-fab.tsx`. 56×56 circle,
+- [x] **3.4** Create `mobile-slide-ops-fab.tsx`. 56×56 circle,
   bottom-right of canvas-host, `+` glyph. Tap →
   `store.addSlide(currentLayoutId)`. Long-press (500ms) →
   vertical menu with:
@@ -427,12 +427,12 @@ callout suppression lands here in 1b.5).
   Layout thumbnails reuse the existing renderer
   (`view/canvas/layout-preview.ts`).
 
-- [ ] **3.5** Real-device smoke. Add slide → confirm `currentSlideId`
+- [x] **3.5** Real-device smoke. Add slide → confirm `currentSlideId`
   advances. Delete on a single-slide deck → confirm the editor
   handles the empty state (probably needs a guard — add it to the
   mobile component, not the store).
 
-- [ ] **3.6** `pnpm verify:fast`, self-review, push, PR.
+- [x] **3.6** `pnpm verify:fast`, self-review, push, PR.
 
 ---
 
@@ -448,11 +448,11 @@ callout suppression lands here in 1b.5).
 - Modify: `docs/design/slides/slides-mobile-edit.md` (mark target
   version shipped, link to PRs)
 
-- [ ] **4.1** Find where user permission for the document is
+- [x] **4.1** Find where user permission for the document is
   available in `slides-detail.tsx` (likely a hook or context already
   shared with sharing.md's wiring). Pass `mode={canEdit ? 'edit' : 'view'}`.
 
-- [ ] **4.2** Playwright spec at 390×844 + 360×640:
+- [x] **4.2** Playwright spec at 390×844 + 360×640:
 
   - Tap an element → assert selection handles appear in the overlay
     DOM.
@@ -463,33 +463,33 @@ callout suppression lands here in 1b.5).
   - Tap the FAB `+` → assert footer count increments.
   - Snapshot the layout in edit mode.
 
-- [ ] **4.3** `pnpm verify:browser:docker` — review first-run
+- [x] **4.3** `pnpm verify:browser:docker` — review first-run
   snapshots, commit baselines if they look right.
 
-- [ ] **4.4** Final cross-PR smoke on real iOS + Android. Capture
+- [x] **4.4** Final cross-PR smoke on real iOS + Android. Capture
   any surprises into `*-lessons.md`.
 
-- [ ] **4.5** Archive + index:
+- [x] **4.5** Archive + index:
 
   ```bash
   pnpm tasks:archive
   pnpm tasks:index
   ```
 
-- [ ] **4.6** PR, self-review, merge.
+- [x] **4.6** PR, self-review, merge.
 
 ---
 
 ## Self-review checklist (run before pushing each PR)
 
-- [ ] No `console.log` left in.
-- [ ] Desktop editor unchanged at ≥ 768px (diff `slides-view.tsx`,
+- [x] No `console.log` left in.
+- [x] Desktop editor unchanged at ≥ 768px (diff `slides-view.tsx`,
   `slides-detail.tsx`'s desktop branch).
-- [ ] All store mutations from mobile go through `SlidesStore`. No
+- [x] All store mutations from mobile go through `SlidesStore`. No
   direct `doc.update` from mobile components.
-- [ ] `useIsMobile` branch in `slides-detail.tsx` still places the
+- [x] `useIsMobile` branch in `slides-detail.tsx` still places the
   mode swap consistent with React's rules-of-hooks (Phase A lesson).
-- [ ] Phase A's read-only fallback is reachable via
+- [x] Phase A's read-only fallback is reachable via
   `<MobileSlidesView mode="view" />` and visually identical to
   before this work.
-- [ ] Lessons file updated each PR with anything surprising.
+- [x] Lessons file updated each PR with anything surprising.

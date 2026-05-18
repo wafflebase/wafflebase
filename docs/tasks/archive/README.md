@@ -6,24 +6,31 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 187
+Total archived tasks: 194
 
-## 2026/05 (42 tasks)
+## 2026/05 (49 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
+| pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
 | pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
+| pptx rotated child group scale (2026-05-17) | [20260517-pptx-rotated-child-group-scale-todo.md](./2026/05/20260517-pptx-rotated-child-group-scale-todo.md) | [20260517-pptx-rotated-child-group-scale-lessons.md](./2026/05/20260517-pptx-rotated-child-group-scale-lessons.md) |
 | pptx unsupported shapes (2026-05-17) | [20260517-pptx-unsupported-shapes-todo.md](./2026/05/20260517-pptx-unsupported-shapes-todo.md) | [20260517-pptx-unsupported-shapes-lessons.md](./2026/05/20260517-pptx-unsupported-shapes-lessons.md) |
+| slides mobile edit (2026-05-17) | [20260517-slides-mobile-edit-todo.md](./2026/05/20260517-slides-mobile-edit-todo.md) | [20260517-slides-mobile-edit-lessons.md](./2026/05/20260517-slides-mobile-edit-lessons.md) |
+| slides mobile view (2026-05-17) | [20260517-slides-mobile-view-todo.md](./2026/05/20260517-slides-mobile-view-todo.md) | [20260517-slides-mobile-view-lessons.md](./2026/05/20260517-slides-mobile-view-lessons.md) |
 | slides textbox click scale (2026-05-17) | [20260517-slides-textbox-click-scale-todo.md](./2026/05/20260517-slides-textbox-click-scale-todo.md) | [20260517-slides-textbox-click-scale-lessons.md](./2026/05/20260517-slides-textbox-click-scale-lessons.md) |
 | slides thumbnail scroll arrow (2026-05-17) | [20260517-slides-thumbnail-scroll-arrow-todo.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-todo.md) | [20260517-slides-thumbnail-scroll-arrow-lessons.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-lessons.md) |
 | slides uturn arrow bbox flip (2026-05-17) | [20260517-slides-uturn-arrow-bbox-flip-todo.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-todo.md) | [20260517-slides-uturn-arrow-bbox-flip-lessons.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-lessons.md) |
 | docs comments (2026-05-16) | [20260516-docs-comments-todo.md](./2026/05/20260516-docs-comments-todo.md) | [20260516-docs-comments-lessons.md](./2026/05/20260516-docs-comments-lessons.md) |
 | pptx table cell margins (2026-05-16) | [20260516-pptx-table-cell-margins-todo.md](./2026/05/20260516-pptx-table-cell-margins-todo.md) | [20260516-pptx-table-cell-margins-lessons.md](./2026/05/20260516-pptx-table-cell-margins-lessons.md) |
 | pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./2026/05/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./2026/05/20260515-pptx-import-lessons.md) |
+| slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./2026/05/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./2026/05/20260515-slides-connectors-pr1-lessons.md) |
 | slides toolbar redesign (2026-05-15) | [20260515-slides-toolbar-redesign-todo.md](./2026/05/20260515-slides-toolbar-redesign-todo.md) | [20260515-slides-toolbar-redesign-lessons.md](./2026/05/20260515-slides-toolbar-redesign-lessons.md) |
 | slides click insert cursor (2026-05-14) | [20260514-slides-click-insert-cursor-todo.md](./2026/05/20260514-slides-click-insert-cursor-todo.md) | - |
+| slides keyboard shortcuts (2026-05-14) | [20260514-slides-keyboard-shortcuts-todo.md](./2026/05/20260514-slides-keyboard-shortcuts-todo.md) | [20260514-slides-keyboard-shortcuts-lessons.md](./2026/05/20260514-slides-keyboard-shortcuts-lessons.md) |
+| slides presentation mode (2026-05-14) | [20260514-slides-presentation-mode-todo.md](./2026/05/20260514-slides-presentation-mode-todo.md) | [20260514-slides-presentation-mode-lessons.md](./2026/05/20260514-slides-presentation-mode-lessons.md) |
 | slides shapes p3b (2026-05-13) | [20260513-slides-shapes-p3b-todo.md](./2026/05/20260513-slides-shapes-p3b-todo.md) | [20260513-slides-shapes-p3b-lessons.md](./2026/05/20260513-slides-shapes-p3b-lessons.md) |
 | comments collab fixes (2026-05-12) | [20260512-comments-collab-fixes-todo.md](./2026/05/20260512-comments-collab-fixes-todo.md) | [20260512-comments-collab-fixes-lessons.md](./2026/05/20260512-comments-collab-fixes-lessons.md) |
 | google analytics (2026-05-12) | [20260512-google-analytics-todo.md](./2026/05/20260512-google-analytics-todo.md) | [20260512-google-analytics-lessons.md](./2026/05/20260512-google-analytics-lessons.md) |

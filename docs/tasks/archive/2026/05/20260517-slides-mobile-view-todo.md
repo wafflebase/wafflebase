@@ -66,7 +66,7 @@ Classification rules:
 `pointerdown` calls `event.currentTarget.setPointerCapture(pointerId)`
 so move/up events don't get lost if the pointer leaves the element.
 
-- [ ] **1.1** Write failing tests covering:
+- [x] **1.1** Write failing tests covering:
 
   ```tsx
   import { renderHook } from '@testing-library/react';
@@ -193,13 +193,13 @@ so move/up events don't get lost if the pointer leaves the element.
   in the test setup, or in the hook itself check `'setPointerCapture' in el`
   before calling. Production browsers always have it.
 
-- [ ] **1.2** Run tests, confirm they fail with "usePointerSwipe is not defined":
+- [x] **1.2** Run tests, confirm they fail with "usePointerSwipe is not defined":
 
   ```bash
   pnpm --filter @wafflebase/frontend test packages/frontend/src/hooks/use-pointer-swipe.test.tsx
   ```
 
-- [ ] **1.3** Implement the hook:
+- [x] **1.3** Implement the hook:
 
   ```ts
   import { useEffect } from 'react';
@@ -307,11 +307,11 @@ so move/up events don't get lost if the pointer leaves the element.
   }
   ```
 
-- [ ] **1.4** Run tests, confirm pass.
+- [x] **1.4** Run tests, confirm pass.
 
-- [ ] **1.5** Run `pnpm verify:fast` to confirm lint + unit tests are green.
+- [x] **1.5** Run `pnpm verify:fast` to confirm lint + unit tests are green.
 
-- [ ] **1.6** Commit:
+- [x] **1.6** Commit:
 
   ```bash
   git add packages/frontend/src/hooks/use-pointer-swipe.ts \
@@ -343,7 +343,7 @@ Yorkie root, track `currentSlideId`, wire prev/next buttons and the
 swipe hook. No canvas painting yet — verifying the React shell in
 isolation first.
 
-- [ ] **2.1** Write failing test:
+- [x] **2.1** Write failing test:
 
   ```tsx
   import { describe, it, expect, vi } from 'vitest';
@@ -438,13 +438,13 @@ isolation first.
   });
   ```
 
-- [ ] **2.2** Run, confirm fail with "MobileSlidesView is not defined":
+- [x] **2.2** Run, confirm fail with "MobileSlidesView is not defined":
 
   ```bash
   pnpm --filter @wafflebase/frontend test packages/frontend/src/app/slides/mobile-slides-view.test.tsx
   ```
 
-- [ ] **2.3** Implement the scaffold:
+- [x] **2.3** Implement the scaffold:
 
   ```tsx
   import { useDocument } from '@yorkie-js/react';
@@ -646,11 +646,11 @@ isolation first.
   }
   ```
 
-- [ ] **2.4** Run tests, confirm pass.
+- [x] **2.4** Run tests, confirm pass.
 
-- [ ] **2.5** Run `pnpm verify:fast`.
+- [x] **2.5** Run `pnpm verify:fast`.
 
-- [ ] **2.6** Commit:
+- [x] **2.6** Commit:
 
   ```bash
   git add packages/frontend/src/app/slides/mobile-slides-view.tsx \
@@ -681,7 +681,7 @@ and re-render whenever (a) the slide list changes, (b)
 `currentSlideId` changes, or (c) the host resizes. Subscribe to
 `doc` for `remote-change` events to refresh the snapshot.
 
-- [ ] **3.1** Add a snapshot-refresh helper and a `doc.subscribe`
+- [x] **3.1** Add a snapshot-refresh helper and a `doc.subscribe`
   effect that calls it on `remote-change`:
 
   ```tsx
@@ -705,7 +705,7 @@ and re-render whenever (a) the slide list changes, (b)
   and seeds the initial snapshot. Keep it; this new effect is the
   per-remote-change refresher only.
 
-- [ ] **3.2** Replace the `{/* Canvas mounts here */}` comment with a
+- [x] **3.2** Replace the `{/* Canvas mounts here */}` comment with a
   `<canvas ref={canvasRef} />` and add the renderer effect:
 
   ```tsx
@@ -791,7 +791,7 @@ and re-render whenever (a) the slide list changes, (b)
   import type { SlidesDocument } from '@wafflebase/slides';
   ```
 
-- [ ] **3.3** Verify `SlidesDocument` is exported from
+- [x] **3.3** Verify `SlidesDocument` is exported from
   `@wafflebase/slides`. If not, export it from
   `packages/slides/src/index.ts` in the same commit:
 
@@ -802,15 +802,15 @@ and re-render whenever (a) the slide list changes, (b)
   If missing, add: `export type { Slide, SlidesDocument } from './model/presentation';`
   (it's likely already exported — confirm before committing).
 
-- [ ] **3.4** Run the existing `MobileSlidesView` tests. Because they
+- [x] **3.4** Run the existing `MobileSlidesView` tests. Because they
   mock `SlideRenderer`, they should still pass without modification.
   If a test now needs a `canvas` element in the DOM, add a
   `HTMLCanvasElement.prototype.getContext = vi.fn(() => ({} as any))`
   stub at the top of the test file.
 
-- [ ] **3.5** Run `pnpm verify:fast`.
+- [x] **3.5** Run `pnpm verify:fast`.
 
-- [ ] **3.6** Manual smoke (don't skip this — visual regressions on
+- [x] **3.6** Manual smoke (don't skip this — visual regressions on
   Canvas don't show up in unit tests):
 
   ```bash
@@ -832,7 +832,7 @@ and re-render whenever (a) the slide list changes, (b)
   - Toggle out of mobile emulation (desktop 1280px): desktop editor
     mounts (this will only work after Task 4).
 
-- [ ] **3.7** Commit:
+- [x] **3.7** Commit:
 
   ```bash
   git add packages/frontend/src/app/slides/mobile-slides-view.tsx
@@ -861,14 +861,14 @@ and re-render whenever (a) the slide list changes, (b)
 Top-of-render branch. The desktop path is left intact; only the
 entry point changes.
 
-- [ ] **4.1** At the top of `slides-view.tsx`, add the import:
+- [x] **4.1** At the top of `slides-view.tsx`, add the import:
 
   ```tsx
   import { useIsMobile } from '@/hooks/use-mobile';
   import { MobileSlidesView } from './mobile-slides-view';
   ```
 
-- [ ] **4.2** In the `SlidesView` function, after `useDocument` and
+- [x] **4.2** In the `SlidesView` function, after `useDocument` and
   before the existing mount `useEffect`, branch:
 
   ```tsx
@@ -893,7 +893,7 @@ entry point changes.
   across the breakpoint — no "rendered fewer hooks than expected"
   warning should appear.)
 
-- [ ] **4.3** Add a test verifying the branch (in a new file or
+- [x] **4.3** Add a test verifying the branch (in a new file or
   appended to an existing slides-view test if one exists):
 
   ```tsx
@@ -929,9 +929,9 @@ entry point changes.
   Path: `packages/frontend/src/app/slides/slides-view.test.tsx` (new
   if absent; just append the `describe` block if present).
 
-- [ ] **4.4** Run tests + verify:fast.
+- [x] **4.4** Run tests + verify:fast.
 
-- [ ] **4.5** Manual smoke: `pnpm dev`, resize browser window across
+- [x] **4.5** Manual smoke: `pnpm dev`, resize browser window across
   the 768px boundary. Confirm:
 
   - At < 768px: mobile view renders (header / canvas / footer).
@@ -940,7 +940,7 @@ entry point changes.
     cleanly; no console errors; Yorkie remains attached (look at
     Network tab — no extra Yorkie attach/detach).
 
-- [ ] **4.6** Commit:
+- [x] **4.6** Commit:
 
   ```bash
   git add packages/frontend/src/app/slides/slides-view.tsx \
@@ -971,11 +971,11 @@ entry point changes.
   find . -name "playwright*" -type f -not -path "*/node_modules/*" 2>/dev/null | head -5
   ```
 
-- [ ] **5.1** Locate the existing slides visual test (likely a
+- [x] **5.1** Locate the existing slides visual test (likely a
   Playwright spec since the project uses `pnpm verify:browser:docker`).
   Read it to learn the fixture pattern.
 
-- [ ] **5.2** Add a new spec — `slides-mobile-view.spec.ts` (next to
+- [x] **5.2** Add a new spec — `slides-mobile-view.spec.ts` (next to
   the existing slides spec) — that:
 
   - Sets viewport to 390×844 (iPhone 14).
@@ -991,11 +991,11 @@ entry point changes.
   Use the same `await page.locator` and snapshot APIs as the existing
   spec — don't introduce a new framework.
 
-- [ ] **5.3** Run `pnpm verify:browser:docker` locally. First-run
+- [x] **5.3** Run `pnpm verify:browser:docker` locally. First-run
   snapshots will be written — review the generated images to confirm
   the layout looks right, then commit them.
 
-- [ ] **5.4** Commit:
+- [x] **5.4** Commit:
 
   ```bash
   git add packages/frontend/tests/  # adjust to actual path
@@ -1014,7 +1014,7 @@ entry point changes.
 
 ## Task 6 — Final verification and PR
 
-- [ ] **6.1** Pull latest main and rebase:
+- [x] **6.1** Pull latest main and rebase:
 
   ```bash
   git fetch origin
@@ -1023,7 +1023,7 @@ entry point changes.
 
   Resolve any conflicts.
 
-- [ ] **6.2** Run the full pre-merge check:
+- [x] **6.2** Run the full pre-merge check:
 
   ```bash
   pnpm verify:fast
@@ -1031,7 +1031,7 @@ entry point changes.
   pnpm verify:browser:docker
   ```
 
-- [ ] **6.3** Manual smoke pass one more time:
+- [x] **6.3** Manual smoke pass one more time:
 
   - `pnpm dev`
   - DevTools mobile emulation: iPhone 14 Pro, iPhone SE (375×667),
@@ -1042,7 +1042,7 @@ entry point changes.
   - Verify desktop is unchanged: open a deck on a wide window,
     confirm editor still mounts and behaves identically to main.
 
-- [ ] **6.4** Self-review (don't skip — CLAUDE.md mandates a
+- [x] **6.4** Self-review (don't skip — CLAUDE.md mandates a
   dispatched review before pushing). Run:
 
   ```bash
@@ -1053,20 +1053,20 @@ entry point changes.
   full branch diff. Apply blocking findings; record non-blocking
   as known limitations in the lessons file.
 
-- [ ] **6.5** Update lessons file
+- [x] **6.5** Update lessons file
   (`docs/tasks/active/20260517-slides-mobile-view-lessons.md`)
   with anything surprising encountered during implementation —
   Yorkie subscribe quirks, jsdom canvas stubs, ResizeObserver
   timing, Playwright snapshot rebaselines, etc.
 
-- [ ] **6.6** Archive and reindex tasks:
+- [x] **6.6** Archive and reindex tasks:
 
   ```bash
   pnpm tasks:archive
   pnpm tasks:index
   ```
 
-- [ ] **6.7** Push and open PR:
+- [x] **6.7** Push and open PR:
 
   ```bash
   git push -u origin slides-mobile-view
@@ -1083,13 +1083,13 @@ entry point changes.
 
   ## Test plan
 
-  - [ ] `pnpm verify:fast` green
-  - [ ] `pnpm verify:browser:docker` green (with new mobile fixture)
-  - [ ] Manual: mobile emulation at 360, 390, 430 viewport widths
-  - [ ] Manual: cross-breakpoint resize swaps mounts cleanly
-  - [ ] Manual: Present button enters presentation (fullscreen or
+  - [x] `pnpm verify:fast` green
+  - [x] `pnpm verify:browser:docker` green (with new mobile fixture)
+  - [x] Manual: mobile emulation at 360, 390, 430 viewport widths
+  - [x] Manual: cross-breakpoint resize swaps mounts cleanly
+  - [x] Manual: Present button enters presentation (fullscreen or
         overlay fallback on iOS)
-  - [ ] Manual: desktop editor unchanged at >=768px
+  - [x] Manual: desktop editor unchanged at >=768px
   EOF
   )"
   ```
@@ -1098,12 +1098,12 @@ entry point changes.
 
 ## Self-review checklist (run before pushing)
 
-- [ ] All tasks above are checked off
-- [ ] No `console.log` left in production code
-- [ ] No mutation paths from `MobileSlidesView` to Yorkie except
+- [x] All tasks above are checked off
+- [x] No `console.log` left in production code
+- [x] No mutation paths from `MobileSlidesView` to Yorkie except
   `ensureSlidesRoot` (which is idempotent)
-- [ ] `useIsMobile` branch is placed where hook ordering stays
+- [x] `useIsMobile` branch is placed where hook ordering stays
   consistent
-- [ ] Existing desktop editor flow is byte-for-byte identical to
+- [x] Existing desktop editor flow is byte-for-byte identical to
   `main` (diff `slides-view.tsx` — the only change should be the
   added imports and the early-return branch)

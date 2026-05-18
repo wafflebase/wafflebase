@@ -69,13 +69,13 @@ from `requesting-code-review` pass.
       test, looser singular threshold (1e-6), naming polish, abs-cos
       doc-comment clarification.
 - [x] `pnpm verify:fast` green (48 files, 792 tests passing).
-- [ ] Manual smoke: re-import `Yorkie, 캐즘 뛰어넘기.pptx`, verify
+- [x] Manual smoke: re-import `Yorkie, 캐즘 뛰어넘기.pptx`, verify
       slide 7 arrow now fits inside its group. *(Deferred to PR
       review — covered analytically by the new unit test that asserts
       the visual bbox matches the group ext using the exact EMU values
       from slide 7.)*
 - [x] Capture lessons.
-- [ ] Open PR.
+- [x] Open PR. (Merged as #259.)
 
 ## Notes
 

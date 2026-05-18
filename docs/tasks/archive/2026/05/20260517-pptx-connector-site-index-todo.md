@@ -42,7 +42,7 @@ imported left/right anchor lands on the opposite edge.
       `getConnectionSites()` always returns `FOUR_CARDINAL` (4 sites).
 - [x] Watch the test pass.
 - [x] `pnpm verify:fast`.
-- [ ] Commit on `fix/pptx-connector-site-index`, push, open PR.
+- [x] Commit on `fix/pptx-connector-site-index`, push, open PR. (Merged as #260.)
 
 ## Review
 
