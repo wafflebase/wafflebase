@@ -691,18 +691,12 @@ class SlidesEditorImpl implements SlidesEditor {
     const framesMap = this.collectSelectedFrames(slide);
     if (framesMap.size === 0) return;
     const TWO_PI = 2 * Math.PI;
-    this.options.store.batch(() => {
-      for (const [id, frame] of framesMap) {
-        const newRotation = ((frame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
-        this.options.store.updateElementFrame(slide.id, id, {
-          ...frame,
-          rotation: newRotation,
-        });
-      }
-    });
-    this.renderer.markDirty();
-    this.render();
-    this.repaintOverlay();
+    const updates = new Map<string, Frame>();
+    for (const [id, worldFrame] of framesMap) {
+      const newRotation = ((worldFrame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
+      updates.set(id, { ...worldFrame, rotation: newRotation });
+    }
+    this.applyFrameUpdates(slide.id, updates);
   }
 
   group(): void {
@@ -749,25 +743,42 @@ class SlidesEditorImpl implements SlidesEditor {
    * the given slide. Defends against ids that were removed remotely
    * between selection and the toolbar action.
    */
-  private collectSelectedFrames(slide: { elements: Element[] }): Map<string, Frame> {
-    const selectedIds = new Set(this.selection.get());
+  private collectSelectedFrames(slide: Slide): Map<string, Frame> {
+    // Walk the element tree so this works at any drill-in depth — at
+    // slide-root scope the elements are top-level; in drill-in, the
+    // selected ids live inside the scoped group's children.
+    //
+    // Returned frames are in WORLD coordinates so consumers
+    // (align / distribute / rotateBy + combinedBoundingBox) reason in a
+    // single coordinate system. `applyFrameUpdates` converts each back
+    // to scope-local before writing.
+    const scope = this.selection.getScope();
+    const selectedIds = this.selection.get();
     const result = new Map<string, Frame>();
-    for (const el of slide.elements) {
-      if (selectedIds.has(el.id)) result.set(el.id, el.frame);
+    for (const id of selectedIds) {
+      const el = findElement(slide.elements, id);
+      if (!el) continue;
+      result.set(id, toWorldFrame(el.frame, scope, slide));
     }
     return result;
   }
 
   /**
-   * Commit a set of frame updates in a single store.batch so undo/redo
-   * treats them atomically, then mark dirty + render. Empty `updates`
-   * is a no-op (skips the empty batch).
+   * Commit a set of WORLD frame updates in a single store.batch so undo/redo
+   * treats them atomically. Each world frame is converted back to scope-local
+   * via `fromWorldFrame` so the store writes coordinates in the element's
+   * parent coordinate system. Empty `updates` is a no-op (skips the empty
+   * batch).
    */
   private applyFrameUpdates(slideId: string, updates: ReadonlyMap<string, Frame>): void {
     if (updates.size === 0) return;
+    const scope = this.selection.getScope();
+    const slide = this.currentSlide();
+    if (!slide) return;
     this.options.store.batch(() => {
-      for (const [id, frame] of updates) {
-        this.options.store.updateElementFrame(slideId, id, frame);
+      for (const [id, worldFrame] of updates) {
+        const localFrame = fromWorldFrame(worldFrame, scope, slide);
+        this.options.store.updateElementFrame(slideId, id, localFrame);
       }
     });
     this.renderer.markDirty();

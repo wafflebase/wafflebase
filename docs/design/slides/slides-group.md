@@ -513,14 +513,6 @@ Verification gates: end of P1–P3 → `pnpm verify:fast`; end of P4 →
   `model/group.ts`, so paint and export will share the same math without
   any group-specific changes to the leaf emitters.
 
-- **Context menu Ungroup visibility.** When the user right-clicks inside
-  a group's child element, the context-menu predicate evaluates against
-  the leaf selection rather than the outermost-group selection, so the
-  "Ungroup" item does not appear. The fix is to route the context-menu's
-  right-click selection through `Selection.click(hit, mods)` rather than
-  the current `selection.set([leafId])` shortcut. Tracked as a v1.1
-  polish item.
-
 - **`selectAt` dead code in `view/editor/interactions/select.ts`.** This
   helper became unreachable after the Task 9 click-handler rewire that
   moved all hit-test dispatch into `SelectionController`. Remove it in a
