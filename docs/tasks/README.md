@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./active/20260518-release-v0.4.1-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | - |
 | pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./active/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./active/20260517-pptx-connector-site-index-lessons.md) |
 | pptx rotated child group scale (2026-05-17) | [20260517-pptx-rotated-child-group-scale-todo.md](./active/20260517-pptx-rotated-child-group-scale-todo.md) | [20260517-pptx-rotated-child-group-scale-lessons.md](./active/20260517-pptx-rotated-child-group-scale-lessons.md) |
@@ -35,7 +34,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 186
+- Archived task count: 187
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.4.1 (2026-05-18)
+Latest active task: docs comments followup (2026-05-17)

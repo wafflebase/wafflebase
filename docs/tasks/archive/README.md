@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 186
+Total archived tasks: 187
 
-## 2026/05 (41 tasks)
+## 2026/05 (42 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
 | pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
 | pptx unsupported shapes (2026-05-17) | [20260517-pptx-unsupported-shapes-todo.md](./2026/05/20260517-pptx-unsupported-shapes-todo.md) | [20260517-pptx-unsupported-shapes-lessons.md](./2026/05/20260517-pptx-unsupported-shapes-lessons.md) |
