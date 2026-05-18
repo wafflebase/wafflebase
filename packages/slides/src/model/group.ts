@@ -127,6 +127,35 @@ export function isGroupDescendantOf(
 }
 
 /**
+ * Transform a world point `(x, y)` into the local coordinate space of the
+ * frame described by `t`. Point-only counterpart of `applyInverseMatrix` —
+ * avoids the zero-extent Frame trick and makes the intent explicit.
+ *
+ * Used by hit-testing (transform world pointer into group-local coords) and
+ * by any future operation that needs to invert a group transform for a point
+ * rather than a full frame.
+ */
+export function applyInversePoint(
+  x: number,
+  y: number,
+  t: GroupTransform,
+): { x: number; y: number } {
+  const det = t.a * t.d - t.b * t.c;
+  // Pure rotation/translation matrices always have det === 1; this guard is
+  // a safety net for any future shear cases.
+  const invA =  t.d / det;
+  const invB = -t.b / det;
+  const invC = -t.c / det;
+  const invD =  t.a / det;
+  const invTx = -(t.d * t.tx - t.c * t.ty) / det;
+  const invTy =  (t.b * t.tx - t.a * t.ty) / det;
+  return {
+    x: invA * x + invC * y + invTx,
+    y: invB * x + invD * y + invTy,
+  };
+}
+
+/**
  * DFS walk of an element tree that returns a flat list containing every
  * element at every depth. Used by `slide-renderer.ts` to build an
  * `elementsLookup` that includes elements nested inside groups, so that

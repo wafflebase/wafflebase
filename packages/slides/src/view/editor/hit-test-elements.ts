@@ -1,8 +1,7 @@
 import type { Element } from '../../model/element';
 import type { Slide } from '../../model/presentation';
 import { containsPoint } from '../../model/frame';
-import { groupToTransform } from '../../model/group';
-import type { GroupTransform } from '../../model/group';
+import { applyInversePoint, groupToTransform } from '../../model/group';
 
 export interface HitResult {
   /** The leaf-most element under the point. */
@@ -62,28 +61,3 @@ function hitTestRecursive(
   return null;
 }
 
-/**
- * Transform a world point `(x, y)` into the local coordinate space
- * of the frame described by `t`. This is the point-only equivalent
- * of `applyInverseMatrix` — avoids the zero-extent Frame trick and
- * makes the intent explicit.
- */
-function applyInversePoint(
-  x: number,
-  y: number,
-  t: GroupTransform,
-): { x: number; y: number } {
-  const det = t.a * t.d - t.b * t.c;
-  // Pure rotation / translation matrices always have det === 1; this
-  // guard is a safety net for any future shear cases.
-  const invA =  t.d / det;
-  const invB = -t.b / det;
-  const invC = -t.c / det;
-  const invD =  t.a / det;
-  const invTx = -(t.d * t.tx - t.c * t.ty) / det;
-  const invTy =  (t.b * t.tx - t.a * t.ty) / det;
-  return {
-    x: invA * x + invC * y + invTx,
-    y: invB * x + invD * y + invTy,
-  };
-}

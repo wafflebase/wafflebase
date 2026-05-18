@@ -64,6 +64,7 @@ export {
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
   applyInverseMatrix,
+  applyInversePoint,
   composeAncestorTransform,
   composeGroupMatrix,
   findElementPath,
