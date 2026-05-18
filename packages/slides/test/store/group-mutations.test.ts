@@ -740,3 +740,48 @@ describe('group/ungroup round-trip (property)', () => {
     );
   });
 });
+
+describe('legacy group refSize migration (simulates editor.ts startResize onUp)', () => {
+  it('legacy group without refSize gains it on resize-style batch commit', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let groupId!: string;
+    store.batch(() => { ({ groupId } = store.group(sid, [a, b])); });
+
+    // Simulate legacy data: remove refSize as it would be absent in documents
+    // created before the refSize field was introduced.
+    store.batch(() => store.updateElementData(sid, groupId, { refSize: undefined }));
+    const gBefore = store.read().slides[0].elements.find(e => e.id === groupId) as GroupElement;
+    expect(gBefore.data.refSize).toBeUndefined();
+
+    const startW = gBefore.frame.w;
+    const startH = gBefore.frame.h;
+
+    // Simulate the resize commit pattern from editor.ts startResize onUp.
+    store.batch(() => {
+      if (gBefore.type === 'group' && gBefore.data.refSize === undefined) {
+        store.updateElementData(sid, groupId, { refSize: { w: startW, h: startH } });
+      }
+      store.updateElementFrame(sid, groupId, { w: startW * 2, h: startH });
+    });
+
+    const gAfter = store.read().slides[0].elements.find(e => e.id === groupId) as GroupElement;
+    expect(gAfter.data.refSize).toEqual({ w: startW, h: startH });
+    expect(gAfter.frame.w).toBe(startW * 2);
+  });
+});

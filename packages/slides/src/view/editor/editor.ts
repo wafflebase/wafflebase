@@ -2009,6 +2009,14 @@ class SlidesEditorImpl implements SlidesEditor {
       // Convert world frame back to scope-local before committing.
       const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
+        // Migrate legacy groups that pre-date the refSize field. Capture the
+        // pre-resize dimensions as the reference so this and future resizes
+        // scale children correctly relative to the original size.
+        if (startEl.type === 'group' && startEl.data.refSize === undefined) {
+          this.options.store.updateElementData(startSlide.id, elementId, {
+            refSize: { w: startEl.frame.w, h: startEl.frame.h },
+          });
+        }
         this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
