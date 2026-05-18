@@ -3,6 +3,8 @@ import type { SlidesStore } from '../../../store/store';
 import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
+import { findElementPath } from '../../../model/group';
+import { toWorldFrame, fromWorldFrame } from '../frame-space';
 import {
   MIME_TYPE,
   serializeElements,
@@ -102,20 +104,26 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           if (ctx.selection.get().length === 0) return;
           e.preventDefault();
           const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
-          const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
-          const dy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
+          const worldDx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+          const worldDy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
           const slideId = ctx.currentSlideId();
           if (!slideId) return;
+          const scope = ctx.selection.getScope();
           ctx.store.batch(() => {
             for (const id of ctx.selection.get()) {
               const slide = ctx.store.read().slides.find((s) => s.id === slideId);
               if (!slide) continue;
-              const el = slide.elements.find((x) => x.id === id);
-              if (!el) continue;
-              ctx.store.updateElementFrame(slideId, id, {
-                x: el.frame.x + dx,
-                y: el.frame.y + dy,
-              });
+              // Find element anywhere in the tree (supports drilled-in scope).
+              const path = findElementPath(slide.elements, id);
+              if (!path) continue;
+              const el = path[path.length - 1];
+              // Compute the new frame: apply the nudge delta in world space,
+              // then convert back to the element's parent-local space for storage.
+              // For scope = [] world == local, so this is a no-op conversion.
+              const worldFrame = toWorldFrame(el.frame, scope, slide);
+              const newWorldFrame = { ...worldFrame, x: worldFrame.x + worldDx, y: worldFrame.y + worldDy };
+              const localFrame = fromWorldFrame(newWorldFrame, scope, slide);
+              ctx.store.updateElementFrame(slideId, id, localFrame);
             }
           });
           ctx.requestRender();

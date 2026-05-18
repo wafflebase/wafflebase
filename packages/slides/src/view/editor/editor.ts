@@ -47,6 +47,7 @@ import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
+import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
 /**
@@ -1433,75 +1434,115 @@ class SlidesEditorImpl implements SlidesEditor {
   private startDrag(clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = new Set(this.selection.get());
-    const originalFrames = new Map<string, Frame>();
-    for (const el of startSlide.elements) {
-      if (selectedIds.has(el.id)) originalFrames.set(el.id, { ...el.frame });
+
+    // Capture each selected element's frame in WORLD coordinates.
+    // For scope = [] the element lives at slide root and its frame IS
+    // world-space already. For scope != [] the stored frame is
+    // group-local and must be lifted to world space via the ancestor
+    // transform so that pointer deltas (which are in world/slide coords)
+    // can be applied directly.
+    const originalWorldFrames = new Map<string, Frame>();
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (!el) continue;
+      originalWorldFrames.set(id, toWorldFrame(el.frame, scope, startSlide));
     }
-    if (originalFrames.size === 0) return;
+    if (originalWorldFrames.size === 0) return;
 
     const start = this.clientToLogical(clientX, clientY);
-    // Collect snap candidates at slide-root scope, excluding the dragged elements.
-    // Each candidate is an axis-aligned AABB so rotated shapes/groups snap
-    // against their visible bbox rather than their unrotated frame rect.
-    const otherFrames = collectSnapCandidates(startSlide, [], selectedIds);
+    // Collect snap candidates within the active scope, excluding the
+    // dragged elements. Each candidate is an axis-aligned AABB so
+    // rotated shapes/groups snap against their visible bbox.
+    const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
-    // Track dragged frames in memory; commit once at mouseup.
-    const live = new Map(originalFrames);
+    // Track live world frames in memory; commit once at mouseup.
+    const live = new Map(originalWorldFrames);
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
-      const bbox = combinedBoundingBox(Array.from(originalFrames.values()))!;
+      const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
       const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
 
-      for (const [id, base] of originalFrames) {
+      for (const [id, base] of originalWorldFrames) {
         live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
       }
       // Repaint canvas + overlay with the live frames; we DO NOT touch
       // the store yet. `guides` flow through to the overlay so magenta
       // alignment lines render alongside the selection handles.
-      this.paintLive(live, guides);
+      this.paintLiveScoped(live, scope, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Commit one batch with the final frames.
+      // Commit one batch. Convert each live world frame back to the
+      // element's parent-local space before writing so the stored frame
+      // stays in the correct coordinate system.
       const slideId = startSlide.id;
       this.options.store.batch(() => {
-        for (const [id, frame] of live) {
-          this.options.store.updateElementFrame(slideId, id, frame);
+        for (const [id, worldFrame] of live) {
+          const localFrame = fromWorldFrame(worldFrame, scope, startSlide);
+          this.options.store.updateElementFrame(slideId, id, localFrame);
         }
       });
       this.renderer.markDirty();
       this.render();
       // `render()` repaints only the canvas — without an explicit overlay
-      // refresh, the magenta guide nodes from the last `paintLive` would
-      // persist after mouseup. `repaintOverlay()` rebuilds the overlay
-      // with `selected` and no `guides`, clearing them.
+      // refresh, the magenta guide nodes from the last `paintLiveScoped`
+      // would persist after mouseup. `repaintOverlay()` rebuilds the
+      // overlay with `selected` and no `guides`, clearing them.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   }
 
-  private paintLive(live: Map<string, Frame>, guides: readonly SnapGuide[] = []): void {
-    // Render a synthesised slide where the selected elements use their
-    // live frames. We bypass the store so each mousemove is one paint,
-    // not one Yorkie op.
+  /**
+   * Scope-aware live paint. `worldFrames` holds the current world-space
+   * frames for each selected element id (regardless of scope depth).
+   *
+   * The canvas renderer gets a synthetic slide whose element tree has
+   * LOCAL frames updated in-place (via `patchElementFrames`) so that
+   * groups render their children correctly during the drag preview.
+   *
+   * The overlay gets elements with their WORLD frames so that selection
+   * handles appear at the positions the user actually sees, not at the
+   * raw stored (group-local) positions.
+   *
+   * For scope = [] world == local, so this behaves identically to `paintLive`.
+   */
+  private paintLiveScoped(
+    worldFrames: Map<string, Frame>,
+    scope: readonly string[],
+    guides: readonly SnapGuide[] = [],
+  ): void {
     const slide = this.currentSlide();
     if (!slide) return;
+
+    // Build a map of id → local frame for the canvas renderer.
+    const localFrames = new Map<string, Frame>();
+    for (const [id, worldFrame] of worldFrames) {
+      localFrames.set(id, fromWorldFrame(worldFrame, scope, slide));
+    }
+
     const synthetic = {
       ...slide,
-      elements: slide.elements.map((el) =>
-        live.has(el.id) ? { ...el, frame: live.get(el.id)! } : el,
-      ),
+      elements: patchElementFrames(slide.elements, localFrames),
     };
     this.renderer.forceRender(synthetic, this.options.store.read());
-    // Repaint overlay against the live frames so handles follow.
-    const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, {
+
+    // Build pseudo-elements with world frames for the overlay so handles
+    // are placed at the correct visual positions.
+    const selectedWorldElements = Array.from(worldFrames.entries()).map(([id, wf]) => {
+      const el = findElement(slide.elements, id);
+      if (!el) return null;
+      return { ...el, frame: wf } as Element;
+    }).filter((e): e is Element => e !== null);
+
+    renderOverlay(this.options.overlay, selectedWorldElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
@@ -1781,30 +1822,38 @@ class SlidesEditorImpl implements SlidesEditor {
   private startRotate(clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return; // single-element only in v1
     const elementId = selectedIds[0];
-    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
-    const startRotation = startEl.frame.rotation;
-    const cx = startEl.frame.x + startEl.frame.w / 2;
-    const cy = startEl.frame.y + startEl.frame.h / 2;
+    // Rotation is measured in world space (the angle between the cursor
+    // and the element's visible center). Convert the stored frame to
+    // world so the center and start rotation are in world coordinates.
+    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
+    const startRotation = startWorldFrame.rotation;
+    const cx = startWorldFrame.x + startWorldFrame.w / 2;
+    const cy = startWorldFrame.y + startWorldFrame.h / 2;
     const start = this.clientToLogical(clientX, clientY);
     const startAngle = Math.atan2(start.y - cy, start.x - cx);
-    let liveRotation = startRotation;
+    let liveWorldRotation = startRotation;
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const angle = Math.atan2(cur.y - cy, cur.x - cx);
-      liveRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
-      const liveFrame: Frame = { ...startEl.frame, rotation: liveRotation };
-      this.paintLive(new Map([[elementId, liveFrame]]));
+      liveWorldRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
+      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
+      this.paintLiveScoped(new Map([[elementId, liveWorldFrame]]), scope);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // Convert the rotated world frame back to scope-local and commit.
+      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
+      const localFrame = fromWorldFrame(liveWorldFrame, scope, startSlide);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, { rotation: liveRotation });
+        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
       this.render();
@@ -1816,28 +1865,34 @@ class SlidesEditorImpl implements SlidesEditor {
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return; // multi-resize is a v2 polish item
     const elementId = selectedIds[0];
-    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
-    const startFrame = { ...startEl.frame };
+    // Resize operates in world space so the handles stay fixed in the
+    // positions the user sees. Convert the stored local frame to world
+    // for all delta math, then convert back at commit time.
+    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
     const start = this.clientToLogical(clientX, clientY);
-    const live = { frame: startFrame };
+    const live = { worldFrame: startWorldFrame };
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      live.frame = resizeFrameWorld(startFrame, handle, dx, dy, ev.shiftKey);
-      const livMap = new Map<string, Frame>([[elementId, live.frame]]);
-      this.paintLive(livMap);
+      live.worldFrame = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
+      this.paintLiveScoped(livMap, scope);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // Convert world frame back to scope-local before committing.
+      const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, live.frame);
+        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
       this.render();
@@ -1851,6 +1906,54 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
   return editor;
+}
+
+/**
+ * Recursively patch `elements` so that any element whose id appears in
+ * `frames` gets its frame replaced. Returns a shallow copy of the array
+ * (and a shallow copy of any group whose children were patched).
+ *
+ * WHY: `paintLive` builds a synthetic slide for the canvas renderer.
+ * The canvas renderer handles group hierarchies natively (Task 5), so
+ * we must update frames at the correct depth rather than just patching
+ * the top-level array. Without this, dragging a drilled-in child would
+ * show no movement on the canvas during the drag preview.
+ */
+function patchElementFrames(
+  elements: readonly Element[],
+  frames: ReadonlyMap<string, Frame>,
+): Element[] {
+  return elements.map((el) => {
+    if (frames.has(el.id)) {
+      return { ...el, frame: frames.get(el.id)! };
+    }
+    if (el.type === 'group') {
+      const patched = patchElementFrames(el.data.children, frames);
+      // Only re-create the group object when something inside actually changed
+      // (reference equality check on the first changed child is sufficient
+      // because `patchElementFrames` always returns new arrays when patching).
+      const changed = patched.some((c, i) => c !== el.data.children[i]);
+      if (changed) {
+        return { ...el, data: { ...el.data, children: patched } };
+      }
+    }
+    return el;
+  });
+}
+
+/**
+ * Find an element anywhere in the element tree and return it.
+ * Returns `undefined` when not found (unlike `requireElement` which throws).
+ */
+function findElement(elements: readonly Element[], id: string): Element | undefined {
+  for (const el of elements) {
+    if (el.id === id) return el;
+    if (el.type === 'group') {
+      const found = findElement(el.data.children, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
 }
 
 function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {
