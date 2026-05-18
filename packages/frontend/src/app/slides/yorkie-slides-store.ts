@@ -908,19 +908,23 @@ export class YorkieSlidesStore implements SlidesStore {
         delete source.blocks;
         if (Object.keys(source).length === 0) return;
       }
-      // Apply key-by-key so explicit `undefined` removes the key. JSON.stringify
-      // strips undefined, so the clone-and-spread approach silently dropped
-      // clears (e.g. `{ crop: undefined }` for Reset Crop).
-      const eAny = e as { data: object };
-      const merged: Record<string, unknown> = { ...eAny.data };
+      // Apply key-by-key, IN-PLACE on the Yorkie data object. Re-assigning
+      // the whole `data` field breaks for groups because `data.children` is
+      // a nested Yorkie.Array (CRDT subtree) — spreading it would expose
+      // its proxy methods, and Yorkie rejects functions on `set`. Mutating
+      // individual fields preserves the children array as-is.
+      //
+      // Explicit `undefined` removes the key (JSON.stringify strips
+      // undefined, so the previous clone-and-spread silently dropped
+      // clears — e.g., `{ crop: undefined }` for Reset Crop).
+      const data = (e as { data: Record<string, unknown> }).data;
       for (const [k, v] of Object.entries(source)) {
         if (v === undefined) {
-          delete merged[k];
+          delete data[k];
         } else {
-          merged[k] = clone(v);
+          data[k] = clone(v);
         }
       }
-      eAny.data = merged;
     });
   }
 
