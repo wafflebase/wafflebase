@@ -84,16 +84,18 @@ function hitShape(
   opts: HitTestOptions,
 ): boolean {
   const frame = el.frame;
+  // Action buttons paint via a dedicated renderer (`drawActionButton`)
+  // that is NOT in PATH_BUILDERS — they have a body + glyph and no
+  // path-based outline to widen. Selection stays strict bbox so the
+  // click region doesn't pick up the tolerance halo other shapes use
+  // for AA-fringe forgiveness.
+  if (isActionButton(el.data.kind)) return containsPoint(frame, px, py);
+
   const tol = opts.tolerance ?? DEFAULT_HIT_TOLERANCE;
   // Fast bbox reject with a tolerance pad so clicks just outside the
   // bbox — but still within the stroke band — can reach the precise
   // tests below.
   if (!containsPointPadded(frame, px, py, tol)) return false;
-
-  // Action buttons paint via a dedicated renderer (`drawActionButton`)
-  // that is NOT in PATH_BUILDERS — they have a body + glyph. Selection
-  // stays bbox-based.
-  if (isActionButton(el.data.kind)) return true;
 
   const builder = PATH_BUILDERS.get(el.data.kind);
   if (!builder) return true; // unknown kind → placeholder rect; bbox is what we have.
