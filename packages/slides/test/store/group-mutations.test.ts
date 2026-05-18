@@ -308,8 +308,88 @@ describe('group()', () => {
   });
 });
 
-describe('ungroup() stub', () => {
-  it('throws "not implemented"', () => {
+describe('ungroup()', () => {
+  it('flattens a group back into the parent at the same z-position', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 20, h: 20, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 40, y: 50, w: 30, h: 10, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let groupId!: string;
+    store.batch(() => { ({ groupId } = store.group(sid, [a, b])); });
+    let childIds!: string[];
+    store.batch(() => { childIds = store.ungroup(sid, groupId); });
+    expect(childIds).toEqual([a, b]);
+    const slide = store.read().slides[0];
+    expect(slide.elements.map(e => e.id)).toEqual([a, b]);
+    expect(slide.elements[0].frame).toMatchObject({ x: 10, y: 10, w: 20, h: 20 });
+    expect(slide.elements[1].frame).toMatchObject({ x: 40, y: 50, w: 30, h: 10 });
+  });
+
+  it('preserves rotation across group-ungroup round-trip', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 40, h: 20, rotation: Math.PI / 6 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 200, y: 100, w: 40, h: 20, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let groupId!: string;
+    store.batch(() => { ({ groupId } = store.group(sid, [a, b])); });
+    // Rotate the group itself.
+    store.batch(() => store.updateElementFrame(sid, groupId, { rotation: Math.PI / 4 }));
+    store.batch(() => store.ungroup(sid, groupId));
+    const slide = store.read().slides[0];
+    // Composed rotation = child rotation + group rotation.
+    expect(slide.elements[0].frame.rotation).toBeCloseTo(Math.PI / 6 + Math.PI / 4, 5);
+    expect(slide.elements[1].frame.rotation).toBeCloseTo(Math.PI / 4, 5);
+  });
+
+  it('throws on missing group id', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    expect(() => store.batch(() => store.ungroup(sid, 'no-such-id'))).toThrow();
+  });
+
+  it('throws when element is not a group', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    expect(() => store.batch(() => store.ungroup(sid, a))).toThrow(/not a group/i);
+  });
+
+  it('one ungroup = one undo step', () => {
     const store = new MemSlidesStore();
     let sid!: string;
     store.batch(() => { sid = store.addSlide('blank', 0); });
@@ -329,6 +409,73 @@ describe('ungroup() stub', () => {
     });
     let groupId!: string;
     store.batch(() => { ({ groupId } = store.group(sid, [a, b])); });
-    expect(() => store.batch(() => store.ungroup(sid, groupId))).toThrow(/not implemented/i);
+    const before = store.read();
+    store.batch(() => store.ungroup(sid, groupId));
+    store.undo();
+    const after = store.read();
+    // After undo, the group is back as one element.
+    expect(after.slides[0].elements.length).toBe(before.slides[0].elements.length);
+    expect(after.slides[0].elements[0].type).toBe('group');
+  });
+});
+
+import fc from 'fast-check';
+
+// Math.fround of Math.PI gives us the nearest 32-bit float boundary.
+const FC_PI = Math.fround(Math.PI);
+
+describe('group/ungroup round-trip (property)', () => {
+  it('world frames of children are preserved through group → ungroup', () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            x: fc.float({ min: 0, max: 1000, noNaN: true }),
+            y: fc.float({ min: 0, max: 1000, noNaN: true }),
+            w: fc.float({ min: 10, max: 200, noNaN: true }),
+            h: fc.float({ min: 10, max: 200, noNaN: true }),
+            r: fc.float({ min: -FC_PI, max: FC_PI, noNaN: true }),
+          }),
+          { minLength: 2, maxLength: 5 },
+        ),
+        (shapes) => {
+          const store = new MemSlidesStore();
+          let sid!: string;
+          store.batch(() => { sid = store.addSlide('blank', 0); });
+          const ids: string[] = [];
+          for (const s of shapes) {
+            let id!: string;
+            store.batch(() => {
+              id = store.addElement(sid, {
+                type: 'shape',
+                frame: {
+                  x: Math.fround(s.x), y: Math.fround(s.y),
+                  w: Math.fround(s.w), h: Math.fround(s.h),
+                  rotation: s.r,
+                },
+                data: { kind: 'rect' },
+              });
+            });
+            ids.push(id);
+          }
+          const before = store.read().slides[0].elements.map((e) => ({ ...e.frame }));
+          let groupId!: string;
+          store.batch(() => { ({ groupId } = store.group(sid, ids)); });
+          store.batch(() => store.ungroup(sid, groupId));
+          const after = store.read().slides[0].elements.map((e) => ({ ...e.frame }));
+          // Same count, same world frames within tight tolerance.
+          expect(after).toHaveLength(before.length);
+          for (let i = 0; i < before.length; i++) {
+            expect(after[i].x).toBeCloseTo(before[i].x, 2);
+            expect(after[i].y).toBeCloseTo(before[i].y, 2);
+            expect(after[i].w).toBeCloseTo(before[i].w, 2);
+            expect(after[i].h).toBeCloseTo(before[i].h, 2);
+            expect(Math.sin(after[i].rotation)).toBeCloseTo(Math.sin(before[i].rotation), 4);
+            expect(Math.cos(after[i].rotation)).toBeCloseTo(Math.cos(before[i].rotation), 4);
+          }
+        },
+      ),
+      { numRuns: 50 },
+    );
   });
 });

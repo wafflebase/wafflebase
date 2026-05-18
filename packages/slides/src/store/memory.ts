@@ -23,6 +23,7 @@ import {
 } from '../view/canvas/connector-frame';
 import {
   IDENTITY_GROUP_TRANSFORM,
+  applyGroupTransform,
   applyInverseMatrix,
   composeAncestorTransform,
   findElementPath,
@@ -557,9 +558,62 @@ export class MemSlidesStore implements SlidesStore {
     return { groupId, excludedConnectorIds: [] };
   }
 
-  ungroup(_slideId: string, _groupId: string): string[] {
+  ungroup(slideId: string, groupId: string): string[] {
     this.requireBatch();
-    throw new Error('[slides] ungroup(): not implemented');
+
+    const slide = this.requireSlide(slideId);
+
+    // Step 1: locate the group in the slide's element tree.
+    const path = findElementPath(slide.elements, groupId);
+    if (!path) {
+      throw new Error(`[slides] ungroup(): element not found: ${groupId}`);
+    }
+
+    // Step 2: verify the target is a group.
+    const group = path[path.length - 1];
+    if (group.type !== 'group') {
+      throw new Error(`[slides] ungroup(): element ${groupId} is not a group`);
+    }
+
+    // Step 3: resolve the parent array.
+    // The parent is either slide.elements (if the group is at slide root)
+    // or a GroupElement's children array (for a nested group).
+    let parentArray: Element[];
+    if (path.length === 1) {
+      // Group is at the slide root.
+      parentArray = slide.elements;
+    } else {
+      // Group is nested inside another group — the immediate parent is
+      // the second-to-last element in the path.
+      const parentEl = path[path.length - 2];
+      // By the findElementPath invariant, a non-root ancestor must be a group.
+      // No runtime check needed — if the invariant breaks, the splice below
+      // will naturally produce incorrect output, caught by tests.
+      parentArray = (parentEl as GroupElement).data.children;
+    }
+
+    // Step 4: find the group's current index in its parent array.
+    const groupIndex = parentArray.findIndex(e => e.id === groupId);
+    // Unreachable: findElementPath succeeded, so the group must be in the
+    // parent array we derived from the same path.
+
+    // Step 5: bake the group's transform into each child's frame.
+    // applyGroupTransform converts a child's group-local frame into the
+    // group's parent (= "one level up") coordinate space — exactly what we
+    // need for a one-level-only ungroup. Grandchildren stay in their own
+    // group-local space (their parent group's frame moves, not their own).
+    const bakedChildren: Element[] = group.data.children.map(child => ({
+      ...clone(child),
+      frame: applyGroupTransform(child.frame, group as GroupElement),
+    }));
+
+    // Step 6: replace the group in the parent array with its children,
+    // preserving z-order (children land at the group's slot, in their
+    // existing order relative to each other).
+    parentArray.splice(groupIndex, 1, ...bakedChildren);
+
+    // Step 7: return child ids so the caller can restore selection.
+    return bakedChildren.map(c => c.id);
   }
 
   // --- text bridges ---
