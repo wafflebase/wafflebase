@@ -1012,6 +1012,263 @@ describe('Editor — connector endpoint drag deadband', () => {
     store.undo();
     expect(store.canUndo()).toBe(true);
   });
+
+  it('mid-drag: real handle stays anchored at the pre-drag position', () => {
+    // The canvas-side ghost line is painted via the renderer's
+    // `forceRender(slide, doc, ghost)` slot — covered by the renderer's
+    // own tests. Here we only assert the overlay-side invariant: the
+    // handle DOM does NOT follow the cursor during the drag, so the
+    // user has a stable anchor to compare the ghost line against.
+    const { overlay } = setupConnector();
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="start"]');
+    expect(handle).not.toBeNull();
+    const initialLeft = parseFloat(handle!.style.left);
+    const initialTop = parseFloat(handle!.style.top);
+    const cx = initialLeft + 4;
+    const cy = initialTop + 4;
+
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 50, clientY: cy + 30 }));
+
+    const realStart = overlay.querySelector<HTMLDivElement>('[data-handle="start"]')!;
+    expect(realStart).not.toBeNull();
+    expect(parseFloat(realStart.style.left)).toBe(initialLeft);
+    expect(parseFloat(realStart.style.top)).toBe(initialTop);
+
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx + 50, clientY: cy + 30 }));
+  });
+});
+
+describe('Editor — dragging connectors translates endpoints', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  /**
+   * Fixture with a diagonal connector so its bbox frame is non-degenerate
+   * (width 200, height 100) and can be hit-tested by a click on its body.
+   */
+  function setupDiagonalConnector() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 100, y: 100 },
+        end:   { kind: 'free', x: 300, y: 200 },
+        arrowheads: {},
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    return { canvas, overlay, store, slideId, connectorId };
+  }
+
+  it('drags a connector via its body without throwing and translates free endpoints', () => {
+    const { canvas, store, connectorId } = setupDiagonalConnector();
+    editor!.setSelection([connectorId]);
+
+    // Click inside the connector bbox (which contains the diagonal line).
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 150 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 250, clientY: 170 }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 250, clientY: 170 }));
+
+    const slide = store.read().slides[0];
+    const el = slide.elements.find((e) => e.id === connectorId);
+    expect(el?.type).toBe('connector');
+    if (el?.type !== 'connector') throw new Error('unreachable');
+    // Endpoints translated by (+50, +20).
+    expect(el.start).toEqual({ kind: 'free', x: 150, y: 120 });
+    expect(el.end).toEqual({ kind: 'free', x: 350, y: 220 });
+  });
+
+  it('multi-select drag translates a connector alongside a shape', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let shapeId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 500, y: 500, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 100, y: 100 },
+        end:   { kind: 'free', x: 300, y: 200 },
+        arrowheads: {},
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([shapeId, connectorId]);
+
+    // Drag from inside the shape — no shift, so the existing multi-select
+    // is preserved (per `selectAt`'s already-selected guard).
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 600, clientY: 550 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 610, clientY: 560 }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 610, clientY: 560 }));
+
+    const slide = store.read().slides[0];
+    const shape = slide.elements.find((e) => e.id === shapeId)!;
+    const connector = slide.elements.find((e) => e.id === connectorId)!;
+    expect(shape.frame.x).toBe(510);
+    expect(shape.frame.y).toBe(510);
+    if (connector.type !== 'connector') throw new Error('unreachable');
+    expect(connector.start).toEqual({ kind: 'free', x: 110, y: 110 });
+    expect(connector.end).toEqual({ kind: 'free', x: 310, y: 210 });
+  });
+
+  it('body-drag of a half-attached connector translates the free end and leaves the attached end pinned', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let hostId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      // Tiny host tucked in the corner — its connection site is near
+      // (25, 10), so the connector's bbox spans from there to its free
+      // end at (300, 200). The click target lands well inside that
+      // bbox, and the host is far enough from the dragged bbox edges
+      // that snap (8px threshold) can't engage.
+      hostId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 30, h: 30, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: hostId, siteIndex: 0 },
+        end:   { kind: 'free', x: 300, y: 200 },
+        arrowheads: {},
+        frame: { x: 25, y: 10, w: 275, h: 190, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([connectorId]);
+
+    // Drag the connector body by (+30, +15).
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 150 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 230, clientY: 165 }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 230, clientY: 165 }));
+
+    const slide = store.read().slides[0];
+    const connector = slide.elements.find((e) => e.id === connectorId)!;
+    if (connector.type !== 'connector') throw new Error('unreachable');
+    // Attached endpoint untouched — host did not move, so the renderer
+    // keeps it pinned. Free endpoint translated by the drag delta.
+    expect(connector.start).toEqual({ kind: 'attached', elementId: hostId, siteIndex: 0 });
+    expect(connector.end).toEqual({ kind: 'free', x: 330, y: 215 });
+    // Sanity: the host frame did not move.
+    const host = slide.elements.find((e) => e.id === hostId)!;
+    expect(host.frame.x).toBe(10);
+    expect(host.frame.y).toBe(10);
+  });
+
+  it('body-drag of a fully-attached connector leaves both endpoints anchored to their hosts', () => {
+    // The "attachment wins" contract: when both endpoints attach to
+    // shapes not in the selection, translating the connector commits
+    // zero ops — the renderer keeps both ends pinned to their hosts.
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let hostAId = '';
+    let hostBId = '';
+    let connectorId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      hostAId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 30, h: 30, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      hostBId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 300, y: 200, w: 30, h: 30, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      connectorId = store.addElement(slideId, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: hostAId, siteIndex: 0 },
+        end:   { kind: 'attached', elementId: hostBId, siteIndex: 0 },
+        arrowheads: {},
+        frame: { x: 25, y: 10, w: 290, h: 190, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([connectorId]);
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 150 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 230, clientY: 165 }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 230, clientY: 165 }));
+
+    const slide = store.read().slides[0];
+    const connector = slide.elements.find((e) => e.id === connectorId)!;
+    if (connector.type !== 'connector') throw new Error('unreachable');
+    // Both endpoints retain the attachment to their original hosts.
+    expect(connector.start).toEqual({ kind: 'attached', elementId: hostAId, siteIndex: 0 });
+    expect(connector.end).toEqual({ kind: 'attached', elementId: hostBId, siteIndex: 0 });
+    // Hosts did not move either.
+    const hostA = slide.elements.find((e) => e.id === hostAId)!;
+    const hostB = slide.elements.find((e) => e.id === hostBId)!;
+    expect(hostA.frame.x).toBe(10);
+    expect(hostB.frame.x).toBe(300);
+  });
+
+  it('keyboard arrow nudge translates a connector', () => {
+    const { canvas, store, connectorId } = setupDiagonalConnector();
+    editor!.setSelection([connectorId]);
+
+    // Nudge right by 1px.
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+
+    const slide = store.read().slides[0];
+    const el = slide.elements.find((e) => e.id === connectorId);
+    if (el?.type !== 'connector') throw new Error('unreachable');
+    expect(el.start).toEqual({ kind: 'free', x: 101, y: 100 });
+    expect(el.end).toEqual({ kind: 'free', x: 301, y: 200 });
+  });
 });
 
 describe('Editor canvas context menu — Change layout', () => {
