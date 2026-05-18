@@ -123,6 +123,9 @@ export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shape
 export type { HitResult } from './view/editor/hit-test-elements';
 export { hitTestSlide } from './view/editor/hit-test-elements';
 
+// View — Snap candidates (scope-aware, rotated AABB)
+export { collectSnapCandidates } from './view/editor/snap-candidates';
+
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';

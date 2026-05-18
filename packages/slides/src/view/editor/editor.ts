@@ -46,6 +46,7 @@ import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta, type SnapGuide } from './snap';
+import { collectSnapCandidates } from './snap-candidates';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
 /**
@@ -1440,9 +1441,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (originalFrames.size === 0) return;
 
     const start = this.clientToLogical(clientX, clientY);
-    const otherFrames = startSlide.elements
-      .filter((e) => !selectedIds.has(e.id))
-      .map((e) => e.frame);
+    // Collect snap candidates at slide-root scope, excluding the dragged elements.
+    // Each candidate is an axis-aligned AABB so rotated shapes/groups snap
+    // against their visible bbox rather than their unrotated frame rect.
+    const otherFrames = collectSnapCandidates(startSlide, [], selectedIds);
 
     // Track dragged frames in memory; commit once at mouseup.
     const live = new Map(originalFrames);
