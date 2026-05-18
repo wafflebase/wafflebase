@@ -1,6 +1,6 @@
 # Slides Group / Ungroup — nested element tree
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add Google-Slides-style group / ungroup to the slides editor with a recursive `GroupElement`, drill-in selection, recursive renderer / hit-test / PDF export, and PPTX `<p:grpSp>` preservation.
 
@@ -120,11 +120,11 @@ export function isDescendantOf(
 }
 ```
 
-- [ ] **1.1** Add `GroupElement` to `packages/slides/src/model/element.ts` and extend the `Element` union. Keep `ElementInit` synced (`Omit<GroupElement, 'id'>` variant). Re-export from `packages/slides/src/index.ts`.
+- [x] **1.1** Add `GroupElement` to `packages/slides/src/model/element.ts` and extend the `Element` union. Keep `ElementInit` synced (`Omit<GroupElement, 'id'>` variant). Re-export from `packages/slides/src/index.ts`.
 
-- [ ] **1.2** Create `packages/slides/src/model/group.ts` with the exact helpers above. Re-export from `packages/slides/src/index.ts`.
+- [x] **1.2** Create `packages/slides/src/model/group.ts` with the exact helpers above. Re-export from `packages/slides/src/index.ts`.
 
-- [ ] **1.3** Write failing tests in `packages/slides/test/model/group.test.ts`:
+- [x] **1.3** Write failing tests in `packages/slides/test/model/group.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -211,9 +211,9 @@ describe('isDescendantOf', () => {
 });
 ```
 
-- [ ] **1.4** Run: `pnpm --filter @wafflebase/slides test test/model/group.test.ts`. Expect: all PASS.
+- [x] **1.4** Run: `pnpm --filter @wafflebase/slides test test/model/group.test.ts`. Expect: all PASS.
 
-- [ ] **1.5** Add a fast-check property test (depth 1–2 random groups, random child rotation) to lock the round-trip invariant. Append to the same test file:
+- [x] **1.5** Add a fast-check property test (depth 1–2 random groups, random child rotation) to lock the round-trip invariant. Append to the same test file:
 
 ```ts
 import fc from 'fast-check';
@@ -251,11 +251,11 @@ describe('round-trip property', () => {
 });
 ```
 
-- [ ] **1.6** Run the property test; expect PASS within 1–2s. If `fast-check` is not yet a dep, add `fast-check@^3` to `packages/slides/devDependencies` (already used in `model/frame.ts` tests; check `package.json`).
+- [x] **1.6** Run the property test; expect PASS within 1–2s. If `fast-check` is not yet a dep, add `fast-check@^3` to `packages/slides/devDependencies` (already used in `model/frame.ts` tests; check `package.json`).
 
-- [ ] **1.7** Run `pnpm verify:fast`. Expect PASS (no other code touched yet).
+- [x] **1.7** Run `pnpm verify:fast`. Expect PASS (no other code touched yet).
 
-- [ ] **1.8** Commit:
+- [x] **1.8** Commit:
 
 ```bash
 git add packages/slides/src/model/element.ts \
@@ -313,9 +313,9 @@ Frame math:
 - The new group's `frame` is the **world-AABB** of the candidate children's world frames (rotation-aware union), with `rotation = 0`, `flipH = false`, `flipV = false`.
 - Children's new local frames are computed by `normalizeToGroupLocal(childWorldFrame, newGroup)`.
 
-- [ ] **2.1** Extend `SlidesStore` interface (`packages/slides/src/store/store.ts`) with `group` and `ungroup` signatures.
+- [x] **2.1** Extend `SlidesStore` interface (`packages/slides/src/store/store.ts`) with `group` and `ungroup` signatures.
 
-- [ ] **2.2** Write failing tests in `packages/slides/test/store/group-mutations.test.ts`:
+- [x] **2.2** Write failing tests in `packages/slides/test/store/group-mutations.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -390,9 +390,9 @@ describe('group()', () => {
 });
 ```
 
-- [ ] **2.3** Run: `pnpm --filter @wafflebase/slides test test/store/group-mutations.test.ts`. Expect: all FAIL with "store.group is not a function".
+- [x] **2.3** Run: `pnpm --filter @wafflebase/slides test test/store/group-mutations.test.ts`. Expect: all FAIL with "store.group is not a function".
 
-- [ ] **2.4** Implement `group()` in `MemSlidesStore`. Sketch:
+- [x] **2.4** Implement `group()` in `MemSlidesStore`. Sketch:
 
 ```ts
 group(slideId: string, elementIds: string[]): string {
@@ -454,13 +454,13 @@ group(slideId: string, elementIds: string[]): string {
 
 Helpers `composeAncestorMatrix`, `applyAncestorMatrix`, `computeAabb`, and `withFrame` live next to the mutation in `memory.ts` (or in `model/group.ts` if reused later). `computeAabb` produces a rotation-aware bbox by collecting the 4 corners of each world frame and taking min/max — `frame.ts` already has `rotatedCorners`; reuse it.
 
-- [ ] **2.5** Run the group tests again. Expect PASS.
+- [x] **2.5** Run the group tests again. Expect PASS.
 
-- [ ] **2.6** Add a test for grouping inside an already-existing group (i.e., shared parent is a group, not slide root). Expect children to be re-grouped into a nested group whose `frame` is in the parent group's local coordinate space.
+- [x] **2.6** Add a test for grouping inside an already-existing group (i.e., shared parent is a group, not slide root). Expect children to be re-grouped into a nested group whose `frame` is in the parent group's local coordinate space.
 
-- [ ] **2.7** Run `pnpm --filter @wafflebase/slides test`. Expect: all existing tests still PASS.
+- [x] **2.7** Run `pnpm --filter @wafflebase/slides test`. Expect: all existing tests still PASS.
 
-- [ ] **2.8** Commit:
+- [x] **2.8** Commit:
 
 ```bash
 git add packages/slides/src/store/store.ts \
@@ -489,7 +489,7 @@ git commit -m "Add MemSlidesStore.group() with shared-parent validation"
 
 Edge case: a group with only one child after some prior mutation is already in an inconsistent state per the spec — `ungroup` handles it identically.
 
-- [ ] **3.1** Write failing tests:
+- [x] **3.1** Write failing tests:
 
 ```ts
 describe('ungroup()', () => {
@@ -531,9 +531,9 @@ describe('ungroup()', () => {
 });
 ```
 
-- [ ] **3.2** Run; expect FAIL.
+- [x] **3.2** Run; expect FAIL.
 
-- [ ] **3.3** Implement `ungroup()`:
+- [x] **3.3** Implement `ungroup()`:
 
 ```ts
 ungroup(slideId: string, groupId: string): string[] {
@@ -563,13 +563,13 @@ ungroup(slideId: string, groupId: string): string[] {
 }
 ```
 
-- [ ] **3.4** Run; expect PASS.
+- [x] **3.4** Run; expect PASS.
 
-- [ ] **3.5** Add a round-trip property test: group N random shapes, ungroup, assert each shape's world-frame approximates the original within 1e-3.
+- [x] **3.5** Add a round-trip property test: group N random shapes, ungroup, assert each shape's world-frame approximates the original within 1e-3.
 
-- [ ] **3.6** Run `pnpm --filter @wafflebase/slides test`. Expect: all PASS.
+- [x] **3.6** Run `pnpm --filter @wafflebase/slides test`. Expect: all PASS.
 
-- [ ] **3.7** Commit:
+- [x] **3.7** Commit:
 
 ```bash
 git add packages/slides/src/store/memory.ts \
@@ -591,7 +591,7 @@ Existing mutations (`addElement`, `removeElement`, `removeElements`, `updateElem
 
 `addElement` gains an optional `parentGroupId` parameter; when provided, the element is appended to that group's children instead of the slide root.
 
-- [ ] **4.1** Write a failing test for each modified method, e.g.:
+- [x] **4.1** Write a failing test for each modified method, e.g.:
 
 ```ts
 it('updateElementFrame mutates the child inside a group', () => {
@@ -617,11 +617,11 @@ it('addElement(parentGroupId) appends to a group', () => {
 });
 ```
 
-- [ ] **4.2** Run; expect FAIL.
+- [x] **4.2** Run; expect FAIL.
 
-- [ ] **4.3** Refactor each mutation to use `findElementPath` + the appropriate parent array. Add a `walkAllElements(slide, fn)` helper if any consumer needs a flat traversal (e.g., `read()` consumers shouldn't change behavior).
+- [x] **4.3** Refactor each mutation to use `findElementPath` + the appropriate parent array. Add a `walkAllElements(slide, fn)` helper if any consumer needs a flat traversal (e.g., `read()` consumers shouldn't change behavior).
 
-- [ ] **4.4** **Empty-group auto-removal.** After any `removeElement` / `removeElements` call, if the immediate parent group now has zero children, remove that group element from its parent (recursing upward as needed). Add a test:
+- [x] **4.4** **Empty-group auto-removal.** After any `removeElement` / `removeElements` call, if the immediate parent group now has zero children, remove that group element from its parent (recursing upward as needed). Add a test:
 
 ```ts
 it('removeElement on the last group child removes the parent group', () => {
@@ -637,9 +637,9 @@ it('removeElement on the last group child removes the parent group', () => {
 });
 ```
 
-- [ ] **4.5** Run all slides tests. Expect: PASS.
+- [x] **4.5** Run all slides tests. Expect: PASS.
 
-- [ ] **4.6** Commit:
+- [x] **4.6** Commit:
 
 ```bash
 git add packages/slides/src/store/store.ts packages/slides/src/store/memory.ts packages/slides/test/store/memory.test.ts
@@ -687,15 +687,15 @@ function paintElement(
 
 `paintLeafElement` is the current per-type switch with the rotation / translation steps **removed** (the caller already applied them).
 
-- [ ] **5.1** Write a failing test using a mock `CanvasRenderingContext2D` (`view/canvas/ctx-spy.ts` already exists) that paints a slide containing one group with one shape and asserts the call sequence: outer `save`, group `setTransform`, inner `save`, shape `setTransform`, shape draw, inner `restore`, outer `restore`.
+- [x] **5.1** Write a failing test using a mock `CanvasRenderingContext2D` (`view/canvas/ctx-spy.ts` already exists) that paints a slide containing one group with one shape and asserts the call sequence: outer `save`, group `setTransform`, inner `save`, shape `setTransform`, shape draw, inner `restore`, outer `restore`.
 
-- [ ] **5.2** Run; expect FAIL.
+- [x] **5.2** Run; expect FAIL.
 
-- [ ] **5.3** Refactor `slide-renderer.ts` and any leaf renderers that double-apply `frame` transforms.
+- [x] **5.3** Refactor `slide-renderer.ts` and any leaf renderers that double-apply `frame` transforms.
 
-- [ ] **5.4** Run the slide-renderer tests + the existing visual baselines. Expect: PASS (any baseline diffs require manual approval — note in commit body).
+- [x] **5.4** Run the slide-renderer tests + the existing visual baselines. Expect: PASS (any baseline diffs require manual approval — note in commit body).
 
-- [ ] **5.5** Commit:
+- [x] **5.5** Commit:
 
 ```bash
 git add packages/slides/src/view/canvas/slide-renderer.ts \
@@ -730,7 +730,7 @@ export function hitTestSlide(
 
 Recursion: front-to-back; for each element compute the local point via inverse rotation around its center; if it is a group, recurse with the same world point (the recursion will keep transforming as it descends); else test `pointInElement(local, el)`.
 
-- [ ] **6.1** Write failing tests:
+- [x] **6.1** Write failing tests:
 
 ```ts
 it('hits a slide-root shape', () => {
@@ -759,15 +759,15 @@ it('returns null on empty hit', () => {
 });
 ```
 
-- [ ] **6.2** Run; expect FAIL.
+- [x] **6.2** Run; expect FAIL.
 
-- [ ] **6.3** Implement the recursive hit-test. Use `localizePoint` from `model/frame.ts` per descent step.
+- [x] **6.3** Implement the recursive hit-test. Use `localizePoint` from `model/frame.ts` per descent step.
 
-- [ ] **6.4** Run. Expect PASS.
+- [x] **6.4** Run. Expect PASS.
 
-- [ ] **6.5** Property test: random nested group/shape trees and random world points; assert the returned `ancestorPath` resolves back to the same leaf via `findElementPath`.
+- [x] **6.5** Property test: random nested group/shape trees and random world points; assert the returned `ancestorPath` resolves back to the same leaf via `findElementPath`.
 
-- [ ] **6.6** Commit:
+- [x] **6.6** Commit:
 
 ```bash
 git add packages/slides/src/view/editor/hit-test.ts packages/slides/test/view/editor/hit-test.test.ts
@@ -785,15 +785,15 @@ git commit -m "Recurse hit-test through groups and return ancestor path"
 
 Snap engine consumes "candidate bboxes". For a group at slide root, the bbox is the group's world AABB (compute via `rotatedCorners` of the group's own frame). Children inside a group are **not** snap candidates at slide root scope — they're only candidates when the selection is drilled in.
 
-- [ ] **7.1** Write failing tests confirming a group's bbox is the snap candidate (not its children's world bboxes) at root scope.
+- [x] **7.1** Write failing tests confirming a group's bbox is the snap candidate (not its children's world bboxes) at root scope.
 
-- [ ] **7.2** Run; expect FAIL.
+- [x] **7.2** Run; expect FAIL.
 
-- [ ] **7.3** Adjust the candidate enumerator to short-circuit at `type === 'group'` for the root-scope variant; expose a second `collectCandidates(elements, scope)` overload for drill-in.
+- [x] **7.3** Adjust the candidate enumerator to short-circuit at `type === 'group'` for the root-scope variant; expose a second `collectCandidates(elements, scope)` overload for drill-in.
 
-- [ ] **7.4** Run. Expect PASS.
+- [x] **7.4** Run. Expect PASS.
 
-- [ ] **7.5** Commit:
+- [x] **7.5** Commit:
 
 ```bash
 git add packages/slides/src/view/editor/snap.ts packages/slides/test/view/editor/snap.test.ts
@@ -828,7 +828,7 @@ export class SelectionController {
 
 Behavior matches the spec's selection table (see `slides-group.md § 4`). All transitions are pure; consumers re-render based on `state`.
 
-- [ ] **8.1** Write failing unit tests for every row in the spec table, e.g.:
+- [x] **8.1** Write failing unit tests for every row in the spec table, e.g.:
 
 ```ts
 it('click on slide-root element selects it', () => {
@@ -863,13 +863,13 @@ it('esc pops the scope', () => {
 });
 ```
 
-- [ ] **8.2** Run; expect FAIL.
+- [x] **8.2** Run; expect FAIL.
 
-- [ ] **8.3** Implement the controller. Key rule: clicks under the current `scope` pick the descendant at `scope.length`-th ancestor; clicks outside the scope (`scope` not a prefix of `ancestorPath`) reset `scope = []` and re-evaluate the click.
+- [x] **8.3** Implement the controller. Key rule: clicks under the current `scope` pick the descendant at `scope.length`-th ancestor; clicks outside the scope (`scope` not a prefix of `ancestorPath`) reset `scope = []` and re-evaluate the click.
 
-- [ ] **8.4** Run. Expect PASS.
+- [x] **8.4** Run. Expect PASS.
 
-- [ ] **8.5** Commit:
+- [x] **8.5** Commit:
 
 ```bash
 git add packages/slides/src/view/editor/selection.ts packages/slides/test/view/editor/selection.test.ts
@@ -894,15 +894,15 @@ For each interaction (`drag-move`, `resize`, `rotate`, `nudge`):
 - Resize a selected group → updates the group's `frame.w/h` only; children unaffected (visual scaling is rendering-time).
 - Rotate a selected group → updates the group's `frame.rotation` only.
 
-- [ ] **9.1** Write failing tests for each interaction inside a drill-in scope (one leaf shape inside one group).
+- [x] **9.1** Write failing tests for each interaction inside a drill-in scope (one leaf shape inside one group).
 
-- [ ] **9.2** Run; expect FAIL.
+- [x] **9.2** Run; expect FAIL.
 
-- [ ] **9.3** Pass the current `scope` into each interaction's frame-commit path; rewrite snap-candidate enumeration accordingly.
+- [x] **9.3** Pass the current `scope` into each interaction's frame-commit path; rewrite snap-candidate enumeration accordingly.
 
-- [ ] **9.4** Run. Expect PASS.
+- [x] **9.4** Run. Expect PASS.
 
-- [ ] **9.5** Commit:
+- [x] **9.5** Commit:
 
 ```bash
 git add packages/slides/src/view/editor/interactions packages/slides/src/view/editor/editor.ts packages/slides/test/view/editor
@@ -936,15 +936,15 @@ Context menu (`view/editor/context-menu.ts`):
 
 Toolbar (`contextual-toolbar.tsx`): Arrange dropdown gains Group / Ungroup entries above Align / Distribute / Order.
 
-- [ ] **10.1** Add catalog entries with descriptions and matching accelerators. Tests run automatically via the catalog's uniqueness check.
+- [x] **10.1** Add catalog entries with descriptions and matching accelerators. Tests run automatically via the catalog's uniqueness check.
 
-- [ ] **10.2** Wire `editor.group()` / `editor.ungroup()` / `editor.popScope()` to the controller + store.
+- [x] **10.2** Wire `editor.group()` / `editor.ungroup()` / `editor.popScope()` to the controller + store.
 
-- [ ] **10.3** Write integration tests in `packages/slides/test/view/editor/keymap.test.ts` that simulate `Cmd+Alt+G` on a selection and assert a group is created.
+- [x] **10.3** Write integration tests in `packages/slides/test/view/editor/keymap.test.ts` that simulate `Cmd+Alt+G` on a selection and assert a group is created.
 
-- [ ] **10.4** Run all slides tests. Expect: PASS.
+- [x] **10.4** Run all slides tests. Expect: PASS.
 
-- [ ] **10.5** Commit:
+- [x] **10.5** Commit:
 
 ```bash
 git add packages/slides/src/view/editor/shortcuts-catalog.ts \
@@ -980,15 +980,15 @@ interface SlidesStore {
 
 (Breaking the prior return type; update Task 2's callers.)
 
-- [ ] **11.1** Write failing tests for both cases.
+- [x] **11.1** Write failing tests for both cases.
 
-- [ ] **11.2** Run; expect FAIL.
+- [x] **11.2** Run; expect FAIL.
 
-- [ ] **11.3** Implement the partition step in `group()`. Update callers (`editor.ts`) to read `excludedConnectorIds` and call `editor.toast()` when non-empty.
+- [x] **11.3** Implement the partition step in `group()`. Update callers (`editor.ts`) to read `excludedConnectorIds` and call `editor.toast()` when non-empty.
 
-- [ ] **11.4** Run all slides tests. Expect: PASS.
+- [x] **11.4** Run all slides tests. Expect: PASS.
 
-- [ ] **11.5** Commit:
+- [x] **11.5** Commit:
 
 ```bash
 git add packages/slides/src/store/memory.ts \
@@ -1009,15 +1009,15 @@ git commit -m "Exclude cross-group connectors from group() with a toast"
 
 Adapter layer. Use `Yorkie.Array` for `children` in `GroupElement.data`. Group / ungroup operations wrap the existing batch primitive. Element-path traversal mirrors the new `findElementPath`.
 
-- [ ] **12.1** Write failing tests asserting `YorkieSlidesStore` produces the same `read()` output as `MemSlidesStore` for the group/ungroup sequence from Task 2.
+- [x] **12.1** Write failing tests asserting `YorkieSlidesStore` produces the same `read()` output as `MemSlidesStore` for the group/ungroup sequence from Task 2.
 
-- [ ] **12.2** Run; expect FAIL.
+- [x] **12.2** Run; expect FAIL.
 
-- [ ] **12.3** Implement `group()` / `ungroup()` against the Yorkie root. For group, mutate the parent `children` Yorkie.Array: remove targets, insert a new Yorkie.Object whose `data.children` is a fresh Yorkie.Array seeded with the converted children.
+- [x] **12.3** Implement `group()` / `ungroup()` against the Yorkie root. For group, mutate the parent `children` Yorkie.Array: remove targets, insert a new Yorkie.Object whose `data.children` is a fresh Yorkie.Array seeded with the converted children.
 
-- [ ] **12.4** Run. Expect PASS.
+- [x] **12.4** Run. Expect PASS.
 
-- [ ] **12.5** Commit:
+- [x] **12.5** Commit:
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.ts \
@@ -1040,15 +1040,15 @@ Concurrent scenarios:
 2. User A ungroups while User B drags a child of the same group. After sync, the child's frame is preserved in world space (group's transform was baked before the user-B move arrived).
 3. User A inserts a new shape inside a group while User B reorders children. Both operations land; z-order is the Yorkie.Array's deterministic resolution.
 
-- [ ] **13.1** Write failing tests for each scenario in a new file `packages/frontend/tests/app/slides/group-concurrency.test.ts`.
+- [x] **13.1** Write failing tests for each scenario in a new file `packages/frontend/tests/app/slides/group-concurrency.test.ts`.
 
-- [ ] **13.2** Run; expect FAIL or behavior mismatch.
+- [x] **13.2** Run; expect FAIL or behavior mismatch.
 
-- [ ] **13.3** Fix any divergence in `YorkieSlidesStore` so reads converge to the same final state in both peers.
+- [x] **13.3** Fix any divergence in `YorkieSlidesStore` so reads converge to the same final state in both peers.
 
-- [ ] **13.4** Run `pnpm verify:integration`. Expect PASS.
+- [x] **13.4** Run `pnpm verify:integration`. Expect PASS.
 
-- [ ] **13.5** Commit:
+- [x] **13.5** Commit:
 
 ```bash
 git add packages/frontend/tests/app/slides
@@ -1081,17 +1081,17 @@ Bbox-equality invariant:
 // frame that the old (flattening) code would have produced.
 ```
 
-- [ ] **14.1** Add a property test: take any of the existing PPTX fixtures under `packages/slides/test/fixtures/pptx`; import once with the old flatten path (keep it under a debug flag, or temporarily duplicate the function), once with the new path. For each leaf in the new tree, walk up applying `applyGroupTransform` to land in slide-root world space and compare against the old result. Tolerance: 0.5 px.
+- [x] **14.1** Add a property test: take any of the existing PPTX fixtures under `packages/slides/test/fixtures/pptx`; import once with the old flatten path (keep it under a debug flag, or temporarily duplicate the function), once with the new path. For each leaf in the new tree, walk up applying `applyGroupTransform` to land in slide-root world space and compare against the old result. Tolerance: 0.5 px.
 
-- [ ] **14.2** Run; expect FAIL.
+- [x] **14.2** Run; expect FAIL.
 
-- [ ] **14.3** Refactor `group.ts` to emit `GroupElement` instead of flattening. Keep the matrix functions (`composeGroupTransform`, `applyGroupTransform`) for use by `normalizeToGroupLocal`.
+- [x] **14.3** Refactor `group.ts` to emit `GroupElement` instead of flattening. Keep the matrix functions (`composeGroupTransform`, `applyGroupTransform`) for use by `normalizeToGroupLocal`.
 
-- [ ] **14.4** Update existing fixture snapshots that asserted flat element trees. Regenerate per the snapshot tool.
+- [x] **14.4** Update existing fixture snapshots that asserted flat element trees. Regenerate per the snapshot tool.
 
-- [ ] **14.5** Run all slides + frontend tests. Expect: PASS.
+- [x] **14.5** Run all slides + frontend tests. Expect: PASS.
 
-- [ ] **14.6** Commit:
+- [x] **14.6** Commit:
 
 ```bash
 git add packages/slides/src/import/pptx \
@@ -1125,15 +1125,15 @@ function emitElement(page, el, parentMatrix) {
 }
 ```
 
-- [ ] **15.1** Write a failing test: a slide with one rotated group containing one shape produces a PDF whose drawn bbox matches the canvas paint output. Compare via PDF parsing (the existing `pdf.test.ts` uses pdf-lib's parser) or via a `ctx-spy` cross-check.
+- [x] **15.1** Write a failing test: a slide with one rotated group containing one shape produces a PDF whose drawn bbox matches the canvas paint output. Compare via PDF parsing (the existing `pdf.test.ts` uses pdf-lib's parser) or via a `ctx-spy` cross-check.
 
-- [ ] **15.2** Run; expect FAIL.
+- [x] **15.2** Run; expect FAIL.
 
-- [ ] **15.3** Refactor `pdf.ts` to recurse. Reuse the same transform-composition helpers.
+- [x] **15.3** Refactor `pdf.ts` to recurse. Reuse the same transform-composition helpers.
 
-- [ ] **15.4** Run all slides tests + `verify:browser:docker` for at least the new "group in PDF" scenario.
+- [x] **15.4** Run all slides tests + `verify:browser:docker` for at least the new "group in PDF" scenario.
 
-- [ ] **15.5** Commit:
+- [x] **15.5** Commit:
 
 ```bash
 git add packages/slides/src/export/pdf.ts packages/slides/test/export/pdf.test.ts
@@ -1150,13 +1150,13 @@ git commit -m "Recurse PDF export through GroupElement"
 - Modify: `docs/tasks/active/20260517-slides-group-todo.md` (this file — final review)
 - Create: `docs/tasks/active/20260517-slides-group-lessons.md`
 
-- [ ] **16.1** In `slides.md`, move the "Group / ungroup elements (Cmd+⌥+G)" entry out of "Tracked for v2" and into a new "Shipped" section (or strike-through with a link to `slides-group.md`). Update the Non-Goals entry similarly so the doc reflects the new state.
+- [x] **16.1** In `slides.md`, move the "Group / ungroup elements (Cmd+⌥+G)" entry out of "Tracked for v2" and into a new "Shipped" section (or strike-through with a link to `slides-group.md`). Update the Non-Goals entry similarly so the doc reflects the new state.
 
-- [ ] **16.2** Add a `lessons.md` capturing anything surprising encountered during implementation — at minimum, sub-pixel snap differences caused by recursion vs flatten paths, and any PPTX fixture that needed a new fixture-set entry.
+- [x] **16.2** Add a `lessons.md` capturing anything surprising encountered during implementation — at minimum, sub-pixel snap differences caused by recursion vs flatten paths, and any PPTX fixture that needed a new fixture-set entry.
 
-- [ ] **16.3** Run `pnpm tasks:archive && pnpm tasks:index` to move the active task into `archive/` and refresh `docs/tasks/README.md`.
+- [x] **16.3** Run `pnpm tasks:archive && pnpm tasks:index` to move the active task into `archive/` and refresh `docs/tasks/README.md`.
 
-- [ ] **16.4** Commit:
+- [x] **16.4** Commit:
 
 ```bash
 git add docs/design/slides/slides.md \
