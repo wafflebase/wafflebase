@@ -203,7 +203,48 @@ describe('initialize', () => {
     expect(nwTop).toBeGreaterThan(80);
 
     document.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 180, bubbles: true }));
-    void aId; void bId;
+  });
+
+  it('drag with a connector in the selection does not throw and translates both together', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let shapeId = '';
+    let connectorId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      connectorId = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 300, y: 300 },
+        end: { kind: 'free', x: 400, y: 400 },
+        arrowheads: {},
+        frame: { x: 300, y: 300, w: 100, h: 100, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([shapeId, connectorId]);
+
+    const shapeBefore = store.read().slides[0].elements.find((e) => e.id === shapeId)!;
+    const connectorBefore = store.read().slides[0].elements.find((e) => e.id === connectorId)!;
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 250, clientY: 200, bubbles: true }));
+    expect(() =>
+      document.dispatchEvent(new PointerEvent('pointerup', { clientX: 250, clientY: 200, bubbles: true })),
+    ).not.toThrow();
+
+    const shapeAfter = store.read().slides[0].elements.find((e) => e.id === shapeId)!;
+    const connectorAfter = store.read().slides[0].elements.find((e) => e.id === connectorId)!;
+    // Both elements translate by the same (dx, dy) — connector via
+    // commitTranslate (endpoints), shape via updateElementFrame.
+    const shapeDx = shapeAfter.frame.x - shapeBefore.frame.x;
+    const shapeDy = shapeAfter.frame.y - shapeBefore.frame.y;
+    expect(shapeDx).not.toBe(0);
+    expect(connectorAfter.frame.x - connectorBefore.frame.x).toBe(shapeDx);
+    expect(connectorAfter.frame.y - connectorBefore.frame.y).toBe(shapeDy);
   });
 
   it('clicking on an already-selected element preserves the multi-selection and drags all of them', () => {
