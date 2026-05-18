@@ -304,6 +304,7 @@ interface ListenerEntry<E extends Event = Event> {
 class SlidesEditorImpl implements SlidesEditor {
   readonly selection = new Selection();
   insertKind: InsertKind | null = null;
+  private lastHoverCursor: string = '';
   private renderer: SlideRenderer;
   private listeners: ListenerEntry[] = [];
   private disposed = false;
@@ -841,6 +842,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const cursor = kind === null ? '' : 'crosshair';
     this.options.canvas.style.cursor = cursor;
     this.options.overlay.style.cursor = cursor;
+    if (kind === null) this.lastHoverCursor = '';
     // Any insert-mode change clears the stale ghost: when the user
     // disarms (null), switches to text mode (no preview), or swaps
     // shape kind A → B, we drop the cached preview so the next
@@ -977,8 +979,17 @@ class SlidesEditorImpl implements SlidesEditor {
     // empty-area moves. mouseleave clears the ghost (otherwise it
     // would stick at the last in-canvas pointer position while the
     // user is in the toolbar).
-    const onMove = (e: Event) => this.onInsertHoverMove(e as MouseEvent);
-    const onLeave = () => this.onInsertHoverLeave();
+    const onMove = (e: Event) => {
+      this.onInsertHoverMove(e as MouseEvent);
+      this.onSelectionHoverMove(e as PointerEvent);
+    };
+    const onLeave = () => {
+      this.onInsertHoverLeave();
+      if (this.lastHoverCursor !== '' && this.insertKind === null) {
+        this.options.canvas.style.cursor = '';
+        this.lastHoverCursor = '';
+      }
+    };
     this.on(this.options.canvas, 'pointermove', onMove);
     this.on(this.options.canvas, 'pointerleave', onLeave);
     // Double-click on the slide canvas (or overlay, when the click
@@ -1359,6 +1370,42 @@ class SlidesEditorImpl implements SlidesEditor {
       this.hoverRenderRaf = null;
       this.paintWithHoverGhost();
     });
+  }
+
+  /**
+   * Drag-affordance cursor. On `pointermove` over the canvas, if the
+   * pointer is a mouse and we're idle (no insert mode, no text edit, no
+   * handle hit), set `cursor: move` whenever the pointer is inside the
+   * bbox of any selected element. Otherwise restore the default.
+   *
+   * Cached against `lastHoverCursor` so we only touch the DOM when the
+   * value actually changes — `pointermove` fires at frame rate and
+   * writing identical strings to `style.cursor` is wasted work.
+   */
+  private onSelectionHoverMove(e: PointerEvent): void {
+    if (e.pointerType !== undefined && e.pointerType !== 'mouse') return;
+    if (this.insertKind !== null) return;
+    if (this.editingElementId !== null) return;
+    if (this.handleAtClient(e.clientX, e.clientY) !== null) return;
+
+    const desired = this.isPointerOverSelected(e.clientX, e.clientY) ? 'move' : '';
+    if (this.lastHoverCursor === desired) return;
+    this.lastHoverCursor = desired;
+    this.options.canvas.style.cursor = desired;
+  }
+
+  private isPointerOverSelected(clientX: number, clientY: number): boolean {
+    const slide = this.currentSlide();
+    if (!slide) return false;
+    const selectedIds = new Set(this.selection.get());
+    if (selectedIds.size === 0) return false;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    for (const el of slide.elements) {
+      if (!selectedIds.has(el.id)) continue;
+      const f = el.frame;
+      if (x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h) return true;
+    }
+    return false;
   }
 
   /** Cursor left the canvas — drop the ghost and repaint cleanly. */

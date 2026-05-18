@@ -90,6 +90,121 @@ describe('initialize', () => {
     expect(overlay.style.cursor).toBe('');
   });
 
+  it('hover over a selected shape sets cursor to move', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('move');
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 800, clientY: 500, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('hover over a non-selected shape does not set move cursor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // No selection.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('move cursor logic is skipped for non-mouse pointers (touch)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'touch', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('hover does not override the crosshair cursor in insert mode', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    editor.setInsertMode('rect');
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('crosshair');
+  });
+
+  it('repeated pointermove inside a selected shape does not re-write cursor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+
+    let writes = 0;
+    const cursorStore: { v: string } = { v: '' };
+    Object.defineProperty(canvas.style, 'cursor', {
+      configurable: true,
+      get() { return cursorStore.v; },
+      set(v: string) { cursorStore.v = v; writes++; },
+    });
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 160, clientY: 160, pointerType: 'mouse', bubbles: true,
+    }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 170, clientY: 160, pointerType: 'mouse', bubbles: true,
+    }));
+
+    expect(writes).toBe(1);
+  });
+
   function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
     target.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: x, clientY: y, shiftKey: shift, bubbles: true,
