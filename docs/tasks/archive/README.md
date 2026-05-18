@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 194
+Total archived tasks: 195
 
-## 2026/05 (49 tasks)
+## 2026/05 (50 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -18,6 +18,7 @@ Total archived tasks: 194
 | pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
 | pptx rotated child group scale (2026-05-17) | [20260517-pptx-rotated-child-group-scale-todo.md](./2026/05/20260517-pptx-rotated-child-group-scale-todo.md) | [20260517-pptx-rotated-child-group-scale-lessons.md](./2026/05/20260517-pptx-rotated-child-group-scale-lessons.md) |
 | pptx unsupported shapes (2026-05-17) | [20260517-pptx-unsupported-shapes-todo.md](./2026/05/20260517-pptx-unsupported-shapes-todo.md) | [20260517-pptx-unsupported-shapes-lessons.md](./2026/05/20260517-pptx-unsupported-shapes-lessons.md) |
+| slides group (2026-05-17) | [20260517-slides-group-todo.md](./2026/05/20260517-slides-group-todo.md) | [20260517-slides-group-lessons.md](./2026/05/20260517-slides-group-lessons.md) |
 | slides mobile edit (2026-05-17) | [20260517-slides-mobile-edit-todo.md](./2026/05/20260517-slides-mobile-edit-todo.md) | [20260517-slides-mobile-edit-lessons.md](./2026/05/20260517-slides-mobile-edit-lessons.md) |
 | slides mobile view (2026-05-17) | [20260517-slides-mobile-view-todo.md](./2026/05/20260517-slides-mobile-view-todo.md) | [20260517-slides-mobile-view-lessons.md](./2026/05/20260517-slides-mobile-view-lessons.md) |
 | slides textbox click scale (2026-05-17) | [20260517-slides-textbox-click-scale-todo.md](./2026/05/20260517-slides-textbox-click-scale-todo.md) | [20260517-slides-textbox-click-scale-lessons.md](./2026/05/20260517-slides-textbox-click-scale-lessons.md) |
