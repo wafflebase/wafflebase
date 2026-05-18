@@ -317,14 +317,26 @@ export function MobileSlidesView({
     // Mirror editor-driven slide changes back into React state so the
     // footer indicator updates if anything other than the arrows
     // changes the current slide.
+    // Functional setState avoids a stale-closure compare: the outer
+    // effect intentionally omits `currentSlideId` from its dep list
+    // (so footer-arrow taps don't tear down the editor), which would
+    // otherwise freeze `currentSlideId` at mount time inside this
+    // callback. The prev-state reducer always sees the latest value.
     const offSlideChange = editor.onCurrentSlideChange(() => {
       const id = editor.getCurrentSlideId();
-      if (id && id !== currentSlideId) setCurrentSlideId(id);
+      if (!id) return;
+      setCurrentSlideId((prev) => (prev === id ? prev : id));
     });
 
     return () => {
       offSlideChange();
       ro.disconnect();
+      // detach() drops the editor's document-level pointer/key
+      // listeners, tears down the text-box editor if mounted, and
+      // cancels any in-flight RAF. Without it, every mode='edit'
+      // mount cycle leaks listeners — matches the desktop teardown
+      // in slides-view.tsx:479.
+      editor.detach();
       editorRef.current = null;
       styleTag.remove();
     };
