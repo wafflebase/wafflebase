@@ -13,6 +13,10 @@ export const DEFAULT_HIT_TOLERANCE = 6;
  * Minimal 2D context surface that `hitTestElement` needs. Production
  * passes the real canvas 2D context; tests pass the `createTestCanvas`
  * shim from `view/canvas/test-canvas-env.ts`.
+ *
+ * `isPointInStroke` is optional only because some hand-rolled stubs
+ * (rare; not the shipped shim) might omit it. When absent the
+ * stroke-band fallback degrades to bbox for unfilled shapes.
  */
 export interface HitTestCtx {
   isPointInPath(
@@ -21,6 +25,9 @@ export interface HitTestCtx {
     y: number,
     fillRule?: CanvasFillRule,
   ): boolean;
+  isPointInStroke?(path: Path2D, x: number, y: number): boolean;
+  /** Honoured by `isPointInStroke` to set the band thickness. */
+  lineWidth?: number;
 }
 
 export interface HitTestOptions {
@@ -44,13 +51,16 @@ const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
  * drawn area of `el`. Used by selection and right-click hit-test.
  *
  * - text / image / action-button shapes → bbox (`containsPoint`).
- * - filled shape with a registered path builder → `isPointInPath`
- *   against the local `Path2D`, with rotation + `flipH/flipV` inverted.
- * - stroke-only shape (no `data.fill`) and `OPEN_PATH_KINDS`
- *   (brackets/braces) → bbox. Their outline is a thin polyline; an
- *   `isPointInPath` against the auto-closed shape would include large
- *   visually-empty regions. Stroke-distance hit-test for these is
- *   tracked separately (see task doc).
+ * - shape with a registered path builder:
+ *   - filled (and not `OPEN_PATH_KINDS`) → `isPointInPath` against the
+ *     local `Path2D`, with rotation + `flipH/flipV` inverted.
+ *   - then a stroke band fallback (`isPointInStroke` with
+ *     `lineWidth = stroke.width + 2*tolerance`) so clicks on or near
+ *     the visible outline still hit. Catches the AA fringe + round-
+ *     join extension on filled shapes (heart, smileyFace, …) and is
+ *     the primary test for stroke-only shapes (brackets/braces,
+ *     unfilled outlines).
+ *   - no fill and no stroke → invisible, no hit.
  * - connector → distance from `(px, py)` to the routed polyline must
  *   be `≤ stroke.width / 2 + tolerance`.
  */
@@ -63,7 +73,7 @@ export function hitTestElement(
 ): boolean {
   if (el.type === 'connector') return hitConnector(el, px, py, opts);
   if (el.type !== 'shape') return containsPoint(el.frame, px, py);
-  return hitShape(el, px, py, ctx);
+  return hitShape(el, px, py, ctx, opts);
 }
 
 function hitShape(
@@ -71,20 +81,19 @@ function hitShape(
   px: number,
   py: number,
   ctx: HitTestCtx,
+  opts: HitTestOptions,
 ): boolean {
   const frame = el.frame;
-  // Fast bbox reject: anything outside the rotated bbox is also outside
-  // the path. Saves a Path2D rebuild for off-shape clicks.
-  if (!containsPoint(frame, px, py)) return false;
+  const tol = opts.tolerance ?? DEFAULT_HIT_TOLERANCE;
+  // Fast bbox reject with a tolerance pad so clicks just outside the
+  // bbox — but still within the stroke band — can reach the precise
+  // tests below.
+  if (!containsPointPadded(frame, px, py, tol)) return false;
 
   // Action buttons paint via a dedicated renderer (`drawActionButton`)
   // that is NOT in PATH_BUILDERS — they have a body + glyph. Selection
   // stays bbox-based.
   if (isActionButton(el.data.kind)) return true;
-
-  // Stroke-only kinds (no fill, or open-path brackets/braces) fall back
-  // to bbox. See module doc for the trade-off.
-  if (!el.data.fill || OPEN_PATH_KINDS.has(el.data.kind)) return true;
 
   const builder = PATH_BUILDERS.get(el.data.kind);
   if (!builder) return true; // unknown kind → placeholder rect; bbox is what we have.
@@ -97,10 +106,64 @@ function hitShape(
   const lx = frame.flipH ? frame.w - local.x : local.x;
   const ly = frame.flipV ? frame.h - local.y : local.y;
   const path = builder({ w: frame.w, h: frame.h }, el.data.adjustments);
-  const fillRule: CanvasFillRule = EVENODD_KINDS.has(el.data.kind)
-    ? 'evenodd'
-    : 'nonzero';
-  return ctx.isPointInPath(path, lx, ly, fillRule);
+
+  // Visibility gate: the renderer paints `fill` (unless OPEN_PATH) and
+  // `stroke` independently. A shape with neither is invisible and
+  // therefore not clickable, even though its bbox/frame exists.
+  const hasFill =
+    el.data.fill !== undefined && !OPEN_PATH_KINDS.has(el.data.kind);
+  const hasStroke = el.data.stroke !== undefined;
+  if (!hasFill && !hasStroke) return false;
+
+  // 1) Filled body → `isPointInPath` against the path's interior.
+  if (hasFill) {
+    const fillRule: CanvasFillRule = EVENODD_KINDS.has(el.data.kind)
+      ? 'evenodd'
+      : 'nonzero';
+    if (ctx.isPointInPath(path, lx, ly, fillRule)) return true;
+  }
+
+  // 2) Stroke band — clicks on or near the visible outline. Catches
+  //    the AA fringe / round-join extension on filled shapes (heart's
+  //    lobes, smileyFace's face circle, …) AND is the primary test
+  //    for stroke-only shapes (brackets/braces, unfilled outlines).
+  if (typeof ctx.isPointInStroke === 'function') {
+    const strokeWidth = el.data.stroke?.width ?? 0;
+    const lineWidth = strokeWidth + 2 * tol;
+    const prev = ctx.lineWidth;
+    ctx.lineWidth = lineWidth;
+    try {
+      if (ctx.isPointInStroke(path, lx, ly)) return true;
+    } finally {
+      ctx.lineWidth = prev;
+    }
+  } else if (!hasFill) {
+    // No `isPointInStroke` available (custom stub) and no filled body
+    // — fall back to bbox so the shape stays selectable.
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Like `containsPoint`, but inflates the local rect by `pad` on every
+ * side. Used as the fast reject for shapes whose visible stroke can
+ * extend slightly outside the frame.
+ */
+function containsPointPadded(
+  frame: ShapeElement['frame'],
+  px: number,
+  py: number,
+  pad: number,
+): boolean {
+  const local = toLocal(frame, { x: px, y: py });
+  return (
+    local.x >= -pad &&
+    local.x <= frame.w + pad &&
+    local.y >= -pad &&
+    local.y <= frame.h + pad
+  );
 }
 
 function hitConnector(

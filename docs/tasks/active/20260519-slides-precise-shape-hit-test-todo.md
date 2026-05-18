@@ -163,3 +163,67 @@ a new design doc — TBD after implementation. Decide based on size:
   - Insert line connector → click off the line by 20px → no select.
     Click within 4px → selects.
   - Rotated rect → corner of bbox is dead, body selects.
+
+## Phase 2 — precision pass (heart, smileyFace, brackets)
+
+### Why a second pass
+
+The v1 commit (`3657c92e`) routed filled shapes through
+`isPointInPath`, but curved shapes still felt imprecise. Two reasons:
+
+1. **AA fringe + round-join extension.** The renderer fills the
+   polyline interior and then strokes with `lineJoin: 'round'`. The
+   visible boundary is ~1-2 px outside the fill polygon. Clicks on
+   that visible band fell outside `isPointInPath` and missed.
+2. **Stroke-only shapes fell back to bbox.** Brackets / braces (in
+   `OPEN_PATH_KINDS`) and unfilled outlines had huge empty bbox
+   regions that selected the shape.
+
+### Approach
+
+Add an `isPointInStroke` fallback after `isPointInPath`:
+- `lineWidth = stroke.width + 2 * tolerance` (defaults to a 12 px
+  band around the polyline outline; matches a ~6 viewport-px halo at
+  default zoom).
+- For unfilled / `OPEN_PATH_KINDS` shapes, this becomes the primary
+  test, replacing the v1 bbox fallback.
+- An entirely empty shape (no `fill`, no `stroke`) is invisible and
+  no longer selectable — `hitShape` returns `false` instead of
+  bbox-true.
+
+### Test environment
+
+`view/canvas/test-canvas-env.ts` got an `isPointInStroke` shim:
+- `distanceToSegment` for subpath polylines.
+- 32-sample polyline distance for `ellipse` ops.
+- 4-edge distance for `rect` ops.
+
+`makeFakeCanvasCtx` (jsdom prototype patch) and `createTestCanvas`
+(explicit factory) both expose the new method so editor.test.ts and
+new precision tests work.
+
+### New tests
+
+In `select.test.ts > selectAt — precise shape geometry`:
+- stroke-only ellipse — outline click hits, bbox corner misses.
+- smileyFace — interior hit, 3-px-outside-fill hit (AA band).
+- heart — lobe centre + just-above-lobe-top hit; dip empty area
+  misses.
+- leftBracket — bbox middle (far from the C-shape) misses.
+
+V1's "falls back to bbox for stroke-only" assertion was removed —
+v2 tightens that path.
+
+### Trade-offs
+
+- The tolerance band trades exact-edge precision for "Google
+  Slides-feels-natural" click forgiveness. Defaults to 6 logical
+  pixels, scaled by the editor's zoom so the viewport-px feel is
+  ~constant.
+- Anti-aliased rounded joins on heart's V tip still extend a tiny
+  bit beyond `isPointInStroke`'s rectangular cap result. Sub-pixel
+  at slide-scale, ignored.
+- Ellipse outline distance in the test shim is a 32-segment
+  polyline; chord error is sub-pixel for typical shape sizes but
+  large for extreme aspect ratios. Tests pick points well clear of
+  the boundary to stay deterministic.
