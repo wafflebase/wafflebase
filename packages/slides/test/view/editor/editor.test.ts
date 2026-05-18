@@ -1496,3 +1496,121 @@ describe('context menu — Group / Ungroup items', () => {
     expect(ungroupLi!.style.opacity).toBe('0.5');
   });
 });
+
+describe('Editor — group() with connector exclusion calls onToast', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  it('fires onToast when a connector with an external endpoint is excluded', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const toastCb = vi.fn();
+
+    let e!: SlidesEditor;
+    let sid!: string;
+    let a!: string;
+    let b!: string;
+    let outside!: string;
+    let c!: string;
+
+    // Build slide with two shapes (a, b), one external shape (outside), and
+    // a connector (c) with one endpoint on `a` and the other on `outside`.
+    const doc = store.read();
+    sid = doc.slides[0].id;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      outside = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 300, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      c = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: a, siteIndex: 0 },
+        end:   { kind: 'attached', elementId: outside, siteIndex: 0 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+
+    e = initialize({
+      canvas, overlay, store,
+      hostWidth: 960, hostHeight: 540, dpr: 1,
+      onToast: toastCb,
+    });
+    editor = e;
+
+    // Select a, b, and c; group them.
+    e.setSelection([a, b, c]);
+    e.group();
+
+    // onToast should have been called once with a message about the excluded connector.
+    expect(toastCb).toHaveBeenCalledTimes(1);
+    expect(toastCb.mock.calls[0][0]).toMatch(/1 connector/i);
+    expect(toastCb.mock.calls[0][0]).toMatch(/excluded/i);
+  });
+
+  it('does NOT fire onToast when all connectors join the group', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const toastCb = vi.fn();
+
+    let e!: SlidesEditor;
+    let sid!: string;
+    let a!: string;
+    let b!: string;
+    let c!: string;
+
+    const doc = store.read();
+    sid = doc.slides[0].id;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      // Connector between a and b — both endpoints are inside the selection.
+      c = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: a, siteIndex: 0 },
+        end:   { kind: 'attached', elementId: b, siteIndex: 0 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+
+    e = initialize({
+      canvas, overlay, store,
+      hostWidth: 960, hostHeight: 540, dpr: 1,
+      onToast: toastCb,
+    });
+    editor = e;
+
+    e.setSelection([a, b, c]);
+    e.group();
+
+    // No connectors excluded → no toast.
+    expect(toastCb).not.toHaveBeenCalled();
+  });
+});

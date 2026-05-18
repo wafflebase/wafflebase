@@ -25,12 +25,17 @@ import {
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
   applyInverseMatrix,
+  applyInversePoint,
   composeAncestorTransform,
   findElementPath,
+  groupToTransform,
   normalizeToGroupLocal,
 } from '../model/group';
 import type { GroupTransform } from '../model/group';
-import { applyGroupTransform as applyMatrix } from '../import/pptx/group';
+import {
+  applyGroupTransform as applyMatrix,
+  applyGroupTransformToPoint,
+} from '../import/pptx/group';
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -528,16 +533,51 @@ export class MemSlidesStore implements SlidesStore {
 
     // Resolve actual element objects in parent-array order.
     const candidateSet = new Set(elementIds);
-    const candidatesInOrder = parentArray.filter(e => candidateSet.has(e.id));
+    const allCandidatesInOrder = parentArray.filter(e => candidateSet.has(e.id));
 
     // Invariant 4: no placeholderRef on any candidate.
-    for (const el of candidatesInOrder) {
+    for (const el of allCandidatesInOrder) {
       if (el.placeholderRef != null) {
         throw new Error(
           `[slides] group(): placeholderRef cannot be grouped (element ${el.id})`,
         );
       }
     }
+
+    // Connector partition (v1 rule § 7):
+    // A connector whose both endpoints are "internal" (either free or attached
+    // to an element in the candidate set) joins the group.
+    // A connector with at least one "external" attached endpoint is excluded.
+    const internalCandidates: Element[] = [];
+    const excludedConnectorIds: string[] = [];
+
+    for (const el of allCandidatesInOrder) {
+      if (el.type !== 'connector') {
+        internalCandidates.push(el);
+        continue;
+      }
+      const startInternal =
+        el.start.kind === 'free' ||
+        candidateSet.has(el.start.elementId);
+      const endInternal =
+        el.end.kind === 'free' ||
+        candidateSet.has(el.end.elementId);
+      if (startInternal && endInternal) {
+        internalCandidates.push(el);
+      } else {
+        excludedConnectorIds.push(el.id);
+        candidateSet.delete(el.id);
+      }
+    }
+
+    // After excluding cross-group connectors, we need at least 2 elements.
+    if (internalCandidates.length < 2) {
+      throw new Error(
+        `[slides] group(): cannot create a group: only ${internalCandidates.length} non-connector element(s) remain after excluding cross-group connectors`,
+      );
+    }
+
+    const candidatesInOrder = internalCandidates;
 
     // Cycle prevention is structurally satisfied by the shared-parent invariant
     // (Invariant 3): because all candidates share the same parent, no candidate
@@ -589,10 +629,35 @@ export class MemSlidesStore implements SlidesStore {
       data: { children: [] },
     };
 
-    const childrenWithLocalFrames: Element[] = candidatesInOrder.map((el, i) => ({
-      ...clone(el),
-      frame: normalizeToGroupLocal(worldFrames[i], tempGroup),
-    }));
+    // The group's transform maps group-local → world space. We need to
+    // normalize connector free endpoints (which are in the same coordinate
+    // space as their parent, i.e. world space for slide-root candidates) into
+    // the new group-local space.
+    // For slide-root candidates: endpoints are already in world space.
+    // For candidates inside a parent group: endpoints are in parent-local space
+    //   which equals world space after applying ancestorTransform.
+    // Since candidatesInOrder all live in the same parent space, and the
+    // tempGroup is in world space, we first bring candidate coords to world
+    // (via ancestorTransform) then invert the group's own world transform.
+    const groupSelfTransform = groupToTransform(tempGroup);
+    const childrenWithLocalFrames: Element[] = candidatesInOrder.map((el, i) => {
+      const cloned = clone(el);
+      const localFrame = normalizeToGroupLocal(worldFrames[i], tempGroup);
+      if (cloned.type === 'connector') {
+        // Normalize free endpoint coordinates from world space to group-local.
+        for (const side of ['start', 'end'] as const) {
+          const ep = cloned[side];
+          if (ep.kind === 'free') {
+            // The endpoint coords are in parent-local space; bring to world
+            // using ancestorTransform, then invert into the new group-local space.
+            const worldPt = applyGroupTransformToPoint(ep.x, ep.y, ancestorTransform);
+            const local = applyInversePoint(worldPt.x, worldPt.y, groupSelfTransform);
+            cloned[side] = { kind: 'free', x: local.x, y: local.y };
+          }
+        }
+      }
+      return { ...cloned, frame: localFrame };
+    });
 
     const groupId = generateId();
     const newGroup: GroupElement = {
@@ -621,7 +686,7 @@ export class MemSlidesStore implements SlidesStore {
     const insertAt = Math.max(0, frontMostIndex - removedBefore);
     parentArray.splice(insertAt, 0, newGroup);
 
-    return { groupId, excludedConnectorIds: [] };
+    return { groupId, excludedConnectorIds };
   }
 
   ungroup(slideId: string, groupId: string): string[] {

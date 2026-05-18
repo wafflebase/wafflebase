@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MemSlidesStore } from '../../src/store/memory';
 import type { GroupElement } from '../../src/model/element';
+import type { ConnectorElement } from '../../src/model/connector';
 
 describe('group()', () => {
   it('requires at least two elements', () => {
@@ -305,6 +306,266 @@ describe('group()', () => {
     expect(g.frame.y).toBeCloseTo(-30, 4);
     expect(g.frame.w).toBeCloseTo(120, 4);
     expect(g.frame.h).toBeCloseTo(180, 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helper to add a connector between two elements (or with free endpoints).
+// ---------------------------------------------------------------------------
+function addConnector(
+  store: MemSlidesStore,
+  sid: string,
+  startEndpoint: { kind: 'attached'; elementId: string; siteIndex: number } | { kind: 'free'; x: number; y: number },
+  endEndpoint: { kind: 'attached'; elementId: string; siteIndex: number } | { kind: 'free'; x: number; y: number },
+): string {
+  let cid!: string;
+  store.batch(() => {
+    cid = store.addElement(sid, {
+      type: 'connector',
+      routing: 'straight',
+      start: startEndpoint,
+      end: endEndpoint,
+      arrowheads: {},
+      frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+    });
+  });
+  return cid;
+}
+
+describe('group() — connector partition', () => {
+  it('connector with both endpoints in selection joins the group', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    const c = addConnector(
+      store, sid,
+      { kind: 'attached', elementId: a, siteIndex: 0 },
+      { kind: 'attached', elementId: b, siteIndex: 0 },
+    );
+
+    let groupId!: string;
+    let excludedConnectorIds!: string[];
+    store.batch(() => {
+      ({ groupId, excludedConnectorIds } = store.group(sid, [a, b, c]));
+    });
+
+    expect(excludedConnectorIds).toEqual([]);
+    const slide = store.read().slides[0];
+    // The group is the only element at slide root.
+    expect(slide.elements).toHaveLength(1);
+    const g = slide.elements[0] as GroupElement;
+    expect(g.id).toBe(groupId);
+    // All three (a, b, c) are children of the group.
+    expect(g.data.children.map(ch => ch.id)).toContain(a);
+    expect(g.data.children.map(ch => ch.id)).toContain(b);
+    expect(g.data.children.map(ch => ch.id)).toContain(c);
+  });
+
+  it('connector with one external endpoint is excluded', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    let outside!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      outside = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 300, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    // Connector: start attached to a (inside), end attached to outside (not in selection).
+    const c = addConnector(
+      store, sid,
+      { kind: 'attached', elementId: a, siteIndex: 0 },
+      { kind: 'attached', elementId: outside, siteIndex: 0 },
+    );
+
+    let groupId!: string;
+    let excludedConnectorIds!: string[];
+    store.batch(() => {
+      ({ groupId, excludedConnectorIds } = store.group(sid, [a, b, c]));
+    });
+
+    // c is excluded because it references `outside`.
+    expect(excludedConnectorIds).toEqual([c]);
+
+    const slide = store.read().slides[0];
+    // Slide root has: the group + outside + c (the excluded connector stays).
+    const rootIds = slide.elements.map(e => e.id);
+    expect(rootIds).toContain(groupId);
+    expect(rootIds).toContain(outside);
+    expect(rootIds).toContain(c);
+
+    const g = slide.elements.find(e => e.id === groupId) as GroupElement;
+    // Group children: only a and b.
+    expect(g.data.children.map(ch => ch.id)).toContain(a);
+    expect(g.data.children.map(ch => ch.id)).toContain(b);
+    expect(g.data.children.map(ch => ch.id)).not.toContain(c);
+  });
+
+  it('connector with two free endpoints joins the group with normalized coords', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    // Free endpoints in world space: (10, 10) and (140, 10).
+    const c = addConnector(
+      store, sid,
+      { kind: 'free', x: 10, y: 10 },
+      { kind: 'free', x: 140, y: 10 },
+    );
+
+    let groupId!: string;
+    let excludedConnectorIds!: string[];
+    store.batch(() => {
+      ({ groupId, excludedConnectorIds } = store.group(sid, [a, b, c]));
+    });
+
+    expect(excludedConnectorIds).toEqual([]);
+
+    const slide = store.read().slides[0];
+    const g = slide.elements.find(e => e.id === groupId) as GroupElement;
+    const connector = g.data.children.find(ch => ch.id === c) as ConnectorElement;
+    expect(connector).toBeDefined();
+    expect(connector.type).toBe('connector');
+
+    // The group AABB covers a=(0,0,50,50) and b=(100,0,50,50):
+    // → x: 0, y: 0, w: 150, h: 50.
+    // The group origin is at (0, 0) in world, rotation 0.
+    // So group-local coords = world coords - group origin.
+    // World (10, 10) → group-local (10, 10).
+    // World (140, 10) → group-local (140, 10).
+    expect(connector.start).toMatchObject({ kind: 'free', x: 10, y: 10 });
+    expect(connector.end).toMatchObject({ kind: 'free', x: 140, y: 10 });
+  });
+
+  it('throws when excluding connectors leaves fewer than 2 candidates', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let outside!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      outside = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 200, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    // Connector c links a (inside selection) to outside (not in selection).
+    const c = addConnector(
+      store, sid,
+      { kind: 'attached', elementId: a, siteIndex: 0 },
+      { kind: 'attached', elementId: outside, siteIndex: 0 },
+    );
+
+    // group([a, c]) → c is excluded → only a remains → not enough to form a group.
+    expect(() =>
+      store.batch(() => store.group(sid, [a, c])),
+    ).toThrow(/cannot create a group/i);
+  });
+
+  it('mixed: multiple connectors — some join, some excluded', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string;
+    let b!: string;
+    let outside!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      outside = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 300, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    // c1: both endpoints inside selection → joins the group.
+    const c1 = addConnector(
+      store, sid,
+      { kind: 'attached', elementId: a, siteIndex: 0 },
+      { kind: 'attached', elementId: b, siteIndex: 0 },
+    );
+    // c2: end attached to outside → excluded.
+    const c2 = addConnector(
+      store, sid,
+      { kind: 'attached', elementId: a, siteIndex: 1 },
+      { kind: 'attached', elementId: outside, siteIndex: 0 },
+    );
+
+    let groupId!: string;
+    let excludedConnectorIds!: string[];
+    store.batch(() => {
+      ({ groupId, excludedConnectorIds } = store.group(sid, [a, b, c1, c2]));
+    });
+
+    expect(excludedConnectorIds).toEqual([c2]);
+
+    const slide = store.read().slides[0];
+    const g = slide.elements.find(e => e.id === groupId) as GroupElement;
+    const childIds = g.data.children.map(ch => ch.id);
+    expect(childIds).toContain(a);
+    expect(childIds).toContain(b);
+    expect(childIds).toContain(c1);
+    expect(childIds).not.toContain(c2);
+
+    // c2 and outside remain at slide root.
+    const rootIds = slide.elements.map(e => e.id);
+    expect(rootIds).toContain(c2);
+    expect(rootIds).toContain(outside);
   });
 });
 

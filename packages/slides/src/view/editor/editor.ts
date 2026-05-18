@@ -114,6 +114,12 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * (≈ 44px diameter) so fingertips can reliably grab handles.
    */
   touchHandleTolerance?: number;
+  /**
+   * Surface a non-blocking notice to the user. The slides package has
+   * no UI library; frontend wires this to its toast system (e.g. sonner
+   * `toast.info`). No-op when omitted.
+   */
+  onToast?: (message: string) => void;
 }
 
 export interface SlidesEditor {
@@ -710,6 +716,13 @@ class SlidesEditorImpl implements SlidesEditor {
       result = this.options.store.group(slide.id, [...ids]);
     });
     if (!result) return;
+    if (result.excludedConnectorIds.length > 0) {
+      const n = result.excludedConnectorIds.length;
+      const noun = n === 1 ? 'connector' : 'connectors';
+      this.options.onToast?.(
+        `${n} ${noun} excluded from the group (linked outside).`,
+      );
+    }
     this.selection.set([result.groupId]);
     this.requestRender();
   }
