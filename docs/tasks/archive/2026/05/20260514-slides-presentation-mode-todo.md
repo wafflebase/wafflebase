@@ -33,7 +33,7 @@ The presenter tracks `currentSlideId: string | null` and
 returned object): `next()`, `prev()`, `goToFirst()`, `goToLast()`,
 `setDocument(doc)`.
 
-- [ ] **1.1** Write failing tests for navigation on a 3-slide fixture
+- [x] **1.1** Write failing tests for navigation on a 3-slide fixture
   (`A`, `B`, `C`):
   - `startPresenter` with `startSlideId: 'B'` puts current at `B`.
   - `next()` from `A` → `B`; from `C` → `atEndScreen = true`; another
@@ -47,9 +47,9 @@ returned object): `next()`, `prev()`, `goToFirst()`, `goToLast()`,
   Mock `container.requestFullscreen` to resolve (so the constructor
   doesn't blow up in jsdom).
 
-- [ ] **1.2** Run tests, confirm they fail with "startPresenter is
+- [x] **1.2** Run tests, confirm they fail with "startPresenter is
   not defined" / equivalent.
-- [ ] **1.3** Implement the minimum to pass — `PresenterOptions`,
+- [x] **1.3** Implement the minimum to pass — `PresenterOptions`,
   `Presenter`, `startPresenter`. Internal `state` object with
   `currentSlideId`, `atEndScreen`, `slides: readonly Slide[]`,
   `doc: SlidesDocument`. Navigation methods mutate state; render is
@@ -72,8 +72,8 @@ returned object): `next()`, `prev()`, `goToFirst()`, `goToLast()`,
   the React shell (e.g., showing the slide number, though we
   aren't doing that in v1).
 
-- [ ] **1.4** Run tests, confirm pass.
-- [ ] **1.5** Commit: `slides: add presenter scaffold and navigation state`.
+- [x] **1.4** Run tests, confirm pass.
+- [x] **1.5** Commit: `slides: add presenter scaffold and navigation state`.
 
 ---
 
@@ -90,7 +90,7 @@ through `SlideRenderer` on every navigation. Reuse the math from
 `slides-view.tsx`'s `computeFitSize` — copy it locally as a small
 private helper rather than touching the frontend file in this task.
 
-- [ ] **2.1** Add a failing test that verifies after `startPresenter`,
+- [x] **2.1** Add a failing test that verifies after `startPresenter`,
   `container.querySelector('canvas')` is non-null and the canvas
   `width`/`height` attributes reflect `dpr * fittedWidth/Height` for
   a stubbed `window.innerWidth/innerHeight = 1280/720`.
@@ -108,7 +108,7 @@ private helper rather than touching the frontend file in this task.
   });
   ```
 
-- [ ] **2.2** Implement: in `startPresenter`, create canvas, append
+- [x] **2.2** Implement: in `startPresenter`, create canvas, append
   to container, install a `ResizeObserver` on
   `document.documentElement` that recomputes fit on resize.
   Construct a `SlideRenderer(ctx, { hostWidth, hostHeight, dpr })`.
@@ -124,20 +124,20 @@ private helper rather than touching the frontend file in this task.
 
   Call `paint()` after every state change and after resize.
 
-- [ ] **2.3** Add a follow-up test that `next()` triggers an additional
+- [x] **2.3** Add a follow-up test that `next()` triggers an additional
   call to a spied `renderer.render`. (Spy via vi.spyOn on
   `SlideRenderer.prototype.render`.) Add a test that
   `next()` from the last slide enters end-screen and that
   `renderer.render` is NOT called for the end-screen paint (it's a
   raw 2D fill).
 
-- [ ] **2.4** Container background: set `container.style.background =
+- [x] **2.4** Container background: set `container.style.background =
   '#000'` and `display: flex; align-items: center; justify-content:
   center` so the canvas letterboxes naturally. Save prior inline
   styles to restore on `dispose`.
 
-- [ ] **2.5** Run tests, pass.
-- [ ] **2.6** Commit: `slides: render slides on the presenter canvas`.
+- [x] **2.5** Run tests, pass.
+- [x] **2.6** Commit: `slides: render slides on the presenter canvas`.
 
 ---
 
@@ -153,7 +153,7 @@ listener on the canvas. The keydown listener `stopImmediatePropagation`s
 every key (so editor key rules don't also fire) and `preventDefault`s
 anything it doesn't consume.
 
-- [ ] **3.1** Failing tests:
+- [x] **3.1** Failing tests:
   - Dispatching `keydown` for `'ArrowRight'`, `' '` (space),
     `'PageDown'`, `'n'` advances. (One sub-test each, plus an
     end-screen advance.)
@@ -168,13 +168,13 @@ anything it doesn't consume.
   - Click on the canvas advances. Click on canvas while at
     end-screen invokes `onExit`.
 
-- [ ] **3.2** Implement the listener. Use a single keydown handler
+- [x] **3.2** Implement the listener. Use a single keydown handler
   table — `KEY_ACTIONS: Record<string, (state) => void>` — to keep
   the rule list compact. `Esc` → `options.onExit()` (caller decides
   whether to call `dispose` from `onExit`).
 
-- [ ] **3.3** Pass.
-- [ ] **3.4** Commit: `slides: wire presenter keyboard and click navigation`.
+- [x] **3.3** Pass.
+- [x] **3.4** Commit: `slides: wire presenter keyboard and click navigation`.
 
 ---
 
@@ -191,7 +191,7 @@ rejection, apply `position: fixed; inset: 0; z-index: 9999`. Listen
 to `document.fullscreenchange` and call `onExit` when we leave
 fullscreen via the browser chrome.
 
-- [ ] **4.1** Failing tests (use `vi.useFakeTimers()`):
+- [x] **4.1** Failing tests (use `vi.useFakeTimers()`):
   - `container.style.cursor === 'none'` after 3 s of no movement.
   - `mousemove` clears `cursor` and re-arms.
   - `requestFullscreen` is called on the container; when it rejects,
@@ -200,13 +200,13 @@ fullscreen via the browser chrome.
     triggers `onExit`. (Stub via `Object.defineProperty` because
     jsdom doesn't implement fullscreen.)
 
-- [ ] **4.2** Implement. Store the original inline style values
+- [x] **4.2** Implement. Store the original inline style values
   (`container.style.cssText`?) once at entry and restore on
   `dispose`. Track `mountMode: 'fullscreen' | 'overlay'` so
   `dispose` knows whether to call `exitFullscreen` or just remove
   the overlay styles.
 
-- [ ] **4.3** Pass. Commit:
+- [x] **4.3** Pass. Commit:
   `slides: add presenter fullscreen with overlay fallback and cursor auto-hide`.
 
 ---
@@ -232,7 +232,7 @@ fullscreen via the browser chrome.
    end-screen (`atEndScreen = true`) — the presentation is still
    "over."
 
-- [ ] **5.1** Failing tests:
+- [x] **5.1** Failing tests:
   - Setting a doc where current slide still exists → no slide-id
     change; render is called once with the new doc.
   - Setting a doc where current slide is removed (was at index 1 of
@@ -240,7 +240,7 @@ fullscreen via the browser chrome.
     slide now at index 1 (`C`).
   - Removing all slides → `onExit` invoked.
 
-- [ ] **5.2** Implement. Pass. Commit:
+- [x] **5.2** Implement. Pass. Commit:
   `slides: handle remote doc changes in the presenter`.
 
 ---
@@ -276,14 +276,14 @@ the listener which calls `onExit` which loops back into `dispose`.
 - Remove the canvas from `container`.
 - Restore the container's `style.cssText` to its pre-entry value.
 
-- [ ] **6.1** Test: call `dispose()`, then verify
+- [x] **6.1** Test: call `dispose()`, then verify
   `container.children.length === 0`, container style restored,
   subsequent `keydown` dispatches don't advance / don't crash, and a
   second `dispose()` call is a no-op.
 
-- [ ] **6.2** Implement.
+- [x] **6.2** Implement.
 
-- [ ] **6.3** Add `view/present/index.ts`:
+- [x] **6.3** Add `view/present/index.ts`:
 
   ```ts
   export {
@@ -303,10 +303,10 @@ the listener which calls `onExit` which loops back into `dispose`.
   } from './view/present';
   ```
 
-- [ ] **6.4** Run `pnpm --filter @wafflebase/slides test` + `typecheck`
+- [x] **6.4** Run `pnpm --filter @wafflebase/slides test` + `typecheck`
   + `build` to make sure the new export survives the library build.
 
-- [ ] **6.5** Commit: `slides: ship presenter dispose and public exports`.
+- [x] **6.5** Commit: `slides: ship presenter dispose and public exports`.
 
 ---
 
@@ -379,14 +379,14 @@ export function SlidesPresentationMode(props: SlidesPresentationModeProps) {
 }
 ```
 
-- [ ] **7.1** Failing test (`slides-presentation-mode.test.tsx`): mount
+- [x] **7.1** Failing test (`slides-presentation-mode.test.tsx`): mount
   with a stub store (`onChange`, `read`), assert
   `document.body.lastChild` is a `<div>` containing a `<canvas>`.
   Unmount, assert the div is gone.
 
-- [ ] **7.2** Implement and pass.
+- [x] **7.2** Implement and pass.
 
-- [ ] **7.3** Commit: `slides: add presentation-mode react shell`.
+- [x] **7.3** Commit: `slides: add presentation-mode react shell`.
 
 ---
 
@@ -416,14 +416,14 @@ const editor = initializeEditor({
 });
 ```
 
-- [ ] **8.1** Update the prop type + thread it through to
+- [x] **8.1** Update the prop type + thread it through to
   `initializeEditor`. The comment block currently saying "Present
   mode UI lands in a separate phase" needs to be deleted (it's now
   landed).
 
-- [ ] **8.2** Run `pnpm --filter @wafflebase/frontend typecheck`.
+- [x] **8.2** Run `pnpm --filter @wafflebase/frontend typecheck`.
 
-- [ ] **8.3** Commit: `slides: forward onStartPresentation to the editor`.
+- [x] **8.3** Commit: `slides: forward onStartPresentation to the editor`.
 
 ---
 
@@ -475,13 +475,13 @@ The button uses Lucide `Play` icon + the existing
 `@/components/ui/button` + `@/components/ui/dropdown-menu`
 primitives (check sibling files for the exact import paths).
 
-- [ ] **9.1** Add a tiny `<PresentButton />` component inside
+- [x] **9.1** Add a tiny `<PresentButton />` component inside
   `slides-detail.tsx` (or extract to its own file
   `slides-present-button.tsx` if it grows beyond ~30 lines).
 
   Props: `{ disabled: boolean; onStart: (from: 'current' | 'first') => void }`.
 
-- [ ] **9.2** Wire the state + the conditional mount. The
+- [x] **9.2** Wire the state + the conditional mount. The
   `handleStart` function MUST early-return when
   `!store || store.read().slides.length === 0` — this guards both
   the button path and the `Cmd+Enter` shortcut path (the shortcut
@@ -489,21 +489,21 @@ primitives (check sibling files for the exact import paths).
   we wire to the same `handleStart`). The button's `disabled` is
   cosmetic defense-in-depth; the handler guard is the real one.
 
-- [ ] **9.3** Verify the button is keyboard-accessible (Tab into it,
+- [x] **9.3** Verify the button is keyboard-accessible (Tab into it,
   Enter fires "current", `ArrowDown` opens the menu). The existing
   dropdown-menu primitive handles this — just make sure the button
   isn't wrapped in something that swallows keys.
 
-- [ ] **9.4** Commit: `slides: add Present split-button to the slides header`.
+- [x] **9.4** Commit: `slides: add Present split-button to the slides header`.
 
 ---
 
 ## Task 10 — Verify + smoke + close out
 
-- [ ] **10.1** `pnpm verify:fast` — passes (Exit 0). If lint / unit
+- [x] **10.1** `pnpm verify:fast` — passes (Exit 0). If lint / unit
   tests fail, fix and re-run before continuing.
 
-- [ ] **10.2** Manual smoke (`pnpm dev`):
+- [x] **10.2** Manual smoke (`pnpm dev`):
   1. Open a slides doc, create 3 slides with distinct titles.
   2. Click the **Present** button → fullscreen, current slide
      visible, letterboxed.
@@ -522,24 +522,24 @@ primitives (check sibling files for the exact import paths).
 
   If any step regresses, fix before declaring done.
 
-- [ ] **10.3** Cross-check the slides-keyboard-shortcuts task doc
+- [x] **10.3** Cross-check the slides-keyboard-shortcuts task doc
   (`20260514-slides-keyboard-shortcuts-todo.md`) — Task 4 has a
   "Deferred: onStartPresentation wiring" item that this PR closes.
   Tick that box and add a back-reference.
 
-- [ ] **10.4** Update commit log into a single PR-ready summary in
+- [x] **10.4** Update commit log into a single PR-ready summary in
   a `## Status` section at the end of this file (mirror the
   keyboard-shortcuts task doc's pattern).
 
-- [ ] **10.5** Self review the full branch diff via
+- [x] **10.5** Self review the full branch diff via
   `superpowers:requesting-code-review` or `/code-review` before
   pushing. Address blocking findings; note non-blocking ones as
   known limitations in the PR description.
 
-- [ ] **10.6** Capture lessons in
+- [x] **10.6** Capture lessons in
   `20260514-slides-presentation-mode-lessons.md`.
 
-- [ ] **10.7** `pnpm tasks:archive && pnpm tasks:index`. Commit
+- [x] **10.7** `pnpm tasks:archive && pnpm tasks:index`. Commit
   the archived files and the README update.
 
 ---

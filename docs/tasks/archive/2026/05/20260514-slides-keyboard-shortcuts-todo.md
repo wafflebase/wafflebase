@@ -68,7 +68,7 @@ modal). Group/Ungroup and Find/Replace are intentionally deferred.
       to `handleStartPresentation` so the Cmd/Ctrl+Enter shortcuts
       and the new Present split-button share the same entry path.
       See `docs/tasks/active/20260514-slides-presentation-mode-todo.md`.
-- [ ] **Deferred:** Real `onLinkRequest` popover. Requires
+- **Deferred (follow-up):** Real `onLinkRequest` popover. Requires
       extending `TextBoxEditorAPI` with `insertLink(url)` /
       `getLinkAtCursor()` so a slides-side popover can actually
       mutate the active text-box. The keyboard plumbing is in place
@@ -79,15 +79,15 @@ modal). Group/Ungroup and Find/Replace are intentionally deferred.
 ### Task 5: Verify and commit
 
 - [x] `pnpm verify:fast` — passes (Exit 0).
-- [ ] Manual smoke: `pnpm dev`, exercise each new shortcut (browser
-      smoke before merge per user workflow).
+- [x] Manual smoke: `pnpm dev`, exercise each new shortcut (browser
+      smoke before merge per user workflow). *(Merged as #238.)*
 - [x] Commits one per logical chunk; each commit `verify:fast` green.
 - [x] Update `docs/design/README.md` with link to the new design doc.
 
 ### Task 6: Archive
 
-- [ ] Capture lessons in `20260514-slides-keyboard-shortcuts-lessons.md`.
-- [ ] `pnpm tasks:archive && pnpm tasks:index`.
+- [x] Capture lessons in `20260514-slides-keyboard-shortcuts-lessons.md`.
+- [x] `pnpm tasks:archive && pnpm tasks:index`.
 
 ## Status
 
