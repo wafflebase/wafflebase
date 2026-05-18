@@ -44,8 +44,14 @@ export interface SlidesStore {
 
   // --- element-level ---
 
-  /** Insert an element on a slide. Returns the new element id. */
-  addElement(slideId: string, init: ElementInit): string;
+  /**
+   * Insert an element on a slide. Returns the new element id.
+   *
+   * When `parentGroupId` is provided the element is appended to that
+   * group's `children` array instead of the slide root. Throws if
+   * `parentGroupId` does not exist or is not a group element.
+   */
+  addElement(slideId: string, init: ElementInit, parentGroupId?: string): string;
   removeElement(slideId: string, elementId: string): void;
   removeElements(slideId: string, elementIds: string[]): void;
   updateElementFrame(

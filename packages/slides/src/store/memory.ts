@@ -221,28 +221,45 @@ export class MemSlidesStore implements SlidesStore {
 
   // --- element ops ---
 
-  addElement(slideId: string, init: ElementInit): string {
+  addElement(slideId: string, init: ElementInit, parentGroupId?: string): string {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const id = generateId();
     const element = { ...clone(init), id } as Element;
-    // Connectors carry a derived `frame` cache; the insert call path uses
-    // `buildConnectorInit` which pre-fills it correctly, but any future
-    // paste/import path could persist a degenerate `{0,0,0,0}` frame and
-    // silently break the selection bbox. Recompute defensively here so
-    // the cache is always derived from the endpoints.
-    if (element.type === 'connector') {
-      const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
-      element.frame = computeConnectorFrame(element, lookup);
+
+    if (parentGroupId !== undefined) {
+      // Append to the named group's children instead of the slide root.
+      const path = findElementPath(slide.elements, parentGroupId);
+      if (!path) {
+        throw new Error(`[slides] addElement(): parent group not found: ${parentGroupId}`);
+      }
+      const parent = path[path.length - 1];
+      if (parent.type !== 'group') {
+        throw new Error(
+          `[slides] addElement(): element ${parentGroupId} is not a group`,
+        );
+      }
+      parent.data.children.push(element);
+    } else {
+      // Connectors carry a derived `frame` cache; the insert call path uses
+      // `buildConnectorInit` which pre-fills it correctly, but any future
+      // paste/import path could persist a degenerate `{0,0,0,0}` frame and
+      // silently break the selection bbox. Recompute defensively here so
+      // the cache is always derived from the endpoints.
+      if (element.type === 'connector') {
+        const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+        element.frame = computeConnectorFrame(element, lookup);
+      }
+      slide.elements.push(element);
     }
-    slide.elements.push(element);
     return id;
   }
 
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const i = this.requireElementIndex(slide, elementId);
+    const path = findElementPath(slide.elements, elementId);
+    if (!path) throw new Error(`Element not found: ${elementId}`);
     // Cascade sweep — any connector still attached to the element being
     // removed must convert that endpoint to a `free` endpoint pinned at
     // the endpoint's *current* world position, so the connector survives
@@ -250,20 +267,61 @@ export class MemSlidesStore implements SlidesStore {
     // We compute the world position *before* removing the source from the
     // lookup so attached siteWorldPos still resolves.
     this.detachConnectorsTargeting(slide, elementId);
-    slide.elements.splice(i, 1);
+    const parentArray = this.resolveParentArray(slide, path);
+    const i = parentArray.findIndex((e) => e.id === elementId);
+    parentArray.splice(i, 1);
+    this.pruneEmptyAncestorGroups(slide, path);
   }
 
   removeElements(slideId: string, elementIds: string[]): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     const set = new Set(elementIds);
+    // Collect paths before any removal so they all resolve correctly.
+    const paths = new Map<string, Element[]>();
+    for (const id of set) {
+      const path = findElementPath(slide.elements, id);
+      if (path) paths.set(id, path);
+    }
     // Cascade sweep — convert any endpoint attached to one of the
     // about-to-be-removed elements into a free endpoint at its last
     // world position before any source is dropped.
     for (const id of set) {
       this.detachConnectorsTargeting(slide, id);
     }
-    slide.elements = slide.elements.filter((e) => !set.has(e.id));
+    // Remove from deepest leaves first to avoid stale path references.
+    // Group by parent array and splice all at once per parent.
+    this.removeElementsByPaths(slide, [...paths.values()]);
+  }
+
+  /**
+   * Remove elements identified by their full paths. Groups elements by
+   * parent array and splices in one pass per parent, then prunes any
+   * empty ancestor groups that result.
+   */
+  private removeElementsByPaths(slide: Slide, paths: Element[][]): void {
+    // Build a map from parent-path key to { parentArray, idsToRemove, representativePath }.
+    // Keyed by the joined ancestor ids so all elements sharing the same parent are batched.
+    type ParentEntry = { parentArray: Element[]; ids: Set<string>; representativePath: Element[] };
+    const byParent = new Map<string, ParentEntry>();
+    for (const path of paths) {
+      const id = path[path.length - 1].id;
+      const parentArray = this.resolveParentArray(slide, path);
+      const parentPathKey = path.slice(0, -1).map((e) => e.id).join('/');
+      if (!byParent.has(parentPathKey)) {
+        byParent.set(parentPathKey, { parentArray, ids: new Set(), representativePath: path });
+      }
+      byParent.get(parentPathKey)!.ids.add(id);
+    }
+    // Splice each parent array once (reverse order to keep indices stable).
+    for (const { parentArray, ids, representativePath } of byParent.values()) {
+      for (let i = parentArray.length - 1; i >= 0; i--) {
+        if (ids.has(parentArray[i].id)) parentArray.splice(i, 1);
+      }
+      // pruneEmptyAncestorGroups walks from path.length-2 upward.
+      // We pass the representative path so it starts at the right parent depth.
+      this.pruneEmptyAncestorGroups(slide, representativePath);
+    }
   }
 
   updateElementFrame(
@@ -271,7 +329,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type === 'connector') {
       // Connector frame is derived from endpoint positions — patching it
       // directly would leave the cached bbox out of sync with the
@@ -305,7 +363,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type === 'connector') {
       // Connectors have no `data` sub-object; use `updateConnectorEndpoint`
       // or `updateConnectorArrowheads` instead.
@@ -335,7 +393,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
@@ -353,7 +411,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
@@ -379,7 +437,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
@@ -395,10 +453,14 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const from = this.requireElementIndex(slide, elementId);
-    const [el] = slide.elements.splice(from, 1);
-    const clamped = Math.max(0, Math.min(toIndex, slide.elements.length));
-    slide.elements.splice(clamped, 0, el);
+    const path = findElementPath(slide.elements, elementId);
+    if (!path) throw new Error(`Element not found: ${elementId}`);
+    // toIndex is relative to the immediate parent array.
+    const parentArray = this.resolveParentArray(slide, path);
+    const from = parentArray.findIndex((e) => e.id === elementId);
+    const [el] = parentArray.splice(from, 1);
+    const clamped = Math.max(0, Math.min(toIndex, parentArray.length));
+    parentArray.splice(clamped, 0, el);
   }
 
   // --- group / ungroup ---
@@ -624,7 +686,7 @@ export class MemSlidesStore implements SlidesStore {
   ): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    const e = this.requireElement(slide, elementId);
     if (e.type !== 'text') {
       throw new Error(`Element ${elementId} is not a text element`);
     }
@@ -688,10 +750,55 @@ export class MemSlidesStore implements SlidesStore {
     return i;
   }
 
-  private requireElementIndex(slide: Slide, elementId: string): number {
-    const i = slide.elements.findIndex((e) => e.id === elementId);
-    if (i === -1) throw new Error(`Element not found: ${elementId}`);
-    return i;
+  /**
+   * DFS-find an element anywhere in the slide tree. Throws if not found.
+   * Use this in place of the flat `requireElementIndex` so mutations work
+   * on both slide-root and nested (grouped) elements.
+   */
+  private requireElement(slide: Slide, elementId: string): Element {
+    const path = findElementPath(slide.elements, elementId);
+    if (!path) throw new Error(`Element not found: ${elementId}`);
+    return path[path.length - 1];
+  }
+
+  /**
+   * Given a full path to an element (from findElementPath), return the
+   * mutable array that directly contains the element.
+   * - path.length === 1  → slide.elements (slide root)
+   * - path.length >= 2   → the immediate parent group's children array
+   */
+  private resolveParentArray(slide: Slide, path: Element[]): Element[] {
+    if (path.length === 1) return slide.elements;
+    const parent = path[path.length - 2];
+    // By the findElementPath invariant, non-root ancestors are always groups.
+    return (parent as GroupElement).data.children;
+  }
+
+  /**
+   * After removing element(s), walk the ancestor path upward and splice
+   * any group that has become empty. Recurse until we reach the slide root
+   * or encounter a non-empty group.
+   *
+   * `path` is the pre-removal path of the removed element (including the
+   * removed element itself at the end). We walk from the parent upward.
+   *
+   * Because all removal calls happen inside `requireBatch()`, this runs in
+   * the same batch so a single undo restores the entire tree.
+   */
+  private pruneEmptyAncestorGroups(slide: Slide, path: Element[]): void {
+    // Ancestors are all elements in the path except the leaf (which was
+    // removed) and the leaf's id. We walk from the immediate parent
+    // upward toward the slide root.
+    for (let depth = path.length - 2; depth >= 0; depth--) {
+      const ancestor = path[depth];
+      if (ancestor.type !== 'group') break;
+      if (ancestor.data.children.length > 0) break;
+      // This group is now empty — remove it from ITS parent.
+      const ancestorParentArray =
+        depth === 0 ? slide.elements : (path[depth - 1] as GroupElement).data.children;
+      const idx = ancestorParentArray.findIndex((e) => e.id === ancestor.id);
+      if (idx !== -1) ancestorParentArray.splice(idx, 1);
+    }
   }
 
   private requireBatch(): void {
