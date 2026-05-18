@@ -1753,6 +1753,37 @@ class SlidesEditorImpl implements SlidesEditor {
     });
   }
 
+  /**
+   * Drag-move preview: paint the slide unchanged + a translucent ghost
+   * of each selected element at its dragged position. Overlay handles
+   * render against the **original** frames so they stay anchored to the
+   * starting position (the user reads the ghost as "where it will land"
+   * and the handles as "where it started").
+   *
+   * Connectors are excluded from `ghosts` for v1; they keep rendering
+   * at their original endpoints during the drag preview. On commit, the
+   * connector's normal endpoint-lookup path re-routes them.
+   */
+  // @ts-expect-error TS6133 — wired up by `startDrag` in the next task
+  // of the shape-move-ghost plan; remove this directive then.
+  private paintMoveGhost(
+    ghosts: readonly Element[],
+    selectedOriginals: readonly Element[],
+    guides: readonly SnapGuide[] = [],
+  ): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    this.renderer.forceRender(slide, this.options.store.read(), ghosts);
+    renderOverlay(this.options.overlay, selectedOriginals, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+      guides,
+      allElements: slide.elements,
+      connectorAffordance: this.connectorAffordance(),
+    });
+  }
+
   private currentSlide() {
     const id = this.currentId;
     if (!id) return undefined;
