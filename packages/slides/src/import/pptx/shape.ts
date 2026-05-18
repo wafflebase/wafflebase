@@ -8,11 +8,7 @@ import type {
   TextElement,
 } from '../../model/element';
 import { generateId } from '../../model/element';
-import {
-  applyInverseMatrix,
-  applyInversePoint,
-  groupToTransform,
-} from '../../model/group';
+import { combinedBoundingBox } from '../../model/frame';
 import type {
   ArrowheadKind,
   ArrowheadStyle,
@@ -76,20 +72,17 @@ export interface SlideParseContext {
  *           attached endpoints regardless of source order.
  *   Pass 2: parse each child, preserving `<p:grpSp>` as `GroupElement`.
  *
- * Each `<p:grpSp>` becomes a `GroupElement` whose frame is its world
- * position (in the parent's coordinate space) and whose children are
- * stored in group-local coordinates `(0..w × 0..h)`.
+ * Each `<p:grpSp>` becomes a `GroupElement` whose frame is the
+ * rotation-aware AABB of its children's world frames (matching the
+ * invariant used by `MemSlidesStore.group()` / `YorkieSlidesStore.group()`).
+ * Children are stored in group-local coordinates relative to the AABB
+ * origin: `child.local = { ...child.world, x: child.world.x - aabb.x,
+ * y: child.world.y - aabb.y }`.
  *
- * The strategy for producing group-local children:
- *   1. Compose the accumulated world transform through the group
- *      (`composeGroupTransform`) so children first get their world frames.
- *   2. After collecting all children in world coords, convert each child
- *      frame back to group-local via `applyInverseMatrix` using the
- *      `GroupElement`'s own `groupToTransform`.
- *
- * This two-step approach reuses all existing matrix helpers without
- * modification, and nesting works naturally because inner groups
- * repeat the same pattern relative to their own parent group.
+ * This correctly handles cases where `<a:chOff>` ≠ `<a:off>` (the old
+ * `<a:ext>` approach left children rendering outside the handle), and
+ * ensures the selection handle tightly bounds visible content regardless
+ * of child rotation.
  */
 export async function parseSpTree(
   spTree: Element,
@@ -126,11 +119,18 @@ export async function parseSpTree(
 /**
  * Parse a `<p:grpSp>` element into a `GroupElement`.
  *
- * The group's own frame is the group's `<a:xfrm>` (off/ext/rot) placed
- * in the parent's coordinate space (via `applyGroupTransform`). Children
- * are recursed with the composed world transform, giving each child a
- * world-space frame, which is then inverted back to the group's local
- * `(0..w × 0..h)` space.
+ * The group's frame is set to the rotation-aware AABB of all children's
+ * world frames. Children are stored in group-local coords by subtracting
+ * the AABB origin: `local.x = world.x - aabb.x`, `local.y = world.y - aabb.y`.
+ * Connector free endpoints are translated the same way.
+ *
+ * This matches the invariant used by `MemSlidesStore.group()` and
+ * `YorkieSlidesStore.group()` — the selection handle always tightly bounds
+ * the visible content, even when `<a:chOff>` ≠ `<a:off>` or children carry
+ * their own rotation.
+ *
+ * Empty group fallback: if there are no children, fall back to the
+ * `<a:off>/<a:ext>` frame so the group still has a sensible position.
  */
 async function parseGrpSp(
   grpSp: Element,
@@ -141,21 +141,28 @@ async function parseGrpSp(
   const xfrm = grpSpPr ? child(grpSpPr, 'xfrm') : undefined;
   if (!xfrm) return undefined;
 
-  // The group's own frame in the parent's coordinate space.
-  const localFrame = parseXfrm(xfrm, ctx.scale);
-  // Apply the parent transform to get the group's world frame.
-  const groupWorldFrame =
-    parentTransform === IDENTITY_TRANSFORM
-      ? localFrame
-      : applyGroupTransform(localFrame, parentTransform);
-
   // Compose the full transform to produce world frames for children.
   const childWorldTransform = composeGroupTransform(parentTransform, grpSp, ctx.scale);
 
   // Recurse into children; they come back in world coordinates.
   const worldChildren = await parseSpTreeChildren(grpSp, ctx, childWorldTransform);
 
-  // Build a stub GroupElement (no children yet) so we can call groupToTransform.
+  // Compute the rotation-aware AABB of all children's world frames.
+  // This is the canonical group frame: tightly bounds visible content.
+  const aabb = combinedBoundingBox(worldChildren.map((c) => c.frame));
+
+  // Fall back to <a:off>/<a:ext> for empty groups so they still have a position.
+  let groupWorldFrame: GroupElement['frame'];
+  if (!aabb) {
+    const localFrame = parseXfrm(xfrm, ctx.scale);
+    groupWorldFrame =
+      parentTransform === IDENTITY_TRANSFORM
+        ? localFrame
+        : applyGroupTransform(localFrame, parentTransform);
+  } else {
+    groupWorldFrame = { ...aabb, rotation: 0 };
+  }
+
   const groupId = generateId();
   const groupElement: GroupElement = {
     id: groupId,
@@ -164,10 +171,12 @@ async function parseGrpSp(
     data: { children: [] },
   };
 
-  // Convert each child's world frame to the group's local space.
-  const groupTransform = groupToTransform(groupElement);
+  // Convert each child's world frame to group-local by subtracting the AABB origin.
+  // Rotation and size are unchanged; only (x, y) shift by the AABB origin.
+  const ox = groupWorldFrame.x;
+  const oy = groupWorldFrame.y;
   const localChildren: SlideElement[] = worldChildren.map((c) =>
-    worldToGroupLocal(c, groupTransform),
+    worldToGroupLocal(c, ox, oy),
   );
 
   groupElement.data.children = localChildren;
@@ -175,36 +184,28 @@ async function parseGrpSp(
 }
 
 /**
- * Convert a child element's frames from world space to the group's local space.
- * For connectors, `free` endpoint coordinates are also converted.
+ * Convert a child element's world frame to group-local by subtracting the
+ * AABB origin `(ox, oy)`. Rotation and size are preserved unchanged.
+ * For connectors, `free` endpoint coordinates are shifted the same way.
  */
 function worldToGroupLocal(
   elem: SlideElement,
-  groupTransform: ReturnType<typeof groupToTransform>,
+  ox: number,
+  oy: number,
 ): SlideElement {
+  const localFrame = { ...elem.frame, x: elem.frame.x - ox, y: elem.frame.y - oy };
   if (elem.type === 'connector') {
     const start =
       elem.start.kind === 'free'
-        ? {
-            kind: 'free' as const,
-            ...applyInversePoint(elem.start.x, elem.start.y, groupTransform),
-          }
+        ? { kind: 'free' as const, x: elem.start.x - ox, y: elem.start.y - oy }
         : elem.start;
     const end =
       elem.end.kind === 'free'
-        ? {
-            kind: 'free' as const,
-            ...applyInversePoint(elem.end.x, elem.end.y, groupTransform),
-          }
+        ? { kind: 'free' as const, x: elem.end.x - ox, y: elem.end.y - oy }
         : elem.end;
-    return {
-      ...elem,
-      frame: applyInverseMatrix(elem.frame, groupTransform),
-      start,
-      end,
-    };
+    return { ...elem, frame: localFrame, start, end };
   }
-  return { ...elem, frame: applyInverseMatrix(elem.frame, groupTransform) };
+  return { ...elem, frame: localFrame };
 }
 
 /**

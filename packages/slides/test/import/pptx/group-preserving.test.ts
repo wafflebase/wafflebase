@@ -127,19 +127,24 @@ describe('parseSpTree — group preservation', () => {
     const group = elements[0] as GroupElement;
 
     const child = group.data.children[0];
-    // The group frame is the group's own xfrm in world space.
+    // The group frame is now the tight AABB of the children's world frames.
+    // For this fixture (chOff == off, chExt == ext, no rotation), the AABB
+    // is exactly the single child's world frame — the <a:off>/<a:ext> of the
+    // child shape, not the group's <a:off>/<a:ext>.
     const gf = group.frame;
-    expect(gf.x).toBeCloseTo(2400000 * SCALE.sx, 5);
-    expect(gf.y).toBeCloseTo(1200000 * SCALE.sy, 5);
-    expect(gf.w).toBeCloseTo(4800000 * SCALE.sx, 5);
-    expect(gf.h).toBeCloseTo(2400000 * SCALE.sy, 5);
+    expect(gf.x).toBeCloseTo(2800000 * SCALE.sx, 5);
+    expect(gf.y).toBeCloseTo(1600000 * SCALE.sy, 5);
+    expect(gf.w).toBeCloseTo(2000000 * SCALE.sx, 5);
+    expect(gf.h).toBeCloseTo(1200000 * SCALE.sy, 5);
+    expect(gf.rotation).toBe(0);
 
-    // The child's local frame must be inside (0..gf.w × 0..gf.h).
+    // The child's local frame must be at (0, 0) since the AABB exactly matches
+    // the single child — offset from the AABB origin is zero.
     const cf = child.frame;
-    expect(cf.x).toBeGreaterThanOrEqual(-1); // allow sub-pixel rounding
-    expect(cf.y).toBeGreaterThanOrEqual(-1);
-    expect(cf.x + cf.w).toBeLessThanOrEqual(gf.w + 1);
-    expect(cf.y + cf.h).toBeLessThanOrEqual(gf.h + 1);
+    expect(cf.x).toBeCloseTo(0, 3);
+    expect(cf.y).toBeCloseTo(0, 3);
+    expect(cf.w).toBeCloseTo(gf.w, 3);
+    expect(cf.h).toBeCloseTo(gf.h, 3);
   });
 
   it('bbox-equivalence: leaf world frames match old-flat-path world frames', async () => {
@@ -428,13 +433,16 @@ const ROTATED_GROUP_SPREE = `
   </p:grpSp>`;
 
 describe('parseSpTree — rotated group preservation', () => {
-  it('produces a GroupElement with correct rotation on the group frame', async () => {
+  it('produces a GroupElement whose frame is an axis-aligned AABB (rotation=0)', async () => {
     const tree = spTree(ROTATED_GROUP_SPREE);
     const elements = await parseSpTree(tree, makeCtx());
 
     expect(elements[0].type).toBe('group');
     const group = elements[0] as GroupElement;
-    expect(group.frame.rotation).toBeCloseTo(Math.PI / 2, 5);
+    // The group's frame is the AABB of its children's world frames.
+    // Even when the group's own <a:xfrm> has a non-zero rotation, the
+    // stored frame is axis-aligned (rotation=0) because it is a bounding box.
+    expect(group.frame.rotation).toBe(0);
   });
 
   it('bbox-equivalence: rotated group child world frame center matches expected', async () => {
@@ -524,5 +532,121 @@ describe('parseSpTree — group with multiple children', () => {
     expect(worldFrames[1].y).toBeCloseTo(1000000 * SCALE.sy, 3);
     expect(worldFrames[1].w).toBeCloseTo(2000000 * SCALE.sx, 3);
     expect(worldFrames[1].h).toBeCloseTo(1500000 * SCALE.sy, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture 7: chOff != off — the group handle was misaligned with rendered shapes
+// ---------------------------------------------------------------------------
+// When <a:chOff> differs from <a:off>, the old code used <a:off>/<a:ext> for the
+// group frame and the inverse lost the chOff translation, causing children to
+// render outside the handle parallelogram.
+//
+// The child lives at EMU (500000, 500000), 1000000 × 500000.
+// The group's <a:off> is (1000000, 1000000), but <a:chOff> is (0, 0).
+// Old group.frame x/y = 1000000 * SCALE; child world x/y = 500000 * SCALE
+// → child world STARTS LEFT of the group frame → visible content outside handle.
+const CHOFF_OFFSET_SPREE = `
+  <p:grpSp>
+    <p:grpSpPr>
+      <a:xfrm>
+        <a:off x="1000000" y="1000000"/>
+        <a:ext cx="4000000" cy="2000000"/>
+        <a:chOff x="0" y="0"/>
+        <a:chExt cx="4000000" cy="2000000"/>
+      </a:xfrm>
+    </p:grpSpPr>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="10" name="r"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm>
+          <a:off x="500000" y="500000"/>
+          <a:ext cx="1000000" cy="500000"/>
+        </a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+      </p:spPr>
+    </p:sp>
+  </p:grpSp>`;
+
+describe('parseSpTree — group.frame tightly bounds visible content (chOff ≠ off)', () => {
+  it('group.frame tightly bounds children visible content (chOff != off case)', async () => {
+    const tree = spTree(CHOFF_OFFSET_SPREE);
+    const elements = await parseSpTree(tree, makeCtx());
+    expect(elements).toHaveLength(1);
+    const group = elements[0] as GroupElement;
+    expect(group.type).toBe('group');
+
+    // Re-compute each child's world bbox via applyGroupTransform.
+    const childWorlds = group.data.children.map((c) =>
+      applyGroupTransform(c.frame, group),
+    );
+
+    // Each child's world bbox must lie inside the group's world bbox.
+    const gf = group.frame;
+    for (const w of childWorlds) {
+      expect(w.x).toBeGreaterThanOrEqual(gf.x - 1);
+      expect(w.y).toBeGreaterThanOrEqual(gf.y - 1);
+      expect(w.x + w.w).toBeLessThanOrEqual(gf.x + gf.w + 1);
+      expect(w.y + w.h).toBeLessThanOrEqual(gf.y + gf.h + 1);
+    }
+
+    // group.frame should be a TIGHT AABB — no large dead padding.
+    // The single child's world bbox is exactly the AABB.
+    const w = childWorlds[0];
+    expect(gf.x).toBeCloseTo(w.x, 3);
+    expect(gf.y).toBeCloseTo(w.y, 3);
+    expect(gf.w).toBeCloseTo(w.w, 3);
+    expect(gf.h).toBeCloseTo(w.h, 3);
+    expect(gf.rotation).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture 8: rotated child — group frame must include the rotated visual bbox
+// ---------------------------------------------------------------------------
+// When a child inside a group has its own rotation, the child's visible extent
+// is larger than its unrotated frame. The group.frame AABB must encompass that.
+const ROTATED_CHILD_SPREE = `
+  <p:grpSp>
+    <p:grpSpPr>
+      <a:xfrm>
+        <a:off x="0" y="0"/>
+        <a:ext cx="2000000" cy="2000000"/>
+        <a:chOff x="0" y="0"/>
+        <a:chExt cx="2000000" cy="2000000"/>
+      </a:xfrm>
+    </p:grpSpPr>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="11" name="r"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm rot="-1500000">
+          <a:off x="500000" y="900000"/>
+          <a:ext cx="1000000" cy="200000"/>
+        </a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+      </p:spPr>
+    </p:sp>
+  </p:grpSp>`;
+
+describe('parseSpTree — group.frame tightly bounds rotated child content', () => {
+  it('group.frame tightly bounds rotated child content', async () => {
+    const tree = spTree(ROTATED_CHILD_SPREE);
+    const elements = await parseSpTree(tree, makeCtx());
+    const group = elements[0] as GroupElement;
+    expect(group.type).toBe('group');
+
+    const child = group.data.children[0];
+    const childWorld = applyGroupTransform(child.frame, group);
+
+    // childWorld has rotation; its unrotated frame is a bounding approximation.
+    // The group's frame must at minimum contain the child's unrotated world frame.
+    const gf = group.frame;
+    expect(gf.x).toBeLessThanOrEqual(childWorld.x + 1);
+    expect(gf.y).toBeLessThanOrEqual(childWorld.y + 1);
+    expect(gf.x + gf.w).toBeGreaterThanOrEqual(childWorld.x + childWorld.w - 1);
+    expect(gf.y + gf.h).toBeGreaterThanOrEqual(childWorld.y + childWorld.h - 1);
+
+    // The group frame must be rotation=0 (it's an AABB).
+    expect(gf.rotation).toBe(0);
   });
 });
