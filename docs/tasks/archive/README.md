@@ -12,6 +12,7 @@ Total archived tasks: 195
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
 | release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
 | pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
