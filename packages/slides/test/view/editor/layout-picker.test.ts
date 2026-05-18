@@ -81,7 +81,7 @@ describe('showLayoutPicker', () => {
       onClose,
     });
     // Click on document.body (outside the popover) — should close.
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(onClose).toHaveBeenCalled();
     expect(onPick).not.toHaveBeenCalled();
   });
@@ -171,11 +171,11 @@ describe('showLayoutPicker', () => {
     // the picker via the returned close handle, so the picker's own
     // outside-click handler must not also close it (the "first
     // mousedown closes, then click reopens" race).
-    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(onClose).not.toHaveBeenCalled();
     expect(h.querySelector('.wfb-slides-layout-picker')).toBeTruthy();
     // A click somewhere genuinely outside still closes.
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -60,4 +60,46 @@ describe('handleHitTest', () => {
     addHandle(overlay, 'rotate', 250, -20);
     expect(handleHitTest(overlay, 254, -16)).toBe('rotate');
   });
+
+  it('tolerance expands the hit rectangle on every side', () => {
+    const overlay = makeOverlay();
+    // 8x8 handle at (100, 100): default hit area covers (100..108, 100..108).
+    addHandle(overlay, 'nw', 100, 100);
+    // 14px outside the right edge — outside default, inside tolerance=22.
+    expect(handleHitTest(overlay, 122, 104)).toBeNull();
+    expect(handleHitTest(overlay, 122, 104, 22)).toBe('nw');
+    // 14px above the top edge.
+    expect(handleHitTest(overlay, 104, 86)).toBeNull();
+    expect(handleHitTest(overlay, 104, 86, 22)).toBe('nw');
+  });
+
+  it('tolerance does not reach beyond its radius', () => {
+    const overlay = makeOverlay();
+    addHandle(overlay, 'nw', 100, 100);
+    // 30px outside — beyond 22px tolerance.
+    expect(handleHitTest(overlay, 140, 104, 22)).toBeNull();
+  });
+
+  it('picks the closest-center handle when tolerance zones overlap', () => {
+    const overlay = makeOverlay();
+    // Two 8x8 handles 20px apart, centers at (104, 104) and (124, 104).
+    // A 22px tolerance makes their expanded rects overlap, so both
+    // rects contain the points below. Bias each point off the midpoint
+    // so closest-center has a definitive winner.
+    addHandle(overlay, 'nw', 100, 100);
+    addHandle(overlay, 'n', 120, 100);
+    expect(handleHitTest(overlay, 110, 104, 22)).toBe('nw'); // closer to nw
+    expect(handleHitTest(overlay, 118, 104, 22)).toBe('n');  // closer to n
+  });
+
+  it('closest-center matters even without tolerance (overlapping handles)', () => {
+    const overlay = makeOverlay();
+    // Two large handles sharing area at (100..130, 100..130).
+    addHandle(overlay, 'nw', 100, 100, 30, 30); // center (115, 115)
+    addHandle(overlay, 'rotate', 110, 110, 30, 30); // center (125, 125)
+    // (118, 118) is inside both; closer to nw center.
+    expect(handleHitTest(overlay, 118, 118)).toBe('nw');
+    // (124, 124) is closer to rotate center.
+    expect(handleHitTest(overlay, 124, 124)).toBe('rotate');
+  });
 });

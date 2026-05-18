@@ -103,6 +103,14 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * user requests link insertion. No-op when omitted.
    */
   onLinkRequest?: () => void;
+  /**
+   * Extra hit-test slack (in CSS pixels) around resize / rotate /
+   * adjustment handles. The visual handle stays at its 8px size; this
+   * only expands the area where a pointer counts as "on" the handle.
+   * Default 0 keeps desktop precision. The mobile shell passes ~22
+   * (≈ 44px diameter) so fingertips can reliably grab handles.
+   */
+  touchHandleTolerance?: number;
 }
 
 export interface SlidesEditor {
@@ -821,8 +829,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // overlay and never reach the canvas, so resize/rotate would
     // silently no-op.
     const onMouseDown = (e: Event) => this.onPointerDown(e as MouseEvent);
-    this.on(this.options.canvas, 'mousedown', onMouseDown);
-    this.on(this.options.overlay, 'mousedown', onMouseDown);
+    this.on(this.options.canvas, 'pointerdown', onMouseDown);
+    this.on(this.options.overlay, 'pointerdown', onMouseDown);
     this.on(document, 'keydown', (e) => {
       void this.handleKeyDown(e as KeyboardEvent);
     });
@@ -836,8 +844,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // user is in the toolbar).
     const onMove = (e: Event) => this.onInsertHoverMove(e as MouseEvent);
     const onLeave = () => this.onInsertHoverLeave();
-    this.on(this.options.canvas, 'mousemove', onMove);
-    this.on(this.options.canvas, 'mouseleave', onLeave);
+    this.on(this.options.canvas, 'pointermove', onMove);
+    this.on(this.options.canvas, 'pointerleave', onLeave);
     // Double-click on the slide canvas (or overlay, when the click
     // hits a selection-frame area that overlaps a text element) enters
     // text edit mode if a text element was hit.
@@ -1254,8 +1262,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.forceRender(slide, this.options.store.read(), ghost);
     };
     const cleanup = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       document.removeEventListener('keydown', onKey, true);
       this.insertDragging = false;
     };
@@ -1291,8 +1299,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.render();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
     document.addEventListener('keydown', onKey, true);
   }
 
@@ -1334,8 +1342,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.repaintOverlay();
     };
     const cleanup = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       document.removeEventListener('keydown', onKey, true);
       this.insertDragging = false;
       // Clear the affordance cursor on drag end; the surrounding
@@ -1379,8 +1387,8 @@ class SlidesEditorImpl implements SlidesEditor {
       // overlay repaint).
       this.repaintOverlay();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
     document.addEventListener('keydown', onKey, true);
   }
 
@@ -1403,8 +1411,8 @@ class SlidesEditorImpl implements SlidesEditor {
       rectEl.style.height = `${rect.h * scale}px`;
     };
     const onUp = (ev: MouseEvent) => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       rectEl.remove();
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
@@ -1417,8 +1425,8 @@ class SlidesEditorImpl implements SlidesEditor {
       }
       this.selection.set(selectInRect(slide, rect));
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   private startDrag(clientX: number, clientY: number): void {
@@ -1455,8 +1463,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.paintLive(live, guides);
     };
     const onUp = (_ev: MouseEvent) => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       // Commit one batch with the final frames.
       const slideId = startSlide.id;
       this.options.store.batch(() => {
@@ -1472,8 +1480,8 @@ class SlidesEditorImpl implements SlidesEditor {
       // with `selected` and no `guides`, clearing them.
       this.repaintOverlay();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   private paintLive(live: Map<string, Frame>, guides: readonly SnapGuide[] = []): void {
@@ -1522,6 +1530,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.options.overlay,
       clientX - rect.left,
       clientY - rect.top,
+      this.options.touchHandleTolerance,
     );
   }
 
@@ -1637,8 +1646,8 @@ class SlidesEditorImpl implements SlidesEditor {
       paintLiveConnector();
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       // Drop the affordance cursor before repainting so the dots
       // disappear on commit (no drag = no affordance).
       this.connectorCursor = null;
@@ -1665,8 +1674,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.render();
       this.repaintOverlay();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   private startAdjustmentDrag(
@@ -1727,8 +1736,8 @@ class SlidesEditorImpl implements SlidesEditor {
       );
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       hideAdjustmentTooltip();
       if (!moved) return;
       this.options.store.batch(() => {
@@ -1739,8 +1748,8 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.render();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   private paintLiveAdjustments(elementId: string, adjustments: number[]): void {
@@ -1790,16 +1799,16 @@ class SlidesEditorImpl implements SlidesEditor {
       this.paintLive(new Map([[elementId, liveFrame]]));
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       this.options.store.batch(() => {
         this.options.store.updateElementFrame(startSlide.id, elementId, { rotation: liveRotation });
       });
       this.renderer.markDirty();
       this.render();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
@@ -1823,16 +1832,16 @@ class SlidesEditorImpl implements SlidesEditor {
       this.paintLive(livMap);
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       this.options.store.batch(() => {
         this.options.store.updateElementFrame(startSlide.id, elementId, live.frame);
       });
       this.renderer.markDirty();
       this.render();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 }
 

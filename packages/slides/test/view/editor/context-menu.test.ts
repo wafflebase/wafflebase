@@ -38,7 +38,7 @@ describe('showContextMenu', () => {
     // Outside-click listener is attached via setTimeout(..., 0) so the
     // showing right-click doesn't immediately dismiss its own menu.
     await new Promise((r) => setTimeout(r, 0));
-    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(document.body.querySelector('.wfb-slides-context-menu')).toBeNull();
   });
 
@@ -101,14 +101,14 @@ describe('showContextMenu', () => {
     // Drain the pending setTimeout(0) callbacks. Only the second
     // menu's attach should run — the first's must have been cleared.
     await new Promise((r) => setTimeout(r, 0));
-    const documentMousedownAttaches = addSpy.mock.calls.filter(
-      ([type]) => type === 'mousedown',
+    const documentPointerdownAttaches = addSpy.mock.calls.filter(
+      ([type]) => type === 'pointerdown',
     );
-    expect(documentMousedownAttaches).toHaveLength(1);
+    expect(documentPointerdownAttaches).toHaveLength(1);
     addSpy.mockRestore();
     // Menu B is still mounted and a single outside click cleanly
     // dismisses it without leftover listener noise.
-    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(document.body.querySelector('.wfb-slides-context-menu')).toBeNull();
   });
 

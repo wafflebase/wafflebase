@@ -34,7 +34,7 @@ describe('mountThumbnailPanel', () => {
     mountThumbnailPanel(panel, store, editor);
     const slideIds = store.read().slides.map((s) => s.id);
     const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${slideIds[1]}"]`)!;
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(editor.getCurrentSlideId()).toBe(slideIds[1]);
   });
 
@@ -60,12 +60,12 @@ describe('mountThumbnailPanel', () => {
     const slideIds = store.read().slides.map((s) => s.id);
     const initial = editor.getCurrentSlideId();
     const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${slideIds[1]}"]`)!;
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
     // Shift-click does not change the current slide.
     expect(editor.getCurrentSlideId()).toBe(initial);
     expect(handle.getSelectedSlideIds()).toEqual([slideIds[1]]);
     // Shift-click again removes from selection.
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
     expect(handle.getSelectedSlideIds()).toEqual([]);
   });
 
@@ -117,7 +117,7 @@ describe('mountThumbnailPanel — scroll preservation across re-render', () => {
     const second = panel.querySelector<HTMLDivElement>(
       `[data-slide-id="${slideIds[1]}"]`,
     )!;
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
     expect(scrollable.scrollTop).toBe(250);
   });
@@ -240,7 +240,7 @@ describe('mountThumbnailPanel — arrow key navigation', () => {
     const second = panel.querySelector<HTMLDivElement>(
       `[data-slide-id="${slideIds[1]}"]`,
     )!;
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(document.activeElement).toBe(panel);
   });
 
@@ -376,7 +376,7 @@ describe('mountThumbnailPanel — right-click context menu', () => {
     const ids = store.read().slides.map((s) => s.id);
     // Shift-click the second slide into the multi-selection.
     const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
     expect(handle.getSelectedSlideIds()).toEqual([ids[1]]);
     // Right-click on the first slide (NOT in the multi-selection) →
     // selection collapses to just the first slide.
@@ -394,8 +394,8 @@ describe('mountThumbnailPanel — right-click context menu', () => {
     // Shift-click both slides to multi-select.
     const first = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!;
     const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
-    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    first.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
     expect(handle.getSelectedSlideIds()).toHaveLength(2);
     // Right-click second (in the set) — selection stays.
     rightClick(panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!);
@@ -470,8 +470,8 @@ describe('mountThumbnailPanel — right-click context menu', () => {
     const ids = store.read().slides.map((s) => s.id);
     const first = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[0]}"]`)!;
     const second = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
-    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
-    second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, shiftKey: true }));
+    first.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, shiftKey: true }));
     expect(handle.getSelectedSlideIds()).toHaveLength(2);
     rightClick(second);
     const changeItem = Array.from(

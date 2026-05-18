@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | - |
+| slides mobile edit (2026-05-17) | [20260517-slides-mobile-edit-todo.md](./active/20260517-slides-mobile-edit-todo.md) | [20260517-slides-mobile-edit-lessons.md](./active/20260517-slides-mobile-edit-lessons.md) |
 | slides mobile view (2026-05-17) | [20260517-slides-mobile-view-todo.md](./active/20260517-slides-mobile-view-todo.md) | [20260517-slides-mobile-view-lessons.md](./active/20260517-slides-mobile-view-lessons.md) |
 | slides textbox click scale (2026-05-17) | [20260517-slides-textbox-click-scale-todo.md](./active/20260517-slides-textbox-click-scale-todo.md) | [20260517-slides-textbox-click-scale-lessons.md](./active/20260517-slides-textbox-click-scale-lessons.md) |
 | slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./active/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./active/20260515-slides-connectors-pr1-lessons.md) |

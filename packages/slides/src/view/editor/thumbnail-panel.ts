@@ -253,7 +253,7 @@ export function mountThumbnailPanel(
       }
       item.appendChild(canvas);
 
-      item.addEventListener('mousedown', (e) => {
+      item.addEventListener('pointerdown', (e) => {
         if (e.shiftKey) {
           // Toggle slide-level multi-selection. Shift-click does NOT
           // change the rendered slide — that's handled by plain click.
