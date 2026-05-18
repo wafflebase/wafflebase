@@ -89,7 +89,7 @@ export class SlideRenderer {
   forceRender(
     slide: Slide,
     doc: SlidesDocument,
-    ghosts?: ReadonlyArray<Element>,
+    ghosts?: readonly Element[],
   ): void {
     this.dirty = true;
     drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts);
@@ -109,7 +109,7 @@ export function drawSlide(
   doc: SlidesDocument,
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
-  ghosts?: ReadonlyArray<Element>,
+  ghosts?: readonly Element[],
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;

@@ -1430,7 +1430,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
-    // `forceRender(slide, doc, ghost)` channel as the hover ghost so
+    // `forceRender(slide, doc, [ghost])` channel as the hover ghost so
     // the in-progress shape stays semi-transparent — the user can see
     // any underlying content while sizing, and the commit on mouseup
     // is the moment the shape goes opaque.
@@ -1490,7 +1490,7 @@ class SlidesEditorImpl implements SlidesEditor {
   /**
    * Drag-to-place flow for connectors. Mirrors `startInsert`'s shape
    * branch: live ghost preview during the drag (rendered via the same
-   * `forceRender(slide, doc, ghost)` channel), commit on mouseup,
+   * `forceRender(slide, doc, [ghost])` channel), commit on mouseup,
    * ESC cancels with capture-phase pre-emption so the keyboard rule's
    * own `setInsertMode(null)` Esc handler doesn't double-fire.
    *

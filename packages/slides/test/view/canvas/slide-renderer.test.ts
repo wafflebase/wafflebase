@@ -8,7 +8,7 @@ import { BUILT_IN_LAYOUTS } from '../../../src/model/layout';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
 // Install Path2D global before the slide renderer pulls in shape builders.
 import '../../../src/view/canvas/test-canvas-env';
-import { SlideRenderer, drawSlide } from '../../../src/view/canvas/slide-renderer';
+import { SlideRenderer, drawSlide, GHOST_ALPHA } from '../../../src/view/canvas/slide-renderer';
 import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
 import { MemSlidesStore } from '../../../src/store/memory';
 import type { Element } from '../../../src/model/element';
@@ -281,16 +281,24 @@ function makeGhost(id: string, x: number): Element {
 }
 
 describe('drawSlide ghosts', () => {
-  it('each ghost adds one wrapper save/restore plus the drawElement save/restore on top of the baseline', () => {
+  it('paints each ghost with globalAlpha set to GHOST_ALPHA', () => {
     const { doc, slide } = buildDoc();
     const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
 
-    const baseline = createCtxSpy();
-    drawSlide(asCtx(baseline), slide, doc, opts);
+    const spy = createCtxSpy();
+    // Observe every write to globalAlpha. The ghost band sets it to
+    // GHOST_ALPHA between save() and restore(); the rest of the render
+    // either never writes it or writes 1.
+    const alphaWrites: number[] = [];
+    let alpha = spy.globalAlpha;
+    Object.defineProperty(spy, 'globalAlpha', {
+      configurable: true,
+      get() { return alpha; },
+      set(v: number) { alpha = v; alphaWrites.push(v); },
+    });
 
-    const twoGhosts = createCtxSpy();
     drawSlide(
-      asCtx(twoGhosts),
+      asCtx(spy),
       slide,
       doc,
       opts,
@@ -298,17 +306,9 @@ describe('drawSlide ghosts', () => {
       [makeGhost('g1', 300), makeGhost('g2', 600)],
     );
 
-    // Each ghost contributes the new wrapper save/restore (for the
-    // `globalAlpha` scope) AND the per-element save/restore that
-    // `drawElement` always emits for the frame transform. With two
-    // ghosts that is 2 * 2 = 4 additional save/restore pairs on top
-    // of the baseline.
-    expect(twoGhosts.save.mock.calls.length).toBe(
-      baseline.save.mock.calls.length + 4,
-    );
-    expect(twoGhosts.restore.mock.calls.length).toBe(
-      baseline.restore.mock.calls.length + 4,
-    );
+    // Both ghosts must have been painted at GHOST_ALPHA.
+    const ghostAlphaWrites = alphaWrites.filter((a) => a === GHOST_ALPHA);
+    expect(ghostAlphaWrites.length).toBe(2);
   });
 
   it('omitting ghosts equals an empty array', () => {
