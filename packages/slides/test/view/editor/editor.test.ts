@@ -1190,3 +1190,123 @@ describe('repaintOverlay — scope-aware drilled-in element handles', () => {
     expect(outline!.style.transform).toMatch(/rotate\(/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Drill-in click handler tests (Task 9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fixture with two shapes grouped together at slide-root.
+ *
+ * Shape A: world (100, 100, 100, 80)
+ * Shape B: world (300, 200, 80, 60)
+ * Group:   world AABB of A and B = (100, 100, 280, 160)
+ *
+ * After grouping, children are in group-local space. Shape A is at
+ * group-local (0, 0, 100, 80) and Shape B is at group-local (200, 100, 80, 60).
+ * A world click at (150, 140) = group-local (50, 40) hits Shape A.
+ */
+function makeGroupedFixture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1920;
+  canvas.height = 1080;
+  const overlay = document.createElement('div');
+  overlay.style.position = 'absolute';
+  document.body.appendChild(canvas);
+  document.body.appendChild(overlay);
+
+  const store = new MemSlidesStore();
+  let slideId!: string;
+  let aId!: string;
+  let bId!: string;
+  let groupId!: string;
+  store.batch(() => {
+    slideId = store.addSlide('blank');
+    aId = store.addElement(slideId, {
+      type: 'shape',
+      frame: { x: 100, y: 100, w: 100, h: 80, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+    });
+    bId = store.addElement(slideId, {
+      type: 'shape',
+      frame: { x: 300, y: 200, w: 80, h: 60, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+    });
+    ({ groupId } = store.group(slideId, [aId, bId]));
+  });
+
+  return { canvas, overlay, store, slideId, aId, bId, groupId };
+}
+
+type SelectionImpl = {
+  selection: import('../../../src/view/editor/selection').Selection;
+};
+
+describe('drill-in click handlers (Task 9)', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  it('right-click on a nested element resolves to that element id via hitTestSlide', () => {
+    // Verify that the context menu receives the leaf-most id (not null).
+    // We can't easily intercept the context menu items, but we CAN observe
+    // that the selection changes to reflect the right-clicked element when
+    // a context menu fires on a nested shape.
+    const { canvas, overlay, store, aId, groupId } = makeGroupedFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Context menu on a point inside shape A (world 150, 140).
+    // With the OLD topmostUnderPoint the group bbox contained (150,140) but
+    // the flat search hit the group element, not the child. With hitTestSlide
+    // it descends and resolves to aId.
+    //
+    // elementContextItems selects the hit element if it is not already selected.
+    // After the contextmenu event, selection should be [groupId] — because the
+    // context menu calls elementContextItems(slideId, hit.elementId) and
+    // sets selection to [hitId] only when it is not already selected.
+    // hitTestSlide on (150,140) → elementId = aId, so selection becomes [aId].
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 150, clientY: 140, bubbles: true,
+    }));
+    // The onContextMenu calls elementContextItems which does:
+    //   if (!this.selection.has(elementId)) this.selection.set([elementId])
+    // So after right-clicking aId, selection should include aId.
+    expect(editor.getSelection()).toContain(aId);
+    // And groupId (the outer wrapper) should NOT be what was selected,
+    // because hitTestSlide returns the leaf-most id.
+    expect(editor.getSelection()).not.toContain(groupId);
+  });
+
+  it('single click on a group child selects the outermost group, not the child', () => {
+    const { canvas, overlay, store, aId, groupId } = makeGroupedFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Click inside shape A's world bounds (150, 140). With Selection.click
+    // and scope=[], the outermost ancestor should be selected.
+    canvas.dispatchEvent(new MouseEvent('mousedown', {
+      clientX: 150, clientY: 140, bubbles: true,
+    }));
+    // scope is empty, so pickAtScope returns ancestorPath[0] = groupId.
+    expect(editor.getSelection()).toEqual([groupId]);
+    // The inner child aId should NOT be directly in the selection.
+    expect(editor.getSelection()).not.toContain(aId);
+  });
+
+  it('double-click on a group child drills in and selects the child', () => {
+    const { canvas, overlay, store, aId, groupId } = makeGroupedFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    const impl = editor as unknown as SelectionImpl;
+
+    // Double-click inside shape A's world bounds (150, 140).
+    canvas.dispatchEvent(new MouseEvent('dblclick', {
+      clientX: 150, clientY: 140, bubbles: true,
+    }));
+    // After double-click, scope should be [groupId] and ids should be [aId].
+    expect(impl.selection.getScope()).toEqual([groupId]);
+    expect(editor.getSelection()).toEqual([aId]);
+  });
+});

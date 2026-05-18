@@ -1,5 +1,5 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
-import { combinedBoundingBox, containsPoint } from '../../model/frame';
+import { combinedBoundingBox } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
@@ -26,7 +26,6 @@ import {
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
 import { buildKeyRules } from './interactions/keyboard';
-import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
@@ -45,6 +44,7 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
+import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
@@ -887,7 +887,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hit = topmostUnderPoint(slide, x, y);
+    const hit = hitTestSlide(slide, x, y)?.elementId ?? null;
     const items = hit !== null
       ? this.elementContextItems(slide.id, hit)
       : this.canvasContextItems(x, y);
@@ -1025,15 +1025,25 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
 
-    // Hit-test against an element first.
-    const hit = topmostUnderPoint(slide, x, y);
-    if (hit !== null) {
+    // Hit-test against an element first. Use the depth-aware hitTestSlide
+    // (which descends into groups) and route through Selection.click so the
+    // drill-in state machine picks the right element at the current scope.
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult !== null) {
       const mods = { shift: e.shiftKey };
-      const next = selectAt(slide, x, y, mods, this.selection.get());
-      this.selection.set(next);
+      // If the scope-level element under the pointer is already in the
+      // current selection, skip Selection.click to preserve a multi-selection
+      // (e.g. clicking on one of several selected elements should keep all
+      // selected so a subsequent drag moves them together).
+      const scopeId = pickScopeId(hitResult, this.selection.getScope());
+      if (!mods.shift && scopeId !== null && this.selection.has(scopeId)) {
+        this.startDrag(e.clientX, e.clientY);
+        return;
+      }
+      this.selection.click(hitResult, mods);
       // Begin drag on the (possibly newly-)selected elements unless the
       // element was just removed by shift-toggle.
-      if (this.selection.has(hit)) {
+      if (this.selection.get().length > 0) {
         this.startDrag(e.clientX, e.clientY);
       }
       return;
@@ -1048,26 +1058,37 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onDoubleClick(e: MouseEvent): void {
-    // Double-click on a text element enters edit mode. Clicks on
-    // non-text elements are ignored (shape/image have no inline
-    // editing in v1).
+    // Double-click on a text element enters edit mode. For grouped
+    // elements, drill in one level first so the user can descend into
+    // groups the same way Google Slides does. Clicks on non-text
+    // non-group elements at the leaf level are ignored.
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hit = topmostUnderPoint(slide, x, y);
-    if (hit === null) return;
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
     // edit mode on the same element would commit + remount the
     // text-box, resetting the docs cursor to offset 0 and wiping the
     // word selection the inner TextEditor's second mousedown just
     // made. Bail out and let the inner editor own the dblclick.
-    if (hit === this.editingElementId) return;
-    const element = slide.elements.find((el) => el.id === hit);
-    if (!element || element.type !== 'text') return;
+    if (hitResult.elementId === this.editingElementId) return;
+
+    // Drive the drill-in state machine first.
+    this.selection.doubleClick(hitResult);
+
+    // After drill-in, check if the newly-selected element is a text box.
+    // Use the leaf-most element id from the hit (which is what
+    // Selection.doubleClick ultimately lands on at the deepest available
+    // scope level).
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const el = findElement(slide.elements, selectedIds[0]);
+    if (!el || el.type !== 'text') return;
     e.preventDefault();
     e.stopPropagation();
-    this.enterEditMode(slide.id, element.id);
+    this.enterEditMode(slide.id, el.id);
   }
 
   private enterEditMode(slideId: string, elementId: string): void {
@@ -1974,11 +1995,22 @@ function findElement(elements: readonly Element[], id: string): Element | undefi
   return undefined;
 }
 
-function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {
-  for (let i = slide.elements.length - 1; i >= 0; i--) {
-    if (containsPoint(slide.elements[i].frame, x, y)) {
-      return slide.elements[i].id;
-    }
+/**
+ * Given a hit result and the current selection scope, return the element id
+ * that would be targeted at the scope level, or `null` if the hit is outside
+ * the scope. This mirrors the logic inside `Selection.click` / `pickAtScope`
+ * without mutating any state — used by `onPointerDown` to check whether the
+ * pointer landed on an already-selected element before calling `Selection.click`.
+ */
+function pickScopeId(
+  hit: { ancestorPath: readonly string[] },
+  scope: readonly string[],
+): string | null {
+  if (scope.length === 0) {
+    return hit.ancestorPath[0] ?? null;
   }
-  return null;
+  for (let i = 0; i < scope.length; i++) {
+    if (hit.ancestorPath[i] !== scope[i]) return null;
+  }
+  return hit.ancestorPath[scope.length] ?? null;
 }
