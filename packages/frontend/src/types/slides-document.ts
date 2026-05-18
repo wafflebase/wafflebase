@@ -65,7 +65,8 @@ export type YorkieElement =
   | YorkieTextElement
   | YorkieImageElement
   | YorkieShapeElement
-  | YorkieConnectorElement;
+  | YorkieConnectorElement
+  | YorkieGroupElement;
 
 interface YorkieFrame {
   x: number;
@@ -126,6 +127,20 @@ export interface YorkieConnectorElement {
   arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
   stroke?: { color: ThemeColor; width: number };
   elbowBend?: number;
+}
+
+/**
+ * Group element — contains a `children` array of nested elements stored in
+ * group-local coordinates. Groups can be nested arbitrarily; their children
+ * are themselves YorkieElements (including other groups).
+ */
+export interface YorkieGroupElement {
+  id: string;
+  type: 'group';
+  frame: YorkieFrame;
+  data: {
+    children: YorkieElement[];
+  };
 }
 
 /** Layout placeholder shape — element template without an id. */

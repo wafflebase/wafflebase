@@ -73,6 +73,10 @@ export {
   isGroupDescendantOf,
   normalizeToGroupLocal,
 } from './model/group';
+export {
+  applyGroupTransformToPoint,
+  applyGroupTransform as applyGroupTransformMatrix,
+} from './import/pptx/group';
 
 export type {
   ArrowheadKind,

@@ -155,3 +155,157 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     assert.deepEqual(stripIds(yo), stripIds(mem));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Group / ungroup equivalence
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip ids from a slide element tree so we can compare structural shape
+ * without caring about the concrete UUIDs generated independently per store.
+ * We keep `type`, `frame`, and recursively strip group children.
+ */
+function stripElementIds(el: { type: string; frame: unknown; data?: unknown }): unknown {
+  if (el.type === 'group') {
+    const g = el as { type: string; frame: unknown; data: { children: Array<{ type: string; frame: unknown; data?: unknown }> } };
+    return {
+      type: g.type,
+      frame: g.frame,
+      children: g.data.children.map(stripElementIds),
+    };
+  }
+  return { type: el.type, frame: el.frame };
+}
+
+function stripGroupIds(doc: SlidesDocument): unknown {
+  return {
+    meta: doc.meta,
+    slides: doc.slides.map((s) => ({
+      layoutId: s.layoutId,
+      elements: s.elements.map(stripElementIds),
+    })),
+  };
+}
+
+describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
+  it('group() produces equivalent structure in both stores', () => {
+    const { mem, yo } = runBoth((store) => {
+      let slideId = '';
+      let aId = '';
+      let bId = '';
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        aId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        bId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'ellipse' },
+        });
+      });
+      store.batch(() => { store.group(slideId, [aId, bId]); });
+    });
+    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    assert.equal(yo.slides[0].elements.length, 1);
+    assert.equal(yo.slides[0].elements[0].type, 'group');
+  });
+
+  it('group() + ungroup() round-trips to flat elements', () => {
+    const { mem, yo } = runBoth((store) => {
+      let slideId = '';
+      let aId = '';
+      let bId = '';
+      let groupId = '';
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        aId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        bId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'ellipse' },
+        });
+      });
+      store.batch(() => {
+        groupId = store.group(slideId, [aId, bId]).groupId;
+      });
+      store.batch(() => { store.ungroup(slideId, groupId); });
+    });
+    // Both should now have 2 flat shapes.
+    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    assert.equal(yo.slides[0].elements.length, 2);
+    assert.ok(yo.slides[0].elements.every(e => e.type === 'shape'));
+  });
+
+  it('addElement(parentGroupId) appends child in both stores equivalently', () => {
+    const { mem, yo } = runBoth((store) => {
+      let slideId = '';
+      let aId = '';
+      let bId = '';
+      let groupId = '';
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        aId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        bId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'ellipse' },
+        });
+      });
+      store.batch(() => {
+        groupId = store.group(slideId, [aId, bId]).groupId;
+      });
+      store.batch(() => {
+        store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 20, y: 20, w: 10, h: 10, rotation: 0 },
+          data: { kind: 'rect' },
+        }, groupId);
+      });
+    });
+    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    const groupEl = yo.slides[0].elements[0] as { data: { children: unknown[] } };
+    assert.equal(groupEl.data.children.length, 3);
+  });
+
+  it('empty-group auto-removal works in both stores', () => {
+    const { mem, yo } = runBoth((store) => {
+      let slideId = '';
+      let aId = '';
+      let bId = '';
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        aId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        bId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'ellipse' },
+        });
+      });
+      store.batch(() => { store.group(slideId, [aId, bId]); });
+      // Read the group's children to get their actual ids.
+      const doc = store.read();
+      const grp = doc.slides[0].elements[0] as { data: { children: Array<{ id: string }> } };
+      const [childA, childB] = grp.data.children;
+      store.batch(() => store.removeElement(slideId, childA.id));
+      store.batch(() => store.removeElement(slideId, childB.id));
+    });
+    // After removing all children, the group should be gone.
+    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    assert.deepEqual(yo.slides[0].elements, []);
+  });
+});
