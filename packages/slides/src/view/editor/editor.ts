@@ -1988,6 +1988,18 @@ class SlidesEditorImpl implements SlidesEditor {
     const elementId = selectedIds[0];
     const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
+    // Migrate legacy groups that pre-date the refSize field BEFORE the
+    // drag begins, so the live preview also reflects proportional child
+    // scaling (otherwise refSize would still be undefined while paintLive
+    // is running, and only the post-commit render would scale).
+    if (startEl.type === 'group' && startEl.data.refSize === undefined) {
+      const captured = { w: startEl.frame.w, h: startEl.frame.h };
+      this.options.store.batch(() => {
+        this.options.store.updateElementData(startSlide.id, elementId, {
+          refSize: captured,
+        });
+      });
+    }
     // Resize operates in world space so the handles stay fixed in the
     // positions the user sees. Convert the stored local frame to world
     // for all delta math, then convert back at commit time.
@@ -2009,14 +2021,6 @@ class SlidesEditorImpl implements SlidesEditor {
       // Convert world frame back to scope-local before committing.
       const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
-        // Migrate legacy groups that pre-date the refSize field. Capture the
-        // pre-resize dimensions as the reference so this and future resizes
-        // scale children correctly relative to the original size.
-        if (startEl.type === 'group' && startEl.data.refSize === undefined) {
-          this.options.store.updateElementData(startSlide.id, elementId, {
-            refSize: { w: startEl.frame.w, h: startEl.frame.h },
-          });
-        }
         this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
