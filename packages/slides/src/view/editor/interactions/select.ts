@@ -1,5 +1,5 @@
 import type { Slide } from '../../../model/presentation';
-import { containsPoint } from '../../../model/frame';
+import { hitTestSlide } from '../hit-test-elements';
 
 export interface SelectModifiers {
   shift?: boolean;
@@ -36,12 +36,7 @@ export function selectAt(
 }
 
 function topmostUnderPoint(slide: Slide, x: number, y: number): string | null {
-  for (let i = slide.elements.length - 1; i >= 0; i--) {
-    if (containsPoint(slide.elements[i].frame, x, y)) {
-      return slide.elements[i].id;
-    }
-  }
-  return null;
+  return hitTestSlide(slide, x, y)?.elementId ?? null;
 }
 
 function toggleId(ids: readonly string[], id: string): string[] {

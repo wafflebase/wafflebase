@@ -119,6 +119,10 @@ export { renderShapeIcon } from './view/canvas/shape-icon';
 export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
 
+// View — Element hit-test (groups + nested)
+export type { HitResult } from './view/editor/hit-test-elements';
+export { hitTestSlide } from './view/editor/hit-test-elements';
+
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
