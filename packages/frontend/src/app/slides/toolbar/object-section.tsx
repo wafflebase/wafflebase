@@ -1,4 +1,5 @@
 import type { SlidesEditor, SlidesStore, Theme } from '@wafflebase/slides';
+import { findElementPath } from '@wafflebase/slides';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
 import type { ToolbarState } from './state';
 import { InsertGroup } from './insert-group';
@@ -31,6 +32,18 @@ export function ObjectSection({ state, editor, store, theme, onImagePick, upload
   const showShapeControls =
     state.selectionType === 'shape' || state.selectionType === 'connector';
 
+  // Determine whether the current selection is a single group element that
+  // can be ungrouped. We look up the element by id in the current slide.
+  const slideId = editor?.getCurrentSlideId();
+  const slide = store && slideId ? store.read().slides.find((s) => s.id === slideId) : undefined;
+  const canUngroup =
+    !!slide &&
+    state.ids.length === 1 &&
+    (() => {
+      const path = findElementPath(slide.elements, state.ids[0]);
+      return path?.[path.length - 1]?.type === 'group';
+    })();
+
   return (
     <>
       <InsertGroup editor={editor} onImagePick={onImagePick} disabled={!editor} />
@@ -45,7 +58,7 @@ export function ObjectSection({ state, editor, store, theme, onImagePick, upload
         <TextElementControls editor={editor} store={store} theme={theme} ids={state.ids} />
       )}
       <ToolbarSeparator className="mx-1" />
-      <ArrangeMenu editor={editor} selectionSize={state.ids.length} />
+      <ArrangeMenu editor={editor} selectionSize={state.ids.length} canUngroup={canUngroup} />
     </>
   );
 }

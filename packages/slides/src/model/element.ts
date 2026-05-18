@@ -162,11 +162,34 @@ export type ShapeElement = ElementBase & {
   };
 };
 
+export type GroupElement = ElementBase & {
+  type: 'group';
+  data: {
+    children: Element[]; // frames are in group-local coords (0..refSize × 0..refSize)
+    /**
+     * Reference dimensions of the group's local coordinate space.
+     * Children's frames are stored in (0..refSize.w × 0..refSize.h).
+     * The renderer scales (refSize → frame.w/h) so resizing the
+     * group's frame visibly scales children proportionally — same
+     * semantics as OOXML <a:chExt> vs <a:ext>.
+     *
+     * Optional for backward compatibility with documents created before
+     * this field existed. Readers that find it undefined treat it as
+     * { w: frame.w, h: frame.h } (scale = 1, identical to prior behavior).
+     */
+    refSize?: { w: number; h: number };
+  };
+  // Note: `placeholderRef` (inherited from ElementBase) is invalid on groups
+  // and will be rejected at runtime by MemSlidesStore.group(). Placeholders
+  // represent layout slots and are slide-direct only.
+};
+
 export type Element =
   | TextElement
   | ImageElement
   | ShapeElement
-  | ConnectorElement;
+  | ConnectorElement
+  | GroupElement;
 
 export type ElementType = Element['type'];
 
@@ -175,7 +198,8 @@ export type ElementInit =
   | Omit<TextElement, 'id'>
   | Omit<ImageElement, 'id'>
   | Omit<ShapeElement, 'id'>
-  | Omit<ConnectorElement, 'id'>;
+  | Omit<ConnectorElement, 'id'>
+  | Omit<GroupElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

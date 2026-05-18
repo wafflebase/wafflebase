@@ -1,5 +1,6 @@
 import type {
   Element as SlideElement,
+  GroupElement,
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,
@@ -7,6 +8,7 @@ import type {
   TextElement,
 } from '../../model/element';
 import { generateId } from '../../model/element';
+import { combinedBoundingBox } from '../../model/frame';
 import type {
   ArrowheadKind,
   ArrowheadStyle,
@@ -65,14 +67,22 @@ export interface SlideParseContext {
 }
 
 /**
- * Walk a `<p:spTree>` (or a flattened `<p:grpSp>`) in two passes:
+ * Walk a `<p:spTree>` (or `<p:grpSp>` children) in two passes:
  *   Pass 1: assign element ids to every shape so connectors can resolve
  *           attached endpoints regardless of source order.
- *   Pass 2: actually parse each child, recursing into groups.
+ *   Pass 2: parse each child, preserving `<p:grpSp>` as `GroupElement`.
  *
- * Groups and tables are deferred to Task 4 — for now they emit nothing
- * and bump no counters (the caller will report on them once the v1
- * fallbacks land).
+ * Each `<p:grpSp>` becomes a `GroupElement` whose frame is the
+ * rotation-aware AABB of its children's world frames (matching the
+ * invariant used by `MemSlidesStore.group()` / `YorkieSlidesStore.group()`).
+ * Children are stored in group-local coordinates relative to the AABB
+ * origin: `child.local = { ...child.world, x: child.world.x - aabb.x,
+ * y: child.world.y - aabb.y }`.
+ *
+ * This correctly handles cases where `<a:chOff>` ≠ `<a:off>` (the old
+ * `<a:ext>` approach left children rendering outside the handle), and
+ * ensures the selection handle tightly bounds visible content regardless
+ * of child rotation.
  */
 export async function parseSpTree(
   spTree: Element,
@@ -84,8 +94,7 @@ export async function parseSpTree(
   // and connectors can resolve attached endpoints regardless of depth.
   preassignIds(spTree, ctx.idMap);
 
-  // Pass 2: parse each child element, applying the cumulative group
-  // transform to every element's frame.
+  // Pass 2: parse each child element, preserving groups as GroupElement.
   const out: SlideElement[] = [];
   for (let i = 0; i < spTree.childNodes.length; i++) {
     const n = spTree.childNodes[i];
@@ -93,10 +102,138 @@ export async function parseSpTree(
     const el = n as Element;
 
     if (el.localName === 'grpSp') {
-      const childTransform = composeGroupTransform(transform, el, ctx.scale);
-      const flattened = await parseSpTree(el, ctx, childTransform);
-      out.push(...flattened);
-      ctx.report.groupsFlattened += 1;
+      const group = await parseGrpSp(el, ctx, transform);
+      if (group) out.push(group);
+      continue;
+    }
+
+    const parsed = await parseChild(el, ctx);
+    if (!parsed) continue;
+    for (const elem of parsed) {
+      out.push(applyTransformToElement(elem, transform));
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse a `<p:grpSp>` element into a `GroupElement`.
+ *
+ * The group's frame is set to the rotation-aware AABB of all children's
+ * world frames. Children are stored in group-local coords by subtracting
+ * the AABB origin: `local.x = world.x - aabb.x`, `local.y = world.y - aabb.y`.
+ * Connector free endpoints are translated the same way.
+ *
+ * This matches the invariant used by `MemSlidesStore.group()` and
+ * `YorkieSlidesStore.group()` — the selection handle always tightly bounds
+ * the visible content, even when `<a:chOff>` ≠ `<a:off>` or children carry
+ * their own rotation.
+ *
+ * Empty group fallback: if there are no children, fall back to the
+ * `<a:off>/<a:ext>` frame so the group still has a sensible position.
+ */
+async function parseGrpSp(
+  grpSp: Element,
+  ctx: SlideParseContext,
+  parentTransform: GroupTransform,
+): Promise<GroupElement | undefined> {
+  const grpSpPr = child(grpSp, 'grpSpPr');
+  const xfrm = grpSpPr ? child(grpSpPr, 'xfrm') : undefined;
+  if (!xfrm) return undefined;
+
+  // Compose the full transform to produce world frames for children.
+  const childWorldTransform = composeGroupTransform(parentTransform, grpSp, ctx.scale);
+
+  // Recurse into children; they come back in world coordinates.
+  const worldChildren = await parseSpTreeChildren(grpSp, ctx, childWorldTransform);
+
+  // Compute the rotation-aware AABB of all children's world frames.
+  // This is the canonical group frame: tightly bounds visible content.
+  const aabb = combinedBoundingBox(worldChildren.map((c) => c.frame));
+
+  // Fall back to <a:off>/<a:ext> for empty groups so they still have a position.
+  let groupWorldFrame: GroupElement['frame'];
+  if (!aabb) {
+    const localFrame = parseXfrm(xfrm, ctx.scale);
+    groupWorldFrame =
+      parentTransform === IDENTITY_TRANSFORM
+        ? localFrame
+        : applyGroupTransform(localFrame, parentTransform);
+  } else {
+    groupWorldFrame = { ...aabb, rotation: 0 };
+  }
+
+  const groupId = generateId();
+  const groupElement: GroupElement = {
+    id: groupId,
+    type: 'group',
+    frame: groupWorldFrame,
+    data: {
+      children: [],
+      // Anchor the local coordinate space at import time so that future
+      // resizes scale children proportionally (OOXML chExt/ext semantics).
+      refSize: aabb
+        ? { w: aabb.w, h: aabb.h }
+        : { w: groupWorldFrame.w, h: groupWorldFrame.h },
+    },
+  };
+
+  // Convert each child's world frame to group-local by subtracting the AABB origin.
+  // Rotation and size are unchanged; only (x, y) shift by the AABB origin.
+  const ox = groupWorldFrame.x;
+  const oy = groupWorldFrame.y;
+  const localChildren: SlideElement[] = worldChildren.map((c) =>
+    worldToGroupLocal(c, ox, oy),
+  );
+
+  groupElement.data.children = localChildren;
+  return groupElement;
+}
+
+/**
+ * Convert a child element's world frame to group-local by subtracting the
+ * AABB origin `(ox, oy)`. Rotation and size are preserved unchanged.
+ * For connectors, `free` endpoint coordinates are shifted the same way.
+ */
+function worldToGroupLocal(
+  elem: SlideElement,
+  ox: number,
+  oy: number,
+): SlideElement {
+  const localFrame = { ...elem.frame, x: elem.frame.x - ox, y: elem.frame.y - oy };
+  if (elem.type === 'connector') {
+    const start =
+      elem.start.kind === 'free'
+        ? { kind: 'free' as const, x: elem.start.x - ox, y: elem.start.y - oy }
+        : elem.start;
+    const end =
+      elem.end.kind === 'free'
+        ? { kind: 'free' as const, x: elem.end.x - ox, y: elem.end.y - oy }
+        : elem.end;
+    return { ...elem, frame: localFrame, start, end };
+  }
+  return { ...elem, frame: localFrame };
+}
+
+/**
+ * Walk the immediate children of `spTree` (or a `<p:grpSp>`) without the
+ * pre-assignment pass — used when recursing from `parseGrpSp` where ids
+ * have already been pre-assigned at the top-level `parseSpTree` call.
+ */
+async function parseSpTreeChildren(
+  spTree: Element,
+  ctx: SlideParseContext,
+  transform: GroupTransform,
+): Promise<SlideElement[]> {
+  const out: SlideElement[] = [];
+  for (let i = 0; i < spTree.childNodes.length; i++) {
+    const n = spTree.childNodes[i];
+    if (n.nodeType !== 1) continue;
+    const el = n as Element;
+
+    if (el.localName === 'grpSp') {
+      const group = await parseGrpSp(el, ctx, transform);
+      if (group) out.push(group);
       continue;
     }
 

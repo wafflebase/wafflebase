@@ -1,0 +1,133 @@
+import { describe, expect, it } from 'vitest';
+import * as fc from 'fast-check';
+import { hitTestSlide } from '../../../src/view/editor/hit-test-elements';
+import { applyGroupTransform } from '../../../src/model/group';
+import type { Slide } from '../../../src/model/presentation';
+import type { GroupElement, ShapeElement } from '../../../src/model/element';
+
+function shape(
+  id: string,
+  frame: { x: number; y: number; w: number; h: number; rotation?: number },
+): ShapeElement {
+  return { id, type: 'shape', frame: { rotation: 0, ...frame }, data: { kind: 'rect' } };
+}
+
+function group(
+  id: string,
+  frame: { x: number; y: number; w: number; h: number; rotation?: number },
+  children: Array<ShapeElement | GroupElement>,
+): GroupElement {
+  return { id, type: 'group', frame: { rotation: 0, ...frame }, data: { children } };
+}
+
+function slide(elements: Slide['elements']): Slide {
+  return {
+    id: 'sl',
+    layoutId: 'blank',
+    background: { kind: 'fill', fill: { type: 'srgb', value: '#fff' } } as unknown as Slide['background'],
+    elements,
+    notes: [],
+  };
+}
+
+describe('hitTestSlide', () => {
+  it('returns null when the point misses everything', () => {
+    expect(hitTestSlide(slide([]), 0, 0)).toBeNull();
+  });
+
+  it('hits a slide-root shape', () => {
+    const a = shape('a', { x: 10, y: 10, w: 20, h: 20 });
+    const r = hitTestSlide(slide([a]), 15, 15);
+    expect(r?.elementId).toBe('a');
+    expect(r?.ancestorPath).toEqual(['a']);
+  });
+
+  it('misses a slide-root shape when point is outside', () => {
+    const a = shape('a', { x: 10, y: 10, w: 20, h: 20 });
+    expect(hitTestSlide(slide([a]), 5, 5)).toBeNull();
+  });
+
+  it('returns null when the point is inside a group bbox but misses every child', () => {
+    // inner lives at group-local (0..20, 0..20); group is at world (50..150, 50..150)
+    // world (75, 75) maps to group-local (25, 25) which is past inner.
+    const inner = shape('inner', { x: 0, y: 0, w: 20, h: 20 });
+    const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [inner]);
+    const r = hitTestSlide(slide([g]), 75, 75);
+    expect(r).toBeNull();
+  });
+
+  it('hits a shape that is a direct child of a group', () => {
+    // inner at group-local (0..20, 0..20); group world origin at (50, 50)
+    // world (55, 55) → group-local (5, 5) → inside inner
+    const inner = shape('inner', { x: 0, y: 0, w: 20, h: 20 });
+    const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [inner]);
+    const r = hitTestSlide(slide([g]), 55, 55);
+    expect(r?.elementId).toBe('inner');
+    expect(r?.ancestorPath).toEqual(['g', 'inner']);
+  });
+
+  it('hits a shape inside a nested rotated group', () => {
+    const leaf = shape('leaf', { x: 10, y: 10, w: 20, h: 20 });
+    const inner = group('inner', { x: 50, y: 50, w: 100, h: 100, rotation: Math.PI / 6 }, [leaf]);
+    const outer = group('outer', { x: 100, y: 100, w: 200, h: 200 }, [inner]);
+    // Compute the world center of the leaf by walking the group transforms.
+    const leafInInner = applyGroupTransform(leaf.frame, inner);
+    const leafWorld = applyGroupTransform(leafInInner, outer);
+    const cx = leafWorld.x + leafWorld.w / 2;
+    const cy = leafWorld.y + leafWorld.h / 2;
+    const r = hitTestSlide(slide([outer]), cx, cy);
+    expect(r?.elementId).toBe('leaf');
+    expect(r?.ancestorPath).toEqual(['outer', 'inner', 'leaf']);
+  });
+
+  it('returns the topmost (front) element when shapes overlap', () => {
+    const a = shape('a', { x: 0, y: 0, w: 50, h: 50 });
+    const b = shape('b', { x: 0, y: 0, w: 50, h: 50 });
+    const r = hitTestSlide(slide([a, b]), 25, 25);
+    expect(r?.elementId).toBe('b');
+  });
+
+  it('returns front group child over a rear slide-root shape at the same world point', () => {
+    // bg covers world (0..200, 0..200); group+child covers world (50..150, 50..150)
+    const bg = shape('bg', { x: 0, y: 0, w: 200, h: 200 });
+    const child = shape('child', { x: 0, y: 0, w: 100, h: 100 });
+    const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [child]);
+    // world (60, 60) is inside both bg and the group; group is on top.
+    const r = hitTestSlide(slide([bg, g]), 60, 60);
+    expect(r?.elementId).toBe('child');
+    expect(r?.ancestorPath).toEqual(['g', 'child']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based: a point at the center of a leaf always hits that leaf
+// ---------------------------------------------------------------------------
+describe('hitTestSlide property', () => {
+  it('a point inside a nested leaf hits that leaf', () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          gx: fc.float({ min: -200, max: 200, noNaN: true }),
+          gy: fc.float({ min: -200, max: 200, noNaN: true }),
+          gw: fc.float({ min: 100, max: 500, noNaN: true }),
+          gh: fc.float({ min: 100, max: 500, noNaN: true }),
+          gr: fc.float({ min: Math.fround(-Math.PI), max: Math.fround(Math.PI), noNaN: true }),
+          cx: fc.float({ min: 10, max: 60, noNaN: true }),
+          cy: fc.float({ min: 10, max: 60, noNaN: true }),
+        }),
+        ({ gx, gy, gw, gh, gr, cx, cy }) => {
+          const leaf = shape('leaf', { x: cx, y: cy, w: 20, h: 20 });
+          const g = group('g', { x: gx, y: gy, w: gw, h: gh, rotation: gr }, [leaf]);
+          // World coordinates of the leaf's center.
+          const leafWorld = applyGroupTransform(leaf.frame, g);
+          const wx = leafWorld.x + leafWorld.w / 2;
+          const wy = leafWorld.y + leafWorld.h / 2;
+          const r = hitTestSlide(slide([g]), wx, wy);
+          expect(r?.elementId).toBe('leaf');
+          expect(r?.ancestorPath).toEqual(['g', 'leaf']);
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
+});

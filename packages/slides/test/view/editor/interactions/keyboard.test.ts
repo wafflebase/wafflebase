@@ -632,3 +632,140 @@ describe('keyboard — Cmd+C copy', () => {
     (globalThis as { ClipboardItem?: unknown }).ClipboardItem = originalClipboardItem as never;
   });
 });
+
+// Helper to build a fixture with two sibling elements on the first slide.
+function makeTwoElementFixture() {
+  document.body.innerHTML = '';
+  const canvas = document.createElement('canvas');
+  canvas.width = 960; canvas.height = 540;
+  const overlay = document.createElement('div');
+  document.body.appendChild(canvas);
+  document.body.appendChild(overlay);
+  const store = new MemSlidesStore();
+  let slideId = '';
+  let aId = '';
+  let bId = '';
+  store.batch(() => {
+    slideId = store.addSlide('blank');
+    aId = store.addElement(slideId, {
+      type: 'shape',
+      frame: { x: 0,   y: 0, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#f00' } },
+    });
+    bId = store.addElement(slideId, {
+      type: 'shape',
+      frame: { x: 200, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#00f' } },
+    });
+  });
+  const e = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+  trackedEditors.push(e);
+  return { editor: e, store, slideId, aId, bId };
+}
+
+describe('keyboard — Cmd+Alt+G group', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Cmd+Alt+G groups ≥2 selected elements', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoElementFixture();
+    editor = e;
+    editor.setSelection([aId, bId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'g', metaKey: true, altKey: true, bubbles: true,
+    }));
+    // After group there should be 1 element (the new group) at the slide root.
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(1);
+    expect(slide.elements[0].type).toBe('group');
+    // The editor selection should be the new group id.
+    expect(editor.getSelection()).toHaveLength(1);
+    expect(editor.getSelection()[0]).toBe(slide.elements[0].id);
+  });
+
+  it('Cmd+Alt+G is a no-op when fewer than 2 elements are selected', () => {
+    const { editor: e, store, slideId, aId } = makeTwoElementFixture();
+    editor = e;
+    editor.setSelection([aId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'g', metaKey: true, altKey: true, bubbles: true,
+    }));
+    // Should still have 2 elements (no group was created).
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+  });
+});
+
+describe('keyboard — Cmd+Shift+Alt+G ungroup', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Cmd+Shift+Alt+G ungroups a selected group and selects children', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoElementFixture();
+    editor = e;
+    // First create a group via the store.
+    let groupId = '';
+    store.batch(() => {
+      groupId = store.group(slideId, [aId, bId]).groupId;
+    });
+    editor.setSelection([groupId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'g', metaKey: true, altKey: true, shiftKey: true, bubbles: true,
+    }));
+    // After ungroup there should be 2 elements back at slide root.
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+    // The editor selection should contain the former children.
+    expect(editor.getSelection()).toHaveLength(2);
+    expect(editor.getSelection()).toContain(aId);
+    expect(editor.getSelection()).toContain(bId);
+  });
+
+  it('Cmd+Shift+Alt+G is a no-op when selection is not a single group', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoElementFixture();
+    editor = e;
+    // Select two plain shapes (not a group).
+    editor.setSelection([aId, bId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'g', metaKey: true, altKey: true, shiftKey: true, bubbles: true,
+    }));
+    // Should still have 2 elements (nothing was ungrouped).
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+  });
+});
+
+describe('keyboard — Esc scope pop', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Esc with non-empty scope pops one scope level and does NOT clear ids immediately', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoElementFixture();
+    editor = e;
+    // Group the two shapes so we have a group to drill into.
+    let groupId = '';
+    store.batch(() => {
+      groupId = store.group(slideId, [aId, bId]).groupId;
+    });
+    // Simulate being drilled into the group scope with aId selected.
+    const sel = (e as unknown as { selection: { setScope(s: string[]): void; set(ids: string[]): void } }).selection;
+    sel.setScope([groupId]);
+    sel.set([aId]);
+    expect(editor.getSelection()).toEqual([aId]);
+
+    // Press Esc — should pop scope, NOT clear ids-then-selection.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    // Scope should be back to [] (slide root).
+    const { selection: postSel } = e as unknown as { selection: { getScope(): string[] } };
+    expect(postSel.getScope()).toEqual([]);
+  });
+
+  it('Esc with empty scope and selection clears selection as before', () => {
+    const { editor: e, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(editor.getSelection()).toEqual([]);
+  });
+});

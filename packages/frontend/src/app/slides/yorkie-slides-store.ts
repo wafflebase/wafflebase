@@ -9,6 +9,8 @@ import {
   type ElementInit,
   type Endpoint,
   type Frame,
+  type GroupElement,
+  type GroupTransform,
   type Layout,
   type Master,
   type PlaceholderRef,
@@ -19,12 +21,21 @@ import {
   type TextElement,
   type Theme,
   BUILT_IN_LAYOUTS,
+  IDENTITY_GROUP_TRANSFORM,
+  applyGroupTransform,
+  applyGroupTransformMatrix,
+  applyGroupTransformToPoint,
+  applyInverseMatrix,
+  applyInversePoint,
   applyLayoutToSlide,
+  composeAncestorTransform,
   computeConnectorFrame,
   defaultLight,
   generateId,
   getLayout,
+  groupToTransform,
   migrateDocument,
+  normalizeToGroupLocal,
   resolveEndpoint,
   seedPlaceholderBlocks,
   slotRefsForLayout,
@@ -33,10 +44,20 @@ import type { Block } from '@wafflebase/docs';
 import type { SlidesPresence } from '@/types/users';
 import type {
   YorkieElement,
+  YorkieGroupElement,
   YorkieSlide,
   YorkieSlidesRoot,
   YorkiePlaceholder,
 } from '@/types/slides-document';
+
+/**
+ * YorkieElements array as seen inside a doc.update callback. The Yorkie
+ * proxy exposes the same JS array-like interface (push, splice, find,
+ * findIndex, iteration) as a plain Element[], but its items are proxies
+ * rather than plain objects. We use `unknown[]` here because the exact
+ * proxy type is not exposed by the SDK.
+ */
+type ProxyArray = { id: string; type: string; data?: unknown; [k: string]: unknown }[];
 
 type YorkieLayout = YorkieSlidesRoot['layouts'][number];
 
@@ -268,77 +289,9 @@ export class YorkieSlidesStore implements SlidesStore {
       const id = (s as { id: string }).id;
       const layoutId = (s as { layoutId: string }).layoutId;
       const background = yorkieToPlain<unknown>((s as { background: unknown }).background);
-      const elements = ((s as { elements: unknown[] }).elements ?? []).map((e) => {
-        const el = e as {
-          id: string;
-          type: string;
-          frame: unknown;
-          data: unknown;
-          placeholderRef?: unknown;
-        };
-        const placeholderRef = yorkieToPlain<PlaceholderRef | undefined>(
-          el.placeholderRef,
-        );
-        if (el.type === 'text') {
-          const rawData = (el.data ?? {}) as Record<string, unknown>;
-          const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
-          // Preserve box-level fields (fill, stroke, …) alongside the
-          // CRDT-backed `blocks` Tree. The Tree itself is bridged through
-          // `withTextElement`, but ancillary `data` keys are plain values
-          // and would otherwise be dropped on every read.
-          const extras: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(rawData)) {
-            if (k === 'blocks') continue;
-            extras[k] = yorkieToPlain<unknown>(v);
-          }
-          return {
-            id: el.id,
-            type: 'text',
-            frame: yorkieToPlain<Frame>(el.frame),
-            placeholderRef,
-            data: { ...extras, blocks } as TextElement['data'],
-          };
-        }
-        if (el.type === 'connector') {
-          // Connectors store their endpoints / arrowheads / stroke /
-          // routing as top-level fields (no `data` sub-object). Each is
-          // a Yorkie proxy until we unwrap, so reading via the generic
-          // `data`-only path above would drop them and crash the overlay
-          // when it tries `connector.start.kind`. Connectors are never
-          // placeholders (see `YorkieConnectorElement`), so we don't
-          // emit a `placeholderRef` field here.
-          const c = el as unknown as {
-            routing: ConnectorElement['routing'];
-            start: Endpoint;
-            end: Endpoint;
-            arrowheads: ConnectorElement['arrowheads'];
-            stroke?: ConnectorElement['stroke'];
-            elbowBend?: number;
-          };
-          return {
-            id: el.id,
-            type: 'connector',
-            frame: yorkieToPlain<Frame>(el.frame),
-            routing: c.routing,
-            start: yorkieToPlain<Endpoint>(c.start),
-            end: yorkieToPlain<Endpoint>(c.end),
-            arrowheads:
-              yorkieToPlain<ConnectorElement['arrowheads']>(c.arrowheads)
-              ?? {},
-            stroke: c.stroke
-              ? yorkieToPlain<ConnectorElement['stroke']>(c.stroke)
-              : undefined,
-            elbowBend: c.elbowBend,
-          };
-        }
-        return {
-          id: el.id,
-          type: el.type,
-          frame: yorkieToPlain<Frame>(el.frame),
-          placeholderRef,
-          data: yorkieToPlain<object>(el.data),
-        };
-      });
+      const elements = ((s as { elements: unknown[] }).elements ?? []).map(
+        (e) => this.readElement(e),
+      );
       const notes = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
       return { id, layoutId, background, elements, notes };
     });
@@ -353,6 +306,107 @@ export class YorkieSlidesStore implements SlidesStore {
       slides,
       layouts,
     });
+  }
+
+  // --- read helpers ---
+
+  /**
+   * Recursively unwrap a single Yorkie element proxy into a plain
+   * ModelElement. Group elements recurse into their `data.children`
+   * array, which is itself a Yorkie proxy.
+   */
+  private readElement(e: unknown): ModelElement {
+    const el = e as {
+      id: string;
+      type: string;
+      frame: unknown;
+      data: unknown;
+      placeholderRef?: unknown;
+    };
+    const placeholderRef = yorkieToPlain<PlaceholderRef | undefined>(
+      el.placeholderRef,
+    );
+    if (el.type === 'text') {
+      const rawData = (el.data ?? {}) as Record<string, unknown>;
+      const blocks = yorkieToPlain<Block[]>(rawData.blocks) ?? [];
+      // Preserve box-level fields (fill, stroke, …) alongside the
+      // CRDT-backed `blocks` Tree. The Tree itself is bridged through
+      // `withTextElement`, but ancillary `data` keys are plain values
+      // and would otherwise be dropped on every read.
+      const extras: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawData)) {
+        if (k === 'blocks') continue;
+        extras[k] = yorkieToPlain<unknown>(v);
+      }
+      return {
+        id: el.id,
+        type: 'text',
+        frame: yorkieToPlain<Frame>(el.frame),
+        placeholderRef,
+        data: { ...extras, blocks } as TextElement['data'],
+      } as ModelElement;
+    }
+    if (el.type === 'connector') {
+      // Connectors store their endpoints / arrowheads / stroke /
+      // routing as top-level fields (no `data` sub-object). Each is
+      // a Yorkie proxy until we unwrap, so reading via the generic
+      // `data`-only path above would drop them and crash the overlay
+      // when it tries `connector.start.kind`. Connectors are never
+      // placeholders, so we don't emit a `placeholderRef` field here.
+      const c = el as unknown as {
+        routing: ConnectorElement['routing'];
+        start: Endpoint;
+        end: Endpoint;
+        arrowheads: ConnectorElement['arrowheads'];
+        stroke?: ConnectorElement['stroke'];
+        elbowBend?: number;
+      };
+      return {
+        id: el.id,
+        type: 'connector',
+        frame: yorkieToPlain<Frame>(el.frame),
+        routing: c.routing,
+        start: yorkieToPlain<Endpoint>(c.start),
+        end: yorkieToPlain<Endpoint>(c.end),
+        arrowheads:
+          yorkieToPlain<ConnectorElement['arrowheads']>(c.arrowheads)
+          ?? {},
+        stroke: c.stroke
+          ? yorkieToPlain<ConnectorElement['stroke']>(c.stroke)
+          : undefined,
+        elbowBend: c.elbowBend,
+      } as ModelElement;
+    }
+    if (el.type === 'group') {
+      // Group children are stored in a nested Yorkie Array — we must
+      // recurse to unwrap them rather than calling yorkieToPlain on
+      // `data.children`, which would stringify the whole array. The
+      // sibling `refSize` (when present) is plain and unwraps fine via
+      // yorkieToPlain — without preserving it here, every read drops
+      // refSize and the renderer can never compute the resize scale.
+      const rawData = (el.data ?? {}) as {
+        children?: unknown[];
+        refSize?: unknown;
+      };
+      const rawChildren = rawData.children ?? [];
+      const children = rawChildren.map((c) => this.readElement(c));
+      const refSize = rawData.refSize
+        ? yorkieToPlain<{ w: number; h: number }>(rawData.refSize)
+        : undefined;
+      return {
+        id: el.id,
+        type: 'group',
+        frame: yorkieToPlain<Frame>(el.frame),
+        data: refSize ? { children, refSize } : { children },
+      } as ModelElement;
+    }
+    return {
+      id: el.id,
+      type: el.type,
+      frame: yorkieToPlain<Frame>(el.frame),
+      placeholderRef,
+      data: yorkieToPlain<object>(el.data),
+    } as ModelElement;
   }
 
   // --- batch + undo ---
@@ -695,15 +749,36 @@ export class YorkieSlidesStore implements SlidesStore {
 
   // --- element ops ---
 
-  addElement(slideId: string, init: ElementInit): string {
+  addElement(slideId: string, init: ElementInit, parentGroupId?: string): string {
     this.requireBatch();
     const id = generateId();
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
+
+      // Resolve the target array — slide root or a group's children.
+      let targetArray: ProxyArray;
+      if (parentGroupId !== undefined) {
+        const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, parentGroupId);
+        if (!path) {
+          throw new Error(
+            `[slides] addElement(): parent group not found: ${parentGroupId}`,
+          );
+        }
+        const parentEl = path[path.length - 1];
+        if (parentEl.type !== 'group') {
+          throw new Error(
+            `[slides] addElement(): element ${parentGroupId} is not a group`,
+          );
+        }
+        targetArray = (parentEl.data as { children: ProxyArray }).children;
+      } else {
+        targetArray = s.elements as unknown as ProxyArray;
+      }
+
       if (init.type === 'text') {
         const blocks = (init.data as { blocks?: Block[] }).blocks ?? [];
-        s.elements.push({
+        (targetArray as unknown as YorkieElement[]).push({
           id,
           type: 'text',
           frame: { ...init.frame },
@@ -720,10 +795,10 @@ export class YorkieSlidesStore implements SlidesStore {
         const lookup = this.slideElementsLookup(s);
         const next = { ...clone(init), id } as ConnectorElement;
         next.frame = computeConnectorFrame(next, lookup);
-        s.elements.push(next as unknown as YorkieElement);
+        (targetArray as unknown as YorkieElement[]).push(next as unknown as YorkieElement);
         return;
       }
-      s.elements.push({ ...clone(init), id } as YorkieElement);
+      (targetArray as unknown as YorkieElement[]).push({ ...clone(init), id } as YorkieElement);
     });
     return id;
   }
@@ -733,15 +808,16 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const i = s.elements.findIndex((e) => e.id === elementId);
-      if (i === -1) throw new Error(`Element not found: ${elementId}`);
-      // Cascade sweep — any connector still attached to the element being
-      // removed must convert that endpoint to a `free` endpoint pinned at
-      // the endpoint's current world position so the connector survives
-      // source deletion without snapping to the origin. (Q4 c1 policy.)
-      // Must run BEFORE splice so attached siteWorldPos still resolves.
+      // Walk the element tree so removal works for both slide-root and
+      // group-nested elements. Connector cascade sweep must run BEFORE
+      // splicing so attached siteWorldPos still resolves. (Q4 c1 policy.)
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
       this.detachConnectorsTargeting(s, elementId);
-      s.elements.splice(i, 1);
+      const parentArray = this.resolveYorkieParentArray(s, path);
+      const i = parentArray.findIndex((e) => e.id === elementId);
+      (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+      this.pruneEmptyYorkieAncestorGroups(s, path);
     });
   }
 
@@ -751,13 +827,36 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      for (let i = s.elements.length - 1; i >= 0; i--) {
-        if (set.has(s.elements[i].id)) {
-          // Convert dependent endpoints to free BEFORE this source is
-          // dropped — see `removeElement` rationale.
-          this.detachConnectorsTargeting(s, s.elements[i].id);
-          s.elements.splice(i, 1);
+      // Collect paths before any removal so they all resolve correctly.
+      const paths = new Map<string, ProxyArray[]>();
+      for (const id of set) {
+        const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, id);
+        if (path) paths.set(id, path);
+      }
+      // Cascade sweep: convert endpoints attached to any about-to-be-removed
+      // element to free endpoints before any source is dropped.
+      for (const id of set) {
+        this.detachConnectorsTargeting(s, id);
+      }
+      // Remove from deepest leaves first (longest path first) to avoid stale
+      // parent refs. Group by parent and splice all at once per parent array.
+      type ParentEntry = { parentArray: ProxyArray; ids: Set<string>; repPath: ProxyArray[] };
+      const byParent = new Map<string, ParentEntry>();
+      for (const [id, path] of paths) {
+        const parentArray = this.resolveYorkieParentArray(s, path);
+        const parentPathKey = path.slice(0, -1).map((e) => e.id).join('/');
+        if (!byParent.has(parentPathKey)) {
+          byParent.set(parentPathKey, { parentArray, ids: new Set(), repPath: path });
         }
+        byParent.get(parentPathKey)!.ids.add(id);
+      }
+      for (const { parentArray, ids, repPath } of byParent.values()) {
+        for (let i = parentArray.length - 1; i >= 0; i--) {
+          if (ids.has(parentArray[i].id)) {
+            (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+          }
+        }
+        this.pruneEmptyYorkieAncestorGroups(s, repPath);
       }
     });
   }
@@ -771,8 +870,11 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      // Walk the element tree so updates work for both slide-root and
+      // group-nested elements.
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type === 'connector') {
         // Connector frame is derived from endpoint positions — patching it
         // directly would leave the cached bbox out of sync with the
@@ -782,7 +884,8 @@ export class YorkieSlidesStore implements SlidesStore {
           `Element ${elementId} is a connector; update its endpoints instead of its frame`,
         );
       }
-      e.frame = { ...e.frame, ...frame };
+      const eAny = e as { frame: Frame };
+      eAny.frame = { ...eAny.frame, ...frame };
       // Refresh the cached frames of connectors whose endpoints attach to
       // this element. The renderer reads endpoints live, so the visual
       // line already follows the source move — but selection bbox /
@@ -796,8 +899,11 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      // Walk the element tree so updates work for both slide-root and
+      // group-nested elements.
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type === 'connector') {
         // Connectors have no `data` sub-object; use
         // `updateConnectorEndpoint` / `updateConnectorArrowheads`.
@@ -812,18 +918,23 @@ export class YorkieSlidesStore implements SlidesStore {
         delete source.blocks;
         if (Object.keys(source).length === 0) return;
       }
-      // Apply key-by-key so explicit `undefined` removes the key. JSON.stringify
-      // strips undefined, so the clone-and-spread approach silently dropped
-      // clears (e.g. `{ crop: undefined }` for Reset Crop).
-      const merged: Record<string, unknown> = { ...(e.data as object) };
+      // Apply key-by-key, IN-PLACE on the Yorkie data object. Re-assigning
+      // the whole `data` field breaks for groups because `data.children` is
+      // a nested Yorkie.Array (CRDT subtree) — spreading it would expose
+      // its proxy methods, and Yorkie rejects functions on `set`. Mutating
+      // individual fields preserves the children array as-is.
+      //
+      // Explicit `undefined` removes the key (JSON.stringify strips
+      // undefined, so the previous clone-and-spread silently dropped
+      // clears — e.g., `{ crop: undefined }` for Reset Crop).
+      const data = (e as { data: Record<string, unknown> }).data;
       for (const [k, v] of Object.entries(source)) {
         if (v === undefined) {
-          delete merged[k];
+          delete data[k];
         } else {
-          merged[k] = clone(v);
+          data[k] = clone(v);
         }
       }
-      e.data = merged as typeof e.data;
     });
   }
 
@@ -837,8 +948,9 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
@@ -868,8 +980,9 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
@@ -907,8 +1020,9 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
@@ -926,15 +1040,292 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const from = s.elements.findIndex((e) => e.id === elementId);
-      if (from === -1) throw new Error(`Element not found: ${elementId}`);
+      // Walk the element tree so reorder works for both slide-root and
+      // group-nested elements.
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const parentArray = this.resolveYorkieParentArray(s, path);
+      const from = parentArray.findIndex((e) => e.id === elementId);
       // Rebuild the element so its data is detached from the proxy —
       // safer to re-insert into the Yorkie array.
-      const rebuilt = unwrapElement(s.elements[from]) as YorkieElement;
-      s.elements.splice(from, 1);
-      const clamped = Math.max(0, Math.min(toIndex, s.elements.length));
-      s.elements.splice(clamped, 0, rebuilt);
+      const rebuilt = unwrapElement(parentArray[from]) as YorkieElement;
+      (parentArray as unknown as { splice(f: number, d: number): void }).splice(from, 1);
+      const clamped = Math.max(0, Math.min(toIndex, parentArray.length));
+      (parentArray as unknown as { splice(at: number, del: number, item: YorkieElement): void }).splice(clamped, 0, rebuilt);
     });
+  }
+
+  // --- group / ungroup ---
+
+  group(
+    slideId: string,
+    elementIds: string[],
+  ): { groupId: string; excludedConnectorIds: string[] } {
+    this.requireBatch();
+
+    if (elementIds.length < 2) {
+      throw new Error(
+        `[slides] group() requires at least 2 elements, got ${elementIds.length}`,
+      );
+    }
+
+    let groupId = '';
+    let excludedConnectorIds: string[] = [];
+
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+
+      // All ids must exist somewhere on this slide.
+      const paths = new Map<string, ProxyArray[]>();
+      for (const id of elementIds) {
+        const path = yorkieFindElementPath(proxyElements, id);
+        if (!path) throw new Error(`[slides] group(): element not found: ${id}`);
+        paths.set(id, path);
+      }
+
+      // All candidates must share the same parent.
+      const parentKeyOf = (id: string): string => {
+        const path = paths.get(id)!;
+        if (path.length === 1) return '';
+        return path[path.length - 2].id;
+      };
+      const firstParentKey = parentKeyOf(elementIds[0]);
+      for (const id of elementIds.slice(1)) {
+        if (parentKeyOf(id) !== firstParentKey) {
+          throw new Error(
+            `[slides] group(): all elements must share the same parent`,
+          );
+        }
+      }
+
+      // Resolve the parent array.
+      let parentArray: ProxyArray;
+      if (firstParentKey === '') {
+        parentArray = proxyElements;
+      } else {
+        const parentPath = yorkieFindElementPath(proxyElements, firstParentKey);
+        if (!parentPath) {
+          throw new Error(`[slides] group(): parent not found: ${firstParentKey}`);
+        }
+        const parentEl = parentPath[parentPath.length - 1];
+        if (parentEl.type !== 'group') {
+          throw new Error(`[slides] group(): parent is not a group: ${firstParentKey}`);
+        }
+        parentArray = (parentEl.data as { children: ProxyArray }).children;
+      }
+
+      const candidateSet = new Set(elementIds);
+      // Resolve candidates in parent-array order.
+      const allCandidatesInOrder = parentArray.filter(e => candidateSet.has(e.id));
+
+      // No placeholderRef on any candidate.
+      for (const el of allCandidatesInOrder) {
+        if ((el as { placeholderRef?: unknown }).placeholderRef != null) {
+          throw new Error(
+            `[slides] group(): placeholderRef cannot be grouped (element ${el.id})`,
+          );
+        }
+      }
+
+      // Connector partition: connectors whose both endpoints are internal join
+      // the group; those with an external endpoint are excluded.
+      const internalCandidates: ProxyArray = [];
+      const excluded: string[] = [];
+
+      for (const el of allCandidatesInOrder) {
+        if (el.type !== 'connector') {
+          internalCandidates.push(el);
+          continue;
+        }
+        const c = el as unknown as { start: Endpoint; end: Endpoint };
+        const startInternal =
+          c.start.kind === 'free' ||
+          candidateSet.has((c.start as { elementId?: string }).elementId ?? '');
+        const endInternal =
+          c.end.kind === 'free' ||
+          candidateSet.has((c.end as { elementId?: string }).elementId ?? '');
+        if (startInternal && endInternal) {
+          internalCandidates.push(el);
+        } else {
+          excluded.push(el.id);
+          candidateSet.delete(el.id);
+        }
+      }
+      excludedConnectorIds = excluded;
+
+      if (internalCandidates.length < 2) {
+        throw new Error(
+          `[slides] group(): cannot create a group: only ${internalCandidates.length} non-connector element(s) remain after excluding cross-group connectors`,
+        );
+      }
+
+      const candidatesInOrder = internalCandidates;
+
+      // Compute the cumulative ancestor transform from slide-root to parent space.
+      const ancestorTransform = yorkieResolveAncestorTransform(proxyElements, firstParentKey);
+
+      // Compute world frames for each candidate.
+      const worldFrames = candidatesInOrder.map(el => {
+        const frame = yorkieToPlain<Frame>((el as { frame: unknown }).frame)!;
+        return applyGroupTransformMatrix(frame, ancestorTransform);
+      });
+
+      // Compute the rotated-corner AABB over all world frames.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const wf of worldFrames) {
+        const corners = frameCorners(wf);
+        for (const [cx, cy] of corners) {
+          if (cx < minX) minX = cx;
+          if (cy < minY) minY = cy;
+          if (cx > maxX) maxX = cx;
+          if (cy > maxY) maxY = cy;
+        }
+      }
+      // Clamp to at least 1px to prevent a degenerate (singular) group transform.
+      const MIN_GROUP_DIM = 1;
+      const groupWorldFrame: Frame = {
+        x: minX, y: minY,
+        w: Math.max(maxX - minX, MIN_GROUP_DIM),
+        h: Math.max(maxY - minY, MIN_GROUP_DIM),
+        rotation: 0,
+      };
+
+      // Convert the group's world frame back to parent-local space.
+      const groupLocalFrame = applyInverseMatrix(groupWorldFrame, ancestorTransform);
+
+      // Build a temporary GroupElement (plain object) to compute normalizeToGroupLocal.
+      const tempGroup: GroupElement = {
+        id: '__tmp__',
+        type: 'group',
+        frame: groupWorldFrame,
+        data: { children: [] },
+      };
+      const groupSelfTransform = groupToTransform(tempGroup);
+
+      // Build children with group-local frames from plain unwrapped copies.
+      const childrenWithLocalFrames = candidatesInOrder.map((el, i) => {
+        const plain = unwrapElement(el) as YorkieElement;
+        const localFrame = normalizeToGroupLocal(worldFrames[i], tempGroup);
+        if ((plain as { type: string }).type === 'connector') {
+          // Normalize free endpoint coordinates from parent-local space to group-local.
+          const plainConnector = plain as unknown as { start: Endpoint; end: Endpoint; frame: Frame };
+          for (const side of ['start', 'end'] as const) {
+            const ep = plainConnector[side];
+            if (ep.kind === 'free') {
+              const worldPt = applyGroupTransformToPoint(ep.x, ep.y, ancestorTransform);
+              const local = applyInversePoint(worldPt.x, worldPt.y, groupSelfTransform);
+              plainConnector[side] = { kind: 'free', x: local.x, y: local.y };
+            }
+          }
+          return { ...plain, frame: localFrame } as YorkieElement;
+        }
+        return { ...(plain as YorkieElement), frame: localFrame };
+      });
+
+      groupId = generateId();
+      const newGroup: YorkieGroupElement = {
+        id: groupId,
+        type: 'group',
+        frame: groupLocalFrame,
+        data: {
+          children: childrenWithLocalFrames as YorkieGroupElement['data']['children'],
+          // Anchor the local coordinate space so group resize scales children.
+          // (OOXML chExt/ext semantics — see GroupElement.data.refSize.)
+          refSize: { w: groupLocalFrame.w, h: groupLocalFrame.h },
+        },
+      };
+
+      // Insert the group at the front-most target position, remove candidates.
+      const candidateIndices = candidatesInOrder.map(el =>
+        parentArray.findIndex(p => p.id === el.id),
+      );
+      const frontMostIndex = Math.max(...candidateIndices);
+
+      // Remove all internal candidates from the parent array.
+      for (const el of candidatesInOrder) {
+        const idx = parentArray.findIndex(p => p.id === el.id);
+        if (idx !== -1) {
+          (parentArray as unknown as { splice(i: number, d: number): void }).splice(idx, 1);
+        }
+      }
+
+      // Insert the new group at the adjusted position.
+      const removedBefore = candidateIndices.filter(i => i < frontMostIndex).length;
+      const insertAt = Math.max(0, frontMostIndex - removedBefore);
+      (parentArray as unknown as { splice(at: number, del: number, item: YorkieGroupElement): void })
+        .splice(insertAt, 0, newGroup);
+    });
+
+    return { groupId, excludedConnectorIds };
+  }
+
+  ungroup(slideId: string, groupId: string): string[] {
+    this.requireBatch();
+
+    let childIds: string[] = [];
+
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+
+      const path = yorkieFindElementPath(proxyElements, groupId);
+      if (!path) throw new Error(`[slides] ungroup(): element not found: ${groupId}`);
+
+      const group = path[path.length - 1];
+      if (group.type !== 'group') {
+        throw new Error(`[slides] ungroup(): element ${groupId} is not a group`);
+      }
+
+      // Resolve the parent array.
+      let parentArray: ProxyArray;
+      if (path.length === 1) {
+        parentArray = proxyElements;
+      } else {
+        const parentEl = path[path.length - 2];
+        parentArray = (parentEl.data as { children: ProxyArray }).children;
+      }
+
+      const groupIndex = parentArray.findIndex(e => e.id === groupId);
+
+      // Unwrap the group proxy to a plain GroupElement so we can do math.
+      const plainGroup = unwrapElement(group) as unknown as GroupElement;
+
+      // Bake the group's transform into each child's frame.
+      // For connectors, also transform free endpoints from group-local
+      // to parent space so line geometry stays correct after ungroup.
+      const groupTx = groupToTransform(plainGroup);
+      const bakedChildren: YorkieElement[] = plainGroup.data.children.map((child) => {
+        const next = {
+          ...clone(child),
+          frame: applyGroupTransform(child.frame, plainGroup),
+        } as YorkieElement;
+        if (next.type === 'connector') {
+          const c = next as unknown as { start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } };
+          for (const side of ['start', 'end'] as const) {
+            const ep = c[side];
+            if (ep.kind === 'free') {
+              const p = applyGroupTransformToPoint(ep.x, ep.y, groupTx);
+              c[side] = { kind: 'free', x: p.x, y: p.y };
+            }
+          }
+        }
+        return next;
+      });
+
+      childIds = bakedChildren.map(c => (c as { id: string }).id);
+
+      // Replace the group in the parent array with its children.
+      (parentArray as unknown as {
+        splice(i: number, d: number, ...items: YorkieElement[]): void
+      }).splice(groupIndex, 1, ...bakedChildren);
+    });
+
+    return childIds;
   }
 
   // --- text bridges ---
@@ -953,8 +1344,11 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const e = s.elements.find((e) => e.id === elementId);
-      if (!e) throw new Error(`Element not found: ${elementId}`);
+      // Walk the element tree so updates work for both slide-root and
+      // group-nested elements.
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
       if (e.type !== 'text') {
         throw new Error(`Element ${elementId} is not a text element`);
       }
@@ -967,7 +1361,11 @@ export class YorkieSlidesStore implements SlidesStore {
       // MemSlidesStore where the callback receives the live reference.
       // `next ?? blocks` covers both the explicit-return path and the
       // void-mutation path with one assignment.
-      e.data = { blocks: clone(next ?? blocks) } as unknown as typeof e.data;
+      const eAny = e as { data: Record<string, unknown> };
+      eAny.data = {
+        ...eAny.data,
+        blocks: clone(next ?? blocks),
+      };
     });
   }
 
@@ -1087,4 +1485,120 @@ export class YorkieSlidesStore implements SlidesStore {
       }
     }
   }
+
+  /**
+   * Given a path (from yorkieFindElementPath), return the mutable Yorkie
+   * proxy array that directly contains the leaf element.
+   * - path.length === 1 → s.elements (slide root)
+   * - path.length >= 2  → the immediate parent group's children proxy array
+   */
+  private resolveYorkieParentArray(s: YorkieSlide, path: ProxyArray[]): ProxyArray {
+    if (path.length === 1) return s.elements as unknown as ProxyArray;
+    const parent = path[path.length - 2];
+    return (parent.data as { children: ProxyArray }).children;
+  }
+
+  /**
+   * After removing element(s), walk the ancestor path upward and splice
+   * any group whose `children` array has become empty. Equivalent to
+   * MemSlidesStore.pruneEmptyAncestorGroups but operates on Yorkie proxies.
+   *
+   * `path` is the pre-removal path of the removed element (including the
+   * removed element itself at the leaf). We walk from the immediate parent
+   * upward toward the slide root.
+   */
+  private pruneEmptyYorkieAncestorGroups(s: YorkieSlide, path: ProxyArray[]): void {
+    for (let depth = path.length - 2; depth >= 0; depth--) {
+      const ancestor = path[depth];
+      if (ancestor.type !== 'group') break;
+      const children = (ancestor.data as { children: ProxyArray }).children;
+      if (children.length > 0) break;
+      // This group is now empty — remove it from ITS parent.
+      const ancestorParentArray: ProxyArray =
+        depth === 0
+          ? (s.elements as unknown as ProxyArray)
+          : (path[depth - 1].data as { children: ProxyArray }).children;
+      const idx = ancestorParentArray.findIndex((e) => e.id === ancestor.id);
+      if (idx !== -1) {
+        (ancestorParentArray as unknown as { splice(i: number, d: number): void }).splice(idx, 1);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level helpers for tree-aware Yorkie operations
+// ---------------------------------------------------------------------------
+
+/**
+ * DFS walk of a Yorkie proxy element array to find an element by id.
+ * Returns the path (chain from root → element, leaf last) or null.
+ * Equivalent to `findElementPath` from model/group.ts but operates on
+ * Yorkie proxy arrays whose items may also be proxies.
+ */
+function yorkieFindElementPath(
+  elements: ProxyArray,
+  elementId: string,
+): ProxyArray[] | null {
+  for (const el of elements) {
+    if (el.id === elementId) return [el];
+    if (el.type === 'group') {
+      const children = (el.data as { children?: ProxyArray })?.children ?? [];
+      const sub = yorkieFindElementPath(children, elementId);
+      if (sub) return [el, ...sub];
+    }
+  }
+  return null;
+}
+
+/**
+ * Compose the ancestor transform from slide-root to the given parent element.
+ * Returns the identity transform when `parentId` is '' (slide root).
+ * Operates on Yorkie proxy arrays to walk the path without materializing a
+ * full plain-object tree.
+ */
+function yorkieResolveAncestorTransform(
+  slideElements: ProxyArray,
+  parentId: string,
+): GroupTransform {
+  if (parentId === '') return { ...IDENTITY_GROUP_TRANSFORM };
+
+  const path = yorkieFindElementPath(slideElements, parentId);
+  if (!path) {
+    throw new Error(`[slides] group(): parentId not found on slide: ${parentId}`);
+  }
+
+  // Collect only group ancestors (all entries in the path are groups for a
+  // nested parent, up to and including the parent itself).
+  const groupAncestors = path
+    .filter(el => el.type === 'group')
+    .map(el => ({
+      frame: yorkieToPlain<Frame>((el as { frame: unknown }).frame)!,
+    } as GroupElement));
+
+  return composeAncestorTransform(groupAncestors);
+}
+
+/**
+ * Return the 4 corners of a frame (accounting for rotation around its center).
+ * Used to compute the tight AABB over all rotated candidate frames.
+ * Mirrors the equivalent function in MemSlidesStore.
+ */
+function frameCorners(frame: Frame): [number, number][] {
+  const { x, y, w, h, rotation } = frame;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const hw = w / 2;
+  const hh = h / 2;
+  return [
+    [-hw, -hh],
+    [+hw, -hh],
+    [+hw, +hh],
+    [-hw, +hh],
+  ].map(([lx, ly]) => [
+    cx + lx * cos - ly * sin,
+    cy + lx * sin + ly * cos,
+  ] as [number, number]);
 }

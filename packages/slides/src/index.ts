@@ -47,6 +47,7 @@ export type {
   ElementInit,
   ElementType,
   Frame,
+  GroupElement,
   ImageElement,
   PlaceholderRef,
   PlaceholderType,
@@ -57,6 +58,25 @@ export type {
   TextElement,
 } from './model/element';
 export { generateId } from './model/element';
+
+export type { GroupTransform } from './model/group';
+export {
+  IDENTITY_GROUP_TRANSFORM,
+  applyGroupTransform,
+  applyInverseMatrix,
+  applyInversePoint,
+  composeAncestorTransform,
+  composeGroupMatrix,
+  findElementPath,
+  flattenElements,
+  groupToTransform,
+  isGroupDescendantOf,
+  normalizeToGroupLocal,
+} from './model/group';
+export {
+  applyGroupTransformToPoint,
+  applyGroupTransform as applyGroupTransformMatrix,
+} from './import/pptx/group';
 
 export type {
   ArrowheadKind,
@@ -103,6 +123,13 @@ export { getOrLoadImage } from './view/canvas/image-cache';
 export { renderShapeIcon } from './view/canvas/shape-icon';
 export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
+
+// View — Element hit-test (groups + nested)
+export type { HitResult } from './view/editor/hit-test-elements';
+export { hitTestSlide } from './view/editor/hit-test-elements';
+
+// View — Snap candidates (scope-aware, rotated AABB)
+export { collectSnapCandidates } from './view/editor/snap-candidates';
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';

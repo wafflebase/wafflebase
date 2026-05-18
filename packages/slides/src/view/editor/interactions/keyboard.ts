@@ -3,6 +3,8 @@ import type { SlidesStore } from '../../../store/store';
 import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
+import { findElementPath } from '../../../model/group';
+import { toWorldFrame, fromWorldFrame } from '../frame-space';
 import {
   MIME_TYPE,
   serializeElements,
@@ -29,6 +31,10 @@ export interface KeyboardContext {
   getInsertMode(): InsertKind | null;
   /** Called by the Escape rule to disarm a shape/text insert. */
   setInsertMode(kind: InsertKind | null): void;
+  /** Group the current selection. No-op when fewer than 2 elements selected. */
+  group(): void;
+  /** Ungroup the currently selected group element. No-op when selection is not a single group. */
+  ungroup(): void;
 }
 
 const NUDGE = 1;
@@ -102,20 +108,26 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           if (ctx.selection.get().length === 0) return;
           e.preventDefault();
           const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
-          const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
-          const dy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
+          const worldDx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+          const worldDy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
           const slideId = ctx.currentSlideId();
           if (!slideId) return;
+          const scope = ctx.selection.getScope();
           ctx.store.batch(() => {
             for (const id of ctx.selection.get()) {
               const slide = ctx.store.read().slides.find((s) => s.id === slideId);
               if (!slide) continue;
-              const el = slide.elements.find((x) => x.id === id);
-              if (!el) continue;
-              ctx.store.updateElementFrame(slideId, id, {
-                x: el.frame.x + dx,
-                y: el.frame.y + dy,
-              });
+              // Find element anywhere in the tree (supports drilled-in scope).
+              const path = findElementPath(slide.elements, id);
+              if (!path) continue;
+              const el = path[path.length - 1];
+              // Compute the new frame: apply the nudge delta in world space,
+              // then convert back to the element's parent-local space for storage.
+              // For scope = [] world == local, so this is a no-op conversion.
+              const worldFrame = toWorldFrame(el.frame, scope, slide);
+              const newWorldFrame = { ...worldFrame, x: worldFrame.x + worldDx, y: worldFrame.y + worldDy };
+              const localFrame = fromWorldFrame(newWorldFrame, scope, slide);
+              ctx.store.updateElementFrame(slideId, id, localFrame);
             }
           });
           ctx.requestRender();
@@ -232,6 +244,7 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           for (const id of ids) {
             const live = ctx.store.read().slides.find((s) => s.id === slideId);
             if (!live) continue;
+            // TODO(group): walk via findElementPath when the editor stack is group-aware
             const idx = live.elements.findIndex((el) => el.id === id);
             if (idx === -1) continue;
             const length = live.elements.length;
@@ -449,21 +462,57 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       },
     },
 
-    // Esc — clear selection when something is selected and no
-    // editable target is focused. Text-box Esc is handled by the
-    // text-box editor's own capture-phase listener (which stops
-    // propagation before reaching this rule). Popover/context-menu
-    // Esc is also captured at their layer.
+    // Esc — pop drill-in scope if non-empty; otherwise clear selection.
+    // Text-box Esc is handled by the text-box editor's own capture-phase
+    // listener (which stops propagation before reaching this rule).
+    // Popover/context-menu Esc is also captured at their layer.
     {
       match: (e) =>
         e.key === 'Escape' &&
         !isModPressed(e) &&
         !isEditableTarget(e.target),
       run: (e) => {
+        // If we are drilled into a group, pop one scope level and stop —
+        // do NOT also clear the id-selection so the group itself appears
+        // selected at the parent scope level (matching Google Slides).
+        if (ctx.selection.getScope().length > 0) {
+          e.preventDefault();
+          ctx.selection.escape();
+          ctx.requestRender();
+          return;
+        }
         if (ctx.selection.get().length === 0) return;
         e.preventDefault();
         ctx.selection.clear();
         ctx.requestRender();
+      },
+    },
+
+    // Cmd+Alt+G — group the current selection (≥2 elements).
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.group();
+      },
+    },
+
+    // Cmd+Shift+Alt+G — ungroup the selected group element.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.ungroup();
       },
     },
   ];

@@ -1,5 +1,5 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
-import { combinedBoundingBox, containsPoint } from '../../model/frame';
+import { combinedBoundingBox } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
@@ -26,7 +26,6 @@ import {
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
 import { buildKeyRules } from './interactions/keyboard';
-import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
@@ -45,8 +44,12 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
+import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
+import { collectSnapCandidates } from './snap-candidates';
+import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
+import { findElementPath } from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -111,6 +114,12 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * (≈ 44px diameter) so fingertips can reliably grab handles.
    */
   touchHandleTolerance?: number;
+  /**
+   * Surface a non-blocking notice to the user. The slides package has
+   * no UI library; frontend wires this to its toast system (e.g. sonner
+   * `toast.info`). No-op when omitted.
+   */
+  onToast?: (message: string) => void;
 }
 
 export interface SlidesEditor {
@@ -267,6 +276,20 @@ export interface SlidesEditor {
    * a single `store.batch()` for atomic undo/redo.
    */
   rotateBy(radians: number): void;
+  /**
+   * Wrap the currently selected elements (≥ 2) into a new group.
+   * All selected elements must share the same parent (slide root or a
+   * single group). After grouping, the new group is selected.
+   * No-op when fewer than 2 elements are selected or a text-box is active.
+   */
+  group(): void;
+  /**
+   * Dissolve the currently selected group element back into its parent.
+   * Selection must be exactly one group element. After ungrouping, the
+   * former children are selected.
+   * No-op when selection is not a single group element or a text-box is active.
+   */
+  ungroup(): void;
   detach(): void;
 }
 
@@ -367,6 +390,8 @@ class SlidesEditorImpl implements SlidesEditor {
       onShowShortcutsHelp: this.options.onShowShortcutsHelp,
       getInsertMode: () => this.getInsertMode(),
       setInsertMode: (kind) => this.setInsertMode(kind),
+      group: () => this.group(),
+      ungroup: () => this.ungroup(),
     });
     this.attachInteractions();
   }
@@ -391,9 +416,27 @@ class SlidesEditorImpl implements SlidesEditor {
     // Suppress selection handles for the element currently in edit
     // mode — the text-box editor takes over the visual frame, and
     // overlapping handles would intercept clicks meant for the editor.
-    const selected = slide.elements.filter(
-      (e) => this.selection.has(e.id) && e.id !== this.editingElementId,
-    );
+    //
+    // Phase C (Task 9): scope-aware lookup. When the user has drilled
+    // into a group, selected element ids refer to children nested inside
+    // that group — `slide.elements.filter()` would miss them because it
+    // only scans the top-level array. We resolve each id via the
+    // recursive `findElement` helper, then lift the stored (group-local)
+    // frame to world coords via `toWorldFrame` so that handles paint at
+    // the positions the user actually sees.
+    const scope = this.selection.getScope();
+    const selected = this.selection
+      .get()
+      .filter((id) => id !== this.editingElementId)
+      .map((id) => {
+        const el = findElement(slide.elements, id);
+        if (!el) return null;
+        // Convert the stored frame (group-local when scope is non-empty)
+        // to slide-root world coords so overlay handles land correctly.
+        const worldFrame = toWorldFrame(el.frame, scope, slide);
+        return { ...el, frame: worldFrame } as Element;
+      })
+      .filter((e): e is Element => e !== null);
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -648,18 +691,51 @@ class SlidesEditorImpl implements SlidesEditor {
     const framesMap = this.collectSelectedFrames(slide);
     if (framesMap.size === 0) return;
     const TWO_PI = 2 * Math.PI;
+    const updates = new Map<string, Frame>();
+    for (const [id, worldFrame] of framesMap) {
+      const newRotation = ((worldFrame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
+      updates.set(id, { ...worldFrame, rotation: newRotation });
+    }
+    this.applyFrameUpdates(slide.id, updates);
+  }
+
+  group(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const ids = this.selection.get();
+    if (ids.length < 2) return;
+    let result: { groupId: string; excludedConnectorIds: string[] } | undefined;
     this.options.store.batch(() => {
-      for (const [id, frame] of framesMap) {
-        const newRotation = ((frame.rotation + radians) % TWO_PI + TWO_PI) % TWO_PI;
-        this.options.store.updateElementFrame(slide.id, id, {
-          ...frame,
-          rotation: newRotation,
-        });
-      }
+      result = this.options.store.group(slide.id, [...ids]);
     });
-    this.renderer.markDirty();
-    this.render();
-    this.repaintOverlay();
+    if (!result) return;
+    if (result.excludedConnectorIds.length > 0) {
+      const n = result.excludedConnectorIds.length;
+      const noun = n === 1 ? 'connector' : 'connectors';
+      this.options.onToast?.(
+        `${n} ${noun} excluded from the group (linked outside).`,
+      );
+    }
+    this.selection.set([result.groupId]);
+    this.requestRender();
+  }
+
+  ungroup(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const ids = this.selection.get();
+    if (ids.length !== 1) return;
+    const path = findElementPath(slide.elements, ids[0]);
+    const el = path?.[path.length - 1];
+    if (!el || el.type !== 'group') return;
+    let childIds: string[] = [];
+    this.options.store.batch(() => {
+      childIds = this.options.store.ungroup(slide.id, ids[0]);
+    });
+    this.selection.set(childIds);
+    this.requestRender();
   }
 
   /**
@@ -667,25 +743,42 @@ class SlidesEditorImpl implements SlidesEditor {
    * the given slide. Defends against ids that were removed remotely
    * between selection and the toolbar action.
    */
-  private collectSelectedFrames(slide: { elements: Element[] }): Map<string, Frame> {
-    const selectedIds = new Set(this.selection.get());
+  private collectSelectedFrames(slide: Slide): Map<string, Frame> {
+    // Walk the element tree so this works at any drill-in depth — at
+    // slide-root scope the elements are top-level; in drill-in, the
+    // selected ids live inside the scoped group's children.
+    //
+    // Returned frames are in WORLD coordinates so consumers
+    // (align / distribute / rotateBy + combinedBoundingBox) reason in a
+    // single coordinate system. `applyFrameUpdates` converts each back
+    // to scope-local before writing.
+    const scope = this.selection.getScope();
+    const selectedIds = this.selection.get();
     const result = new Map<string, Frame>();
-    for (const el of slide.elements) {
-      if (selectedIds.has(el.id)) result.set(el.id, el.frame);
+    for (const id of selectedIds) {
+      const el = findElement(slide.elements, id);
+      if (!el) continue;
+      result.set(id, toWorldFrame(el.frame, scope, slide));
     }
     return result;
   }
 
   /**
-   * Commit a set of frame updates in a single store.batch so undo/redo
-   * treats them atomically, then mark dirty + render. Empty `updates`
-   * is a no-op (skips the empty batch).
+   * Commit a set of WORLD frame updates in a single store.batch so undo/redo
+   * treats them atomically. Each world frame is converted back to scope-local
+   * via `fromWorldFrame` so the store writes coordinates in the element's
+   * parent coordinate system. Empty `updates` is a no-op (skips the empty
+   * batch).
    */
   private applyFrameUpdates(slideId: string, updates: ReadonlyMap<string, Frame>): void {
     if (updates.size === 0) return;
+    const scope = this.selection.getScope();
+    const slide = this.currentSlide();
+    if (!slide) return;
     this.options.store.batch(() => {
-      for (const [id, frame] of updates) {
-        this.options.store.updateElementFrame(slideId, id, frame);
+      for (const [id, worldFrame] of updates) {
+        const localFrame = fromWorldFrame(worldFrame, scope, slide);
+        this.options.store.updateElementFrame(slideId, id, localFrame);
       }
     });
     this.renderer.markDirty();
@@ -867,20 +960,40 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hit = topmostUnderPoint(slide, x, y);
-    const items = hit !== null
-      ? this.elementContextItems(slide.id, hit)
-      : this.canvasContextItems(x, y);
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult === null) {
+      showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
+      return;
+    }
+    // Route the right-click through the same drill-in state machine as
+    // single-click. Without this, right-clicking inside a group sets
+    // selection to the leaf child (whose frame is in group-local coords)
+    // and the overlay draws handles at the wrong position; it also leaves
+    // the selection on a non-group element so Ungroup stays disabled.
+    if (!this.selection.has(hitResult.elementId)) {
+      this.selection.click(hitResult, {});
+    }
+    const items = this.elementContextItems(slide.id);
     showContextMenu(document.body, items, e.clientX, e.clientY);
   }
 
-  private elementContextItems(
-    slideId: string,
-    elementId: string,
-  ): ContextMenuItem[] {
-    // Ensure the right-clicked element is selected — matches user
-    // expectation that the action targets what they clicked on.
-    if (!this.selection.has(elementId)) this.selection.set([elementId]);
+  private elementContextItems(slideId: string): ContextMenuItem[] {
+    // Selection has already been resolved by `onContextMenu` (right-click)
+    // through the drill-in state machine. We DO NOT set it here — calling
+    // `selection.set([leafId])` would bypass drill-in rules and leave the
+    // overlay drawing handles at group-local coords for grouped children.
+    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    const selectedIds = [...this.selection.get()];
+    const groupItem: ContextMenuItem = {
+      label: 'Group',
+      disabled: !slide || !canGroup(selectedIds, slide),
+      run: () => this.group(),
+    };
+    const ungroupItem: ContextMenuItem = {
+      label: 'Ungroup',
+      disabled: !slide || !canUngroup(selectedIds, slide),
+      run: () => this.ungroup(),
+    };
 
     return [
       { label: 'Copy',  run: () => this.dispatchKey('c', { meta: true }) },
@@ -895,6 +1008,9 @@ class SlidesEditorImpl implements SlidesEditor {
         this.selection.clear();
         this.requestRender();
       } },
+      { label: '---', run: () => undefined },
+      groupItem,
+      ungroupItem,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
@@ -1005,15 +1121,25 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
 
-    // Hit-test against an element first.
-    const hit = topmostUnderPoint(slide, x, y);
-    if (hit !== null) {
+    // Hit-test against an element first. Use the depth-aware hitTestSlide
+    // (which descends into groups) and route through Selection.click so the
+    // drill-in state machine picks the right element at the current scope.
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult !== null) {
       const mods = { shift: e.shiftKey };
-      const next = selectAt(slide, x, y, mods, this.selection.get());
-      this.selection.set(next);
+      // If the scope-level element under the pointer is already in the
+      // current selection, skip Selection.click to preserve a multi-selection
+      // (e.g. clicking on one of several selected elements should keep all
+      // selected so a subsequent drag moves them together).
+      const scopeId = pickScopeId(hitResult, this.selection.getScope());
+      if (!mods.shift && scopeId !== null && this.selection.has(scopeId)) {
+        this.startDrag(e.clientX, e.clientY);
+        return;
+      }
+      this.selection.click(hitResult, mods);
       // Begin drag on the (possibly newly-)selected elements unless the
       // element was just removed by shift-toggle.
-      if (this.selection.has(hit)) {
+      if (this.selection.get().length > 0) {
         this.startDrag(e.clientX, e.clientY);
       }
       return;
@@ -1028,26 +1154,37 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onDoubleClick(e: MouseEvent): void {
-    // Double-click on a text element enters edit mode. Clicks on
-    // non-text elements are ignored (shape/image have no inline
-    // editing in v1).
+    // Double-click on a text element enters edit mode. For grouped
+    // elements, drill in one level first so the user can descend into
+    // groups the same way Google Slides does. Clicks on non-text
+    // non-group elements at the leaf level are ignored.
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hit = topmostUnderPoint(slide, x, y);
-    if (hit === null) return;
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
     // edit mode on the same element would commit + remount the
     // text-box, resetting the docs cursor to offset 0 and wiping the
     // word selection the inner TextEditor's second mousedown just
     // made. Bail out and let the inner editor own the dblclick.
-    if (hit === this.editingElementId) return;
-    const element = slide.elements.find((el) => el.id === hit);
-    if (!element || element.type !== 'text') return;
+    if (hitResult.elementId === this.editingElementId) return;
+
+    // Drive the drill-in state machine first.
+    this.selection.doubleClick(hitResult);
+
+    // After drill-in, check if the newly-selected element is a text box.
+    // Use the leaf-most element id from the hit (which is what
+    // Selection.doubleClick ultimately lands on at the deepest available
+    // scope level).
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const el = findElement(slide.elements, selectedIds[0]);
+    if (!el || el.type !== 'text') return;
     e.preventDefault();
     e.stopPropagation();
-    this.enterEditMode(slide.id, element.id);
+    this.enterEditMode(slide.id, el.id);
   }
 
   private enterEditMode(slideId: string, elementId: string): void {
@@ -1432,74 +1569,115 @@ class SlidesEditorImpl implements SlidesEditor {
   private startDrag(clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = new Set(this.selection.get());
-    const originalFrames = new Map<string, Frame>();
-    for (const el of startSlide.elements) {
-      if (selectedIds.has(el.id)) originalFrames.set(el.id, { ...el.frame });
+
+    // Capture each selected element's frame in WORLD coordinates.
+    // For scope = [] the element lives at slide root and its frame IS
+    // world-space already. For scope != [] the stored frame is
+    // group-local and must be lifted to world space via the ancestor
+    // transform so that pointer deltas (which are in world/slide coords)
+    // can be applied directly.
+    const originalWorldFrames = new Map<string, Frame>();
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (!el) continue;
+      originalWorldFrames.set(id, toWorldFrame(el.frame, scope, startSlide));
     }
-    if (originalFrames.size === 0) return;
+    if (originalWorldFrames.size === 0) return;
 
     const start = this.clientToLogical(clientX, clientY);
-    const otherFrames = startSlide.elements
-      .filter((e) => !selectedIds.has(e.id))
-      .map((e) => e.frame);
+    // Collect snap candidates within the active scope, excluding the
+    // dragged elements. Each candidate is an axis-aligned AABB so
+    // rotated shapes/groups snap against their visible bbox.
+    const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
-    // Track dragged frames in memory; commit once at mouseup.
-    const live = new Map(originalFrames);
+    // Track live world frames in memory; commit once at mouseup.
+    const live = new Map(originalWorldFrames);
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
-      const bbox = combinedBoundingBox(Array.from(originalFrames.values()))!;
+      const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
       const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
 
-      for (const [id, base] of originalFrames) {
+      for (const [id, base] of originalWorldFrames) {
         live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
       }
       // Repaint canvas + overlay with the live frames; we DO NOT touch
       // the store yet. `guides` flow through to the overlay so magenta
       // alignment lines render alongside the selection handles.
-      this.paintLive(live, guides);
+      this.paintLiveScoped(live, scope, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Commit one batch with the final frames.
+      // Commit one batch. Convert each live world frame back to the
+      // element's parent-local space before writing so the stored frame
+      // stays in the correct coordinate system.
       const slideId = startSlide.id;
       this.options.store.batch(() => {
-        for (const [id, frame] of live) {
-          this.options.store.updateElementFrame(slideId, id, frame);
+        for (const [id, worldFrame] of live) {
+          const localFrame = fromWorldFrame(worldFrame, scope, startSlide);
+          this.options.store.updateElementFrame(slideId, id, localFrame);
         }
       });
       this.renderer.markDirty();
       this.render();
       // `render()` repaints only the canvas — without an explicit overlay
-      // refresh, the magenta guide nodes from the last `paintLive` would
-      // persist after mouseup. `repaintOverlay()` rebuilds the overlay
-      // with `selected` and no `guides`, clearing them.
+      // refresh, the magenta guide nodes from the last `paintLiveScoped`
+      // would persist after mouseup. `repaintOverlay()` rebuilds the
+      // overlay with `selected` and no `guides`, clearing them.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   }
 
-  private paintLive(live: Map<string, Frame>, guides: readonly SnapGuide[] = []): void {
-    // Render a synthesised slide where the selected elements use their
-    // live frames. We bypass the store so each mousemove is one paint,
-    // not one Yorkie op.
+  /**
+   * Scope-aware live paint. `worldFrames` holds the current world-space
+   * frames for each selected element id (regardless of scope depth).
+   *
+   * The canvas renderer gets a synthetic slide whose element tree has
+   * LOCAL frames updated in-place (via `patchElementFrames`) so that
+   * groups render their children correctly during the drag preview.
+   *
+   * The overlay gets elements with their WORLD frames so that selection
+   * handles appear at the positions the user actually sees, not at the
+   * raw stored (group-local) positions.
+   *
+   * For scope = [] world == local, so this behaves identically to `paintLive`.
+   */
+  private paintLiveScoped(
+    worldFrames: Map<string, Frame>,
+    scope: readonly string[],
+    guides: readonly SnapGuide[] = [],
+  ): void {
     const slide = this.currentSlide();
     if (!slide) return;
+
+    // Build a map of id → local frame for the canvas renderer.
+    const localFrames = new Map<string, Frame>();
+    for (const [id, worldFrame] of worldFrames) {
+      localFrames.set(id, fromWorldFrame(worldFrame, scope, slide));
+    }
+
     const synthetic = {
       ...slide,
-      elements: slide.elements.map((el) =>
-        live.has(el.id) ? { ...el, frame: live.get(el.id)! } : el,
-      ),
+      elements: patchElementFrames(slide.elements, localFrames),
     };
     this.renderer.forceRender(synthetic, this.options.store.read());
-    // Repaint overlay against the live frames so handles follow.
-    const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, {
+
+    // Build pseudo-elements with world frames for the overlay so handles
+    // are placed at the correct visual positions.
+    const selectedWorldElements = Array.from(worldFrames.entries()).map(([id, wf]) => {
+      const el = findElement(slide.elements, id);
+      if (!el) return null;
+      return { ...el, frame: wf } as Element;
+    }).filter((e): e is Element => e !== null);
+
+    renderOverlay(this.options.overlay, selectedWorldElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
@@ -1779,30 +1957,38 @@ class SlidesEditorImpl implements SlidesEditor {
   private startRotate(clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return; // single-element only in v1
     const elementId = selectedIds[0];
-    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
-    const startRotation = startEl.frame.rotation;
-    const cx = startEl.frame.x + startEl.frame.w / 2;
-    const cy = startEl.frame.y + startEl.frame.h / 2;
+    // Rotation is measured in world space (the angle between the cursor
+    // and the element's visible center). Convert the stored frame to
+    // world so the center and start rotation are in world coordinates.
+    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
+    const startRotation = startWorldFrame.rotation;
+    const cx = startWorldFrame.x + startWorldFrame.w / 2;
+    const cy = startWorldFrame.y + startWorldFrame.h / 2;
     const start = this.clientToLogical(clientX, clientY);
     const startAngle = Math.atan2(start.y - cy, start.x - cx);
-    let liveRotation = startRotation;
+    let liveWorldRotation = startRotation;
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const angle = Math.atan2(cur.y - cy, cur.x - cx);
-      liveRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
-      const liveFrame: Frame = { ...startEl.frame, rotation: liveRotation };
-      this.paintLive(new Map([[elementId, liveFrame]]));
+      liveWorldRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
+      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
+      this.paintLiveScoped(new Map([[elementId, liveWorldFrame]]), scope);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // Convert the rotated world frame back to scope-local and commit.
+      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
+      const localFrame = fromWorldFrame(liveWorldFrame, scope, startSlide);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, { rotation: liveRotation });
+        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
       this.render();
@@ -1814,28 +2000,46 @@ class SlidesEditorImpl implements SlidesEditor {
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
+    const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return; // multi-resize is a v2 polish item
     const elementId = selectedIds[0];
-    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
-    const startFrame = { ...startEl.frame };
+    // Migrate legacy groups that pre-date the refSize field BEFORE the
+    // drag begins, so the live preview also reflects proportional child
+    // scaling (otherwise refSize would still be undefined while paintLive
+    // is running, and only the post-commit render would scale).
+    if (startEl.type === 'group' && startEl.data.refSize === undefined) {
+      const captured = { w: startEl.frame.w, h: startEl.frame.h };
+      this.options.store.batch(() => {
+        this.options.store.updateElementData(startSlide.id, elementId, {
+          refSize: captured,
+        });
+      });
+    }
+    // Resize operates in world space so the handles stay fixed in the
+    // positions the user sees. Convert the stored local frame to world
+    // for all delta math, then convert back at commit time.
+    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
     const start = this.clientToLogical(clientX, clientY);
-    const live = { frame: startFrame };
+    const live = { worldFrame: startWorldFrame };
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      live.frame = resizeFrameWorld(startFrame, handle, dx, dy, ev.shiftKey);
-      const livMap = new Map<string, Frame>([[elementId, live.frame]]);
-      this.paintLive(livMap);
+      live.worldFrame = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
+      this.paintLiveScoped(livMap, scope);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // Convert world frame back to scope-local before committing.
+      const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, live.frame);
+        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
       this.renderer.markDirty();
       this.render();
@@ -1851,11 +2055,108 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   return editor;
 }
 
-function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {
-  for (let i = slide.elements.length - 1; i >= 0; i--) {
-    if (containsPoint(slide.elements[i].frame, x, y)) {
-      return slide.elements[i].id;
+/**
+ * Recursively patch `elements` so that any element whose id appears in
+ * `frames` gets its frame replaced. Returns a shallow copy of the array
+ * (and a shallow copy of any group whose children were patched).
+ *
+ * WHY: `paintLive` builds a synthetic slide for the canvas renderer.
+ * The canvas renderer handles group hierarchies natively (Task 5), so
+ * we must update frames at the correct depth rather than just patching
+ * the top-level array. Without this, dragging a drilled-in child would
+ * show no movement on the canvas during the drag preview.
+ */
+function patchElementFrames(
+  elements: readonly Element[],
+  frames: ReadonlyMap<string, Frame>,
+): Element[] {
+  return elements.map((el) => {
+    if (frames.has(el.id)) {
+      return { ...el, frame: frames.get(el.id)! };
+    }
+    if (el.type === 'group') {
+      const patched = patchElementFrames(el.data.children, frames);
+      // Only re-create the group object when something inside actually changed
+      // (reference equality check on the first changed child is sufficient
+      // because `patchElementFrames` always returns new arrays when patching).
+      const changed = patched.some((c, i) => c !== el.data.children[i]);
+      if (changed) {
+        return { ...el, data: { ...el.data, children: patched } };
+      }
+    }
+    return el;
+  });
+}
+
+/**
+ * Returns `true` when the given selection can be grouped:
+ *   - at least 2 elements are selected,
+ *   - all selected elements share the same parent in the element tree,
+ *   - none carries a `placeholderRef` (layout placeholder — not groupable).
+ */
+function canGroup(selectedIds: string[], slide: { elements: Element[] }): boolean {
+  if (selectedIds.length < 2) return false;
+  // Determine parent key for each element. '' means slide root; any other
+  // string is the parent group's id.
+  const parentKeyOf = (id: string): string | undefined => {
+    const path = findElementPath(slide.elements, id);
+    if (!path) return undefined;
+    return path.length === 1 ? '' : path[path.length - 2].id;
+  };
+  const firstKey = parentKeyOf(selectedIds[0]);
+  if (firstKey === undefined) return false;
+  // All must share the same parent and carry no placeholderRef.
+  for (const id of selectedIds) {
+    if (parentKeyOf(id) !== firstKey) return false;
+    // Check placeholderRef: find the element itself.
+    const path = findElementPath(slide.elements, id);
+    if (!path) return false;
+    const el = path[path.length - 1];
+    if (el.placeholderRef != null) return false;
+  }
+  return true;
+}
+
+/**
+ * Returns `true` when the selection is exactly one group element that can be ungrouped.
+ */
+function canUngroup(selectedIds: string[], slide: { elements: Element[] }): boolean {
+  if (selectedIds.length !== 1) return false;
+  const path = findElementPath(slide.elements, selectedIds[0]);
+  return path?.[path.length - 1]?.type === 'group';
+}
+
+/**
+ * Find an element anywhere in the element tree and return it.
+ * Returns `undefined` when not found (unlike `requireElement` which throws).
+ */
+function findElement(elements: readonly Element[], id: string): Element | undefined {
+  for (const el of elements) {
+    if (el.id === id) return el;
+    if (el.type === 'group') {
+      const found = findElement(el.data.children, id);
+      if (found) return found;
     }
   }
-  return null;
+  return undefined;
+}
+
+/**
+ * Given a hit result and the current selection scope, return the element id
+ * that would be targeted at the scope level, or `null` if the hit is outside
+ * the scope. This mirrors the logic inside `Selection.click` / `pickAtScope`
+ * without mutating any state — used by `onPointerDown` to check whether the
+ * pointer landed on an already-selected element before calling `Selection.click`.
+ */
+function pickScopeId(
+  hit: { ancestorPath: readonly string[] },
+  scope: readonly string[],
+): string | null {
+  if (scope.length === 0) {
+    return hit.ancestorPath[0] ?? null;
+  }
+  for (let i = 0; i < scope.length; i++) {
+    if (hit.ancestorPath[i] !== scope[i]) return null;
+  }
+  return hit.ancestorPath[scope.length] ?? null;
 }

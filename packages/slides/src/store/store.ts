@@ -44,8 +44,14 @@ export interface SlidesStore {
 
   // --- element-level ---
 
-  /** Insert an element on a slide. Returns the new element id. */
-  addElement(slideId: string, init: ElementInit): string;
+  /**
+   * Insert an element on a slide. Returns the new element id.
+   *
+   * When `parentGroupId` is provided the element is appended to that
+   * group's `children` array instead of the slide root. Throws if
+   * `parentGroupId` does not exist or is not a group element.
+   */
+  addElement(slideId: string, init: ElementInit, parentGroupId?: string): string;
   removeElement(slideId: string, elementId: string): void;
   removeElements(slideId: string, elementIds: string[]): void;
   updateElementFrame(
@@ -60,6 +66,31 @@ export interface SlidesStore {
   ): void;
   /** toIndex: 0 = back, length-1 = front. */
   reorderElement(slideId: string, elementId: string, toIndex: number): void;
+
+  // --- group / ungroup ---
+
+  /**
+   * Wrap the given element ids in a new GroupElement.
+   * All ids must exist on `slideId`, share the same parent (slide root or
+   * one group), and carry no `placeholderRef`.
+   * Returns `{ groupId, excludedConnectorIds }`.
+   * `excludedConnectorIds` lists connectors from the selection that were
+   * kept outside the new group (for example, connectors that cross the
+   * group boundary or whose endpoints reference elements outside the selection).
+   */
+  group(
+    slideId: string,
+    elementIds: string[],
+  ): { groupId: string; excludedConnectorIds: string[] };
+
+  /**
+   * Dissolve a GroupElement back into its parent. Each child's frame is
+   * baked through the group's own transform once, so children land in the
+   * group's immediate parent space (slide root or the enclosing group),
+   * not in absolute slide-root space when the group itself was nested.
+   * Returns the ids of the promoted children in their new z-order.
+   */
+  ungroup(slideId: string, groupId: string): string[];
 
   // --- connector-level ---
 

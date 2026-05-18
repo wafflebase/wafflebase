@@ -38,10 +38,12 @@ export interface ShortcutEntry {
 export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   // Selection ------------------------------------------------------------
   { category: 'Selection', keys: ['Mod+A'],            description: 'Select all elements on the current slide' },
-  { category: 'Selection', keys: ['Esc'],              description: 'Exit text edit, then clear selection' },
+  { category: 'Selection', keys: ['Esc'],              description: 'Exit text edit; pop drill-in level; clear selection' },
   { category: 'Selection', keys: ['Tab', 'Shift+Tab'], description: 'Cycle next / previous element' },
   { category: 'Selection', keys: ['F2', 'Enter'],      description: 'Enter text edit on the selected text element' },
   { category: 'Selection', keys: ['Delete', 'Backspace'], description: 'Delete selected elements' },
+  { category: 'Selection', keys: ['Mod+Alt+G'],       description: 'Group selected elements' },
+  { category: 'Selection', keys: ['Mod+Shift+Alt+G'], description: 'Ungroup selected group' },
 
   // Nudge ----------------------------------------------------------------
   { category: 'Nudge', keys: ['Arrow ←/→/↑/↓'],         description: 'Move selection 1 px' },

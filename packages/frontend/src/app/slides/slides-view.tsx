@@ -118,6 +118,11 @@ export function SlidesView({
   const onStartPresentationRef = useRef(onStartPresentation);
   onStartPresentationRef.current = onStartPresentation;
 
+  // Stable ref for the toast callback — wired into the editor at mount time.
+  // Using sonner's toast.info directly; the ref prevents stale closure issues.
+  const onToastRef = useRef((msg: string) => toast.info(msg));
+  onToastRef.current = (msg: string) => toast.info(msg);
+
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
     setDidMount(true);
@@ -320,6 +325,7 @@ export function SlidesView({
       dpr,
       onShowShortcutsHelp: () => setHelpOpen(true),
       onStartPresentation: (from) => onStartPresentationRef.current?.(from),
+      onToast: (msg) => onToastRef.current(msg),
       // onLinkRequest is still intentionally unwired — the link popover
       // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
       // before it can drive the docs text-box. Cmd+K no-ops at the

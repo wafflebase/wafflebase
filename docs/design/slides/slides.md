@@ -70,11 +70,13 @@ documents) are explicitly out of scope and listed at the end.
 - Hyperlinks on shapes and images (text-box hyperlinks come for free
   with the docs engine in v1).
 
+#### Shipped after v1
+
+- Group / ungroup elements (Cmd+⌥+G) — shipped. See
+  [slides-group.md](./slides-group.md).
+
 #### Deferred to v2
 
-- Group / ungroup (Cmd+⌥+G). Requires a new element kind or a `groupId`
-  attribute that ripples through selection, drag, hit-testing, and
-  Yorkie schema; too costly for the first release.
 - Speaker-notes presenter window (the data model and per-slide editor
   panel are in v1; the "presenter view" with notes on a second screen
   is v2).
@@ -675,11 +677,13 @@ required for the first useful release):
   paste paths).
 - Pinning a fixed text-box height (toggle in the contextual toolbar).
 
+**Shipped (post-v1):**
+
+- Group / ungroup elements (Cmd+⌥+G) — shipped. See
+  [slides-group.md](./slides-group.md).
+
 **Tracked for v2:**
 
-- Group / ungroup elements (Cmd+⌥+G) — requires a new element kind or
-  `groupId` attribute and ripples through selection, drag, hit-testing
-  and the Yorkie schema.
 - Speaker-notes presenter view (notes on a second screen during
   presentation; data model and per-slide notes panel are already in
   v1).
