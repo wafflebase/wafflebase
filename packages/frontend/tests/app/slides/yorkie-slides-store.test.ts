@@ -278,7 +278,7 @@ describe('YorkieSlidesStore — group / ungroup', () => {
     store.batch(() => store.removeElement(slideId, childB.id));
     // Last child removed → group auto-pruned.
     assert.deepEqual(store.read().slides[0].elements, []);
-    assert.equal(groupId, groupId); // just to use the variable
+    assert.ok(groupId.length > 0);
   });
 
   it('updateElementFrame on a group-nested element works', () => {

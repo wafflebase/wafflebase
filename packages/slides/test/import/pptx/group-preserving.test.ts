@@ -58,10 +58,13 @@ function collectLeafWorldFrames(
       // Recurse into children with this group added as an ancestor.
       frames.push(...collectLeafWorldFrames(el.data.children, [...ancestors, el]));
     } else {
-      // Start from the element's local frame and apply ancestor transforms.
+      // Start from the element's local frame and apply ancestor transforms
+      // from innermost to outermost: the innermost group's transform is
+      // applied first, then each enclosing group in turn, until we reach
+      // slide-root (world) space.
       let frame = el.frame;
-      for (const ancestor of ancestors) {
-        frame = applyGroupTransform(frame, ancestor);
+      for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+        frame = applyGroupTransform(frame, ancestors[i]);
       }
       frames.push(frame);
     }

@@ -73,8 +73,10 @@ export interface SlidesStore {
    * Wrap the given element ids in a new GroupElement.
    * All ids must exist on `slideId`, share the same parent (slide root or
    * one group), and carry no `placeholderRef`.
-   * Returns `{ groupId, excludedConnectorIds }` where `excludedConnectorIds`
-   * is always `[]` until Task 11 fills it in.
+   * Returns `{ groupId, excludedConnectorIds }`.
+   * `excludedConnectorIds` lists connectors from the selection that were
+   * kept outside the new group (for example, connectors that cross the
+   * group boundary or whose endpoints reference elements outside the selection).
    */
   group(
     slideId: string,

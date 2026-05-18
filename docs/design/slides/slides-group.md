@@ -171,7 +171,7 @@ The Yorkie root for a slides document already nests
 `root.slides[i].elements: Yorkie.Array<Element>`. Groups extend this
 recursion one level:
 
-```
+```text
 root
 └── slides: Yorkie.Array<Slide>
     └── elements: Yorkie.Array<Element>
@@ -285,7 +285,7 @@ X" without knowing the drilled-in depth.
 **Recursive paint.** `slide-renderer.ts` switches from
 `paintElements(ctx, elements)` to `paintElement(ctx, el, parent)`:
 
-```
+```text
 paintElement(ctx, el, parent = identity):
   localMatrix = parent · selfMatrix(el.frame)
   ctx.save()
@@ -305,7 +305,7 @@ The per-type renderers (text, image, shape, connector) are unchanged
 **Hit-test (`view/editor/hit-test.ts`).** Depth-first, front-to-back,
 producing the full ancestor path:
 
-```
+```text
 hitTest(point, elements, parentMatrix) → { elementId, ancestorPath }?
   for el of elements reversed:
     local = inverse(selfMatrix(el)) · inverse(parentMatrix) · point
