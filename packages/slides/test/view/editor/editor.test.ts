@@ -1275,7 +1275,7 @@ describe('drill-in click handlers (Task 9)', () => {
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     // Click inside shape A's world bounds (150, 140). With Selection.click
     // and scope=[], the outermost ancestor should be selected.
-    canvas.dispatchEvent(new MouseEvent('mousedown', {
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: 150, clientY: 140, bubbles: true,
     }));
     // scope is empty, so pickAtScope returns ancestorPath[0] = groupId.

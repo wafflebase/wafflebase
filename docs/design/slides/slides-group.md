@@ -1,6 +1,6 @@
 ---
 title: slides-group
-target-version: 0.5.0
+target-version: 0.4.2
 ---
 
 # Slides Group / Ungroup — Nested Element Tree
