@@ -85,6 +85,37 @@ function makeFakeCanvasCtx(): unknown {
     measureText: (text: string): { width: number } => ({ width: text.length * 8 }),
 
     drawImage: noop,
+
+    // The slides editor calls `isPointInPath` from its click hit-test
+    // (`view/editor/element-hit.ts`). Real browser canvases provide it;
+    // jsdom does not, so route through the same Path2D shim used by
+    // `createTestCanvas` so editor.test.ts can dispatch pointerdown
+    // events without crashing.
+    isPointInPath(
+      path: Path2D,
+      x: number,
+      y: number,
+      fillRule: FillRule = 'nonzero',
+    ): boolean {
+      return isPointInPathImpl(path as unknown as TestPath2D, x, y, fillRule);
+    },
+    // The hit-test also falls back to `isPointInStroke` for clicks
+    // near a stroked outline (heart, smileyFace, brackets, …). Reads
+    // the proxy's own `lineWidth` so callers can set it before the
+    // call as they would on a real ctx.
+    isPointInStroke(
+      this: { lineWidth: number },
+      path: Path2D,
+      x: number,
+      y: number,
+    ): boolean {
+      return isPointInStrokeImpl(
+        path as unknown as TestPath2D,
+        x,
+        y,
+        this.lineWidth,
+      );
+    },
   };
 }
 
@@ -384,6 +415,100 @@ function isPointInPathImpl(
   return false;
 }
 
+function distanceToSegment(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+/**
+ * Sub-pixel-accurate distance from a point to the outline of one path
+ * op. Used by `isPointInStrokeImpl`. Ellipses are sampled with 32
+ * polyline segments — same density the curved-shape builders already
+ * use for visible rendering, so the test answer matches the browser's
+ * to within a chord error.
+ */
+function opOutlineDistance(op: Op, x: number, y: number): number {
+  if (op.kind === 'rect') {
+    const segs: Array<[number, number, number, number]> = [
+      [op.x, op.y, op.x + op.w, op.y],
+      [op.x + op.w, op.y, op.x + op.w, op.y + op.h],
+      [op.x + op.w, op.y + op.h, op.x, op.y + op.h],
+      [op.x, op.y + op.h, op.x, op.y],
+    ];
+    let min = Infinity;
+    for (const [ax, ay, bx, by] of segs) {
+      const d = distanceToSegment(x, y, ax, ay, bx, by);
+      if (d < min) min = d;
+    }
+    return min;
+  }
+  if (op.kind === 'ellipse') {
+    const N = 32;
+    let min = Infinity;
+    let prev = { x: op.cx + op.rx, y: op.cy };
+    for (let i = 1; i <= N; i++) {
+      const t = (i / N) * Math.PI * 2;
+      const next = {
+        x: op.cx + op.rx * Math.cos(t),
+        y: op.cy + op.ry * Math.sin(t),
+      };
+      const d = distanceToSegment(x, y, prev.x, prev.y, next.x, next.y);
+      if (d < min) min = d;
+      prev = next;
+    }
+    return min;
+  }
+  // subpath
+  if (op.points.length === 0) return Infinity;
+  let min = Infinity;
+  for (let i = 1; i < op.points.length; i++) {
+    const a = op.points[i - 1];
+    const b = op.points[i];
+    const d = distanceToSegment(x, y, a.x, a.y, b.x, b.y);
+    if (d < min) min = d;
+  }
+  if (op.closed && op.points.length >= 2) {
+    const a = op.points[op.points.length - 1];
+    const b = op.points[0];
+    const d = distanceToSegment(x, y, a.x, a.y, b.x, b.y);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/**
+ * Point-in-stroke test approximating browser `isPointInStroke`. A
+ * point hits the stroked outline iff its distance to ANY op's outline
+ * is `≤ lineWidth / 2`. We ignore `lineJoin` / `lineCap` because the
+ * extra coverage from rounded joins / caps is sub-pixel at typical
+ * stroke widths — and our hit-test callers add a tolerance pad on top
+ * of `lineWidth` anyway.
+ */
+function isPointInStrokeImpl(
+  path: TestPath2D,
+  x: number,
+  y: number,
+  lineWidth: number,
+): boolean {
+  path.finalize();
+  const half = lineWidth / 2;
+  for (const op of path.ops) {
+    if (opOutlineDistance(op, x, y) <= half) return true;
+  }
+  return false;
+}
+
 // Install the global Path2D shim (idempotent). Builders call
 // `new Path2D()` at module load time, so the global must be in place
 // before any builder module is imported.
@@ -405,6 +530,11 @@ if (typeof (globalThis as { Path2D?: unknown }).Path2D === 'undefined') {
  */
 export interface TestCanvas2DContext {
   isPointInPath(path: Path2D, x: number, y: number, fillRule?: FillRule): boolean;
+  /**
+   * Distance-based stroke hit-test against the polyline-approximated
+   * outline. Honours the current `lineWidth`, like a real ctx.
+   */
+  isPointInStroke(path: Path2D, x: number, y: number): boolean;
   // Mutable state — assignable so renderers that record line styles
   // can be inspected by tests after the call.
   lineWidth: number;
@@ -444,6 +574,14 @@ export function createTestCanvas(
           fillRule: FillRule = 'nonzero',
         ): boolean {
           return isPointInPathImpl(path as unknown as TestPath2D, x, y, fillRule);
+        },
+        isPointInStroke(path: Path2D, x: number, y: number): boolean {
+          return isPointInStrokeImpl(
+            path as unknown as TestPath2D,
+            x,
+            y,
+            ctx.lineWidth,
+          );
         },
         save(): void {},
         restore(): void {},

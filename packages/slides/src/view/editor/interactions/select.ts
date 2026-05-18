@@ -1,9 +1,14 @@
 import type { Slide } from '../../../model/presentation';
-import { hitTestSlide } from '../hit-test-elements';
+import {
+  hitTestSlide,
+  type HitTestSlideOptions,
+} from '../hit-test-elements';
 
 export interface SelectModifiers {
   shift?: boolean;
 }
+
+export type SelectAtOptions = HitTestSlideOptions;
 
 /**
  * Compute the new selection when the user clicks at logical-slide
@@ -11,15 +16,19 @@ export interface SelectModifiers {
  *
  * Hit-testing iterates from last to first so the topmost (front) element
  * wins for overlapping shapes — matches the array-order = z-order
- * convention.
+ * convention. Each element is tested against its drawn geometry (not its
+ * bbox) via `hitTestSlide` → `hitTestElement`, so clicking the empty
+ * corner of an ellipse or off a connector line does NOT select it.
  */
 export function selectAt(
   slide: Slide,
-  x: number, y: number,
+  x: number,
+  y: number,
   mods: SelectModifiers,
   current: readonly string[],
+  options: SelectAtOptions,
 ): string[] {
-  const hit = topmostUnderPoint(slide, x, y);
+  const hit = topmostUnderPoint(slide, x, y, options);
 
   if (mods.shift) {
     if (hit === null) return [...current]; // shift on empty: no-op
@@ -35,8 +44,13 @@ export function selectAt(
   return [hit];
 }
 
-function topmostUnderPoint(slide: Slide, x: number, y: number): string | null {
-  return hitTestSlide(slide, x, y)?.elementId ?? null;
+function topmostUnderPoint(
+  slide: Slide,
+  x: number,
+  y: number,
+  options: SelectAtOptions,
+): string | null {
+  return hitTestSlide(slide, x, y, options)?.elementId ?? null;
 }
 
 function toggleId(ids: readonly string[], id: string): string[] {

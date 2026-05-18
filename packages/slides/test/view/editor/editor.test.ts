@@ -1160,10 +1160,11 @@ describe('Editor — dragging connectors translates endpoints', () => {
     store.batch(() => {
       slideId = store.addSlide('blank');
       // Tiny host tucked in the corner — its connection site is near
-      // (25, 10), so the connector's bbox spans from there to its free
-      // end at (300, 200). The click target lands well inside that
-      // bbox, and the host is far enough from the dragged bbox edges
-      // that snap (8px threshold) can't engage.
+      // (25, 10), so the connector's straight line spans from there to
+      // its free end at (300, 200). The click target lands directly on
+      // the line (precise hit-test requires this — bbox-only clicks no
+      // longer select connectors), and the host is far enough from the
+      // dragged path edges that snap (8px threshold) can't engage.
       hostId = store.addElement(slideId, {
         type: 'shape',
         frame: { x: 10, y: 10, w: 30, h: 30, rotation: 0 },
@@ -1181,10 +1182,12 @@ describe('Editor — dragging connectors translates endpoints', () => {
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     editor.setSelection([connectorId]);
 
-    // Drag the connector body by (+30, +15).
-    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 150 }));
-    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 230, clientY: 165 }));
-    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 230, clientY: 165 }));
+    // Drag the connector body by (+30, +15). The pointerdown lands on
+    // the midpoint of the line from (25, 10) to (300, 200) so the
+    // precise hit-test selects the connector.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 162, clientY: 105 }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 192, clientY: 120 }));
+    document.dispatchEvent(new PointerEvent('pointerup',   { bubbles: true, clientX: 192, clientY: 120 }));
 
     const slide = store.read().slides[0];
     const connector = slide.elements.find((e) => e.id === connectorId)!;

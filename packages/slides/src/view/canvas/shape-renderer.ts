@@ -16,7 +16,7 @@ const placeholderWarned = new Set<string>();
  * kinds so concentric counter-clockwise sub-paths punch holes (donut)
  * rather than filling the whole interior.
  */
-const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
+export const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
 
 /**
  * Shape kinds whose `PathBuilder` returns an open (un-`closePath`'d)
@@ -32,7 +32,7 @@ const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
  * stroke-only brackets), but a future deck with a filled bracket
  * would silently render incorrectly without this guard.
  */
-const OPEN_PATH_KINDS: ReadonlySet<ShapeKind> = new Set([
+export const OPEN_PATH_KINDS: ReadonlySet<ShapeKind> = new Set([
   'leftBracket',
   'rightBracket',
   'leftBrace',
