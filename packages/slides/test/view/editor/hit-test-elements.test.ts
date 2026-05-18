@@ -1,15 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import * as fc from 'fast-check';
+import '../../../src/view/canvas/test-canvas-env';
+import { createTestCanvas } from '../../../src/view/canvas/test-canvas-env';
 import { hitTestSlide } from '../../../src/view/editor/hit-test-elements';
 import { applyGroupTransform } from '../../../src/model/group';
 import type { Slide } from '../../../src/model/presentation';
 import type { GroupElement, ShapeElement } from '../../../src/model/element';
 
+const ctx = createTestCanvas(1, 1).getContext('2d');
+const hitOpts = { ctx };
+
 function shape(
   id: string,
   frame: { x: number; y: number; w: number; h: number; rotation?: number },
 ): ShapeElement {
-  return { id, type: 'shape', frame: { rotation: 0, ...frame }, data: { kind: 'rect' } };
+  // Precise hit-test requires the shape to actually render — give it a
+  // fill so `isPointInPath` has a body to land on.
+  return {
+    id,
+    type: 'shape',
+    frame: { rotation: 0, ...frame },
+    data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+  };
 }
 
 function group(
@@ -32,19 +44,19 @@ function slide(elements: Slide['elements']): Slide {
 
 describe('hitTestSlide', () => {
   it('returns null when the point misses everything', () => {
-    expect(hitTestSlide(slide([]), 0, 0)).toBeNull();
+    expect(hitTestSlide(slide([]), 0, 0, hitOpts)).toBeNull();
   });
 
   it('hits a slide-root shape', () => {
     const a = shape('a', { x: 10, y: 10, w: 20, h: 20 });
-    const r = hitTestSlide(slide([a]), 15, 15);
+    const r = hitTestSlide(slide([a]), 15, 15, hitOpts);
     expect(r?.elementId).toBe('a');
     expect(r?.ancestorPath).toEqual(['a']);
   });
 
   it('misses a slide-root shape when point is outside', () => {
     const a = shape('a', { x: 10, y: 10, w: 20, h: 20 });
-    expect(hitTestSlide(slide([a]), 5, 5)).toBeNull();
+    expect(hitTestSlide(slide([a]), 5, 5, hitOpts)).toBeNull();
   });
 
   it('returns null when the point is inside a group bbox but misses every child', () => {
@@ -52,7 +64,7 @@ describe('hitTestSlide', () => {
     // world (75, 75) maps to group-local (25, 25) which is past inner.
     const inner = shape('inner', { x: 0, y: 0, w: 20, h: 20 });
     const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [inner]);
-    const r = hitTestSlide(slide([g]), 75, 75);
+    const r = hitTestSlide(slide([g]), 75, 75, hitOpts);
     expect(r).toBeNull();
   });
 
@@ -61,7 +73,7 @@ describe('hitTestSlide', () => {
     // world (55, 55) → group-local (5, 5) → inside inner
     const inner = shape('inner', { x: 0, y: 0, w: 20, h: 20 });
     const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [inner]);
-    const r = hitTestSlide(slide([g]), 55, 55);
+    const r = hitTestSlide(slide([g]), 55, 55, hitOpts);
     expect(r?.elementId).toBe('inner');
     expect(r?.ancestorPath).toEqual(['g', 'inner']);
   });
@@ -75,7 +87,7 @@ describe('hitTestSlide', () => {
     const leafWorld = applyGroupTransform(leafInInner, outer);
     const cx = leafWorld.x + leafWorld.w / 2;
     const cy = leafWorld.y + leafWorld.h / 2;
-    const r = hitTestSlide(slide([outer]), cx, cy);
+    const r = hitTestSlide(slide([outer]), cx, cy, hitOpts);
     expect(r?.elementId).toBe('leaf');
     expect(r?.ancestorPath).toEqual(['outer', 'inner', 'leaf']);
   });
@@ -83,7 +95,7 @@ describe('hitTestSlide', () => {
   it('returns the topmost (front) element when shapes overlap', () => {
     const a = shape('a', { x: 0, y: 0, w: 50, h: 50 });
     const b = shape('b', { x: 0, y: 0, w: 50, h: 50 });
-    const r = hitTestSlide(slide([a, b]), 25, 25);
+    const r = hitTestSlide(slide([a, b]), 25, 25, hitOpts);
     expect(r?.elementId).toBe('b');
   });
 
@@ -93,7 +105,7 @@ describe('hitTestSlide', () => {
     const child = shape('child', { x: 0, y: 0, w: 100, h: 100 });
     const g = group('g', { x: 50, y: 50, w: 100, h: 100 }, [child]);
     // world (60, 60) is inside both bg and the group; group is on top.
-    const r = hitTestSlide(slide([bg, g]), 60, 60);
+    const r = hitTestSlide(slide([bg, g]), 60, 60, hitOpts);
     expect(r?.elementId).toBe('child');
     expect(r?.ancestorPath).toEqual(['g', 'child']);
   });
@@ -122,7 +134,7 @@ describe('hitTestSlide property', () => {
           const leafWorld = applyGroupTransform(leaf.frame, g);
           const wx = leafWorld.x + leafWorld.w / 2;
           const wy = leafWorld.y + leafWorld.h / 2;
-          const r = hitTestSlide(slide([g]), wx, wy);
+          const r = hitTestSlide(slide([g]), wx, wy, hitOpts);
           expect(r?.elementId).toBe('leaf');
           expect(r?.ancestorPath).toEqual(['g', 'leaf']);
         },
