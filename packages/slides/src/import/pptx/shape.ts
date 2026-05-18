@@ -1,5 +1,6 @@
 import type {
   Element as SlideElement,
+  GroupElement,
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,
@@ -7,6 +8,11 @@ import type {
   TextElement,
 } from '../../model/element';
 import { generateId } from '../../model/element';
+import {
+  applyInverseMatrix,
+  applyInversePoint,
+  groupToTransform,
+} from '../../model/group';
 import type {
   ArrowheadKind,
   ArrowheadStyle,
@@ -65,14 +71,25 @@ export interface SlideParseContext {
 }
 
 /**
- * Walk a `<p:spTree>` (or a flattened `<p:grpSp>`) in two passes:
+ * Walk a `<p:spTree>` (or `<p:grpSp>` children) in two passes:
  *   Pass 1: assign element ids to every shape so connectors can resolve
  *           attached endpoints regardless of source order.
- *   Pass 2: actually parse each child, recursing into groups.
+ *   Pass 2: parse each child, preserving `<p:grpSp>` as `GroupElement`.
  *
- * Groups and tables are deferred to Task 4 — for now they emit nothing
- * and bump no counters (the caller will report on them once the v1
- * fallbacks land).
+ * Each `<p:grpSp>` becomes a `GroupElement` whose frame is its world
+ * position (in the parent's coordinate space) and whose children are
+ * stored in group-local coordinates `(0..w × 0..h)`.
+ *
+ * The strategy for producing group-local children:
+ *   1. Compose the accumulated world transform through the group
+ *      (`composeGroupTransform`) so children first get their world frames.
+ *   2. After collecting all children in world coords, convert each child
+ *      frame back to group-local via `applyInverseMatrix` using the
+ *      `GroupElement`'s own `groupToTransform`.
+ *
+ * This two-step approach reuses all existing matrix helpers without
+ * modification, and nesting works naturally because inner groups
+ * repeat the same pattern relative to their own parent group.
  */
 export async function parseSpTree(
   spTree: Element,
@@ -84,8 +101,7 @@ export async function parseSpTree(
   // and connectors can resolve attached endpoints regardless of depth.
   preassignIds(spTree, ctx.idMap);
 
-  // Pass 2: parse each child element, applying the cumulative group
-  // transform to every element's frame.
+  // Pass 2: parse each child element, preserving groups as GroupElement.
   const out: SlideElement[] = [];
   for (let i = 0; i < spTree.childNodes.length; i++) {
     const n = spTree.childNodes[i];
@@ -93,10 +109,123 @@ export async function parseSpTree(
     const el = n as Element;
 
     if (el.localName === 'grpSp') {
-      const childTransform = composeGroupTransform(transform, el, ctx.scale);
-      const flattened = await parseSpTree(el, ctx, childTransform);
-      out.push(...flattened);
-      ctx.report.groupsFlattened += 1;
+      const group = await parseGrpSp(el, ctx, transform);
+      if (group) out.push(group);
+      continue;
+    }
+
+    const parsed = await parseChild(el, ctx);
+    if (!parsed) continue;
+    for (const elem of parsed) {
+      out.push(applyTransformToElement(elem, transform));
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse a `<p:grpSp>` element into a `GroupElement`.
+ *
+ * The group's own frame is the group's `<a:xfrm>` (off/ext/rot) placed
+ * in the parent's coordinate space (via `applyGroupTransform`). Children
+ * are recursed with the composed world transform, giving each child a
+ * world-space frame, which is then inverted back to the group's local
+ * `(0..w × 0..h)` space.
+ */
+async function parseGrpSp(
+  grpSp: Element,
+  ctx: SlideParseContext,
+  parentTransform: GroupTransform,
+): Promise<GroupElement | undefined> {
+  const grpSpPr = child(grpSp, 'grpSpPr');
+  const xfrm = grpSpPr ? child(grpSpPr, 'xfrm') : undefined;
+  if (!xfrm) return undefined;
+
+  // The group's own frame in the parent's coordinate space.
+  const localFrame = parseXfrm(xfrm, ctx.scale);
+  // Apply the parent transform to get the group's world frame.
+  const groupWorldFrame =
+    parentTransform === IDENTITY_TRANSFORM
+      ? localFrame
+      : applyGroupTransform(localFrame, parentTransform);
+
+  // Compose the full transform to produce world frames for children.
+  const childWorldTransform = composeGroupTransform(parentTransform, grpSp, ctx.scale);
+
+  // Recurse into children; they come back in world coordinates.
+  const worldChildren = await parseSpTreeChildren(grpSp, ctx, childWorldTransform);
+
+  // Build a stub GroupElement (no children yet) so we can call groupToTransform.
+  const groupId = generateId();
+  const groupElement: GroupElement = {
+    id: groupId,
+    type: 'group',
+    frame: groupWorldFrame,
+    data: { children: [] },
+  };
+
+  // Convert each child's world frame to the group's local space.
+  const groupTransform = groupToTransform(groupElement);
+  const localChildren: SlideElement[] = worldChildren.map((c) =>
+    worldToGroupLocal(c, groupTransform),
+  );
+
+  groupElement.data.children = localChildren;
+  return groupElement;
+}
+
+/**
+ * Convert a child element's frames from world space to the group's local space.
+ * For connectors, `free` endpoint coordinates are also converted.
+ */
+function worldToGroupLocal(
+  elem: SlideElement,
+  groupTransform: ReturnType<typeof groupToTransform>,
+): SlideElement {
+  if (elem.type === 'connector') {
+    const start =
+      elem.start.kind === 'free'
+        ? {
+            kind: 'free' as const,
+            ...applyInversePoint(elem.start.x, elem.start.y, groupTransform),
+          }
+        : elem.start;
+    const end =
+      elem.end.kind === 'free'
+        ? {
+            kind: 'free' as const,
+            ...applyInversePoint(elem.end.x, elem.end.y, groupTransform),
+          }
+        : elem.end;
+    return {
+      ...elem,
+      frame: applyInverseMatrix(elem.frame, groupTransform),
+      start,
+      end,
+    };
+  }
+  return { ...elem, frame: applyInverseMatrix(elem.frame, groupTransform) };
+}
+
+/**
+ * Walk the immediate children of `spTree` (or a `<p:grpSp>`) without the
+ * pre-assignment pass — used when recursing from `parseGrpSp` where ids
+ * have already been pre-assigned at the top-level `parseSpTree` call.
+ */
+async function parseSpTreeChildren(
+  spTree: Element,
+  ctx: SlideParseContext,
+  transform: GroupTransform,
+): Promise<SlideElement[]> {
+  const out: SlideElement[] = [];
+  for (let i = 0; i < spTree.childNodes.length; i++) {
+    const n = spTree.childNodes[i];
+    if (n.nodeType !== 1) continue;
+    const el = n as Element;
+
+    if (el.localName === 'grpSp') {
+      const group = await parseGrpSp(el, ctx, transform);
+      if (group) out.push(group);
       continue;
     }
 
