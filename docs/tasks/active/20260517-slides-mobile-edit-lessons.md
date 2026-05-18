@@ -135,3 +135,30 @@ session without walking the GitHub OAuth flow.
 it the same way. The file is spike-only and **must not be committed**;
 delete after each spike session.
 **Resolution:** Re-create locally per spike, deleted before each commit.
+
+### Self-review findings, deferred
+
+**Where:** Both `slides-view.tsx:301-303` (desktop) and `mobile-slides-view.tsx`
+edit-mode mount (this PR).
+**What:** Both inject `[data-handle] { pointer-events: auto !important; }`
+as a global stylesheet on `document.head`. The selector is unscoped —
+any element with `data-handle` anywhere on the page picks it up.
+**Why this PR doesn't fix it:** The mobile mount inherits the desktop
+pattern verbatim. `slides-detail.tsx`'s isMobile branch mounts either
+DesktopSlidesLayout or MobileSlidesView, never both, so the two style
+tags don't fight. No cross-component bleed found.
+**Resolution:** Follow-up that scopes both — e.g., add a wrapper
+class on the editor's overlay and prefix the selector. Tracked here
+so it's not lost.
+
+**Where:** `packages/slides/test/view/editor/*.test.ts` PointerEvent
+dispatches.
+**What:** jsdom's `PointerEvent` defaults `pointerId` to 0. Real browsers
+use 1+ for touch and a stable id for primary mouse. The editor today
+doesn't read `pointerId` (no `setPointerCapture` calls), so tests pass.
+**Why a trap:** Any future PR that adds `setPointerCapture` for
+drag-out-of-canvas robustness will need explicit `pointerId: 1` in
+test dispatches — some browser code paths reject capture on id 0 as
+invalid.
+**Resolution:** Add a `pointerId: 1` if/when a PR introduces capture.
+Mark in the lessons of that PR.

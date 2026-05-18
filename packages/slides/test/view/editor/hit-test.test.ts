@@ -82,15 +82,12 @@ describe('handleHitTest', () => {
 
   it('picks the closest-center handle when tolerance zones overlap', () => {
     const overlay = makeOverlay();
-    // Two 8x8 handles 20px apart — close enough that a 22px tolerance
-    // makes both rectangles cover a point between them.
-    addHandle(overlay, 'nw', 100, 100); // center (104, 104)
-    addHandle(overlay, 'n', 120, 100);  // center (124, 104)
-    // Midpoint (114, 104) is inside both expanded rects. Closer to
-    // nw center (dist 10) than to n center (dist 10) — tie, but our
-    // iteration is reverse so 'nw' (first appended) gets the same
-    // distance second and bestKind stays at 'n' (last appended wins
-    // on exact ties because it's seen first). Pick a biased point.
+    // Two 8x8 handles 20px apart, centers at (104, 104) and (124, 104).
+    // A 22px tolerance makes their expanded rects overlap, so both
+    // rects contain the points below. Bias each point off the midpoint
+    // so closest-center has a definitive winner.
+    addHandle(overlay, 'nw', 100, 100);
+    addHandle(overlay, 'n', 120, 100);
     expect(handleHitTest(overlay, 110, 104, 22)).toBe('nw'); // closer to nw
     expect(handleHitTest(overlay, 118, 104, 22)).toBe('n');  // closer to n
   });
