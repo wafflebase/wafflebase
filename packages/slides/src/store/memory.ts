@@ -241,16 +241,18 @@ export class MemSlidesStore implements SlidesStore {
       }
       parent.data.children.push(element);
     } else {
-      // Connectors carry a derived `frame` cache; the insert call path uses
-      // `buildConnectorInit` which pre-fills it correctly, but any future
-      // paste/import path could persist a degenerate `{0,0,0,0}` frame and
-      // silently break the selection bbox. Recompute defensively here so
-      // the cache is always derived from the endpoints.
-      if (element.type === 'connector') {
-        const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
-        element.frame = computeConnectorFrame(element, lookup);
-      }
       slide.elements.push(element);
+    }
+
+    // Connectors carry a derived `frame` cache; the insert call path uses
+    // `buildConnectorInit` which pre-fills it correctly, but any future
+    // paste/import path could persist a degenerate `{0,0,0,0}` frame and
+    // silently break the selection bbox. Recompute defensively here so
+    // the cache is always derived from the endpoints — for both slide-root
+    // and group-nested connectors.
+    if (element.type === 'connector') {
+      const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+      element.frame = computeConnectorFrame(element, lookup);
     }
     return id;
   }
@@ -311,7 +313,9 @@ export class MemSlidesStore implements SlidesStore {
       if (!byParent.has(parentPathKey)) {
         byParent.set(parentPathKey, { parentArray, ids: new Set(), representativePath: path });
       }
-      byParent.get(parentPathKey)!.ids.add(id);
+      const entry = byParent.get(parentPathKey);
+      if (!entry) throw new Error(`[slides] removeElementsByPaths: missing entry for key '${parentPathKey}'`);
+      entry.ids.add(id);
     }
     // Splice each parent array once (reverse order to keep indices stable).
     for (const { parentArray, ids, representativePath } of byParent.values()) {

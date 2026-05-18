@@ -232,6 +232,7 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           for (const id of ids) {
             const live = ctx.store.read().slides.find((s) => s.id === slideId);
             if (!live) continue;
+            // TODO(group): walk via findElementPath when the editor stack is group-aware
             const idx = live.elements.findIndex((el) => el.id === id);
             if (idx === -1) continue;
             const length = live.elements.length;

@@ -733,6 +733,7 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
+      // TODO(group): walk via findElementPath when the editor stack is group-aware
       const i = s.elements.findIndex((e) => e.id === elementId);
       if (i === -1) throw new Error(`Element not found: ${elementId}`);
       // Cascade sweep — any connector still attached to the element being
@@ -926,6 +927,7 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
+      // TODO(group): walk via findElementPath when the editor stack is group-aware
       const from = s.elements.findIndex((e) => e.id === elementId);
       if (from === -1) throw new Error(`Element not found: ${elementId}`);
       // Rebuild the element so its data is detached from the proxy —
