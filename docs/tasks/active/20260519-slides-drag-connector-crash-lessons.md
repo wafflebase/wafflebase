@@ -41,3 +41,11 @@ The user never saw motion until the throw cancelled the gesture.
   pass a target `Frame`; `applyFrameUpdates` computes the implied
   delta and routes through `commitTranslate`. Size/rotation fields
   are ignored for connectors because they're derived.
+- **`commitTranslate(dx=0, dy=0)` is a no-op by design.** Earlier
+  paths emitted a redundant `updateElementFrame` op for
+  click-without-drag; the new helper short-circuits, so the Yorkie
+  changelog no longer carries a noise op for that case. Affects
+  every translate caller (drag, nudge, align, distribute) — if a
+  caller deliberately wants to "touch" an element with zero delta
+  (e.g. to trigger a remote subscription), it must use a different
+  mutation, not call `commitTranslate(0, 0)`.

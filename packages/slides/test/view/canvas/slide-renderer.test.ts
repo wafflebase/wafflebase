@@ -200,6 +200,45 @@ describe('SlideRenderer.render', () => {
     expect(ctx.fillRect.mock.calls.length).toBe(before + 1);
   });
 
+  it('forceRender draws a connector ghost on top with GHOST_ALPHA and resolves attached endpoints through the slide lookup', async () => {
+    const { GHOST_ALPHA } = await import('../../../src/view/canvas/slide-renderer');
+    const host = {
+      id: 'host', type: 'shape' as const,
+      frame: { x: 100, y: 100, w: 80, h: 80, rotation: 0 },
+      data: { kind: 'rect' as const, fill: { kind: 'srgb' as const, value: '#abc' } },
+    };
+    const slide: Slide = { ...blankSlide(), elements: [host] };
+    // Ghost connector whose start attaches to `host` and end is free.
+    // The endpoint-drag path passes exactly this shape: the live
+    // (dragged) endpoint goes on one side, the unchanged other side
+    // stays as-is (here: attached). `drawConnector` must consult the
+    // slide-side lookup to resolve `host`'s site, even though the
+    // ghost itself is not in the slide.
+    const ghostConnector = {
+      id: 'ghost-c', type: 'connector' as const,
+      routing: 'straight' as const,
+      start: { kind: 'attached' as const, elementId: 'host', siteIndex: 0 },
+      end:   { kind: 'free' as const, x: 500, y: 500 },
+      arrowheads: {},
+      frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+    };
+    const { renderer, ctx } = makeRenderer();
+    // Sample `globalAlpha` at the moment of `ctx.stroke()` — the
+    // connector line is stroked inside the GHOST_ALPHA save/restore
+    // bracket, so the alpha at stroke time is the ghost alpha.
+    const alphaAtStroke: number[] = [];
+    ctx.stroke.mockImplementation(() => {
+      alphaAtStroke.push(ctx.globalAlpha);
+    });
+    renderer.forceRender(slide, DOC, ghostConnector);
+    // The ghost connector's line strokes once.
+    expect(alphaAtStroke).toContain(GHOST_ALPHA);
+    // And `save`/`restore` bracket the ghost paint so the alpha
+    // doesn't leak to subsequent paints on the same ctx.
+    expect(ctx.save).toHaveBeenCalled();
+    expect(ctx.restore).toHaveBeenCalled();
+  });
+
   it('resolves a role-bound background through the theme', () => {
     const { renderer, ctx } = makeRenderer();
     const slide: Slide = {

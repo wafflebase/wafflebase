@@ -73,9 +73,16 @@ export class SlideRenderer {
    * frame override on every mousemove without committing to the store.
    *
    * `ghost` — optional element drawn on top of the committed slide at
-   * `GHOST_ALPHA` so the hover-preview semi-transparently shows the
-   * shape that *would* be inserted on click. Kept out of `slide` so
-   * the ghost never participates in selection, hit-test, or z-order.
+   * `GHOST_ALPHA`. Used by two live-paint paths:
+   *   - shape-insert hover preview (the to-be-inserted shape under the
+   *     cursor before mousedown).
+   *   - connector endpoint drag preview (a ghost copy of the connector
+   *     with the dragged endpoint moved to the cursor target, while
+   *     the real connector stays anchored on `slide`).
+   * Kept out of `slide` so the ghost never participates in selection,
+   * hit-test, or z-order. For a connector ghost, attached endpoints
+   * still resolve through `slide`'s element lookup, so a half-attached
+   * ghost line stays visually anchored to its host shape.
    */
   forceRender(slide: Slide, doc: SlidesDocument, ghost?: Element): void {
     this.dirty = true;
