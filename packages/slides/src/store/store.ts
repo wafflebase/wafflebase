@@ -76,9 +76,11 @@ export interface SlidesStore {
   ): { groupId: string; excludedConnectorIds: string[] };
 
   /**
-   * Dissolve a GroupElement back into its parent, restoring each child to
-   * world-space coordinates. Returns the ids of the promoted children.
-   * (stub — implemented in Task 3)
+   * Dissolve a GroupElement back into its parent. Each child's frame is
+   * baked through the group's own transform once, so children land in the
+   * group's immediate parent space (slide root or the enclosing group),
+   * not in absolute slide-root space when the group itself was nested.
+   * Returns the ids of the promoted children in their new z-order.
    */
   ungroup(slideId: string, groupId: string): string[];
 
