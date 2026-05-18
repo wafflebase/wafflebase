@@ -380,14 +380,24 @@ export class YorkieSlidesStore implements SlidesStore {
     if (el.type === 'group') {
       // Group children are stored in a nested Yorkie Array — we must
       // recurse to unwrap them rather than calling yorkieToPlain on
-      // `data.children`, which would stringify the whole array.
-      const rawChildren = ((el.data as { children?: unknown[] })?.children) ?? [];
+      // `data.children`, which would stringify the whole array. The
+      // sibling `refSize` (when present) is plain and unwraps fine via
+      // yorkieToPlain — without preserving it here, every read drops
+      // refSize and the renderer can never compute the resize scale.
+      const rawData = (el.data ?? {}) as {
+        children?: unknown[];
+        refSize?: unknown;
+      };
+      const rawChildren = rawData.children ?? [];
       const children = rawChildren.map((c) => this.readElement(c));
+      const refSize = rawData.refSize
+        ? yorkieToPlain<{ w: number; h: number }>(rawData.refSize)
+        : undefined;
       return {
         id: el.id,
         type: 'group',
         frame: yorkieToPlain<Frame>(el.frame),
-        data: { children },
+        data: refSize ? { children, refSize } : { children },
       } as ModelElement;
     }
     return {
