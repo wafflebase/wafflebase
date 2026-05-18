@@ -1,5 +1,6 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
@@ -377,11 +378,19 @@ class SlidesEditorImpl implements SlidesEditor {
   // by Node's `--experimental-strip-types` (used by the frontend test
   // runner via `frontend/tests/resolve-hooks.mjs`).
   private options: SlidesEditorOptions;
+  /**
+   * 2D context kept for click-time `isPointInPath` lookups. Reuses the
+   * renderer's canvas context so we don't allocate a second one.
+   */
+  private hitCtx: HitTestCtx;
+  /** Per-shell click tolerance (slide-logical pixels). */
+  private hitTolerance = DEFAULT_HIT_TOLERANCE;
 
   constructor(options: SlidesEditorOptions) {
     this.options = options;
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
+    this.hitCtx = ctx;
     this.renderer = new SlideRenderer(ctx, options);
     this.currentId = options.store.read().slides[0]?.id;
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
@@ -993,7 +1002,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hitResult = hitTestSlide(slide, x, y);
+    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
     if (hitResult === null) {
       showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
       return;
@@ -1157,7 +1166,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // Hit-test against an element first. Use the depth-aware hitTestSlide
     // (which descends into groups) and route through Selection.click so the
     // drill-in state machine picks the right element at the current scope.
-    const hitResult = hitTestSlide(slide, x, y);
+    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
     if (hitResult !== null) {
       const mods = { shift: e.shiftKey };
       // If the scope-level element under the pointer is already in the
@@ -1194,7 +1203,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hitResult = hitTestSlide(slide, x, y);
+    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
     if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
@@ -1756,6 +1765,18 @@ class SlidesEditorImpl implements SlidesEditor {
     return {
       x: (clientX - rect.left) / scale,
       y: (clientY - rect.top) / scale,
+    };
+  }
+
+  /**
+   * Common arguments for `selectAt` / `topmostUnderPoint`. Connector
+   * tolerance scales with the editor's zoom so a 6-logical-pixel
+   * threshold stays at a roughly-constant 6 viewport pixels.
+   */
+  private hitOptions(): { ctx: HitTestCtx; tolerance: number } {
+    return {
+      ctx: this.hitCtx,
+      tolerance: this.hitTolerance / this.scale(),
     };
   }
 

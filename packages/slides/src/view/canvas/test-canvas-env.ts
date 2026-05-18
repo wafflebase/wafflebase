@@ -85,6 +85,20 @@ function makeFakeCanvasCtx(): unknown {
     measureText: (text: string): { width: number } => ({ width: text.length * 8 }),
 
     drawImage: noop,
+
+    // The slides editor calls `isPointInPath` from its click hit-test
+    // (`view/editor/element-hit.ts`). Real browser canvases provide it;
+    // jsdom does not, so route through the same Path2D shim used by
+    // `createTestCanvas` so editor.test.ts can dispatch pointerdown
+    // events without crashing.
+    isPointInPath(
+      path: Path2D,
+      x: number,
+      y: number,
+      fillRule: FillRule = 'nonzero',
+    ): boolean {
+      return isPointInPathImpl(path as unknown as TestPath2D, x, y, fillRule);
+    },
   };
 }
 
