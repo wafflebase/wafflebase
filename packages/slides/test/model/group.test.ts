@@ -201,3 +201,93 @@ describe('round-trip property test (fast-check)', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. groupToTransform — refSize scaling
+// ---------------------------------------------------------------------------
+
+describe('groupToTransform — refSize scaling', () => {
+  it('scale = 1 when frame.w/h matches refSize (unrotated)', () => {
+    const g = group('g', { x: 100, y: 100, w: 200, h: 100 }, []);
+    g.data.refSize = { w: 200, h: 100 };
+    const t = groupToTransform(g);
+    expect(t.a).toBeCloseTo(1, 6);
+    expect(t.d).toBeCloseTo(1, 6);
+    expect(t.b).toBeCloseTo(0, 6);
+    expect(t.c).toBeCloseTo(0, 6);
+    expect(t.tx).toBeCloseTo(100, 6);
+    expect(t.ty).toBeCloseTo(100, 6);
+  });
+
+  it('scale doubles along X when frame.w doubles relative to refSize.w', () => {
+    const g = group('g', { x: 0, y: 0, w: 400, h: 100 }, []);
+    g.data.refSize = { w: 200, h: 100 };
+    const t = groupToTransform(g);
+    expect(t.a).toBeCloseTo(2, 6);
+    expect(t.d).toBeCloseTo(1, 6);
+  });
+
+  it('fallback: refSize undefined → scale = 1, identical to prior behavior', () => {
+    const g = group('g', { x: 100, y: 100, w: 200, h: 100 }, []);
+    // No refSize set.
+    const t = groupToTransform(g);
+    expect(t.a).toBeCloseTo(1, 6);
+    expect(t.d).toBeCloseTo(1, 6);
+    expect(t.tx).toBeCloseTo(100, 6);
+    expect(t.ty).toBeCloseTo(100, 6);
+  });
+
+  it('rotation-only (scale=1) produces the same matrix as before refSize was added', () => {
+    const rotation = Math.PI / 4;
+    const g = group('g', { x: 50, y: 50, w: 200, h: 100, rotation }, []);
+    g.data.refSize = { w: 200, h: 100 };
+    const t = groupToTransform(g);
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    // Pure rotation matrix around the group center.
+    expect(t.a).toBeCloseTo(cos, 6);
+    expect(t.b).toBeCloseTo(sin, 6);
+    expect(t.c).toBeCloseTo(-sin, 6);
+    expect(t.d).toBeCloseTo(cos, 6);
+    // tx / ty via the original closed-form: x + (w/2)*(1-cos) + (h/2)*sin
+    const expectedTx = 50 + 100 * (1 - cos) + 50 * sin;
+    const expectedTy = 50 + 50 * (1 - cos) - 100 * sin;
+    expect(t.tx).toBeCloseTo(expectedTx, 5);
+    expect(t.ty).toBeCloseTo(expectedTy, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. applyGroupTransform — resize semantics
+// ---------------------------------------------------------------------------
+
+describe('applyGroupTransform — resize semantics', () => {
+  it('child scales proportionally when group.frame.w doubles (unrotated)', () => {
+    const g = group('g', { x: 0, y: 0, w: 200, h: 100 }, []);
+    g.data.refSize = { w: 200, h: 100 };
+    const child = { x: 50, y: 25, w: 100, h: 50, rotation: 0 };
+    const before = applyGroupTransform(child, g);
+
+    // Resize: double the width.
+    g.frame.w = 400;
+    const after = applyGroupTransform(child, g);
+
+    // x and w should double; y and h should be unchanged.
+    expect(after.x).toBeCloseTo(before.x * 2, 4);
+    expect(after.w).toBeCloseTo(before.w * 2, 4);
+    expect(after.y).toBeCloseTo(before.y, 4);
+    expect(after.h).toBeCloseTo(before.h, 4);
+  });
+
+  it('no change in child world frame when group frame equals refSize', () => {
+    const g = group('g', { x: 10, y: 20, w: 200, h: 100 }, []);
+    g.data.refSize = { w: 200, h: 100 };
+    const child = { x: 30, y: 10, w: 80, h: 40, rotation: 0 };
+    const world = applyGroupTransform(child, g);
+    // Child at local (30, 10) → world (10+30, 20+10) = (40, 30)
+    expect(world.x).toBeCloseTo(40, 4);
+    expect(world.y).toBeCloseTo(30, 4);
+    expect(world.w).toBeCloseTo(80, 4);
+    expect(world.h).toBeCloseTo(40, 4);
+  });
+});

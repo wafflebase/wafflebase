@@ -140,6 +140,12 @@ export interface YorkieGroupElement {
   frame: YorkieFrame;
   data: {
     children: YorkieElement[];
+    /**
+     * Reference dimensions of the group's local coordinate space.
+     * See GroupElement.data.refSize for full semantics. Optional for
+     * backward compatibility; absent means scale = 1 (prior behavior).
+     */
+    refSize?: { w: number; h: number };
   };
 }
 

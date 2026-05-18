@@ -168,7 +168,14 @@ async function parseGrpSp(
     id: groupId,
     type: 'group',
     frame: groupWorldFrame,
-    data: { children: [] },
+    data: {
+      children: [],
+      // Anchor the local coordinate space at import time so that future
+      // resizes scale children proportionally (OOXML chExt/ext semantics).
+      refSize: aabb
+        ? { w: aabb.w, h: aabb.h }
+        : { w: groupWorldFrame.w, h: groupWorldFrame.h },
+    },
   };
 
   // Convert each child's world frame to group-local by subtracting the AABB origin.

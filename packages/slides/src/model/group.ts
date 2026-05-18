@@ -48,23 +48,61 @@ export function composeAncestorTransform(
 
 /**
  * Build the affine transform that maps group-local coords to the
- * parent (world) space.  Children live in (0..w × 0..h) so the
- * scale is identity; the transform is a rotation around the group's
- * world-space centre followed by translation of the group origin.
+ * parent (world) space.
+ *
+ * Children live in (0..refSize.w × 0..refSize.h). The transform
+ * scales them by (frame.w / refSize.w, frame.h / refSize.h) so that
+ * resizing the group's frame visibly scales children proportionally —
+ * matching OOXML <a:chExt> vs <a:ext> semantics.
+ *
+ * When `data.refSize` is absent (backward compat), it defaults to
+ * { w: frame.w, h: frame.h }, giving scale = 1 — identical to the
+ * prior behavior.
+ *
+ * Matrix construction:
+ *   m_scale_translate = scale(scaleX, scaleY) then translate(x, y)
+ *   final = rotateAroundCenter(cx, cy, rotation) · m_scale_translate
  */
 export function groupToTransform(group: GroupElement): GroupTransform {
   const { x, y, w, h, rotation } = group.frame;
-  const cos = Math.cos(rotation);
-  const sin = Math.sin(rotation);
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  return {
-    a: cos, b: sin,
-    c: -sin, d: cos,
-    tx: x + (cx - x) * (1 - cos) + (cy - y) * sin,
-    ty: y + (cy - y) * (1 - cos) - (cx - x) * sin,
-    rotation,
+  const refW = group.data.refSize?.w ?? w;
+  const refH = group.data.refSize?.h ?? h;
+  const scaleX = refW > 0 ? w / refW : 1;
+  const scaleY = refH > 0 ? h / refH : 1;
+
+  // Base matrix: scale then translate (no rotation yet).
+  // Maps local point P → (P.x * scaleX + x, P.y * scaleY + y).
+  let m: GroupTransform = {
+    a: scaleX, b: 0,
+    c: 0,      d: scaleY,
+    tx: x,     ty: y,
+    rotation: 0,
   };
+
+  if (rotation !== 0) {
+    // Rotate around the group's world center (cx, cy):
+    //   R = T(cx,cy) · Rot(θ) · T(-cx,-cy)
+    // Then compose:  final = R · m
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    // R matrix coefficients (rotation around pivot):
+    const rTx = cx * (1 - cos) + sin * cy;
+    const rTy = cy * (1 - cos) - sin * cx;
+    // final = R · m  (outer = R, inner = m)
+    m = {
+      a:  cos * m.a + (-sin) * m.b,
+      b:  sin * m.a +   cos  * m.b,
+      c:  cos * m.c + (-sin) * m.d,
+      d:  sin * m.c +   cos  * m.d,
+      tx: cos * m.tx + (-sin) * m.ty + rTx,
+      ty: sin * m.tx +   cos  * m.ty + rTy,
+      rotation,
+    };
+  }
+
+  return m;
 }
 
 /** Compose: child's group-local frame → world frame in the group's parent space. */

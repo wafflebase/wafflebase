@@ -1213,7 +1213,12 @@ export class YorkieSlidesStore implements SlidesStore {
         id: groupId,
         type: 'group',
         frame: groupLocalFrame,
-        data: { children: childrenWithLocalFrames as YorkieGroupElement['data']['children'] },
+        data: {
+          children: childrenWithLocalFrames as YorkieGroupElement['data']['children'],
+          // Anchor the local coordinate space so group resize scales children.
+          // (OOXML chExt/ext semantics — see GroupElement.data.refSize.)
+          refSize: { w: groupLocalFrame.w, h: groupLocalFrame.h },
+        },
       };
 
       // Insert the group at the front-most target position, remove candidates.

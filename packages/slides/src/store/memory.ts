@@ -664,7 +664,14 @@ export class MemSlidesStore implements SlidesStore {
       id: groupId,
       type: 'group',
       frame: groupLocalFrame,
-      data: { children: childrenWithLocalFrames },
+      data: {
+        children: childrenWithLocalFrames,
+        // Anchor the local coordinate space. Children are stored with
+        // frames relative to (0..refSize.w × 0..refSize.h). When the
+        // group is resized, frame.w/h diverges from refSize; the
+        // renderer scales children proportionally (OOXML chExt/ext semantics).
+        refSize: { w: groupLocalFrame.w, h: groupLocalFrame.h },
+      },
     };
 
     // Invariant 6: insert the group at the position of the front-most
