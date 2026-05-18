@@ -1055,3 +1055,138 @@ describe('Editor canvas context menu — Change layout', () => {
     ed.detach();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 9 Phase C — scope-aware overlay at rest
+// ---------------------------------------------------------------------------
+
+describe('repaintOverlay — scope-aware drilled-in element handles', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  /**
+   * Build a slide with one group at (100, 200, 200, 100) containing one
+   * child rect. The child is stored at group-local (20, 10, 60, 40, rot=0).
+   * World position of the child: (100+20, 200+10) = (120, 210).
+   *
+   * After drilling into the group and selecting the child, the overlay
+   * handles must appear at the WORLD nw corner (120, 210), not at the
+   * group-local corner (20, 10).
+   */
+  it('places nw handle at world coordinates, not group-local, when a nested child is selected at rest', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+
+    const store = new MemSlidesStore();
+    let sid!: string;
+    let childId!: string;
+    let groupId!: string;
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      // Add two sibling shapes that will be grouped.
+      // a: world (100, 200, 80, 50), b: world (180, 210, 80, 40)
+      // AABB of a+b: x=100, y=200, w=160, h=50.
+      const aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 200, w: 80, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      const bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 180, y: 210, w: 80, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      ({ groupId } = store.group(sid, [aId, bId]));
+      // After grouping, the first child (aId) is in group-local space.
+      // group bbox = (100, 200, 160, 50); aId local = (0, 0, 80, 50).
+      childId = aId;
+    });
+
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+    // Directly set scope + selection to simulate a drill-in state.
+    // We cast to access the internal `selection` field (which is public
+    // on SlidesEditorImpl but not on the SlidesEditor interface).
+    const impl = editor as unknown as { selection: import('../../../src/view/editor/selection').Selection };
+    impl.selection.setScope([groupId]);
+    impl.selection.set([childId]);
+    // The subscriber fires synchronously from set(), so repaintOverlay
+    // has already run. Check the overlay DOM.
+
+    // At scale 1 (hostWidth 1920 = slide width 1920), handles are placed
+    // in host pixels = logical pixels. The child (aId) is at group-local
+    // (0, 0, 80, 50); group at world (100, 200, 160, 50).
+    // So child world position = (100, 200), nw handle at (100, 200).
+    const HANDLE_SIZE = 8;
+    const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]');
+    expect(nw).not.toBeNull();
+    const left = parseFloat(nw!.style.left);
+    const top = parseFloat(nw!.style.top);
+    // World nw = (100, 200). Handle centred: left = 100 - 4, top = 200 - 4.
+    expect(left).toBeCloseTo(100 - HANDLE_SIZE / 2, 1);
+    expect(top).toBeCloseTo(200 - HANDLE_SIZE / 2, 1);
+    // Confirm it is NOT at the group-local nw (0, 0).
+    expect(left).not.toBeCloseTo(0 - HANDLE_SIZE / 2, 0);
+  });
+
+  it('places handles at world coordinates for a child in a rotated group', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+
+    const store = new MemSlidesStore();
+    let sid!: string;
+    let childId!: string;
+    let groupId!: string;
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      const aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 200, w: 80, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      const bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 180, y: 210, w: 80, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      ({ groupId } = store.group(sid, [aId, bId]));
+      childId = aId;
+    });
+
+    // Rotate the group by π/2.
+    const gEl = store.read().slides[0].elements[0];
+    const rotatedGroupFrame = { ...gEl.frame, rotation: Math.PI / 2 };
+    store.batch(() => store.updateElementFrame(sid, groupId, rotatedGroupFrame));
+
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    const impl = editor as unknown as { selection: import('../../../src/view/editor/selection').Selection };
+    impl.selection.setScope([groupId]);
+    impl.selection.set([childId]);
+
+    // With a rotated group, the single rotated-element path in renderOverlay
+    // applies. The important thing is that handles ARE rendered (i.e. the
+    // child was found and its world frame computed), and the outline has a
+    // CSS transform rotate applied.
+    const outline = overlay.querySelector<HTMLDivElement>('.wfb-slides-selection-frame');
+    expect(outline).not.toBeNull();
+    // The world frame has a non-zero rotation, so CSS transform is set.
+    expect(outline!.style.transform).toMatch(/rotate\(/);
+  });
+});

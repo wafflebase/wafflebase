@@ -393,9 +393,27 @@ class SlidesEditorImpl implements SlidesEditor {
     // Suppress selection handles for the element currently in edit
     // mode — the text-box editor takes over the visual frame, and
     // overlapping handles would intercept clicks meant for the editor.
-    const selected = slide.elements.filter(
-      (e) => this.selection.has(e.id) && e.id !== this.editingElementId,
-    );
+    //
+    // Phase C (Task 9): scope-aware lookup. When the user has drilled
+    // into a group, selected element ids refer to children nested inside
+    // that group — `slide.elements.filter()` would miss them because it
+    // only scans the top-level array. We resolve each id via the
+    // recursive `findElement` helper, then lift the stored (group-local)
+    // frame to world coords via `toWorldFrame` so that handles paint at
+    // the positions the user actually sees.
+    const scope = this.selection.getScope();
+    const selected = this.selection
+      .get()
+      .filter((id) => id !== this.editingElementId)
+      .map((id) => {
+        const el = findElement(slide.elements, id);
+        if (!el) return null;
+        // Convert the stored frame (group-local when scope is non-empty)
+        // to slide-root world coords so overlay handles land correctly.
+        const worldFrame = toWorldFrame(el.frame, scope, slide);
+        return { ...el, frame: worldFrame } as Element;
+      })
+      .filter((e): e is Element => e !== null);
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
