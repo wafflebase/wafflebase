@@ -1310,3 +1310,189 @@ describe('drill-in click handlers (Task 9)', () => {
     expect(editor.getSelection()).toEqual([aId]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// editor.group() / editor.ungroup() methods
+// ---------------------------------------------------------------------------
+
+describe('editor.group() / editor.ungroup()', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) { editor.detach(); editor = null; }
+  });
+
+  function makeTwoShapeFixture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      aId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0,   y: 0, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#f00' } },
+      });
+      bId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 200, y: 0, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#00f' } },
+      });
+    });
+    const e = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    return { editor: e, store, slideId, aId, bId };
+  }
+
+  it('group() with ≥2 elements creates a GroupElement and selects it', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoShapeFixture();
+    editor = e;
+    editor.setSelection([aId, bId]);
+    editor.group();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(1);
+    expect(slide.elements[0].type).toBe('group');
+    expect(editor.getSelection()).toEqual([slide.elements[0].id]);
+  });
+
+  it('group() with <2 elements is a no-op', () => {
+    const { editor: e, store, slideId, aId } = makeTwoShapeFixture();
+    editor = e;
+    editor.setSelection([aId]);
+    editor.group();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+  });
+
+  it('ungroup() with a group selection dissolves it and selects children', () => {
+    const { editor: e, store, slideId, aId, bId } = makeTwoShapeFixture();
+    editor = e;
+    let groupId = '';
+    store.batch(() => {
+      groupId = store.group(slideId, [aId, bId]).groupId;
+    });
+    editor.setSelection([groupId]);
+    editor.ungroup();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+    const childIds = editor.getSelection();
+    expect(childIds).toHaveLength(2);
+    expect(childIds).toContain(aId);
+    expect(childIds).toContain(bId);
+  });
+
+  it('ungroup() with a plain shape selection is a no-op', () => {
+    const { editor: e, store, slideId, aId } = makeTwoShapeFixture();
+    editor = e;
+    editor.setSelection([aId]);
+    editor.ungroup();
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context-menu Group / Ungroup items
+// ---------------------------------------------------------------------------
+
+describe('context menu — Group / Ungroup items', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    (showLayoutPicker as unknown as ReturnType<typeof vi.fn>).mockClear?.();
+    if (editor) { editor.detach(); editor = null; }
+  });
+
+  function makeTwoShapeOnSameSlide() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920; canvas.height = 1080;
+    const overlay = document.createElement('div');
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      // Place shapes so right-clicking either hits them in the test.
+      aId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 200, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#f00' } },
+      });
+      bId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 600, y: 100, w: 200, h: 200, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#00f' } },
+      });
+    });
+    const e = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    return { editor: e, store, canvas, slideId, aId, bId };
+  }
+
+  it('Group item is enabled when ≥2 elements are selected', () => {
+    const { editor: e, canvas, aId, bId } = makeTwoShapeOnSameSlide();
+    editor = e;
+    // Select both shapes before right-clicking.
+    editor.setSelection([aId, bId]);
+    // Right-click on shape A's location.
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 200, clientY: 200, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    expect(menu).toBeTruthy();
+    const groupLi = [...menu.querySelectorAll('li')].find(
+      (li) => li.textContent?.trim() === 'Group',
+    ) as HTMLElement | undefined;
+    expect(groupLi).toBeTruthy();
+    expect(groupLi!.style.opacity).not.toBe('0.5'); // not disabled
+  });
+
+  it('Group item is disabled when only 1 element is selected', () => {
+    const { editor: e, canvas, aId } = makeTwoShapeOnSameSlide();
+    editor = e;
+    editor.setSelection([aId]);
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 200, clientY: 200, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const groupLi = [...menu.querySelectorAll('li')].find(
+      (li) => li.textContent?.trim() === 'Group',
+    ) as HTMLElement | undefined;
+    expect(groupLi).toBeTruthy();
+    expect(groupLi!.style.opacity).toBe('0.5'); // disabled
+  });
+
+  it('Ungroup item is disabled when right-click hits a child (not the group itself)', () => {
+    // In v1 groups have no fill hit-surface, so hitTestSlide always returns
+    // the leaf child id when clicking inside a group. The context menu then
+    // selects the child, making Ungroup disabled (child is not a group).
+    // This verifies the predicate path works correctly.
+    const { editor: e, store, canvas, slideId, aId, bId } = makeTwoShapeOnSameSlide();
+    editor = e;
+    let groupId = '';
+    store.batch(() => {
+      groupId = store.group(slideId, [aId, bId]).groupId;
+    });
+    editor.setSelection([groupId]);
+    // Right-click on a position that hits shape A's child (100,100)–(300,300).
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 200, clientY: 200, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const ungroupLi = [...menu.querySelectorAll('li')].find(
+      (li) => li.textContent?.trim() === 'Ungroup',
+    ) as HTMLElement | undefined;
+    expect(ungroupLi).toBeTruthy();
+    // hitTestSlide returned aId (child), not groupId → selection is now [aId] → Ungroup disabled.
+    expect(ungroupLi!.style.opacity).toBe('0.5');
+  });
+});

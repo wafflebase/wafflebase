@@ -28,6 +28,8 @@ export interface ArrangeMenuProps {
   editor: SlidesEditor | null;
   /** Number of LIVE selected elements (matches what align/distribute acts on). */
   selectionSize: number;
+  /** Whether a single group element is currently selected (enables Ungroup). */
+  canUngroup?: boolean;
 }
 
 /**
@@ -35,9 +37,10 @@ export interface ArrangeMenuProps {
  * actions into a single menu button. Rendered only in the object-selected
  * toolbar states (shape / image / text-element / mixed).
  */
-export function ArrangeMenu({ editor, selectionSize }: ArrangeMenuProps) {
+export function ArrangeMenu({ editor, selectionSize, canUngroup = false }: ArrangeMenuProps) {
   const canAlign = !!editor && selectionSize > 0;
   const canDistribute = !!editor && selectionSize >= 3;
+  const canGroup = !!editor && selectionSize >= 2;
 
   return (
     <DropdownMenu>
@@ -59,6 +62,17 @@ export function ArrangeMenu({ editor, selectionSize }: ArrangeMenuProps) {
       </Tooltip>
 
       <DropdownMenuContent align="start">
+        {/* Group / Ungroup */}
+        <DropdownMenuItem disabled={!canGroup} onClick={() => editor?.group()}>
+          Group
+          <Shortcut>{modKey}⌥G</Shortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!canUngroup} onClick={() => editor?.ungroup()}>
+          Ungroup
+          <Shortcut>{modKey}⇧⌥G</Shortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+
         {/* Z-order */}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Order</DropdownMenuSubTrigger>

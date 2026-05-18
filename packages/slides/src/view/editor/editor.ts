@@ -49,6 +49,7 @@ import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
+import { findElementPath } from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -269,6 +270,20 @@ export interface SlidesEditor {
    * a single `store.batch()` for atomic undo/redo.
    */
   rotateBy(radians: number): void;
+  /**
+   * Wrap the currently selected elements (≥ 2) into a new group.
+   * All selected elements must share the same parent (slide root or a
+   * single group). After grouping, the new group is selected.
+   * No-op when fewer than 2 elements are selected or a text-box is active.
+   */
+  group(): void;
+  /**
+   * Dissolve the currently selected group element back into its parent.
+   * Selection must be exactly one group element. After ungrouping, the
+   * former children are selected.
+   * No-op when selection is not a single group element or a text-box is active.
+   */
+  ungroup(): void;
   detach(): void;
 }
 
@@ -369,6 +384,8 @@ class SlidesEditorImpl implements SlidesEditor {
       onShowShortcutsHelp: this.options.onShowShortcutsHelp,
       getInsertMode: () => this.getInsertMode(),
       setInsertMode: (kind) => this.setInsertMode(kind),
+      group: () => this.group(),
+      ungroup: () => this.ungroup(),
     });
     this.attachInteractions();
   }
@@ -682,6 +699,38 @@ class SlidesEditorImpl implements SlidesEditor {
     this.repaintOverlay();
   }
 
+  group(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const ids = this.selection.get();
+    if (ids.length < 2) return;
+    let result: { groupId: string; excludedConnectorIds: string[] } | undefined;
+    this.options.store.batch(() => {
+      result = this.options.store.group(slide.id, [...ids]);
+    });
+    if (!result) return;
+    this.selection.set([result.groupId]);
+    this.requestRender();
+  }
+
+  ungroup(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const ids = this.selection.get();
+    if (ids.length !== 1) return;
+    const path = findElementPath(slide.elements, ids[0]);
+    const el = path?.[path.length - 1];
+    if (!el || el.type !== 'group') return;
+    let childIds: string[] = [];
+    this.options.store.batch(() => {
+      childIds = this.options.store.ungroup(slide.id, ids[0]);
+    });
+    this.selection.set(childIds);
+    this.requestRender();
+  }
+
   /**
    * Collect frames for currently-selected elements that still exist on
    * the given slide. Defends against ids that were removed remotely
@@ -902,6 +951,19 @@ class SlidesEditorImpl implements SlidesEditor {
     // expectation that the action targets what they clicked on.
     if (!this.selection.has(elementId)) this.selection.set([elementId]);
 
+    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    const selectedIds = [...this.selection.get()];
+    const groupItem: ContextMenuItem = {
+      label: 'Group',
+      disabled: !slide || !canGroup(selectedIds, slide),
+      run: () => this.group(),
+    };
+    const ungroupItem: ContextMenuItem = {
+      label: 'Ungroup',
+      disabled: !slide || !canUngroup(selectedIds, slide),
+      run: () => this.ungroup(),
+    };
+
     return [
       { label: 'Copy',  run: () => this.dispatchKey('c', { meta: true }) },
       { label: 'Cut',   run: () => this.dispatchKey('x', { meta: true }) },
@@ -915,6 +977,9 @@ class SlidesEditorImpl implements SlidesEditor {
         this.selection.clear();
         this.requestRender();
       } },
+      { label: '---', run: () => undefined },
+      groupItem,
+      ungroupItem,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
@@ -1978,6 +2043,44 @@ function patchElementFrames(
     }
     return el;
   });
+}
+
+/**
+ * Returns `true` when the given selection can be grouped:
+ *   - at least 2 elements are selected,
+ *   - all selected elements share the same parent in the element tree,
+ *   - none carries a `placeholderRef` (layout placeholder — not groupable).
+ */
+function canGroup(selectedIds: string[], slide: { elements: Element[] }): boolean {
+  if (selectedIds.length < 2) return false;
+  // Determine parent key for each element. '' means slide root; any other
+  // string is the parent group's id.
+  const parentKeyOf = (id: string): string | undefined => {
+    const path = findElementPath(slide.elements, id);
+    if (!path) return undefined;
+    return path.length === 1 ? '' : path[path.length - 2].id;
+  };
+  const firstKey = parentKeyOf(selectedIds[0]);
+  if (firstKey === undefined) return false;
+  // All must share the same parent and carry no placeholderRef.
+  for (const id of selectedIds) {
+    if (parentKeyOf(id) !== firstKey) return false;
+    // Check placeholderRef: find the element itself.
+    const path = findElementPath(slide.elements, id);
+    if (!path) return false;
+    const el = path[path.length - 1];
+    if (el.placeholderRef != null) return false;
+  }
+  return true;
+}
+
+/**
+ * Returns `true` when the selection is exactly one group element that can be ungrouped.
+ */
+function canUngroup(selectedIds: string[], slide: { elements: Element[] }): boolean {
+  if (selectedIds.length !== 1) return false;
+  const path = findElementPath(slide.elements, selectedIds[0]);
+  return path?.[path.length - 1]?.type === 'group';
 }
 
 /**

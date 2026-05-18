@@ -31,6 +31,10 @@ export interface KeyboardContext {
   getInsertMode(): InsertKind | null;
   /** Called by the Escape rule to disarm a shape/text insert. */
   setInsertMode(kind: InsertKind | null): void;
+  /** Group the current selection. No-op when fewer than 2 elements selected. */
+  group(): void;
+  /** Ungroup the currently selected group element. No-op when selection is not a single group. */
+  ungroup(): void;
 }
 
 const NUDGE = 1;
@@ -458,21 +462,57 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       },
     },
 
-    // Esc — clear selection when something is selected and no
-    // editable target is focused. Text-box Esc is handled by the
-    // text-box editor's own capture-phase listener (which stops
-    // propagation before reaching this rule). Popover/context-menu
-    // Esc is also captured at their layer.
+    // Esc — pop drill-in scope if non-empty; otherwise clear selection.
+    // Text-box Esc is handled by the text-box editor's own capture-phase
+    // listener (which stops propagation before reaching this rule).
+    // Popover/context-menu Esc is also captured at their layer.
     {
       match: (e) =>
         e.key === 'Escape' &&
         !isModPressed(e) &&
         !isEditableTarget(e.target),
       run: (e) => {
+        // If we are drilled into a group, pop one scope level and stop —
+        // do NOT also clear the id-selection so the group itself appears
+        // selected at the parent scope level (matching Google Slides).
+        if (ctx.selection.getScope().length > 0) {
+          e.preventDefault();
+          ctx.selection.escape();
+          ctx.requestRender();
+          return;
+        }
         if (ctx.selection.get().length === 0) return;
         e.preventDefault();
         ctx.selection.clear();
         ctx.requestRender();
+      },
+    },
+
+    // Cmd+Alt+G — group the current selection (≥2 elements).
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.group();
+      },
+    },
+
+    // Cmd+Shift+Alt+G — ungroup the selected group element.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.ungroup();
       },
     },
   ];
