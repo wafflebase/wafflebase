@@ -1253,33 +1253,21 @@ describe('drill-in click handlers (Task 9)', () => {
     }
   });
 
-  it('right-click on a nested element resolves to that element id via hitTestSlide', () => {
-    // Verify that the context menu receives the leaf-most id (not null).
-    // We can't easily intercept the context menu items, but we CAN observe
-    // that the selection changes to reflect the right-clicked element when
-    // a context menu fires on a nested shape.
+  it('right-click on a group child selects the outermost group (drill-in rules)', () => {
+    // Right-click should route through the same Selection.click drill-in
+    // state machine as single-click. Without that, selection lands on the
+    // leaf child (whose frame is in group-local coords) and the overlay
+    // renders handles at the wrong position; the Ungroup menu item also
+    // stays disabled because selection is no longer the group.
     const { canvas, overlay, store, aId, groupId } = makeGroupedFixture();
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
-    // Context menu on a point inside shape A (world 150, 140).
-    // With the OLD topmostUnderPoint the group bbox contained (150,140) but
-    // the flat search hit the group element, not the child. With hitTestSlide
-    // it descends and resolves to aId.
-    //
-    // elementContextItems selects the hit element if it is not already selected.
-    // After the contextmenu event, selection should be [groupId] — because the
-    // context menu calls elementContextItems(slideId, hit.elementId) and
-    // sets selection to [hitId] only when it is not already selected.
-    // hitTestSlide on (150,140) → elementId = aId, so selection becomes [aId].
     canvas.dispatchEvent(new MouseEvent('contextmenu', {
       clientX: 150, clientY: 140, bubbles: true,
     }));
-    // The onContextMenu calls elementContextItems which does:
-    //   if (!this.selection.has(elementId)) this.selection.set([elementId])
-    // So after right-clicking aId, selection should include aId.
-    expect(editor.getSelection()).toContain(aId);
-    // And groupId (the outer wrapper) should NOT be what was selected,
-    // because hitTestSlide returns the leaf-most id.
-    expect(editor.getSelection()).not.toContain(groupId);
+    // scope is empty, hit.ancestorPath is [groupId, aId]; pickAtScope
+    // returns ancestorPath[0] = groupId.
+    expect(editor.getSelection()).toEqual([groupId]);
+    expect(editor.getSelection()).not.toContain(aId);
   });
 
   it('single click on a group child selects the outermost group, not the child', () => {
@@ -1471,29 +1459,28 @@ describe('context menu — Group / Ungroup items', () => {
     expect(groupLi!.style.opacity).toBe('0.5'); // disabled
   });
 
-  it('Ungroup item is disabled when right-click hits a child (not the group itself)', () => {
-    // In v1 groups have no fill hit-surface, so hitTestSlide always returns
-    // the leaf child id when clicking inside a group. The context menu then
-    // selects the child, making Ungroup disabled (child is not a group).
-    // This verifies the predicate path works correctly.
+  it('Ungroup item is enabled when right-click descends to a group at slide-root scope', () => {
+    // Right-click routes through Selection.click. At scope=[] with the
+    // click hitting a group child, drill-in rules pick the outermost
+    // group as the selection, so the Ungroup predicate is satisfied.
     const { editor: e, store, canvas, slideId, aId, bId } = makeTwoShapeOnSameSlide();
     editor = e;
     let groupId = '';
     store.batch(() => {
       groupId = store.group(slideId, [aId, bId]).groupId;
     });
-    editor.setSelection([groupId]);
-    // Right-click on a position that hits shape A's child (100,100)–(300,300).
+    // Pre-clear selection so the right-click re-resolves through drill-in.
+    editor.setSelection([]);
     canvas.dispatchEvent(new MouseEvent('contextmenu', {
       clientX: 200, clientY: 200, bubbles: true, cancelable: true,
     }));
+    expect(editor.getSelection()).toEqual([groupId]);
     const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
     const ungroupLi = [...menu.querySelectorAll('li')].find(
       (li) => li.textContent?.trim() === 'Ungroup',
     ) as HTMLElement | undefined;
     expect(ungroupLi).toBeTruthy();
-    // hitTestSlide returned aId (child), not groupId → selection is now [aId] → Ungroup disabled.
-    expect(ungroupLi!.style.opacity).toBe('0.5');
+    expect(ungroupLi!.style.opacity).not.toBe('0.5');
   });
 });
 

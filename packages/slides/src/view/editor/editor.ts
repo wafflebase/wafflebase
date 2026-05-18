@@ -949,21 +949,28 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hit = hitTestSlide(slide, x, y)?.elementId ?? null;
-    const items = hit !== null
-      ? this.elementContextItems(slide.id, hit)
-      : this.canvasContextItems(x, y);
+    const hitResult = hitTestSlide(slide, x, y);
+    if (hitResult === null) {
+      showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
+      return;
+    }
+    // Route the right-click through the same drill-in state machine as
+    // single-click. Without this, right-clicking inside a group sets
+    // selection to the leaf child (whose frame is in group-local coords)
+    // and the overlay draws handles at the wrong position; it also leaves
+    // the selection on a non-group element so Ungroup stays disabled.
+    if (!this.selection.has(hitResult.elementId)) {
+      this.selection.click(hitResult, {});
+    }
+    const items = this.elementContextItems(slide.id);
     showContextMenu(document.body, items, e.clientX, e.clientY);
   }
 
-  private elementContextItems(
-    slideId: string,
-    elementId: string,
-  ): ContextMenuItem[] {
-    // Ensure the right-clicked element is selected — matches user
-    // expectation that the action targets what they clicked on.
-    if (!this.selection.has(elementId)) this.selection.set([elementId]);
-
+  private elementContextItems(slideId: string): ContextMenuItem[] {
+    // Selection has already been resolved by `onContextMenu` (right-click)
+    // through the drill-in state machine. We DO NOT set it here — calling
+    // `selection.set([leafId])` would bypass drill-in rules and leave the
+    // overlay drawing handles at group-local coords for grouped children.
     const slide = this.options.store.read().slides.find((s) => s.id === slideId);
     const selectedIds = [...this.selection.get()];
     const groupItem: ContextMenuItem = {
