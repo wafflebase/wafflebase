@@ -1619,8 +1619,8 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = new Set(this.selection.get());
 
     // Capture each selected element's frame in WORLD coordinates and
-    // the element snapshot itself. The frame map drives snap math /
-    // overlay placement; the element map is needed at commit time
+    // the element snapshot itself. The world-frame map drives snap math
+    // and ghost placement; the element map is needed at commit time
     // because connectors translate through their endpoints, not their
     // frame — `commitTranslate` reads `el.start`/`el.end` from the
     // pre-drag snapshot.
@@ -1634,14 +1634,22 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     if (originalWorldFrames.size === 0) return;
 
+    // Connectors render via endpoint lookup; their `frame` is derived,
+    // not stored, so a frame-only ghost would paint at the wrong place.
+    // Excluding them from `ghostSources` makes the connector render at
+    // its original endpoint geometry during the drag preview; on
+    // commit, `commitTranslate` moves the endpoints by (liveDx, liveDy).
+    const ghostSources: Element[] = [];
+    for (const el of originals.values()) {
+      if (el.type !== 'connector') ghostSources.push(el);
+    }
+
     const start = this.clientToLogical(clientX, clientY);
     // Collect snap candidates within the active scope, excluding the
     // dragged elements. Each candidate is an axis-aligned AABB so
     // rotated shapes/groups snap against their visible bbox.
     const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
-    // Track live world frames in memory; commit once at mouseup.
-    const live = new Map(originalWorldFrames);
     let liveDx = 0;
     let liveDy = 0;
 
@@ -1650,46 +1658,74 @@ class SlidesEditorImpl implements SlidesEditor {
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
-      const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
+      const { dx, dy, guides } = snapDelta(
+        bbox,
+        rawDx,
+        rawDy,
+        otherFrames,
+        { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      );
       liveDx = dx;
       liveDy = dy;
 
-      for (const [id, base] of originalWorldFrames) {
-        live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
-      }
-      // Repaint canvas + overlay with the live frames; we DO NOT touch
-      // the store yet. `guides` flow through to the overlay so magenta
-      // alignment lines render alongside the selection handles.
-      this.paintLiveScoped(live, scope, guides);
+      // Ghosts paint at WORLD coords — they bypass the scope coordinate
+      // system because they're drawn on top of the unmodified slide
+      // (which itself paints group-local frames through their group's
+      // transform). The original slide is untouched.
+      const ghosts: Element[] = ghostSources.map((el) => {
+        const baseWorld = originalWorldFrames.get(el.id)!;
+        return {
+          ...el,
+          frame: { ...baseWorld, x: baseWorld.x + dx, y: baseWorld.y + dy },
+        } as Element;
+      });
+
+      // Handles anchor to the ORIGINAL world frames so the user reads
+      // them as "where it started"; the ghost reads as "where it will
+      // land". Build pseudo-elements with the world frame patched in.
+      const handleElements: Element[] = Array.from(originals.values()).map((el) => ({
+        ...el,
+        frame: originalWorldFrames.get(el.id)!,
+      } as Element));
+
+      this.paintMoveGhost(ghosts, handleElements, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Commit one batch. Non-connectors get their live world frame
-      // converted back to scope-local before writing. Connectors take
-      // a different path: their world-coord endpoints translate by
-      // (liveDx, liveDy) through `commitTranslate`. `updateElementFrame`
-      // rejects connectors because their frame is derived from
-      // endpoints.
+      // Skip the batch when the pointer never moved past snap noise:
+      // an empty `store.batch` still pushes an undo snapshot and clears
+      // the redo stack. A pure click-without-drag must be a no-op
+      // against history.
+      if (liveDx === 0 && liveDy === 0) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
       const slideId = startSlide.id;
       this.options.store.batch(() => {
-        for (const [id, worldFrame] of live) {
+        for (const [id, baseWorld] of originalWorldFrames) {
           const el = originals.get(id);
           if (!el) continue;
           if (el.type === 'connector') {
+            // Connectors translate via endpoints; `updateElementFrame`
+            // rejects them because their frame is derived.
             commitTranslate(this.options.store, slideId, el, liveDx, liveDy);
             continue;
           }
-          const localFrame = fromWorldFrame(worldFrame, scope, startSlide);
+          const newWorld = {
+            ...baseWorld,
+            x: baseWorld.x + liveDx,
+            y: baseWorld.y + liveDy,
+          };
+          const localFrame = fromWorldFrame(newWorld, scope, startSlide);
           this.options.store.updateElementFrame(slideId, id, localFrame);
         }
       });
       this.renderer.markDirty();
       this.render();
-      // `render()` repaints only the canvas — without an explicit overlay
-      // refresh, the magenta guide nodes from the last `paintLiveScoped`
-      // would persist after mouseup. `repaintOverlay()` rebuilds the
-      // overlay with `selected` and no `guides`, clearing them.
+      // Clear lingering snap-guide nodes from the last `paintMoveGhost`.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
@@ -1764,8 +1800,6 @@ class SlidesEditorImpl implements SlidesEditor {
    * at their original endpoints during the drag preview. On commit, the
    * connector's normal endpoint-lookup path re-routes them.
    */
-  // @ts-expect-error TS6133 — wired up by `startDrag` in the next task
-  // of the shape-move-ghost plan; remove this directive then.
   private paintMoveGhost(
     ghosts: readonly Element[],
     selectedOriginals: readonly Element[],

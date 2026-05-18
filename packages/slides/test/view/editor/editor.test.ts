@@ -142,6 +142,70 @@ describe('initialize', () => {
     void elementId;
   });
 
+  it('drag does not mutate the store until pointerup (ghost-only preview)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    dispatchMouseDown(canvas, 200, 150);
+    // Mid-drag mousemove — frame in the store must still be the original.
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 220, bubbles: true }));
+    const midFrame = store.read().slides[0].elements[0].frame;
+    expect(midFrame.x).toBe(100);
+    expect(midFrame.y).toBe(100);
+    // Release commits.
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 300, clientY: 220, bubbles: true }));
+    const finalFrame = store.read().slides[0].elements[0].frame;
+    expect(finalFrame.x).not.toBe(100);
+  });
+
+  it('multi-select drag keeps selection handles anchored to the original bbox', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 400, y: 400, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 180, bubbles: true }));
+
+    // Multi-select renders axis-aligned bbox handles. The 'nw' handle
+    // should anchor at the combined bbox top-left (min x = 100, min y = 100)
+    // even mid-drag, NOT at the dragged position.
+    const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]');
+    expect(nw).not.toBeNull();
+    const nwLeft = parseFloat(nw!.style.left);
+    const nwTop = parseFloat(nw!.style.top);
+    // Handles are centred on the corner with a small offset (HANDLE_SIZE/2 = 4).
+    // The meaningful assertion: handles are near (100, 100), NOT near (150, 130).
+    expect(nwLeft).toBeLessThan(120);
+    expect(nwTop).toBeLessThan(120);
+    expect(nwLeft).toBeGreaterThan(80);
+    expect(nwTop).toBeGreaterThan(80);
+
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 180, bubbles: true }));
+    void aId; void bId;
+  });
+
   it('clicking on an already-selected element preserves the multi-selection and drags all of them', () => {
     const { canvas, overlay, store } = makeFixture();
     let aId = '';
