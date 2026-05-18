@@ -64,39 +64,54 @@ export function drawElement(
       ctx.translate(-frame.w / 2, -frame.h / 2);
     }
     const size = { w: frame.w, h: frame.h };
-    switch (element.type) {
-      case 'shape':
-        drawShape(ctx, size, element.data, theme);
-        break;
-      case 'text': {
-        // Only ref-bearing elements get a ghost hint — user-added text
-        // boxes (no `placeholderRef`) must remain blank when empty.
-        // Slot typography (font role + size, color role, alignment)
-        // comes from the active master so the hint matches what the
-        // user will see when they start typing.
-        let placeholderHint:
-          | { text: string; style: PlaceholderStyle }
-          | undefined;
-        if (element.placeholderRef) {
-          const master =
-            doc.masters.find((m) => m.id === doc.meta.masterId)
-            ?? doc.masters[0];
-          const style =
-            master?.placeholderStyles[element.placeholderRef.type]
-            ?? master?.placeholderStyles.body;
-          if (style) {
-            placeholderHint = {
-              text: placeholderHintFor(element.placeholderRef.type),
-              style,
-            };
-          }
-        }
-        drawText(ctx, size, element.data, theme, { placeholderHint });
-        break;
+    if (element.type === 'group') {
+      // Recurse into the group's children. Each child's frame is in
+      // group-local coordinates (0..w × 0..h), so painting them under
+      // the group's own frame transform places them correctly in world
+      // space. Arbitrary nesting depth is handled by recursion.
+      //
+      // NOTE: Connectors inside groups are painted in raw ctx space
+      // (drawConnector returns before the frame transform is applied).
+      // In v1, group() never includes connectors as children (Task 11
+      // invariant), so this is safe. A TODO remains for v2+ support.
+      for (const child of element.data.children) {
+        drawElement(ctx, child, doc, theme, onAssetLoad, elementsLookup);
       }
-      case 'image':
-        drawImage(ctx, size, element.data, onAssetLoad);
-        break;
+    } else {
+      switch (element.type) {
+        case 'shape':
+          drawShape(ctx, size, element.data, theme);
+          break;
+        case 'text': {
+          // Only ref-bearing elements get a ghost hint — user-added text
+          // boxes (no `placeholderRef`) must remain blank when empty.
+          // Slot typography (font role + size, color role, alignment)
+          // comes from the active master so the hint matches what the
+          // user will see when they start typing.
+          let placeholderHint:
+            | { text: string; style: PlaceholderStyle }
+            | undefined;
+          if (element.placeholderRef) {
+            const master =
+              doc.masters.find((m) => m.id === doc.meta.masterId)
+              ?? doc.masters[0];
+            const style =
+              master?.placeholderStyles[element.placeholderRef.type]
+              ?? master?.placeholderStyles.body;
+            if (style) {
+              placeholderHint = {
+                text: placeholderHintFor(element.placeholderRef.type),
+                style,
+              };
+            }
+          }
+          drawText(ctx, size, element.data, theme, { placeholderHint });
+          break;
+        }
+        case 'image':
+          drawImage(ctx, size, element.data, onAssetLoad);
+          break;
+      }
     }
   } finally {
     ctx.restore();

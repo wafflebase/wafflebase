@@ -125,3 +125,21 @@ export function isGroupDescendantOf(
   }
   return false;
 }
+
+/**
+ * DFS walk of an element tree that returns a flat list containing every
+ * element at every depth. Used by `slide-renderer.ts` to build an
+ * `elementsLookup` that includes elements nested inside groups, so that
+ * connector endpoints referencing elements inside groups can resolve
+ * correctly.
+ */
+export function flattenElements(elements: Element[]): Element[] {
+  const result: Element[] = [];
+  for (const el of elements) {
+    result.push(el);
+    if (el.type === 'group') {
+      result.push(...flattenElements(el.data.children));
+    }
+  }
+  return result;
+}

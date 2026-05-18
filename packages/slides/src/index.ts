@@ -67,6 +67,7 @@ export {
   composeAncestorTransform,
   composeGroupMatrix,
   findElementPath,
+  flattenElements,
   groupToTransform,
   isGroupDescendantOf,
   normalizeToGroupLocal,
