@@ -10,6 +10,7 @@ import {
   serializeElements,
   deserializeElements,
 } from './clipboard';
+import { commitTranslate } from './drag';
 
 export interface KeyboardContext {
   store: SlidesStore;
@@ -121,9 +122,18 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
               const path = findElementPath(slide.elements, id);
               if (!path) continue;
               const el = path[path.length - 1];
-              // Compute the new frame: apply the nudge delta in world space,
-              // then convert back to the element's parent-local space for storage.
-              // For scope = [] world == local, so this is a no-op conversion.
+              if (el.type === 'connector') {
+                // Connector endpoints are stored in world coords, so
+                // the world delta applies directly via `commitTranslate`.
+                // The store rejects `updateElementFrame` for connectors
+                // because their `frame` is derived from `start`/`end`.
+                commitTranslate(ctx.store, slideId, el, worldDx, worldDy);
+                continue;
+              }
+              // Non-connector: apply the nudge delta in world space,
+              // then convert back to the element's parent-local space
+              // for storage. For scope = [] world == local, so this is
+              // a no-op conversion.
               const worldFrame = toWorldFrame(el.frame, scope, slide);
               const newWorldFrame = { ...worldFrame, x: worldFrame.x + worldDx, y: worldFrame.y + worldDy };
               const localFrame = fromWorldFrame(newWorldFrame, scope, slide);

@@ -324,6 +324,18 @@ along the perpendicular-to-exit axis. The drag rounds to the nearest
 **Keyboard**: `Delete` deletes; `Esc` clears selection. No special
 shortcuts beyond the generic ones.
 
+**Translating a selection** (body drag, arrow nudge, align,
+distribute): routes through `commitTranslate` in
+`interactions/drag.ts`, not `store.updateElementFrame`. For
+connectors, free endpoints translate by `(dx, dy)` and attached
+endpoints stay anchored — so a multi-select drag whose group includes
+an attached connector and not its host produces a rubber-band: the
+free side follows the cursor while the attached side stays pinned.
+The store's `updateElementFrame` rejects connectors precisely to
+prevent the derived cached frame from drifting out of sync with the
+endpoints; `commitTranslate` is the only sanctioned write path for
+"translate this element by `(dx, dy)`."
+
 ### 6. Store Layer
 
 `SlidesStore` interface in `packages/slides/src/store/store.ts` gains:
