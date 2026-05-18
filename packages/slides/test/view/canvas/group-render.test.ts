@@ -84,12 +84,13 @@ function makeGroup(
   h: number,
   rotation: number,
   children: GroupElement['data']['children'],
+  refSize?: { w: number; h: number },
 ): GroupElement {
   return {
     id,
     type: 'group',
     frame: { x, y, w, h, rotation },
-    data: { children },
+    data: refSize ? { children, refSize } : { children },
   };
 }
 
@@ -162,6 +163,49 @@ describe('drawElement on a group', () => {
     expect(ops.filter((o) => o === 'restore').length).toBe(1);
     // No child ops: only the group transform (one translate) is called.
     expect(ops.filter((o) => o === 'translate').length).toBe(1);
+  });
+
+  it('scales child positions when frame.w/h differs from refSize', () => {
+    const { ctx, calls } = makeRecordingCtx();
+    const child = makeShape('s', 50, 25, 100, 50);
+    // Group frame is 2× refSize → scaleX = scaleY = 2.
+    const group = makeGroup('g', 0, 0, 400, 200, 0, [child], {
+      w: 200,
+      h: 100,
+    });
+
+    drawElement(ctx, group, emptyDoc(), THEME, () => {});
+
+    const scales = calls.filter((c) => c.op === 'scale');
+    expect(scales).toHaveLength(1);
+    expect(scales[0].args).toEqual([2, 2]);
+  });
+
+  it('omits scale call when frame matches refSize', () => {
+    const { ctx, calls } = makeRecordingCtx();
+    const child = makeShape('s', 50, 25, 100, 50);
+    const group = makeGroup('g', 0, 0, 200, 100, 0, [child], {
+      w: 200,
+      h: 100,
+    });
+
+    drawElement(ctx, group, emptyDoc(), THEME, () => {});
+
+    // scaleX = scaleY = 1, no rotation, no flip → fast path, no scale call.
+    const scales = calls.filter((c) => c.op === 'scale');
+    expect(scales).toHaveLength(0);
+  });
+
+  it('omits scale call when refSize is missing (legacy data)', () => {
+    const { ctx, calls } = makeRecordingCtx();
+    const child = makeShape('s', 50, 25, 100, 50);
+    // No refSize — renderer must fall back to frame.w/h (scale = 1).
+    const group = makeGroup('g', 0, 0, 400, 200, 0, [child]);
+
+    drawElement(ctx, group, emptyDoc(), THEME, () => {});
+
+    const scales = calls.filter((c) => c.op === 'scale');
+    expect(scales).toHaveLength(0);
   });
 });
 

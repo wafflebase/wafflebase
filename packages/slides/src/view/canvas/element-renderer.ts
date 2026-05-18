@@ -48,22 +48,41 @@ export function drawElement(
   // into every subsequent element on the slide.
   try {
     const flipped = frame.flipH || frame.flipV;
-    if (frame.rotation === 0 && !flipped) {
+
+    // For groups, children are stored in the group's local reference space
+    // (0..refSize.w × 0..refSize.h). We must scale that space to match the
+    // on-screen bbox (0..frame.w × 0..frame.h) so children scale
+    // proportionally when the group is resized. For non-group elements, the
+    // local space IS the frame, so refW/refH equal frame.w/h (scale = 1).
+    const isGroup = element.type === 'group';
+    const refW = isGroup ? (element.data.refSize?.w ?? frame.w) : frame.w;
+    const refH = isGroup ? (element.data.refSize?.h ?? frame.h) : frame.h;
+    const scaleX = refW > 0 ? frame.w / refW : 1;
+    const scaleY = refH > 0 ? frame.h / refH : 1;
+    const needsTransform =
+      frame.rotation !== 0 || flipped || scaleX !== 1 || scaleY !== 1;
+
+    if (!needsTransform) {
       ctx.translate(frame.x, frame.y);
     } else {
-      // Centre-relative transform: rotate, then flip, then move the
-      // local origin back to the frame top-left. Flip uses the same
-      // centre as rotation, matching OOXML <a:xfrm flipH/flipV>
-      // semantics. The frame rect itself is unchanged, so hit-test
-      // and selection-box math stay valid.
+      // Centre-relative transform: rotate, then flip, then scale the local
+      // space, then move the local origin back to the frame top-left.
+      // Flip uses the same centre as rotation, matching OOXML
+      // <a:xfrm flipH/flipV> semantics. The frame rect itself is unchanged,
+      // so hit-test and selection-box math stay valid.
       ctx.translate(frame.x + frame.w / 2, frame.y + frame.h / 2);
       if (frame.rotation !== 0) ctx.rotate(frame.rotation);
       if (flipped) {
         ctx.scale(frame.flipH ? -1 : 1, frame.flipV ? -1 : 1);
       }
-      ctx.translate(-frame.w / 2, -frame.h / 2);
+      if (scaleX !== 1 || scaleY !== 1) ctx.scale(scaleX, scaleY);
+      // Use refW/refH here so the local origin lands at the top-left of the
+      // local (reference) space, not of the scaled frame.
+      ctx.translate(-refW / 2, -refH / 2);
     }
-    const size = { w: frame.w, h: frame.h };
+    // Per-type painters work in local space; for groups that is the refSize
+    // space. For non-groups refW/refH == frame.w/h, so size is unchanged.
+    const size = { w: refW, h: refH };
     if (element.type === 'group') {
       // Recurse into the group's children. Each child's frame is in
       // group-local coordinates (0..w × 0..h), so painting them under
