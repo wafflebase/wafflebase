@@ -188,4 +188,21 @@ describe('collectSnapCandidates — drill-in scope (non-empty scope)', () => {
     // Width must be positive.
     expect(c.w).toBeGreaterThan(0);
   });
+
+  it('drill-in candidates at two-level scope use composed ancestor transform', () => {
+    // outer group at world (100, 100, w=400, h=300), no rotation.
+    // inner group at outer-local (50, 50, w=200, h=150), no rotation.
+    // leaf shape at inner-local (20, 10, w=30, h=20), no rotation.
+    // The leaf's world frame should be (100+50+20, 100+50+10, 30, 20) = (170, 160, 30, 20).
+    const leaf = shape('leaf', 20, 10, 30, 20);
+    const inner = group('inner', 50, 50, 200, 150, [leaf]);
+    const outer = group('outer', 100, 100, 400, 300, [inner]);
+    const sl = slide([outer]);
+    const out = collectSnapCandidates(sl, ['outer', 'inner'], new Set());
+    expect(out).toHaveLength(1);
+    expect(out[0].x).toBeCloseTo(170, 4);
+    expect(out[0].y).toBeCloseTo(160, 4);
+    expect(out[0].w).toBeCloseTo(30, 4);
+    expect(out[0].h).toBeCloseTo(20, 4);
+  });
 });

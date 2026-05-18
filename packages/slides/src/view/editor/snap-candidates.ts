@@ -2,9 +2,10 @@ import type { Frame, GroupElement } from '../../model/element';
 import type { Slide } from '../../model/presentation';
 import { boundingBox } from '../../model/frame';
 import {
-  applyGroupTransform,
+  composeAncestorTransform,
   findElementPath,
 } from '../../model/group';
+import { applyGroupTransform as applyMatrix } from '../../import/pptx/group';
 
 /**
  * Collect snap-candidate bboxes for a drag inside `slide` at the given
@@ -82,19 +83,17 @@ function collectScopedCandidates(
 
   const scopeGroup = innermostEl as GroupElement;
 
-  // fullAncestors = [outerGroup, ..., scopeGroup]. applyGroupTransform maps a
-  // frame from one group's local space to its parent's space, so we apply
-  // transforms from the innermost (scopeGroup) outward to reach world coords.
+  // fullAncestors = [outerGroup, ..., scopeGroup].
+  // composeAncestorTransform folds the chain into a single matrix that maps
+  // a point in scopeGroup's local space directly to world (slide-root) coords.
+  // One matrix multiply per child instead of one applyGroupTransform per ancestor.
   const fullAncestors = [...path.slice(0, -1), scopeGroup] as GroupElement[];
+  const t = composeAncestorTransform(fullAncestors);
 
   const result: Frame[] = [];
   for (const child of scopeGroup.data.children) {
     if (excludeIds.has(child.id)) continue;
-    // Walk the ancestor chain inside-out: scopeGroup first, then its ancestors.
-    let worldFrame = child.frame;
-    for (let i = fullAncestors.length - 1; i >= 0; i--) {
-      worldFrame = applyGroupTransform(worldFrame, fullAncestors[i]);
-    }
+    const worldFrame = applyMatrix(child.frame, t);
     result.push(toAABB(worldFrame));
   }
   return result;
