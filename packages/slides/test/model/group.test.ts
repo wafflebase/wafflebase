@@ -3,11 +3,14 @@ import * as fc from 'fast-check';
 import type { GroupElement, ShapeElement } from '../../src/model/element';
 import {
   applyGroupTransform,
+  applyInverseMatrix,
+  applyInversePoint,
   findElementPath,
   groupToTransform,
   isGroupDescendantOf,
   normalizeToGroupLocal,
 } from '../../src/model/group';
+import { IDENTITY_GROUP_TRANSFORM } from '../../src/model/group';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -254,6 +257,43 @@ describe('groupToTransform — refSize scaling', () => {
     const expectedTy = 50 + 50 * (1 - cos) - 100 * sin;
     expect(t.tx).toBeCloseTo(expectedTx, 5);
     expect(t.ty).toBeCloseTo(expectedTy, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M2. applyInverseMatrix / applyInversePoint — singular guard
+// ---------------------------------------------------------------------------
+
+describe('applyInverseMatrix / applyInversePoint — singular guard', () => {
+  it('applyInverseMatrix throws on a zero-width (singular) transform', () => {
+    // A transform built from a group with w=0 has a=0, so det=0.
+    const singularTransform = { ...IDENTITY_GROUP_TRANSFORM, a: 0, d: 0 };
+    const frame = { x: 10, y: 10, w: 50, h: 50, rotation: 0 };
+    expect(() => applyInverseMatrix(frame, singularTransform)).toThrow(
+      'cannot invert singular group transform',
+    );
+  });
+
+  it('applyInversePoint throws on a singular transform', () => {
+    const singularTransform = { ...IDENTITY_GROUP_TRANSFORM, a: 0, d: 0 };
+    expect(() => applyInversePoint(10, 20, singularTransform)).toThrow(
+      'cannot invert singular group transform',
+    );
+  });
+
+  it('applyInverseMatrix succeeds for a valid (non-singular) transform', () => {
+    const t = { a: 1, b: 0, c: 0, d: 1, tx: 100, ty: 50, rotation: 0 };
+    const frame = { x: 110, y: 60, w: 50, h: 50, rotation: 0 };
+    const result = applyInverseMatrix(frame, t);
+    expect(result.x).toBeCloseTo(10, 5);
+    expect(result.y).toBeCloseTo(10, 5);
+  });
+
+  it('applyInversePoint succeeds for a valid (non-singular) transform', () => {
+    const t = { a: 1, b: 0, c: 0, d: 1, tx: 100, ty: 50, rotation: 0 };
+    const result = applyInversePoint(110, 60, t);
+    expect(result.x).toBeCloseTo(10, 5);
+    expect(result.y).toBeCloseTo(10, 5);
   });
 });
 

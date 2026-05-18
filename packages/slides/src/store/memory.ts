@@ -28,6 +28,7 @@ import {
   applyInversePoint,
   composeAncestorTransform,
   findElementPath,
+  flattenElements,
   groupToTransform,
   normalizeToGroupLocal,
 } from '../model/group';
@@ -256,7 +257,9 @@ export class MemSlidesStore implements SlidesStore {
     // the cache is always derived from the endpoints — for both slide-root
     // and group-nested connectors.
     if (element.type === 'connector') {
-      const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
+      // Use the full element tree so endpoints targeting group-nested
+      // elements resolve correctly.
+      const lookup = this.elementsLookup(slideId);
       element.frame = computeConnectorFrame(element, lookup);
     }
     return id;
@@ -355,8 +358,10 @@ export class MemSlidesStore implements SlidesStore {
     // hit-testing uses the cached `frame`, which must stay fresh.
     // This is derived state; the snapshot-based undo already restores
     // the prior frame from the pre-batch snapshot.
+    // Walk the full element tree so connectors nested inside groups are
+    // also refreshed when their targets move.
     const lookup = this.elementsLookup(slideId);
-    for (const el of slide.elements) {
+    for (const el of flattenElements(slide.elements)) {
       if (el.type !== 'connector') continue;
       const dependsOnUs =
         (el.start.kind === 'attached' && el.start.elementId === elementId) ||
@@ -607,9 +612,14 @@ export class MemSlidesStore implements SlidesStore {
         if (cy > maxY) maxY = cy;
       }
     }
+    // Clamp to at least 1px to prevent a degenerate (singular) group transform.
+    // A zero-width or zero-height group would produce a non-invertible matrix,
+    // causing NaN/Infinity when normalizing child frames via applyInverseMatrix.
+    const MIN_GROUP_DIM = 1;
     const groupWorldFrame: Frame = {
       x: minX, y: minY,
-      w: maxX - minX, h: maxY - minY,
+      w: Math.max(maxX - minX, MIN_GROUP_DIM),
+      h: Math.max(maxY - minY, MIN_GROUP_DIM),
       rotation: 0,
     };
 
@@ -740,10 +750,23 @@ export class MemSlidesStore implements SlidesStore {
     // group's parent (= "one level up") coordinate space — exactly what we
     // need for a one-level-only ungroup. Grandchildren stay in their own
     // group-local space (their parent group's frame moves, not their own).
-    const bakedChildren: Element[] = group.data.children.map(child => ({
-      ...clone(child),
-      frame: applyGroupTransform(child.frame, group as GroupElement),
-    }));
+    // For connectors, also transform free endpoints from group-local to
+    // parent space so line geometry stays correct after ungroup.
+    const groupTx = groupToTransform(group as GroupElement);
+    const bakedChildren: Element[] = group.data.children.map(child => {
+      const cloned = clone(child);
+      cloned.frame = applyGroupTransform(child.frame, group as GroupElement);
+      if (cloned.type === 'connector') {
+        for (const side of ['start', 'end'] as const) {
+          const ep = cloned[side];
+          if (ep.kind === 'free') {
+            const world = applyGroupTransformToPoint(ep.x, ep.y, groupTx);
+            cloned[side] = { kind: 'free', x: world.x, y: world.y };
+          }
+        }
+      }
+      return cloned;
+    });
 
     // Step 6: replace the group in the parent array with its children,
     // preserving z-order (children land at the group's slot, in their
@@ -884,14 +907,16 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   /**
-   * Read-only id → Element map for the given slide. Used by the
-   * connector frame helpers to resolve attached endpoints.
+   * Read-only id → Element map for the given slide. Walks the full
+   * element tree (including elements nested inside groups) so that
+   * connector frame helpers can resolve attached endpoints regardless
+   * of group depth.
    */
   private elementsLookup(slideId: string): ReadonlyMap<string, Element> {
     const i = this.doc.slides.findIndex((s) => s.id === slideId);
     if (i === -1) return new Map();
     const slide = this.doc.slides[i];
-    return new Map(slide.elements.map((e) => [e.id, e] as const));
+    return new Map(flattenElements(slide.elements).map((e) => [e.id, e] as const));
   }
 
   /**
@@ -902,8 +927,9 @@ export class MemSlidesStore implements SlidesStore {
    * so attached `siteWorldPos` still resolves to a defined location.
    */
   private detachConnectorsTargeting(slide: Slide, targetId: string): void {
-    const lookup = new Map(slide.elements.map((e) => [e.id, e] as const));
-    for (const el of slide.elements) {
+    const allElements = flattenElements(slide.elements);
+    const lookup = new Map(allElements.map((e) => [e.id, e] as const));
+    for (const el of allElements) {
       if (el.type !== 'connector') continue;
       let mutated = false;
       for (const side of ['start', 'end'] as const) {

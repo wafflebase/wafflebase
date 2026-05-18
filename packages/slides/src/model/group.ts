@@ -117,6 +117,9 @@ export function applyGroupTransform(child: Frame, group: GroupElement): Frame {
  */
 export function applyInverseMatrix(frame: Frame, t: GroupTransform): Frame {
   const det = t.a * t.d - t.b * t.c;
+  if (Math.abs(det) < 1e-9) {
+    throw new Error('[slides] cannot invert singular group transform (group frame must have non-zero w and h)');
+  }
   const inv: GroupTransform = {
     a:  t.d / det, b: -t.b / det,
     c: -t.c / det, d:  t.a / det,
@@ -179,8 +182,9 @@ export function applyInversePoint(
   t: GroupTransform,
 ): { x: number; y: number } {
   const det = t.a * t.d - t.b * t.c;
-  // Pure rotation/translation matrices always have det === 1; this guard is
-  // a safety net for any future shear cases.
+  if (Math.abs(det) < 1e-9) {
+    throw new Error('[slides] cannot invert singular group transform (group frame must have non-zero w and h)');
+  }
   const invA =  t.d / det;
   const invB = -t.b / det;
   const invC = -t.c / det;

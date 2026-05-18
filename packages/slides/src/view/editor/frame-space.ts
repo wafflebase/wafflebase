@@ -63,6 +63,20 @@ export function scopeAncestorTransform(
     );
   }
 
+  // Validate the entire scope chain: the path's ancestor ids must match
+  // the scope array exactly. If any intermediate id is stale (e.g., a
+  // remote peer deleted a parent group while the user was drilled in),
+  // we catch it here rather than silently miscomputing world↔local transforms.
+  const pathIds = path.map((el) => el.id);
+  if (
+    pathIds.length !== scope.length ||
+    !scope.every((id, i) => id === pathIds[i])
+  ) {
+    throw new Error(
+      `frame-space: scope chain mismatch for innermost "${innermostId}" on slide "${slide.id}"`,
+    );
+  }
+
   // fullAncestors = [outerGroup, ..., scopeGroup].
   // composeAncestorTransform folds the chain into one matrix that maps
   // a point in scopeGroup's local space to world coordinates.

@@ -278,6 +278,64 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
     assert.equal(groupEl.data.children.length, 3);
   });
 
+  it('group() + ungroup() with a free-endpoint connector preserves endpoint world coords', () => {
+    // Guards the M1 fix: ungroup() must bake connector free endpoints from
+    // group-local into parent (world) space, not just the cached frame.
+    const { mem, yo } = runBoth((store) => {
+      let slideId = '';
+      let aId = '';
+      let bId = '';
+      let connectorId = '';
+      let groupId = '';
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        aId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 100, y: 100, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        bId = store.addElement(slideId, {
+          type: 'shape',
+          frame: { x: 200, y: 100, w: 50, h: 50, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        // Connector with a free start endpoint at (110, 125) and
+        // a free end endpoint at (210, 125) — both in world coords.
+        connectorId = store.addElement(slideId, {
+          type: 'connector',
+          routing: 'straight',
+          start: { kind: 'free', x: 110, y: 125 },
+          end:   { kind: 'free', x: 210, y: 125 },
+          arrowheads: {},
+          frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+        });
+      });
+      store.batch(() => {
+        groupId = store.group(slideId, [aId, bId, connectorId]).groupId;
+      });
+      store.batch(() => { store.ungroup(slideId, groupId); });
+    });
+    // Structural equivalence between both stores.
+    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    // After group + ungroup the slide must be flat again.
+    assert.equal(yo.slides[0].elements.length, 3);
+    // Find the connector and verify its free endpoints survived the round-trip
+    // in world coordinates — both stores must agree.
+    const yoConnector = yo.slides[0].elements.find((e) => e.type === 'connector') as
+      { type: 'connector'; start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } } | undefined;
+    const memConnector = mem.slides[0].elements.find((e) => e.type === 'connector') as
+      { type: 'connector'; start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } } | undefined;
+    assert.ok(yoConnector, 'connector should exist in yorkie store');
+    assert.ok(memConnector, 'connector should exist in mem store');
+    assert.equal(yoConnector.start.kind, 'free');
+    assert.equal(yoConnector.end.kind, 'free');
+    // Both stores must agree on the endpoint world positions.
+    assert.ok(Math.abs(yoConnector.start.x - memConnector.start.x) < 1e-6, 'start.x mismatch');
+    assert.ok(Math.abs(yoConnector.start.y - memConnector.start.y) < 1e-6, 'start.y mismatch');
+    assert.ok(Math.abs(yoConnector.end.x - memConnector.end.x) < 1e-6, 'end.x mismatch');
+    assert.ok(Math.abs(yoConnector.end.y - memConnector.end.y) < 1e-6, 'end.y mismatch');
+  });
+
   it('empty-group auto-removal works in both stores', () => {
     const { mem, yo } = runBoth((store) => {
       let slideId = '';

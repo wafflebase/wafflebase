@@ -1184,9 +1184,12 @@ export class YorkieSlidesStore implements SlidesStore {
           if (cy > maxY) maxY = cy;
         }
       }
+      // Clamp to at least 1px to prevent a degenerate (singular) group transform.
+      const MIN_GROUP_DIM = 1;
       const groupWorldFrame: Frame = {
         x: minX, y: minY,
-        w: maxX - minX, h: maxY - minY,
+        w: Math.max(maxX - minX, MIN_GROUP_DIM),
+        h: Math.max(maxY - minY, MIN_GROUP_DIM),
         rotation: 0,
       };
 
@@ -1293,10 +1296,26 @@ export class YorkieSlidesStore implements SlidesStore {
       const plainGroup = unwrapElement(group) as unknown as GroupElement;
 
       // Bake the group's transform into each child's frame.
-      const bakedChildren: YorkieElement[] = plainGroup.data.children.map(child => ({
-        ...clone(child),
-        frame: applyGroupTransform(child.frame, plainGroup),
-      } as YorkieElement));
+      // For connectors, also transform free endpoints from group-local
+      // to parent space so line geometry stays correct after ungroup.
+      const groupTx = groupToTransform(plainGroup);
+      const bakedChildren: YorkieElement[] = plainGroup.data.children.map((child) => {
+        const next = {
+          ...clone(child),
+          frame: applyGroupTransform(child.frame, plainGroup),
+        } as YorkieElement;
+        if (next.type === 'connector') {
+          const c = next as unknown as { start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } };
+          for (const side of ['start', 'end'] as const) {
+            const ep = c[side];
+            if (ep.kind === 'free') {
+              const p = applyGroupTransformToPoint(ep.x, ep.y, groupTx);
+              c[side] = { kind: 'free', x: p.x, y: p.y };
+            }
+          }
+        }
+        return next;
+      });
 
       childIds = bakedChildren.map(c => (c as { id: string }).id);
 
@@ -1342,8 +1361,11 @@ export class YorkieSlidesStore implements SlidesStore {
       // MemSlidesStore where the callback receives the live reference.
       // `next ?? blocks` covers both the explicit-return path and the
       // void-mutation path with one assignment.
-      const eAny = e as { data: unknown };
-      eAny.data = { blocks: clone(next ?? blocks) };
+      const eAny = e as { data: Record<string, unknown> };
+      eAny.data = {
+        ...eAny.data,
+        blocks: clone(next ?? blocks),
+      };
     });
   }
 
