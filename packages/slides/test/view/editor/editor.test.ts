@@ -1012,6 +1012,31 @@ describe('Editor — connector endpoint drag deadband', () => {
     store.undo();
     expect(store.canUndo()).toBe(true);
   });
+
+  it('mid-drag: real handle stays anchored at the pre-drag position', () => {
+    // The canvas-side ghost line is painted via the renderer's
+    // `forceRender(slide, doc, ghost)` slot — covered by the renderer's
+    // own tests. Here we only assert the overlay-side invariant: the
+    // handle DOM does NOT follow the cursor during the drag, so the
+    // user has a stable anchor to compare the ghost line against.
+    const { overlay } = setupConnector();
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="start"]');
+    expect(handle).not.toBeNull();
+    const initialLeft = parseFloat(handle!.style.left);
+    const initialTop = parseFloat(handle!.style.top);
+    const cx = initialLeft + 4;
+    const cy = initialTop + 4;
+
+    handle!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx + 50, clientY: cy + 30 }));
+
+    const realStart = overlay.querySelector<HTMLDivElement>('[data-handle="start"]')!;
+    expect(realStart).not.toBeNull();
+    expect(parseFloat(realStart.style.left)).toBe(initialLeft);
+    expect(parseFloat(realStart.style.top)).toBe(initialTop);
+
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx + 50, clientY: cy + 30 }));
+  });
 });
 
 describe('Editor — dragging connectors translates endpoints', () => {

@@ -178,7 +178,10 @@ function makeEndpointHandle(
   el.style.background = attached ? '#3a7' : '#fff';
   el.style.border = '1px solid #3a7';
   el.style.borderRadius = '50%';
-  el.style.cursor = 'pointer';
+  // `crosshair` matches the connector-insert tool: in both cases the
+  // user is targeting a point in the slide that will become an
+  // endpoint, so the same precise-aim cursor reinforces the affordance.
+  el.style.cursor = 'crosshair';
   return el;
 }
 

@@ -323,6 +323,16 @@ class SlidesEditorImpl implements SlidesEditor {
   /** Suppress hover ghost during an active drag-to-size insert. */
   private insertDragging = false;
   /**
+   * True while a connector endpoint drag (start/end handle) is in
+   * flight. The canvas `pointerleave` handler must not clear
+   * `connectorCursor` or repaint the overlay during this drag: the
+   * cursor regularly passes over overlay DOM (the connector's own
+   * handles, the live ghost, snap-site dots), each crossing fires
+   * `pointerleave` on the canvas, and the resulting `repaintOverlay`
+   * call would wipe the endpoint ghost on every move.
+   */
+  private endpointDragging = false;
+  /**
    * Logical-coord cursor position to drive the Task 13 connection-
    * points overlay. Set whenever the connector tool is armed and the
    * cursor is over the slide (whether or not a drag is in flight),
@@ -1348,7 +1358,11 @@ class SlidesEditorImpl implements SlidesEditor {
     // canvas. Repaint runs unconditionally below if either the shape
     // ghost or the connector cursor was active.
     const hadConnectorCursor = this.connectorCursor !== null;
-    if (hadConnectorCursor && !this.insertDragging) {
+    if (
+      hadConnectorCursor &&
+      !this.insertDragging &&
+      !this.endpointDragging
+    ) {
       this.connectorCursor = null;
       this.repaintOverlay();
     }
@@ -1799,6 +1813,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!startEl || startEl.type !== 'connector') return;
     const startConnector = startEl;
     const slideId = startSlide.id;
+    // Gate `onInsertHoverLeave` from clobbering `connectorCursor` /
+    // wiping the endpoint ghost when the cursor crosses overlay DOM
+    // (handle, ghost, snap dots) mid-drag.
+    this.endpointDragging = true;
 
     const startCursor = this.clientToLogical(clientX, clientY);
     let liveEndpoint = side === 'start' ? startConnector.start : startConnector.end;
@@ -1823,22 +1841,33 @@ class SlidesEditorImpl implements SlidesEditor {
     };
 
     const paintLiveConnector = () => {
-      const synthetic = {
-        ...startSlide,
-        elements: startSlide.elements.map((el) => {
-          if (el.id !== elementId || el.type !== 'connector') return el;
-          return side === 'start'
-            ? { ...el, start: liveEndpoint }
-            : { ...el, end: liveEndpoint };
-        }),
+      // Canvas: render the slide unchanged so the real connector stays
+      // anchored, then layer a translucent ghost copy with the dragged
+      // endpoint replaced by `liveEndpoint` — same `ghost` slot the
+      // hover-preview path uses for shape inserts, so it inherits the
+      // existing `GHOST_ALPHA` rendering with no extra plumbing.
+      const ghostConnector = {
+        ...startConnector,
+        start: side === 'start' ? liveEndpoint : startConnector.start,
+        end:   side === 'end'   ? liveEndpoint : startConnector.end,
       };
-      this.renderer.forceRender(synthetic, this.options.store.read());
-      const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
+      this.renderer.forceRender(
+        startSlide,
+        this.options.store.read(),
+        ghostConnector,
+      );
+      // Overlay: original connector → handles stay at the pre-drag
+      // positions. On mouseup, `dragEndpoint` commits and the next
+      // `repaintOverlay` reads the store-side new endpoint, so the
+      // handle teleports to where the ghost was.
+      const selected = startSlide.elements.filter((e) =>
+        this.selection.has(e.id),
+      );
       renderOverlay(this.options.overlay, selected, {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: SLIDE_HEIGHT,
-        allElements: synthetic.elements,
+        allElements: startSlide.elements,
         connectorAffordance: this.connectorAffordance(),
       });
     };
@@ -1869,6 +1898,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      this.endpointDragging = false;
       // Drop the affordance cursor before repainting so the dots
       // disappear on commit (no drag = no affordance).
       this.connectorCursor = null;
