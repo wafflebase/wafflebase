@@ -76,7 +76,7 @@ Present) and a standalone `SlideRenderer` (for the canvas). Phase B
 keeps the store, drops the renderer, and instead constructs the
 desktop `SlidesEditor` against the same canvas + a new overlay div:
 
-```
+```text
                      before (Phase A)
   YorkieSlidesStore ──► (used only by Present)
        SlideRenderer ──► <canvas>   (read-only paint)
@@ -176,7 +176,7 @@ from `view/canvas/layout-preview.ts`. Picker UI is mobile-native
 
 Header gains two icon buttons next to the title:
 
-```
+```text
 [‹]  [↶] [↷]  {title…}                  [▶]
 ```
 

@@ -143,7 +143,7 @@ unchanged; iOS touch drag will fire move events for the first time.
   such cases and update them to dispatch `PointerEvent` if so. Use:
 
   ```bash
-  grep -rnE "new MouseEvent\(|dispatchEvent.*mouse" packages/slides/src --include="*.ts" --include="*.test.ts"
+  grep -rnE "new MouseEvent\(|dispatchEvent.*mouse" packages/slides --include="*.ts" --include="*.test.ts"
   ```
 
 - [ ] **1a.5** Desktop smoke (`pnpm dev`, wide window):
