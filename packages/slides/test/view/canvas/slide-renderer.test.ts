@@ -8,8 +8,10 @@ import { BUILT_IN_LAYOUTS } from '../../../src/model/layout';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
 // Install Path2D global before the slide renderer pulls in shape builders.
 import '../../../src/view/canvas/test-canvas-env';
-import { SlideRenderer } from '../../../src/view/canvas/slide-renderer';
+import { SlideRenderer, drawSlide } from '../../../src/view/canvas/slide-renderer';
 import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
+import { MemSlidesStore } from '../../../src/store/memory';
+import type { Element } from '../../../src/model/element';
 
 const THEME: Theme = {
   id: 't', name: 't',
@@ -250,5 +252,75 @@ describe('SlideRenderer.render', () => {
     // fillStyle assignment should land that hex even though the
     // model-level color was a role binding.
     expect(ctx.fillStyle).toBe('#fff');
+  });
+});
+
+function buildDoc() {
+  const store = new MemSlidesStore();
+  let elementId = '';
+  store.batch(() => {
+    const sid = store.addSlide('blank');
+    elementId = store.addElement(sid, {
+      type: 'shape',
+      frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+    });
+  });
+  const doc = store.read();
+  const slide = doc.slides[0];
+  return { doc, slide, elementId };
+}
+
+function makeGhost(id: string, x: number): Element {
+  return {
+    id,
+    type: 'shape',
+    frame: { x, y: 100, w: 100, h: 100, rotation: 0 },
+    data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+  } as Element;
+}
+
+describe('drawSlide ghosts', () => {
+  it('each ghost adds one wrapper save/restore plus the drawElement save/restore on top of the baseline', () => {
+    const { doc, slide } = buildDoc();
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    const baseline = createCtxSpy();
+    drawSlide(asCtx(baseline), slide, doc, opts);
+
+    const twoGhosts = createCtxSpy();
+    drawSlide(
+      asCtx(twoGhosts),
+      slide,
+      doc,
+      opts,
+      () => undefined,
+      [makeGhost('g1', 300), makeGhost('g2', 600)],
+    );
+
+    // Each ghost contributes the new wrapper save/restore (for the
+    // `globalAlpha` scope) AND the per-element save/restore that
+    // `drawElement` always emits for the frame transform. With two
+    // ghosts that is 2 * 2 = 4 additional save/restore pairs on top
+    // of the baseline.
+    expect(twoGhosts.save.mock.calls.length).toBe(
+      baseline.save.mock.calls.length + 4,
+    );
+    expect(twoGhosts.restore.mock.calls.length).toBe(
+      baseline.restore.mock.calls.length + 4,
+    );
+  });
+
+  it('omitting ghosts equals an empty array', () => {
+    const { doc, slide } = buildDoc();
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    const omitted = createCtxSpy();
+    const empty = createCtxSpy();
+    drawSlide(asCtx(omitted), slide, doc, opts);
+    drawSlide(asCtx(empty), slide, doc, opts, () => undefined, []);
+
+    expect(omitted.save.mock.calls.length).toBe(empty.save.mock.calls.length);
+    expect(omitted.restore.mock.calls.length).toBe(empty.restore.mock.calls.length);
   });
 });

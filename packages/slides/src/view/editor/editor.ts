@@ -1399,7 +1399,7 @@ class SlidesEditorImpl implements SlidesEditor {
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
     );
     const ghost = { ...init, id: '__hover_preview__' } as Element;
-    this.renderer.forceRender(slide, this.options.store.read(), ghost);
+    this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
   }
 
   private startInsert(clientX: number, clientY: number): void {
@@ -1442,7 +1442,7 @@ class SlidesEditorImpl implements SlidesEditor {
       endPoint = this.clientToLogical(ev.clientX, ev.clientY);
       const init = buildInsertElement(kind, start, endPoint);
       const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
     };
     const cleanup = () => {
       document.removeEventListener('pointermove', onMove);
@@ -1518,7 +1518,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.connectorCursor = endPoint;
       const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
       const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
       // Repaint the overlay so the connection-points dots track the
       // cursor. The forceRender above paints the canvas; the overlay
       // is a separate DOM layer and needs its own update.

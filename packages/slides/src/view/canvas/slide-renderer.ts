@@ -72,21 +72,27 @@ export class SlideRenderer {
    * live-paint paths in the editor that need to draw an in-memory
    * frame override on every mousemove without committing to the store.
    *
-   * `ghost` — optional element drawn on top of the committed slide at
-   * `GHOST_ALPHA`. Used by two live-paint paths:
-   *   - shape-insert hover preview (the to-be-inserted shape under the
-   *     cursor before mousedown).
-   *   - connector endpoint drag preview (a ghost copy of the connector
-   *     with the dragged endpoint moved to the cursor target, while
-   *     the real connector stays anchored on `slide`).
+   * `ghosts` — optional elements drawn on top of the committed slide at
+   * `GHOST_ALPHA`. Used by three live-paint paths:
+   *   - shape-insert hover preview (single ghost of the to-be-inserted
+   *     shape under the cursor before mousedown).
+   *   - connector endpoint drag preview (single ghost copy of the
+   *     connector with the dragged endpoint moved to the cursor target,
+   *     while the real connector stays anchored on `slide`).
+   *   - shape-move drag preview (one ghost per selected element at the
+   *     dragged offset).
    * Kept out of `slide` so the ghost never participates in selection,
    * hit-test, or z-order. For a connector ghost, attached endpoints
    * still resolve through `slide`'s element lookup, so a half-attached
    * ghost line stays visually anchored to its host shape.
    */
-  forceRender(slide: Slide, doc: SlidesDocument, ghost?: Element): void {
+  forceRender(
+    slide: Slide,
+    doc: SlidesDocument,
+    ghosts?: ReadonlyArray<Element>,
+  ): void {
     this.dirty = true;
-    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghost);
+    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts);
     this.dirty = false;
   }
 }
@@ -103,7 +109,7 @@ export function drawSlide(
   doc: SlidesDocument,
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
-  ghost?: Element,
+  ghosts?: ReadonlyArray<Element>,
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
@@ -159,16 +165,17 @@ export function drawSlide(
     drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
   }
 
-  if (ghost !== undefined) {
-    // Paint the hover-preview ghost on top of the committed slide so
-    // its semi-transparency reveals the underlying content. Using
-    // `globalAlpha` rather than per-shape opacity means every kind
-    // (filled basic, outlined callout, two-tone action button) ends
-    // up at the same readable opacity without per-renderer tweaks.
-    ctx.save();
-    ctx.globalAlpha = GHOST_ALPHA;
-    drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
-    ctx.restore();
+  if (ghosts !== undefined && ghosts.length > 0) {
+    // Paint hover/drag-preview ghosts on top of the committed slide so
+    // their semi-transparency reveals the underlying content. One
+    // save/restore band per ghost keeps `globalAlpha` writes scoped
+    // and isolates any future per-ghost style overrides.
+    for (const ghost of ghosts) {
+      ctx.save();
+      ctx.globalAlpha = GHOST_ALPHA;
+      drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
+      ctx.restore();
+    }
   }
 }
 
