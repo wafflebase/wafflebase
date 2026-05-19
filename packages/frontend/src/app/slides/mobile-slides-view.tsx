@@ -6,12 +6,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { IconPlus } from "@tabler/icons-react";
 import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   SlideRenderer,
   initializeEditor,
+  renderThumbnail,
   type SlidesDocument,
   type SlidesEditor,
 } from "@wafflebase/slides";
@@ -19,7 +20,6 @@ import { Loader } from "@/components/loader";
 import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
-import { SlidesPresentationMode } from "./slides-presentation-mode";
 import {
   YorkieSlidesStore,
   ensureSlidesRoot,
@@ -43,11 +43,6 @@ function computeFitSize(
 }
 
 interface MobileSlidesViewProps {
-  documentId: string;
-  /** Page title from the Documents API. Falls back to Yorkie meta title. */
-  title?: string;
-  /** Override the back action; defaults to `navigate(-1)`. */
-  onBack?: () => void;
   /**
    * `'view'` mounts a read-only `SlideRenderer` (Phase A behavior).
    * `'edit'` mounts the full `SlidesEditor` with touch-friendly
@@ -56,6 +51,17 @@ interface MobileSlidesViewProps {
    * for shared-link viewers without edit permission.
    */
   mode?: "view" | "edit";
+  /**
+   * Lift the Yorkie store up to the parent so the SiteHeader's
+   * Present button and the SlidesToolbar's undo/redo can wire into
+   * it (matches `SlidesView`'s `onStoreReady` on desktop).
+   */
+  onStoreReady?: (store: YorkieSlidesStore | null) => void;
+  /**
+   * Lift the SlidesEditor up to the parent. Only fires in `mode='edit'`
+   * — view mode mounts a `SlideRenderer` directly, not an editor.
+   */
+  onEditorReady?: (editor: SlidesEditor | null) => void;
 }
 
 /** Touch hit slack passed to the editor in `edit` mode. 22px expands
@@ -75,51 +81,64 @@ const TOUCH_HANDLE_TOLERANCE = 22;
  * sync and undo/redo are inherited from desktop.
  */
 export function MobileSlidesView({
-  title,
-  onBack,
   mode = "edit",
+  onStoreReady,
+  onEditorReady,
 }: MobileSlidesViewProps) {
-  const navigate = useNavigate();
   const { doc, loading, error } = useDocument<
     YorkieSlidesRoot,
     SlidesPresence
   >();
 
-  // Build the store once per `doc`. We keep the store around so the
-  // Present button can hand it to `<SlidesPresentationMode>` without
-  // re-wrapping on every render. Disposed in cleanup.
+  // Stash the lifted-state callbacks behind refs so the effects below
+  // don't re-run whenever the parent renders with a fresh closure for
+  // either callback. The parent today passes `setStore`/`setEditor`
+  // from useState (referentially stable), but defending the contract
+  // here keeps a future inline `(e) => ...` caller from accidentally
+  // detaching the editor on every parent render.
+  const onStoreReadyRef = useRef(onStoreReady);
+  const onEditorReadyRef = useRef(onEditorReady);
+  useEffect(() => {
+    onStoreReadyRef.current = onStoreReady;
+  }, [onStoreReady]);
+  useEffect(() => {
+    onEditorReadyRef.current = onEditorReady;
+  }, [onEditorReady]);
+
+  // Build the store once per `doc`. The parent owns the Present button
+  // (in SiteHeader) and the toolbar's undo/redo, so we expose the
+  // store via `onStoreReady` as soon as it's built and clear it on
+  // cleanup. Disposed in cleanup either way.
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   useEffect(() => {
     if (!doc) return;
     ensureSlidesRoot(doc);
     const s = new YorkieSlidesStore(doc);
     setStore(s);
+    onStoreReadyRef.current?.(s);
     return () => {
       s.dispose();
       setStore(null);
+      onStoreReadyRef.current?.(null);
     };
   }, [doc]);
 
-  // Snapshot of the parts of the deck the mobile shell renders.
-  // Refreshed whenever the store fires `onChange` (covers local writes
-  // — though we don't issue any here — and remote peer edits).
-  const [snapshot, setSnapshot] = useState<{
-    title: string;
-    slideIds: string[];
-  }>({ title: title ?? "", slideIds: [] });
+  // Snapshot of the slide list the mobile shell renders. Refreshed
+  // whenever the store fires `onChange` so the footer indicator and
+  // navigation arrows track remote peer edits.
+  const [snapshot, setSnapshot] = useState<{ slideIds: string[] }>({
+    slideIds: [],
+  });
 
   useEffect(() => {
     if (!store) return;
     const refresh = () => {
       const r = store.read();
-      setSnapshot({
-        title: title ?? r.meta?.title ?? "Untitled",
-        slideIds: r.slides.map((s) => s.id),
-      });
+      setSnapshot({ slideIds: r.slides.map((s) => s.id) });
     };
     refresh();
     return store.onChange(refresh);
-  }, [store, title]);
+  }, [store]);
 
   const [currentSlideId, setCurrentSlideId] = useState<string>("");
   useEffect(() => {
@@ -146,6 +165,18 @@ export function MobileSlidesView({
     if (currentIndex <= 0) return;
     setCurrentSlideId(snapshot.slideIds[currentIndex - 1]);
   }, [currentIndex, snapshot.slideIds]);
+
+  // Append a blank slide and jump to it. Mirrors `SlideGroup.onAddBlankSlide`
+  // on desktop; surfaced from the thumbnail strip on mobile so the
+  // toolbar can drop the redundant `+` button.
+  const addBlankSlide = useCallback(() => {
+    if (!store) return;
+    let newId = "";
+    store.batch(() => {
+      newId = store.addSlide("blank");
+    });
+    if (newId) setCurrentSlideId(newId);
+  }, [store]);
 
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -285,6 +316,7 @@ export function MobileSlidesView({
       touchHandleTolerance: TOUCH_HANDLE_TOLERANCE,
     });
     editorRef.current = editor;
+    onEditorReadyRef.current?.(editor);
 
     if (currentSlideId) editor.setCurrentSlide(currentSlideId);
     editor.render();
@@ -338,6 +370,7 @@ export function MobileSlidesView({
       // in slides-view.tsx:479.
       editor.detach();
       editorRef.current = null;
+      onEditorReadyRef.current?.(null);
       styleTag.remove();
     };
     // currentSlideId is intentionally NOT a dep: it would tear down
@@ -357,108 +390,28 @@ export function MobileSlidesView({
     }
   }, [mode, currentSlideId]);
 
-  const handleBack = useCallback(() => {
-    if (onBack) onBack();
-    else navigate(-1);
-  }, [onBack, navigate]);
-
-  const [presentingFrom, setPresentingFrom] = useState<"current" | null>(null);
-  const handlePresent = useCallback(() => {
-    if (!store || store.read().slides.length === 0) return;
-    setPresentingFrom("current");
-  }, [store]);
-
-  const presentationStartSlideId =
-    presentingFrom && currentSlideId ? currentSlideId : undefined;
-
-  if (loading) return <Loader />;
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader />
+      </div>
+    );
+  }
   if (error) {
     return (
-      <div role="alert" style={{ padding: 16 }}>
+      <div role="alert" className="p-4 text-sm text-destructive">
         Failed to load deck.
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100dvh",
-        maxHeight: "100vh",
-        overflow: "hidden",
-        background: "#fff",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          height: 44,
-          padding: "0 8px",
-          gap: 8,
-          borderBottom: "1px solid #e5e7eb",
-          flexShrink: 0,
-          background: "#fff",
-        }}
-      >
-        <button
-          type="button"
-          aria-label="Back to deck list"
-          onClick={handleBack}
-          style={{
-            width: 36,
-            height: 36,
-            fontSize: 22,
-            background: "transparent",
-            border: 0,
-            cursor: "pointer",
-          }}
-        >
-          ‹
-        </button>
-        <h1
-          style={{
-            flex: 1,
-            fontSize: 16,
-            fontWeight: 500,
-            margin: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {snapshot.title || "Untitled"}
-        </h1>
-        <button
-          type="button"
-          aria-label="Start presentation"
-          onClick={handlePresent}
-          disabled={snapshot.slideIds.length === 0}
-          style={{
-            width: 36,
-            height: 36,
-            fontSize: 16,
-            background: "transparent",
-            border: 0,
-            cursor: snapshot.slideIds.length === 0 ? "not-allowed" : "pointer",
-            opacity: snapshot.slideIds.length === 0 ? 0.4 : 1,
-          }}
-        >
-          ▶
-        </button>
-      </header>
-
+    <>
       <div
         ref={canvasHostRef}
+        className="flex flex-1 items-center justify-center bg-black"
         style={{
-          flex: 1,
           minHeight: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#000",
           // edit: canvas owns horizontal pointer (drag-to-move), so
           // disable all browser touch gestures (pinch, pan, double-tap
           // zoom). view: allow vertical pan for short pages, but the
@@ -506,64 +459,163 @@ export function MobileSlidesView({
         )}
       </div>
 
-      <footer
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-          height: 28,
-          fontSize: 13,
-          flexShrink: 0,
-          borderTop: "1px solid #e5e7eb",
-          background: "#fff",
-        }}
-      >
-        <button
-          type="button"
-          aria-label="Previous slide"
-          onClick={prevSlide}
-          disabled={currentIndex <= 0}
-          style={{
-            minWidth: 32,
-            background: "transparent",
-            border: 0,
-            cursor: currentIndex <= 0 ? "not-allowed" : "pointer",
-            opacity: currentIndex <= 0 ? 0.4 : 1,
-          }}
-        >
-          ‹
-        </button>
-        <span>
-          {Math.max(currentIndex + 1, 0)} / {snapshot.slideIds.length}
-        </span>
-        <button
-          type="button"
-          aria-label="Next slide"
-          onClick={nextSlide}
-          disabled={currentIndex >= snapshot.slideIds.length - 1}
-          style={{
-            minWidth: 32,
-            background: "transparent",
-            border: 0,
-            cursor:
-              currentIndex >= snapshot.slideIds.length - 1
-                ? "not-allowed"
-                : "pointer",
-            opacity:
-              currentIndex >= snapshot.slideIds.length - 1 ? 0.4 : 1,
-          }}
-        >
-          ›
-        </button>
-      </footer>
+      <ThumbnailStrip
+        store={store}
+        slideIds={snapshot.slideIds}
+        currentSlideId={currentSlideId}
+        onSelectSlide={setCurrentSlideId}
+        onAddSlide={addBlankSlide}
+      />
+    </>
+  );
+}
 
-      {presentingFrom && store && presentationStartSlideId && (
-        <SlidesPresentationMode
-          store={store}
-          startSlideId={presentationStartSlideId}
-          onExit={() => setPresentingFrom(null)}
-        />
+/** Mobile horizontal scroll strip showing every slide as a mini canvas.
+ * Replaces the desktop side panel for navigation on phones — tap to
+ * jump, current slide outlined, repaint debounced via `store.onChange`. */
+const THUMB_W = 64;
+const THUMB_H = Math.round(THUMB_W / SLIDE_ASPECT);
+// Debounce paint to coalesce the per-keystroke onChange events that
+// fire while the user is editing a text box — without this, every
+// character would force renderThumbnail() on every slide.
+const THUMB_REPAINT_MS = 120;
+
+interface ThumbnailStripProps {
+  store: YorkieSlidesStore | null;
+  slideIds: string[];
+  currentSlideId: string;
+  onSelectSlide: (id: string) => void;
+  onAddSlide?: () => void;
+}
+
+function ThumbnailStrip({
+  store,
+  slideIds,
+  currentSlideId,
+  onSelectSlide,
+  onAddSlide,
+}: ThumbnailStripProps) {
+  const canvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  // Single subscription painting every thumbnail on each store change.
+  // ref callbacks attach by the time the debounce timer fires, so newly
+  // added slides paint on their first commit without a separate path.
+  useEffect(() => {
+    if (!store) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    const paint = () => {
+      const doc = store.read();
+      for (const slide of doc.slides) {
+        const canvas = canvasRefs.current.get(slide.id);
+        if (!canvas) continue;
+        canvas.width = THUMB_W * dpr;
+        canvas.height = THUMB_H * dpr;
+        canvas.style.width = `${THUMB_W}px`;
+        canvas.style.height = `${THUMB_H}px`;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        renderThumbnail(ctx, slide, doc, {
+          hostWidth: THUMB_W,
+          hostHeight: THUMB_H,
+          dpr,
+        });
+      }
+    };
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePaint = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        paint();
+      }, THUMB_REPAINT_MS);
+    };
+
+    // Paint once on next frame so the first render's ref callbacks
+    // have attached the canvases.
+    const raf = requestAnimationFrame(paint);
+    const off = store.onChange(schedulePaint);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      cancelAnimationFrame(raf);
+      off();
+    };
+    // `slideIds` is intentionally NOT a dep — `paint` reads
+    // `store.read()` so it always sees the latest slide list. If we
+    // included `slideIds` (a fresh array per store.onChange), the
+    // cleanup would clear the debounce timer on every change and
+    // force an immediate repaint, defeating the 120 ms coalescing.
+  }, [store]);
+
+  // Auto-scroll the active thumbnail into view when the current slide
+  // changes from anywhere (footer tap, swipe, remote peer, editor).
+  useEffect(() => {
+    const el = itemRefs.current.get(currentSlideId);
+    if (!el) return;
+    el.scrollIntoView({
+      behavior: "smooth",
+      inline: "center",
+      block: "nearest",
+    });
+  }, [currentSlideId]);
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 overflow-x-auto border-t bg-background px-2 py-2"
+      style={{ scrollbarWidth: "thin" }}
+    >
+      {slideIds.map((id, idx) => {
+        const isActive = id === currentSlideId;
+        return (
+          <button
+            key={id}
+            ref={(el) => {
+              if (el) itemRefs.current.set(id, el);
+              else itemRefs.current.delete(id);
+            }}
+            type="button"
+            onClick={() => onSelectSlide(id)}
+            aria-label={`Slide ${idx + 1}`}
+            aria-current={isActive ? "true" : undefined}
+            className={`flex shrink-0 flex-col items-center gap-1 rounded-sm border-2 p-0.5 ${
+              isActive ? "border-primary" : "border-transparent"
+            }`}
+          >
+            <canvas
+              ref={(el) => {
+                if (el) canvasRefs.current.set(id, el);
+                else canvasRefs.current.delete(id);
+              }}
+              className="block bg-white"
+              style={{ width: THUMB_W, height: THUMB_H }}
+            />
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {idx + 1}
+            </span>
+          </button>
+        );
+      })}
+      {onAddSlide && (
+        <button
+          type="button"
+          onClick={onAddSlide}
+          disabled={!store}
+          aria-label="Add slide"
+          className="flex shrink-0 flex-col items-center gap-1 rounded-sm border-2 border-transparent p-0.5 disabled:opacity-50"
+        >
+          <div
+            className="flex items-center justify-center rounded-sm border border-dashed text-muted-foreground"
+            style={{ width: THUMB_W, height: THUMB_H }}
+          >
+            <IconPlus size={20} />
+          </div>
+          <span className="text-[10px] tabular-nums text-muted-foreground">
+            +
+          </span>
+        </button>
       )}
     </div>
   );
