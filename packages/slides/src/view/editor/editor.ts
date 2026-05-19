@@ -3,6 +3,8 @@ import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
+import type { Endpoint } from '../../model/connector';
+import { resolveEndpoint } from '../canvas/connector-frame';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import {
   alignFrames,
@@ -51,7 +53,7 @@ import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
-import { findElementPath } from '../../model/group';
+import { findElementPath, flattenElements } from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -1698,6 +1700,14 @@ class SlidesEditorImpl implements SlidesEditor {
     // rotated shapes/groups snap against their visible bbox.
     const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
+    // Lookup map for resolving connector endpoints to world coords —
+    // needed when a ghost connector's attached endpoint targets a
+    // dragged shape (the ghost line must follow the ghost shape's
+    // connection site, not snap back to the original).
+    const slideLookup = new Map<string, Element>(
+      flattenElements(startSlide.elements).map((e) => [e.id, e] as const),
+    );
+
     let liveDx = 0;
     let liveDy = 0;
 
@@ -1718,23 +1728,40 @@ class SlidesEditorImpl implements SlidesEditor {
 
       // Ghosts paint at WORLD coords on top of the unmodified slide
       // (which itself paints group-local frames through their group's
-      // transform). Non-connectors translate their world frame;
-      // connectors render via endpoint lookup, so their ghost must
-      // translate the endpoints — free endpoints by (dx, dy), attached
-      // endpoints stay anchored to their host shape. This mirrors what
-      // `translateElement` and `commitTranslate` do on commit, so the
-      // ghost preview matches the post-commit visual.
+      // transform). Non-connectors translate their world frame.
+      //
+      // Connectors render via endpoint lookup against the underlying
+      // slide elements, so we must materialize each endpoint into the
+      // ghost itself rather than relying on the lookup:
+      //  - `free` endpoint            → translate by (dx, dy).
+      //  - `attached` to a dragged    → resolve to world coords and
+      //    element                      translate by (dx, dy) so the
+      //                                 ghost line meets the ghost
+      //                                 shape's connection site.
+      //  - `attached` to a non-dragged → keep as-is; the renderer
+      //    element                      resolves it against the
+      //                                 untouched slide, matching the
+      //                                 commit-time behavior of
+      //                                 `commitTranslate` (which only
+      //                                 moves free endpoints).
+      const ghostEndpoint = (ep: Endpoint): Endpoint => {
+        if (ep.kind === 'free') {
+          return { kind: 'free', x: ep.x + dx, y: ep.y + dy };
+        }
+        if (selectedIds.has(ep.elementId)) {
+          const world = resolveEndpoint(ep, slideLookup);
+          return { kind: 'free', x: world.x + dx, y: world.y + dy };
+        }
+        return ep;
+      };
+
       const ghosts: Element[] = [];
       for (const el of originals.values()) {
         if (el.type === 'connector') {
           ghosts.push({
             ...el,
-            start: el.start.kind === 'free'
-              ? { kind: 'free', x: el.start.x + dx, y: el.start.y + dy }
-              : el.start,
-            end: el.end.kind === 'free'
-              ? { kind: 'free', x: el.end.x + dx, y: el.end.y + dy }
-              : el.end,
+            start: ghostEndpoint(el.start),
+            end: ghostEndpoint(el.end),
             frame: { ...el.frame, x: el.frame.x + dx, y: el.frame.y + dy },
           } as Element);
         } else {
