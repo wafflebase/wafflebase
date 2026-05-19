@@ -1402,8 +1402,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const { x, y } = this.clientToLogical(clientX, clientY);
     for (const el of slide.elements) {
       if (!selectedIds.has(el.id)) continue;
-      const f = el.frame;
-      if (x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h) return true;
+      if (containsPoint(el.frame, x, y)) return true;
     }
     return false;
   }

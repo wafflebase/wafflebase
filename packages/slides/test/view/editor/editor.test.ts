@@ -205,6 +205,38 @@ describe('initialize', () => {
     expect(writes).toBe(1);
   });
 
+  it('hover hit-test respects element rotation', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        // Rotated 45deg around centre (200, 150). The bbox corners
+        // (100,100)/(300,200) are now empty space; the rotated extent
+        // pushes out beyond the axis-aligned bbox.
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: Math.PI / 4 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+
+    // (100, 100) is INSIDE the axis-aligned bbox but OUTSIDE the rotated
+    // shape — the rotated rect's top-left corner is at the centre's
+    // y-axis-up direction, well above this point. Should be no 'move'.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 100, clientY: 100, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+
+    // Centre (200, 150) is inside the rotated rect — should be 'move'.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 200, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('move');
+  });
+
   function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
     target.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: x, clientY: y, shiftKey: shift, bubbles: true,
