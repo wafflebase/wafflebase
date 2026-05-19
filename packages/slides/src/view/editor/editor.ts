@@ -1255,6 +1255,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // the editor (toolbar etc.) reflects the active target.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
+    // Drop any stale hover-move cursor; once text-edit owns the box,
+    // the next pointermove path early-returns without touching cursor.
+    if (this.lastHoverCursor !== '') {
+      this.options.canvas.style.cursor = '';
+      this.lastHoverCursor = '';
+    }
 
     const blocks = element.data.blocks;
     // Escape sets `cancelled` first, THEN the docs editor routes the

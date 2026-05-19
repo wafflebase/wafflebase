@@ -29,7 +29,7 @@ with live frames, and reuses existing ghost-rendering infrastructure in
 - Show a `move` cursor on hover over a selected shape's bounding box.
 - Keep original shape + selection handles + snap guidelines visible
   during drag (handles anchor to the original frame).
-- Commit only on `pointerup`; ESC cancels with no store mutation.
+- Commit only on `pointerup` (single `store.batch`).
 - Reuse the existing `drawSlide(..., ghost?)` path; do **not** add a new
   canvas layer.
 
@@ -37,6 +37,7 @@ with live frames, and reuses existing ghost-rendering infrastructure in
 
 - Connector drag (current endpoint-based routing is kept — connectors
   are excluded from the ghost path in v1).
+- ESC mid-drag cancel (undo is the v1 fallback; tracked as follow-up).
 - Alt-drag duplicate / clone-while-drag.
 - Keyboard arrow-key nudges (single discrete move, no ghost needed).
 - Touch-input cursor changes (touch has no cursor concept; ghost
@@ -50,8 +51,7 @@ with live frames, and reuses existing ghost-rendering infrastructure in
 | File | Change |
 | ---- | ------ |
 | `packages/slides/src/view/canvas/slide-renderer.ts` | `drawSlide(...)` and `forceRender(...)` accept `ghosts?: ReadonlyArray<Element>` instead of `ghost?: Element`. |
-| `packages/slides/src/view/editor/editor.ts` | `startDrag()` paints ghosts via `forceRender(originalSlide, doc, ghosts)`; overlay (handles + snap guides) anchored to original frame. New hover-cursor logic on `pointermove` over the canvas. |
-| `packages/slides/src/view/editor/overlay.ts` | Accept snap guides as an explicit parameter; do not depend on synthesized live frames. |
+| `packages/slides/src/view/editor/editor.ts` | New `paintMoveGhost()` helper; `startDrag()` paints ghosts via `forceRender(originalSlide, doc, ghosts)` and routes handles + snap guides explicitly. New hover-cursor logic on `pointermove` over the canvas (`onSelectionHoverMove` + `isPointerOverSelected`). |
 | `docs/design/README.md` | Add row linking to this design doc under "Slides". |
 
 ### Cursor rules
@@ -115,8 +115,9 @@ preview.
   called per `mousemove` with the same `bbox`, `otherFrames`, threshold
   inputs as today. Result `{ dx, dy, guides }` feeds: (a) ghost frame
   offset, (b) `renderOverlay(..., guides)`.
-- `renderOverlay` gains an explicit `snapGuides` parameter rather than
-  inferring guides from the live-frame map (which goes away).
+- `renderOverlay` already exposes `guides`; the drag path now passes
+  them explicitly from `snapDelta`'s output rather than inferring them
+  from a synthesized-frame map (which goes away).
 
 ### Commit and cancel
 
@@ -126,8 +127,8 @@ preview.
 - Pointer leaves canvas mid-drag: current capture pattern via
   `document.addEventListener('pointermove'/'pointerup', ...)` keeps the
   drag alive — no change.
-- ESC during drag: drop ghosts, do not call `store.updateElement`,
-  `markDirty()` + `render()` + `repaintOverlay()`.
+- ESC mid-drag cancel is **out of scope for v1** — undo is the
+  fallback. Tracked as a follow-up.
 
 ### Tests
 
@@ -143,7 +144,10 @@ Unit tests in `packages/slides/src/view/editor/*.test.ts`:
   by the same `(dx, dy)`.
 - `mouseup` → `store.updateElement` invoked inside one `store.batch`
   with new `(x, y)` per element.
-- ESC mid-drag → no `store.updateElement` call; ghost state cleared.
+- Connector in multi-selection drag → `pointerup` does **not** throw;
+  the connector's frame is unchanged.
+- Rotated element hover hit-test uses rotation-aware `containsPoint`,
+  not axis-aligned bbox.
 
 ### Risks and Mitigation
 
