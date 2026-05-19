@@ -8,8 +8,10 @@ import { BUILT_IN_LAYOUTS } from '../../../src/model/layout';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
 // Install Path2D global before the slide renderer pulls in shape builders.
 import '../../../src/view/canvas/test-canvas-env';
-import { SlideRenderer } from '../../../src/view/canvas/slide-renderer';
+import { SlideRenderer, drawSlide, GHOST_ALPHA } from '../../../src/view/canvas/slide-renderer';
 import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
+import { MemSlidesStore } from '../../../src/store/memory';
+import type { Element } from '../../../src/model/element';
 
 const THEME: Theme = {
   id: 't', name: 't',
@@ -230,7 +232,7 @@ describe('SlideRenderer.render', () => {
     ctx.stroke.mockImplementation(() => {
       alphaAtStroke.push(ctx.globalAlpha);
     });
-    renderer.forceRender(slide, DOC, ghostConnector);
+    renderer.forceRender(slide, DOC, [ghostConnector]);
     // The ghost connector's line strokes once.
     expect(alphaAtStroke).toContain(GHOST_ALPHA);
     // And `save`/`restore` bracket the ghost paint so the alpha
@@ -250,5 +252,75 @@ describe('SlideRenderer.render', () => {
     // fillStyle assignment should land that hex even though the
     // model-level color was a role binding.
     expect(ctx.fillStyle).toBe('#fff');
+  });
+});
+
+function buildDoc() {
+  const store = new MemSlidesStore();
+  let elementId = '';
+  store.batch(() => {
+    const sid = store.addSlide('blank');
+    elementId = store.addElement(sid, {
+      type: 'shape',
+      frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+    });
+  });
+  const doc = store.read();
+  const slide = doc.slides[0];
+  return { doc, slide, elementId };
+}
+
+function makeGhost(id: string, x: number): Element {
+  return {
+    id,
+    type: 'shape',
+    frame: { x, y: 100, w: 100, h: 100, rotation: 0 },
+    data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+  } as Element;
+}
+
+describe('drawSlide ghosts', () => {
+  it('paints each ghost with globalAlpha set to GHOST_ALPHA', () => {
+    const { doc, slide } = buildDoc();
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    const spy = createCtxSpy();
+    // Observe every write to globalAlpha. The ghost band sets it to
+    // GHOST_ALPHA between save() and restore(); the rest of the render
+    // either never writes it or writes 1.
+    const alphaWrites: number[] = [];
+    let alpha = spy.globalAlpha;
+    Object.defineProperty(spy, 'globalAlpha', {
+      configurable: true,
+      get() { return alpha; },
+      set(v: number) { alpha = v; alphaWrites.push(v); },
+    });
+
+    drawSlide(
+      asCtx(spy),
+      slide,
+      doc,
+      opts,
+      () => undefined,
+      [makeGhost('g1', 300), makeGhost('g2', 600)],
+    );
+
+    // Both ghosts must have been painted at GHOST_ALPHA.
+    const ghostAlphaWrites = alphaWrites.filter((a) => a === GHOST_ALPHA);
+    expect(ghostAlphaWrites.length).toBe(2);
+  });
+
+  it('omitting ghosts equals an empty array', () => {
+    const { doc, slide } = buildDoc();
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    const omitted = createCtxSpy();
+    const empty = createCtxSpy();
+    drawSlide(asCtx(omitted), slide, doc, opts);
+    drawSlide(asCtx(empty), slide, doc, opts, () => undefined, []);
+
+    expect(omitted.save.mock.calls.length).toBe(empty.save.mock.calls.length);
+    expect(omitted.restore.mock.calls.length).toBe(empty.restore.mock.calls.length);
   });
 });

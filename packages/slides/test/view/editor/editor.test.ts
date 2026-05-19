@@ -90,6 +90,153 @@ describe('initialize', () => {
     expect(overlay.style.cursor).toBe('');
   });
 
+  it('hover over a selected shape sets cursor to move', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('move');
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 800, clientY: 500, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('hover over a non-selected shape does not set move cursor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // No selection.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('move cursor logic is skipped for non-mouse pointers (touch)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'touch', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+  });
+
+  it('hover does not override the crosshair cursor in insert mode', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+    editor.setInsertMode('rect');
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('crosshair');
+  });
+
+  it('repeated pointermove inside a selected shape does not re-write cursor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+
+    let writes = 0;
+    const cursorStore: { v: string } = { v: '' };
+    Object.defineProperty(canvas.style, 'cursor', {
+      configurable: true,
+      get() { return cursorStore.v; },
+      set(v: string) { cursorStore.v = v; writes++; },
+    });
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 160, clientY: 160, pointerType: 'mouse', bubbles: true,
+    }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 170, clientY: 160, pointerType: 'mouse', bubbles: true,
+    }));
+
+    expect(writes).toBe(1);
+  });
+
+  it('hover hit-test respects element rotation', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        // Rotated 45deg around centre (200, 150). The bbox corners
+        // (100,100)/(300,200) are now empty space; the rotated extent
+        // pushes out beyond the axis-aligned bbox.
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: Math.PI / 4 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+
+    // (100, 100) is INSIDE the axis-aligned bbox but OUTSIDE the rotated
+    // shape — the rotated rect's top-left corner is at the centre's
+    // y-axis-up direction, well above this point. Should be no 'move'.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 100, clientY: 100, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('');
+
+    // Centre (200, 150) is inside the rotated rect — should be 'move'.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 200, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(canvas.style.cursor).toBe('move');
+  });
+
   function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
     target.dispatchEvent(new PointerEvent('pointerdown', {
       clientX: x, clientY: y, shiftKey: shift, bubbles: true,
@@ -140,6 +287,152 @@ describe('initialize', () => {
     store.undo();
     expect(store.read().slides[0].elements[0].frame.x).toBe(100);
     void elementId;
+  });
+
+  it('drag does not mutate the store until pointerup (ghost-only preview)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    dispatchMouseDown(canvas, 200, 150);
+    // Mid-drag mousemove — frame in the store must still be the original.
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 220, bubbles: true }));
+    const midFrame = store.read().slides[0].elements[0].frame;
+    expect(midFrame.x).toBe(100);
+    expect(midFrame.y).toBe(100);
+    // Release commits.
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 300, clientY: 220, bubbles: true }));
+    const finalFrame = store.read().slides[0].elements[0].frame;
+    expect(finalFrame.x).not.toBe(100);
+  });
+
+  it('multi-select drag keeps selection handles anchored to the original bbox', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 400, y: 400, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 180, bubbles: true }));
+
+    // Multi-select renders axis-aligned bbox handles. The 'nw' handle
+    // should anchor at the combined bbox top-left (min x = 100, min y = 100)
+    // even mid-drag, NOT at the dragged position.
+    const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]');
+    expect(nw).not.toBeNull();
+    const nwLeft = parseFloat(nw!.style.left);
+    const nwTop = parseFloat(nw!.style.top);
+    // Handles are centred on the corner with a small offset (HANDLE_SIZE/2 = 4).
+    // The meaningful assertion: handles are near (100, 100), NOT near (150, 130).
+    expect(nwLeft).toBeLessThan(120);
+    expect(nwTop).toBeLessThan(120);
+    expect(nwLeft).toBeGreaterThan(80);
+    expect(nwTop).toBeGreaterThan(80);
+
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 180, bubbles: true }));
+  });
+
+  it('drag with a connector in the selection does not throw and translates both together', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let shapeId = '';
+    let connectorId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      connectorId = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 300, y: 300 },
+        end: { kind: 'free', x: 400, y: 400 },
+        arrowheads: {},
+        frame: { x: 300, y: 300, w: 100, h: 100, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([shapeId, connectorId]);
+
+    const shapeBefore = store.read().slides[0].elements.find((e) => e.id === shapeId)!;
+    const connectorBefore = store.read().slides[0].elements.find((e) => e.id === connectorId)!;
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 250, clientY: 200, bubbles: true }));
+    expect(() =>
+      document.dispatchEvent(new PointerEvent('pointerup', { clientX: 250, clientY: 200, bubbles: true })),
+    ).not.toThrow();
+
+    const shapeAfter = store.read().slides[0].elements.find((e) => e.id === shapeId)!;
+    const connectorAfter = store.read().slides[0].elements.find((e) => e.id === connectorId)!;
+    // Both elements translate by the same (dx, dy) — connector via
+    // commitTranslate (endpoints), shape via updateElementFrame.
+    const shapeDx = shapeAfter.frame.x - shapeBefore.frame.x;
+    const shapeDy = shapeAfter.frame.y - shapeBefore.frame.y;
+    expect(shapeDx).not.toBe(0);
+    expect(connectorAfter.frame.x - connectorBefore.frame.x).toBe(shapeDx);
+    expect(connectorAfter.frame.y - connectorBefore.frame.y).toBe(shapeDy);
+  });
+
+  it('click-without-drag does not push a no-op undo snapshot or wipe redo', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let shapeId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+    // Establish a non-empty redo stack so we can verify the click does
+    // not silently wipe it.
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 20, h: 20, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#fff' } },
+      });
+    });
+    store.undo();
+    expect(store.canRedo()).toBe(true);
+    const undoBefore = store.canUndo();
+
+    editor.setSelection([shapeId]);
+    // Mousedown on the selected shape then immediate mouseup with no
+    // pointermove — the drag delta is 0. `onUp` must skip the batch
+    // entirely (an empty `store.batch` would push an undo snapshot and
+    // clear the redo stack).
+    dispatchMouseDown(canvas, 200, 150);
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 150, bubbles: true }));
+
+    // Undo state must be exactly what it was before the click.
+    expect(store.canUndo()).toBe(undoBefore);
+    // Redo stack must be intact.
+    expect(store.canRedo()).toBe(true);
   });
 
   it('clicking on an already-selected element preserves the multi-selection and drags all of them', () => {

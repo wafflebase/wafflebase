@@ -1,8 +1,10 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
-import { combinedBoundingBox } from '../../model/frame';
+import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
+import type { Endpoint } from '../../model/connector';
+import { resolveEndpoint } from '../canvas/connector-frame';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import {
   alignFrames,
@@ -51,7 +53,7 @@ import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
-import { findElementPath } from '../../model/group';
+import { findElementPath, flattenElements } from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -304,6 +306,7 @@ interface ListenerEntry<E extends Event = Event> {
 class SlidesEditorImpl implements SlidesEditor {
   readonly selection = new Selection();
   insertKind: InsertKind | null = null;
+  private lastHoverCursor: string = '';
   private renderer: SlideRenderer;
   private listeners: ListenerEntry[] = [];
   private disposed = false;
@@ -841,6 +844,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const cursor = kind === null ? '' : 'crosshair';
     this.options.canvas.style.cursor = cursor;
     this.options.overlay.style.cursor = cursor;
+    if (kind === null) this.lastHoverCursor = '';
     // Any insert-mode change clears the stale ghost: when the user
     // disarms (null), switches to text mode (no preview), or swaps
     // shape kind A → B, we drop the cached preview so the next
@@ -977,8 +981,17 @@ class SlidesEditorImpl implements SlidesEditor {
     // empty-area moves. mouseleave clears the ghost (otherwise it
     // would stick at the last in-canvas pointer position while the
     // user is in the toolbar).
-    const onMove = (e: Event) => this.onInsertHoverMove(e as MouseEvent);
-    const onLeave = () => this.onInsertHoverLeave();
+    const onMove = (e: Event) => {
+      this.onInsertHoverMove(e as MouseEvent);
+      this.onSelectionHoverMove(e as PointerEvent);
+    };
+    const onLeave = () => {
+      this.onInsertHoverLeave();
+      if (this.lastHoverCursor !== '' && this.insertKind === null) {
+        this.options.canvas.style.cursor = '';
+        this.lastHoverCursor = '';
+      }
+    };
     this.on(this.options.canvas, 'pointermove', onMove);
     this.on(this.options.canvas, 'pointerleave', onLeave);
     // Double-click on the slide canvas (or overlay, when the click
@@ -1244,6 +1257,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // the editor (toolbar etc.) reflects the active target.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
+    // Drop any stale hover-move cursor; once text-edit owns the box,
+    // the next pointermove path early-returns without touching cursor.
+    if (this.lastHoverCursor !== '') {
+      this.options.canvas.style.cursor = '';
+      this.lastHoverCursor = '';
+    }
 
     const blocks = element.data.blocks;
     // Escape sets `cancelled` first, THEN the docs editor routes the
@@ -1361,6 +1380,47 @@ class SlidesEditorImpl implements SlidesEditor {
     });
   }
 
+  /**
+   * Drag-affordance cursor. On `pointermove` over the canvas, if the
+   * pointer is a mouse and we're idle (no insert mode, no text edit, no
+   * handle hit), set `cursor: move` whenever the pointer is inside the
+   * bbox of any selected element. Otherwise restore the default.
+   *
+   * Cached against `lastHoverCursor` so we only touch the DOM when the
+   * value actually changes — `pointermove` fires at frame rate and
+   * writing identical strings to `style.cursor` is wasted work.
+   */
+  private onSelectionHoverMove(e: PointerEvent): void {
+    if (e.pointerType !== undefined && e.pointerType !== 'mouse') return;
+    if (this.insertKind !== null) return;
+    if (this.editingElementId !== null) return;
+    if (this.handleAtClient(e.clientX, e.clientY) !== null) return;
+
+    const desired = this.isPointerOverSelected(e.clientX, e.clientY) ? 'move' : '';
+    if (this.lastHoverCursor === desired) return;
+    this.lastHoverCursor = desired;
+    this.options.canvas.style.cursor = desired;
+  }
+
+  private isPointerOverSelected(clientX: number, clientY: number): boolean {
+    const slide = this.currentSlide();
+    if (!slide) return false;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length === 0) return false;
+    const scope = this.selection.getScope();
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    // Hit-test against world frames so drilled-in selections (elements
+    // inside a group) also flip the cursor — `slide.elements` is the
+    // top-level tree, so a raw walk would miss grouped descendants.
+    for (const id of selectedIds) {
+      const el = findElement(slide.elements, id);
+      if (!el) continue;
+      const worldFrame = toWorldFrame(el.frame, scope, slide);
+      if (containsPoint(worldFrame, x, y)) return true;
+    }
+    return false;
+  }
+
   /** Cursor left the canvas — drop the ghost and repaint cleanly. */
   private onInsertHoverLeave(): void {
     // Drop the connector affordance dots when the cursor exits the
@@ -1399,7 +1459,7 @@ class SlidesEditorImpl implements SlidesEditor {
       { x: this.hoverPreview.x, y: this.hoverPreview.y },
     );
     const ghost = { ...init, id: '__hover_preview__' } as Element;
-    this.renderer.forceRender(slide, this.options.store.read(), ghost);
+    this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
   }
 
   private startInsert(clientX: number, clientY: number): void {
@@ -1430,7 +1490,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
-    // `forceRender(slide, doc, ghost)` channel as the hover ghost so
+    // `forceRender(slide, doc, [ghost])` channel as the hover ghost so
     // the in-progress shape stays semi-transparent — the user can see
     // any underlying content while sizing, and the commit on mouseup
     // is the moment the shape goes opaque.
@@ -1442,7 +1502,7 @@ class SlidesEditorImpl implements SlidesEditor {
       endPoint = this.clientToLogical(ev.clientX, ev.clientY);
       const init = buildInsertElement(kind, start, endPoint);
       const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
     };
     const cleanup = () => {
       document.removeEventListener('pointermove', onMove);
@@ -1490,7 +1550,7 @@ class SlidesEditorImpl implements SlidesEditor {
   /**
    * Drag-to-place flow for connectors. Mirrors `startInsert`'s shape
    * branch: live ghost preview during the drag (rendered via the same
-   * `forceRender(slide, doc, ghost)` channel), commit on mouseup,
+   * `forceRender(slide, doc, [ghost])` channel), commit on mouseup,
    * ESC cancels with capture-phase pre-emption so the keyboard rule's
    * own `setInsertMode(null)` Esc handler doesn't double-fire.
    *
@@ -1518,7 +1578,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.connectorCursor = endPoint;
       const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
       const ghost = { ...init, id: '__preview__' } as Element;
-      this.renderer.forceRender(slide, this.options.store.read(), ghost);
+      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
       // Repaint the overlay so the connection-points dots track the
       // cursor. The forceRender above paints the canvas; the overlay
       // is a separate DOM layer and needs its own update.
@@ -1619,8 +1679,8 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = new Set(this.selection.get());
 
     // Capture each selected element's frame in WORLD coordinates and
-    // the element snapshot itself. The frame map drives snap math /
-    // overlay placement; the element map is needed at commit time
+    // the element snapshot itself. The world-frame map drives snap math
+    // and ghost placement; the element map is needed at commit time
     // because connectors translate through their endpoints, not their
     // frame — `commitTranslate` reads `el.start`/`el.end` from the
     // pre-drag snapshot.
@@ -1640,8 +1700,14 @@ class SlidesEditorImpl implements SlidesEditor {
     // rotated shapes/groups snap against their visible bbox.
     const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
-    // Track live world frames in memory; commit once at mouseup.
-    const live = new Map(originalWorldFrames);
+    // Lookup map for resolving connector endpoints to world coords —
+    // needed when a ghost connector's attached endpoint targets a
+    // dragged shape (the ghost line must follow the ghost shape's
+    // connection site, not snap back to the original).
+    const slideLookup = new Map<string, Element>(
+      flattenElements(startSlide.elements).map((e) => [e.id, e] as const),
+    );
+
     let liveDx = 0;
     let liveDy = 0;
 
@@ -1650,46 +1716,109 @@ class SlidesEditorImpl implements SlidesEditor {
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
-      const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
+      const { dx, dy, guides } = snapDelta(
+        bbox,
+        rawDx,
+        rawDy,
+        otherFrames,
+        { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      );
       liveDx = dx;
       liveDy = dy;
 
-      for (const [id, base] of originalWorldFrames) {
-        live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
+      // Ghosts paint at WORLD coords on top of the unmodified slide
+      // (which itself paints group-local frames through their group's
+      // transform). Non-connectors translate their world frame.
+      //
+      // Connectors render via endpoint lookup against the underlying
+      // slide elements, so we must materialize each endpoint into the
+      // ghost itself rather than relying on the lookup:
+      //  - `free` endpoint            → translate by (dx, dy).
+      //  - `attached` to a dragged    → resolve to world coords and
+      //    element                      translate by (dx, dy) so the
+      //                                 ghost line meets the ghost
+      //                                 shape's connection site.
+      //  - `attached` to a non-dragged → keep as-is; the renderer
+      //    element                      resolves it against the
+      //                                 untouched slide, matching the
+      //                                 commit-time behavior of
+      //                                 `commitTranslate` (which only
+      //                                 moves free endpoints).
+      const ghostEndpoint = (ep: Endpoint): Endpoint => {
+        if (ep.kind === 'free') {
+          return { kind: 'free', x: ep.x + dx, y: ep.y + dy };
+        }
+        if (selectedIds.has(ep.elementId)) {
+          const world = resolveEndpoint(ep, slideLookup);
+          return { kind: 'free', x: world.x + dx, y: world.y + dy };
+        }
+        return ep;
+      };
+
+      const ghosts: Element[] = [];
+      for (const el of originals.values()) {
+        if (el.type === 'connector') {
+          ghosts.push({
+            ...el,
+            start: ghostEndpoint(el.start),
+            end: ghostEndpoint(el.end),
+            frame: { ...el.frame, x: el.frame.x + dx, y: el.frame.y + dy },
+          } as Element);
+        } else {
+          const baseWorld = originalWorldFrames.get(el.id)!;
+          ghosts.push({
+            ...el,
+            frame: { ...baseWorld, x: baseWorld.x + dx, y: baseWorld.y + dy },
+          } as Element);
+        }
       }
-      // Repaint canvas + overlay with the live frames; we DO NOT touch
-      // the store yet. `guides` flow through to the overlay so magenta
-      // alignment lines render alongside the selection handles.
-      this.paintLiveScoped(live, scope, guides);
+
+      // Handles anchor to the ORIGINAL world frames so the user reads
+      // them as "where it started"; the ghost reads as "where it will
+      // land". Build pseudo-elements with the world frame patched in.
+      const handleElements: Element[] = Array.from(originals.values()).map((el) => ({
+        ...el,
+        frame: originalWorldFrames.get(el.id)!,
+      } as Element));
+
+      this.paintMoveGhost(ghosts, handleElements, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Commit one batch. Non-connectors get their live world frame
-      // converted back to scope-local before writing. Connectors take
-      // a different path: their world-coord endpoints translate by
-      // (liveDx, liveDy) through `commitTranslate`. `updateElementFrame`
-      // rejects connectors because their frame is derived from
-      // endpoints.
+      // Skip the batch when the pointer never moved past snap noise:
+      // an empty `store.batch` still pushes an undo snapshot and clears
+      // the redo stack. A pure click-without-drag must be a no-op
+      // against history.
+      if (liveDx === 0 && liveDy === 0) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
       const slideId = startSlide.id;
       this.options.store.batch(() => {
-        for (const [id, worldFrame] of live) {
+        for (const [id, baseWorld] of originalWorldFrames) {
           const el = originals.get(id);
           if (!el) continue;
           if (el.type === 'connector') {
+            // Connectors translate via endpoints; `updateElementFrame`
+            // rejects them because their frame is derived.
             commitTranslate(this.options.store, slideId, el, liveDx, liveDy);
             continue;
           }
-          const localFrame = fromWorldFrame(worldFrame, scope, startSlide);
+          const newWorld = {
+            ...baseWorld,
+            x: baseWorld.x + liveDx,
+            y: baseWorld.y + liveDy,
+          };
+          const localFrame = fromWorldFrame(newWorld, scope, startSlide);
           this.options.store.updateElementFrame(slideId, id, localFrame);
         }
       });
       this.renderer.markDirty();
       this.render();
-      // `render()` repaints only the canvas — without an explicit overlay
-      // refresh, the magenta guide nodes from the last `paintLiveScoped`
-      // would persist after mouseup. `repaintOverlay()` rebuilds the
-      // overlay with `selected` and no `guides`, clearing them.
+      // Clear lingering snap-guide nodes from the last `paintMoveGhost`.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
@@ -1749,6 +1878,35 @@ class SlidesEditorImpl implements SlidesEditor {
       slideHeight: SLIDE_HEIGHT,
       guides,
       allElements: synthetic.elements,
+      connectorAffordance: this.connectorAffordance(),
+    });
+  }
+
+  /**
+   * Drag-move preview: paint the slide unchanged + a translucent ghost
+   * of each selected element at its dragged position. Overlay handles
+   * render against the **original** frames so they stay anchored to the
+   * starting position (the user reads the ghost as "where it will land"
+   * and the handles as "where it started").
+   *
+   * Connectors are excluded from `ghosts` for v1; they keep rendering
+   * at their original endpoints during the drag preview. On commit, the
+   * connector's normal endpoint-lookup path re-routes them.
+   */
+  private paintMoveGhost(
+    ghosts: readonly Element[],
+    selectedOriginals: readonly Element[],
+    guides: readonly SnapGuide[] = [],
+  ): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    this.renderer.forceRender(slide, this.options.store.read(), ghosts);
+    renderOverlay(this.options.overlay, selectedOriginals, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+      guides,
+      allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
     });
   }
@@ -1875,7 +2033,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.forceRender(
         startSlide,
         this.options.store.read(),
-        ghostConnector,
+        [ghostConnector],
       );
       // Overlay: original connector → handles stay at the pre-drag
       // positions. On mouseup, `dragEndpoint` commits and the next
