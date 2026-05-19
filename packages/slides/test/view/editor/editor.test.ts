@@ -394,6 +394,47 @@ describe('initialize', () => {
     expect(connectorAfter.frame.y - connectorBefore.frame.y).toBe(shapeDy);
   });
 
+  it('click-without-drag does not push a no-op undo snapshot or wipe redo', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let shapeId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+    // Establish a non-empty redo stack so we can verify the click does
+    // not silently wipe it.
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 20, h: 20, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#fff' } },
+      });
+    });
+    store.undo();
+    expect(store.canRedo()).toBe(true);
+    const undoBefore = store.canUndo();
+
+    editor.setSelection([shapeId]);
+    // Mousedown on the selected shape then immediate mouseup with no
+    // pointermove — the drag delta is 0. `onUp` must skip the batch
+    // entirely (an empty `store.batch` would push an undo snapshot and
+    // clear the redo stack).
+    dispatchMouseDown(canvas, 200, 150);
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 150, bubbles: true }));
+
+    // Undo state must be exactly what it was before the click.
+    expect(store.canUndo()).toBe(undoBefore);
+    // Redo stack must be intact.
+    expect(store.canRedo()).toBe(true);
+  });
+
   it('clicking on an already-selected element preserves the multi-selection and drags all of them', () => {
     const { canvas, overlay, store } = makeFixture();
     let aId = '';

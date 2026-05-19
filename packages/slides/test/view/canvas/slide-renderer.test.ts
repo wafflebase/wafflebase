@@ -232,7 +232,7 @@ describe('SlideRenderer.render', () => {
     ctx.stroke.mockImplementation(() => {
       alphaAtStroke.push(ctx.globalAlpha);
     });
-    renderer.forceRender(slide, DOC, ghostConnector);
+    renderer.forceRender(slide, DOC, [ghostConnector]);
     // The ghost connector's line strokes once.
     expect(alphaAtStroke).toContain(GHOST_ALPHA);
     // And `save`/`restore` bracket the ghost paint so the alpha

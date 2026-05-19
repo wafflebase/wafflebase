@@ -1,5 +1,5 @@
 import type { Element, Frame, ShapeKind } from '../../model/element';
-import { combinedBoundingBox } from '../../model/frame';
+import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
@@ -1992,7 +1992,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.forceRender(
         startSlide,
         this.options.store.read(),
-        ghostConnector,
+        [ghostConnector],
       );
       // Overlay: original connector → handles stay at the pre-drag
       // positions. On mouseup, `dragEndpoint` commits and the next
