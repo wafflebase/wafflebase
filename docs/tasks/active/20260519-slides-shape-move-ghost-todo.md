@@ -25,6 +25,23 @@ gated on `pointerType === 'mouse'` and cached to avoid layout thrash.
 **Tech Stack:** TypeScript, Vitest + jsdom, Canvas 2D, existing
 `createCtxSpy` test harness.
 
+> **Note (post-rebase):** This plan was authored against an earlier
+> `origin/main` than what shipped. Origin/main's group-aware drag landed
+> in between and the final implementation differs in two ways from the
+> code snippets below:
+>
+> - `startDrag` works in **world-frame** coordinates (`toWorldFrame` /
+>   `fromWorldFrame` / `scope`) so drilled-in group selections move
+>   correctly.
+> - On commit, **connectors go through `commitTranslate`** (endpoint
+>   translation), not `updateElementFrame` — the latter throws for
+>   connectors. The snippet at Step 3 commits everything through
+>   `updateElementFrame` for clarity but the shipped code routes by
+>   element type.
+>
+> The design doc (`docs/design/slides/slides-shape-move.md`) is the
+> authoritative reference for the final behavior.
+
 **Out of scope for this PR (tracked as follow-ups):**
 
 - Connector live re-routing during ghost drag (connectors stay attached

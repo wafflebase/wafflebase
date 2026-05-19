@@ -1403,12 +1403,18 @@ class SlidesEditorImpl implements SlidesEditor {
   private isPointerOverSelected(clientX: number, clientY: number): boolean {
     const slide = this.currentSlide();
     if (!slide) return false;
-    const selectedIds = new Set(this.selection.get());
-    if (selectedIds.size === 0) return false;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length === 0) return false;
+    const scope = this.selection.getScope();
     const { x, y } = this.clientToLogical(clientX, clientY);
-    for (const el of slide.elements) {
-      if (!selectedIds.has(el.id)) continue;
-      if (containsPoint(el.frame, x, y)) return true;
+    // Hit-test against world frames so drilled-in selections (elements
+    // inside a group) also flip the cursor — `slide.elements` is the
+    // top-level tree, so a raw walk would miss grouped descendants.
+    for (const id of selectedIds) {
+      const el = findElement(slide.elements, id);
+      if (!el) continue;
+      const worldFrame = toWorldFrame(el.frame, scope, slide);
+      if (containsPoint(worldFrame, x, y)) return true;
     }
     return false;
   }
@@ -1686,16 +1692,6 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     if (originalWorldFrames.size === 0) return;
 
-    // Connectors render via endpoint lookup; their `frame` is derived,
-    // not stored, so a frame-only ghost would paint at the wrong place.
-    // Excluding them from `ghostSources` makes the connector render at
-    // its original endpoint geometry during the drag preview; on
-    // commit, `commitTranslate` moves the endpoints by (liveDx, liveDy).
-    const ghostSources: Element[] = [];
-    for (const el of originals.values()) {
-      if (el.type !== 'connector') ghostSources.push(el);
-    }
-
     const start = this.clientToLogical(clientX, clientY);
     // Collect snap candidates within the active scope, excluding the
     // dragged elements. Each candidate is an axis-aligned AABB so
@@ -1720,17 +1716,35 @@ class SlidesEditorImpl implements SlidesEditor {
       liveDx = dx;
       liveDy = dy;
 
-      // Ghosts paint at WORLD coords — they bypass the scope coordinate
-      // system because they're drawn on top of the unmodified slide
+      // Ghosts paint at WORLD coords on top of the unmodified slide
       // (which itself paints group-local frames through their group's
-      // transform). The original slide is untouched.
-      const ghosts: Element[] = ghostSources.map((el) => {
-        const baseWorld = originalWorldFrames.get(el.id)!;
-        return {
-          ...el,
-          frame: { ...baseWorld, x: baseWorld.x + dx, y: baseWorld.y + dy },
-        } as Element;
-      });
+      // transform). Non-connectors translate their world frame;
+      // connectors render via endpoint lookup, so their ghost must
+      // translate the endpoints — free endpoints by (dx, dy), attached
+      // endpoints stay anchored to their host shape. This mirrors what
+      // `translateElement` and `commitTranslate` do on commit, so the
+      // ghost preview matches the post-commit visual.
+      const ghosts: Element[] = [];
+      for (const el of originals.values()) {
+        if (el.type === 'connector') {
+          ghosts.push({
+            ...el,
+            start: el.start.kind === 'free'
+              ? { kind: 'free', x: el.start.x + dx, y: el.start.y + dy }
+              : el.start,
+            end: el.end.kind === 'free'
+              ? { kind: 'free', x: el.end.x + dx, y: el.end.y + dy }
+              : el.end,
+            frame: { ...el.frame, x: el.frame.x + dx, y: el.frame.y + dy },
+          } as Element);
+        } else {
+          const baseWorld = originalWorldFrames.get(el.id)!;
+          ghosts.push({
+            ...el,
+            frame: { ...baseWorld, x: baseWorld.x + dx, y: baseWorld.y + dy },
+          } as Element);
+        }
+      }
 
       // Handles anchor to the ORIGINAL world frames so the user reads
       // them as "where it started"; the ghost reads as "where it will

@@ -30,8 +30,9 @@ with live frames, and reuses existing ghost-rendering infrastructure in
 - Keep original shape + selection handles + snap guidelines visible
   during drag (handles anchor to the original frame).
 - Commit only on `pointerup` (single `store.batch`).
-- Reuse the existing `drawSlide(..., ghost?)` path; do **not** add a new
-  canvas layer.
+- Reuse the existing ghost-rendering path in `drawSlide` /
+  `forceRender` (generalized in this PR from `ghost?: Element` to
+  `ghosts?: readonly Element[]`); do **not** add a new canvas layer.
 
 ### Non-Goals
 
@@ -121,9 +122,19 @@ preview.
 
 ### Commit and cancel
 
-- `pointerup`: `store.batch(() => store.updateElement(id, { x, y }))`
-  for each moved element. Identical to current logic. Then clear
-  ghost state, `markDirty()`, `render()`, `repaintOverlay()`.
+- `pointerup`: open a single `store.batch(...)` and commit each
+  moved element via the path that matches its type:
+  - **Non-connectors:** `store.updateElementFrame(slideId, id,
+    fromWorldFrame(newWorld, scope, slide))` — the dragged world frame
+    is lifted back to the element's scope-local frame.
+  - **Connectors:** `commitTranslate(store, slideId, el, dx, dy)` —
+    `updateElementFrame` throws on connectors because their `frame` is
+    derived from endpoints; `commitTranslate` instead translates each
+    free endpoint by `(dx, dy)` (attached endpoints stay anchored).
+  - **Zero-delta skip:** if `dx === 0 && dy === 0` (pure
+    click-without-drag), open NO batch — `store.batch` unconditionally
+    pushes an undo snapshot and clears the redo stack.
+  After the batch, `markDirty()`, `render()`, `repaintOverlay()`.
 - Pointer leaves canvas mid-drag: current capture pattern via
   `document.addEventListener('pointermove'/'pointerup', ...)` keeps the
   drag alive — no change.
