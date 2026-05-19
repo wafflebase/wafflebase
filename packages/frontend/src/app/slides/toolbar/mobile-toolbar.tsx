@@ -130,10 +130,8 @@ function ObjectMobileBar({
     })();
 
   const onDelete = useCallback(() => {
-    if (!editor || !store || !slideId || state.ids.length === 0) return;
-    store.batch(() => store.removeElements(slideId, [...state.ids]));
-    editor.setSelection([]);
-  }, [editor, store, slideId, state.ids]);
+    editor?.deleteSelected();
+  }, [editor]);
 
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
