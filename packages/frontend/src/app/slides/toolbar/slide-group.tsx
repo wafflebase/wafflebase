@@ -59,10 +59,9 @@ export function SlideGroup({ store }: SlideGroupProps) {
             onClick={onAddBlankSlide}
             disabled={!store}
             aria-label="Add slide"
-            className="inline-flex h-7 items-center gap-1 rounded-l-md px-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconPlus size={16} />
-            <span className="text-xs">Slide</span>
           </button>
         </TooltipTrigger>
         <TooltipContent>Add slide</TooltipContent>

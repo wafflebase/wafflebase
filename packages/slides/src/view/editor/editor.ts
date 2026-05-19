@@ -294,6 +294,14 @@ export interface SlidesEditor {
    * No-op when selection is not a single group element or a text-box is active.
    */
   ungroup(): void;
+  /**
+   * Remove all currently selected elements from the active slide and
+   * clear the selection. Triggers a canvas + overlay repaint so callers
+   * (e.g. the mobile toolbar's trash button) don't need to chase
+   * `requestRender`. No-op when selection is empty or a text-box is
+   * active. Mirrors the desktop context menu's Delete action.
+   */
+  deleteSelected(): void;
   detach(): void;
 }
 
@@ -761,6 +769,19 @@ class SlidesEditorImpl implements SlidesEditor {
     this.requestRender();
   }
 
+  deleteSelected(): void {
+    if (this.editingElementId !== null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const ids = this.selection.get();
+    if (ids.length === 0) return;
+    this.options.store.batch(() => {
+      this.options.store.removeElements(slide.id, [...ids]);
+    });
+    this.selection.clear();
+    this.requestRender();
+  }
+
   /**
    * Collect frames for currently-selected elements that still exist on
    * the given slide. Defends against ids that were removed remotely
@@ -1056,13 +1077,7 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
       { label: '---', run: () => undefined },
       { label: 'Duplicate', run: () => this.dispatchKey('d', { meta: true }) },
-      { label: 'Delete',    run: () => {
-        this.options.store.batch(() =>
-          this.options.store.removeElements(slideId, [...this.selection.get()]),
-        );
-        this.selection.clear();
-        this.requestRender();
-      } },
+      { label: 'Delete',    run: () => this.deleteSelected() },
       { label: '---', run: () => undefined },
       groupItem,
       ungroupItem,

@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 195
+Total archived tasks: 196
 
-## 2026/05 (50 tasks)
+## 2026/05 (51 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|

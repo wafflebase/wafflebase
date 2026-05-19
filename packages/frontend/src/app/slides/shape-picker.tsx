@@ -70,6 +70,13 @@ export interface ShapePickerProps {
   onSelect: (kind: ShapeKind) => void;
   /** Disables the trigger button when the editor isn't ready yet. */
   disabled?: boolean;
+  /** Override the default toolbar trigger button — used by the mobile
+   * Insert sheet to match the surrounding `SheetActionButton` row.
+   * The element is wrapped with `<DropdownMenuTrigger asChild>` so it
+   * must forward ref/handlers (a plain `<button>` works). Typed as
+   * `ReactElement` rather than `ReactNode` so the `asChild` slot can
+   * actually bind to it. */
+  trigger?: React.ReactElement;
 }
 
 /**
@@ -84,6 +91,7 @@ export function ShapePicker({
   activeKind,
   onSelect,
   disabled,
+  trigger,
 }: ShapePickerProps) {
   // Controlled open state so we can close the picker as soon as the
   // user picks a shape. The grid buttons are plain <button>s (not
@@ -91,27 +99,32 @@ export function ShapePicker({
   // without this the menu stays open after `onSelect`, requiring a
   // second click off-menu to dismiss it.
   const [open, setOpen] = useState(false);
+  const defaultTrigger = (
+    <button
+      type="button"
+      aria-label="Shape"
+      // data-state mirrors the Toggle component so the pressed
+      // visual (bg-accent / text-accent-foreground) matches the
+      // Select / Text Toggles next to it.
+      data-state={activeKind !== null ? "on" : "off"}
+      disabled={disabled}
+      className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      <IconShape size={16} />
+    </button>
+  );
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Shape"
-              // data-state mirrors the Toggle component so the pressed
-              // visual (bg-accent / text-accent-foreground) matches the
-              // Select / Text Toggles next to it.
-              data-state={activeKind !== null ? "on" : "off"}
-              disabled={disabled}
-              className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            >
-              <IconShape size={16} />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Shape</TooltipContent>
-      </Tooltip>
+      {trigger ? (
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>{defaultTrigger}</DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Shape</TooltipContent>
+        </Tooltip>
+      )}
       <DropdownMenuContent
         align="start"
         sideOffset={6}

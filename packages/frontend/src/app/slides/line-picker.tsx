@@ -118,6 +118,12 @@ export interface LinePickerProps {
   onSelect: (kind: ConnectorInsertKind) => void;
   /** Disables the trigger button when the editor isn't ready yet. */
   disabled?: boolean;
+  /** Override the default toolbar trigger button — used by the mobile
+   * Insert sheet to match the surrounding `SheetActionButton` row.
+   * Must be a single element compatible with Radix's `asChild` slot
+   * (forwarded refs + event handlers); `ReactNode` would allow text
+   * nodes or fragments that the slot can't bind to. */
+  trigger?: React.ReactElement;
 }
 
 /**
@@ -133,30 +139,36 @@ export function LinePicker({
   activeKind,
   onSelect,
   disabled,
+  trigger,
 }: LinePickerProps) {
   // Controlled open state so we can close the dropdown as soon as the
   // user picks an entry. Mirrors the pattern in `<ShapePicker />`.
   const [open, setOpen] = useState(false);
+  const defaultTrigger = (
+    <button
+      type="button"
+      aria-label="Line"
+      // data-state mirrors the Toggle component so the pressed
+      // visual matches the sibling Shape / Text / Select toggles.
+      data-state={activeKind !== null ? "on" : "off"}
+      disabled={disabled}
+      className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      <IconLine size={16} />
+    </button>
+  );
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Line"
-              // data-state mirrors the Toggle component so the pressed
-              // visual matches the sibling Shape / Text / Select toggles.
-              data-state={activeKind !== null ? "on" : "off"}
-              disabled={disabled}
-              className="inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md px-1.5 text-sm hover:bg-muted hover:text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            >
-              <IconLine size={16} />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Line</TooltipContent>
-      </Tooltip>
+      {trigger ? (
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>{defaultTrigger}</DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Line</TooltipContent>
+        </Tooltip>
+      )}
       <DropdownMenuContent
         align="start"
         sideOffset={6}
