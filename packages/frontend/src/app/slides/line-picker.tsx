@@ -119,8 +119,11 @@ export interface LinePickerProps {
   /** Disables the trigger button when the editor isn't ready yet. */
   disabled?: boolean;
   /** Override the default toolbar trigger button — used by the mobile
-   * Insert sheet to match the surrounding `SheetActionButton` row. */
-  trigger?: React.ReactNode;
+   * Insert sheet to match the surrounding `SheetActionButton` row.
+   * Must be a single element compatible with Radix's `asChild` slot
+   * (forwarded refs + event handlers); `ReactNode` would allow text
+   * nodes or fragments that the slot can't bind to. */
+  trigger?: React.ReactElement;
 }
 
 /**

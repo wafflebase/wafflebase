@@ -526,12 +526,16 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
 
   const handleImagePick = useCallback(async () => {
     if (!store || !workspaceId) return;
-    const slideId = editor?.getCurrentSlideId();
-    if (!slideId) return;
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
     input.onchange = async () => {
+      // Resolve the slide AFTER the picker returns — the user could
+      // have swiped to a different slide while the native picker UI
+      // was open, and inserting into the slide that was current at
+      // open-time would surprise them.
+      const slideId = editor?.getCurrentSlideId();
+      if (!slideId) return;
       const file = input.files?.[0];
       if (!file) return;
       try {

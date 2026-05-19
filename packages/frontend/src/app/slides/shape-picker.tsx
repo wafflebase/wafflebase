@@ -73,8 +73,10 @@ export interface ShapePickerProps {
   /** Override the default toolbar trigger button — used by the mobile
    * Insert sheet to match the surrounding `SheetActionButton` row.
    * The element is wrapped with `<DropdownMenuTrigger asChild>` so it
-   * must forward ref/handlers (a plain `<button>` works). */
-  trigger?: React.ReactNode;
+   * must forward ref/handlers (a plain `<button>` works). Typed as
+   * `ReactElement` rather than `ReactNode` so the `asChild` slot can
+   * actually bind to it. */
+  trigger?: React.ReactElement;
 }
 
 /**

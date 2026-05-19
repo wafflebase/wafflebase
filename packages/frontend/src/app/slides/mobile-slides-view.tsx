@@ -42,6 +42,15 @@ function computeFitSize(
   return { width: availHeight * SLIDE_ASPECT, height: availHeight };
 }
 
+/** Order-sensitive shallow equality for slide-id arrays. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 interface MobileSlidesViewProps {
   /**
    * `'view'` mounts a read-only `SlideRenderer` (Phase A behavior).
@@ -133,8 +142,10 @@ export function MobileSlidesView({
   useEffect(() => {
     if (!store) return;
     const refresh = () => {
-      const r = store.read();
-      setSnapshot({ slideIds: r.slides.map((s) => s.id) });
+      const nextIds = store.read().slides.map((s) => s.id);
+      setSnapshot((prev) =>
+        sameIds(prev.slideIds, nextIds) ? prev : { slideIds: nextIds },
+      );
     };
     refresh();
     return store.onChange(refresh);
@@ -464,7 +475,7 @@ export function MobileSlidesView({
         slideIds={snapshot.slideIds}
         currentSlideId={currentSlideId}
         onSelectSlide={setCurrentSlideId}
-        onAddSlide={addBlankSlide}
+        onAddSlide={mode === "edit" ? addBlankSlide : undefined}
       />
     </>
   );
