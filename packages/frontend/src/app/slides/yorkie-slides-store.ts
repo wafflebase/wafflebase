@@ -39,6 +39,7 @@ import {
   resolveEndpoint,
   seedPlaceholderBlocks,
   slotRefsForLayout,
+  worldTightFrame,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import type { SlidesPresence } from '@/types/users';
@@ -1260,6 +1261,77 @@ export class YorkieSlidesStore implements SlidesStore {
     });
 
     return { groupId, excludedConnectorIds };
+  }
+
+  refitGroup(slideId: string, groupId: string): void {
+    this.requireBatch();
+
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) return;
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+      const path = yorkieFindElementPath(proxyElements, groupId);
+      if (!path) return;
+
+      const group = path[path.length - 1];
+      if (group.type !== 'group') return;
+
+      const plainGroup = unwrapElement(group) as unknown as GroupElement;
+      if (plainGroup.data.children.length === 0) return;
+
+      // Shared rotation-preserving refit math (see model/group.ts).
+      // Children's world positions are invariant by construction.
+      const { worldFrame: newFrame, localShift, newRefSize } =
+        worldTightFrame(plainGroup);
+
+      const EPS = 0.5;
+      const close = (a: number, b: number) => Math.abs(a - b) < EPS;
+      if (
+        close(localShift.x, 0) &&
+        close(localShift.y, 0) &&
+        close(newRefSize.w, plainGroup.data.refSize?.w ?? plainGroup.frame.w) &&
+        close(newRefSize.h, plainGroup.data.refSize?.h ?? plainGroup.frame.h)
+      ) {
+        // Local AABB already aligned with the local origin AND tight against
+        // refSize — nothing to refit.
+        return;
+      }
+
+      // Mutate the proxy in place to preserve Yorkie CRDT identity.
+      const gAny = group as unknown as {
+        frame: Frame;
+        data: { refSize: { w: number; h: number }; children: ProxyArray };
+      };
+      gAny.frame = { ...newFrame };
+      gAny.data.refSize = { ...newRefSize };
+
+      gAny.data.children.forEach((ch) => {
+        const chAny = ch as unknown as {
+          type: string;
+          frame: Frame;
+          start?: Endpoint;
+          end?: Endpoint;
+        };
+        chAny.frame = {
+          ...chAny.frame,
+          x: chAny.frame.x - localShift.x,
+          y: chAny.frame.y - localShift.y,
+        };
+        if (chAny.type === 'connector') {
+          for (const side of ['start', 'end'] as const) {
+            const ep = chAny[side];
+            if (ep && ep.kind === 'free') {
+              (chAny as unknown as Record<'start' | 'end', Endpoint>)[side] = {
+                kind: 'free',
+                x: ep.x - localShift.x,
+                y: ep.y - localShift.y,
+              };
+            }
+          }
+        }
+      });
+    });
   }
 
   ungroup(slideId: string, groupId: string): string[] {

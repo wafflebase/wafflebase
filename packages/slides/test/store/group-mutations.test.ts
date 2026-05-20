@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemSlidesStore } from '../../src/store/memory';
 import type { GroupElement } from '../../src/model/element';
 import type { ConnectorElement } from '../../src/model/connector';
+import { applyGroupTransform } from '../../src/model/group';
 
 describe('group()', () => {
   it('requires at least two elements', () => {
@@ -783,5 +784,231 @@ describe('legacy group refSize migration (simulates editor.ts startResize onUp)'
     const gAfter = store.read().slides[0].elements.find(e => e.id === groupId) as GroupElement;
     expect(gAfter.data.refSize).toEqual({ w: startW, h: startH });
     expect(gAfter.frame.w).toBe(startW * 2);
+  });
+});
+
+describe('refitGroup()', () => {
+  /**
+   * Build a slide with a group of two rects (A at (0,0,40,30), B at
+   * (60,60,40,40)). Returns the store, slide id, and group id so each
+   * test can mutate further before calling refitGroup.
+   */
+  function setupGroupWithTwoShapes(): {
+    store: MemSlidesStore;
+    sid: string;
+    groupId: string;
+    aId: string;
+    bId: string;
+  } {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    let aId!: string;
+    let bId!: string;
+    let groupId!: string;
+    store.batch(() => {
+      sid = store.addSlide('blank', 0);
+    });
+    store.batch(() => {
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 40, h: 30, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 60, y: 60, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    store.batch(() => {
+      const result = store.group(sid, [aId, bId]);
+      groupId = result.groupId;
+    });
+    return { store, sid, groupId, aId, bId };
+  }
+
+  it('is a no-op when children are still tightly fit (idempotent)', () => {
+    const { store, sid, groupId } = setupGroupWithTwoShapes();
+    const before = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    const beforeFrame = { ...before.frame };
+    const beforeRefSize = { ...before.data.refSize! };
+
+    store.batch(() => {
+      store.refitGroup(sid, groupId);
+    });
+
+    const after = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    expect(after.frame).toEqual(beforeFrame);
+    expect(after.data.refSize).toEqual(beforeRefSize);
+  });
+
+  it('shrinks frame to the new AABB when a child was moved further outside (slide-root)', () => {
+    // Initial: group AABB = (0, 0, 100, 100). Move child B to (110, 110)
+    // so the AABB grows to (0, 0, 150, 150). Refit should update frame.
+    const { store, sid, groupId, bId } = setupGroupWithTwoShapes();
+
+    // Update B's local frame (B sits inside group local space). Since the
+    // group started with frame == refSize == (0,0,100,100) and unit scale,
+    // local coords equal world coords for B's original frame. After move,
+    // B's local frame becomes (110, 110, 40, 40).
+    store.batch(() => {
+      store.updateElementFrame(sid, bId, { x: 110, y: 110 });
+    });
+
+    store.batch(() => {
+      store.refitGroup(sid, groupId);
+    });
+
+    const after = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    expect(after.frame.x).toBeCloseTo(0, 4);
+    expect(after.frame.y).toBeCloseTo(0, 4);
+    expect(after.frame.w).toBeCloseTo(150, 4);
+    expect(after.frame.h).toBeCloseTo(150, 4);
+    expect(after.frame.rotation).toBe(0);
+    expect(after.data.refSize).toEqual({ w: 150, h: 150 });
+  });
+
+  it('preserves children world positions across the refit', () => {
+    const { store, sid, groupId, aId, bId } = setupGroupWithTwoShapes();
+
+    // Move B to (-30, -20) inside group-local coords (B's world position
+    // = (-30, -20) since scale=1 / origin=0 here).
+    store.batch(() => {
+      store.updateElementFrame(sid, bId, { x: -30, y: -20 });
+    });
+
+    // Capture world positions of A and B BEFORE refit.
+    const slideBefore = store.read().slides[0];
+    const groupBefore = slideBefore.elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    const childrenBefore = groupBefore.data.children.map((ch) =>
+      applyGroupTransform(ch.frame, groupBefore),
+    );
+    const aBefore = childrenBefore.find((_, i) => groupBefore.data.children[i].id === aId)!;
+    const bBefore = childrenBefore.find((_, i) => groupBefore.data.children[i].id === bId)!;
+
+    store.batch(() => {
+      store.refitGroup(sid, groupId);
+    });
+
+    const groupAfter = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    const childrenAfter = groupAfter.data.children.map((ch) =>
+      applyGroupTransform(ch.frame, groupAfter),
+    );
+    const aAfter = childrenAfter.find((_, i) => groupAfter.data.children[i].id === aId)!;
+    const bAfter = childrenAfter.find((_, i) => groupAfter.data.children[i].id === bId)!;
+
+    expect(aAfter.x).toBeCloseTo(aBefore.x, 4);
+    expect(aAfter.y).toBeCloseTo(aBefore.y, 4);
+    expect(aAfter.w).toBeCloseTo(aBefore.w, 4);
+    expect(aAfter.h).toBeCloseTo(aBefore.h, 4);
+    expect(bAfter.x).toBeCloseTo(bBefore.x, 4);
+    expect(bAfter.y).toBeCloseTo(bBefore.y, 4);
+  });
+
+  it('preserves group.frame.rotation across refit (rotated group stays rotated)', () => {
+    const { store, sid, groupId } = setupGroupWithTwoShapes();
+    store.batch(() => {
+      store.updateElementFrame(sid, groupId, { rotation: Math.PI / 4 });
+    });
+
+    store.batch(() => {
+      store.refitGroup(sid, groupId);
+    });
+
+    const after = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    expect(after.frame.rotation).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it('refit on a rotated group with a moved child preserves rotation AND each child world position', () => {
+    const { store, sid, groupId, aId, bId } = setupGroupWithTwoShapes();
+    // 1. Rotate the group.
+    store.batch(() => {
+      store.updateElementFrame(sid, groupId, { rotation: Math.PI / 6 });
+    });
+    // 2. Move child B inside drill-in (move its local frame).
+    store.batch(() => {
+      store.updateElementFrame(sid, bId, { x: 200, y: -50 });
+    });
+
+    // Capture children's world positions BEFORE refit using the rotated
+    // group's transform.
+    const before = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    const worldBefore = new Map(
+      before.data.children.map((ch) => [
+        ch.id,
+        applyGroupTransform(ch.frame, before),
+      ]),
+    );
+
+    store.batch(() => {
+      store.refitGroup(sid, groupId);
+    });
+
+    const after = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+
+    // Rotation preserved.
+    expect(after.frame.rotation).toBeCloseTo(Math.PI / 6, 6);
+
+    // Each child's world position invariant across refit.
+    for (const childId of [aId, bId]) {
+      const childAfter = after.data.children.find((c) => c.id === childId)!;
+      const worldAfter = applyGroupTransform(childAfter.frame, after);
+      const w = worldBefore.get(childId)!;
+      expect(worldAfter.x).toBeCloseTo(w.x, 3);
+      expect(worldAfter.y).toBeCloseTo(w.y, 3);
+      expect(worldAfter.w).toBeCloseTo(w.w, 3);
+      expect(worldAfter.h).toBeCloseTo(w.h, 3);
+    }
+
+    // Local AABB after refit is tight: minX = 0, minY = 0 and refSize
+    // matches the children's local extent.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const ch of after.data.children) {
+      if (ch.frame.x < minX) minX = ch.frame.x;
+      if (ch.frame.y < minY) minY = ch.frame.y;
+      if (ch.frame.x + ch.frame.w > maxX) maxX = ch.frame.x + ch.frame.w;
+      if (ch.frame.y + ch.frame.h > maxY) maxY = ch.frame.y + ch.frame.h;
+    }
+    expect(minX).toBeCloseTo(0, 4);
+    expect(minY).toBeCloseTo(0, 4);
+    expect(after.data.refSize?.w).toBeCloseTo(maxX - minX, 4);
+    expect(after.data.refSize?.h).toBeCloseTo(maxY - minY, 4);
+  });
+
+  it('no-op when group has been removed concurrently (defensive)', () => {
+    const { store, sid, groupId } = setupGroupWithTwoShapes();
+    store.batch(() => {
+      store.removeElement(sid, groupId);
+    });
+    expect(() =>
+      store.batch(() => {
+        store.refitGroup(sid, groupId);
+      }),
+    ).not.toThrow();
+  });
+
+  it('no-op on a non-group element id (defensive)', () => {
+    const { store, sid, aId } = setupGroupWithTwoShapes();
+    expect(() =>
+      store.batch(() => {
+        store.refitGroup(sid, aId);
+      }),
+    ).not.toThrow();
   });
 });

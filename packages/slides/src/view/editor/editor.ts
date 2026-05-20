@@ -53,7 +53,11 @@ import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
-import { findElementPath, flattenElements } from '../../model/group';
+import {
+  findElementPath,
+  flattenElements,
+  worldTightFrame,
+} from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -462,9 +466,14 @@ class SlidesEditorImpl implements SlidesEditor {
       .map((id) => {
         const el = findElement(slide.elements, id);
         if (!el) return null;
-        // Convert the stored frame (group-local when scope is non-empty)
-        // to slide-root world coords so overlay handles land correctly.
-        const worldFrame = toWorldFrame(el.frame, scope, slide);
+        // For groups, the stored frame becomes stale once a child is
+        // moved inside drill-in. `worldTightFrame` recomputes a tight
+        // wrap around the children's current visual extent while
+        // preserving the group's rotation so handles still rotate
+        // with the group. For leaves, the stored frame is authoritative.
+        const localFrame =
+          el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
+        const worldFrame = toWorldFrame(localFrame, scope, slide);
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
@@ -496,6 +505,42 @@ class SlidesEditorImpl implements SlidesEditor {
     | undefined {
     if (this.connectorCursor === null) return undefined;
     return { cursor: this.connectorCursor, zoom: this.scale() };
+  }
+
+  /**
+   * When the drill-in scope pops (Esc, click outside the scoped group,
+   * empty-canvas click while drilled in, right-click outside scope),
+   * refit the popped group(s) so their `frame` matches the children's
+   * current visual extent. Matches Google Slides: dropping out of
+   * drill-in produces a tight selection box. The refit preserves the
+   * group's rotation and scale — see `worldTightFrame` in
+   * `model/group.ts` for the math.
+   *
+   * Each popped group is refit in its own batch so undo restores the
+   * pre-pop state in a single step per group. Most pops drop one scope
+   * level — the loop is here for the rare "click way outside" path
+   * which can pop multiple levels at once.
+   */
+  private refitPoppedScope(
+    beforeScope: readonly string[],
+    afterScope: readonly string[],
+    slideId: string,
+  ): void {
+    if (beforeScope.length <= afterScope.length) return;
+    // Walk innermost → outermost so a refit at depth N+1 settles before
+    // its parent at depth N is asked to refit (otherwise the parent
+    // would read stale child geometry).
+    for (let i = beforeScope.length - 1; i >= afterScope.length; i--) {
+      const groupId = beforeScope[i];
+      this.options.store.batch(() => {
+        this.options.store.refitGroup(slideId, groupId);
+      });
+    }
+    // The refit mutated the store but no listener re-renders. Mark the
+    // canvas dirty and request a paint so the next frame uses the
+    // refit'd group state (frame + children's normalized local frames).
+    this.renderer.markDirty();
+    this.repaintOverlay();
   }
 
   private reattachEditingTextBox(): void {
@@ -967,6 +1012,15 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     this.hoverPreview = null;
     this.connectorCursor = null;
+    // Rotate-angle tooltip is attached to the overlay's parent, not the
+    // overlay itself, so renderOverlay's innerHTML rebuilds don't wipe
+    // it. That same parent ownership means we must remove it explicitly
+    // on teardown — otherwise a SlidesView remount leaves an orphan
+    // hidden div behind every cycle.
+    if (this.rotateTooltipEl !== null) {
+      this.rotateTooltipEl.remove();
+      this.rotateTooltipEl = null;
+    }
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
@@ -1047,7 +1101,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // and the overlay draws handles at the wrong position; it also leaves
     // the selection on a non-group element so Ungroup stays disabled.
     if (!this.selection.has(hitResult.elementId)) {
+      const beforeScope = this.selection.getScope();
       this.selection.click(hitResult, {});
+      this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
     const items = this.elementContextItems(slide.id);
     showContextMenu(document.body, items, e.clientX, e.clientY);
@@ -1206,7 +1262,10 @@ class SlidesEditorImpl implements SlidesEditor {
         this.startDrag(e.clientX, e.clientY);
         return;
       }
+      const beforeScope = this.selection.getScope();
       this.selection.click(hitResult, mods);
+      const afterScope = this.selection.getScope();
+      this.refitPoppedScope(beforeScope, afterScope, slide.id);
       // Begin drag on the (possibly newly-)selected elements unless the
       // element was just removed by shift-toggle.
       if (this.selection.get().length > 0) {
@@ -1215,8 +1274,18 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
-    // Empty canvas — start a lasso unless shift is held (which would be
-    // an additive no-op per the spec).
+    // Empty canvas — Google Slides behavior:
+    //   * If drilled into a group, pop the entire scope first (and refit
+    //     each popped group). Subsequent click-actions (lasso etc.) run
+    //     at the slide root.
+    //   * Then start a lasso (unless shift is held).
+    if (this.selection.getScope().length > 0) {
+      const beforeScope = this.selection.getScope();
+      // Clear scope + ids in one notify, matching Google Slides' "click
+      // outside a drilled-in group exits drill-in".
+      this.selection.click(null, {});
+      this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
+    }
     if (e.shiftKey) {
       return;
     }
@@ -1242,7 +1311,9 @@ class SlidesEditorImpl implements SlidesEditor {
     if (hitResult.elementId === this.editingElementId) return;
 
     // Drive the drill-in state machine first.
+    const beforeScope = this.selection.getScope();
     this.selection.doubleClick(hitResult);
+    this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
 
     // After drill-in, check if the newly-selected element is a text box.
     // Use the leaf-most element id from the hit (which is what
@@ -2226,42 +2297,277 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!startSlide) return;
     const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
-    if (selectedIds.length !== 1) return; // single-element only in v1
-    const elementId = selectedIds[0];
-    const startEl = findElement(startSlide.elements, elementId);
-    if (!startEl) return;
-    // Rotation is measured in world space (the angle between the cursor
-    // and the element's visible center). Convert the stored frame to
-    // world so the center and start rotation are in world coordinates.
-    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
-    const startRotation = startWorldFrame.rotation;
-    const cx = startWorldFrame.x + startWorldFrame.w / 2;
-    const cy = startWorldFrame.y + startWorldFrame.h / 2;
+    if (selectedIds.length === 0) return;
+
+    // Capture each selected element's starting world frame. For groups
+    // we wrap them through `worldTightFrame` so the rotation pivot uses
+    // the same combined bbox the user sees (overlay handles).
+    type Entry = {
+      id: string;
+      original: Element;
+      startWorld: Frame;
+      startCenter: { x: number; y: number };
+      startRotation: number;
+    };
+    const entries: Entry[] = [];
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (!el) continue;
+      const displayLocal =
+        el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
+      const startWorld = toWorldFrame(displayLocal, scope, startSlide);
+      entries.push({
+        id,
+        original: el,
+        startWorld,
+        startCenter: {
+          x: startWorld.x + startWorld.w / 2,
+          y: startWorld.y + startWorld.h / 2,
+        },
+        startRotation: startWorld.rotation,
+      });
+    }
+    if (entries.length === 0) return;
+
+    // Pivot = combined bbox center (matches what `renderAxisAlignedHandles`
+    // uses for the rotate handle position in multi-select).
+    const bbox = combinedBoundingBox(entries.map((e) => e.startWorld));
+    if (!bbox) return;
+    const pivotX = bbox.x + bbox.w / 2;
+    const pivotY = bbox.y + bbox.h / 2;
+
     const start = this.clientToLogical(clientX, clientY);
-    const startAngle = Math.atan2(start.y - cy, start.x - cx);
-    let liveWorldRotation = startRotation;
+    const startAngle = Math.atan2(start.y - pivotY, start.x - pivotX);
+    let liveDelta = 0;
+
+    // For a single-element selection, the rotation handle is conceptually
+    // "spin in place" — Google Slides keeps the element's center fixed.
+    // Skipping the pivot rotation in this case preserves that behavior
+    // (the pivot equals the element's own center, so the position update
+    // is a no-op anyway, but skipping the matrix work also avoids any
+    // floating-point drift on the position).
+    const isMulti = entries.length > 1;
+
+    // Selection handles stay anchored to the ORIGINAL world frames so
+    // the user reads them as "where the rotation started"; the ghost
+    // reads as "where it will land on release". Matches the drag-move
+    // ghost pattern from `slides-shape-move.md`.
+    const handleElements: Element[] = entries.map(
+      (e) => ({ ...e.original, frame: e.startWorld }) as Element,
+    );
+
+    const rotatePoint = (
+      x: number,
+      y: number,
+      cosT: number,
+      sinT: number,
+    ): { x: number; y: number } => {
+      const dx = x - pivotX;
+      const dy = y - pivotY;
+      return {
+        x: pivotX + dx * cosT - dy * sinT,
+        y: pivotY + dx * sinT + dy * cosT,
+      };
+    };
+
+    const buildLiveState = (
+      delta: number,
+    ): {
+      liveFrames: Map<string, Frame>;
+      ghosts: Element[];
+    } => {
+      const cosT = Math.cos(delta);
+      const sinT = Math.sin(delta);
+      const liveFrames = new Map<string, Frame>();
+      const ghosts: Element[] = [];
+
+      for (const e of entries) {
+        if (e.original.type === 'connector') {
+          // Connector ghost: rotate free endpoints around the pivot.
+          // Attached endpoints stay anchored to their (un-rotating)
+          // host. Frame is also rotated for consumers that read it for
+          // bbox/hit-test purposes (the renderer uses endpoints).
+          const c = e.original;
+          const rotateEp = (ep: typeof c.start) =>
+            ep.kind === 'free'
+              ? ({ kind: 'free', ...rotatePoint(ep.x, ep.y, cosT, sinT) } as typeof ep)
+              : ep;
+          const liveWorld: Frame = isMulti
+            ? (() => {
+                const c2 = rotatePoint(e.startCenter.x, e.startCenter.y, cosT, sinT);
+                return {
+                  ...e.startWorld,
+                  x: c2.x - e.startWorld.w / 2,
+                  y: c2.y - e.startWorld.h / 2,
+                  rotation: e.startRotation + delta,
+                };
+              })()
+            : { ...e.startWorld, rotation: e.startRotation + delta };
+          liveFrames.set(e.id, liveWorld);
+          ghosts.push({
+            ...c,
+            start: rotateEp(c.start),
+            end: rotateEp(c.end),
+            frame: liveWorld,
+          });
+          continue;
+        }
+
+        const liveWorld: Frame = isMulti
+          ? (() => {
+              const c = rotatePoint(e.startCenter.x, e.startCenter.y, cosT, sinT);
+              return {
+                ...e.startWorld,
+                x: c.x - e.startWorld.w / 2,
+                y: c.y - e.startWorld.h / 2,
+                rotation: e.startRotation + delta,
+              };
+            })()
+          : { ...e.startWorld, rotation: e.startRotation + delta };
+        liveFrames.set(e.id, liveWorld);
+        ghosts.push({ ...e.original, frame: liveWorld } as Element);
+      }
+
+      return { liveFrames, ghosts };
+    };
+
+    const tooltip = this.acquireRotateTooltip();
+    const showTooltip = (clientPx: number, clientPy: number, delta: number) => {
+      const rect = this.options.overlay.getBoundingClientRect();
+      const localX = clientPx - rect.left;
+      const localY = clientPy - rect.top;
+      // Show absolute rotation for single-element (matches Google Slides),
+      // delta for multi (since the selection had no group rotation).
+      const display = isMulti
+        ? delta
+        : entries[0].startRotation + delta;
+      // Normalize to (-180°, 180°] for compact display.
+      const deg = ((display * 180) / Math.PI + 540) % 360 - 180;
+      tooltip.textContent = `${Math.round(deg)}°`;
+      tooltip.style.transform = `translate(${localX + 14}px, ${localY + 14}px)`;
+      tooltip.style.display = 'block';
+    };
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
-      const angle = Math.atan2(cur.y - cy, cur.x - cx);
-      liveWorldRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
-      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
-      this.paintLiveScoped(new Map([[elementId, liveWorldFrame]]), scope);
+      const angle = Math.atan2(cur.y - pivotY, cur.x - pivotX);
+      liveDelta = applyRotate(0, startAngle, angle, ev.shiftKey);
+      const { ghosts } = buildLiveState(liveDelta);
+      this.paintMoveGhost(ghosts, handleElements);
+      showTooltip(ev.clientX, ev.clientY, liveDelta);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Convert the rotated world frame back to scope-local and commit.
-      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
-      const localFrame = fromWorldFrame(liveWorldFrame, scope, startSlide);
+      this.releaseRotateTooltip();
+      if (liveDelta === 0) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
+      const { liveFrames } = buildLiveState(liveDelta);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
+        for (const e of entries) {
+          const liveWorld = liveFrames.get(e.id);
+          if (!liveWorld) continue;
+          // Connectors are translated via endpoints, not their frame.
+          // For multi-rotate, free endpoints rotate around the pivot;
+          // attached endpoints stay anchored to their host (and the host
+          // moves through its own commit path).
+          if (e.original.type === 'connector') {
+            this.commitConnectorRotation(
+              startSlide.id,
+              e.original,
+              pivotX,
+              pivotY,
+              liveDelta,
+            );
+            continue;
+          }
+          const localFrame = fromWorldFrame(liveWorld, scope, startSlide);
+          this.options.store.updateElementFrame(
+            startSlide.id,
+            e.id,
+            localFrame,
+          );
+        }
       });
       this.renderer.markDirty();
       this.render();
+      this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+  }
+
+  /**
+   * Lazily create and attach the rotation-angle tooltip. Lives outside
+   * the overlay's `innerHTML` so `renderOverlay` rebuilds don't wipe it
+   * mid-drag. Hidden by default.
+   */
+  private rotateTooltipEl: HTMLDivElement | null = null;
+  private acquireRotateTooltip(): HTMLDivElement {
+    if (this.rotateTooltipEl) {
+      this.rotateTooltipEl.style.display = 'block';
+      return this.rotateTooltipEl;
+    }
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-rotate-tooltip';
+    el.style.position = 'absolute';
+    el.style.top = '0';
+    el.style.left = '0';
+    el.style.padding = '2px 6px';
+    el.style.fontSize = '11px';
+    el.style.lineHeight = '14px';
+    el.style.fontFamily = 'system-ui, sans-serif';
+    el.style.color = '#fff';
+    el.style.background = 'rgba(0, 0, 0, 0.75)';
+    el.style.borderRadius = '3px';
+    el.style.pointerEvents = 'none';
+    el.style.zIndex = '1000';
+    el.style.display = 'none';
+    // Append to the overlay's parent so renderOverlay's innerHTML reset
+    // can't remove it. The overlay is positioned over the canvas; its
+    // parent is the same containing block, so absolute coordinates line up.
+    const parent = this.options.overlay.parentElement ?? this.options.overlay;
+    parent.appendChild(el);
+    this.rotateTooltipEl = el;
+    return el;
+  }
+  private releaseRotateTooltip(): void {
+    if (this.rotateTooltipEl) this.rotateTooltipEl.style.display = 'none';
+  }
+
+  /**
+   * Apply a multi-rotate delta to a connector by rotating its free
+   * endpoints around the pivot. Attached endpoints stay where they are
+   * — their host element handles its own rotation through the regular
+   * commit path. Must run inside a store batch.
+   */
+  private commitConnectorRotation(
+    slideId: string,
+    connector: Element,
+    pivotX: number,
+    pivotY: number,
+    delta: number,
+  ): void {
+    if (connector.type !== 'connector') return;
+    const cosT = Math.cos(delta);
+    const sinT = Math.sin(delta);
+    for (const side of ['start', 'end'] as const) {
+      const ep = side === 'start' ? connector.start : connector.end;
+      if (ep.kind !== 'free') continue;
+      const dx = ep.x - pivotX;
+      const dy = ep.y - pivotY;
+      const nx = pivotX + dx * cosT - dy * sinT;
+      const ny = pivotY + dx * sinT + dy * cosT;
+      this.options.store.updateConnectorEndpoint(slideId, connector.id, side, {
+        kind: 'free',
+        x: nx,
+        y: ny,
+      });
+    }
   }
 
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {

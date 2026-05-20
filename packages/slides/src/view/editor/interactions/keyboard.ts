@@ -487,6 +487,21 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         // selected at the parent scope level (matching Google Slides).
         if (ctx.selection.getScope().length > 0) {
           e.preventDefault();
+          // Refit the innermost scoped group so its frame matches the
+          // children's current visual extent — children may have moved
+          // inside drill-in, leaving `group.frame` stale. The refit
+          // preserves the group's rotation and scale (see
+          // `worldTightFrame` in `model/group.ts`); only position +
+          // dimensions move to wrap the children. Wrapped in `batch`
+          // so undo restores the pre-refit state in one step.
+          const scope = ctx.selection.getScope();
+          const slideId = ctx.currentSlideId();
+          if (slideId !== undefined && scope.length > 0) {
+            const innermost = scope[scope.length - 1];
+            ctx.store.batch(() => {
+              ctx.store.refitGroup(slideId, innermost);
+            });
+          }
           ctx.selection.escape();
           ctx.requestRender();
           return;

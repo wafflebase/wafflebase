@@ -1,6 +1,7 @@
 import type { Element, Frame, GroupElement } from './element';
 import { applyGroupTransform as applyMatrix } from '../import/pptx/group';
 import type { GroupTransform } from '../import/pptx/group';
+import { boundingBox } from './frame';
 
 export type { GroupTransform } from '../import/pptx/group';
 
@@ -194,6 +195,171 @@ export function applyInversePoint(
   return {
     x: invA * x + invC * y + invTx,
     y: invB * x + invD * y + invTy,
+  };
+}
+
+/**
+ * Recursively map every leaf descendant of `group` into the coordinate
+ * space that `accum` maps into. Leaves are everything except `group`
+ * children — when a child is itself a group, its own frame is skipped
+ * (it's just a coordinate-space anchor) and the recursion descends
+ * into its children with a composed transform.
+ *
+ * `accum` defaults to the group's own self-transform, so the result is
+ * in the group's parent space. Pass a non-identity `accum` to render
+ * the leaves into a further-up space (e.g. slide-root when the group
+ * itself is nested).
+ */
+function worldLeafFrames(
+  group: GroupElement,
+  accum: GroupTransform = groupToTransform(group),
+): Frame[] {
+  const result: Frame[] = [];
+  for (const ch of group.data.children) {
+    if (ch.type === 'group') {
+      result.push(
+        ...worldLeafFrames(ch, composeGroupMatrix(accum, groupToTransform(ch))),
+      );
+    } else {
+      result.push(applyMatrix(ch.frame, accum));
+    }
+  }
+  return result;
+}
+
+/**
+ * AABB of `group`'s visible content in the group's parent space,
+ * with `rotation` always 0.
+ *
+ * @deprecated Prefer `worldTightFrame` for selection-handle rendering —
+ * it preserves group rotation so the handles rotate with the group.
+ * Kept exported for callers that genuinely want the axis-aligned world
+ * bbox (e.g. snap candidates).
+ */
+export function worldChildrenAABB(group: GroupElement): Frame {
+  const frames = worldLeafFrames(group);
+  if (frames.length === 0) {
+    const bb = boundingBox(group.frame);
+    return { x: bb.x, y: bb.y, w: bb.w, h: bb.h, rotation: 0 };
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const f of frames) {
+    const bb = boundingBox(f);
+    if (bb.x < minX) minX = bb.x;
+    if (bb.y < minY) minY = bb.y;
+    if (bb.x + bb.w > maxX) maxX = bb.x + bb.w;
+    if (bb.y + bb.h > maxY) maxY = bb.y + bb.h;
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY, rotation: 0 };
+}
+
+/**
+ * Tight rotation-preserving world frame for a group.
+ *
+ * Computes the minimum frame (in the group's parent space) that wraps
+ * every child's current visual extent, holding `frame.rotation` equal
+ * to the group's own rotation. Children's world positions are invariant
+ * under this transformation — adjusting the group to use this frame +
+ * shifting each child's local frame by the local-AABB offset would
+ * leave the rendered output identical.
+ *
+ * Used by:
+ *  - the overlay (so rotated groups show rotated handles even after a
+ *    child was moved inside drill-in),
+ *  - the store's `refitGroup` (materializing this frame into the stored
+ *    state so subsequent interactions read a consistent shape).
+ *
+ * Math: see comment in body. Returns the group's current frame
+ * unchanged when the group has no children (defensive: invariant 1
+ * forbids empty groups but we tolerate it during transient store
+ * states).
+ */
+export function worldTightFrame(group: GroupElement): {
+  worldFrame: Frame;
+  localShift: { x: number; y: number };
+  newRefSize: { w: number; h: number };
+} {
+  if (group.data.children.length === 0) {
+    return {
+      worldFrame: { ...group.frame },
+      localShift: { x: 0, y: 0 },
+      newRefSize: group.data.refSize
+        ? { ...group.data.refSize }
+        : { w: group.frame.w, h: group.frame.h },
+    };
+  }
+
+  // Axis-aligned AABB of children in GROUP-LOCAL coords. boundingBox
+  // accounts for each child's own rotation. Connector free endpoints
+  // are extra points in local space that also need to be inside the
+  // wrap; include them here so the new frame leaves no endpoint outside
+  // the group's rotated extent.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ch of group.data.children) {
+    const bb = boundingBox(ch.frame);
+    if (bb.x < minX) minX = bb.x;
+    if (bb.y < minY) minY = bb.y;
+    if (bb.x + bb.w > maxX) maxX = bb.x + bb.w;
+    if (bb.y + bb.h > maxY) maxY = bb.y + bb.h;
+    if (ch.type === 'connector') {
+      for (const ep of [ch.start, ch.end]) {
+        if (ep.kind === 'free') {
+          if (ep.x < minX) minX = ep.x;
+          if (ep.y < minY) minY = ep.y;
+          if (ep.x > maxX) maxX = ep.x;
+          if (ep.y > maxY) maxY = ep.y;
+        }
+      }
+    }
+  }
+
+  const localW = Math.max(maxX - minX, 1);
+  const localH = Math.max(maxY - minY, 1);
+
+  const oldRefSize = group.data.refSize ?? {
+    w: group.frame.w,
+    h: group.frame.h,
+  };
+  const oldScaleX = oldRefSize.w > 0 ? group.frame.w / oldRefSize.w : 1;
+  const oldScaleY = oldRefSize.h > 0 ? group.frame.h / oldRefSize.h : 1;
+
+  // Derivation:
+  //   T_old(P_old) = R_θ(S · (P_old − C_old)) + O_old
+  //   T_new(P_new) = R_θ(S · (P_new − C_new)) + O_new
+  // where P_new = P_old − shift, C_old/C_new are the old/new local
+  // centres, S is the old scale, and θ is the group's rotation.
+  // For T_new(P_new) = T_old(P_old) (children invariant), it follows
+  //   O_new = O_old − R_θ(S · (C_old − shift − C_new)).
+  // C_old = (oldRefSize.w/2, oldRefSize.h/2)
+  // C_new = (localW/2, localH/2)
+  // shift = (minX, minY)
+  const dxLocal = oldRefSize.w / 2 - minX - localW / 2;
+  const dyLocal = oldRefSize.h / 2 - minY - localH / 2;
+  const dxScaled = oldScaleX * dxLocal;
+  const dyScaled = oldScaleY * dyLocal;
+  const cosT = Math.cos(group.frame.rotation);
+  const sinT = Math.sin(group.frame.rotation);
+  const dxWorld = dxScaled * cosT - dyScaled * sinT;
+  const dyWorld = dxScaled * sinT + dyScaled * cosT;
+
+  const oldCx = group.frame.x + group.frame.w / 2;
+  const oldCy = group.frame.y + group.frame.h / 2;
+  const newCx = oldCx - dxWorld;
+  const newCy = oldCy - dyWorld;
+
+  const newW = localW * oldScaleX;
+  const newH = localH * oldScaleY;
+
+  return {
+    worldFrame: {
+      x: newCx - newW / 2,
+      y: newCy - newH / 2,
+      w: newW,
+      h: newH,
+      rotation: group.frame.rotation,
+    },
+    localShift: { x: minX, y: minY },
+    newRefSize: { w: localW, h: localH },
   };
 }
 
