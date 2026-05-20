@@ -9,6 +9,7 @@ import {
   useMemo,
   lazy,
   Suspense,
+  type ChangeEvent,
 } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
@@ -19,10 +20,21 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconFolder, IconSettings, IconDatabase, IconMessage } from "@tabler/icons-react";
+import {
+  IconFolder,
+  IconSettings,
+  IconDatabase,
+  IconMessage,
+  IconTableImport,
+} from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -108,6 +120,8 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
+  const xlsxInputRef = useRef<HTMLInputElement>(null);
+  const [importingXlsx, setImportingXlsx] = useState(false);
 
   const navigate = useNavigate();
 
@@ -369,6 +383,76 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [addSheetTab],
   );
 
+  const handleImportXlsxFile = useCallback(
+    async (file: File) => {
+      if (!doc) return;
+
+      setImportingXlsx(true);
+      try {
+        const { importXlsxFile } = await import("./xlsx-import");
+        const importedSheets = await importXlsxFile(file);
+        if (importedSheets.length === 0) {
+          toast.error("This .xlsx file does not contain any sheets.");
+          return;
+        }
+
+        const root = doc.getRoot();
+        const stagedTabs: Record<string, TabMeta> = {};
+        for (const [tabId, tab] of Object.entries(root.tabs)) {
+          stagedTabs[tabId] = { ...tab };
+        }
+
+        const tabsToInsert = importedSheets.map((sheet, index) => {
+          const tabId = generateTabId();
+          const tab: TabMeta = {
+            id: tabId,
+            name: getUniqueTabName(
+              stagedTabs,
+              sheet.name,
+              index === 0 ? "Imported Sheet" : `Imported Sheet ${index + 1}`,
+            ),
+            type: "sheet",
+          };
+          stagedTabs[tabId] = tab;
+          return { tab, worksheet: sheet.worksheet };
+        });
+
+        doc.update((r) => {
+          for (const { tab, worksheet } of tabsToInsert) {
+            r.tabs[tab.id] = tab;
+            r.tabOrder.push(tab.id);
+            r.sheets[tab.id] = worksheet;
+          }
+        });
+        setActiveTabId(tabsToInsert[0].tab.id);
+
+        toast.success(
+          tabsToInsert.length === 1
+            ? `Imported "${tabsToInsert[0].tab.name}"`
+            : `Imported ${tabsToInsert.length} sheets`,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to import XLSX file",
+        );
+      } finally {
+        setImportingXlsx(false);
+      }
+    },
+    [doc],
+  );
+
+  const handleXlsxInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = "";
+      if (file) {
+        void handleImportXlsxFile(file);
+      }
+    },
+    [handleImportXlsxFile],
+  );
+
   const handleRenameTab = useCallback(
     (tabId: string, name: string): boolean => {
       if (!doc) return false;
@@ -581,6 +665,28 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <input
+              ref={xlsxInputRef}
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              onChange={handleXlsxInputChange}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Import XLSX"
+                  aria-busy={importingXlsx}
+                  disabled={importingXlsx}
+                  onClick={() => xlsxInputRef.current?.click()}
+                >
+                  <IconTableImport size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Import XLSX</TooltipContent>
+            </Tooltip>
             <button
               type="button"
               className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${

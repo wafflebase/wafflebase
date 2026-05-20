@@ -401,6 +401,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       lucide-react:
         specifier: ^0.503.0
         version: 0.503.0(react@19.1.0)
@@ -450,6 +453,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.3.4(vite@6.4.1(@types/node@22.14.1)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))
+      '@xmldom/xmldom':
+        specifier: 0.9.10
+        version: 0.9.10
       '@yorkie-js/sdk':
         specifier: 0.7.8
         version: 0.7.8
