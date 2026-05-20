@@ -6,13 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 196
+Total archived tasks: 200
 
-## 2026/05 (51 tasks)
+## 2026/05 (55 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
 | slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
+| slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./2026/05/20260519-slides-mobile-shell-todo.md) | - |
+| slides mobile toolbar morph (2026-05-19) | [20260519-slides-mobile-toolbar-morph-todo.md](./2026/05/20260519-slides-mobile-toolbar-morph-todo.md) | - |
+| slides precise shape hit test (2026-05-19) | [20260519-slides-precise-shape-hit-test-todo.md](./2026/05/20260519-slides-precise-shape-hit-test-todo.md) | - |
 | release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
 | pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
