@@ -72,6 +72,8 @@ export {
   groupToTransform,
   isGroupDescendantOf,
   normalizeToGroupLocal,
+  worldChildrenAABB,
+  worldTightFrame,
 } from './model/group';
 export {
   applyGroupTransformToPoint,
