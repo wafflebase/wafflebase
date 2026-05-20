@@ -649,13 +649,13 @@ export type EvalNode =
   | ArrNode
   | LambdaNode;
 
-const MAX_FORMULA_NUMBER = 1.7976931e308;
+export const MAX_FORMULA_NUMBER = Number.MAX_VALUE;
 
-function isFormulaNumber(value: number): boolean {
+export function isFormulaNumber(value: number): boolean {
   return Number.isFinite(value) && Math.abs(value) <= MAX_FORMULA_NUMBER;
 }
 
-function numResult(value: number): NumNode | ErrNode {
+export function numResult(value: number): NumNode | ErrNode {
   return isFormulaNumber(value) ? { t: 'num', v: value } : ErrNode.NUM;
 }
 

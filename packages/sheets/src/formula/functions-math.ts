@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, ArrNode } from './formula';
+import { EvalNode, ErrNode, ArrNode, numResult } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -16,10 +16,6 @@ import {
   type MatrixResult,
 } from './functions-helpers';
 import { gammaLanczos } from './functions-statistical';
-
-function numResult(value: number): EvalNode {
-  return Number.isFinite(value) ? { t: 'num', v: value } : ErrNode.NUM;
-}
 
 /**
  * `sum` is the implementation of the SUM function.

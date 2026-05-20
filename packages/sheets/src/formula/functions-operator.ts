@@ -1,14 +1,10 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, NumNode, BoolNode } from './formula';
+import { EvalNode, ErrNode, NumNode, BoolNode, numResult } from './formula';
 import { Grid } from '../model/core/types';
 import { toStr, firstCellValue } from './functions-helpers';
 import { NumberArgs, BoolArgs } from './arguments';
 import { isSrng } from '../model/core/coordinates';
-
-function numResult(value: number): NumNode | ErrNode {
-  return Number.isFinite(value) ? { t: 'num', v: value } : ErrNode.NUM;
-}
 
 /**
  * Resolves a single-cell ref or scalar node to a scalar EvalNode,
