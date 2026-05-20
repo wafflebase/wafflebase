@@ -509,11 +509,12 @@ class SlidesEditorImpl implements SlidesEditor {
 
   /**
    * When the drill-in scope pops (Esc, click outside the scoped group,
-   * double-click outside, etc.), refit the popped group(s) so their
-   * `frame` matches the children's current visual extent. Matches
-   * Google Slides: dropping out of drill-in produces a tight selection
-   * box, and any group-level rotation bakes into children's local
-   * frames (`frame.rotation` resets to 0).
+   * empty-canvas click while drilled in, right-click outside scope),
+   * refit the popped group(s) so their `frame` matches the children's
+   * current visual extent. Matches Google Slides: dropping out of
+   * drill-in produces a tight selection box. The refit preserves the
+   * group's rotation and scale — see `worldTightFrame` in
+   * `model/group.ts` for the math.
    *
    * Each popped group is refit in its own batch so undo restores the
    * pre-pop state in a single step per group. Most pops drop one scope
@@ -1011,6 +1012,15 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     this.hoverPreview = null;
     this.connectorCursor = null;
+    // Rotate-angle tooltip is attached to the overlay's parent, not the
+    // overlay itself, so renderOverlay's innerHTML rebuilds don't wipe
+    // it. That same parent ownership means we must remove it explicitly
+    // on teardown — otherwise a SlidesView remount leaves an orphan
+    // hidden div behind every cycle.
+    if (this.rotateTooltipEl !== null) {
+      this.rotateTooltipEl.remove();
+      this.rotateTooltipEl = null;
+    }
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
