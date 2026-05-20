@@ -270,4 +270,13 @@ describe('Sheet.Calcuation', () => {
     await sheet.setData({ r: 1, c: 4 }, '=A1:B1+A1:B1');
     expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('#VALUE!');
   });
+
+  it('should compare array literal references without spilling', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '5');
+    await sheet.setData({ r: 1, c: 2 }, '10');
+    await sheet.setData({ r: 1, c: 3 }, '={A1,B1}=10');
+
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('FALSE');
+  });
 });

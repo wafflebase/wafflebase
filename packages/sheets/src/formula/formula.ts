@@ -489,6 +489,12 @@ export function evaluateWithSpill(formula: string, grid?: Grid): string | SpillR
       };
     }
 
+    if (node.t === 'arr' && node.scalarSafe) {
+      const topLeft = node.v[0]?.[0];
+      if (!topLeft || topLeft.t === 'empty') return '0';
+      return evalNodeToStr(topLeft, grid);
+    }
+
     return evalNodeToStr(node, grid);
   } catch {
     return ErrValue.ERROR;
@@ -629,7 +635,14 @@ export const ErrNode = {
 
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
-export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number; spill?: boolean };
+export type ArrNode = {
+  t: 'arr';
+  v: EvalNode[][];
+  rows: number;
+  cols: number;
+  spill?: boolean;
+  scalarSafe?: boolean;
+};
 export type LambdaNode = {
   t: 'lambda';
   params: string[];
@@ -654,6 +667,7 @@ type MatrixArray = {
   values: EvalNode[][];
   rows: number;
   cols: number;
+  scalarSafe: boolean;
 };
 
 /**
@@ -854,6 +868,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   private numericArrayBinary(leftRaw: EvalNode, rightRaw: EvalNode, op: number): EvalNode | null {
+    // Scalar-vs-matrix operations broadcast the scalar; matrix-vs-matrix requires exact shape.
     const leftMatrix = this.toMatrixArray(leftRaw);
     if (leftMatrix && 't' in leftMatrix) return leftMatrix;
     const rightMatrix = this.toMatrixArray(rightRaw);
@@ -894,10 +909,15 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       result.push(resultRow);
     }
 
-    return { t: 'arr', v: result, rows, cols, spill: false };
+    const scalarSafe =
+      (!leftMatrix || leftMatrix.scalarSafe) &&
+      (!rightMatrix || rightMatrix.scalarSafe);
+
+    return { t: 'arr', v: result, rows, cols, spill: false, scalarSafe };
   }
 
   private comparisonArrayBinary(leftRaw: EvalNode, rightRaw: EvalNode, op: number): EvalNode | null {
+    // Array literals can carry ref nodes, so matrix cells are resolved before scalar comparison.
     const leftMatrix = this.toMatrixArray(leftRaw);
     if (leftMatrix && 't' in leftMatrix) return leftMatrix;
     const rightMatrix = this.toMatrixArray(rightRaw);
@@ -919,8 +939,18 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     for (let row = 0; row < rows; row++) {
       const resultRow: EvalNode[] = [];
       for (let col = 0; col < cols; col++) {
-        const leftNode = leftMatrix ? leftMatrix.values[row]?.[col] ?? { t: 'empty' } : leftScalar!;
-        const rightNode = rightMatrix ? rightMatrix.values[row]?.[col] ?? { t: 'empty' } : rightScalar!;
+        const rawLeft = leftMatrix
+          ? leftMatrix.values[row]?.[col] ?? { t: 'empty' }
+          : leftScalar!;
+        const leftNode = rawLeft.t === 'ref' ? this.resolveValue(rawLeft) : rawLeft;
+        if (leftNode.t === 'err') return leftNode;
+
+        const rawRight = rightMatrix
+          ? rightMatrix.values[row]?.[col] ?? { t: 'empty' }
+          : rightScalar!;
+        const rightNode = rawRight.t === 'ref' ? this.resolveValue(rawRight) : rawRight;
+        if (rightNode.t === 'err') return rightNode;
+
         const compared = this.compareValues(leftNode, rightNode, op);
         if (compared.t === 'err') return compared;
         resultRow.push(compared);
@@ -928,12 +958,22 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       result.push(resultRow);
     }
 
-    return { t: 'arr', v: result, rows, cols, spill: false };
+    const scalarSafe =
+      (!leftMatrix || leftMatrix.scalarSafe) &&
+      (!rightMatrix || rightMatrix.scalarSafe);
+
+    return { t: 'arr', v: result, rows, cols, spill: false, scalarSafe };
   }
 
   private toMatrixArray(node: EvalNode): MatrixArray | ErrNode | null {
+    // Ranges are materialized to cell values; array literals keep their existing shape.
     if (node.t === 'arr') {
-      return { values: node.v, rows: node.rows, cols: node.cols };
+      return {
+        values: node.v,
+        rows: node.rows,
+        cols: node.cols,
+        scalarSafe: node.scalarSafe === true,
+      };
     }
 
     if (node.t !== 'ref' || !this.grid || !isSrng(node.v)) {
@@ -959,7 +999,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
         values.push(resultRow);
       }
 
-      return { values, rows, cols };
+      return { values, rows, cols, scalarSafe: false };
     } catch {
       return ErrNode.VALUE;
     }
@@ -1019,7 +1059,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       rows.push(cells);
     }
     const cols = rows.reduce((max, r) => Math.max(max, r.length), 0);
-    return { t: 'arr', v: rows, rows: rows.length, cols };
+    return { t: 'arr', v: rows, rows: rows.length, cols, scalarSafe: true };
   }
 
   visitIdentifier(ctx: IdentifierContext): EvalNode {
