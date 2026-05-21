@@ -78,6 +78,21 @@ describe('keyboard — nudge', () => {
     store.undo();
     expect(store.read().slides[0].elements[0].frame.x).toBe(100);
   });
+
+  it('arrow keys inside a textarea do not nudge elements', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown',  bubbles: true }));
+    const frame = store.read().slides[0].elements[0].frame;
+    expect(frame.x).toBe(100);
+    expect(frame.y).toBe(100);
+    textarea.remove();
+  });
 });
 
 describe('keyboard — undo/redo', () => {

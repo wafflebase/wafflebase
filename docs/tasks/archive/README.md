@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 200
+Total archived tasks: 201
 
-## 2026/05 (55 tasks)
+## 2026/05 (56 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides arrow key text edit (2026-05-21) | [20260521-slides-arrow-key-text-edit-todo.md](./2026/05/20260521-slides-arrow-key-text-edit-todo.md) | [20260521-slides-arrow-key-text-edit-lessons.md](./2026/05/20260521-slides-arrow-key-text-edit-lessons.md) |
 | slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
 | slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
 | slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./2026/05/20260519-slides-mobile-shell-todo.md) | - |
