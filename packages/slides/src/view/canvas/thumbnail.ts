@@ -1,25 +1,32 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
-import { SlideRenderer, type SlideRendererOptions } from './slide-renderer';
+import { drawSlide, type SlideRendererOptions } from './slide-renderer';
 
 /**
- * Render a slide thumbnail onto the given ctx. Internally constructs
- * a SlideRenderer with the supplied host size and forces a single
- * paint. Thumbnails always render — there is no dirty tracking at
- * this layer because the caller (the editor) has already decided that
- * a thumbnail needs refreshing.
+ * Render a slide thumbnail onto the given ctx. Calls `drawSlide`
+ * directly — no SlideRenderer wrapper, because the renderer's
+ * dirty-flag is per-instance state and a one-shot thumbnail paint
+ * discards the instance immediately after.
  *
  * `doc` provides the active theme — every theme-bound color in the
  * thumbnail (background, shapes) resolves through it, exactly the way
  * the main slide canvas does.
+ *
+ * `onAssetLoad` is invoked when an image referenced by the slide
+ * (background image, image element, master image) finishes loading
+ * asynchronously. Without this callback, a thumbnail painted while
+ * its image is still loading would never refresh — the SlideRenderer
+ * that drawSlide normally hands its `markDirty` to has already been
+ * GC'd. The thumbnail panel uses this to coalesce per-slide repaints
+ * via `ThumbnailScheduler`.
  */
 export function renderThumbnail(
   ctx: CanvasRenderingContext2D,
   slide: Slide,
   doc: SlidesDocument,
   options: SlideRendererOptions,
+  onAssetLoad?: () => void,
 ): void {
-  const renderer = new SlideRenderer(ctx, options);
-  renderer.render(slide, doc);
+  drawSlide(ctx, slide, doc, options, onAssetLoad);
 }
 
 /**
@@ -56,6 +63,22 @@ export class ThumbnailScheduler {
       this.timer = null;
     }
     this.flush();
+  }
+
+  /**
+   * Drop the pending batch without invoking `onFlush`. The right call
+   * on panel dispose so a timer that started ~99ms before tear-down
+   * doesn't fire ~1ms after into a cleared state map. `flushNow()`
+   * would also work today because the panel's onFlush bails on its
+   * `disposed` flag, but `cancel()` makes the lifecycle explicit
+   * instead of relying on that guard.
+   */
+  cancel(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.pending.clear();
   }
 
   private flush(): void {

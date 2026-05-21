@@ -425,14 +425,18 @@ export function SlidesView({
     // safe to call after local edits — the next render is a no-op if
     // the renderer already painted the same frame.
     //
-    // thumbHandle.refresh() is the only way A's own thumbnail picks
-    // up a drag/resize commit on the current slide, since the
-    // thumbnail panel only listens to selection / current-slide
-    // changes, neither of which fires for an in-place frame update.
+    // thumbHandle.refreshContent() picks up content edits (drag,
+    // resize, color, text) on any slide without rebuilding the panel
+    // DOM — full refresh() is reserved for structural changes (slide
+    // add/remove), driven by the rAF tick's count check below. The
+    // distinction matters because every refresh() wipes the canvas
+    // bitmaps and the IntersectionObserver, causing a one-frame blank
+    // flicker across the whole panel — visible every time the user
+    // moves a shape if it's the wrong tool.
     const offChange = store.onChange(() => {
       editor.markDirty();
       editor.render();
-      thumbHandle.refresh();
+      thumbHandle.refreshContent();
     });
 
     // Local presence: broadcast active slide + selection. Yorkie's
