@@ -5,10 +5,8 @@ import type { Theme } from '../../../src/model/theme';
 import { DEFAULT_MASTER } from '../../../src/model/master';
 import { BUILT_IN_LAYOUTS } from '../../../src/model/layout';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
+import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
 import { ThumbnailScheduler, renderThumbnail } from '../../../src/view/canvas/thumbnail';
-
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
 
 const THEME: Theme = {
   id: 't', name: 't',
@@ -43,9 +41,82 @@ describe('renderThumbnail', () => {
     // Scale = 192 / 1920 = 0.1
     expect(ctx.scale).toHaveBeenCalledWith(0.1, 0.1);
   });
+
+  // Mirrors the FakeImage pattern from slide-renderer.test.ts. The
+  // global `Image` constructor in jsdom never auto-completes, so the
+  // image cache would otherwise stay pending forever. This fake flips
+  // to `complete` on the next microtask and fires `onload`, which is
+  // exactly the event the `onAssetLoad` callback chain rides on.
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    complete = false;
+    naturalWidth = 100;
+    naturalHeight = 80;
+    private _src = '';
+    get src(): string { return this._src; }
+    set src(value: string) {
+      this._src = value;
+      queueMicrotask(() => {
+        this.complete = true;
+        this.onload?.();
+      });
+    }
+  }
+
+  const flushMicrotasks = (): Promise<void> =>
+    new Promise((resolve) => queueMicrotask(() => resolve()));
+
+  describe('async image background', () => {
+    beforeEach(() => { vi.stubGlobal('Image', FakeImage); });
+    afterEach(() => { vi.unstubAllGlobals(); clearImageCacheForTests(); });
+
+    it('invokes onAssetLoad once a pending background image finishes loading', async () => {
+      const ctx = createCtxSpy();
+      const slide: Slide = {
+        ...blankSlide('s1'),
+        background: {
+          fill: { kind: 'srgb', value: '#fff' },
+          image: { src: 'thumb-bg.png' },
+        },
+      };
+      const onAssetLoad = vi.fn();
+      // First paint: image-cache still loading → drawImage is a no-op,
+      // onAssetLoad subscribed to the pending callback set.
+      renderThumbnail(
+        asCtx(ctx),
+        slide,
+        DOC,
+        { hostWidth: 192, hostHeight: 108, dpr: 1 },
+        onAssetLoad,
+      );
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+      expect(onAssetLoad).not.toHaveBeenCalled();
+
+      await flushMicrotasks();
+
+      // Image load fired → onAssetLoad invoked. Caller (the panel)
+      // will use this to schedule a repaint via ThumbnailScheduler.
+      expect(onAssetLoad).toHaveBeenCalledTimes(1);
+
+      // Second paint after the cache hit actually draws the image.
+      renderThumbnail(
+        asCtx(ctx),
+        slide,
+        DOC,
+        { hostWidth: 192, hostHeight: 108, dpr: 1 },
+        onAssetLoad,
+      );
+      expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe('ThumbnailScheduler', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+
   it('coalesces multiple schedule() calls into one render after the debounce window', () => {
     const onFlush = vi.fn();
     const scheduler = new ThumbnailScheduler(200, onFlush);

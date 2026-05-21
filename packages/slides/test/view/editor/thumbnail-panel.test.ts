@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 
 import { MemSlidesStore } from '../../../src/store/memory';
+import { clearImageCacheForTests } from '../../../src/view/canvas/image-cache';
 import { initialize } from '../../../src/view/editor/editor';
 import { mountThumbnailPanel } from '../../../src/view/editor/thumbnail-panel';
 
@@ -478,5 +479,425 @@ describe('mountThumbnailPanel — right-click context menu', () => {
       document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
     ).find((li) => li.textContent === 'Change layout…')!;
     expect(changeItem.style.opacity).toBe('0.5');
+  });
+});
+
+// Lazy paint via IntersectionObserver. jsdom doesn't ship the global, so
+// the panel's default path is the "paint everything" fallback. To exercise
+// the lazy branch we stub a controllable IO that captures observed
+// elements and lets the test drive `isIntersecting` per-id.
+describe('mountThumbnailPanel — IntersectionObserver lazy paint', () => {
+  type MockEntry = { isIntersecting: boolean; target: Element };
+  type MockCallback = (entries: MockEntry[]) => void;
+  let activeCb: MockCallback | null = null;
+  let observed: Element[] = [];
+
+  class MockIntersectionObserver {
+    constructor(cb: MockCallback) { activeCb = cb; }
+    observe(el: Element): void { observed.push(el); }
+    unobserve(el: Element): void {
+      observed = observed.filter((o) => o !== el);
+    }
+    disconnect(): void { observed = []; activeCb = null; }
+    takeRecords(): MockEntry[] { return []; }
+  }
+
+  beforeEach(() => {
+    activeCb = null;
+    observed = [];
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('does not paint a thumb until the observer reports it as intersecting', () => {
+    const { panel, store, editor } = makeFixture();
+    // Two slides; observe both via the mock.
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+
+    // Both items were observed but neither painted yet — the mock's
+    // constructor capture means we control all paint timing.
+    expect(observed).toHaveLength(2);
+    const canvasFor = (id: string): HTMLCanvasElement =>
+      panel.querySelector<HTMLCanvasElement>(
+        `[data-slide-id="${id}"] canvas`,
+      )!;
+    expect(canvasFor(slideIds[0]).dataset.paintCount).toBeUndefined();
+    expect(canvasFor(slideIds[1]).dataset.paintCount).toBeUndefined();
+
+    // Fire intersection for slide 0 only.
+    const item0 = panel.querySelector<HTMLElement>(
+      `[data-slide-id="${slideIds[0]}"]`,
+    )!;
+    activeCb!([{ isIntersecting: true, target: item0 }]);
+    expect(canvasFor(slideIds[0]).dataset.paintCount).toBe('1');
+    expect(canvasFor(slideIds[1]).dataset.paintCount).toBeUndefined();
+
+    // Now reveal slide 1 — only it paints, slide 0 stays at one paint.
+    const item1 = panel.querySelector<HTMLElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    activeCb!([{ isIntersecting: true, target: item1 }]);
+    expect(canvasFor(slideIds[0]).dataset.paintCount).toBe('1');
+    expect(canvasFor(slideIds[1]).dataset.paintCount).toBe('1');
+  });
+
+  it('does not repaint a thumb that has already been painted once', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideId = store.read().slides[0].id;
+    const item = panel.querySelector<HTMLElement>(
+      `[data-slide-id="${slideId}"]`,
+    )!;
+    const canvas = panel.querySelector<HTMLCanvasElement>(
+      `[data-slide-id="${slideId}"] canvas`,
+    )!;
+    activeCb!([{ isIntersecting: true, target: item }]);
+    expect(canvas.dataset.paintCount).toBe('1');
+    // Scrolling the thumb out and back in (the observer would fire two
+    // more entries) must not redo the paint — the bitmap is still valid.
+    activeCb!([{ isIntersecting: false, target: item }]);
+    activeCb!([{ isIntersecting: true, target: item }]);
+    expect(canvas.dataset.paintCount).toBe('1');
+  });
+
+  it('dispose disconnects the observer and clears the observed list', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    expect(observed.length).toBeGreaterThan(0);
+    handle.dispose();
+    expect(observed).toHaveLength(0);
+  });
+
+  it('refreshContent repaints painted thumbs without rebuilding DOM (no flicker on content edit)', () => {
+    // refreshContent routes through ThumbnailScheduler so a burst of
+    // store.onChange events coalesces into one paint per thumb. Use
+    // fake timers to assert the scheduled paint deterministically.
+    vi.useFakeTimers();
+    try {
+      const { panel, store, editor } = makeFixture();
+      const handle = mountThumbnailPanel(panel, store, editor);
+      const slideIds = store.read().slides.map((s) => s.id);
+
+      // Paint slide 0; leave slide 1 unpainted (offscreen).
+      const item0 = panel.querySelector<HTMLElement>(
+        `[data-slide-id="${slideIds[0]}"]`,
+      )!;
+      activeCb!([{ isIntersecting: true, target: item0 }]);
+      const canvas0 = panel.querySelector<HTMLCanvasElement>(
+        `[data-slide-id="${slideIds[0]}"] canvas`,
+      )!;
+      const canvas1 = panel.querySelector<HTMLCanvasElement>(
+        `[data-slide-id="${slideIds[1]}"] canvas`,
+      )!;
+      expect(canvas0.dataset.paintCount).toBe('1');
+      expect(canvas1.dataset.paintCount).toBeUndefined();
+
+      // Simulate a content edit on slide 0.
+      store.batch(() => {
+        store.updateSlideBackground(slideIds[0], {
+          fill: { kind: 'srgb', value: '#abcdef' },
+        });
+      });
+      handle.refreshContent();
+      // Scheduler is debouncing — no repaint yet.
+      expect(canvas0.dataset.paintCount).toBe('1');
+      vi.advanceTimersByTime(200);
+
+      // Slide 0 was painted → repainted once more. Slide 1 was unpainted
+      // → stays unpainted (will pick up the new content when scrolled
+      // into view). Crucially, the DOM elements are the SAME nodes (no
+      // wipe + rebuild), so there's no blank-frame flicker.
+      expect(canvas0.dataset.paintCount).toBe('2');
+      expect(canvas1.dataset.paintCount).toBeUndefined();
+      expect(
+        panel.querySelector<HTMLElement>(`[data-slide-id="${slideIds[0]}"] canvas`),
+      ).toBe(canvas0);
+      expect(
+        panel.querySelector<HTMLElement>(`[data-slide-id="${slideIds[1]}"] canvas`),
+      ).toBe(canvas1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refreshContent falls back to structural render() when slide order diverges (remote reorder)', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const before = store.read().slides.map((s) => s.id);
+    expect(before).toHaveLength(2);
+
+    // Simulate a remote reorder: same slide ids, swapped positions.
+    store.batch(() => {
+      store.moveSlide(before[1], 0);
+    });
+    // refreshContent must detect the order divergence and rebuild.
+    handle.refreshContent();
+    const after = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-slide-id]'),
+    ).map((el) => el.dataset.slideId!);
+    expect(after).toEqual([before[1], before[0]]);
+  });
+
+  it('refreshContent is a no-op when state is empty (called before first render)', () => {
+    const { panel, store, editor } = makeFixture();
+    const handle = mountThumbnailPanel(panel, store, editor);
+    handle.dispose();
+    // After dispose, state is cleared. refreshContent must not throw.
+    expect(() => handle.refreshContent()).not.toThrow();
+  });
+
+  it('switching the current slide updates the highlight without repainting canvases', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const slideIds = store.read().slides.map((s) => s.id);
+
+    // Paint both thumbs by firing intersection for each.
+    for (const id of slideIds) {
+      const item = panel.querySelector<HTMLElement>(`[data-slide-id="${id}"]`)!;
+      activeCb!([{ isIntersecting: true, target: item }]);
+    }
+    const canvasFor = (id: string): HTMLCanvasElement =>
+      panel.querySelector<HTMLCanvasElement>(
+        `[data-slide-id="${id}"] canvas`,
+      )!;
+    expect(canvasFor(slideIds[0]).dataset.paintCount).toBe('1');
+    expect(canvasFor(slideIds[1]).dataset.paintCount).toBe('1');
+
+    // Click the second thumb to switch current.
+    panel
+      .querySelector<HTMLElement>(`[data-slide-id="${slideIds[1]}"]`)!
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+    // Highlight has moved.
+    expect(
+      panel.querySelector<HTMLElement>(`[data-slide-id="${slideIds[0]}"]`)!.classList.contains('current'),
+    ).toBe(false);
+    expect(
+      panel.querySelector<HTMLElement>(`[data-slide-id="${slideIds[1]}"]`)!.classList.contains('current'),
+    ).toBe(true);
+    // But paint counts haven't budged — the canvases were left intact.
+    expect(canvasFor(slideIds[0]).dataset.paintCount).toBe('1');
+    expect(canvasFor(slideIds[1]).dataset.paintCount).toBe('1');
+  });
+});
+
+// Async-image background flow: a slide whose background image is still
+// loading when the first paint happens. The renderer's onAssetLoad fires
+// once the image cache resolves — the panel must coalesce that signal
+// via ThumbnailScheduler into a second paint of the same canvas.
+describe('mountThumbnailPanel — async image-background repaint', () => {
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    complete = false;
+    naturalWidth = 100;
+    naturalHeight = 80;
+    private _src = '';
+    get src(): string { return this._src; }
+    set src(value: string) {
+      this._src = value;
+      // queueMicrotask flips complete + fires onload on the next
+      // microtask, mirroring the slide-renderer.test pattern.
+      queueMicrotask(() => {
+        this.complete = true;
+        this.onload?.();
+      });
+    }
+  }
+
+  type MockEntry = { isIntersecting: boolean; target: Element };
+  type MockCallback = (entries: MockEntry[]) => void;
+  let activeCb: MockCallback | null = null;
+  let observed: Element[] = [];
+
+  class MockIntersectionObserver {
+    constructor(cb: MockCallback) { activeCb = cb; }
+    observe(el: Element): void { observed.push(el); }
+    unobserve(el: Element): void {
+      observed = observed.filter((o) => o !== el);
+    }
+    disconnect(): void { observed = []; activeCb = null; }
+    takeRecords(): MockEntry[] { return []; }
+  }
+
+  beforeEach(() => {
+    activeCb = null;
+    observed = [];
+    vi.useFakeTimers();
+    vi.stubGlobal('Image', FakeImage);
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    clearImageCacheForTests();
+  });
+
+  it('repaints a thumb after its background image finishes loading', async () => {
+    const { panel, store, editor } = makeFixture();
+    // Re-create the deck so the first slide has a background image.
+    const blank = store.read().slides[0].id;
+    const second = store.read().slides[1].id;
+    store.batch(() => {
+      store.removeSlide(blank);
+      store.removeSlide(second);
+      const id = store.addSlide('blank');
+      store.updateSlideBackground(id, {
+        fill: { kind: 'srgb', value: '#fff' },
+        image: { src: 'panel-bg.png' },
+      });
+    });
+    mountThumbnailPanel(panel, store, editor);
+    const slideId = store.read().slides[0].id;
+    const item = panel.querySelector<HTMLElement>(
+      `[data-slide-id="${slideId}"]`,
+    )!;
+    const canvas = panel.querySelector<HTMLCanvasElement>(
+      `[data-slide-id="${slideId}"] canvas`,
+    )!;
+    // First paint: image-cache still resolving → drawImage no-op,
+    // onAssetLoad subscribed.
+    activeCb!([{ isIntersecting: true, target: item }]);
+    expect(canvas.dataset.paintCount).toBe('1');
+
+    // Let the FakeImage onload fire. Microtasks run synchronously under
+    // vi.useFakeTimers without needing advanceTimersByTime.
+    await Promise.resolve();
+    // The scheduler is debouncing now — no repaint yet.
+    expect(canvas.dataset.paintCount).toBe('1');
+
+    // Advance past the scheduler debounce window — repaint fires.
+    vi.advanceTimersByTime(200);
+    expect(canvas.dataset.paintCount).toBe('2');
+  });
+
+  it('does not repaint after dispose, even if an image load is still in flight', async () => {
+    const { panel, store, editor } = makeFixture();
+    const blank = store.read().slides[0].id;
+    const second = store.read().slides[1].id;
+    store.batch(() => {
+      store.removeSlide(blank);
+      store.removeSlide(second);
+      const id = store.addSlide('blank');
+      store.updateSlideBackground(id, {
+        fill: { kind: 'srgb', value: '#fff' },
+        image: { src: 'panel-bg-2.png' },
+      });
+    });
+    const handle = mountThumbnailPanel(panel, store, editor);
+    const slideId = store.read().slides[0].id;
+    const item = panel.querySelector<HTMLElement>(
+      `[data-slide-id="${slideId}"]`,
+    )!;
+    const canvas = panel.querySelector<HTMLCanvasElement>(
+      `[data-slide-id="${slideId}"] canvas`,
+    )!;
+    activeCb!([{ isIntersecting: true, target: item }]);
+    expect(canvas.dataset.paintCount).toBe('1');
+    handle.dispose();
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+    // No second paint — scheduler bails out on the `disposed` flag.
+    expect(canvas.dataset.paintCount).toBe('1');
+  });
+});
+
+// Chunked DOM construction for big decks. The first chunk runs
+// synchronously inside mount(); the rest are deferred via rAF so the
+// main thread doesn't block while building hundreds of items.
+describe('mountThumbnailPanel — chunked render for large decks', () => {
+  // Stubbed rAF queue so the test drives chunk-by-chunk progress
+  // deterministically. jsdom does ship a rAF that defers via timers,
+  // but capturing the callback directly lets us assert "exactly one
+  // chunk has been built so far" without time-advancing heuristics.
+  let rafQueue: Array<{ id: number; cb: () => void }> = [];
+  let nextRafId = 1;
+  const flushOneRAF = (): void => {
+    const next = rafQueue.shift();
+    if (next) next.cb();
+  };
+
+  beforeEach(() => {
+    rafQueue = [];
+    nextRafId = 1;
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+      const id = nextRafId++;
+      rafQueue.push({ id, cb });
+      return id;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      rafQueue = rafQueue.filter((e) => e.id !== id);
+    });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const makeBigDeck = (n: number): ReturnType<typeof makeFixture> => {
+    const fx = makeFixture();
+    fx.store.batch(() => {
+      for (let i = 0; i < n - 2; i++) fx.store.addSlide('blank');
+    });
+    return fx;
+  };
+
+  it('builds only the first chunk synchronously; remaining slides land via rAF', () => {
+    const { panel, store, editor } = makeBigDeck(35);
+    mountThumbnailPanel(panel, store, editor);
+    // First chunk only — 20 by RENDER_CHUNK_SIZE.
+    expect(panel.querySelectorAll('[data-slide-id]')).toHaveLength(20);
+    expect(rafQueue).toHaveLength(1);
+
+    // Second chunk lands.
+    flushOneRAF();
+    expect(panel.querySelectorAll('[data-slide-id]').length).toBe(35);
+    // Build is done — no more pending chunks.
+    expect(rafQueue).toHaveLength(0);
+  });
+
+  it('a follow-up render() during chunking discards items the stale generation would have appended', () => {
+    // Mount 60 slides → first chunk builds 20, 40 pending. Then remove
+    // 20 slides from the deck and call refresh(). If the stale token's
+    // pending chunks leaked through, the DOM would end up with > 40
+    // items (or duplicates / removed-slide ids). Token-guarded code
+    // bails them out, leaving exactly the new generation's 40.
+    const { panel, store, editor } = makeBigDeck(60);
+    const handle = mountThumbnailPanel(panel, store, editor);
+    expect(panel.querySelectorAll('[data-slide-id]').length).toBe(20);
+    expect(rafQueue.length).toBeGreaterThan(0);
+    const beforeIds = store.read().slides.map((s) => s.id);
+
+    // Shrink the deck before any further chunks land.
+    store.batch(() => {
+      for (let i = 0; i < 20; i++) store.removeSlide(beforeIds[i]);
+    });
+    handle.refresh();
+    // The new render's first chunk built; old chunks still queued (and
+    // freshly queued for the new generation).
+    while (rafQueue.length) flushOneRAF();
+
+    const ids = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-slide-id]'),
+    ).map((el) => el.dataset.slideId!);
+    const remaining = store.read().slides.map((s) => s.id);
+    // The DOM exactly matches the post-shrink store — no stale items.
+    expect(ids).toEqual(remaining);
+    // And contains none of the removed slide ids.
+    const removed = beforeIds.slice(0, 20);
+    for (const id of removed) expect(ids).not.toContain(id);
+  });
+
+  it('dispose during chunking cancels pending chunks without painting more items', () => {
+    const { panel, store, editor } = makeBigDeck(40);
+    const handle = mountThumbnailPanel(panel, store, editor);
+    expect(panel.querySelectorAll('[data-slide-id]').length).toBe(20);
+    handle.dispose();
+    // Even if a stale rAF entry escaped cancelAnimationFrame (e.g. via
+    // a polyfill quirk), the token + disposed guard inside buildChunk
+    // keeps it from appending more.
+    while (rafQueue.length) flushOneRAF();
+    // The DOM is left as-is by dispose (per the existing handle
+    // contract that says "DOM is left in place"), so the partial 20
+    // items remain — but nothing further was appended.
+    expect(panel.querySelectorAll('[data-slide-id]').length).toBe(20);
   });
 });
