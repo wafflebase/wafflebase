@@ -11,22 +11,31 @@ const DEMO_DOC_TOKEN =
   import.meta.env.VITE_DEMO_DOC_SHARED_TOKEN ??
   "08fe575d-c5c0-451f-9b00-37d1833f68cc";
 
-type Tab = "sheet" | "doc";
+const DEMO_SLIDES_TOKEN =
+  import.meta.env.VITE_DEMO_SLIDES_SHARED_TOKEN ??
+  "bf4e92f1-f289-43dd-be1b-8a47c14f0e7a";
 
-const TAB_ORDER: Tab[] = ["sheet", "doc"];
+type Tab = "sheet" | "doc" | "slides";
+
+const TAB_ORDER: Tab[] = ["sheet", "doc", "slides"];
 
 export function DemoSection() {
   const { resolvedTheme } = useTheme();
   const sheetIframeRef = useRef<HTMLIFrameElement>(null);
   const docIframeRef = useRef<HTMLIFrameElement>(null);
+  const slidesIframeRef = useRef<HTMLIFrameElement>(null);
   const [tab, setTab] = useState<Tab>("sheet");
   const [docMounted, setDocMounted] = useState(false);
+  const [slidesMounted, setSlidesMounted] = useState(false);
   const [sheetState, setSheetState] = useState<"loading" | "loaded" | "error">(
     "loading",
   );
   const [docState, setDocState] = useState<"loading" | "loaded" | "error">(
     "loading",
   );
+  const [slidesState, setSlidesState] = useState<
+    "loading" | "loaded" | "error"
+  >("loading");
 
   // Lock the iframe URLs to the initial theme so subsequent theme changes
   // don't mutate the `src` prop and trigger a full reload — theme updates
@@ -39,11 +48,16 @@ export function DemoSection() {
     () =>
       `${window.location.origin}/shared/${DEMO_DOC_TOKEN}?theme=${resolvedTheme}`,
   );
+  const [slidesUrl] = useState(
+    () =>
+      `${window.location.origin}/shared/${DEMO_SLIDES_TOKEN}?theme=${resolvedTheme}`,
+  );
 
-  // Mount the doc iframe lazily, on first activation of the doc tab,
-  // so the initial pageload only fetches the sheet iframe.
+  // Mount the doc / slides iframes lazily, on first activation of their
+  // tab, so the initial pageload only fetches the sheet iframe.
   useEffect(() => {
     if (tab === "doc") setDocMounted(true);
+    if (tab === "slides") setSlidesMounted(true);
   }, [tab]);
 
   // Forward theme changes to live iframes via postMessage so they update
@@ -51,7 +65,8 @@ export function DemoSection() {
   useEffect(() => {
     postTheme(sheetIframeRef, sheetState === "loaded", resolvedTheme);
     postTheme(docIframeRef, docState === "loaded", resolvedTheme);
-  }, [resolvedTheme, sheetState, docState]);
+    postTheme(slidesIframeRef, slidesState === "loaded", resolvedTheme);
+  }, [resolvedTheme, sheetState, docState, slidesState]);
 
   const handleTabKey = (e: React.KeyboardEvent, key: Tab) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -112,6 +127,15 @@ export function DemoSection() {
               tabId="demo-tab-doc"
               panelId="demo-panel-doc"
             />
+            <DemoTab
+              active={tab === "slides"}
+              onClick={() => setTab("slides")}
+              onKeyDown={(e) => handleTabKey(e, "slides")}
+              icon={<SlidesIcon />}
+              label="Presentation"
+              tabId="demo-tab-slides"
+              panelId="demo-panel-slides"
+            />
             <span className="flex-1" />
           </div>
 
@@ -142,6 +166,19 @@ export function DemoSection() {
                 onError={() => setDocState("error")}
               />
             )}
+            {slidesMounted && (
+              <DemoFrame
+                visible={tab === "slides"}
+                iframeRef={slidesIframeRef}
+                src={slidesUrl}
+                title="Wafflebase live demo presentation"
+                state={slidesState}
+                panelId="demo-panel-slides"
+                tabId="demo-tab-slides"
+                onLoad={() => setSlidesState("loaded")}
+                onError={() => setSlidesState("error")}
+              />
+            )}
           </div>
 
           {/* Footer */}
@@ -155,7 +192,9 @@ export function DemoSection() {
             <span className="truncate pr-3">
               {tab === "sheet"
                 ? "Tip: double-click a cell to edit. Totals recompute on the same engine."
-                : "Tip: edit any paragraph or heading — changes sync in real time."}
+                : tab === "doc"
+                  ? "Tip: edit any paragraph or heading — changes sync in real time."
+                  : "Tip: arrow keys navigate slides — press F to present."}
             </span>
             <span className="shrink-0">wafflebase@0.3.7</span>
           </div>
@@ -316,6 +355,27 @@ function DocIcon() {
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SlidesIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect
+        x="1"
+        y="2"
+        width="12"
+        height="9"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M5.5 5.5l3 1.5-3 1.5z"
+        fill="currentColor"
+        opacity="0.7"
       />
     </svg>
   );
