@@ -825,12 +825,28 @@ describe('Formula', () => {
     expect(evaluate('=IFERROR("hello","error")')).toBe('hello');
     expect(evaluate('=IFERROR(1+2,"error")')).toBe('3');
     expect(evaluate('=IFERROR(SUM(),"fallback")')).toBe('fallback');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+    grid.set('A3', { v: 'plain' });
+
+    expect(evaluate('=IFERROR(A1,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A2,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A3,"fallback")', grid)).toBe('plain');
   });
 
   it('should correctly evaluate IFNA function', () => {
     expect(evaluate('=IFNA(SUM(),"fallback")')).toBe('fallback');
     expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#DIV/0!');
     expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+
+    expect(evaluate('=IFNA(A1,"fallback")', grid)).toBe('#DIV/0!');
+    expect(evaluate('=IFNA(A2,"fallback")', grid)).toBe('fallback');
   });
 
   it('should correctly evaluate PI function', () => {
