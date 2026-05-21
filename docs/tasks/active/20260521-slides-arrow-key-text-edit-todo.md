@@ -25,12 +25,26 @@ guard is enough; no separate `editor.isTextEditing()` check needed.
 - [x] Regression test in `packages/slides/test/view/editor/interactions/keyboard.test.ts`
   modeled on the existing Backspace-in-textarea precedent. Verified to
   fail without the guard, pass with it.
-- [ ] Manual smoke in `pnpm dev`:
+- [x] Manual smoke in `pnpm dev`:
   - Select a text-box, press Arrow → shape still nudges 1px.
   - Enter text-edit mode (double-click / F2 / Enter), press Arrow →
     caret moves inside the text, shape does not move.
   - Shift+Arrow inside text → text selection extends, shape stays.
   - Esc exits edit mode, Arrow nudges again.
+
+## Review
+
+PR #272 — landed 2026-05-22 after #269.
+
+- Production fix: 1 predicate term in `keyboard.ts:104-146`.
+- Regression test: paired with the Backspace-in-textarea precedent
+  (`keyboard.test.ts:162-172`); confirmed to fail without the guard.
+- Self code review (`superpowers:requesting-code-review`) flagged the
+  missing test as Important; addressed in `58c377eb`.
+- Stale `packages/slides/dist/` masked itself as "pre-existing failure
+  on main"; a `pnpm --filter @wafflebase/slides build` resolved it.
+  Lessons file captures the trap so the next contributor on slides
+  doesn't lose time on it.
 
 ## Out of scope
 
