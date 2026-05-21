@@ -46,11 +46,11 @@ export function HeroSection({
 
           {/* Title */}
           <h1
-            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6 max-w-[20ch]"
+            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6"
             style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
           >
-            The Office Suite{" "}
-            <em className="font-medium italic text-[color:var(--wb-syrup-deep)]">
+            <span className="block">The Office Suite</span>
+            <em className="block font-medium italic text-[color:var(--wb-syrup-deep)]">
               You Can Own
             </em>
           </h1>
