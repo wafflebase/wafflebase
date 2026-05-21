@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { ErrValue, ErrValues, EvalNode, ErrNode, errValueCode } from './formula';
+import { ErrValue, EvalNode, ErrNode, errValueCode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -10,6 +10,7 @@ import {
   toSref,
 } from '../model/core/coordinates';
 import {
+  errorValueFromNode,
   toStr,
 } from './functions-helpers';
 
@@ -417,25 +418,12 @@ export function errortypeFunc(
   const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
-  const errValue = resolveErrValue(node, grid);
+  const errValue = errorValueFromNode(node, grid);
   if (errValue !== undefined) {
     return { t: 'num', v: errValueCode(errValue) };
   }
 
   return ErrNode.NA;
-}
-
-function resolveErrValue(node: EvalNode, grid?: Grid): ErrValue | undefined {
-  if (node.t === 'err') {
-    return errValueCode(node.v) > 0 ? node.v : undefined;
-  }
-  if (node.t === 'ref' && grid && !isSrng(node.v)) {
-    const stored = grid.get(node.v)?.v;
-    if (stored && (ErrValues as readonly string[]).includes(stored)) {
-      return stored as ErrValue;
-    }
-  }
-  return undefined;
 }
 
 /**

@@ -4,6 +4,7 @@ import { ErrValue, EvalNode, ErrNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
+  errorValueFromNode,
   toStr,
 } from './functions-helpers';
 
@@ -212,12 +213,12 @@ export function chooseFunc(
 export function iferrorFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  _grid?: Grid,
+  grid?: Grid,
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
-  if (value.t === 'err') {
+  if (errorValueFromNode(value, grid) !== undefined) {
     return visit(exprs[1]);
   }
 
@@ -231,12 +232,12 @@ export function iferrorFunc(
 export function ifnaFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  _grid?: Grid,
+  grid?: Grid,
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
   const value = visit(exprs[0]);
-  if (value.t === 'err' && value.v === ErrValue.NA) {
+  if (errorValueFromNode(value, grid) === ErrValue.NA) {
     return visit(exprs[1]);
   }
 
