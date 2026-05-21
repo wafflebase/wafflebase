@@ -55,6 +55,13 @@ describe('Formula', () => {
     expect(evaluate('=2+3^2')).toBe('11');
   });
 
+  it('should bind unary minus tighter than ^', () => {
+    // Matches Google Sheets / Excel: =-2^2 is (-2)^2 = 4, not -(2^2) = -4.
+    expect(evaluate('=-2^2')).toBe('4');
+    expect(evaluate('=-(2^2)')).toBe('-4');
+    expect(evaluate('=-2^3')).toBe('-8');
+  });
+
   it('should treat ^ as right-associative', () => {
     expect(evaluate('=2^3^2')).toBe('512');
     expect(evaluate('=(2^3)^2')).toBe('64');
