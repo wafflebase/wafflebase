@@ -101,10 +101,15 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     },
 
     // Arrow nudge — only when something is selected and no modifier.
+    // Skipped while the user is typing in a textarea/input/contenteditable
+    // so Arrow keys inside the inline text-box editor move the text caret
+    // instead of nudging the surrounding shape.
     ...(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const).map(
       (key): KeyRule => ({
         match: (e) =>
-          e.key === key && !isModPressed(e),
+          e.key === key &&
+          !isModPressed(e) &&
+          !isEditableTarget(e.target),
         run: (e) => {
           if (ctx.selection.get().length === 0) return;
           e.preventDefault();
