@@ -4,6 +4,9 @@ import { WbButton } from "./primitives/wb-button";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
+// `v0.4` from `0.4.1` — minor-version label for the marketing eyebrow.
+const VERSION_LABEL = `v${__APP_VERSION__.split(".").slice(0, 2).join(".")}`;
+
 const STATS = [
   { value: "Apache-2.0", label: "License" },
   { value: "Self-hosted", label: "Deployment" },
@@ -38,7 +41,7 @@ export function HeroSection({
                   "0 0 0 3px color-mix(in srgb, var(--wb-leaf) 25%, transparent)",
               }}
             />
-            v0.3 · Apache-2.0 · Self-hosted
+            {VERSION_LABEL} · Apache-2.0 · Self-hosted
           </div>
 
           {/* Title */}

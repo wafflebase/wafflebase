@@ -196,7 +196,7 @@ export function DemoSection() {
                   ? "Tip: edit any paragraph or heading — changes sync in real time."
                   : "Tip: arrow keys navigate slides — press F to present."}
             </span>
-            <span className="shrink-0">wafflebase@0.3.7</span>
+            <span className="shrink-0">{`wafflebase@${__APP_VERSION__}`}</span>
           </div>
         </div>
       </div>

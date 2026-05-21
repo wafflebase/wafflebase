@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -5,6 +6,14 @@ import { defineConfig, loadEnv, type Plugin, type Connect } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
+
+// Root package.json is the single source of truth for the version
+// surfaced on the homepage. Read at config-eval time and inject as a
+// build-time constant so the hero eyebrow and demo footer always
+// match the shipped package.
+const rootPkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
+) as { version: string };
 
 /**
  * Replaces the `<!--GA_SNIPPET-->` marker in index.html with the GA4
@@ -150,6 +159,7 @@ export default defineConfig({
   },
   define: {
     "process.env": {},
+    __APP_VERSION__: JSON.stringify(rootPkg.version),
   },
   optimizeDeps: {
     esbuildOptions: {
