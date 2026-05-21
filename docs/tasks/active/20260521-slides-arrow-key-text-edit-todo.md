@@ -22,6 +22,9 @@ guard is enough; no separate `editor.isTextEditing()` check needed.
 - [x] Add `!isEditableTarget(e.target)` to the Arrow nudge rule's
   `match` predicate, alongside `e.key === key && !isModPressed(e)`.
 - [x] `pnpm verify:fast` green.
+- [x] Regression test in `packages/slides/test/view/editor/interactions/keyboard.test.ts`
+  modeled on the existing Backspace-in-textarea precedent. Verified to
+  fail without the guard, pass with it.
 - [ ] Manual smoke in `pnpm dev`:
   - Select a text-box, press Arrow → shape still nudges 1px.
   - Enter text-edit mode (double-click / F2 / Enter), press Arrow →
