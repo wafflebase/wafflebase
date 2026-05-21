@@ -43,10 +43,10 @@ export function HeroSection({
 
           {/* Title */}
           <h1
-            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6 max-w-[16ch]"
+            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6 max-w-[20ch]"
             style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
           >
-            Word Processor & Spreadsheet{" "}
+            The Office Suite{" "}
             <em className="font-medium italic text-[color:var(--wb-syrup-deep)]">
               You Can Own
             </em>
@@ -54,8 +54,8 @@ export function HeroSection({
 
           {/* Sub */}
           <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10">
-            Self-host a collaborative word processor and spreadsheet with
-            real-time editing and a REST API for automation.
+            Sheets, Docs, and Slides. Real-time collaboration, REST API,
+            fully self-hosted.
           </p>
 
           {/* CTAs */}
