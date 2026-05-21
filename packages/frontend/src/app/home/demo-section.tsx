@@ -194,7 +194,7 @@ export function DemoSection() {
                 ? "Tip: double-click a cell to edit. Totals recompute on the same engine."
                 : tab === "doc"
                   ? "Tip: edit any paragraph or heading — changes sync in real time."
-                  : "Tip: arrow keys navigate slides — press F to present."}
+                  : "Tip: arrow keys navigate — ⌘/Ctrl+Enter to present."}
             </span>
             <span className="shrink-0">{`wafflebase@${__APP_VERSION__}`}</span>
           </div>

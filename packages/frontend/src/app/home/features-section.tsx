@@ -73,7 +73,7 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     title: "Tables & Pagination",
     description:
       "Rich tables, page breaks, and pagination for long-form documents",
-    href: "/docs/docs-editor/writing-a-document",
+    href: "/docs/docs-editor/writing-a-document#tables",
   },
   {
     Icon: Palette,
