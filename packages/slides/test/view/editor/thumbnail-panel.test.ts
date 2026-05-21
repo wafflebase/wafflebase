@@ -639,7 +639,7 @@ describe('mountThumbnailPanel — IntersectionObserver lazy paint', () => {
     expect(after).toEqual([before[1], before[0]]);
   });
 
-  it('refreshContent is a no-op when state is empty (called before first render)', () => {
+  it('refreshContent is a safe no-op after dispose', () => {
     const { panel, store, editor } = makeFixture();
     const handle = mountThumbnailPanel(panel, store, editor);
     handle.dispose();

@@ -72,9 +72,9 @@ size` still passes because `drawSlide` is the same function that ran inside
 
 ### Panel: per-slide state + IntersectionObserver
 
-`mountThumbnailPanel` keeps a `ThumbnailScheduler` (200ms debounce — matches
-the existing exported constructor signature) whose `onFlush(ids)` calls
-`paintThumb(id)` for each id that's currently mounted.
+`mountThumbnailPanel` keeps a `ThumbnailScheduler` (100ms debounce, see
+`ASSET_LOAD_DEBOUNCE_MS`) whose `onFlush(ids)` calls `paintThumb(id)` for
+each id that's currently mounted.
 
 Per-thumb lifecycle inside `render()` (which still rebuilds the DOM
 end-to-end when called — store changes are infrequent enough that incremental
@@ -206,7 +206,10 @@ After the first round, surfaced two additional issues:
 
 ## Review section
 
-Implementation matches the plan; all 12 plan items checked off.
+Code work matches the plan — 11 of 12 plan items checked off. V2 (manual
+visual smoke against a deck with master-level image background and ~30
+slides) is intentionally deferred to the reviewer / merge gate; it's a
+human-eye check and not something the implementation can self-assert.
 
 - `renderThumbnail` now takes an optional `onAssetLoad` and calls `drawSlide`
   directly — the SlideRenderer wrapper was load-bearing for the main canvas
@@ -271,10 +274,15 @@ Minor adjustments:
   happens one microtask after `render()`. Acceptable for v1; if visible in
   practice, the fix is to pre-emptively paint items inside the scrollparent's
   `clientHeight` synchronously and leave the rest to the observer.
-- **Thumbnails do not auto-refresh on canvas content edits.** The panel only
-  subscribes to `onCurrentSlideChange`, not to general store changes. This is
-  pre-existing behavior, not a regression — covered by the existing `refresh`
-  handle pattern.
+- **Thumbnails don't observe the store directly — caller wires the refresh.**
+  The panel only subscribes to `onCurrentSlideChange`. Content edits and
+  structural changes ride on the caller (`slides-view.tsx`) calling
+  `refreshContent()` from `store.onChange` and `refresh()` from the rAF
+  tick's count check. So thumbnails DO auto-refresh in the integrated app,
+  but a host that mounts `mountThumbnailPanel` without that wiring will see
+  stale thumbnails — the contract belongs to the caller. This is the same
+  ownership model as before this PR, but now there are two refresh entry
+  points instead of one.
 - **Memory unbounded by deck size.** Once painted, thumbs stay painted for the
   panel lifetime. ~80KB per 192×108 canvas → 16MB at 200 slides. Acceptable
   for current product scope; if larger decks become common, swap to an LRU

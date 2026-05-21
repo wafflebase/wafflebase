@@ -543,12 +543,17 @@ export function mountThumbnailPanel(
       pendingChunkRAF = null;
       const end = Math.min(cursor + RENDER_CHUNK_SIZE, slides.length);
       for (; cursor < end; cursor++) buildItem(slides[cursor]);
-      // Re-apply savedScrollTop after each chunk. Browsers clamp
-      // scrollTop to scrollHeight - clientHeight, so as height grows
-      // chunk by chunk the scroll position naturally creeps up to where
-      // the user left it. Restoring once at the end would still work for
-      // small decks but would visibly snap-to-top mid-build on big ones.
-      if (scrollParent) scrollParent.scrollTop = savedScrollTop;
+      // Re-apply savedScrollTop only when the browser has clamped it
+      // BELOW the target — i.e., scrollHeight was still smaller than
+      // savedScrollTop when the previous chunk landed. If the user
+      // scrolled past savedScrollTop during a between-chunk rAF gap on
+      // a long deck (~80ms of multi-chunk build for 100+ slides), an
+      // unconditional restore would snap them back on every frame. The
+      // `<` check leaves user-initiated scrolls intact while still
+      // letting the original position creep up as height grows.
+      if (scrollParent && scrollParent.scrollTop < savedScrollTop) {
+        scrollParent.scrollTop = savedScrollTop;
+      }
       if (cursor < slides.length) {
         // More chunks remain. Defer via rAF so the browser gets to
         // paint between batches and the main thread stays responsive
