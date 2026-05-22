@@ -32,6 +32,8 @@ import {
   parseRef,
   parseRange,
   isCrossSheetRef,
+  parseCrossSheetRef,
+  toSref,
 } from '../model/core/coordinates';
 
 /**
@@ -651,6 +653,16 @@ export type EvalNode =
   | ArrNode
   | LambdaNode;
 
+function cellValueToEvalNode(value: string | undefined): EvalNode {
+  const val = value || '';
+  if (val === '') return { t: 'num', v: 0 };
+  if (val === 'TRUE' || val === 'true') return { t: 'bool', v: true };
+  if (val === 'FALSE' || val === 'false') return { t: 'bool', v: false };
+  const num = Number(val);
+  if (!isNaN(num)) return { t: 'num', v: num };
+  return { t: 'str', v: val };
+}
+
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
  * `antlr/Formula.g4` file.
@@ -739,12 +751,21 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitAddSub(ctx: AddSubContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    const rawLeft = this.visit(ctx.expr(0));
+    const rawRight = this.visit(ctx.expr(1));
+    const arrayResult = this.evalArrayArithmetic(
+      rawLeft,
+      rawRight,
+      ctx._op.type,
+    );
+    if (arrayResult) return arrayResult;
+
+    const left = NumberArgs.map(rawLeft, this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    const right = NumberArgs.map(rawRight, this.grid);
     if (right.t === 'err') {
       return right;
     }
@@ -757,12 +778,21 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    const rawLeft = this.visit(ctx.expr(0));
+    const rawRight = this.visit(ctx.expr(1));
+    const arrayResult = this.evalArrayArithmetic(
+      rawLeft,
+      rawRight,
+      ctx._op.type,
+    );
+    if (arrayResult) return arrayResult;
+
+    const left = NumberArgs.map(rawLeft, this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    const right = NumberArgs.map(rawRight, this.grid);
     if (right.t === 'err') {
       return right;
     }
@@ -811,17 +841,43 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitComparison(ctx: ComparisonContext): EvalNode {
-    const left = this.resolveValue(this.visit(ctx.expr(0)));
+    const rawLeft = this.visit(ctx.expr(0));
+    const rawRight = this.visit(ctx.expr(1));
+    const arrayResult = this.evalArrayComparison(
+      rawLeft,
+      rawRight,
+      ctx._op.type,
+    );
+    if (arrayResult) return arrayResult;
+
+    const left = this.resolveValue(rawLeft);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = this.resolveValue(this.visit(ctx.expr(1)));
+    const right = this.resolveValue(rawRight);
     if (right.t === 'err') {
       return right;
     }
 
-    const op = ctx._op.type;
+    return this.compareValues(left, right, ctx._op.type);
+  }
+
+  private compareValues(left: EvalNode, right: EvalNode, op: number): EvalNode {
+    if (left.t === 'empty') left = { t: 'num', v: 0 };
+    if (right.t === 'empty') right = { t: 'num', v: 0 };
+    if (left.t === 'err') return left;
+    if (right.t === 'err') return right;
+    if (left.t === 'ref') left = this.resolveValue(left);
+    if (right.t === 'ref') right = this.resolveValue(right);
+    if (
+      left.t === 'arr' ||
+      left.t === 'lambda' ||
+      right.t === 'arr' ||
+      right.t === 'lambda'
+    ) {
+      return ErrNode.VALUE;
+    }
 
     // Different types: EQ→false, NEQ→true, order: num < str < bool
     if (left.t !== right.t) {
@@ -853,6 +909,130 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     const lv = (left as NumNode).v;
     const rv = (right as NumNode).v;
     return this.compareBool(op, lv < rv ? -1 : lv > rv ? 1 : 0);
+  }
+
+  private evalArrayComparison(
+    left: EvalNode,
+    right: EvalNode,
+    op: number,
+  ): EvalNode | undefined {
+    const leftArray = this.toArrayNode(left);
+    if (leftArray?.t === 'err') return leftArray;
+    const rightArray = this.toArrayNode(right);
+    if (rightArray?.t === 'err') return rightArray;
+    if (!leftArray && !rightArray) return undefined;
+
+    return this.mapArrayPair(leftArray, rightArray, left, right, (a, b) =>
+      this.compareValues(a, b, op),
+    );
+  }
+
+  private evalArrayArithmetic(
+    left: EvalNode,
+    right: EvalNode,
+    op: number,
+  ): EvalNode | undefined {
+    if (left.t !== 'arr' && right.t !== 'arr') return undefined;
+
+    const leftArray = this.toArrayNode(left);
+    if (leftArray?.t === 'err') return leftArray;
+    const rightArray = this.toArrayNode(right);
+    if (rightArray?.t === 'err') return rightArray;
+    if (!leftArray && !rightArray) return undefined;
+
+    return this.mapArrayPair(leftArray, rightArray, left, right, (a, b) => {
+      const leftNum = NumberArgs.map(a, this.grid);
+      if (leftNum.t === 'err') return leftNum;
+      const rightNum = NumberArgs.map(b, this.grid);
+      if (rightNum.t === 'err') return rightNum;
+
+      switch (op) {
+        case FormulaParser.ADD:
+          return { t: 'num', v: leftNum.v + rightNum.v };
+        case FormulaParser.SUB:
+          return { t: 'num', v: leftNum.v - rightNum.v };
+        case FormulaParser.MUL:
+          return { t: 'num', v: leftNum.v * rightNum.v };
+        case FormulaParser.DIV:
+          if (rightNum.v === 0) return ErrNode.DIV0;
+          return { t: 'num', v: leftNum.v / rightNum.v };
+        default:
+          return ErrNode.ERROR;
+      }
+    });
+  }
+
+  private mapArrayPair(
+    leftArray: ArrNode | undefined,
+    rightArray: ArrNode | undefined,
+    leftScalar: EvalNode,
+    rightScalar: EvalNode,
+    mapper: (left: EvalNode, right: EvalNode) => EvalNode,
+  ): EvalNode {
+    const rows = leftArray?.rows ?? rightArray?.rows ?? 1;
+    const cols = leftArray?.cols ?? rightArray?.cols ?? 1;
+    if (
+      (leftArray && (leftArray.rows !== rows || leftArray.cols !== cols)) ||
+      (rightArray && (rightArray.rows !== rows || rightArray.cols !== cols))
+    ) {
+      return ErrNode.VALUE;
+    }
+
+    const values: EvalNode[][] = [];
+    for (let r = 0; r < rows; r++) {
+      const row: EvalNode[] = [];
+      for (let c = 0; c < cols; c++) {
+        row.push(
+          mapper(
+            leftArray ? leftArray.v[r][c] : leftScalar,
+            rightArray ? rightArray.v[r][c] : rightScalar,
+          ),
+        );
+      }
+      values.push(row);
+    }
+
+    return { t: 'arr', v: values, rows, cols };
+  }
+
+  private toArrayNode(node: EvalNode): ArrNode | ErrNode | undefined {
+    if (node.t === 'arr') return node;
+    if (node.t !== 'ref' || !this.grid || !isSrng(node.v)) return undefined;
+
+    try {
+      let localRange = node.v;
+      let prefix = '';
+      if (isCrossSheetRef(node.v)) {
+        const { sheetName, localRef } = parseCrossSheetRef(node.v);
+        localRange = localRef;
+        prefix = `${sheetName}!`;
+      }
+
+      const [a, b] = parseRange(localRange);
+      const minR = Math.min(a.r, b.r);
+      const maxR = Math.max(a.r, b.r);
+      const minC = Math.min(a.c, b.c);
+      const maxC = Math.max(a.c, b.c);
+      const values: EvalNode[][] = [];
+
+      for (let row = minR; row <= maxR; row++) {
+        const cells: EvalNode[] = [];
+        for (let col = minC; col <= maxC; col++) {
+          const ref = `${prefix}${toSref({ r: row, c: col })}`;
+          cells.push(cellValueToEvalNode(this.grid.get(ref)?.v));
+        }
+        values.push(cells);
+      }
+
+      return {
+        t: 'arr',
+        v: values,
+        rows: maxR - minR + 1,
+        cols: maxC - minC + 1,
+      };
+    } catch {
+      return ErrNode.REF;
+    }
   }
 
   private resolveValue(node: EvalNode): EvalNode {

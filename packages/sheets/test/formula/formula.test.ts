@@ -1157,6 +1157,18 @@ describe('Formula', () => {
     expect(evaluate('=SUMPRODUCT(A1:A3)', grid)).toBe('6');
   });
 
+  it('should coerce booleans in SUMPRODUCT array expressions', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'North' });
+    grid.set('A2', { v: 'South' });
+    grid.set('A3', { v: 'North' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+
+    expect(evaluate('=SUMPRODUCT((A1:A3="North")*B1:B3)', grid)).toBe('40');
+  });
+
   it('should correctly evaluate GCD function', () => {
     expect(evaluate('=GCD(12,8)')).toBe('4');
     expect(evaluate('=GCD(24,36,48)')).toBe('12');

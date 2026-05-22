@@ -1414,16 +1414,11 @@ export function sumproductFunc(
 
   const arrays: number[][] = [];
   for (const expr of exprs) {
-    const refs = getRefsFromExpression(expr, visit, grid);
-    if (refs.t === 'err') {
-      return refs;
-    }
+    const matrix = getReferenceMatrixFromExpression(expr, visit, grid);
+    if (matrix.t === 'err') return matrix;
 
-    const values: number[] = [];
-    for (const ref of refs.v) {
-      const cellVal = grid?.get(ref)?.v || '';
-      values.push(cellVal !== '' && !isNaN(Number(cellVal)) ? Number(cellVal) : 0);
-    }
+    const values = flattenSumproductValues(matrix, grid);
+    if (!Array.isArray(values)) return values;
     arrays.push(values);
   }
 
@@ -1442,6 +1437,52 @@ export function sumproductFunc(
   }
 
   return { t: 'num', v: total };
+}
+
+function flattenSumproductValues(
+  matrix: MatrixResult,
+  grid?: Grid,
+): number[] | ErrNode {
+  const values: number[] = [];
+
+  if (matrix.t === 'matrix') {
+    for (const ref of matrix.v.refs) {
+      const value = coerceSumproductCell(grid?.get(ref)?.v);
+      if (value.t === 'err') return value;
+      values.push(value.v);
+    }
+    return values;
+  }
+
+  for (const row of matrix.values) {
+    for (const node of row) {
+      const value = coerceSumproductNode(node, grid);
+      if (value.t === 'err') return value;
+      values.push(value.v);
+    }
+  }
+
+  return values;
+}
+
+function coerceSumproductCell(
+  value: string | undefined,
+): { t: 'num'; v: number } | ErrNode {
+  const raw = value || '';
+  if (raw === '') return { t: 'num', v: 0 };
+  if (raw === 'TRUE' || raw === 'true') return { t: 'num', v: 1 };
+  if (raw === 'FALSE' || raw === 'false') return { t: 'num', v: 0 };
+
+  const num = Number(raw);
+  return { t: 'num', v: isNaN(num) ? 0 : num };
+}
+
+function coerceSumproductNode(
+  node: EvalNode,
+  grid?: Grid,
+): { t: 'num'; v: number } | ErrNode {
+  if (node.t === 'err') return node;
+  return NumberArgs.map(node, grid);
 }
 
 /**
