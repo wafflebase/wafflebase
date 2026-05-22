@@ -68,6 +68,7 @@ export default defineConfig({
       { text: "Guide", link: "/guide/getting-started" },
       { text: "Sheets", link: "/sheets/build-a-budget" },
       { text: "Docs", link: "/docs-editor/writing-a-document" },
+      { text: "Slides", link: "/slides/build-a-deck" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -104,6 +105,20 @@ export default defineConfig({
           {
             text: "Keyboard Shortcuts",
             link: "/docs-editor/keyboard-shortcuts",
+          },
+        ],
+      },
+      {
+        text: "Slides",
+        items: [
+          { text: "Build a Deck", link: "/slides/build-a-deck" },
+          {
+            text: "Themes & Layouts",
+            link: "/slides/themes-and-layouts",
+          },
+          {
+            text: "Keyboard Shortcuts",
+            link: "/slides/keyboard-shortcuts",
           },
         ],
       },

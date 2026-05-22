@@ -58,9 +58,24 @@ Use the alignment dropdown in the toolbar to align paragraphs:
 - **Center** — Centered text
 - **Right** — Right-aligned text
 
-## Page Layout
+## Tables
 
-Documents are displayed with a page-based layout, similar to a printed document. Pages use A4 size by default with standard margins. As you type, text flows naturally across pages.
+Insert a table from the toolbar to lay out structured content. Click the **Table** button, drag to pick the grid size, and the table appears at the cursor.
+
+- **Tab** moves between cells (Shift+Tab moves backward).
+- Right-click a cell for row and column operations — insert above/below, insert left/right, delete row/column, merge or split cells.
+- Drag a column or row border to resize.
+- Tables can be nested — insert a table inside a cell to build sub-grids.
+
+When a table is taller than the remaining space on a page, its rows split across the page boundary automatically.
+
+## Pagination
+
+Documents use a page-based layout similar to a printed document. Pages default to A4 with standard margins, and text flows across pages as you type.
+
+- Long paragraphs and tables break naturally at the page boundary — line splitting keeps headings, table headers, and partial rows in sync with the layout.
+- The editor renders one page per "sheet" so you can scroll through the deck of pages exactly as they will print or export.
+- Export to PDF preserves the same pagination — what you see on screen matches the exported document.
 
 ## Undo and Redo
 

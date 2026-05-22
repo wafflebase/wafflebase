@@ -15,10 +15,10 @@ const USE_CASES: UseCase[] = [
     href: "/docs/sheets/sheet",
   },
   {
-    tag: "Customer dashboards",
-    title: "Let customers slice their own numbers",
-    body: "Ship a sheet view of their data with formulas they can modify. Great for billing breakdowns, forecasts, what-ifs.",
-    href: "/docs/sheets/formulas",
+    tag: "Pitch decks & all-hands",
+    title: "Ship the deck on your brand, not Google's",
+    body: "Four-tier theme system, Google-Slides-parity layouts, and a self-hosted store — your team's decks live where your data lives.",
+    href: "/docs/slides/build-a-deck",
   },
   {
     tag: "Specs & launch plans",
