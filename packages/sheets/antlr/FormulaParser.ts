@@ -48,12 +48,13 @@ export class FormulaParser extends Parser {
 	public static readonly ADD = 17;
 	public static readonly SUB = 18;
 	public static readonly AMP = 19;
-	public static readonly EQ = 20;
-	public static readonly NEQ = 21;
-	public static readonly LTE = 22;
-	public static readonly GTE = 23;
-	public static readonly LT = 24;
-	public static readonly GT = 25;
+	public static readonly CARET = 20;
+	public static readonly EQ = 21;
+	public static readonly NEQ = 22;
+	public static readonly LTE = 23;
+	public static readonly GTE = 24;
+	public static readonly LT = 25;
+	public static readonly GT = 26;
 	public static readonly RULE_formula = 0;
 	public static readonly RULE_expr = 1;
 	public static readonly RULE_arrayRow = 2;
@@ -66,12 +67,14 @@ export class FormulaParser extends Parser {
 	private static readonly _LITERAL_NAMES: Array<string | undefined> = [
 		undefined, "'('", "')'", "'{'", "'}'", "','", "';'", undefined, undefined, 
 		undefined, undefined, undefined, undefined, undefined, undefined, "'*'", 
-		"'/'", "'+'", "'-'", "'&'", "'='", "'<>'", "'<='", "'>='", "'<'", "'>'",
+		"'/'", "'+'", "'-'", "'&'", "'^'", "'='", "'<>'", "'<='", "'>='", "'<'", 
+		"'>'",
 	];
 	private static readonly _SYMBOLIC_NAMES: Array<string | undefined> = [
 		undefined, undefined, undefined, undefined, undefined, undefined, "SEMI", 
 		"REFERENCE", "REF", "REFRANGE", "BOOL", "STRING", "NUM", "FUNCNAME", "WS", 
-		"MUL", "DIV", "ADD", "SUB", "AMP", "EQ", "NEQ", "LTE", "GTE", "LT", "GT",
+		"MUL", "DIV", "ADD", "SUB", "AMP", "CARET", "EQ", "NEQ", "LTE", "GTE", 
+		"LT", "GT",
 	];
 	public static readonly VOCABULARY: Vocabulary = new VocabularyImpl(FormulaParser._LITERAL_NAMES, FormulaParser._SYMBOLIC_NAMES, []);
 
@@ -204,7 +207,7 @@ export class FormulaParser extends Parser {
 					this.consume();
 				}
 				this.state = 21;
-				this.expr(13);
+				this.expr(14);
 				}
 				break;
 
@@ -303,7 +306,7 @@ export class FormulaParser extends Parser {
 				break;
 			}
 			this._ctx._stop = this._input.tryLT(-1);
-			this.state = 64;
+			this.state = 67;
 			this._errHandler.sync(this);
 			_alt = this.interpreter.adaptivePredict(this._input, 6, this._ctx);
 			while (_alt !== 2 && _alt !== ATN.INVALID_ALT_NUMBER) {
@@ -313,18 +316,33 @@ export class FormulaParser extends Parser {
 					}
 					_prevctx = _localctx;
 					{
-					this.state = 62;
+					this.state = 65;
 					this._errHandler.sync(this);
 					switch ( this.interpreter.adaptivePredict(this._input, 5, this._ctx) ) {
 					case 1:
 						{
-						_localctx = new MulDivContext(new ExprContext(_parentctx, _parentState));
+						_localctx = new PowContext(new ExprContext(_parentctx, _parentState));
 						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
 						this.state = 44;
+						if (!(this.precpred(this._ctx, 12))) {
+							throw this.createFailedPredicateException("this.precpred(this._ctx, 12)");
+						}
+						this.state = 45;
+						this.match(FormulaParser.CARET);
+						this.state = 46;
+						this.expr(12);
+						}
+						break;
+
+					case 2:
+						{
+						_localctx = new MulDivContext(new ExprContext(_parentctx, _parentState));
+						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
+						this.state = 47;
 						if (!(this.precpred(this._ctx, 11))) {
 							throw this.createFailedPredicateException("this.precpred(this._ctx, 11)");
 						}
-						this.state = 45;
+						this.state = 48;
 						(_localctx as MulDivContext)._op = this._input.LT(1);
 						_la = this._input.LA(1);
 						if (!(_la === FormulaParser.MUL || _la === FormulaParser.DIV)) {
@@ -337,20 +355,20 @@ export class FormulaParser extends Parser {
 							this._errHandler.reportMatch(this);
 							this.consume();
 						}
-						this.state = 46;
+						this.state = 49;
 						this.expr(12);
 						}
 						break;
 
-					case 2:
+					case 3:
 						{
 						_localctx = new AddSubContext(new ExprContext(_parentctx, _parentState));
 						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
-						this.state = 47;
+						this.state = 50;
 						if (!(this.precpred(this._ctx, 10))) {
 							throw this.createFailedPredicateException("this.precpred(this._ctx, 10)");
 						}
-						this.state = 48;
+						this.state = 51;
 						(_localctx as AddSubContext)._op = this._input.LT(1);
 						_la = this._input.LA(1);
 						if (!(_la === FormulaParser.ADD || _la === FormulaParser.SUB)) {
@@ -363,35 +381,35 @@ export class FormulaParser extends Parser {
 							this._errHandler.reportMatch(this);
 							this.consume();
 						}
-						this.state = 49;
-						this.expr(11);
-						}
-						break;
-
-					case 3:
-						{
-						_localctx = new ConcatContext(new ExprContext(_parentctx, _parentState));
-						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
-						this.state = 50;
-						if (!(this.precpred(this._ctx, 9))) {
-							throw this.createFailedPredicateException("this.precpred(this._ctx, 9)");
-						}
-						this.state = 51;
-						this.match(FormulaParser.AMP);
 						this.state = 52;
-						this.expr(10);
+						this.expr(11);
 						}
 						break;
 
 					case 4:
 						{
-						_localctx = new ComparisonContext(new ExprContext(_parentctx, _parentState));
+						_localctx = new ConcatContext(new ExprContext(_parentctx, _parentState));
 						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
 						this.state = 53;
+						if (!(this.precpred(this._ctx, 9))) {
+							throw this.createFailedPredicateException("this.precpred(this._ctx, 9)");
+						}
+						this.state = 54;
+						this.match(FormulaParser.AMP);
+						this.state = 55;
+						this.expr(10);
+						}
+						break;
+
+					case 5:
+						{
+						_localctx = new ComparisonContext(new ExprContext(_parentctx, _parentState));
+						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
+						this.state = 56;
 						if (!(this.precpred(this._ctx, 8))) {
 							throw this.createFailedPredicateException("this.precpred(this._ctx, 8)");
 						}
-						this.state = 54;
+						this.state = 57;
 						(_localctx as ComparisonContext)._op = this._input.LT(1);
 						_la = this._input.LA(1);
 						if (!((((_la) & ~0x1F) === 0 && ((1 << _la) & ((1 << FormulaParser.EQ) | (1 << FormulaParser.NEQ) | (1 << FormulaParser.LTE) | (1 << FormulaParser.GTE) | (1 << FormulaParser.LT) | (1 << FormulaParser.GT))) !== 0))) {
@@ -404,39 +422,39 @@ export class FormulaParser extends Parser {
 							this._errHandler.reportMatch(this);
 							this.consume();
 						}
-						this.state = 55;
+						this.state = 58;
 						this.expr(9);
 						}
 						break;
 
-					case 5:
+					case 6:
 						{
 						_localctx = new CallContext(new ExprContext(_parentctx, _parentState));
 						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
-						this.state = 56;
-						if (!(this.precpred(this._ctx, 12))) {
-							throw this.createFailedPredicateException("this.precpred(this._ctx, 12)");
-						}
-						this.state = 57;
-						this.match(FormulaParser.T__0);
 						this.state = 59;
+						if (!(this.precpred(this._ctx, 13))) {
+							throw this.createFailedPredicateException("this.precpred(this._ctx, 13)");
+						}
+						this.state = 60;
+						this.match(FormulaParser.T__0);
+						this.state = 62;
 						this._errHandler.sync(this);
 						_la = this._input.LA(1);
 						if ((((_la) & ~0x1F) === 0 && ((1 << _la) & ((1 << FormulaParser.T__0) | (1 << FormulaParser.T__2) | (1 << FormulaParser.REFERENCE) | (1 << FormulaParser.BOOL) | (1 << FormulaParser.STRING) | (1 << FormulaParser.NUM) | (1 << FormulaParser.FUNCNAME) | (1 << FormulaParser.ADD) | (1 << FormulaParser.SUB))) !== 0)) {
 							{
-							this.state = 58;
+							this.state = 61;
 							this.args();
 							}
 						}
 
-						this.state = 61;
+						this.state = 64;
 						this.match(FormulaParser.T__1);
 						}
 						break;
 					}
 					}
 				}
-				this.state = 66;
+				this.state = 69;
 				this._errHandler.sync(this);
 				_alt = this.interpreter.adaptivePredict(this._input, 6, this._ctx);
 			}
@@ -464,21 +482,21 @@ export class FormulaParser extends Parser {
 		try {
 			this.enterOuterAlt(_localctx, 1);
 			{
-			this.state = 67;
+			this.state = 70;
 			this.expr(0);
-			this.state = 72;
+			this.state = 75;
 			this._errHandler.sync(this);
 			_la = this._input.LA(1);
 			while (_la === FormulaParser.T__4) {
 				{
 				{
-				this.state = 68;
+				this.state = 71;
 				this.match(FormulaParser.T__4);
-				this.state = 69;
+				this.state = 72;
 				this.expr(0);
 				}
 				}
-				this.state = 74;
+				this.state = 77;
 				this._errHandler.sync(this);
 				_la = this._input.LA(1);
 			}
@@ -506,21 +524,21 @@ export class FormulaParser extends Parser {
 		try {
 			this.enterOuterAlt(_localctx, 1);
 			{
-			this.state = 75;
+			this.state = 78;
 			this.expr(0);
-			this.state = 80;
+			this.state = 83;
 			this._errHandler.sync(this);
 			_la = this._input.LA(1);
 			while (_la === FormulaParser.T__4) {
 				{
 				{
-				this.state = 76;
+				this.state = 79;
 				this.match(FormulaParser.T__4);
-				this.state = 77;
+				this.state = 80;
 				this.expr(0);
 				}
 				}
-				this.state = 82;
+				this.state = 85;
 				this._errHandler.sync(this);
 				_la = this._input.LA(1);
 			}
@@ -551,63 +569,67 @@ export class FormulaParser extends Parser {
 	private expr_sempred(_localctx: ExprContext, predIndex: number): boolean {
 		switch (predIndex) {
 		case 0:
-			return this.precpred(this._ctx, 11);
+			return this.precpred(this._ctx, 12);
 
 		case 1:
-			return this.precpred(this._ctx, 10);
+			return this.precpred(this._ctx, 11);
 
 		case 2:
-			return this.precpred(this._ctx, 9);
+			return this.precpred(this._ctx, 10);
 
 		case 3:
-			return this.precpred(this._ctx, 8);
+			return this.precpred(this._ctx, 9);
 
 		case 4:
-			return this.precpred(this._ctx, 12);
+			return this.precpred(this._ctx, 8);
+
+		case 5:
+			return this.precpred(this._ctx, 13);
 		}
 		return true;
 	}
 
 	public static readonly _serializedATN: string =
-		"\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x03\x1BV\x04\x02" +
+		"\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x03\x1CY\x04\x02" +
 		"\t\x02\x04\x03\t\x03\x04\x04\t\x04\x04\x05\t\x05\x03\x02\x06\x02\f\n\x02" +
 		"\r\x02\x0E\x02\r\x03\x03\x03\x03\x03\x03\x03\x03\x05\x03\x14\n\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x07\x03&\n\x03\f" +
 		"\x03\x0E\x03)\v\x03\x03\x03\x03\x03\x05\x03-\n\x03\x03\x03\x03\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03" +
-		"\x03\x03\x03\x03\x03\x03\x03\x05\x03>\n\x03\x03\x03\x07\x03A\n\x03\f\x03" +
-		"\x0E\x03D\v\x03\x03\x04\x03\x04\x03\x04\x07\x04I\n\x04\f\x04\x0E\x04L" +
-		"\v\x04\x03\x05\x03\x05\x03\x05\x07\x05Q\n\x05\f\x05\x0E\x05T\v\x05\x03" +
-		"\x05\x02\x02\x03\x04\x06\x02\x02\x04\x02\x06\x02\b\x02\x02\x05\x03\x02" +
-		"\x13\x14\x03\x02\x11\x12\x03\x02\x16\x1B\x02d\x02\v\x03\x02\x02\x02\x04" +
-		",\x03\x02\x02\x02\x06E\x03\x02\x02\x02\bM\x03\x02\x02\x02\n\f\x05\x04" +
-		"\x03\x02\v\n\x03\x02\x02\x02\f\r\x03\x02\x02\x02\r\v\x03\x02\x02\x02\r" +
-		"\x0E\x03\x02\x02\x02\x0E\x03\x03\x02\x02\x02\x0F\x10\b\x03\x01\x02\x10" +
-		"\x11\x07\x0F\x02\x02\x11\x13\x07\x03\x02\x02\x12\x14\x05\b\x05\x02\x13" +
-		"\x12\x03\x02\x02\x02\x13\x14\x03\x02\x02\x02\x14\x15\x03\x02\x02\x02\x15" +
-		"-\x07\x04\x02\x02\x16\x17\t\x02\x02\x02\x17-\x05\x04\x03\x0F\x18-\x07" +
-		"\x0E\x02\x02\x19-\x07\f\x02\x02\x1A-\x07\r\x02\x02\x1B-\x07\t\x02\x02" +
-		"\x1C-\x07\x0F\x02\x02\x1D\x1E\x07\x03\x02\x02\x1E\x1F\x05\x04\x03\x02" +
-		"\x1F \x07\x04\x02\x02 -\x03\x02\x02\x02!\"\x07\x05\x02\x02\"\'\x05\x06" +
-		"\x04\x02#$\x07\b\x02\x02$&\x05\x06\x04\x02%#\x03\x02\x02\x02&)\x03\x02" +
-		"\x02\x02\'%\x03\x02\x02\x02\'(\x03\x02\x02\x02(*\x03\x02\x02\x02)\'\x03" +
-		"\x02\x02\x02*+\x07\x06\x02\x02+-\x03\x02\x02\x02,\x0F\x03\x02\x02\x02" +
-		",\x16\x03\x02\x02\x02,\x18\x03\x02\x02\x02,\x19\x03\x02\x02\x02,\x1A\x03" +
-		"\x02\x02\x02,\x1B\x03\x02\x02\x02,\x1C\x03\x02\x02\x02,\x1D\x03\x02\x02" +
-		"\x02,!\x03\x02\x02\x02-B\x03\x02\x02\x02./\f\r\x02\x02/0\t\x03\x02\x02" +
-		"0A\x05\x04\x03\x0E12\f\f\x02\x0223\t\x02\x02\x023A\x05\x04\x03\r45\f\v" +
-		"\x02\x0256\x07\x15\x02\x026A\x05\x04\x03\f78\f\n\x02\x0289\t\x04\x02\x02" +
-		"9A\x05\x04\x03\v:;\f\x0E\x02\x02;=\x07\x03\x02\x02<>\x05\b\x05\x02=<\x03" +
-		"\x02\x02\x02=>\x03\x02\x02\x02>?\x03\x02\x02\x02?A\x07\x04\x02\x02@.\x03" +
-		"\x02\x02\x02@1\x03\x02\x02\x02@4\x03\x02\x02\x02@7\x03\x02\x02\x02@:\x03" +
-		"\x02\x02\x02AD\x03\x02\x02\x02B@\x03\x02\x02\x02BC\x03\x02\x02\x02C\x05" +
-		"\x03\x02\x02\x02DB\x03\x02\x02\x02EJ\x05\x04\x03\x02FG\x07\x07\x02\x02" +
-		"GI\x05\x04\x03\x02HF\x03\x02\x02\x02IL\x03\x02\x02\x02JH\x03\x02\x02\x02" +
-		"JK\x03\x02\x02\x02K\x07\x03\x02\x02\x02LJ\x03\x02\x02\x02MR\x05\x04\x03" +
-		"\x02NO\x07\x07\x02\x02OQ\x05\x04\x03\x02PN\x03\x02\x02\x02QT\x03\x02\x02" +
-		"\x02RP\x03\x02\x02\x02RS\x03\x02\x02\x02S\t\x03\x02\x02\x02TR\x03\x02" +
-		"\x02\x02\v\r\x13\',=@BJR";
+		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x05\x03A\n\x03\x03" +
+		"\x03\x07\x03D\n\x03\f\x03\x0E\x03G\v\x03\x03\x04\x03\x04\x03\x04\x07\x04" +
+		"L\n\x04\f\x04\x0E\x04O\v\x04\x03\x05\x03\x05\x03\x05\x07\x05T\n\x05\f" +
+		"\x05\x0E\x05W\v\x05\x03\x05\x02\x02\x03\x04\x06\x02\x02\x04\x02\x06\x02" +
+		"\b\x02\x02\x05\x03\x02\x13\x14\x03\x02\x11\x12\x03\x02\x17\x1C\x02h\x02" +
+		"\v\x03\x02\x02\x02\x04,\x03\x02\x02\x02\x06H\x03\x02\x02\x02\bP\x03\x02" +
+		"\x02\x02\n\f\x05\x04\x03\x02\v\n\x03\x02\x02\x02\f\r\x03\x02\x02\x02\r" +
+		"\v\x03\x02\x02\x02\r\x0E\x03\x02\x02\x02\x0E\x03\x03\x02\x02\x02\x0F\x10" +
+		"\b\x03\x01\x02\x10\x11\x07\x0F\x02\x02\x11\x13\x07\x03\x02\x02\x12\x14" +
+		"\x05\b\x05\x02\x13\x12\x03\x02\x02\x02\x13\x14\x03\x02\x02\x02\x14\x15" +
+		"\x03\x02\x02\x02\x15-\x07\x04\x02\x02\x16\x17\t\x02\x02\x02\x17-\x05\x04" +
+		"\x03\x10\x18-\x07\x0E\x02\x02\x19-\x07\f\x02\x02\x1A-\x07\r\x02\x02\x1B" +
+		"-\x07\t\x02\x02\x1C-\x07\x0F\x02\x02\x1D\x1E\x07\x03\x02\x02\x1E\x1F\x05" +
+		"\x04\x03\x02\x1F \x07\x04\x02\x02 -\x03\x02\x02\x02!\"\x07\x05\x02\x02" +
+		"\"\'\x05\x06\x04\x02#$\x07\b\x02\x02$&\x05\x06\x04\x02%#\x03\x02\x02\x02" +
+		"&)\x03\x02\x02\x02\'%\x03\x02\x02\x02\'(\x03\x02\x02\x02(*\x03\x02\x02" +
+		"\x02)\'\x03\x02\x02\x02*+\x07\x06\x02\x02+-\x03\x02\x02\x02,\x0F\x03\x02" +
+		"\x02\x02,\x16\x03\x02\x02\x02,\x18\x03\x02\x02\x02,\x19\x03\x02\x02\x02" +
+		",\x1A\x03\x02\x02\x02,\x1B\x03\x02\x02\x02,\x1C\x03\x02\x02\x02,\x1D\x03" +
+		"\x02\x02\x02,!\x03\x02\x02\x02-E\x03\x02\x02\x02./\f\x0E\x02\x02/0\x07" +
+		"\x16\x02\x020D\x05\x04\x03\x0E12\f\r\x02\x0223\t\x03\x02\x023D\x05\x04" +
+		"\x03\x0E45\f\f\x02\x0256\t\x02\x02\x026D\x05\x04\x03\r78\f\v\x02\x028" +
+		"9\x07\x15\x02\x029D\x05\x04\x03\f:;\f\n\x02\x02;<\t\x04\x02\x02<D\x05" +
+		"\x04\x03\v=>\f\x0F\x02\x02>@\x07\x03\x02\x02?A\x05\b\x05\x02@?\x03\x02" +
+		"\x02\x02@A\x03\x02\x02\x02AB\x03\x02\x02\x02BD\x07\x04\x02\x02C.\x03\x02" +
+		"\x02\x02C1\x03\x02\x02\x02C4\x03\x02\x02\x02C7\x03\x02\x02\x02C:\x03\x02" +
+		"\x02\x02C=\x03\x02\x02\x02DG\x03\x02\x02\x02EC\x03\x02\x02\x02EF\x03\x02" +
+		"\x02\x02F\x05\x03\x02\x02\x02GE\x03\x02\x02\x02HM\x05\x04\x03\x02IJ\x07" +
+		"\x07\x02\x02JL\x05\x04\x03\x02KI\x03\x02\x02\x02LO\x03\x02\x02\x02MK\x03" +
+		"\x02\x02\x02MN\x03\x02\x02\x02N\x07\x03\x02\x02\x02OM\x03\x02\x02\x02" +
+		"PU\x05\x04\x03\x02QR\x07\x07\x02\x02RT\x05\x04\x03\x02SQ\x03\x02\x02\x02" +
+		"TW\x03\x02\x02\x02US\x03\x02\x02\x02UV\x03\x02\x02\x02V\t\x03\x02\x02" +
+		"\x02WU\x03\x02\x02\x02\v\r\x13\',@CEMU";
 	public static __ATN: ATN;
 	public static get _ATN(): ATN {
 		if (!FormulaParser.__ATN) {
@@ -756,6 +778,42 @@ export class CallContext extends ExprContext {
 	public accept<Result>(visitor: FormulaVisitor<Result>): Result {
 		if (visitor.visitCall) {
 			return visitor.visitCall(this);
+		} else {
+			return visitor.visitChildren(this);
+		}
+	}
+}
+export class PowContext extends ExprContext {
+	public expr(): ExprContext[];
+	public expr(i: number): ExprContext;
+	public expr(i?: number): ExprContext | ExprContext[] {
+		if (i === undefined) {
+			return this.getRuleContexts(ExprContext);
+		} else {
+			return this.getRuleContext(i, ExprContext);
+		}
+	}
+	public CARET(): TerminalNode { return this.getToken(FormulaParser.CARET, 0); }
+	constructor(ctx: ExprContext) {
+		super(ctx.parent, ctx.invokingState);
+		this.copyFrom(ctx);
+	}
+	// @Override
+	public enterRule(listener: FormulaListener): void {
+		if (listener.enterPow) {
+			listener.enterPow(this);
+		}
+	}
+	// @Override
+	public exitRule(listener: FormulaListener): void {
+		if (listener.exitPow) {
+			listener.exitPow(this);
+		}
+	}
+	// @Override
+	public accept<Result>(visitor: FormulaVisitor<Result>): Result {
+		if (visitor.visitPow) {
+			return visitor.visitPow(this);
 		} else {
 			return visitor.visitChildren(this);
 		}

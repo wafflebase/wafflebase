@@ -18,6 +18,7 @@ import {
   MulDivContext,
   NumberContext,
   ParenthesesContext,
+  PowContext,
   ReferenceContext,
   StrContext,
   UnarySignContext,
@@ -775,6 +776,24 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     return { t: 'num', v: left.v / right.v };
+  }
+
+  visitPow(ctx: PowContext): EvalNode {
+    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    if (left.t === 'err') {
+      return left;
+    }
+
+    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    if (right.t === 'err') {
+      return right;
+    }
+
+    const result = Math.pow(left.v, right.v);
+    if (!isFinite(result)) {
+      return ErrNode.NUM;
+    }
+    return { t: 'num', v: result };
   }
 
   visitConcat(ctx: ConcatContext): EvalNode {

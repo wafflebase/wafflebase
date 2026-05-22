@@ -41,6 +41,36 @@ describe('Formula', () => {
     expect(evaluate('=(10-5)/2')).toBe('2.5');
   });
 
+  it('should correctly evaluate exponentiation with ^', () => {
+    expect(evaluate('=5^2')).toBe('25');
+    expect(evaluate('=2^10')).toBe('1024');
+    expect(Number(evaluate('=2^0.5'))).toBeCloseTo(Math.SQRT2);
+    expect(evaluate('=2^0')).toBe('1');
+    expect(evaluate('=0^0')).toBe('1');
+  });
+
+  it('should give ^ higher precedence than * and /', () => {
+    expect(evaluate('=2*3^2')).toBe('18');
+    expect(evaluate('=18/3^2')).toBe('2');
+    expect(evaluate('=2+3^2')).toBe('11');
+  });
+
+  it('should bind unary minus tighter than ^', () => {
+    // Matches Google Sheets / Excel: =-2^2 is (-2)^2 = 4, not -(2^2) = -4.
+    expect(evaluate('=-2^2')).toBe('4');
+    expect(evaluate('=-(2^2)')).toBe('-4');
+    expect(evaluate('=-2^3')).toBe('-8');
+  });
+
+  it('should treat ^ as right-associative', () => {
+    expect(evaluate('=2^3^2')).toBe('512');
+    expect(evaluate('=(2^3)^2')).toBe('64');
+  });
+
+  it('should return #NUM! when ^ overflows', () => {
+    expect(evaluate('=10^400')).toBe('#NUM!');
+  });
+
   it('should correctly evaluate unary minus', () => {
     expect(evaluate('=-5')).toBe('-5');
     expect(evaluate('=-0')).toBe('0');
