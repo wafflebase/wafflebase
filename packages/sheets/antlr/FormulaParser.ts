@@ -49,12 +49,13 @@ export class FormulaParser extends Parser {
 	public static readonly SUB = 18;
 	public static readonly AMP = 19;
 	public static readonly CARET = 20;
-	public static readonly EQ = 21;
-	public static readonly NEQ = 22;
-	public static readonly LTE = 23;
-	public static readonly GTE = 24;
-	public static readonly LT = 25;
-	public static readonly GT = 26;
+	public static readonly PERCENT = 21;
+	public static readonly EQ = 22;
+	public static readonly NEQ = 23;
+	public static readonly LTE = 24;
+	public static readonly GTE = 25;
+	public static readonly LT = 26;
+	public static readonly GT = 27;
 	public static readonly RULE_formula = 0;
 	public static readonly RULE_expr = 1;
 	public static readonly RULE_arrayRow = 2;
@@ -67,14 +68,14 @@ export class FormulaParser extends Parser {
 	private static readonly _LITERAL_NAMES: Array<string | undefined> = [
 		undefined, "'('", "')'", "'{'", "'}'", "','", "';'", undefined, undefined, 
 		undefined, undefined, undefined, undefined, undefined, undefined, "'*'", 
-		"'/'", "'+'", "'-'", "'&'", "'^'", "'='", "'<>'", "'<='", "'>='", "'<'", 
-		"'>'",
+		"'/'", "'+'", "'-'", "'&'", "'^'", "'%'", "'='", "'<>'", "'<='", "'>='", 
+		"'<'", "'>'",
 	];
 	private static readonly _SYMBOLIC_NAMES: Array<string | undefined> = [
 		undefined, undefined, undefined, undefined, undefined, undefined, "SEMI", 
 		"REFERENCE", "REF", "REFRANGE", "BOOL", "STRING", "NUM", "FUNCNAME", "WS", 
-		"MUL", "DIV", "ADD", "SUB", "AMP", "CARET", "EQ", "NEQ", "LTE", "GTE", 
-		"LT", "GT",
+		"MUL", "DIV", "ADD", "SUB", "AMP", "CARET", "PERCENT", "EQ", "NEQ", "LTE", 
+		"GTE", "LT", "GT",
 	];
 	public static readonly VOCABULARY: Vocabulary = new VocabularyImpl(FormulaParser._LITERAL_NAMES, FormulaParser._SYMBOLIC_NAMES, []);
 
@@ -207,7 +208,7 @@ export class FormulaParser extends Parser {
 					this.consume();
 				}
 				this.state = 21;
-				this.expr(14);
+				this.expr(15);
 				}
 				break;
 
@@ -306,7 +307,7 @@ export class FormulaParser extends Parser {
 				break;
 			}
 			this._ctx._stop = this._input.tryLT(-1);
-			this.state = 67;
+			this.state = 69;
 			this._errHandler.sync(this);
 			_alt = this.interpreter.adaptivePredict(this._input, 6, this._ctx);
 			while (_alt !== 2 && _alt !== ATN.INVALID_ALT_NUMBER) {
@@ -316,7 +317,7 @@ export class FormulaParser extends Parser {
 					}
 					_prevctx = _localctx;
 					{
-					this.state = 65;
+					this.state = 67;
 					this._errHandler.sync(this);
 					switch ( this.interpreter.adaptivePredict(this._input, 5, this._ctx) ) {
 					case 1:
@@ -432,8 +433,8 @@ export class FormulaParser extends Parser {
 						_localctx = new CallContext(new ExprContext(_parentctx, _parentState));
 						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
 						this.state = 59;
-						if (!(this.precpred(this._ctx, 13))) {
-							throw this.createFailedPredicateException("this.precpred(this._ctx, 13)");
+						if (!(this.precpred(this._ctx, 14))) {
+							throw this.createFailedPredicateException("this.precpred(this._ctx, 14)");
 						}
 						this.state = 60;
 						this.match(FormulaParser.T__0);
@@ -451,10 +452,23 @@ export class FormulaParser extends Parser {
 						this.match(FormulaParser.T__1);
 						}
 						break;
+
+					case 7:
+						{
+						_localctx = new PercentContext(new ExprContext(_parentctx, _parentState));
+						this.pushNewRecursionContext(_localctx, _startState, FormulaParser.RULE_expr);
+						this.state = 65;
+						if (!(this.precpred(this._ctx, 13))) {
+							throw this.createFailedPredicateException("this.precpred(this._ctx, 13)");
+						}
+						this.state = 66;
+						this.match(FormulaParser.PERCENT);
+						}
+						break;
 					}
 					}
 				}
-				this.state = 69;
+				this.state = 71;
 				this._errHandler.sync(this);
 				_alt = this.interpreter.adaptivePredict(this._input, 6, this._ctx);
 			}
@@ -482,21 +496,21 @@ export class FormulaParser extends Parser {
 		try {
 			this.enterOuterAlt(_localctx, 1);
 			{
-			this.state = 70;
+			this.state = 72;
 			this.expr(0);
-			this.state = 75;
+			this.state = 77;
 			this._errHandler.sync(this);
 			_la = this._input.LA(1);
 			while (_la === FormulaParser.T__4) {
 				{
 				{
-				this.state = 71;
+				this.state = 73;
 				this.match(FormulaParser.T__4);
-				this.state = 72;
+				this.state = 74;
 				this.expr(0);
 				}
 				}
-				this.state = 77;
+				this.state = 79;
 				this._errHandler.sync(this);
 				_la = this._input.LA(1);
 			}
@@ -524,21 +538,21 @@ export class FormulaParser extends Parser {
 		try {
 			this.enterOuterAlt(_localctx, 1);
 			{
-			this.state = 78;
+			this.state = 80;
 			this.expr(0);
-			this.state = 83;
+			this.state = 85;
 			this._errHandler.sync(this);
 			_la = this._input.LA(1);
 			while (_la === FormulaParser.T__4) {
 				{
 				{
-				this.state = 79;
+				this.state = 81;
 				this.match(FormulaParser.T__4);
-				this.state = 80;
+				this.state = 82;
 				this.expr(0);
 				}
 				}
-				this.state = 85;
+				this.state = 87;
 				this._errHandler.sync(this);
 				_la = this._input.LA(1);
 			}
@@ -584,13 +598,16 @@ export class FormulaParser extends Parser {
 			return this.precpred(this._ctx, 8);
 
 		case 5:
+			return this.precpred(this._ctx, 14);
+
+		case 6:
 			return this.precpred(this._ctx, 13);
 		}
 		return true;
 	}
 
 	public static readonly _serializedATN: string =
-		"\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x03\x1CY\x04\x02" +
+		"\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x03\x1D[\x04\x02" +
 		"\t\x02\x04\x03\t\x03\x04\x04\t\x04\x04\x05\t\x05\x03\x02\x06\x02\f\n\x02" +
 		"\r\x02\x0E\x02\r\x03\x03\x03\x03\x03\x03\x03\x03\x05\x03\x14\n\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03" +
@@ -598,38 +615,39 @@ export class FormulaParser extends Parser {
 		"\x03\x0E\x03)\v\x03\x03\x03\x03\x03\x05\x03-\n\x03\x03\x03\x03\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03" +
 		"\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x03\x05\x03A\n\x03\x03" +
-		"\x03\x07\x03D\n\x03\f\x03\x0E\x03G\v\x03\x03\x04\x03\x04\x03\x04\x07\x04" +
-		"L\n\x04\f\x04\x0E\x04O\v\x04\x03\x05\x03\x05\x03\x05\x07\x05T\n\x05\f" +
-		"\x05\x0E\x05W\v\x05\x03\x05\x02\x02\x03\x04\x06\x02\x02\x04\x02\x06\x02" +
-		"\b\x02\x02\x05\x03\x02\x13\x14\x03\x02\x11\x12\x03\x02\x17\x1C\x02h\x02" +
-		"\v\x03\x02\x02\x02\x04,\x03\x02\x02\x02\x06H\x03\x02\x02\x02\bP\x03\x02" +
-		"\x02\x02\n\f\x05\x04\x03\x02\v\n\x03\x02\x02\x02\f\r\x03\x02\x02\x02\r" +
-		"\v\x03\x02\x02\x02\r\x0E\x03\x02\x02\x02\x0E\x03\x03\x02\x02\x02\x0F\x10" +
-		"\b\x03\x01\x02\x10\x11\x07\x0F\x02\x02\x11\x13\x07\x03\x02\x02\x12\x14" +
-		"\x05\b\x05\x02\x13\x12\x03\x02\x02\x02\x13\x14\x03\x02\x02\x02\x14\x15" +
-		"\x03\x02\x02\x02\x15-\x07\x04\x02\x02\x16\x17\t\x02\x02\x02\x17-\x05\x04" +
-		"\x03\x10\x18-\x07\x0E\x02\x02\x19-\x07\f\x02\x02\x1A-\x07\r\x02\x02\x1B" +
-		"-\x07\t\x02\x02\x1C-\x07\x0F\x02\x02\x1D\x1E\x07\x03\x02\x02\x1E\x1F\x05" +
-		"\x04\x03\x02\x1F \x07\x04\x02\x02 -\x03\x02\x02\x02!\"\x07\x05\x02\x02" +
-		"\"\'\x05\x06\x04\x02#$\x07\b\x02\x02$&\x05\x06\x04\x02%#\x03\x02\x02\x02" +
-		"&)\x03\x02\x02\x02\'%\x03\x02\x02\x02\'(\x03\x02\x02\x02(*\x03\x02\x02" +
-		"\x02)\'\x03\x02\x02\x02*+\x07\x06\x02\x02+-\x03\x02\x02\x02,\x0F\x03\x02" +
-		"\x02\x02,\x16\x03\x02\x02\x02,\x18\x03\x02\x02\x02,\x19\x03\x02\x02\x02" +
-		",\x1A\x03\x02\x02\x02,\x1B\x03\x02\x02\x02,\x1C\x03\x02\x02\x02,\x1D\x03" +
-		"\x02\x02\x02,!\x03\x02\x02\x02-E\x03\x02\x02\x02./\f\x0E\x02\x02/0\x07" +
-		"\x16\x02\x020D\x05\x04\x03\x0E12\f\r\x02\x0223\t\x03\x02\x023D\x05\x04" +
-		"\x03\x0E45\f\f\x02\x0256\t\x02\x02\x026D\x05\x04\x03\r78\f\v\x02\x028" +
-		"9\x07\x15\x02\x029D\x05\x04\x03\f:;\f\n\x02\x02;<\t\x04\x02\x02<D\x05" +
-		"\x04\x03\v=>\f\x0F\x02\x02>@\x07\x03\x02\x02?A\x05\b\x05\x02@?\x03\x02" +
-		"\x02\x02@A\x03\x02\x02\x02AB\x03\x02\x02\x02BD\x07\x04\x02\x02C.\x03\x02" +
-		"\x02\x02C1\x03\x02\x02\x02C4\x03\x02\x02\x02C7\x03\x02\x02\x02C:\x03\x02" +
-		"\x02\x02C=\x03\x02\x02\x02DG\x03\x02\x02\x02EC\x03\x02\x02\x02EF\x03\x02" +
-		"\x02\x02F\x05\x03\x02\x02\x02GE\x03\x02\x02\x02HM\x05\x04\x03\x02IJ\x07" +
-		"\x07\x02\x02JL\x05\x04\x03\x02KI\x03\x02\x02\x02LO\x03\x02\x02\x02MK\x03" +
-		"\x02\x02\x02MN\x03\x02\x02\x02N\x07\x03\x02\x02\x02OM\x03\x02\x02\x02" +
-		"PU\x05\x04\x03\x02QR\x07\x07\x02\x02RT\x05\x04\x03\x02SQ\x03\x02\x02\x02" +
-		"TW\x03\x02\x02\x02US\x03\x02\x02\x02UV\x03\x02\x02\x02V\t\x03\x02\x02" +
-		"\x02WU\x03\x02\x02\x02\v\r\x13\',@CEMU";
+		"\x03\x03\x03\x03\x03\x07\x03F\n\x03\f\x03\x0E\x03I\v\x03\x03\x04\x03\x04" +
+		"\x03\x04\x07\x04N\n\x04\f\x04\x0E\x04Q\v\x04\x03\x05\x03\x05\x03\x05\x07" +
+		"\x05V\n\x05\f\x05\x0E\x05Y\v\x05\x03\x05\x02\x02\x03\x04\x06\x02\x02\x04" +
+		"\x02\x06\x02\b\x02\x02\x05\x03\x02\x13\x14\x03\x02\x11\x12\x03\x02\x18" +
+		"\x1D\x02k\x02\v\x03\x02\x02\x02\x04,\x03\x02\x02\x02\x06J\x03\x02\x02" +
+		"\x02\bR\x03\x02\x02\x02\n\f\x05\x04\x03\x02\v\n\x03\x02\x02\x02\f\r\x03" +
+		"\x02\x02\x02\r\v\x03\x02\x02\x02\r\x0E\x03\x02\x02\x02\x0E\x03\x03\x02" +
+		"\x02\x02\x0F\x10\b\x03\x01\x02\x10\x11\x07\x0F\x02\x02\x11\x13\x07\x03" +
+		"\x02\x02\x12\x14\x05\b\x05\x02\x13\x12\x03\x02\x02\x02\x13\x14\x03\x02" +
+		"\x02\x02\x14\x15\x03\x02\x02\x02\x15-\x07\x04\x02\x02\x16\x17\t\x02\x02" +
+		"\x02\x17-\x05\x04\x03\x11\x18-\x07\x0E\x02\x02\x19-\x07\f\x02\x02\x1A" +
+		"-\x07\r\x02\x02\x1B-\x07\t\x02\x02\x1C-\x07\x0F\x02\x02\x1D\x1E\x07\x03" +
+		"\x02\x02\x1E\x1F\x05\x04\x03\x02\x1F \x07\x04\x02\x02 -\x03\x02\x02\x02" +
+		"!\"\x07\x05\x02\x02\"\'\x05\x06\x04\x02#$\x07\b\x02\x02$&\x05\x06\x04" +
+		"\x02%#\x03\x02\x02\x02&)\x03\x02\x02\x02\'%\x03\x02\x02\x02\'(\x03\x02" +
+		"\x02\x02(*\x03\x02\x02\x02)\'\x03\x02\x02\x02*+\x07\x06\x02\x02+-\x03" +
+		"\x02\x02\x02,\x0F\x03\x02\x02\x02,\x16\x03\x02\x02\x02,\x18\x03\x02\x02" +
+		"\x02,\x19\x03\x02\x02\x02,\x1A\x03\x02\x02\x02,\x1B\x03\x02\x02\x02,\x1C" +
+		"\x03\x02\x02\x02,\x1D\x03\x02\x02\x02,!\x03\x02\x02\x02-G\x03\x02\x02" +
+		"\x02./\f\x0E\x02\x02/0\x07\x16\x02\x020F\x05\x04\x03\x0E12\f\r\x02\x02" +
+		"23\t\x03\x02\x023F\x05\x04\x03\x0E45\f\f\x02\x0256\t\x02\x02\x026F\x05" +
+		"\x04\x03\r78\f\v\x02\x0289\x07\x15\x02\x029F\x05\x04\x03\f:;\f\n\x02\x02" +
+		";<\t\x04\x02\x02<F\x05\x04\x03\v=>\f\x10\x02\x02>@\x07\x03\x02\x02?A\x05" +
+		"\b\x05\x02@?\x03\x02\x02\x02@A\x03\x02\x02\x02AB\x03\x02\x02\x02BF\x07" +
+		"\x04\x02\x02CD\f\x0F\x02\x02DF\x07\x17\x02\x02E.\x03\x02\x02\x02E1\x03" +
+		"\x02\x02\x02E4\x03\x02\x02\x02E7\x03\x02\x02\x02E:\x03\x02\x02\x02E=\x03" +
+		"\x02\x02\x02EC\x03\x02\x02\x02FI\x03\x02\x02\x02GE\x03\x02\x02\x02GH\x03" +
+		"\x02\x02\x02H\x05\x03\x02\x02\x02IG\x03\x02\x02\x02JO\x05\x04\x03\x02" +
+		"KL\x07\x07\x02\x02LN\x05\x04\x03\x02MK\x03\x02\x02\x02NQ\x03\x02\x02\x02" +
+		"OM\x03\x02\x02\x02OP\x03\x02\x02\x02P\x07\x03\x02\x02\x02QO\x03\x02\x02" +
+		"\x02RW\x05\x04\x03\x02ST\x07\x07\x02\x02TV\x05\x04\x03\x02US\x03\x02\x02" +
+		"\x02VY\x03\x02\x02\x02WU\x03\x02\x02\x02WX\x03\x02\x02\x02X\t\x03\x02" +
+		"\x02\x02YW\x03\x02\x02\x02\v\r\x13\',@EGOW";
 	public static __ATN: ATN;
 	public static get _ATN(): ATN {
 		if (!FormulaParser.__ATN) {
@@ -778,6 +796,36 @@ export class CallContext extends ExprContext {
 	public accept<Result>(visitor: FormulaVisitor<Result>): Result {
 		if (visitor.visitCall) {
 			return visitor.visitCall(this);
+		} else {
+			return visitor.visitChildren(this);
+		}
+	}
+}
+export class PercentContext extends ExprContext {
+	public expr(): ExprContext {
+		return this.getRuleContext(0, ExprContext);
+	}
+	public PERCENT(): TerminalNode { return this.getToken(FormulaParser.PERCENT, 0); }
+	constructor(ctx: ExprContext) {
+		super(ctx.parent, ctx.invokingState);
+		this.copyFrom(ctx);
+	}
+	// @Override
+	public enterRule(listener: FormulaListener): void {
+		if (listener.enterPercent) {
+			listener.enterPercent(this);
+		}
+	}
+	// @Override
+	public exitRule(listener: FormulaListener): void {
+		if (listener.exitPercent) {
+			listener.exitPercent(this);
+		}
+	}
+	// @Override
+	public accept<Result>(visitor: FormulaVisitor<Result>): Result {
+		if (visitor.visitPercent) {
+			return visitor.visitPercent(this);
 		} else {
 			return visitor.visitChildren(this);
 		}
