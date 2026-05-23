@@ -258,9 +258,23 @@ export function SlidesView({
     right.style.paddingLeft = "12px";
     right.style.display = "flex";
     right.style.flexDirection = "column";
-    right.style.gap = "12px";
+    // Gap is 0 so the notes resizer sits flush against the notes panel
+    // (mirrors Google Slides' divider treatment). Canvas-area to
+    // resizer breathing is provided by the canvas drop shadow itself.
+    right.style.gap = "0";
     right.style.minWidth = "0";  // allow the column to shrink + width-fit
     right.style.minHeight = "0";
+
+    // Canvas area: flex-1 column that vertically + horizontally
+    // centers the slide canvas inside the remaining space. Without
+    // this the slide hugs the top edge and leaves an awkward gap
+    // below — especially on tall viewports.
+    const canvasArea = document.createElement("div");
+    canvasArea.style.flex = "1 1 auto";
+    canvasArea.style.minHeight = "0";
+    canvasArea.style.display = "flex";
+    canvasArea.style.justifyContent = "center";
+    canvasArea.style.alignItems = "center";
 
     // Canvas + overlay live inside this wrapper, with the H/V rulers
     // pinned to the wrapper's top + left edges. Sized later by the
@@ -268,7 +282,6 @@ export function SlidesView({
     // an unsized canvas during the first layout pass.
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
-    canvasWrap.style.alignSelf = "flex-start";
 
     const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
     let hostW = initial.width;
@@ -338,9 +351,67 @@ export function SlidesView({
     overlay.style.pointerEvents = "none";
     canvasWrap.appendChild(overlay);
 
-    right.appendChild(canvasWrap);
+    canvasArea.appendChild(canvasWrap);
+    right.appendChild(canvasArea);
+
+    // Notes resizer — horizontal counterpart of the thumbnail-panel
+    // divider. Drag up to expand the speaker-notes panel; drag down
+    // to shrink it. Visually a hairline at the column edge that
+    // thickens on hover, matching the left handle's behavior so the
+    // two affordances feel like a set.
+    const notesResizer = document.createElement("div");
+    notesResizer.style.cursor = "row-resize";
+    notesResizer.style.position = "relative";
+    notesResizer.style.height = "6px";
+    notesResizer.style.flexShrink = "0";
+    notesResizer.setAttribute("aria-label", "Resize speaker notes");
+    notesResizer.setAttribute("role", "separator");
+    notesResizer.setAttribute("aria-orientation", "horizontal");
+    const notesResizerLine = document.createElement("div");
+    notesResizerLine.style.position = "absolute";
+    notesResizerLine.style.left = "0";
+    notesResizerLine.style.right = "0";
+    notesResizerLine.style.top = "50%";
+    notesResizerLine.style.height = "1px";
+    notesResizerLine.style.background = "var(--border, #4444)";
+    notesResizerLine.style.transform = "translateY(-50%)";
+    notesResizerLine.style.transition = "background 120ms";
+    notesResizer.appendChild(notesResizerLine);
+    notesResizer.addEventListener("mouseenter", () => {
+      notesResizerLine.style.background = "var(--primary, #3a7)";
+      notesResizerLine.style.height = "2px";
+    });
+    notesResizer.addEventListener("mouseleave", () => {
+      notesResizerLine.style.background = "var(--border, #4444)";
+      notesResizerLine.style.height = "1px";
+    });
+    right.appendChild(notesResizer);
+
+    // Notes height is user-controlled and persisted across reloads.
+    // Mirrors the thumbnail-panel width persistence so both
+    // dimensions of the editor chrome remember the user's choice.
+    const NOTES_STORAGE_KEY = "wfb-slides-notes-height";
+    const MIN_NOTES_H = 60;
+    const DEFAULT_NOTES_H = 120;
+    /** Cap so the canvas always gets ≥ 40 % of the column even with
+     * notes maxed out. Re-evaluated against the current column height
+     * during each drag tick (not just the initial value). */
+    const MAX_NOTES_H_RATIO = 0.6;
+    let notesHeight = (() => {
+      try {
+        const raw = window.localStorage.getItem(NOTES_STORAGE_KEY);
+        const n = raw ? Number.parseInt(raw, 10) : NaN;
+        if (!Number.isFinite(n)) return DEFAULT_NOTES_H;
+        return Math.max(MIN_NOTES_H, n);
+      } catch {
+        return DEFAULT_NOTES_H;
+      }
+    })();
 
     const notesHost = document.createElement("div");
+    notesHost.style.height = `${notesHeight}px`;
+    notesHost.style.flexShrink = "0";
+    notesHost.style.overflow = "auto";
     right.appendChild(notesHost);
 
     layout.appendChild(right);
@@ -390,21 +461,19 @@ export function SlidesView({
     onEditorReady?.(editor);
     onStoreReady?.(store);
 
-    // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
-    // ticks (window resize, sidebar collapse, devtools open). Caps at
-    // MAX_HOST_W so we don't paint a 4K bitmap on ultra-wide displays
-    // — the slide is logically 1920×1080 anyway.
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const rightRect = entry.contentRect;
-      // Reserve room for the notes panel below the canvas + the column
-      // gap (12px). The notes panel is content-sized so we can't query
-      // a fixed value; subtract a generous reservation that errs on the
-      // side of leaving the canvas a bit small rather than overflowing.
-      const reservedForNotes = notesHost.getBoundingClientRect().height + 12;
+    // Refit canvas to the right column, taking the current notes height
+    // into account. Extracted into a function because two paths call
+    // it: the ResizeObserver below, and the notes-drag handler (where
+    // `notesHeight` changes without `right`'s own size changing).
+    const refitCanvas = () => {
+      const rightRect = right.getBoundingClientRect();
+      // Notes section reserves its own height + the 6 px resizer.
+      const reservedBelow = notesHeight + 6;
       const availW = Math.max(MIN_HOST_W, Math.min(MAX_HOST_W, rightRect.width));
-      const availH = Math.max(MIN_HOST_W / SLIDE_ASPECT, rightRect.height - reservedForNotes);
+      const availH = Math.max(
+        MIN_HOST_W / SLIDE_ASPECT,
+        rightRect.height - reservedBelow,
+      );
       // Reserve the ruler gutter so the slide canvas itself never
       // overflows the right column: canvasWrap outer = host + gutter.
       const slideAvailW = Math.max(MIN_HOST_W, availW - SLIDES_RULER_SIZE);
@@ -424,7 +493,13 @@ export function SlidesView({
       canvasWrap.style.width = `${hostW + SLIDES_RULER_SIZE}px`;
       canvasWrap.style.height = `${hostH + SLIDES_RULER_SIZE}px`;
       editor.setHostSize(hostW, hostH);
-    });
+    };
+
+    // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
+    // ticks (window resize, sidebar collapse, devtools open). Caps at
+    // MAX_HOST_W so we don't paint a 4K bitmap on ultra-wide displays
+    // — the slide is logically 1920×1080 anyway.
+    const resizeObserver = new ResizeObserver(() => refitCanvas());
     resizeObserver.observe(right);
 
     // Drag-to-resize the left column. Mousedown latches; mousemove
@@ -434,6 +509,11 @@ export function SlidesView({
     let dragging = false;
     let dragStartX = 0;
     let dragStartLeft = 0;
+    // Notes drag is a sibling state machine — single document
+    // mousemove / mouseup pair routes both gestures.
+    let draggingNotes = false;
+    let dragStartY = 0;
+    let dragStartNotesH = 0;
     const onResizerDown = (e: MouseEvent) => {
       e.preventDefault();
       dragging = true;
@@ -444,28 +524,73 @@ export function SlidesView({
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     };
+    const onNotesResizerDown = (e: MouseEvent) => {
+      e.preventDefault();
+      draggingNotes = true;
+      dragStartY = e.clientY;
+      dragStartNotesH = notesHeight;
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    };
     const onDocMouseMove = (e: MouseEvent) => {
-      if (!dragging) return;
-      const next = Math.min(
-        MAX_LEFT_W,
-        Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
-      );
-      if (next === leftWidth) return;
-      leftWidth = next;
-      layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
+      if (dragging) {
+        const next = Math.min(
+          MAX_LEFT_W,
+          Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
+        );
+        if (next === leftWidth) return;
+        leftWidth = next;
+        layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
+        return;
+      }
+      if (draggingNotes) {
+        const rightRect = right.getBoundingClientRect();
+        // Cap notes at MAX_NOTES_H_RATIO of the column so the canvas
+        // always gets the remaining 40 %+. Re-evaluated each tick so
+        // dragging works even after a window resize.
+        const maxH = Math.max(
+          MIN_NOTES_H,
+          Math.floor(rightRect.height * MAX_NOTES_H_RATIO),
+        );
+        // Drag UP (cursor moves up the screen) ⇒ notes grow taller.
+        const next = Math.min(
+          maxH,
+          Math.max(MIN_NOTES_H, dragStartNotesH - (e.clientY - dragStartY)),
+        );
+        if (next === notesHeight) return;
+        notesHeight = next;
+        notesHost.style.height = `${notesHeight}px`;
+        // The right column's outer height didn't change, so the
+        // ResizeObserver won't fire. Re-fit manually so the canvas
+        // shrinks / grows in step with the notes panel.
+        refitCanvas();
+      }
     };
     const onDocMouseUp = () => {
-      if (!dragging) return;
-      dragging = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      try {
-        window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
-      } catch {
-        /* ignore quota / privacy-mode failures */
+      if (dragging) {
+        dragging = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        try {
+          window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
+        } catch {
+          /* ignore quota / privacy-mode failures */
+        }
+        return;
+      }
+      if (draggingNotes) {
+        draggingNotes = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        try {
+          window.localStorage.setItem(NOTES_STORAGE_KEY, String(notesHeight));
+        } catch {
+          /* ignore quota / privacy-mode failures */
+        }
       }
     };
     resizer.addEventListener("mousedown", onResizerDown);
+    notesResizer.addEventListener("mousedown", onNotesResizerDown);
     document.addEventListener("mousemove", onDocMouseMove);
     document.addEventListener("mouseup", onDocMouseUp);
 
@@ -539,7 +664,7 @@ export function SlidesView({
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.
-      if (dragging) {
+      if (dragging || draggingNotes) {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
       }
