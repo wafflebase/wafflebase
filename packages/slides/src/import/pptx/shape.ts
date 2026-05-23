@@ -1,6 +1,7 @@
 import type {
   Element as SlideElement,
   GroupElement,
+  ImageElement,
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,
@@ -26,7 +27,7 @@ import {
   IDENTITY_TRANSFORM,
   type GroupTransform,
 } from './group';
-import { parsePic, type ImageParseContext } from './image';
+import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { ImportReport } from './report';
 import { parseTable } from './table';
 import { parseTextBody } from './text';
@@ -305,7 +306,7 @@ async function parseChild(
 ): Promise<SlideElement[] | undefined> {
   switch (el.localName) {
     case 'sp': {
-      const sps = parseSp(el, ctx);
+      const sps = await parseSp(el, ctx);
       return sps.length > 0 ? sps : undefined;
     }
     case 'pic': {
@@ -357,7 +358,7 @@ function withId(elem: SlideElement, ctx: SlideParseContext, sourceEl: Element): 
   return elem;
 }
 
-function parseSp(sp: Element, ctx: SlideParseContext): SlideElement[] {
+async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElement[]> {
   const nvSpPr = child(sp, 'nvSpPr');
   const cNvSpPr = nvSpPr ? child(nvSpPr, 'cNvSpPr') : undefined;
   const isTextBox = cNvSpPr ? attr(cNvSpPr, 'txBox') === '1' : false;
@@ -385,6 +386,32 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement[] {
     return [buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey)];
   }
 
+  // Shape with `<a:blipFill>` — treat as picture, regardless of geometry.
+  // PowerPoint exports routinely build full-bleed visuals (e.g. doodle
+  // template backgrounds) as `<p:sp>` wrapping `<a:custGeom>` (or
+  // `<a:prstGeom prst="rect">`) + `<a:blipFill>`, which is semantically
+  // equivalent to a `<p:pic>`. Treating it as an `ImageElement` preserves
+  // the visible result; the clip path of a genuinely non-rect freeform
+  // is lost, which we accept for v1 (covers >99% of real-world decks).
+  const blipFill = spPr ? child(spPr, 'blipFill') : undefined;
+  if (blipFill) {
+    const image = await buildImageFromBlip(elementId, frame, blipFill, ctx);
+    if (image) {
+      if (!hasText) return [image];
+      const text = buildTextElement(
+        generateId(),
+        frame,
+        txBody!,
+        ctx,
+        placeholderRef,
+        layoutSizeKey,
+      );
+      return [image, text];
+    }
+    // Blip upload failed / unresolved — fall through so the shape still
+    // contributes whatever geometry / text it has rather than vanishing.
+  }
+
   // Shape with `prstGeom` — emit the shape, then layer a coincident
   // TextElement on top when the shape also carries visible text (the
   // "labelled rect / callout" pattern, ubiquitous in PowerPoint).
@@ -409,6 +436,25 @@ function parseSp(sp: Element, ctx: SlideParseContext): SlideElement[] {
   }
 
   return [];
+}
+
+async function buildImageFromBlip(
+  id: string,
+  frame: SlideElement['frame'],
+  blipFill: Element,
+  ctx: SlideParseContext,
+): Promise<ImageElement | undefined> {
+  const imageCtx: ImageParseContext = {
+    archive: ctx.archive,
+    slidePartPath: ctx.slidePartPath,
+    rels: ctx.rels,
+    uploadImage: ctx.uploadImage,
+    scale: ctx.scale,
+    report: ctx.report,
+  };
+  const blip = await parseBlipFill(blipFill, imageCtx);
+  if (!blip) return undefined;
+  return { id, type: 'image', frame, data: blip };
 }
 
 /**
