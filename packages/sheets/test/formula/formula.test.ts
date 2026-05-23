@@ -16,6 +16,16 @@ describe('Formula', () => {
     expect(evaluate('=100+200')).toBe('300');
   });
 
+  it('should correctly evaluate unary postfix percentage operator', () => {
+    expect(evaluate('=4%')).toBe('0.04');
+    expect(evaluate('=4%*3')).toBe('0.12');
+    expect(Number(evaluate('=5%+10%'))).toBeCloseTo(0.15);
+    expect(evaluate('=4%3')).toBe('#ERROR!');
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '200' });
+    expect(evaluate('=A1*5%', grid)).toBe('10');
+  });
+
   it('should correctly evaluate subtraction', () => {
     expect(evaluate('=5-3')).toBe('2');
     expect(evaluate('=10-5')).toBe('5');
@@ -3291,7 +3301,7 @@ describe('Formula', () => {
   it('TRANSPOSE preserves text values', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: 'hello' } as Cell); grid.set('B1', { v: 'world' } as Cell);
-    grid.set('A2', { v: '42' } as Cell);    grid.set('B2', { v: 'end' } as Cell);
+    grid.set('A2', { v: '42' } as Cell); grid.set('B2', { v: 'end' } as Cell);
     // [[hello,world],[42,end]] → transposed → [[hello,42],[world,end]]
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,1)', grid)).toBe('hello');
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,2)', grid)).toBe('42');
