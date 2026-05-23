@@ -13,6 +13,12 @@ import type { GridConfig } from './unit.js';
 
 export type TickDensity = 'full' | 'half-only' | 'major' | 'major-thinned';
 
+export interface TickHeights {
+  major: number;
+  half: number;
+  minor: number;
+}
+
 export interface DrawTicksOpts {
   ctx: CanvasRenderingContext2D;
   axis: 'h' | 'v';
@@ -30,13 +36,32 @@ export interface DrawTicksOpts {
   density?: TickDensity;
   /** Ruler thickness in px; defaults to 20. */
   rulerSize?: number;
+  /**
+   * Per-kind tick lengths in px. Defaults to docs proportions (10 / 7
+   * / 4 for a 20-px ruler). Slim rulers (e.g. slides at 14 px) pass
+   * smaller values so ticks + labels coexist without overlap.
+   */
+  tickHeights?: TickHeights;
+  /**
+   * Inset (in px) for the horizontal ruler's label baseline, measured
+   * from the top edge of the ruler canvas. Defaults to 1 — the docs
+   * ruler reserves an extra pixel of breathing room. Slim rulers may
+   * pass 0 to keep labels from colliding with the major tick.
+   */
+  labelInset?: number;
+  /**
+   * Inset (in px) for the rotated label of the vertical ruler,
+   * measured from the inner edge of the ruler canvas. Defaults to 6
+   * to match the docs ruler. Slim rulers pass a smaller value.
+   */
+  verticalLabelInset?: number;
 }
 
-const TICK_MAJOR = 10;
-const TICK_HALF = 7;
-const TICK_MINOR = 4;
+const DEFAULT_TICK_HEIGHTS: TickHeights = { major: 10, half: 7, minor: 4 };
 const DEFAULT_LABEL_FONT = '9px Arial';
 const DEFAULT_RULER_SIZE = 20;
+const DEFAULT_LABEL_INSET = 1;
+const DEFAULT_VERTICAL_LABEL_INSET = 6;
 
 type TickKind = 'major' | 'half' | 'minor';
 
@@ -56,10 +81,6 @@ function labelIntervalForDensity(density: TickDensity): number {
   return density === 'major-thinned' ? 2 : 1;
 }
 
-function tickLength(kind: TickKind): number {
-  return kind === 'major' ? TICK_MAJOR : kind === 'half' ? TICK_HALF : TICK_MINOR;
-}
-
 export function drawTicks(opts: DrawTicksOpts): void {
   const {
     ctx, axis, start, length, grid,
@@ -67,6 +88,9 @@ export function drawTicks(opts: DrawTicksOpts): void {
     labelFont = DEFAULT_LABEL_FONT,
     density = 'full',
     rulerSize = DEFAULT_RULER_SIZE,
+    tickHeights = DEFAULT_TICK_HEIGHTS,
+    labelInset = DEFAULT_LABEL_INSET,
+    verticalLabelInset = DEFAULT_VERTICAL_LABEL_INSET,
   } = opts;
   const { subdivisions, minorStepPx } = grid;
 
@@ -79,6 +103,11 @@ export function drawTicks(opts: DrawTicksOpts): void {
 
   const endTick = Math.ceil(length / minorStepPx);
   const labelEvery = labelIntervalForDensity(density);
+
+  const tickLength = (kind: TickKind): number =>
+    kind === 'major' ? tickHeights.major
+    : kind === 'half' ? tickHeights.half
+    : tickHeights.minor;
 
   if (axis === 'h') {
     ctx.textAlign = 'center';
@@ -104,7 +133,7 @@ export function drawTicks(opts: DrawTicksOpts): void {
       const unitIndex = i / subdivisions;
       if (unitIndex % labelEvery !== 0) continue;
       const x = Math.round(raw) + 0.5;
-      ctx.fillText(String(unitIndex), x, 1);
+      ctx.fillText(String(unitIndex), x, labelInset);
     }
     return;
   }
@@ -134,7 +163,11 @@ export function drawTicks(opts: DrawTicksOpts): void {
     if (unitIndex % labelEvery !== 0) continue;
     const y = Math.round(raw) + 0.5;
     ctx.save();
-    ctx.translate(6, y);
+    // Rotated labels for the vertical ruler. `verticalLabelInset`
+    // controls how far inward the label center sits from the ruler's
+    // inner edge — docs uses 6 (default), slim rulers use a smaller
+    // value so labels stay clear of the ticks.
+    ctx.translate(verticalLabelInset, y);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(String(unitIndex), 0, 0);
     ctx.restore();

@@ -27,8 +27,16 @@ import {
 
 import { SLIDE_WIDTH } from '../../../model/presentation';
 
-/** Ruler thickness in CSS pixels (matches the docs ruler). */
-export const RULER_SIZE = 20;
+/**
+ * Ruler thickness in CSS pixels.
+ *
+ * Intentionally slimmer than the docs ruler (20 px). The slide is a
+ * "stage" rather than a "page" — a heavy ruler bar clutters the
+ * canvas chrome and competes with the slide elevation. 14 px keeps
+ * the tick + integer-unit label readable while reclaiming ~30 % of
+ * the gutter the docs ruler reserves.
+ */
+export const RULER_SIZE = 14;
 
 /**
  * Pixel-per-inch in the slides logical coordinate system.
@@ -40,8 +48,18 @@ export const RULER_SIZE = 20;
  */
 export const SLIDES_PX_PER_INCH = 144;
 
-const TICK_COLOR = '#999999';
-const RULER_BG = '#f5f5f5';
+// Tick + label proportions tuned to the slim 14-px ruler. Major ticks
+// occupy ~40 % of the ruler height so an 8-px label can sit at the
+// top edge (y = 0) without colliding with the tick stem at the
+// bottom.
+const TICK_HEIGHTS = { major: 6, half: 4, minor: 2 };
+const LABEL_FONT = '8px Arial';
+const LABEL_INSET = 0;
+const VERTICAL_LABEL_INSET = 4;
+// Soft neutral so the ruler reads as chrome, not a measurement bar.
+// Inherits from the surrounding column instead of painting its own
+// background — keeps the visual weight on the slide itself.
+const TICK_COLOR = '#b0b0b0';
 
 export interface SlidesRulerOptions {
   hCanvas: HTMLCanvasElement;
@@ -91,7 +109,9 @@ export class SlidesRuler {
       detectUnit(typeof navigator !== 'undefined' ? navigator.language : undefined);
     this.unit = detected;
     this.grid = getGridConfig(detected, SLIDES_PX_PER_INCH);
-    this.corner.style.background = RULER_BG;
+    // Transparent corner — inherits the surrounding column color so
+    // the slim ruler reads as soft chrome, not a framed bar.
+    this.corner.style.background = 'transparent';
   }
 
   setUnit(unit: RulerUnit): void {
@@ -143,8 +163,11 @@ export class SlidesRuler {
     const ctx = this.hCtx;
     if (!ctx) return;
     this.resizeCanvas(this.hCanvas, hostWidth, RULER_SIZE);
-    ctx.fillStyle = RULER_BG;
-    ctx.fillRect(0, 0, hostWidth, RULER_SIZE);
+    // Transparent ruler: clear instead of painting a background fill
+    // so the canvas wrapper's color shows through. Keeps the slide
+    // edge + drop shadow as the strongest visual anchor in the
+    // canvas area.
+    ctx.clearRect(0, 0, hostWidth, RULER_SIZE);
     drawTicks({
       ctx,
       axis: 'h',
@@ -154,6 +177,10 @@ export class SlidesRuler {
       color: TICK_COLOR,
       density,
       rulerSize: RULER_SIZE,
+      tickHeights: TICK_HEIGHTS,
+      labelFont: LABEL_FONT,
+      labelInset: LABEL_INSET,
+      verticalLabelInset: VERTICAL_LABEL_INSET,
     });
   }
 
@@ -165,8 +192,7 @@ export class SlidesRuler {
     const ctx = this.vCtx;
     if (!ctx) return;
     this.resizeCanvas(this.vCanvas, RULER_SIZE, hostHeight);
-    ctx.fillStyle = RULER_BG;
-    ctx.fillRect(0, 0, RULER_SIZE, hostHeight);
+    ctx.clearRect(0, 0, RULER_SIZE, hostHeight);
     drawTicks({
       ctx,
       axis: 'v',
@@ -176,6 +202,10 @@ export class SlidesRuler {
       color: TICK_COLOR,
       density,
       rulerSize: RULER_SIZE,
+      tickHeights: TICK_HEIGHTS,
+      labelFont: LABEL_FONT,
+      labelInset: LABEL_INSET,
+      verticalLabelInset: VERTICAL_LABEL_INSET,
     });
   }
 

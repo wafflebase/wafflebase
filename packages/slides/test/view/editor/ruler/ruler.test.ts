@@ -29,8 +29,11 @@ describe('SlidesRuler', () => {
     dom = mount();
   });
 
-  it('exposes RULER_SIZE = 20 and SLIDES_PX_PER_INCH = 144', () => {
-    expect(RULER_SIZE).toBe(20);
+  it('exposes a slim RULER_SIZE (14) and SLIDES_PX_PER_INCH = 144', () => {
+    // 14 px keeps an 8-px label visible above the 6-px major tick
+    // while reclaiming ~30 % of the gutter the docs ruler reserves
+    // — see ruler.ts for the rationale.
+    expect(RULER_SIZE).toBe(14);
     expect(SLIDES_PX_PER_INCH).toBe(144);
   });
 
@@ -167,15 +170,15 @@ describe('SlidesRuler', () => {
       unit: 'inch',
     });
     ruler.render({ hostWidth: 800, hostHeight: 450 });
-    // h-ruler: 800 × 20 CSS, doubled by dpr
-    expect(dom.hCanvas.width).toBe(1600);
-    expect(dom.hCanvas.height).toBe(40);
+    // h-ruler: 800 × RULER_SIZE CSS, doubled by dpr
+    expect(dom.hCanvas.width).toBe(800 * 2);
+    expect(dom.hCanvas.height).toBe(RULER_SIZE * 2);
     expect(dom.hCanvas.style.width).toBe('800px');
-    expect(dom.hCanvas.style.height).toBe('20px');
-    // v-ruler: 20 × 450 CSS, doubled by dpr
-    expect(dom.vCanvas.width).toBe(40);
+    expect(dom.hCanvas.style.height).toBe(`${RULER_SIZE}px`);
+    // v-ruler: RULER_SIZE × 450 CSS, doubled by dpr
+    expect(dom.vCanvas.width).toBe(RULER_SIZE * 2);
     expect(dom.vCanvas.height).toBe(900);
-    expect(dom.vCanvas.style.width).toBe('20px');
+    expect(dom.vCanvas.style.width).toBe(`${RULER_SIZE}px`);
     expect(dom.vCanvas.style.height).toBe('450px');
   });
 });
