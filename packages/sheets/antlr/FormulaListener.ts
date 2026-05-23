@@ -7,6 +7,7 @@ import { ParseTreeListener } from "antlr4ts/tree/ParseTreeListener";
 import { FunctionContext } from "./FormulaParser";
 import { UnarySignContext } from "./FormulaParser";
 import { CallContext } from "./FormulaParser";
+import { PercentContext } from "./FormulaParser";
 import { PowContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
@@ -68,6 +69,19 @@ export interface FormulaListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	exitCall?: (ctx: CallContext) => void;
+
+	/**
+	 * Enter a parse tree produced by the `Percent`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterPercent?: (ctx: PercentContext) => void;
+	/**
+	 * Exit a parse tree produced by the `Percent`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitPercent?: (ctx: PercentContext) => void;
 
 	/**
 	 * Enter a parse tree produced by the `Pow`
