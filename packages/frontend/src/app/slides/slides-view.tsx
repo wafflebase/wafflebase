@@ -281,6 +281,13 @@ export function SlidesView({
     canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
     canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
 
+    // Seed the host dimensions before mounting any DOM that references
+    // them. `refitCanvas` will replace these on the first
+    // ResizeObserver tick; the seed only avoids a 0×0 flash.
+    const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
+    let hostW = initial.width;
+    let hostH = initial.height;
+
     // Ruler DOM: corner square (top-left), horizontal canvas across
     // the top gutter, vertical canvas down the left gutter. All three
     // are absolute to canvasArea so they hug the frame's edges
@@ -300,13 +307,11 @@ export function SlidesView({
     // bitmap intrinsic size (300×150 default). Set explicit
     // width/height in `refitCanvas` below, and seed an initial value
     // here so the first paint isn't a 0×0 sliver in the corner.
-    const initialFrameW = hostW;
-    const initialFrameH = hostH;
     const hRulerCanvas = document.createElement("canvas");
     hRulerCanvas.style.position = "absolute";
     hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
     hRulerCanvas.style.top = "0";
-    hRulerCanvas.style.width = `${initialFrameW}px`;
+    hRulerCanvas.style.width = `${hostW}px`;
     hRulerCanvas.style.height = `${SLIDES_RULER_SIZE}px`;
     hRulerCanvas.style.zIndex = "2";
     canvasArea.appendChild(hRulerCanvas);
@@ -316,7 +321,7 @@ export function SlidesView({
     vRulerCanvas.style.left = "0";
     vRulerCanvas.style.top = `${SLIDES_RULER_SIZE}px`;
     vRulerCanvas.style.width = `${SLIDES_RULER_SIZE}px`;
-    vRulerCanvas.style.height = `${initialFrameH}px`;
+    vRulerCanvas.style.height = `${hostH}px`;
     vRulerCanvas.style.zIndex = "1";
     canvasArea.appendChild(vRulerCanvas);
 
@@ -325,10 +330,6 @@ export function SlidesView({
     // outside, on the canvas-area frame).
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
-
-    const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
-    let hostW = initial.width;
-    let hostH = initial.height;
     canvasWrap.style.width = `${hostW}px`;
     canvasWrap.style.height = `${hostH}px`;
 
