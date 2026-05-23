@@ -47,6 +47,7 @@ import {
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
+import { SlidesRuler } from './ruler/ruler';
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
@@ -137,6 +138,17 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * share-link viewers — see `shared-document.tsx`.
    */
   readOnly?: boolean;
+  /**
+   * Optional H/V ruler DOM hosts. When all three are supplied the
+   * editor instantiates a `SlidesRuler` and paints it on every
+   * `render()` / `setHostSize()` call. Omitting them keeps the
+   * editor ruler-free (mobile mount, headless tests). Drag-out and
+   * guide interactions land in a later phase; this PR is display
+   * only — see docs/design/slides/slides-ruler.md.
+   */
+  hRulerCanvas?: HTMLCanvasElement;
+  vRulerCanvas?: HTMLCanvasElement;
+  rulerCorner?: HTMLElement;
 }
 
 export interface SlidesEditor {
@@ -409,6 +421,13 @@ class SlidesEditorImpl implements SlidesEditor {
   private hitCtx: HitTestCtx;
   /** Per-shell click tolerance (slide-logical pixels). */
   private hitTolerance = DEFAULT_HIT_TOLERANCE;
+  /**
+   * Optional H/V ruler. Instantiated only when the host passes all
+   * three ruler DOM refs (`hRulerCanvas`, `vRulerCanvas`,
+   * `rulerCorner`). Painted at the end of every `render()` so it
+   * stays in lock-step with the slide canvas size/zoom.
+   */
+  private ruler: SlidesRuler | null = null;
 
   constructor(options: SlidesEditorOptions) {
     this.options = options;
@@ -416,6 +435,17 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.hitCtx = ctx;
     this.renderer = new SlideRenderer(ctx, options);
+    if (
+      options.hRulerCanvas !== undefined &&
+      options.vRulerCanvas !== undefined &&
+      options.rulerCorner !== undefined
+    ) {
+      this.ruler = new SlidesRuler({
+        hCanvas: options.hRulerCanvas,
+        vCanvas: options.vRulerCanvas,
+        corner: options.rulerCorner,
+      });
+    }
     this.currentId = options.store.read().slides[0]?.id;
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
@@ -580,7 +610,10 @@ class SlidesEditorImpl implements SlidesEditor {
     const doc = this.options.store.read();
     const id = this.currentId;
     const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
-    if (!slide) return;
+    if (!slide) {
+      this.paintRuler();
+      return;
+    }
     // Hide the element currently in edit mode from the slide canvas —
     // the text-box editor's own canvas is layered on top of the same
     // frame, so leaving the element in the slide pass would double-paint
@@ -593,9 +626,19 @@ class SlidesEditorImpl implements SlidesEditor {
         elements: slide.elements.filter((e) => e.id !== editingId),
       };
       this.renderer.forceRender(visible, doc);
+      this.paintRuler();
       return;
     }
     this.renderer.render(slide, doc);
+    this.paintRuler();
+  }
+
+  private paintRuler(): void {
+    if (this.ruler === null) return;
+    this.ruler.render({
+      hostWidth: this.options.hostWidth,
+      hostHeight: this.options.hostHeight,
+    });
   }
 
   getSelection(): readonly string[] {
@@ -1041,6 +1084,8 @@ class SlidesEditorImpl implements SlidesEditor {
       target.removeEventListener(type, handler as EventListener);
     }
     this.listeners.length = 0;
+    this.ruler?.dispose();
+    this.ruler = null;
   }
 
   /** Internal helper used by interaction modules in T3-T7. */

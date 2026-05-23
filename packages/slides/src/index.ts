@@ -135,6 +135,15 @@ export { collectSnapCandidates } from './view/editor/snap-candidates';
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+
+// View — Ruler (H/V rulers + future guides)
+export {
+  SlidesRuler,
+  RULER_SIZE as SLIDES_RULER_SIZE,
+  SLIDES_PX_PER_INCH,
+  type SlidesRulerOptions,
+  type SlidesRulerViewport,
+} from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 

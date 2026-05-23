@@ -2,6 +2,7 @@ import {
   initializeEditor,
   mountThumbnailPanel,
   mountNotesPanel,
+  SLIDES_RULER_SIZE,
   type SlidesEditor,
   type ThumbnailPanelHandle,
 } from "@wafflebase/slides";
@@ -261,7 +262,8 @@ export function SlidesView({
     right.style.minWidth = "0";  // allow the column to shrink + width-fit
     right.style.minHeight = "0";
 
-    // Canvas + overlay live inside this wrapper. Sized later by the
+    // Canvas + overlay live inside this wrapper, with the H/V rulers
+    // pinned to the wrapper's top + left edges. Sized later by the
     // ResizeObserver below — mounting at MIN_HOST_W avoids a flash of
     // an unsized canvas during the first layout pass.
     const canvasWrap = document.createElement("div");
@@ -271,8 +273,44 @@ export function SlidesView({
     const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
     let hostW = initial.width;
     let hostH = initial.height;
+    // The slide canvas is offset by the ruler gutter so canvasWrap's
+    // outer dimensions = host + ruler.
+    canvasWrap.style.width = `${hostW + SLIDES_RULER_SIZE}px`;
+    canvasWrap.style.height = `${hostH + SLIDES_RULER_SIZE}px`;
+
+    // Ruler DOM: corner square (top-left), horizontal canvas across
+    // the top gutter, vertical canvas down the left gutter. All three
+    // are absolute relative to canvasWrap so they stay glued to the
+    // canvas as it resizes.
+    const rulerCorner = document.createElement("div");
+    rulerCorner.style.position = "absolute";
+    rulerCorner.style.left = "0";
+    rulerCorner.style.top = "0";
+    rulerCorner.style.width = `${SLIDES_RULER_SIZE}px`;
+    rulerCorner.style.height = `${SLIDES_RULER_SIZE}px`;
+    rulerCorner.style.zIndex = "3";
+    canvasWrap.appendChild(rulerCorner);
+
+    const hRulerCanvas = document.createElement("canvas");
+    hRulerCanvas.style.position = "absolute";
+    hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
+    hRulerCanvas.style.top = "0";
+    hRulerCanvas.style.height = `${SLIDES_RULER_SIZE}px`;
+    hRulerCanvas.style.zIndex = "2";
+    canvasWrap.appendChild(hRulerCanvas);
+
+    const vRulerCanvas = document.createElement("canvas");
+    vRulerCanvas.style.position = "absolute";
+    vRulerCanvas.style.left = "0";
+    vRulerCanvas.style.top = `${SLIDES_RULER_SIZE}px`;
+    vRulerCanvas.style.width = `${SLIDES_RULER_SIZE}px`;
+    vRulerCanvas.style.zIndex = "1";
+    canvasWrap.appendChild(vRulerCanvas);
 
     const canvas = document.createElement("canvas");
+    canvas.style.position = "absolute";
+    canvas.style.left = `${SLIDES_RULER_SIZE}px`;
+    canvas.style.top = `${SLIDES_RULER_SIZE}px`;
     canvas.width = hostW * dpr;
     canvas.height = hostH * dpr;
     canvas.style.width = `${hostW}px`;
@@ -293,8 +331,8 @@ export function SlidesView({
 
     const overlay = document.createElement("div");
     overlay.style.position = "absolute";
-    overlay.style.left = "0";
-    overlay.style.top = "0";
+    overlay.style.left = `${SLIDES_RULER_SIZE}px`;
+    overlay.style.top = `${SLIDES_RULER_SIZE}px`;
     overlay.style.width = `${hostW}px`;
     overlay.style.height = `${hostH}px`;
     overlay.style.pointerEvents = "none";
@@ -337,6 +375,9 @@ export function SlidesView({
       hostHeight: hostH,
       dpr,
       readOnly: readOnlyMount,
+      hRulerCanvas,
+      vRulerCanvas,
+      rulerCorner,
       onShowShortcutsHelp: () => setHelpOpen(true),
       onStartPresentation: (from) => onStartPresentationRef.current?.(from),
       onToast: (msg) => onToastRef.current(msg),
@@ -364,7 +405,11 @@ export function SlidesView({
       const reservedForNotes = notesHost.getBoundingClientRect().height + 12;
       const availW = Math.max(MIN_HOST_W, Math.min(MAX_HOST_W, rightRect.width));
       const availH = Math.max(MIN_HOST_W / SLIDE_ASPECT, rightRect.height - reservedForNotes);
-      const fit = computeFitSize(availW, availH);
+      // Reserve the ruler gutter so the slide canvas itself never
+      // overflows the right column: canvasWrap outer = host + gutter.
+      const slideAvailW = Math.max(MIN_HOST_W, availW - SLIDES_RULER_SIZE);
+      const slideAvailH = Math.max(MIN_HOST_W / SLIDE_ASPECT, availH - SLIDES_RULER_SIZE);
+      const fit = computeFitSize(slideAvailW, slideAvailH);
       const nextW = Math.round(fit.width);
       const nextH = Math.round(fit.height);
       if (nextW === hostW && nextH === hostH) return;
@@ -376,6 +421,8 @@ export function SlidesView({
       canvas.style.height = `${hostH}px`;
       overlay.style.width = `${hostW}px`;
       overlay.style.height = `${hostH}px`;
+      canvasWrap.style.width = `${hostW + SLIDES_RULER_SIZE}px`;
+      canvasWrap.style.height = `${hostH + SLIDES_RULER_SIZE}px`;
       editor.setHostSize(hostW, hostH);
     });
     resizeObserver.observe(right);
