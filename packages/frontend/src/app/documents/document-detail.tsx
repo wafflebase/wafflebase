@@ -60,6 +60,7 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
+import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
@@ -139,6 +140,30 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       ? `${documentData.title} — Wafflebase`
       : "Wafflebase";
   }, [documentData?.title]);
+
+  useEffect(() => {
+    if (!doc) return;
+
+    const pending = peekPendingImport(documentId);
+    if (!pending) return;
+
+    try {
+      doc.update((r) => {
+        r.tabs = pending.tabs;
+        r.tabOrder = pending.tabOrder;
+        r.sheets = pending.sheets;
+      });
+      clearPendingImport(documentId);
+      setActiveTabId(pending.tabOrder[0] ?? null);
+    } catch (error) {
+      console.error("Failed to apply pending XLSX import", error);
+      toast.error(
+        error instanceof Error
+          ? `Failed to load imported workbook: ${error.message}`
+          : "Failed to load imported workbook.",
+      );
+    }
+  }, [doc, documentId]);
 
   const { data: workspaces = [] } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
@@ -389,7 +414,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
 
       setImportingXlsx(true);
       try {
-        const { importXlsxFile } = await import("./xlsx-import");
+        const { importXlsxFile } = await import("@wafflebase/sheets");
         const importedSheets = await importXlsxFile(file);
         if (importedSheets.length === 0) {
           toast.error("This .xlsx file does not contain any sheets.");

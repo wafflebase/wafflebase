@@ -76,6 +76,8 @@ import { pickAndImportDocx } from "@/app/docs/docx-actions";
 import { setPendingImport } from "@/app/docs/pending-imports";
 import { pickAndImportPptx } from "@/app/slides/pptx-actions";
 import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
+import { pickAndImportXlsx } from "./xlsx-actions";
+import { setPendingImport as setPendingXlsxImport } from "./pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   switch (doc.type) {
@@ -284,6 +286,35 @@ export function DocumentList({
     }
   };
 
+  const handleImportXlsx = async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const result = await pickAndImportXlsx();
+      if (!result) return;
+
+      const title = result.fileName.replace(/\.xlsx$/i, "") || "Imported Sheet";
+      const created = workspaceId
+        ? await createWorkspaceDocument(workspaceId, { title, type: "sheet" })
+        : await createDocument({ title, type: "sheet" });
+
+      setPendingXlsxImport(String(created.id), result.document);
+      toast.success(
+        result.document.tabOrder.length === 1
+          ? `Imported "${title}"`
+          : `Imported "${title}" with ${result.document.tabOrder.length} sheets`,
+      );
+      navigate(getDocumentPath(created));
+    } catch (err) {
+      console.error("XLSX import failed", err);
+      toast.error(
+        err instanceof Error ? `Import failed: ${err.message}` : "Import failed",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
     onSuccess: () => {
@@ -419,6 +450,13 @@ export function DocumentList({
               <FileDown className="mr-2 h-4 w-4 text-orange-500" />
               Import PPTX
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={importing}
+              onClick={handleImportXlsx}
+            >
+              <FileDown className="mr-2 h-4 w-4 text-green-600" />
+              Import XLSX
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -521,6 +559,13 @@ export function DocumentList({
                         >
                           <FileDown className="mr-2 h-4 w-4 text-blue-500" />
                           Import DOCX
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={importing}
+                          onClick={handleImportXlsx}
+                        >
+                          <FileDown className="mr-2 h-4 w-4 text-green-600" />
+                          Import XLSX
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
