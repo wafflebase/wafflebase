@@ -38,19 +38,25 @@ export function mountNotesPanel(
   const ta = document.createElement('textarea');
   ta.placeholder = 'Speaker notes…';
   ta.readOnly = readOnly;
+  // Fill the host's drag-resized height instead of carrying its own
+  // intrinsic size. The slides editor shell owns the notes resizer
+  // affordance, so the textarea here is a content slot — no border,
+  // no rounded box, no user-resize handle.
   ta.style.width = '100%';
-  ta.style.minHeight = '80px';
+  ta.style.height = '100%';
+  ta.style.boxSizing = 'border-box';
+  ta.style.resize = 'none';
   // Theme tokens from shadcn (frontend's index.css) so the textarea
-  // follows the surrounding light/dark mode. Fallbacks keep jsdom and
-  // theme-less hosts on a sensible dark surface.
-  ta.style.background = 'var(--background, #2a2a2a)';
+  // follows the surrounding light/dark mode. Background stays
+  // transparent so the panel blends with the editor column instead of
+  // floating as its own boxy surface.
+  ta.style.background = 'transparent';
   ta.style.color = 'var(--foreground, #ddd)';
-  ta.style.border = '1px solid var(--border, #444)';
-  ta.style.borderRadius = '4px';
+  ta.style.border = 'none';
+  ta.style.outline = 'none';
   ta.style.padding = '8px';
   ta.style.fontFamily = 'system-ui, sans-serif';
   ta.style.fontSize = '14px';
-  ta.style.resize = 'vertical';
   container.appendChild(ta);
 
   const sync = (): void => {
