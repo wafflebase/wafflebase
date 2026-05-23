@@ -13,7 +13,7 @@ import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
-import { Ruler, RULER_SIZE } from './ruler.js';
+import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
