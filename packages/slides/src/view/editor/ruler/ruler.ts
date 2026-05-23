@@ -8,12 +8,16 @@
  * the slide canvas extent. Guides and drag-out gestures land in a
  * later phase.
  *
- * The slides canvas has no scroll in v1 (the deck zoom-to-fits the
- * available column width via `editor.setHostSize`), so the ruler
- * derives its scale entirely from the host dimensions: one slide
- * logical pixel maps to `hostWidth / SLIDE_WIDTH` host pixels, which
- * the renderer pre-multiplies into the grid step sizes before
- * handing them to `drawTicks`.
+ * Layout contract: the host positions both ruler canvases as
+ * absolutely-placed frames around the canvas area (top edge / left
+ * edge), NOT around the slide itself. The slide can drift inside the
+ * frame as the column resizes or the speaker-notes panel is dragged;
+ * the ruler stays pinned to the frame and projects its tick "zero"
+ * onto wherever the slide's left / top edge currently lives. The
+ * renderer reads each ruler canvas's own `clientWidth` /
+ * `clientHeight` to know its painted extent and derives the slide
+ * offset from `(frame - host) / 2` (the canvas-area's flex centering
+ * is the source of truth for that).
  */
 
 import {
@@ -72,7 +76,7 @@ export interface SlidesRulerOptions {
 }
 
 export interface SlidesRulerViewport {
-  /** Slide-canvas width in CSS pixels (excluding the 20 px ruler gutter). */
+  /** Slide-canvas width in CSS pixels (excluding the 14-px ruler gutter). */
   hostWidth: number;
   /** Slide-canvas height in CSS pixels. */
   hostHeight: number;
@@ -162,16 +166,22 @@ export class SlidesRuler {
   ): void {
     const ctx = this.hCtx;
     if (!ctx) return;
-    this.resizeCanvas(this.hCanvas, hostWidth, RULER_SIZE);
-    // Transparent ruler: clear instead of painting a background fill
-    // so the canvas wrapper's color shows through. Keeps the slide
-    // edge + drop shadow as the strongest visual anchor in the
-    // canvas area.
-    ctx.clearRect(0, 0, hostWidth, RULER_SIZE);
+    // The host pins the H ruler with `left: RULER_SIZE; right: 0`, so
+    // its painted width is whatever the column gives it. Match the
+    // backing store to that laid-out CSS width (fall back to host width
+    // in environments where layout hasn't run, e.g. jsdom).
+    const frameWidth = this.hCanvas.clientWidth || hostWidth;
+    this.resizeCanvas(this.hCanvas, frameWidth, RULER_SIZE);
+    ctx.clearRect(0, 0, frameWidth, RULER_SIZE);
+    // The slide is centred horizontally inside the canvas area's
+    // content box (canvasArea has padding-left: RULER_SIZE), so within
+    // the H ruler's own coordinate system the slide left edge sits at
+    // half the leftover space.
+    const slideOffset = Math.max(0, (frameWidth - hostWidth) / 2);
     drawTicks({
       ctx,
       axis: 'h',
-      start: 0,
+      start: slideOffset,
       length: hostWidth,
       grid,
       color: TICK_COLOR,
@@ -191,12 +201,14 @@ export class SlidesRuler {
   ): void {
     const ctx = this.vCtx;
     if (!ctx) return;
-    this.resizeCanvas(this.vCanvas, RULER_SIZE, hostHeight);
-    ctx.clearRect(0, 0, RULER_SIZE, hostHeight);
+    const frameHeight = this.vCanvas.clientHeight || hostHeight;
+    this.resizeCanvas(this.vCanvas, RULER_SIZE, frameHeight);
+    ctx.clearRect(0, 0, RULER_SIZE, frameHeight);
+    const slideOffset = Math.max(0, (frameHeight - hostHeight) / 2);
     drawTicks({
       ctx,
       axis: 'v',
-      start: 0,
+      start: slideOffset,
       length: hostHeight,
       grid,
       color: TICK_COLOR,
@@ -229,8 +241,10 @@ export class SlidesRuler {
       ctx?.setTransform(1, 0, 0, 1, 0, 0);
       ctx?.scale(this.dpr, this.dpr);
     }
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    // CSS dimensions intentionally NOT set here — the host owns the
+    // absolute positioning (top / left / right / bottom on the ruler
+    // canvases). Setting them would override the host's "right: 0"
+    // pin and shrink the ruler back to host width.
   }
 }
 

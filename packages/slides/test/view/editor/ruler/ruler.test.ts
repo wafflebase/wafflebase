@@ -170,15 +170,15 @@ describe('SlidesRuler', () => {
       unit: 'inch',
     });
     ruler.render({ hostWidth: 800, hostHeight: 450 });
-    // h-ruler: 800 × RULER_SIZE CSS, doubled by dpr
+    // CSS width / height are owned by the host (slides-view's absolute
+    // positioning on the ruler canvases via top / left / right /
+    // bottom), so the ruler only updates the backing-store dimensions.
+    // In jsdom there is no layout pass, so `clientWidth` is 0 and the
+    // ruler falls back to the host extent — yielding the same backing
+    // size a browser would compute under default centring.
     expect(dom.hCanvas.width).toBe(800 * 2);
     expect(dom.hCanvas.height).toBe(RULER_SIZE * 2);
-    expect(dom.hCanvas.style.width).toBe('800px');
-    expect(dom.hCanvas.style.height).toBe(`${RULER_SIZE}px`);
-    // v-ruler: RULER_SIZE × 450 CSS, doubled by dpr
     expect(dom.vCanvas.width).toBe(RULER_SIZE * 2);
     expect(dom.vCanvas.height).toBe(900);
-    expect(dom.vCanvas.style.width).toBe(`${RULER_SIZE}px`);
-    expect(dom.vCanvas.style.height).toBe('450px');
   });
 });
