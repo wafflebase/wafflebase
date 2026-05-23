@@ -614,7 +614,9 @@ function parseShapeFill(
   if (!spPr) return undefined;
   const solid = child(spPr, 'solidFill');
   if (solid) return parseColorFromContainer(solid, ctx.clrMap);
-  // gradient, pattern, blip-fill on shape — out of v1 scope.
+  // gradient and pattern fills on shapes are out of v1 scope. Blip
+  // fills *are* handled — see the `<a:blipFill>` branch in `parseSp`,
+  // which short-circuits to an `ImageElement` before we get here.
   return undefined;
 }
 
