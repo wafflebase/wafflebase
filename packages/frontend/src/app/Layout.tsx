@@ -104,12 +104,8 @@ export default function Layout() {
       />
       <SidebarInset>
         <SiteHeader title={title} />
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className="flex flex-col h-full">
-              <Outlet />
-            </div>
-          </div>
+        <div className="flex flex-1 flex-col min-h-0 overflow-y-auto">
+          <Outlet />
         </div>
       </SidebarInset>
     </SidebarProvider>
