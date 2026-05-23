@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./active/20260523-slides-ruler-todo.md) | - |
 | slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./active/20260521-slides-homepage-docs-todo.md) | - |
 | slides thumbnail async bg (2026-05-21) | [20260521-slides-thumbnail-async-bg-todo.md](./active/20260521-slides-thumbnail-async-bg-todo.md) | - |
 | slides shape move ghost (2026-05-19) | [20260519-slides-shape-move-ghost-todo.md](./active/20260519-slides-shape-move-ghost-todo.md) | - |
@@ -33,4 +34,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 202
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides homepage docs (2026-05-21)
+Latest active task: slides ruler (2026-05-23)
