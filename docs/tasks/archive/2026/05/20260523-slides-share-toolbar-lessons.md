@@ -33,7 +33,9 @@ or read-only-mount task.
   `SlidesView` in `shared-document.tsx` did not need a second
   `<Suspense>` — the existing fallback covers both, and both chunks
   share the `@wafflebase/slides` dependency chunk so the extra lazy
-  surface is a small JS-only chunk (chunk gate went 87 → 88 / 90).
+  surface emits the toolbar's contextual subsections (idle / object /
+  text-edit / mobile) as their own chunks, so the final count rose to
+  91 against the budget that this PR bumps from 90 to 93.
 - **`import type` from `@wafflebase/slides` is safe in non-slides routes.**
   Type-only imports are erased by tsc + esbuild, so referencing
   `SlidesEditor` / `Theme` / `YorkieSlidesStore` types in

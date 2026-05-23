@@ -53,5 +53,7 @@ Two related gaps in `SharedSlidesLayout`:
 
 - Image upload from the shared editor (requires workspace auth).
 - The theme side panel — defer to a follow-up.
-- Yorkie write enforcement on the server side (a viewer that bypasses
-  the UI today would still hit Yorkie ACLs — out of scope for this PR).
+- Server-side write enforcement. This PR only adds UI-level gating; a
+  viewer who bypasses the UI and writes directly to Yorkie is not
+  blocked by anything we ship here. Whatever (or no) protection exists
+  server-side is out of scope.
