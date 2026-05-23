@@ -317,6 +317,12 @@ export function MobileSlidesView({
       hostH = 1;
     }
 
+    // TODO: when `SharedSlidesLayout` grows a phone-width branch and
+    // mounts `MobileSlidesView` for share links, accept and forward a
+    // `readOnly` prop here (the slides editor already supports it via
+    // `SlidesEditorOptions.readOnly`). Today the share-link route
+    // always uses desktop `SlidesView`, so this mount is owner-only
+    // and never read-only.
     const editor = initializeEditor({
       canvas,
       overlay,

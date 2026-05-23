@@ -112,6 +112,17 @@ export interface ThumbnailPanelHandle {
   getSelectedSlideIds(): readonly string[];
 }
 
+export interface MountThumbnailPanelOptions {
+  /**
+   * Disable every mutating thumbnail interaction. The panel still
+   * renders thumbs and routes click + ArrowUp/Down to
+   * `editor.setCurrentSlide`, but drag-reorder, the right-click bulk
+   * context menu, and the draggable cursor are all suppressed. Used
+   * by viewer-role share links.
+   */
+  readOnly?: boolean;
+}
+
 /**
  * Mount a slide thumbnail panel into `container`. Each slide gets a
  * mini-canvas rendered via `renderThumbnail`; clicking a thumbnail
@@ -125,7 +136,9 @@ export function mountThumbnailPanel(
   container: HTMLElement,
   store: SlidesStore,
   editor: SlidesEditor,
+  options: MountThumbnailPanelOptions = {},
 ): ThumbnailPanelHandle {
+  const readOnly = options.readOnly === true;
   let selectedSlideIds: string[] = [];
   let disposed = false;
 
@@ -442,7 +455,10 @@ export function mountThumbnailPanel(
         : 'var(--border, #444)';
       item.style.border = `${BORDER_PX}px solid ${borderColor}`;
       item.style.marginBottom = '8px';
-      item.draggable = true;
+      // Read-only viewers keep the click-to-navigate affordance but
+      // never see a drag cursor — drag-reorder handlers are skipped
+      // below too.
+      item.draggable = !readOnly;
 
       const canvas = document.createElement('canvas');
       // Backing store at device pixels; CSS box at logical pixels.
@@ -489,46 +505,49 @@ export function mountThumbnailPanel(
 
       // HTML5 drag-and-drop reorder. jsdom only partially implements
       // dataTransfer, so unit-level coverage is skipped; T6 visual
-      // verifies the path.
-      item.addEventListener('dragstart', (e) => {
-        if (e.dataTransfer) {
-          e.dataTransfer.setData('text/plain', slide.id);
-          e.dataTransfer.effectAllowed = 'move';
-        }
-      });
-      item.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      });
-      item.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const sourceId = e.dataTransfer?.getData('text/plain');
-        if (!sourceId || sourceId === slide.id) return;
-        const targetIndex = doc.slides.findIndex((s) => s.id === slide.id);
-        store.batch(() => store.moveSlide(sourceId, targetIndex));
-        render();
-      });
+      // verifies the path. Skipped entirely for read-only viewers —
+      // every handler below mutates the store.
+      if (!readOnly) {
+        item.addEventListener('dragstart', (e) => {
+          if (e.dataTransfer) {
+            e.dataTransfer.setData('text/plain', slide.id);
+            e.dataTransfer.effectAllowed = 'move';
+          }
+        });
+        item.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        });
+        item.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const sourceId = e.dataTransfer?.getData('text/plain');
+          if (!sourceId || sourceId === slide.id) return;
+          const targetIndex = doc.slides.findIndex((s) => s.id === slide.id);
+          store.batch(() => store.moveSlide(sourceId, targetIndex));
+          render();
+        });
 
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        // If the right-clicked slide isn't already in the shift-selected
-        // set, replace selection with just that slide. Matches the
-        // canvas right-click semantics in editor.ts (right-click selects
-        // what was clicked before opening the menu) — without this, a
-        // user could right-click a slide they hadn't selected and end
-        // up with a Delete that nukes a different slide.
-        const targetIds = selectedSlideIds.includes(slide.id)
-          ? [...selectedSlideIds]
-          : [slide.id];
-        if (!selectedSlideIds.includes(slide.id)) {
-          // Visual treatment for selectedSlideIds is not implemented
-          // (only `isCurrent` styles the border), so no DOM update is
-          // needed here either — the state mutation is purely logical.
-          selectedSlideIds = [slide.id];
-        }
-        const items = buildContextMenuItems(targetIds, slide.id, e);
-        showContextMenu(document.body, items, e.clientX, e.clientY);
-      });
+        item.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          // If the right-clicked slide isn't already in the shift-selected
+          // set, replace selection with just that slide. Matches the
+          // canvas right-click semantics in editor.ts (right-click selects
+          // what was clicked before opening the menu) — without this, a
+          // user could right-click a slide they hadn't selected and end
+          // up with a Delete that nukes a different slide.
+          const targetIds = selectedSlideIds.includes(slide.id)
+            ? [...selectedSlideIds]
+            : [slide.id];
+          if (!selectedSlideIds.includes(slide.id)) {
+            // Visual treatment for selectedSlideIds is not implemented
+            // (only `isCurrent` styles the border), so no DOM update is
+            // needed here either — the state mutation is purely logical.
+            selectedSlideIds = [slide.id];
+          }
+          const items = buildContextMenuItems(targetIds, slide.id, e);
+          showContextMenu(document.body, items, e.clientX, e.clientY);
+        });
+      }
 
       container.appendChild(item);
       if (intersectionObserver) intersectionObserver.observe(item);

@@ -100,6 +100,7 @@ function computeFitSize(availWidth: number, availHeight: number): {
  */
 export function SlidesView({
   documentId,
+  readOnly,
   onEditorReady,
   onStoreReady,
   onStartPresentation,
@@ -109,6 +110,7 @@ export function SlidesView({
   const [didMount, setDidMount] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
+  const readOnlyMount = readOnly === true;
 
   // Capture the latest onStartPresentation in a ref so the editor's
   // Cmd/Ctrl+Enter handler always calls the freshest callback, without
@@ -165,6 +167,12 @@ export function SlidesView({
       }
     }
 
+    // Known gap (intentional in this PR): `ensureSlidesRoot` may run a
+    // `doc.update()` migration block when a viewer mounts an
+    // unmigrated pre-v0.5 deck, contradicting the empty-deck-seed
+    // policy below. Fixing it properly (gating the migration on a
+    // role, or migrating server-side) is owned by the doc-migration
+    // workstream — not the share-link toolbar work.
     ensureSlidesRoot(doc);
 
     // Build the canvas + overlay DOM into the container. The slides
@@ -313,7 +321,12 @@ export function SlidesView({
     // seed the canvas would stay blank until the user clicked the
     // "+ Slide" toolbar button. Seeding once on first mount matches
     // Google Slides' "new deck always opens with one slide" UX.
-    if (store.read().slides.length === 0) {
+    //
+    // Skipped when this mount is read-only — share-link viewers must
+    // never write to the deck, and a viewer arriving before the owner
+    // has saved the first slide should see an empty canvas rather
+    // than mutating the doc on their behalf.
+    if (!readOnlyMount && store.read().slides.length === 0) {
       store.batch(() => store.addSlide("blank"));
     }
     const editor = initializeEditor({
@@ -323,6 +336,7 @@ export function SlidesView({
       hostWidth: hostW,
       hostHeight: hostH,
       dpr,
+      readOnly: readOnlyMount,
       onShowShortcutsHelp: () => setHelpOpen(true),
       onStartPresentation: (from) => onStartPresentationRef.current?.(from),
       onToast: (msg) => onToastRef.current(msg),
@@ -412,8 +426,9 @@ export function SlidesView({
       thumbsHost,
       store,
       editor,
+      { readOnly: readOnlyMount },
     );
-    mountNotesPanel(notesHost, store, editor);
+    mountNotesPanel(notesHost, store, editor, { readOnly: readOnlyMount });
 
     // Re-render on ANY store change — local batch commits OR remote
     // changes pushed in by another peer.
@@ -495,7 +510,9 @@ export function SlidesView({
     };
     // onEditorReady / onStoreReady are intentionally excluded — re-mounting
     // on every identity change of the parent's setter would tear down the
-    // editor.
+    // editor. `readOnlyMount` is also excluded: it is derived from a share-
+    // link role that is fixed for the lifetime of the route, so toggling
+    // it at runtime is not a supported scenario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
 

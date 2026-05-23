@@ -7,6 +7,16 @@ export interface NotesPanelHandle {
   dispose(): void;
 }
 
+export interface MountNotesPanelOptions {
+  /**
+   * Render the textarea as `readOnly` and skip the `input` listener
+   * that writes back into the store. Used by viewer-role share links
+   * so anonymous visitors can still read speaker notes without
+   * mutating them.
+   */
+  readOnly?: boolean;
+}
+
 /**
  * Mount a speaker-notes panel into `container`. v1 is a plain
  * `<textarea>` bound to the current slide's `notes` Block[] via
@@ -21,10 +31,13 @@ export function mountNotesPanel(
   container: HTMLElement,
   store: SlidesStore,
   editor: SlidesEditor,
+  options: MountNotesPanelOptions = {},
 ): NotesPanelHandle {
+  const readOnly = options.readOnly === true;
   container.innerHTML = '';
   const ta = document.createElement('textarea');
   ta.placeholder = 'Speaker notes…';
+  ta.readOnly = readOnly;
   ta.style.width = '100%';
   ta.style.minHeight = '80px';
   // Theme tokens from shadcn (frontend's index.css) so the textarea
@@ -48,13 +61,15 @@ export function mountNotesPanel(
     ta.value = blocksToText(slide.notes);
   };
 
-  ta.addEventListener('input', () => {
-    const id = editor.getCurrentSlideId();
-    if (!id) return;
-    store.batch(() => {
-      store.withNotes(id, () => textToBlocks(ta.value));
+  if (!readOnly) {
+    ta.addEventListener('input', () => {
+      const id = editor.getCurrentSlideId();
+      if (!id) return;
+      store.batch(() => {
+        store.withNotes(id, () => textToBlocks(ta.value));
+      });
     });
-  });
+  }
 
   // Re-bind when the current slide changes. We subscribe to BOTH
   // selection changes (covers in-place edits like select/deselect on
