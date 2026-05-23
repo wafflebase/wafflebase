@@ -192,6 +192,23 @@ describe('parseSp — <p:sp> with <a:blipFill>', () => {
     expect(c.report.skippedImages).toBe(1);
   });
 
+  it('falls through to the underlying shape for prstGeom + blipFill when upload fails', async () => {
+    // Same prstGeom rect + blipFill XML as the success-path test, but with
+    // no `uploadImage` callback: `parseBlipFill` returns undefined, the new
+    // blip branch yields no image, and we fall through to the existing
+    // prstGeom branch which emits the rectangle. Locks in the graceful
+    // degradation contract so an image upload outage can't make rect
+    // shapes vanish from the slide.
+    const tree = spTreeFrom(SP_RECT_BLIPFILL);
+    const c = ctx({ rels: rels('../media/image1.png') });
+
+    const out = await parseSpTree(tree, c);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('shape');
+    expect(c.report.skippedImages).toBe(1);
+  });
+
   it('leaves solid-filled shapes unchanged (control)', async () => {
     const tree = spTreeFrom(SP_RECT_SOLID);
     const c = ctx();
