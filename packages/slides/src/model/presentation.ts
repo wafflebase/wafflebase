@@ -49,12 +49,32 @@ export type Meta = {
   masterId: string;
 };
 
+export type GuideAxis = 'x' | 'y';
+
+/**
+ * Presentation-wide alignment guide. A guide is an infinite line at a
+ * fixed slide-x (axis: 'x' → vertical guide) or slide-y (axis: 'y' →
+ * horizontal guide) value, shared across every slide in the deck.
+ * Phase 3 adds the data model + passive render; user-driven create /
+ * move / delete arrives in Phase 4.
+ *
+ * See docs/design/slides/slides-ruler.md.
+ */
+export type Guide = {
+  id: string;
+  axis: GuideAxis;
+  /** Slide logical px, clamped by callers into the slide's extent. */
+  position: number;
+};
+
 export type SlidesDocument = {
   meta: Meta;
   themes: Theme[];
   masters: Master[];
   layouts: Layout[];
   slides: Slide[];
+  /** Presentation-wide alignment guides. See {@link Guide}. */
+  guides: Guide[];
 };
 
 export const DEFAULT_BACKGROUND: Background = {

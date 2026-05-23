@@ -1,6 +1,8 @@
 import type { SlidesStore } from './store';
 import type {
   Background,
+  Guide,
+  GuideAxis,
   Slide,
   SlidesDocument,
 } from '../model/presentation';
@@ -50,6 +52,7 @@ function emptyDocument(): SlidesDocument {
     masters: [clone(DEFAULT_MASTER)],
     layouts: clone(BUILT_IN_LAYOUTS),
     slides: [],
+    guides: [],
   };
 }
 
@@ -868,6 +871,30 @@ export class MemSlidesStore implements SlidesStore {
     if (next !== undefined) {
       slide.notes = clone(next);
     }
+  }
+
+  // --- guides ---
+
+  addGuide(axis: GuideAxis, position: number): string {
+    this.requireBatch();
+    const id = generateId();
+    const guide: Guide = { id, axis, position };
+    this.doc.guides.push(guide);
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    const guide = this.doc.guides.find((g) => g.id === id);
+    if (!guide) throw new Error(`Guide not found: ${id}`);
+    guide.position = position;
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    const idx = this.doc.guides.findIndex((g) => g.id === id);
+    if (idx === -1) throw new Error(`Guide not found: ${id}`);
+    this.doc.guides.splice(idx, 1);
   }
 
   // --- transactions ---

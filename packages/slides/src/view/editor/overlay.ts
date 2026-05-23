@@ -1,6 +1,7 @@
 import type { ConnectorElement, Endpoint } from '../../model/connector';
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
+import type { Guide } from '../../model/presentation';
 import {
   getConnectionSites,
   siteWorldPos,
@@ -31,6 +32,14 @@ export interface OverlayOptions {
   slideHeight: number;
   /** Snap guides to render under the selection handles. Empty/omitted = none. */
   guides?: readonly SnapGuide[];
+  /**
+   * Presentation-wide alignment guides (the ruler's persistent guides).
+   * Rendered as 1-px magenta lines spanning the slide canvas, beneath
+   * selection handles but above element paints. Phase 3 keeps them
+   * visually identical to snap guides; Phase 5 will differentiate
+   * (snap = dashed, permanent = solid) once both can coexist on screen.
+   */
+  permanentGuides?: readonly Guide[];
   /**
    * All elements on the active slide. Optional and only consulted when a
    * selected connector has an `attached` endpoint — `resolveEndpoint`
@@ -75,6 +84,16 @@ export function renderOverlay(
   options: OverlayOptions,
 ): void {
   overlay.innerHTML = '';
+
+  // Permanent guides paint first so selection handles, snap guides, and
+  // connector affordances all overlay on top of them. They render
+  // regardless of selection state — the ruler's guides are deck-wide
+  // scaffolding, not selection feedback.
+  if (options.permanentGuides && options.permanentGuides.length > 0) {
+    for (const g of options.permanentGuides) {
+      overlay.appendChild(makePermanentGuide(g, options));
+    }
+  }
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
   // connection sites. Rendered first so the selection handles paint on
@@ -311,6 +330,39 @@ function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
   const { scale, slideWidth, slideHeight } = options;
   const el = document.createElement('div');
   el.className = 'wfb-slides-snap-guide';
+  el.style.position = 'absolute';
+  el.style.background = '#e11d48';
+  el.style.pointerEvents = 'none';
+  if (guide.axis === 'x') {
+    el.style.left = `${guide.position * scale}px`;
+    el.style.top = '0px';
+    el.style.width = '1px';
+    el.style.height = `${slideHeight * scale}px`;
+  } else {
+    el.style.left = '0px';
+    el.style.top = `${guide.position * scale}px`;
+    el.style.width = `${slideWidth * scale}px`;
+    el.style.height = '1px';
+  }
+  return el;
+}
+
+/**
+ * Render a presentation-wide alignment guide as a 1-px magenta line
+ * spanning the full slide on its axis. Phase 5 will differentiate
+ * permanent vs snap guide styling; for now we match snap-guide colors
+ * so Phase 3 (display-only) lands without churning the visual
+ * baseline. `data-guide` carries the guide id so future interaction
+ * passes (hover / hit-test) can find it.
+ */
+function makePermanentGuide(
+  guide: Guide,
+  options: OverlayOptions,
+): HTMLDivElement {
+  const { scale, slideWidth, slideHeight } = options;
+  const el = document.createElement('div');
+  el.className = 'wfb-slides-guide';
+  el.dataset.guide = guide.id;
   el.style.position = 'absolute';
   el.style.background = '#e11d48';
   el.style.pointerEvents = 'none';

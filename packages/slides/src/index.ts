@@ -13,6 +13,8 @@ export { ImportReport } from './import/pptx/report';
 export type {
   Background,
   BackgroundImage,
+  Guide,
+  GuideAxis,
   Layout,
   Meta,
   PlaceholderSpec,

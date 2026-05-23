@@ -22,7 +22,19 @@ export function migrateDocument(input: unknown): SlidesDocument {
     : [DEFAULT_MASTER];
   const layouts = Array.isArray(raw?.layouts) ? raw.layouts.map(migrateLayout) : [];
   const slides = Array.isArray(raw?.slides) ? raw.slides.map(migrateSlide) : [];
-  return { meta, themes, masters, layouts, slides };
+  // Pre-ruler decks did not carry `guides`. Default to an empty array
+  // so consumers downstream never see undefined and the read-path stays
+  // shape-stable across pre- / post-v0.4.2 documents.
+  const guides = Array.isArray(raw?.guides) ? raw.guides.map(migrateGuide) : [];
+  return { meta, themes, masters, layouts, slides, guides };
+}
+
+function migrateGuide(g: any): any {
+  return {
+    id: g?.id,
+    axis: g?.axis === 'y' ? 'y' : 'x',
+    position: typeof g?.position === 'number' ? g.position : 0,
+  };
 }
 
 function migrateLayout(layout: any): any {

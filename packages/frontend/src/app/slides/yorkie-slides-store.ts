@@ -151,12 +151,23 @@ export function ensureSlidesRoot(
   // ships the proper migration; this is the minimum to keep the
   // SlidesDocument well-formed.
   doc.update((r) => {
-    const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+    const rootAny = r as {
+      themes?: Theme[];
+      masters?: Master[];
+      guides?: unknown[];
+    };
     if (rootAny.themes == null || rootAny.themes.length === 0) {
       rootAny.themes = [clone(defaultLight)];
     }
     if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];
+    }
+    // Pre-v0.4.2 (pre-ruler) docs predate the guides array. Lazy-init
+    // an empty list so the slides store and renderer can read it
+    // unconditionally. The first session writes the empty array; later
+    // attaches no-op.
+    if (rootAny.guides == null) {
+      rootAny.guides = [];
     }
     // Backfill `meta.themeId` / `meta.masterId` against the document's
     // own `themes` / `masters` arrays, not against hard-coded ids. A
@@ -297,15 +308,21 @@ export class YorkieSlidesStore implements SlidesStore {
       return { id, layoutId, background, elements, notes };
     });
     const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
-    const rootAny = root as { themes?: unknown; masters?: unknown };
+    const rootAny = root as {
+      themes?: unknown;
+      masters?: unknown;
+      guides?: unknown;
+    };
     const themes = yorkieToPlain<Theme[]>(rootAny.themes);
     const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    const guides = yorkieToPlain<unknown[]>(rootAny.guides);
     return migrateDocument({
       meta,
       themes,
       masters,
       slides,
       layouts,
+      guides,
     });
   }
 
@@ -1451,6 +1468,39 @@ export class YorkieSlidesStore implements SlidesStore {
       // Same rationale as withTextElement above — write back regardless
       // of whether `fn` returned a value or mutated in place.
       s.notes = clone(next ?? blocks) as unknown as YorkieSlide['notes'];
+    });
+  }
+
+  // --- guides (presentation-wide) ---
+
+  addGuide(axis: 'x' | 'y', position: number): string {
+    this.requireBatch();
+    const id = generateId();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }> };
+      if (rootAny.guides == null) rootAny.guides = [];
+      rootAny.guides.push({ id, axis, position });
+    });
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; position: number }> };
+      const guide = rootAny.guides?.find((g) => g.id === id);
+      if (!guide) throw new Error(`Guide not found: ${id}`);
+      guide.position = position;
+    });
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string }> };
+      const idx = rootAny.guides?.findIndex((g) => g.id === id) ?? -1;
+      if (idx === -1) throw new Error(`Guide not found: ${id}`);
+      rootAny.guides!.splice(idx, 1);
     });
   }
 

@@ -133,6 +133,7 @@ export async function importPptx(
     masters,
     layouts,
     slides,
+    guides: [],
   };
 
   return { document, report };

@@ -484,12 +484,16 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private repaintOverlay(): void {
-    const slide = this.currentSlide();
+    const doc = this.options.store.read();
+    const slide = this.currentId
+      ? doc.slides.find((s) => s.id === this.currentId)
+      : undefined;
     if (!slide) {
       renderOverlay(this.options.overlay, [], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: SLIDE_HEIGHT,
+        permanentGuides: doc.guides,
       });
       this.reattachEditingTextBox();
       return;
@@ -533,6 +537,7 @@ class SlidesEditorImpl implements SlidesEditor {
       // pass always.
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: doc.guides,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -1053,6 +1058,15 @@ class SlidesEditorImpl implements SlidesEditor {
 
   markDirty(): void {
     this.renderer.markDirty();
+    // External markDirty signals "the store changed in a way the editor
+    // didn't initiate" (remote Yorkie edit, host shell mutation outside
+    // an interaction handler). Both the canvas AND the overlay need to
+    // refresh — the overlay carries permanent guides and selection
+    // chrome that may now reference different ids / positions. Internal
+    // mutators call `renderer.markDirty()` directly + their own
+    // `repaintOverlay()`, so this branch only fires for external
+    // signals and doesn't double-paint.
+    this.repaintOverlay();
   }
 
   detach(): void {
@@ -2026,6 +2040,7 @@ class SlidesEditorImpl implements SlidesEditor {
       guides,
       allElements: synthetic.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
     });
   }
 
@@ -2055,6 +2070,7 @@ class SlidesEditorImpl implements SlidesEditor {
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
     });
   }
 
@@ -2686,6 +2702,10 @@ class SlidesEditorImpl implements SlidesEditor {
 export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
+  // Paint the overlay once on mount so deck-wide chrome (permanent
+  // guides) is visible before any user interaction. Selection is empty
+  // at this point so the only overlay output is the guides themselves.
+  editor.markDirty();
   return editor;
 }
 

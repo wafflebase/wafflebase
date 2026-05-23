@@ -73,6 +73,7 @@ function makeDeck(): SlidesDocument {
         notes: [],
       },
     ],
+    guides: [],
   } as unknown as SlidesDocument;
 }
 
