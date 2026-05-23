@@ -245,9 +245,13 @@ type SlidesPresence = {
 };
 ```
 
-Drag previews flow through presence at ~60 fps; `addGuide` /
-`moveGuide` commit once on `mouseup`. This mirrors the
-drag/resize/rotate pattern in slides.md.
+In v1 the `draggingGuide` field is reserved on `SlidesPresence` but
+the editor does not broadcast it: the live preview is local-only.
+`addGuide` / `moveGuide` commit once on `mouseup`, and the resulting
+store change propagates through the standard CRDT path so peers see
+the committed guide on their next render. Broadcasting the in-flight
+preview to peers is a tracked v1.1 follow-up — the schema is already
+in place to keep it a non-breaking change.
 
 ### Interactions
 
@@ -266,16 +270,25 @@ surface small.
 
 #### Visual treatment
 
-- Permanent guides: 1 px magenta **solid** line, full slide extent.
-- Existing snap guides (slide-center, element edges) stay 1 px magenta
-  **dashed** lines.
-- The ruler shows a small magenta marker (▼ for vertical guides, ▶ for
-  horizontal guides) at the guide's position, so guide positions are
-  scannable along the ruler edge.
-- Drag preview shows a position label near the cursor ("4.25\"" or
-  "10.7 cm") in the current unit.
-- Dragging outside the slide bounds turns the label red and a
-  mouseup at that position cancels the operation.
+- Permanent guides: 1 px magenta solid line spanning the slide.
+- Snap guides (slide-center, element edges) inherit the existing
+  1-px solid magenta style — kept consistent with the pre-ruler snap
+  rendering so the differentiation lives in how the snap target is
+  marked rather than in line style.
+- When an element drag snaps to a permanent guide, the matching guide
+  is thickened to 2 px and shifted to a deeper magenta (`#be123c`)
+  instead of overlaying a separate snap indicator on top.
+- In-flight drag preview (creating or moving a guide) paints at
+  ~55 % opacity so the user can distinguish the drag from a committed
+  guide; the committed copy is suppressed while its preview is in
+  flight to avoid a double line.
+- Drag interactions clamp into the slide extent
+  (`[0, SLIDE_WIDTH]` for vertical, `[0, SLIDE_HEIGHT]` for
+  horizontal); a mouseup outside the slide cancels guide creation.
+- Ruler markers (small triangles on the ruler at each guide's
+  position) and per-drag position labels (`4.25"` / `10.7 cm`) are
+  tracked as v1.1 polish; the line + cursor swap are already
+  sufficient to position guides confidently.
 
 #### Snap integration
 
@@ -290,18 +303,19 @@ type SnapGuide = {
 };
 ```
 
-When multiple candidates fall within the existing 4-slide-px snap
-threshold, ties resolve in this priority:
+When multiple candidates fall within the 8-slide-px snap threshold
+(the engine's existing constant), ties resolve in this priority:
 
 1. `slide-center`
 2. `guide`
 3. `edge`
 
 User-placed guides outrank other-element edges because they encode
-explicit intent. When an element drag snaps to a guide, the
-implementation thickens that guide to 1.5 px and deepens its color
-rather than overlaying a dashed snap indicator on top — keeps the
-visual uncluttered.
+explicit intent — a higher-priority candidate wins even when an
+edge happens to be closer numerically. When an element drag snaps
+to a guide, the implementation thickens that guide to 2 px and
+deepens its color rather than overlaying a separate indicator on
+top — keeps the visual uncluttered.
 
 Resize and guide-drag participate in the same snap logic. Keyboard
 nudge (Arrow / Shift+Arrow) does not trigger snap; nudge stays a
