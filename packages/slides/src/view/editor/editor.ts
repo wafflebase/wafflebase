@@ -2055,6 +2055,7 @@ class SlidesEditorImpl implements SlidesEditor {
         rawDy,
         otherFrames,
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+        this.options.store.read().guides,
       );
       liveDx = dx;
       liveDy = dy;

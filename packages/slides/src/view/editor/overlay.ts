@@ -92,6 +92,18 @@ export function renderOverlay(
 ): void {
   overlay.innerHTML = '';
 
+  // Build a set of permanent-guide ids that are currently the active
+  // snap target. The snap engine reports `guideId` on its winning
+  // SnapGuide entries; we use that to thicken / deepen the matching
+  // permanent guide rather than overlay a separate dashed indicator
+  // on top.
+  const snappedGuideIds = new Set<string>();
+  if (options.guides) {
+    for (const g of options.guides) {
+      if (g.kind === 'guide' && g.guideId) snappedGuideIds.add(g.guideId);
+    }
+  }
+
   // Permanent guides paint first so selection handles, snap guides, and
   // connector affordances all overlay on top of them. They render
   // regardless of selection state — the ruler's guides are deck-wide
@@ -102,7 +114,16 @@ export function renderOverlay(
       // in its place — suppress the committed copy so the user does
       // not see a double line at the original position.
       if (options.pendingGuide?.id === g.id) continue;
-      overlay.appendChild(makePermanentGuide(g, options));
+      const el = makePermanentGuide(g, options);
+      if (snappedGuideIds.has(g.id)) {
+        // Thicken + deepen the line so the snap target is obvious.
+        // Keeps the visual uncluttered — no extra dashed indicator on
+        // top of the existing solid line.
+        el.style.background = '#be123c';
+        if (g.axis === 'x') el.style.width = '2px';
+        else el.style.height = '2px';
+      }
+      overlay.appendChild(el);
     }
   }
 
@@ -163,6 +184,10 @@ export function renderOverlay(
   // single rotated element being dragged also gets visible guides.
   if (options.guides && options.guides.length > 0) {
     for (const g of options.guides) {
+      // Snaps to a presentation guide are visualised by emphasising
+      // the permanent guide above (thicker + darker), so don't lay an
+      // additional snap-guide line on top.
+      if (g.kind === 'guide') continue;
       overlay.appendChild(makeGuide(g, options));
     }
   }
