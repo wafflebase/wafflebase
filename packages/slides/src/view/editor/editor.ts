@@ -128,6 +128,15 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * `toast.info`). No-op when omitted.
    */
   onToast?: (message: string) => void;
+  /**
+   * When true, the editor renders the deck but skips every pointer
+   * and keyboard binding. The canvas still paints from the store
+   * (so remote peer edits flow through `markDirty()` + `render()`),
+   * but clicks, drags, double-click text entry, the context menu,
+   * and every document-level keymap action become inert. Used by
+   * share-link viewers — see `shared-document.tsx`.
+   */
+  readOnly?: boolean;
 }
 
 export interface SlidesEditor {
@@ -428,7 +437,14 @@ class SlidesEditorImpl implements SlidesEditor {
       group: () => this.group(),
       ungroup: () => this.ungroup(),
     });
-    this.attachInteractions();
+    // Read-only mounts (viewer-role share links) skip every pointer +
+    // keyboard binding. The renderer still paints, including remote
+    // peer edits, but the user cannot mutate. The editor's
+    // programmatic surface (`setCurrentSlide`, `markDirty`, etc.) keeps
+    // working so the host shell can drive navigation.
+    if (!options.readOnly) {
+      this.attachInteractions();
+    }
   }
 
   private requestRender(): void {

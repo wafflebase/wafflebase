@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
+import { toast } from "sonner";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
 import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
@@ -17,6 +18,8 @@ import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
+import type { SlidesEditor, Theme } from "@wafflebase/slides";
+import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
 import { IconDatabase, IconMessage, IconTable } from "@tabler/icons-react";
 
 type PeerJumpTarget = {
@@ -37,6 +40,12 @@ const DataSourceView = lazy(() =>
 const SlidesView = lazy(() =>
   import("@/app/slides/slides-view").then((module) => ({
     default: module.SlidesView,
+  })),
+);
+
+const SlidesToolbar = lazy(() =>
+  import("@/app/slides/toolbar").then((module) => ({
+    default: module.SlidesToolbar,
   })),
 );
 
@@ -214,12 +223,36 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
 }
 
 function SharedSlidesLayout({ resolved }: { resolved: ResolvedShareLink }) {
-  // `SlidesView` accepts `readOnly` for API parity with `DocsView` but
-  // currently treats it as a no-op (see slides-view.tsx — Phase 4a).
-  // The share-link role is forwarded so it lights up automatically when
-  // Phase 4b wires the read-only path. Until then, viewer-role shares
-  // see the "View only" badge but the editor is still interactive.
+  // The share-link role decides whether the visitor gets the editing
+  // toolbar + an interactive canvas, or a viewer-only mount with every
+  // pointer/keyboard handler suppressed. Interaction gating lives in
+  // `SlidesView` (which forwards `readOnly` to `initializeEditor`,
+  // `mountThumbnailPanel`, and `mountNotesPanel`).
   const readOnly = resolved.role === "viewer";
+  const [editor, setEditor] = useState<SlidesEditor | null>(null);
+  const [store, setStore] = useState<YorkieSlidesStore | null>(null);
+  const [currentThemeId, setCurrentThemeId] = useState("default-light");
+
+  useEffect(() => {
+    if (!store) return;
+    setCurrentThemeId(store.read().meta.themeId);
+    return store.onChange(() => {
+      setCurrentThemeId(store.read().meta.themeId);
+    });
+  }, [store]);
+
+  const activeTheme = useMemo<Theme | null>(() => {
+    if (!store) return null;
+    const doc = store.read();
+    return doc.themes.find((t) => t.id === currentThemeId) ?? null;
+  }, [store, currentThemeId]);
+
+  // Image insert is gated on workspace-scoped auth (see image-upload.ts),
+  // which share-link viewers don't have. Surface a toast instead of
+  // silently dropping the click.
+  const handleImagePick = useCallback(() => {
+    toast.info("Image upload isn't available in shared editing.");
+  }, []);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -236,7 +269,19 @@ function SharedSlidesLayout({ resolved }: { resolved: ResolvedShareLink }) {
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         <Suspense fallback={<Loader />}>
-          <SlidesView readOnly={readOnly} />
+          {!readOnly && (
+            <SlidesToolbar
+              editor={editor}
+              store={store}
+              theme={activeTheme}
+              onImagePick={handleImagePick}
+            />
+          )}
+          <SlidesView
+            readOnly={readOnly}
+            onEditorReady={setEditor}
+            onStoreReady={setStore}
+          />
         </Suspense>
       </div>
     </div>

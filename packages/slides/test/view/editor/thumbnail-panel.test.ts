@@ -77,6 +77,45 @@ describe('mountThumbnailPanel', () => {
   });
 });
 
+describe('mountThumbnailPanel — readOnly', () => {
+  it('marks every thumbnail non-draggable', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor, { readOnly: true });
+    const items = panel.querySelectorAll<HTMLDivElement>('[data-slide-id]');
+    expect(items.length).toBeGreaterThan(0);
+    for (const el of items) expect(el.draggable).toBe(false);
+  });
+
+  it('right-click does not mount the bulk-action context menu', () => {
+    const { panel, store, editor } = makeFixture();
+    const slideIds = store.read().slides.map((s) => s.id);
+    mountThumbnailPanel(panel, store, editor, { readOnly: true });
+    const second = panel.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    second.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 10, clientY: 10,
+    }));
+    // Direct evidence the contextmenu listener was skipped: no menu
+    // DOM was appended to document.body. The non-readOnly path would
+    // have mounted `.wfb-slides-context-menu` here.
+    expect(
+      document.body.querySelector('.wfb-slides-context-menu'),
+    ).toBeNull();
+  });
+
+  it('click still navigates between slides (read-only keeps navigation interactive)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor, { readOnly: true });
+    const slideIds = store.read().slides.map((s) => s.id);
+    const second = panel.querySelector<HTMLDivElement>(
+      `[data-slide-id="${slideIds[1]}"]`,
+    )!;
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(editor.getCurrentSlideId()).toBe(slideIds[1]);
+  });
+});
+
 describe('mountThumbnailPanel — scroll preservation across re-render', () => {
   it('restores parent scrollTop after innerHTML wipe (simulated browser clamp)', () => {
     const { panel, store, editor } = makeFixture();

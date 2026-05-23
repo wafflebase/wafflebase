@@ -55,4 +55,15 @@ describe('mountNotesPanel', () => {
     expect((store.read().slides[1].notes[0]?.inlines?.[0] as { text: string }).text).toBe('second slide notes');
     expect((store.read().slides[0].notes[0]?.inlines?.[0] as { text: string }).text).toBe('first slide notes');
   });
+
+  it('readOnly: true marks textarea read-only and ignores input', () => {
+    const { notes, store, editor } = makeFixture();
+    mountNotesPanel(notes, store, editor, { readOnly: true });
+    const ta = notes.querySelector<HTMLTextAreaElement>('textarea')!;
+    expect(ta.readOnly).toBe(true);
+    ta.value = 'attempted edit';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    // Store remains untouched — the input listener was never attached.
+    expect(store.read().slides[0].notes).toEqual([]);
+  });
 });

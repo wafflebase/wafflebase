@@ -678,6 +678,88 @@ describe('initialize', () => {
   });
 });
 
+describe('initialize with readOnly: true', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  it('does not bind pointerdown — clicking an element leaves selection empty', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      readOnly: true,
+    });
+    // Click within the rect's logical bounds (100,100)-(300,200). With
+    // host scale 1920→1920, world coords match client coords.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 150, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getSelection()).toEqual([]);
+    // Sanity: the element does exist; a non-readOnly editor would have
+    // selected it. (Mirrors the parallel test under 'initialize'.)
+    expect(store.read().slides[0].elements.find((el) => el.id === elementId)).toBeDefined();
+  });
+
+  it('does not bind document keydown — Delete leaves the element in place', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      readOnly: true,
+    });
+    // Programmatic selection still works (the surface for navigation),
+    // but the Delete keymap action must not fire because the document
+    // keydown listener was never bound.
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Delete', bubbles: true,
+    }));
+    expect(
+      store.read().slides[0].elements.find((el) => el.id === elementId),
+    ).toBeDefined();
+  });
+
+  it('detach is safe and rendering after detach is a no-op', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 960, hostHeight: 540, dpr: 1,
+      readOnly: true,
+    });
+    editor.detach();
+    // Mirrors the editable-path detach test: post-detach the editor's
+    // programmatic surface must stay safe to call without throwing.
+    expect(() => editor!.render()).not.toThrow();
+    expect(() => editor!.markDirty()).not.toThrow();
+    editor = null;
+  });
+});
+
 describe('align/distribute', () => {
   let editor: SlidesEditor | null = null;
 
