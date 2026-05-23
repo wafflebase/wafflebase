@@ -48,6 +48,12 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { SlidesRuler } from './ruler/ruler';
+import {
+  hitTestGuide,
+  startGuideMove,
+  startRulerDragOut,
+  type GuideDragHost,
+} from './ruler/interactions';
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
@@ -428,6 +434,15 @@ class SlidesEditorImpl implements SlidesEditor {
    * stays in lock-step with the slide canvas size/zoom.
    */
   private ruler: SlidesRuler | null = null;
+  /**
+   * Live preview of a guide being created from the ruler or an
+   * existing guide being repositioned. Non-null only while a drag is
+   * in flight; cleared on commit / cancel. Repaints flow through
+   * `repaintOverlay` which forwards this to the overlay renderer.
+   */
+  private pendingGuide:
+    | { id?: string; axis: 'x' | 'y'; position: number }
+    | null = null;
 
   constructor(options: SlidesEditorOptions) {
     this.options = options;
@@ -494,6 +509,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideWidth: SLIDE_WIDTH,
         slideHeight: SLIDE_HEIGHT,
         permanentGuides: doc.guides,
+      pendingGuide: this.pendingGuide,
       });
       this.reattachEditingTextBox();
       return;
@@ -538,6 +554,7 @@ class SlidesEditorImpl implements SlidesEditor {
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
+      pendingGuide: this.pendingGuide,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -1156,6 +1173,88 @@ class SlidesEditorImpl implements SlidesEditor {
     const onContext = (e: Event) => this.onContextMenu(e as MouseEvent);
     this.on(this.options.canvas, 'contextmenu', onContext);
     this.on(this.options.overlay, 'contextmenu', onContext);
+
+    // Ruler drag-out: pressing on either ruler canvas seeds a pending
+    // guide that follows the cursor. The drag is owned by
+    // `startRulerDragOut` (it attaches its own document-level
+    // pointermove / pointerup) so the gesture continues even if the
+    // cursor wanders off the ruler. Only bound when the host actually
+    // mounted the ruler (read-only viewers skip the ruler-canvas
+    // listener entirely so even pointermove on the ruler is inert).
+    if (this.options.hRulerCanvas !== undefined) {
+      this.on(this.options.hRulerCanvas, 'pointerdown', (e) => {
+        startRulerDragOut(this.guideDragHost(), 'x', e as PointerEvent);
+      });
+    }
+    if (this.options.vRulerCanvas !== undefined) {
+      this.on(this.options.vRulerCanvas, 'pointerdown', (e) => {
+        startRulerDragOut(this.guideDragHost(), 'y', e as PointerEvent);
+      });
+    }
+  }
+
+  /**
+   * Set the in-flight guide preview state and trigger an overlay
+   * repaint. Passing `null` clears the preview. The interaction module
+   * uses this through the `GuideDragHost` interface; the editor's
+   * `repaintOverlay` reads `this.pendingGuide` to render the preview.
+   */
+  private setPendingGuide(
+    guide: { id?: string; axis: 'x' | 'y'; position: number } | null,
+  ): void {
+    this.pendingGuide = guide;
+    this.repaintOverlay();
+  }
+
+  /**
+   * Compose the GuideDragHost backed by editor state. Captures
+   * coordinate-conversion + region tests so the ruler interaction
+   * module stays unaware of zoom / DPR / DOM layout.
+   */
+  private guideDragHost(): GuideDragHost {
+    return {
+      setPendingGuide: (guide) => this.setPendingGuide(guide),
+      commitAddGuide: (axis, position) => {
+        this.options.store.batch(() => {
+          this.options.store.addGuide(axis, position);
+        });
+      },
+      commitMoveGuide: (id, position) => {
+        this.options.store.batch(() => {
+          this.options.store.moveGuide(id, position);
+        });
+      },
+      commitRemoveGuide: (id) => {
+        this.options.store.batch(() => {
+          this.options.store.removeGuide(id);
+        });
+      },
+      readGuides: () => this.options.store.read().guides,
+      clientToLogical: (cx, cy) => this.clientToLogical(cx, cy),
+      isOverRuler: (cx, cy) => {
+        const h = this.options.hRulerCanvas;
+        const v = this.options.vRulerCanvas;
+        if (h !== undefined) {
+          const r = h.getBoundingClientRect();
+          if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+            return 'h';
+          }
+        }
+        if (v !== undefined) {
+          const r = v.getBoundingClientRect();
+          if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+            return 'v';
+          }
+        }
+        return null;
+      },
+      isInsideSlide: (x, y) =>
+        x >= 0 && x <= SLIDE_WIDTH && y >= 0 && y <= SLIDE_HEIGHT,
+      setBodyCursor: (cursor) => {
+        if (typeof document === 'undefined') return;
+        document.body.style.cursor = cursor ?? '';
+      },
+    };
   }
 
   private onContextMenu(e: MouseEvent): void {
@@ -1167,6 +1266,19 @@ class SlidesEditorImpl implements SlidesEditor {
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
     if (hitResult === null) {
+      // Guide hit takes precedence over the empty-canvas menu when the
+      // user right-clicks directly on / near an alignment guide. Same
+      // 4-px hit zone as pointerdown.
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        showContextMenu(
+          document.body,
+          this.guideContextItems(guide.id, guide.axis),
+          e.clientX,
+          e.clientY,
+        );
+        return;
+      }
       showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
       return;
     }
@@ -1217,6 +1329,46 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+    ];
+  }
+
+  private guideContextItems(
+    guideId: string,
+    axis: 'x' | 'y',
+  ): ContextMenuItem[] {
+    const store = this.options.store;
+    return [
+      {
+        label: 'Delete guide',
+        run: () => {
+          store.batch(() => store.removeGuide(guideId));
+        },
+      },
+      {
+        label: axis === 'x'
+          ? 'Delete all vertical guides'
+          : 'Delete all horizontal guides',
+        run: () => {
+          const ids = store
+            .read()
+            .guides.filter((g) => g.axis === axis)
+            .map((g) => g.id);
+          if (ids.length === 0) return;
+          store.batch(() => {
+            for (const id of ids) store.removeGuide(id);
+          });
+        },
+      },
+      {
+        label: 'Delete all guides',
+        run: () => {
+          const ids = store.read().guides.map((g) => g.id);
+          if (ids.length === 0) return;
+          store.batch(() => {
+            for (const id of ids) store.removeGuide(id);
+          });
+        },
+      },
     ];
   }
 
@@ -1326,6 +1478,17 @@ class SlidesEditorImpl implements SlidesEditor {
     // (which descends into groups) and route through Selection.click so the
     // drill-in state machine picks the right element at the current scope.
     const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
+    if (hitResult === null) {
+      // No element under the pointer — check for an alignment guide
+      // within the 4-px hit zone. Elements take precedence (guides are
+      // editor scaffolding that lives "underneath" content); guides
+      // pre-empt the empty-canvas fallbacks below (lasso, drill-out).
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        startGuideMove(this.guideDragHost(), guide, e as PointerEvent);
+        return;
+      }
+    }
     if (hitResult !== null) {
       const mods = { shift: e.shiftKey };
       // If the scope-level element under the pointer is already in the
@@ -1557,7 +1720,16 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     if (this.handleAtClient(e.clientX, e.clientY) !== null) return;
 
-    const desired = this.isPointerOverSelected(e.clientX, e.clientY) ? 'move' : '';
+    let desired = '';
+    if (this.isPointerOverSelected(e.clientX, e.clientY)) {
+      desired = 'move';
+    } else {
+      const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        desired = guide.axis === 'x' ? 'col-resize' : 'row-resize';
+      }
+    }
     if (this.lastHoverCursor === desired) return;
     this.lastHoverCursor = desired;
     this.options.canvas.style.cursor = desired;
@@ -2041,6 +2213,7 @@ class SlidesEditorImpl implements SlidesEditor {
       allElements: synthetic.elements,
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
     });
   }
 
@@ -2071,6 +2244,7 @@ class SlidesEditorImpl implements SlidesEditor {
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
     });
   }
 

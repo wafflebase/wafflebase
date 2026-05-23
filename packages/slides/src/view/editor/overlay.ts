@@ -41,6 +41,13 @@ export interface OverlayOptions {
    */
   permanentGuides?: readonly Guide[];
   /**
+   * Live preview of a guide currently being created or repositioned.
+   * Painted with reduced opacity so the user can distinguish the
+   * in-flight drag from the committed guides underneath. Cleared by
+   * the editor on commit / cancel.
+   */
+  pendingGuide?: { id?: string; axis: 'x' | 'y'; position: number } | null;
+  /**
    * All elements on the active slide. Optional and only consulted when a
    * selected connector has an `attached` endpoint — `resolveEndpoint`
    * needs the host element's frame to compute the endpoint's world
@@ -91,8 +98,25 @@ export function renderOverlay(
   // scaffolding, not selection feedback.
   if (options.permanentGuides && options.permanentGuides.length > 0) {
     for (const g of options.permanentGuides) {
+      // While dragging an existing guide we paint the pending preview
+      // in its place — suppress the committed copy so the user does
+      // not see a double line at the original position.
+      if (options.pendingGuide?.id === g.id) continue;
       overlay.appendChild(makePermanentGuide(g, options));
     }
+  }
+
+  // In-flight drag preview: same line treatment, half-opacity so the
+  // user can tell the drag has not committed yet.
+  if (options.pendingGuide) {
+    const previewGuide: Guide = {
+      id: options.pendingGuide.id ?? '__pending__',
+      axis: options.pendingGuide.axis,
+      position: options.pendingGuide.position,
+    };
+    const preview = makePermanentGuide(previewGuide, options);
+    preview.style.opacity = '0.55';
+    overlay.appendChild(preview);
   }
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
