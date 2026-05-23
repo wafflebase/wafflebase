@@ -295,11 +295,18 @@ export function SlidesView({
     rulerCorner.style.zIndex = "3";
     canvasArea.appendChild(rulerCorner);
 
+    // Canvas elements don't expand to fill their containing block from
+    // absolute-position `left/right` alone — they fall back to the
+    // bitmap intrinsic size (300×150 default). Set explicit
+    // width/height in `refitCanvas` below, and seed an initial value
+    // here so the first paint isn't a 0×0 sliver in the corner.
+    const initialFrameW = hostW;
+    const initialFrameH = hostH;
     const hRulerCanvas = document.createElement("canvas");
     hRulerCanvas.style.position = "absolute";
     hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
-    hRulerCanvas.style.right = "0";
     hRulerCanvas.style.top = "0";
+    hRulerCanvas.style.width = `${initialFrameW}px`;
     hRulerCanvas.style.height = `${SLIDES_RULER_SIZE}px`;
     hRulerCanvas.style.zIndex = "2";
     canvasArea.appendChild(hRulerCanvas);
@@ -308,8 +315,8 @@ export function SlidesView({
     vRulerCanvas.style.position = "absolute";
     vRulerCanvas.style.left = "0";
     vRulerCanvas.style.top = `${SLIDES_RULER_SIZE}px`;
-    vRulerCanvas.style.bottom = "0";
     vRulerCanvas.style.width = `${SLIDES_RULER_SIZE}px`;
+    vRulerCanvas.style.height = `${initialFrameH}px`;
     vRulerCanvas.style.zIndex = "1";
     canvasArea.appendChild(vRulerCanvas);
 
@@ -484,6 +491,18 @@ export function SlidesView({
       const fit = computeFitSize(slideAvailW, slideAvailH);
       const nextW = Math.round(fit.width);
       const nextH = Math.round(fit.height);
+
+      // Pin each ruler canvas to the full frame extent — canvas
+      // elements don't pick up a width from `left + right` alone, so
+      // they need explicit CSS dimensions. Updated unconditionally so
+      // that a notes-drag (canvasArea height changes, host doesn't)
+      // still refreshes the vertical ruler.
+      const areaRect = canvasArea.getBoundingClientRect();
+      const rulerHCss = Math.max(0, Math.round(areaRect.width - SLIDES_RULER_SIZE));
+      const rulerVCss = Math.max(0, Math.round(areaRect.height - SLIDES_RULER_SIZE));
+      hRulerCanvas.style.width = `${rulerHCss}px`;
+      vRulerCanvas.style.height = `${rulerVCss}px`;
+
       if (nextW === hostW && nextH === hostH) return;
       hostW = nextW;
       hostH = nextH;
