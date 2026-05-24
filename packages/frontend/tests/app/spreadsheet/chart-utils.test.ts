@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { parseRef, writeWorksheetCell } from "@wafflebase/sheets";
 import {
   getSeriesColor,
@@ -16,22 +15,22 @@ import { createWorksheet } from "../../../src/types/worksheet.ts";
 
 test("getSeriesColor returns default palette colors when no palette specified", () => {
   const color = getSeriesColor(0);
-  assert.equal(color, COLOR_PALETTES.default[0]);
+  expect(color).toBe(COLOR_PALETTES.default[0]);
 });
 
 test("getSeriesColor returns named palette color", () => {
   const color = getSeriesColor(0, "warm");
-  assert.equal(color, COLOR_PALETTES.warm[0]);
+  expect(color).toBe(COLOR_PALETTES.warm[0]);
 });
 
 test("getSeriesColor wraps around when index exceeds palette length", () => {
   const color = getSeriesColor(5);
-  assert.equal(color, COLOR_PALETTES.default[0]);
+  expect(color).toBe(COLOR_PALETTES.default[0]);
 });
 
 test("getSeriesColor falls back to default for unknown palette", () => {
   const color = getSeriesColor(0, "nonexistent");
-  assert.equal(color, COLOR_PALETTES.default[0]);
+  expect(color).toBe(COLOR_PALETTES.default[0]);
 });
 
 // ---------------------------------------------------------------------------
@@ -82,18 +81,18 @@ test("buildPieDataset builds pie entries from label and value columns", () => {
     seriesColumns: ["B"],
   });
 
-  assert.equal(result.entries.length, 3);
-  assert.equal(result.entries[0].name, "Apples");
-  assert.equal(result.entries[0].value, 100);
-  assert.equal(result.entries[1].name, "Bananas");
-  assert.equal(result.entries[1].value, 200);
-  assert.equal(result.entries[2].name, "Cherries");
-  assert.equal(result.entries[2].value, 300);
+  expect(result.entries.length).toBe(3);
+  expect(result.entries[0].name).toBe("Apples");
+  expect(result.entries[0].value).toBe(100);
+  expect(result.entries[1].name).toBe("Bananas");
+  expect(result.entries[1].value).toBe(200);
+  expect(result.entries[2].name).toBe("Cherries");
+  expect(result.entries[2].value).toBe(300);
 
   // Each entry should have a color from the default palette
-  assert.equal(result.entries[0].color, COLOR_PALETTES.default[0]);
-  assert.equal(result.entries[1].color, COLOR_PALETTES.default[1]);
-  assert.equal(result.entries[2].color, COLOR_PALETTES.default[2]);
+  expect(result.entries[0].color).toBe(COLOR_PALETTES.default[0]);
+  expect(result.entries[1].color).toBe(COLOR_PALETTES.default[1]);
+  expect(result.entries[2].color).toBe(COLOR_PALETTES.default[2]);
 });
 
 test("buildPieDataset excludes non-positive values", () => {
@@ -117,11 +116,11 @@ test("buildPieDataset excludes non-positive values", () => {
     seriesColumns: ["B"],
   });
 
-  assert.equal(result.entries.length, 2);
-  assert.equal(result.entries[0].name, "Positive");
-  assert.equal(result.entries[0].value, 50);
-  assert.equal(result.entries[1].name, "Another");
-  assert.equal(result.entries[1].value, 75);
+  expect(result.entries.length).toBe(2);
+  expect(result.entries[0].name).toBe("Positive");
+  expect(result.entries[0].value).toBe(50);
+  expect(result.entries[1].name).toBe("Another");
+  expect(result.entries[1].value).toBe(75);
 });
 
 test("buildPieDataset returns empty entries for missing source tab", () => {
@@ -134,5 +133,5 @@ test("buildPieDataset returns empty entries for missing source tab", () => {
     seriesColumns: ["B"],
   });
 
-  assert.deepEqual(result, { entries: [] });
+  expect(result).toEqual({ entries: [] });
 });

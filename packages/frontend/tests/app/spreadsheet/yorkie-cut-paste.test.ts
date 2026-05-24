@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { parseRef, toSref } from "@wafflebase/sheets";
 import { createSingleUserYorkie } from "../../helpers/single-user-yorkie.ts";
 
@@ -33,8 +32,8 @@ test(
 
       const a2 = await store.get(parseRef("A2"));
       const a1 = await store.get(parseRef("A1"));
-      assert.equal(a2?.v, "1", "A2 should have pasted value 1");
-      assert.equal(a1, undefined, "A1 should be cleared");
+      expect(a2?.v, "A2 should have pasted value 1").toBe("1");
+      expect(a1, "A1 should be cleared").toBe(undefined);
     } finally {
       await ctx.cleanup();
     }
@@ -70,9 +69,9 @@ test(
       const a1 = await store.get(parseRef("A1"));
       const a2 = await store.get(parseRef("A2"));
       const a3 = await store.get(parseRef("A3"));
-      assert.equal(a1, undefined, "A1 should be cleared");
-      assert.equal(a2?.v, "1", "A2 should have value from A1");
-      assert.equal(a3?.v, "2", "A3 should have value from A2");
+      expect(a1, "A1 should be cleared").toBe(undefined);
+      expect(a2?.v, "A2 should have value from A1").toBe("1");
+      expect(a3?.v, "A3 should have value from A2").toBe("2");
     } finally {
       await ctx.cleanup();
     }

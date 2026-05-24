@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from 'vitest';
 import {
   LINE_PICKER_ENTRIES,
   isLinePickerKind,
@@ -7,8 +6,7 @@ import {
 
 /**
  * The `<LinePicker />` UI lives in `line-picker.tsx` (Radix
- * DropdownMenu + canvas-rendered icons). Like `<ShapePicker />`,
- * `tests/resolve-hooks.mjs` stubs `.tsx` modules at test load, so the
+ * DropdownMenu + canvas-rendered icons). Like `<ShapePicker />`, the
  * dropdown's testable surface — the static catalogue + the
  * activeKind type guard — is extracted into `line-picker-helpers.ts`
  * and asserted here without rendering React.
@@ -24,44 +22,38 @@ import {
 
 describe("line-picker entries", () => {
   it("exposes exactly Line and Arrow in Google Slides order", () => {
-    assert.equal(LINE_PICKER_ENTRIES.length, 2);
-    assert.deepEqual(
-      LINE_PICKER_ENTRIES.map((e) => e.kind),
-      ["connector:line", "connector:arrow"],
-    );
-    assert.deepEqual(
-      LINE_PICKER_ENTRIES.map((e) => e.label),
-      ["Line", "Arrow"],
-    );
+    expect(LINE_PICKER_ENTRIES.length).toBe(2);
+    expect(LINE_PICKER_ENTRIES.map((e) => e.kind)).toEqual(["connector:line", "connector:arrow"]);
+    expect(LINE_PICKER_ENTRIES.map((e) => e.label)).toEqual(["Line", "Arrow"]);
   });
 
   it("each entry has a non-empty kind and label", () => {
     for (const entry of LINE_PICKER_ENTRIES) {
-      assert.equal(typeof entry.kind, "string");
-      assert.ok(entry.kind.length > 0);
-      assert.equal(typeof entry.label, "string");
-      assert.ok(entry.label.length > 0);
+      expect(typeof entry.kind).toBe("string");
+      expect(entry.kind.length > 0).toBeTruthy();
+      expect(typeof entry.label).toBe("string");
+      expect(entry.label.length > 0).toBeTruthy();
     }
   });
 
   it("kind values are unique across the catalogue", () => {
     const kinds = LINE_PICKER_ENTRIES.map((e) => e.kind);
-    assert.equal(new Set(kinds).size, kinds.length);
+    expect(new Set(kinds).size).toBe(kinds.length);
   });
 });
 
 describe("isLinePickerKind", () => {
   it("returns true for connector kinds", () => {
-    assert.equal(isLinePickerKind("connector:line"), true);
-    assert.equal(isLinePickerKind("connector:arrow"), true);
+    expect(isLinePickerKind("connector:line")).toBe(true);
+    expect(isLinePickerKind("connector:arrow")).toBe(true);
   });
 
   it("returns false for shape kinds, text, and null", () => {
-    assert.equal(isLinePickerKind("rect"), false);
-    assert.equal(isLinePickerKind("ellipse"), false);
-    assert.equal(isLinePickerKind("rightArrow"), false);
-    assert.equal(isLinePickerKind("text"), false);
-    assert.equal(isLinePickerKind(null), false);
-    assert.equal(isLinePickerKind(undefined), false);
+    expect(isLinePickerKind("rect")).toBe(false);
+    expect(isLinePickerKind("ellipse")).toBe(false);
+    expect(isLinePickerKind("rightArrow")).toBe(false);
+    expect(isLinePickerKind("text")).toBe(false);
+    expect(isLinePickerKind(null)).toBe(false);
+    expect(isLinePickerKind(undefined)).toBe(false);
   });
 });

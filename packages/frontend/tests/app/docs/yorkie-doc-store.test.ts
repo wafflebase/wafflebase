@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, createTableBlock, createTableCell } from '@wafflebase/docs';
@@ -42,14 +41,14 @@ describe('YorkieDocStore', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(result.blocks[0].id, block.id);
+      expect(result.blocks.length).toBe(1);
+      expect(result.blocks[0].inlines[0].text).toBe('Hello');
+      expect(result.blocks[0].id).toBe(block.id);
     });
 
     it('should handle empty document', () => {
       store.setDocument({ blocks: [] });
-      assert.equal(store.getDocument().blocks.length, 0);
+      expect(store.getDocument().blocks.length).toBe(0);
     });
 
     it('should handle multiple blocks', () => {
@@ -57,17 +56,17 @@ describe('YorkieDocStore', () => {
       const b2 = makeBlock('Second');
       store.setDocument({ blocks: [b1, b2] });
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, 'First');
-      assert.equal(result.blocks[1].inlines[0].text, 'Second');
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('First');
+      expect(result.blocks[1].inlines[0].text).toBe('Second');
     });
 
     it('should preserve block styles', () => {
       const block = makeBlock('Centered', { alignment: 'center', lineHeight: 2.0 });
       store.setDocument({ blocks: [block] });
       const result = store.getDocument();
-      assert.equal(result.blocks[0].style.alignment, 'center');
-      assert.equal(result.blocks[0].style.lineHeight, 2.0);
+      expect(result.blocks[0].style.alignment).toBe('center');
+      expect(result.blocks[0].style.lineHeight).toBe(2.0);
     });
 
     it('should preserve inline styles', () => {
@@ -82,9 +81,9 @@ describe('YorkieDocStore', () => {
       };
       store.setDocument({ blocks: [block] });
       const result = store.getDocument();
-      assert.equal(result.blocks[0].inlines.length, 2);
-      assert.equal(result.blocks[0].inlines[0].style.bold, true);
-      assert.equal(result.blocks[0].inlines[0].style.fontSize, 14);
+      expect(result.blocks[0].inlines.length).toBe(2);
+      expect(result.blocks[0].inlines[0].style.bold).toBe(true);
+      expect(result.blocks[0].inlines[0].style.fontSize).toBe(14);
     });
   });
 
@@ -93,12 +92,12 @@ describe('YorkieDocStore', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       const found = store.getBlock(block.id);
-      assert.ok(found);
-      assert.equal(found.inlines[0].text, 'Hello');
+      expect(found).toBeTruthy();
+      expect(found.inlines[0].text).toBe('Hello');
     });
 
     it('should return undefined for missing block', () => {
-      assert.equal(store.getBlock('nonexistent'), undefined);
+      expect(store.getBlock('nonexistent')).toBe(undefined);
     });
   });
 
@@ -108,12 +107,12 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
       const found = store.getBlock(block.id);
-      assert.ok(found);
-      assert.equal(found.inlines[0].text, 'World');
+      expect(found).toBeTruthy();
+      expect(found.inlines[0].text).toBe('World');
     });
 
     it('should throw for missing block', () => {
-      assert.throws(() => store.updateBlock('missing', makeBlock('x')), /Block not found/);
+      expect(() => store.updateBlock('missing', makeBlock('x'))).toThrow(/Block not found/);
     });
   });
 
@@ -124,9 +123,9 @@ describe('YorkieDocStore', () => {
       const b2 = makeBlock('Second');
       store.insertBlock(0, b2);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, 'Second');
-      assert.equal(result.blocks[1].inlines[0].text, 'First');
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('Second');
+      expect(result.blocks[1].inlines[0].text).toBe('First');
     });
   });
 
@@ -137,12 +136,12 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [b1, b2] });
       store.deleteBlock(b1.id);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
-      assert.equal(result.blocks[0].id, b2.id);
+      expect(result.blocks.length).toBe(1);
+      expect(result.blocks[0].id).toBe(b2.id);
     });
 
     it('should throw for missing block', () => {
-      assert.throws(() => store.deleteBlock('missing'), /Block not found/);
+      expect(() => store.deleteBlock('missing')).toThrow(/Block not found/);
     });
   });
 
@@ -153,15 +152,15 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [b1, b2] });
       store.deleteBlockByIndex(0);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
-      assert.equal(result.blocks[0].id, b2.id);
+      expect(result.blocks.length).toBe(1);
+      expect(result.blocks[0].id).toBe(b2.id);
     });
   });
 
   describe('pageSetup', () => {
     it('should return defaults when not set', () => {
       const setup = store.getPageSetup();
-      assert.equal(setup.paperSize.name, 'Letter');
+      expect(setup.paperSize.name).toBe('Letter');
     });
 
     it('should set and get pageSetup', () => {
@@ -171,8 +170,8 @@ describe('YorkieDocStore', () => {
         margins: { top: 72, bottom: 72, left: 72, right: 72 },
       });
       const setup = store.getPageSetup();
-      assert.equal(setup.paperSize.name, 'A4');
-      assert.equal(setup.margins.top, 72);
+      expect(setup.paperSize.name).toBe('A4');
+      expect(setup.margins.top).toBe(72);
     });
   });
 
@@ -181,9 +180,9 @@ describe('YorkieDocStore', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       store.insertText(block.id, 5, ' World');
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'Hello World');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello World');
       store.undo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'Hello');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello');
     });
 
     it('should redo after undo', () => {
@@ -192,19 +191,19 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 5, '!');
       store.undo();
       store.redo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'Hello!');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello!');
     });
 
     it('applyStyle → undo → style removed', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 0, 5, { bold: true });
-      assert.equal(store.getBlock(block.id)?.inlines[0].style.bold, true);
+      expect(store.getBlock(block.id)?.inlines[0].style.bold).toBe(true);
       store.undo();
       const afterUndo = store.getBlock(block.id)!;
       const text = afterUndo.inlines.map((i) => i.text).join('');
-      assert.equal(text, 'Hello');
-      assert.notEqual(afterUndo.inlines[0].style.bold, true);
+      expect(text).toBe('Hello');
+      expect(afterUndo.inlines[0].style.bold).not.toBe(true);
     });
 
     it('splitBlock → undo → blocks merged back', () => {
@@ -212,11 +211,11 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       const newId = generateBlockId();
       store.splitBlock(block.id, 5, newId, 'paragraph');
-      assert.equal(store.getDocument().blocks.length, 2);
+      expect(store.getDocument().blocks.length).toBe(2);
       store.undo();
       const d = store.getDocument();
-      assert.equal(d.blocks.length, 1);
-      assert.equal(d.blocks[0].inlines[0].text, 'HelloWorld');
+      expect(d.blocks.length).toBe(1);
+      expect(d.blocks[0].inlines[0].text).toBe('HelloWorld');
     });
 
     // TODO(yorkie-undo): mergeBlock undo not yet supported by Yorkie Tree —
@@ -226,9 +225,9 @@ describe('YorkieDocStore', () => {
       const b2 = makeBlock(' World');
       store.setDocument({ blocks: [b1, b2] });
       store.mergeBlock(b1.id, b2.id);
-      assert.equal(store.getDocument().blocks.length, 1);
+      expect(store.getDocument().blocks.length).toBe(1);
       store.undo();
-      assert.equal(store.getDocument().blocks.length, 2);
+      expect(store.getDocument().blocks.length).toBe(2);
     });
 
     it('multiple undos → redo all → original state restored', () => {
@@ -236,15 +235,15 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.insertText(block.id, 1, 'B');
       store.insertText(block.id, 2, 'C');
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'ABC');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('ABC');
       store.undo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'AB');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('AB');
       store.undo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'A');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('A');
       store.redo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'AB');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('AB');
       store.redo();
-      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'ABC');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('ABC');
     });
 
     it('splitBlock → undo → redo round-trip', () => {
@@ -254,20 +253,23 @@ describe('YorkieDocStore', () => {
       const newId = 'split-redo-test';
       store.splitBlock(block.id, 5, newId, 'paragraph');
       const afterSplit = store.getDocument();
-      assert.equal(afterSplit.blocks.length, 2);
-      assert.equal(afterSplit.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(afterSplit.blocks[1].inlines[0].text, 'World');
+      expect(afterSplit.blocks.length).toBe(2);
+      expect(afterSplit.blocks[0].inlines[0].text).toBe('Hello');
+      expect(afterSplit.blocks[1].inlines[0].text).toBe('World');
 
       store.undo();
       const afterUndo = store.getDocument();
-      assert.equal(afterUndo.blocks.length, 1);
-      assert.equal(afterUndo.blocks[0].inlines[0].text, 'HelloWorld');
+      expect(afterUndo.blocks.length).toBe(1);
+      expect(afterUndo.blocks[0].inlines[0].text).toBe('HelloWorld');
 
       store.redo();
       const afterRedo = store.getDocument();
-      assert.equal(afterRedo.blocks.length, 2, `Expected 2 blocks, got ${afterRedo.blocks.length}`);
-      assert.equal(afterRedo.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(afterRedo.blocks[1].inlines[0].text, 'World');
+      expect(
+        afterRedo.blocks.length,
+        `Expected 2 blocks, got ${afterRedo.blocks.length}`
+      ).toBe(2);
+      expect(afterRedo.blocks[0].inlines[0].text).toBe('Hello');
+      expect(afterRedo.blocks[1].inlines[0].text).toBe('World');
     });
 
     // TODO(yorkie-undo): Yorkie SDK redo duplicates text inserted into
@@ -283,9 +285,9 @@ describe('YorkieDocStore', () => {
       while (store.canUndo()) store.undo();
       while (store.canRedo()) store.redo();
       const d = store.getDocument();
-      assert.equal(d.blocks.length, 2);
-      assert.equal(d.blocks[0].inlines[0].text, 'asdf');
-      assert.equal(d.blocks[1].inlines[0].text, 'xyz');
+      expect(d.blocks.length).toBe(2);
+      expect(d.blocks[0].inlines[0].text).toBe('asdf');
+      expect(d.blocks[1].inlines[0].text).toBe('xyz');
     });
 
     it('insertText + splitBlock (no second insert) + undo all + redo all', () => {
@@ -296,24 +298,24 @@ describe('YorkieDocStore', () => {
       while (store.canUndo()) store.undo();
       while (store.canRedo()) store.redo();
       const d = store.getDocument();
-      assert.equal(d.blocks.length, 2, `Expected 2, got ${d.blocks.length}`);
-      assert.equal(d.blocks[0].inlines[0].text, 'asdf');
-      assert.equal(d.blocks[1].inlines[0].text, '');
+      expect(d.blocks.length, `Expected 2, got ${d.blocks.length}`).toBe(2);
+      expect(d.blocks[0].inlines[0].text).toBe('asdf');
+      expect(d.blocks[1].inlines[0].text).toBe('');
     });
 
     it('canUndo/canRedo reflect Yorkie history state', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       // setDocument sets the undo floor — can't undo past initial load
-      assert.equal(store.canUndo(), false);
-      assert.equal(store.canRedo(), false);
+      expect(store.canUndo()).toBe(false);
+      expect(store.canRedo()).toBe(false);
       // After a mutation, canUndo should be true
       store.insertText(block.id, 5, '!');
-      assert.equal(store.canUndo(), true);
+      expect(store.canUndo()).toBe(true);
       store.undo();
-      assert.equal(store.canRedo(), true);
+      expect(store.canRedo()).toBe(true);
       // After undoing the mutation, can't undo past setDocument
-      assert.equal(store.canUndo(), false);
+      expect(store.canUndo()).toBe(false);
     });
 
     it('undo should restore cursor position via presence', () => {
@@ -325,7 +327,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 5, ' World');
       store.undo();
       const restored = store.getPresenceCursorPos();
-      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+      expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
     it('redo should restore post-mutation cursor position via presence', () => {
@@ -337,7 +339,7 @@ describe('YorkieDocStore', () => {
       store.undo();
       store.redo();
       const restored = store.getPresenceCursorPos();
-      assert.deepEqual(restored, { blockId: block.id, offset: 11 });
+      expect(restored).toEqual({ blockId: block.id, offset: 11 });
     });
 
     it('undo deleteText should restore cursor position', () => {
@@ -348,7 +350,7 @@ describe('YorkieDocStore', () => {
       store.deleteText(block.id, 5, 6);
       store.undo();
       const restored = store.getPresenceCursorPos();
-      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+      expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
     it('undo splitBlock should restore cursor position', () => {
@@ -360,7 +362,7 @@ describe('YorkieDocStore', () => {
       store.splitBlock(block.id, 5, newId, 'paragraph');
       store.undo();
       const restored = store.getPresenceCursorPos();
-      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+      expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
     // Regression: ensureTree() in docs-view.tsx populates the Tree with an
@@ -398,7 +400,7 @@ describe('YorkieDocStore', () => {
       });
 
       const seededStore = new YorkieDocStore(seededDoc);
-      assert.equal(seededStore.getDocument().blocks[0].id, initialId);
+      expect(seededStore.getDocument().blocks[0].id).toBe(initialId);
 
       // Simulate user typing "asdf" then Enter then "asdf" then Enter then "asdf",
       // matching the reported reproduction.
@@ -420,10 +422,10 @@ describe('YorkieDocStore', () => {
       // ensureTree-style update is reachable via undo and the initial block
       // is destroyed.
       const blocks = seededStore.getDocument().blocks;
-      assert.ok(
+      expect(
         blocks.some((b) => b.id === initialId),
-        `initial block ${initialId} must survive repeated undo, got ${JSON.stringify(blocks.map((b) => b.id))}`,
-      );
+        `initial block ${initialId} must survive repeated undo, got ${JSON.stringify(blocks.map((b) => b.id))}`
+      ).toBeTruthy();
     });
   });
 
@@ -433,7 +435,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       const doc = store.getDocument();
       doc.blocks[0].inlines[0].text = 'Mutated';
-      assert.equal(store.getDocument().blocks[0].inlines[0].text, 'Hello');
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Hello');
     });
   });
 
@@ -451,10 +453,10 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.equal(td.rows.length, 3);
-      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'keep me');
-      assert.equal(td.rows[1].cells.length, 2);
-      assert.equal(td.rows[2].cells[0].blocks[0].inlines[0].text, '');
+      expect(td.rows.length).toBe(3);
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('keep me');
+      expect(td.rows[1].cells.length).toBe(2);
+      expect(td.rows[2].cells[0].blocks[0].inlines[0].text).toBe('');
     });
   });
 
@@ -471,8 +473,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.equal(td.rows.length, 1);
-      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'row 1');
+      expect(td.rows.length).toBe(1);
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('row 1');
     });
   });
 
@@ -486,8 +488,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.equal(td.rows[0].cells.length, 3);
-      assert.equal(td.rows[1].cells.length, 3);
+      expect(td.rows[0].cells.length).toBe(3);
+      expect(td.rows[1].cells.length).toBe(3);
     });
   });
 
@@ -500,8 +502,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.equal(td.rows[0].cells.length, 1);
-      assert.equal(td.rows[1].cells.length, 1);
+      expect(td.rows[0].cells.length).toBe(1);
+      expect(td.rows[1].cells.length).toBe(1);
     });
   });
 
@@ -522,8 +524,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'updated 00');
-      assert.equal(td.rows[1].cells[1].blocks[0].inlines[0].text, 'original 11');
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('updated 00');
+      expect(td.rows[1].cells[1].blocks[0].inlines[0].text).toBe('original 11');
     });
   });
 
@@ -540,8 +542,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const td = result.blocks[1].tableData!;
-      assert.deepEqual(td.columnWidths, [0.7, 0.3]);
-      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'keep me');
+      expect(td.columnWidths).toEqual([0.7, 0.3]);
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('keep me');
     });
   });
 
@@ -553,8 +555,8 @@ describe('YorkieDocStore', () => {
       store.insertTableRow(tableBlock.id, 1, { cells: [createTableCell(), createTableCell()] });
 
       const result = store.getDocument();
-      assert.equal(result.blocks[0].inlines[0].text, 'before');
-      assert.equal(result.blocks[2].inlines[0].text, 'after');
+      expect(result.blocks[0].inlines[0].text).toBe('before');
+      expect(result.blocks[2].inlines[0].text).toBe('after');
     });
   });
 
@@ -564,11 +566,11 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-block-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
-      assert.equal(result.blocks[1].id, 'new-block-id');
-      assert.equal(result.blocks[1].type, 'paragraph');
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('Hello');
+      expect(result.blocks[1].inlines[0].text).toBe('World');
+      expect(result.blocks[1].id).toBe('new-block-id');
+      expect(result.blocks[1].type).toBe('paragraph');
     });
 
     it('should split at start — first block gets empty inline', () => {
@@ -576,9 +578,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 0, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, '');
-      assert.equal(result.blocks[1].inlines[0].text, 'Hello');
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('');
+      expect(result.blocks[1].inlines[0].text).toBe('Hello');
     });
 
     it('should split at end — second block gets empty inline', () => {
@@ -586,9 +588,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(result.blocks[1].inlines[0].text, '');
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('Hello');
+      expect(result.blocks[1].inlines[0].text).toBe('');
     });
 
     it('should allow insertText into the empty block created by split-at-end', () => {
@@ -600,7 +602,7 @@ describe('YorkieDocStore', () => {
       // This must not throw "unacceptable path"
       store.insertText(emptyBlockId, 0, 'World');
       const result = store.getDocument();
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      expect(result.blocks[1].inlines[0].text).toBe('World');
     });
 
     it('should allow insertText after splitting an empty block (double Enter)', () => {
@@ -611,18 +613,18 @@ describe('YorkieDocStore', () => {
       // First Enter: split at end of "Hello"
       store.splitBlock(block.id, 5, 'empty-block-1', 'paragraph');
       const step1 = store.getDocument();
-      assert.equal(step1.blocks.length, 2);
+      expect(step1.blocks.length).toBe(2);
 
       // Second Enter: split the empty block at offset 0
       store.splitBlock('empty-block-1', 0, 'empty-block-2', 'paragraph');
       const step2 = store.getDocument();
-      assert.equal(step2.blocks.length, 3);
+      expect(step2.blocks.length).toBe(3);
 
       // Now try to insert text into the first empty block (block index 1)
       // This must not throw "YorkieError: unacceptable path"
       store.insertText('empty-block-1', 0, 'World');
       const result = store.getDocument();
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      expect(result.blocks[1].inlines[0].text).toBe('World');
     });
 
     it('should splitBlock on a block with no inline children in Yorkie tree', () => {
@@ -647,7 +649,7 @@ describe('YorkieDocStore', () => {
       // This must not throw "YorkieError: unacceptable path"
       store.splitBlock(blockId, 0, 'new-block', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 2);
+      expect(result.blocks.length).toBe(2);
     });
 
     it('should insertText into a block with no inline children in Yorkie tree', () => {
@@ -679,12 +681,12 @@ describe('YorkieDocStore', () => {
       const treeRoot = tree.getRootTreeNode();
       const blockNode = treeRoot.children[0];
       const inlines = (blockNode.children || []).filter((c) => c.type === 'inline');
-      assert.equal(inlines.length, 0, 'block should have no inline children');
+      expect(inlines.length, 'block should have no inline children').toBe(0);
 
       // This must not throw "YorkieError: unacceptable path"
       store.insertText(blockId, 0, 'Hello');
       const result = store.getDocument();
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
+      expect(result.blocks[0].inlines[0].text).toBe('Hello');
     });
 
     it('should preserve surrounding blocks', () => {
@@ -694,11 +696,11 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [b1, b2, b3] });
       store.splitBlock(b2.id, 5, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 4);
-      assert.equal(result.blocks[0].inlines[0].text, 'Before');
-      assert.equal(result.blocks[1].inlines[0].text, 'Split');
-      assert.equal(result.blocks[2].inlines[0].text, 'Me');
-      assert.equal(result.blocks[3].inlines[0].text, 'After');
+      expect(result.blocks.length).toBe(4);
+      expect(result.blocks[0].inlines[0].text).toBe('Before');
+      expect(result.blocks[1].inlines[0].text).toBe('Split');
+      expect(result.blocks[2].inlines[0].text).toBe('Me');
+      expect(result.blocks[3].inlines[0].text).toBe('After');
     });
 
     it('split at end of an image-only block does not duplicate the image in the Yorkie tree', () => {
@@ -723,23 +725,22 @@ describe('YorkieDocStore', () => {
       const newInlines = (newBlockNode.children ?? []).filter(
         (c: { type: string }) => c.type === 'inline',
       );
-      assert.equal(newInlines.length, 1, 'new block has exactly one inline');
+      expect(newInlines.length, 'new block has exactly one inline').toBe(1);
       const treeAttrs = (newInlines[0].attributes ?? {}) as Record<string, string>;
       const treeImageKeys = Object.keys(treeAttrs).filter((k) => k.startsWith('image.'));
-      assert.deepEqual(
+      expect(
         treeImageKeys,
-        [],
-        `new block inline must have no image.* attributes; saw ${treeImageKeys.join(', ')}`,
-      );
+        `new block inline must have no image.* attributes; saw ${treeImageKeys.join(', ')}`
+      ).toEqual([]);
 
       // Read fresh through the filter to mirror a peer / reload view.
       const fresh = new YorkieDocStore(doc);
       const result = fresh.getDocument();
-      assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines[0].text, '\uFFFC');
-      assert.ok(result.blocks[0].inlines[0].style.image, 'before block keeps image');
-      assert.equal(result.blocks[1].inlines[0].text, '');
-      assert.equal(result.blocks[1].inlines[0].style.image, undefined);
+      expect(result.blocks.length).toBe(2);
+      expect(result.blocks[0].inlines[0].text).toBe('\uFFFC');
+      expect(result.blocks[0].inlines[0].style.image, 'before block keeps image').toBeTruthy();
+      expect(result.blocks[1].inlines[0].text).toBe('');
+      expect(result.blocks[1].inlines[0].style.image).toBe(undefined);
     });
 
     it('split at end of a block whose last inline is an image preserves only one image', () => {
@@ -767,20 +768,16 @@ describe('YorkieDocStore', () => {
       for (const inl of newInlines) {
         const attrs = (inl.attributes ?? {}) as Record<string, string>;
         const keys = Object.keys(attrs).filter((k) => k.startsWith('image.'));
-        assert.deepEqual(
-          keys,
-          [],
-          `new block inline must not carry image.*; saw ${keys.join(', ')}`,
-        );
+        expect(keys, `new block inline must not carry image.*; saw ${keys.join(', ')}`).toEqual([]);
       }
 
       const fresh = new YorkieDocStore(doc);
       const result = fresh.getDocument();
-      assert.equal(result.blocks.length, 2);
+      expect(result.blocks.length).toBe(2);
       const beforeImage = result.blocks[0].inlines.find((i) => i.style.image);
-      assert.ok(beforeImage, 'before block has the image');
+      expect(beforeImage, 'before block has the image').toBeTruthy();
       const afterImage = result.blocks[1].inlines.find((i) => i.style.image);
-      assert.equal(afterImage, undefined, 'after block must not duplicate the image style');
+      expect(afterImage, 'after block must not duplicate the image style').toBe(undefined);
     });
   });
 
@@ -817,7 +814,7 @@ describe('YorkieDocStore', () => {
       const inlinesBefore = (blockBefore.children || []).filter(
         (c: { type: string }) => c.type === 'inline',
       );
-      assert.equal(inlinesBefore.length, 2, 'block should have 2 empty inlines');
+      expect(inlinesBefore.length, 'block should have 2 empty inlines').toBe(2);
 
       // Insert text into the block, then delete it
       store.insertText(newBlockId, 0, 'X');
@@ -830,11 +827,14 @@ describe('YorkieDocStore', () => {
       const inlinesAfter = (blockAfter.children || []).filter(
         (c: { type: string }) => c.type === 'inline',
       );
-      assert.equal(inlinesAfter.length, 1, `block should have exactly 1 inline, got ${inlinesAfter.length}`);
+      expect(
+        inlinesAfter.length,
+        `block should have exactly 1 inline, got ${inlinesAfter.length}`
+      ).toBe(1);
 
       // getDocument should also work without errors
       const result = store.getDocument();
-      assert.equal(result.blocks[1].inlines.length, 1);
+      expect(result.blocks[1].inlines.length).toBe(1);
     });
   });
 
@@ -845,9 +845,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [b1, b2] });
       store.mergeBlock(b1.id, b2.id);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello World');
-      assert.equal(result.blocks[0].id, b1.id);
+      expect(result.blocks.length).toBe(1);
+      expect(result.blocks[0].inlines[0].text).toBe('Hello World');
+      expect(result.blocks[0].id).toBe(b1.id);
     });
 
     it('should preserve surrounding blocks', () => {
@@ -858,16 +858,16 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [b1, b2, b3, b4] });
       store.mergeBlock(b2.id, b3.id);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 3);
-      assert.equal(result.blocks[0].inlines[0].text, 'Before');
-      assert.equal(result.blocks[1].inlines[0].text, 'Hello World');
-      assert.equal(result.blocks[2].inlines[0].text, 'After');
+      expect(result.blocks.length).toBe(3);
+      expect(result.blocks[0].inlines[0].text).toBe('Before');
+      expect(result.blocks[1].inlines[0].text).toBe('Hello World');
+      expect(result.blocks[2].inlines[0].text).toBe('After');
     });
 
     it('should throw when merging a block with itself', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      assert.throws(() => store.mergeBlock(block.id, block.id), /Cannot merge/);
+      expect(() => store.mergeBlock(block.id, block.id)).toThrow(/Cannot merge/);
     });
   });
 
@@ -877,13 +877,13 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 3, 8, { bold: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 3);
-      assert.equal(result.inlines[0].text, 'Hel');
-      assert.equal(result.inlines[0].style.bold, undefined);
-      assert.equal(result.inlines[1].text, 'loWor');
-      assert.equal(result.inlines[1].style.bold, true);
-      assert.equal(result.inlines[2].text, 'ld');
-      assert.equal(result.inlines[2].style.bold, undefined);
+      expect(result.inlines.length).toBe(3);
+      expect(result.inlines[0].text).toBe('Hel');
+      expect(result.inlines[0].style.bold).toBe(undefined);
+      expect(result.inlines[1].text).toBe('loWor');
+      expect(result.inlines[1].style.bold).toBe(true);
+      expect(result.inlines[2].text).toBe('ld');
+      expect(result.inlines[2].style.bold).toBe(undefined);
     });
 
     it('should apply bold to block start', () => {
@@ -891,11 +891,11 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 0, 3, { bold: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 2);
-      assert.equal(result.inlines[0].text, 'Hel');
-      assert.equal(result.inlines[0].style.bold, true);
-      assert.equal(result.inlines[1].text, 'lo');
-      assert.equal(result.inlines[1].style.bold, undefined);
+      expect(result.inlines.length).toBe(2);
+      expect(result.inlines[0].text).toBe('Hel');
+      expect(result.inlines[0].style.bold).toBe(true);
+      expect(result.inlines[1].text).toBe('lo');
+      expect(result.inlines[1].style.bold).toBe(undefined);
     });
 
     it('should apply bold to block end', () => {
@@ -903,11 +903,11 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 3, 5, { bold: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 2);
-      assert.equal(result.inlines[0].text, 'Hel');
-      assert.equal(result.inlines[0].style.bold, undefined);
-      assert.equal(result.inlines[1].text, 'lo');
-      assert.equal(result.inlines[1].style.bold, true);
+      expect(result.inlines.length).toBe(2);
+      expect(result.inlines[0].text).toBe('Hel');
+      expect(result.inlines[0].style.bold).toBe(undefined);
+      expect(result.inlines[1].text).toBe('lo');
+      expect(result.inlines[1].style.bold).toBe(true);
     });
 
     it('should apply bold to entire block', () => {
@@ -915,9 +915,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 0, 5, { bold: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 1);
-      assert.equal(result.inlines[0].text, 'Hello');
-      assert.equal(result.inlines[0].style.bold, true);
+      expect(result.inlines.length).toBe(1);
+      expect(result.inlines[0].text).toBe('Hello');
+      expect(result.inlines[0].style.bold).toBe(true);
     });
 
     it('should apply style across existing multi-inline block', () => {
@@ -933,17 +933,17 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyStyle(block.id, 3, 8, { italic: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 4);
-      assert.equal(result.inlines[0].text, 'Hel');
-      assert.equal(result.inlines[0].style.bold, true);
-      assert.equal(result.inlines[0].style.italic, undefined);
-      assert.equal(result.inlines[1].text, 'lo');
-      assert.equal(result.inlines[1].style.bold, true);
-      assert.equal(result.inlines[1].style.italic, true);
-      assert.equal(result.inlines[2].text, 'Wor');
-      assert.equal(result.inlines[2].style.italic, true);
-      assert.equal(result.inlines[3].text, 'ld');
-      assert.equal(result.inlines[3].style.italic, undefined);
+      expect(result.inlines.length).toBe(4);
+      expect(result.inlines[0].text).toBe('Hel');
+      expect(result.inlines[0].style.bold).toBe(true);
+      expect(result.inlines[0].style.italic).toBe(undefined);
+      expect(result.inlines[1].text).toBe('lo');
+      expect(result.inlines[1].style.bold).toBe(true);
+      expect(result.inlines[1].style.italic).toBe(true);
+      expect(result.inlines[2].text).toBe('Wor');
+      expect(result.inlines[2].style.italic).toBe(true);
+      expect(result.inlines[3].text).toBe('ld');
+      expect(result.inlines[3].style.italic).toBe(undefined);
     });
 
     it('should work correctly after text insert', () => {
@@ -952,11 +952,11 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 5, ' World');
       store.applyStyle(block.id, 6, 11, { bold: true });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines.length, 2);
-      assert.equal(result.inlines[0].text, 'Hello ');
-      assert.equal(result.inlines[0].style.bold, undefined);
-      assert.equal(result.inlines[1].text, 'World');
-      assert.equal(result.inlines[1].style.bold, true);
+      expect(result.inlines.length).toBe(2);
+      expect(result.inlines[0].text).toBe('Hello ');
+      expect(result.inlines[0].style.bold).toBe(undefined);
+      expect(result.inlines[1].text).toBe('World');
+      expect(result.inlines[1].style.bold).toBe(true);
     });
 
     it('should toggle bold off when re-applied to same range', () => {
@@ -968,9 +968,9 @@ describe('YorkieDocStore', () => {
       const result = store.getBlock(block.id)!;
       // Text is preserved across inlines
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'Hello');
+      expect(fullText).toBe('Hello');
       // The first inline covering "Hel" should have bold:false (not true)
-      assert.equal(result.inlines[0].style.bold, false);
+      expect(result.inlines[0].style.bold).toBe(false);
     });
 
     it('should preserve bold for text inserted inside bold region', () => {
@@ -980,10 +980,10 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 3, 'XX');
       const result = store.getBlock(block.id)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'HelXXlo');
+      expect(fullText).toBe('HelXXlo');
       // All text should be bold since insertion inherits the inline style
       for (const inline of result.inlines) {
-        assert.equal(inline.style.bold, true, `"${inline.text}" should be bold`);
+        expect(inline.style.bold, `"${inline.text}" should be bold`).toBe(true);
       }
     });
   });
@@ -994,12 +994,12 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'paragraph');
       const afterSplit = store.getDocument();
-      assert.equal(afterSplit.blocks.length, 2);
+      expect(afterSplit.blocks.length).toBe(2);
 
       store.mergeBlock(afterSplit.blocks[0].id, afterSplit.blocks[1].id);
       const afterMerge = store.getDocument();
-      assert.equal(afterMerge.blocks.length, 1);
-      assert.equal(afterMerge.blocks[0].inlines[0].text, 'HelloWorld');
+      expect(afterMerge.blocks.length).toBe(1);
+      expect(afterMerge.blocks[0].inlines[0].text).toBe('HelloWorld');
     });
   });
 
@@ -1018,9 +1018,9 @@ describe('YorkieDocStore', () => {
       // Split at offset 4 (end of "Bold")
       store.splitBlock(block.id, 4, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks[0].inlines[0].text, 'Bold');
-      assert.equal(result.blocks[0].inlines[0].style.bold, true);
-      assert.equal(result.blocks[1].inlines[0].text, 'Normal');
+      expect(result.blocks[0].inlines[0].text).toBe('Bold');
+      expect(result.blocks[0].inlines[0].style.bold).toBe(true);
+      expect(result.blocks[1].inlines[0].text).toBe('Normal');
     });
 
     it('should preserve bold style when splitting inside a bold inline', () => {
@@ -1033,11 +1033,13 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
-      assert.equal(result.blocks[0].inlines[0].style.bold, true);
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
-      assert.equal(result.blocks[1].inlines[0].style.bold, true,
-        'bold style should be preserved on the right half after split');
+      expect(result.blocks[0].inlines[0].text).toBe('Hello');
+      expect(result.blocks[0].inlines[0].style.bold).toBe(true);
+      expect(result.blocks[1].inlines[0].text).toBe('World');
+      expect(
+        result.blocks[1].inlines[0].style.bold,
+        'bold style should be preserved on the right half after split'
+      ).toBe(true);
     });
 
     it('should preserve bold attr in Yorkie Tree after split (not just cache)', () => {
@@ -1056,8 +1058,10 @@ describe('YorkieDocStore', () => {
       const treeRoot = tree.getRootTreeNode();
       const afterBlock = treeRoot.children[1];
       const afterInline = afterBlock.children[0];
-      assert.equal(afterInline.attributes?.bold, 'true',
-        'Yorkie Tree node should have bold attribute after split');
+      expect(
+        afterInline.attributes?.bold,
+        'Yorkie Tree node should have bold attribute after split'
+      ).toBe('true');
     });
 
     it('should preserve bold style when peer reads from Tree after remote split', () => {
@@ -1077,9 +1081,11 @@ describe('YorkieDocStore', () => {
       store.cachedDoc = null;
 
       const result = store.getDocument();
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
-      assert.equal(result.blocks[1].inlines[0].style.bold, true,
-        'peer should see bold style after remote split');
+      expect(result.blocks[1].inlines[0].text).toBe('World');
+      expect(
+        result.blocks[1].inlines[0].style.bold,
+        'peer should see bold style after remote split'
+      ).toBe(true);
     });
 
     it('should preserve multiple inline styles when splitting mid-inline', () => {
@@ -1092,10 +1098,10 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks[1].inlines[0].text, 'World');
-      assert.equal(result.blocks[1].inlines[0].style.bold, true);
-      assert.equal(result.blocks[1].inlines[0].style.italic, true);
-      assert.equal(result.blocks[1].inlines[0].style.fontSize, 18);
+      expect(result.blocks[1].inlines[0].text).toBe('World');
+      expect(result.blocks[1].inlines[0].style.bold).toBe(true);
+      expect(result.blocks[1].inlines[0].style.italic).toBe(true);
+      expect(result.blocks[1].inlines[0].style.fontSize).toBe(18);
     });
   });
 
@@ -1111,11 +1117,11 @@ describe('YorkieDocStore', () => {
 
       store.splitBlock(body.id, 4, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 3);
+      expect(result.blocks.length).toBe(3);
       const text0 = result.blocks[0].inlines.map((i: Inline) => i.text).join('');
       const text1 = result.blocks[1].inlines.map((i: Inline) => i.text).join('');
-      assert.equal(text0, 'asdf', 'First body block should keep "asdf"');
-      assert.equal(text1, '', 'New block should be empty, not duplicated');
+      expect(text0, 'First body block should keep "asdf"').toBe('asdf');
+      expect(text1, 'New block should be empty, not duplicated').toBe('');
     });
 
     it('mergeBlock should merge correct body blocks when header exists', () => {
@@ -1127,9 +1133,9 @@ describe('YorkieDocStore', () => {
 
       store.mergeBlock(b1.id, b2.id);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
+      expect(result.blocks.length).toBe(1);
       const text = result.blocks[0].inlines.map((i: Inline) => i.text).join('');
-      assert.equal(text, 'HelloWorld');
+      expect(text).toBe('HelloWorld');
     });
 
     it('deleteBlock should delete correct body block when header exists', () => {
@@ -1141,8 +1147,8 @@ describe('YorkieDocStore', () => {
 
       store.deleteBlock(b2.id);
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 1);
-      assert.equal(result.blocks[0].inlines[0].text, 'Keep');
+      expect(result.blocks.length).toBe(1);
+      expect(result.blocks[0].inlines[0].text).toBe('Keep');
     });
   });
 
@@ -1158,10 +1164,10 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'paragraph');
       const result = store.getDocument();
-      assert.equal(result.blocks[0].type, 'heading');
-      assert.equal(result.blocks[0].headingLevel, 2);
-      assert.equal(result.blocks[1].type, 'paragraph');
-      assert.equal(result.blocks[1].headingLevel, undefined);
+      expect(result.blocks[0].type).toBe('heading');
+      expect(result.blocks[0].headingLevel).toBe(2);
+      expect(result.blocks[1].type).toBe('paragraph');
+      expect(result.blocks[1].headingLevel).toBe(undefined);
     });
 
     it('should split list-item into list-item — list attrs preserved on both', () => {
@@ -1176,12 +1182,12 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.splitBlock(block.id, 5, 'new-id', 'list-item');
       const result = store.getDocument();
-      assert.equal(result.blocks[0].type, 'list-item');
-      assert.equal(result.blocks[0].listKind, 'ordered');
-      assert.equal(result.blocks[0].listLevel, 1);
-      assert.equal(result.blocks[1].type, 'list-item');
-      assert.equal(result.blocks[1].listKind, 'ordered');
-      assert.equal(result.blocks[1].listLevel, 1);
+      expect(result.blocks[0].type).toBe('list-item');
+      expect(result.blocks[0].listKind).toBe('ordered');
+      expect(result.blocks[0].listLevel).toBe(1);
+      expect(result.blocks[1].type).toBe('list-item');
+      expect(result.blocks[1].listKind).toBe('ordered');
+      expect(result.blocks[1].listLevel).toBe(1);
     });
   });
 
@@ -1200,7 +1206,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.insertText(cellBlockId, 5, ' World');
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.inlines[0].text, 'Hello World');
+      expect(result.inlines[0].text).toBe('Hello World');
     });
 
     it('should deleteText from a table cell block', () => {
@@ -1208,7 +1214,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.deleteText(cellBlockId, 0, 3);
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.inlines[0].text, 'lo');
+      expect(result.inlines[0].text).toBe('lo');
     });
 
     it('should insertText at middle of cell text', () => {
@@ -1217,7 +1223,7 @@ describe('YorkieDocStore', () => {
       store.insertText(cellBlockId, 2, 'XX');
       const result = store.getBlock(cellBlockId)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'HeXXllo');
+      expect(fullText).toBe('HeXXllo');
     });
 
     it('should work with table preceded by other blocks', () => {
@@ -1226,7 +1232,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [before, tableBlock] });
       store.insertText(cellBlockId, 5, '!');
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.inlines[0].text, 'Hello!');
+      expect(result.inlines[0].text).toBe('Hello!');
     });
 
     it('should applyStyle to a table cell block', () => {
@@ -1234,10 +1240,10 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.applyStyle(cellBlockId, 0, 3, { bold: true });
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.inlines[0].text, 'Hel');
-      assert.equal(result.inlines[0].style.bold, true);
-      assert.equal(result.inlines[1].text, 'lo');
-      assert.equal(result.inlines[1].style.bold, undefined);
+      expect(result.inlines[0].text).toBe('Hel');
+      expect(result.inlines[0].style.bold).toBe(true);
+      expect(result.inlines[1].text).toBe('lo');
+      expect(result.inlines[1].style.bold).toBe(undefined);
     });
 
     it('should applyStyle after insertText in cell', () => {
@@ -1247,9 +1253,9 @@ describe('YorkieDocStore', () => {
       store.applyStyle(cellBlockId, 6, 11, { italic: true });
       const result = store.getBlock(cellBlockId)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'Hello World');
-      assert.equal(result.inlines[1].text, 'World');
-      assert.equal(result.inlines[1].style.italic, true);
+      expect(fullText).toBe('Hello World');
+      expect(result.inlines[1].text).toBe('World');
+      expect(result.inlines[1].style.italic).toBe(true);
     });
 
     it('should edit different cells independently', () => {
@@ -1263,8 +1269,8 @@ describe('YorkieDocStore', () => {
       store.insertText(cell00.id, 1, '1');
       store.insertText(cell11.id, 1, '2');
 
-      assert.equal(store.getBlock(cell00.id)!.inlines[0].text, 'A1');
-      assert.equal(store.getBlock(cell11.id)!.inlines[0].text, 'B2');
+      expect(store.getBlock(cell00.id)!.inlines[0].text).toBe('A1');
+      expect(store.getBlock(cell11.id)!.inlines[0].text).toBe('B2');
     });
 
     it('should splitBlock inside a table cell', () => {
@@ -1274,16 +1280,16 @@ describe('YorkieDocStore', () => {
       store.splitBlock(cellBlockId, 3, newId, 'paragraph');
       // Original cell block should have "Hel"
       const before = store.getBlock(cellBlockId)!;
-      assert.equal(before.inlines[0].text, 'Hel');
+      expect(before.inlines[0].text).toBe('Hel');
       // New block should have "lo"
       const after = store.getBlock(newId)!;
-      assert.equal(after.inlines[0].text, 'lo');
+      expect(after.inlines[0].text).toBe('lo');
       // Table still has 1 top-level block
       const doc = store.getDocument();
-      assert.equal(doc.blocks.length, 1);
+      expect(doc.blocks.length).toBe(1);
       // Cell now has 2 blocks
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.blocks.length, 2);
+      expect(cell.blocks.length).toBe(2);
     });
 
     it('should mergeBlock inside a table cell', () => {
@@ -1296,10 +1302,10 @@ describe('YorkieDocStore', () => {
       // Should be back to one block with "Hello"
       const result = store.getBlock(cellBlockId)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'Hello');
+      expect(fullText).toBe('Hello');
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.blocks.length, 1);
+      expect(cell.blocks.length).toBe(1);
     });
 
     it('should split and merge without affecting other cells', () => {
@@ -1315,10 +1321,10 @@ describe('YorkieDocStore', () => {
 
       // cell00 split into 2 blocks
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].blocks.length, 2);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].blocks.length).toBe(2);
       // cell01 unchanged
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].blocks.length, 1);
-      assert.equal(store.getBlock(cell01.id)!.inlines[0].text, 'World');
+      expect(doc.blocks[0].tableData!.rows[0].cells[1].blocks.length).toBe(1);
+      expect(store.getBlock(cell01.id)!.inlines[0].text).toBe('World');
     });
   });
 
@@ -1328,9 +1334,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'heading', { headingLevel: 2 });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'heading');
-      assert.equal(result.headingLevel, 2);
-      assert.equal(result.inlines[0].text, 'Hello');
+      expect(result.type).toBe('heading');
+      expect(result.headingLevel).toBe(2);
+      expect(result.inlines[0].text).toBe('Hello');
     });
 
     it('should change heading to paragraph, clearing headingLevel', () => {
@@ -1344,8 +1350,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'paragraph');
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'paragraph');
-      assert.equal(result.headingLevel, undefined);
+      expect(result.type).toBe('paragraph');
+      expect(result.headingLevel).toBe(undefined);
     });
 
     it('should remove stale headingLevel from tree when changing to list-item', () => {
@@ -1359,9 +1365,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 0 });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'list-item');
-      assert.equal(result.headingLevel, undefined, 'headingLevel should be removed');
-      assert.equal(result.listKind, 'ordered');
+      expect(result.type).toBe('list-item');
+      expect(result.headingLevel, 'headingLevel should be removed').toBe(undefined);
+      expect(result.listKind).toBe('ordered');
     });
 
     it('should remove stale listKind/listLevel from tree when changing to paragraph', () => {
@@ -1376,9 +1382,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'paragraph');
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'paragraph');
-      assert.equal(result.listKind, undefined, 'listKind should be removed');
-      assert.equal(result.listLevel, undefined, 'listLevel should be removed');
+      expect(result.type).toBe('paragraph');
+      expect(result.listKind, 'listKind should be removed').toBe(undefined);
+      expect(result.listLevel, 'listLevel should be removed').toBe(undefined);
     });
 
     it('should change heading level on existing heading', () => {
@@ -1392,8 +1398,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'heading', { headingLevel: 3 });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'heading');
-      assert.equal(result.headingLevel, 3);
+      expect(result.type).toBe('heading');
+      expect(result.headingLevel).toBe(3);
     });
 
     it('should change to list-item with kind and level', () => {
@@ -1401,9 +1407,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 1 });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'list-item');
-      assert.equal(result.listKind, 'ordered');
-      assert.equal(result.listLevel, 1);
+      expect(result.type).toBe('list-item');
+      expect(result.listKind).toBe('ordered');
+      expect(result.listLevel).toBe(1);
     });
 
     it('should clear inlines for horizontal-rule', () => {
@@ -1411,8 +1417,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.setBlockType(block.id, 'horizontal-rule');
       const result = store.getBlock(block.id)!;
-      assert.equal(result.type, 'horizontal-rule');
-      assert.equal(result.inlines.length, 0);
+      expect(result.type).toBe('horizontal-rule');
+      expect(result.inlines.length).toBe(0);
     });
 
     it('should work for cell-internal blocks', () => {
@@ -1420,8 +1426,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.setBlockType(cellBlockId, 'heading', { headingLevel: 3 });
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.type, 'heading');
-      assert.equal(result.headingLevel, 3);
+      expect(result.type).toBe('heading');
+      expect(result.headingLevel).toBe(3);
     });
   });
 
@@ -1431,9 +1437,9 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyBlockStyle(block.id, { alignment: 'center' });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.style.alignment, 'center');
+      expect(result.style.alignment).toBe('center');
       // Other defaults preserved
-      assert.equal(result.style.lineHeight, DEFAULT_BLOCK_STYLE.lineHeight);
+      expect(result.style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
     });
 
     it('should merge with existing style', () => {
@@ -1441,8 +1447,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       store.applyBlockStyle(block.id, { marginTop: 20 });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.style.alignment, 'right');
-      assert.equal(result.style.marginTop, 20);
+      expect(result.style.alignment).toBe('right');
+      expect(result.style.marginTop).toBe(20);
     });
 
     it('should work for cell-internal blocks', () => {
@@ -1450,7 +1456,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.applyBlockStyle(cellBlockId, { alignment: 'center' });
       const result = store.getBlock(cellBlockId)!;
-      assert.equal(result.style.alignment, 'center');
+      expect(result.style.alignment).toBe('center');
     });
   });
 
@@ -1461,7 +1467,7 @@ describe('YorkieDocStore', () => {
       store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.style.backgroundColor, '#ff0000');
+      expect(cell.style.backgroundColor).toBe('#ff0000');
     });
 
     it('should merge with existing cell style', () => {
@@ -1471,8 +1477,8 @@ describe('YorkieDocStore', () => {
       store.applyCellStyle(tableBlock.id, 0, 0, { verticalAlign: 'middle' });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.style.backgroundColor, '#ff0000');
-      assert.equal(cell.style.verticalAlign, 'middle');
+      expect(cell.style.backgroundColor).toBe('#ff0000');
+      expect(cell.style.verticalAlign).toBe('middle');
     });
 
     it('should not affect other cells', () => {
@@ -1480,8 +1486,8 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor, undefined);
-      assert.equal(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor, undefined);
+      expect(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor).toBe(undefined);
+      expect(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor).toBe(undefined);
     });
   });
 
@@ -1492,7 +1498,7 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.colSpan, 2);
+      expect(cell.colSpan).toBe(2);
     });
 
     it('should set rowSpan on a cell', () => {
@@ -1500,7 +1506,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 3 });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 3);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(3);
     });
 
     it('should set both colSpan and rowSpan', () => {
@@ -1509,29 +1515,29 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2, rowSpan: 2 });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.colSpan, 2);
-      assert.equal(cell.rowSpan, 2);
+      expect(cell.colSpan).toBe(2);
+      expect(cell.rowSpan).toBe(2);
     });
 
     it('should remove colSpan when set to 1 (default)', () => {
       const tableBlock = createTableBlock(2, 3);
       store.setDocument({ blocks: [tableBlock] });
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 3 });
-      assert.equal(store.getDocument().blocks[0].tableData!.rows[0].cells[0].colSpan, 3);
+      expect(store.getDocument().blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(3);
       // Setting to 1 removes it (default)
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1 });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].colSpan, undefined);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(undefined);
     });
 
     it('should remove rowSpan when set to 1 (default)', () => {
       const tableBlock = createTableBlock(3, 2);
       store.setDocument({ blocks: [tableBlock] });
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
-      assert.equal(store.getDocument().blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+      expect(store.getDocument().blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(2);
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 1 });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, undefined);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(undefined);
     });
 
     it('should set colSpan=0 for covered cells', () => {
@@ -1539,7 +1545,7 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [tableBlock] });
       store.applyCellSpan(tableBlock.id, 0, 1, { colSpan: 0 });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].colSpan, 0);
+      expect(doc.blocks[0].tableData!.rows[0].cells[1].colSpan).toBe(0);
     });
 
     it('should not affect other cell properties', () => {
@@ -1549,8 +1555,8 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.colSpan, 2);
-      assert.equal(cell.style.backgroundColor, '#ff0000');
+      expect(cell.colSpan).toBe(2);
+      expect(cell.style.backgroundColor).toBe('#ff0000');
     });
 
     it('should only update specified span property', () => {
@@ -1561,8 +1567,8 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.colSpan, 2);
-      assert.equal(cell.rowSpan, 2);
+      expect(cell.colSpan).toBe(2);
+      expect(cell.rowSpan).toBe(2);
     });
 
     it('should clear both spans (splitCell scenario)', () => {
@@ -1573,8 +1579,8 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1, rowSpan: 1 });
       const doc = store.getDocument();
       const cell = doc.blocks[0].tableData!.rows[0].cells[0];
-      assert.equal(cell.colSpan, undefined);
-      assert.equal(cell.rowSpan, undefined);
+      expect(cell.colSpan).toBe(undefined);
+      expect(cell.rowSpan).toBe(undefined);
     });
 
     it('should decrement rowSpan (deleteRow scenario)', () => {
@@ -1584,7 +1590,7 @@ describe('YorkieDocStore', () => {
       // Simulate deleteRow: decrement rowSpan
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(2);
     });
   });
 
@@ -1604,8 +1610,8 @@ describe('YorkieDocStore', () => {
 
       const doc = store.getDocument();
       const td = doc.blocks[0].tableData!;
-      assert.equal(td.rows.length, 2);
-      assert.equal(td.rows[0].cells[0].rowSpan, undefined);
+      expect(td.rows.length).toBe(2);
+      expect(td.rows[0].cells[0].rowSpan).toBe(undefined);
     });
 
     it('should decrement rowSpan from 3 to 2 when deleting a middle spanned row', () => {
@@ -1619,8 +1625,8 @@ describe('YorkieDocStore', () => {
       store.deleteTableRow(tableBlock.id, 1);
 
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows.length, 3);
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+      expect(doc.blocks[0].tableData!.rows.length).toBe(3);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(2);
     });
   });
 
@@ -1638,8 +1644,8 @@ describe('YorkieDocStore', () => {
 
       const doc = store.getDocument();
       const td = doc.blocks[0].tableData!;
-      assert.equal(td.rows[0].cells.length, 2);
-      assert.equal(td.rows[0].cells[0].colSpan, undefined);
+      expect(td.rows[0].cells.length).toBe(2);
+      expect(td.rows[0].cells[0].colSpan).toBe(undefined);
     });
 
     it('should decrement colSpan from 3 to 2 when deleting a middle spanned column', () => {
@@ -1653,8 +1659,8 @@ describe('YorkieDocStore', () => {
       store.deleteTableColumn(tableBlock.id, 1);
 
       const doc = store.getDocument();
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells.length, 3);
-      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].colSpan, 2);
+      expect(doc.blocks[0].tableData!.rows[0].cells.length).toBe(3);
+      expect(doc.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(2);
     });
   });
 
@@ -1671,9 +1677,9 @@ describe('YorkieDocStore', () => {
 
       // Verify merge state
       const merged = store.getDocument();
-      assert.equal(merged.blocks[0].tableData!.rows[0].cells[0].colSpan, 2);
-      assert.equal(merged.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
-      assert.equal(merged.blocks[0].tableData!.rows[0].cells[1].colSpan, 0);
+      expect(merged.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(2);
+      expect(merged.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(2);
+      expect(merged.blocks[0].tableData!.rows[0].cells[1].colSpan).toBe(0);
 
       // Simulate splitCell: clear spans on all cells
       store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1, rowSpan: 1 });
@@ -1684,11 +1690,11 @@ describe('YorkieDocStore', () => {
       // All cells should have no span attributes
       const doc = store.getDocument();
       const td = doc.blocks[0].tableData!;
-      assert.equal(td.rows[0].cells[0].colSpan, undefined);
-      assert.equal(td.rows[0].cells[0].rowSpan, undefined);
-      assert.equal(td.rows[0].cells[1].colSpan, undefined);
-      assert.equal(td.rows[1].cells[0].colSpan, undefined);
-      assert.equal(td.rows[1].cells[1].colSpan, undefined);
+      expect(td.rows[0].cells[0].colSpan).toBe(undefined);
+      expect(td.rows[0].cells[0].rowSpan).toBe(undefined);
+      expect(td.rows[0].cells[1].colSpan).toBe(undefined);
+      expect(td.rows[1].cells[0].colSpan).toBe(undefined);
+      expect(td.rows[1].cells[1].colSpan).toBe(undefined);
     });
   });
 
@@ -1702,10 +1708,10 @@ describe('YorkieDocStore', () => {
       });
       const result = store.getBlock(block.id)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'Hel\uFFFClo');
+      expect(fullText).toBe('Hel\uFFFClo');
       const imgInline = result.inlines.find((i) => i.style.image);
-      assert.ok(imgInline, 'Image inline should exist');
-      assert.equal(imgInline!.style.image!.src, 'test.png');
+      expect(imgInline, 'Image inline should exist').toBeTruthy();
+      expect(imgInline!.style.image!.src).toBe('test.png');
     });
 
     it('should insert image at beginning of block', () => {
@@ -1716,8 +1722,8 @@ describe('YorkieDocStore', () => {
         style: { image: { src: 'img.png', width: 50, height: 50 } },
       });
       const result = store.getBlock(block.id)!;
-      assert.equal(result.inlines[0].text, '\uFFFC');
-      assert.ok(result.inlines[0].style.image);
+      expect(result.inlines[0].text).toBe('\uFFFC');
+      expect(result.inlines[0].style.image).toBeTruthy();
     });
 
     it('should insert image at end of block without empty trailing inline', () => {
@@ -1729,10 +1735,10 @@ describe('YorkieDocStore', () => {
       });
       const result = store.getBlock(block.id)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.equal(fullText, 'Hello\uFFFC');
+      expect(fullText).toBe('Hello\uFFFC');
       // No empty trailing inline should exist
       for (const il of result.inlines) {
-        assert.ok(il.text.length > 0, `Inline should not be empty: "${il.text}"`);
+        expect(il.text.length > 0, `Inline should not be empty: "${il.text}"`).toBeTruthy();
       }
     });
 
@@ -1745,7 +1751,7 @@ describe('YorkieDocStore', () => {
       });
       const result = store.getBlock(cellBlockId)!;
       const fullText = result.inlines.map((i) => i.text).join('');
-      assert.ok(fullText.includes('\uFFFC'), 'Image char should be present');
+      expect(fullText.includes('\uFFFC'), 'Image char should be present').toBeTruthy();
     });
   });
 
@@ -1759,10 +1765,10 @@ describe('YorkieDocStore', () => {
       store.insertBlockAfter(b1.id, newBlock);
 
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 3);
-      assert.equal(result.blocks[0].inlines[0].text, 'First');
-      assert.equal(result.blocks[1].inlines[0].text, 'Inserted');
-      assert.equal(result.blocks[2].inlines[0].text, 'Second');
+      expect(result.blocks.length).toBe(3);
+      expect(result.blocks[0].inlines[0].text).toBe('First');
+      expect(result.blocks[1].inlines[0].text).toBe('Inserted');
+      expect(result.blocks[2].inlines[0].text).toBe('Second');
     });
 
     it('should insert a block after a cell-internal sibling', () => {
@@ -1775,8 +1781,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const cell = result.blocks[1].tableData!.rows[0].cells[0];
-      assert.equal(cell.blocks.length, 2);
-      assert.equal(cell.blocks[1].inlines[0].text, 'CellInserted');
+      expect(cell.blocks.length).toBe(2);
+      expect(cell.blocks[1].inlines[0].text).toBe('CellInserted');
     });
 
     it('should insert a block after a body sibling when header exists', () => {
@@ -1792,13 +1798,13 @@ describe('YorkieDocStore', () => {
       store.insertBlockAfter(b1.id, newBlock);
 
       const result = store.getDocument();
-      assert.equal(result.blocks.length, 3);
-      assert.equal(result.blocks[0].inlines[0].text, 'Body1');
-      assert.equal(result.blocks[1].inlines[0].text, 'Inserted');
-      assert.equal(result.blocks[2].inlines[0].text, 'Body2');
+      expect(result.blocks.length).toBe(3);
+      expect(result.blocks[0].inlines[0].text).toBe('Body1');
+      expect(result.blocks[1].inlines[0].text).toBe('Inserted');
+      expect(result.blocks[2].inlines[0].text).toBe('Body2');
       // Header should be unchanged
-      assert.equal(result.header!.blocks.length, 1);
-      assert.equal(result.header!.blocks[0].inlines[0].text, 'Header');
+      expect(result.header!.blocks.length).toBe(1);
+      expect(result.header!.blocks[0].inlines[0].text).toBe('Header');
     });
 
     it('should insert a table block after a cell-internal sibling', () => {
@@ -1811,9 +1817,9 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const cell = result.blocks[1].tableData!.rows[0].cells[0];
-      assert.equal(cell.blocks.length, 2);
-      assert.equal(cell.blocks[1].type, 'table');
-      assert.equal(cell.blocks[1].tableData!.rows.length, 2);
+      expect(cell.blocks.length).toBe(2);
+      expect(cell.blocks[1].type).toBe('table');
+      expect(cell.blocks[1].tableData!.rows.length).toBe(2);
     });
   });
 
@@ -1831,8 +1837,8 @@ describe('YorkieDocStore', () => {
 
       const result = store.getDocument();
       const cell = result.blocks[1].tableData!.rows[0].cells[0];
-      assert.equal(cell.blocks.length, 1);
-      assert.equal(cell.blocks[0].inlines[0].text, 'Second');
+      expect(cell.blocks.length).toBe(1);
+      expect(cell.blocks[0].inlines[0].text).toBe('Second');
     });
   });
 

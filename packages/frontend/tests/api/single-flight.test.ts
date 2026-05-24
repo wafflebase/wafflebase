@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { createSingleFlightRunner } from "../../src/api/single-flight.ts";
 
 test("createSingleFlightRunner coalesces concurrent calls", async () => {
@@ -17,11 +16,11 @@ test("createSingleFlightRunner coalesces concurrent calls", async () => {
   const second = runner();
   const third = runner();
 
-  assert.equal(runs, 1);
+  expect(runs).toBe(1);
   resolveRun?.(7);
 
   const values = await Promise.all([first, second, third]);
-  assert.deepEqual(values, [7, 7, 7]);
+  expect(values).toEqual([7, 7, 7]);
 });
 
 test("createSingleFlightRunner resets after resolution", async () => {
@@ -34,9 +33,9 @@ test("createSingleFlightRunner resets after resolution", async () => {
   const first = await runner();
   const second = await runner();
 
-  assert.equal(first, 1);
-  assert.equal(second, 2);
-  assert.equal(runs, 2);
+  expect(first).toBe(1);
+  expect(second).toBe(2);
+  expect(runs).toBe(2);
 });
 
 test("createSingleFlightRunner resets after rejection", async () => {
@@ -49,9 +48,9 @@ test("createSingleFlightRunner resets after rejection", async () => {
     return runs;
   });
 
-  await assert.rejects(() => runner(), /boom/);
+  await expect(runner()).rejects.toThrow(/boom/);
   const next = await runner();
 
-  assert.equal(next, 2);
-  assert.equal(runs, 2);
+  expect(next).toBe(2);
+  expect(runs).toBe(2);
 });

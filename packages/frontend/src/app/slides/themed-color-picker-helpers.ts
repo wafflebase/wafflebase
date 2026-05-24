@@ -12,8 +12,8 @@ import type {
  * (text, background, accent1..6, hyperlink) matches what users see in
  * the theme thumbnail and PowerPoint/Slides theme editors.
  *
- * Lives in `.ts` (not the `.tsx` component) so node:test can import it
- * without going through the JSX-stub loader (`tests/resolve-hooks.mjs`).
+ * Lives in `.ts` (not the `.tsx` component) so the helper logic can be
+ * unit-tested in isolation.
  */
 export const THEME_ROLES: ColorRole[] = [
   "text",

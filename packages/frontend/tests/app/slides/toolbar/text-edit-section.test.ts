@@ -9,8 +9,8 @@
  * confirm there are no module-resolution or TypeScript structural errors.
  */
 
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
+
 import { getToolbarState } from "../../../../src/app/slides/toolbar/state.ts";
 import type { SlidesEditor, SlidesStore, SlidesTextBoxEditor, Slide, SlidesDocument } from "@wafflebase/slides";
 
@@ -149,10 +149,10 @@ test("selecting a text element produces object state with selectionType 'text-el
   });
   const store = makeStore([makeTextElementSlide()]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "text-element");
-    assert.deepEqual(Array.from(state.ids), ["el-text"]);
+    expect(state.selectionType).toBe("text-element");
+    expect(Array.from(state.ids)).toEqual(["el-text"]);
   }
 });
 
@@ -165,10 +165,10 @@ test("entering text-edit produces text-edit state with elementId and textEditor"
   });
   const store = makeStore([makeTextElementSlide()]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "text-edit");
+  expect(state.kind).toBe("text-edit");
   if (state.kind === "text-edit") {
-    assert.equal(state.elementId, "el-text");
-    assert.equal(state.textEditor, fakeTextEditor);
+    expect(state.elementId).toBe("el-text");
+    expect(state.textEditor).toBe(fakeTextEditor);
   }
 });
 
@@ -182,9 +182,9 @@ test("exiting text-edit (isTextEditing false, selection retained) returns object
   });
   const store = makeStore([makeTextElementSlide()]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "text-element");
+    expect(state.selectionType).toBe("text-element");
   }
 });
 
@@ -197,21 +197,21 @@ test("text-edit state textEditor exposes formatting surface (structural check)",
   });
   const store = makeStore([]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "text-edit");
+  expect(state.kind).toBe("text-edit");
   if (state.kind === "text-edit") {
     // Verify the textEditor on the state satisfies the TextFormattingEditor
     // surface that TextEditSection passes to the shared formatting groups.
     const te = state.textEditor;
-    assert.equal(typeof te.focus, "function");
-    assert.equal(typeof te.getSelectionStyle, "function");
-    assert.equal(typeof te.applyStyle, "function");
-    assert.equal(typeof te.applyBlockStyle, "function");
-    assert.equal(typeof te.getBlockType, "function");
-    assert.equal(typeof te.setBlockType, "function");
-    assert.equal(typeof te.toggleList, "function");
-    assert.equal(typeof te.indent, "function");
-    assert.equal(typeof te.outdent, "function");
-    assert.equal(typeof te.requestLink, "function");
+    expect(typeof te.focus).toBe("function");
+    expect(typeof te.getSelectionStyle).toBe("function");
+    expect(typeof te.applyStyle).toBe("function");
+    expect(typeof te.applyBlockStyle).toBe("function");
+    expect(typeof te.getBlockType).toBe("function");
+    expect(typeof te.setBlockType).toBe("function");
+    expect(typeof te.toggleList).toBe("function");
+    expect(typeof te.indent).toBe("function");
+    expect(typeof te.outdent).toBe("function");
+    expect(typeof te.requestLink).toBe("function");
   }
 });
 
@@ -219,5 +219,5 @@ test("TextEditSection module imports without error", async () => {
   // Smoke-test: confirms the module can be resolved and the named export exists.
   // Full JSX rendering is not available in the Node test runner.
   const mod = await import("../../../../src/app/slides/toolbar/text-edit-section.tsx");
-  assert.equal(typeof mod.TextEditSection, "function");
+  expect(typeof mod.TextEditSection).toBe("function");
 });

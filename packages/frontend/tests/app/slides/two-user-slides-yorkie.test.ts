@@ -7,8 +7,8 @@
  * Documents synced via the Yorkie server) lives in the
  * `yorkie-slides-concurrent.integration.ts` file.
  */
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
+
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
 import type { Theme } from '@wafflebase/slides';
@@ -55,23 +55,23 @@ describe('YorkieSlidesStore — addTheme / applyTheme convergence', () => {
     const storeB = new YorkieSlidesStore(doc);
 
     // Both start with the default-light theme as the active theme.
-    assert.equal(storeA.read().meta.themeId, 'default-light');
-    assert.equal(storeB.read().meta.themeId, 'default-light');
+    expect(storeA.read().meta.themeId).toBe('default-light');
+    expect(storeB.read().meta.themeId).toBe('default-light');
 
     // User A pushes a new theme into the document.
     const dark = darkTheme();
     storeA.batch(() => storeA.addTheme(dark));
 
     // Both stores now see the new theme in themes[].
-    assert.ok(storeA.read().themes.find((t) => t.id === 'dark'));
-    assert.ok(storeB.read().themes.find((t) => t.id === 'dark'));
+    expect(storeA.read().themes.find((t) => t.id === 'dark')).toBeTruthy();
+    expect(storeB.read().themes.find((t) => t.id === 'dark')).toBeTruthy();
 
     // User A applies the new theme as the active theme.
     storeA.batch(() => storeA.applyTheme('dark'));
 
     // Both stores converge on the new themeId.
-    assert.equal(storeA.read().meta.themeId, 'dark');
-    assert.equal(storeB.read().meta.themeId, 'dark');
+    expect(storeA.read().meta.themeId).toBe('dark');
+    expect(storeB.read().meta.themeId).toBe('dark');
   });
 
   it('addTheme is idempotent on theme.id', () => {
@@ -85,17 +85,14 @@ describe('YorkieSlidesStore — addTheme / applyTheme convergence', () => {
     });
     const themes = store.read().themes;
     const darkThemes = themes.filter((t) => t.id === 'dark');
-    assert.equal(darkThemes.length, 1);
+    expect(darkThemes.length).toBe(1);
     // First write wins — subsequent same-id calls are no-ops.
-    assert.equal(darkThemes[0].name, 'Dark');
+    expect(darkThemes[0].name).toBe('Dark');
   });
 
   it('applyTheme throws when the theme is not in themes[]', () => {
     const doc = makeDoc();
     const store = new YorkieSlidesStore(doc);
-    assert.throws(
-      () => store.batch(() => store.applyTheme('does-not-exist')),
-      /not in document/,
-    );
+    expect(() => store.batch(() => store.applyTheme('does-not-exist'))).toThrow(/not in document/);
   });
 });

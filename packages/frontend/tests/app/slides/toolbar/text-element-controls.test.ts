@@ -1,8 +1,8 @@
 /**
  * Logic tests for TextElementControls handler logic.
  *
- * The React JSX component cannot be rendered by the Node --experimental-strip-types
- * test runner. We extract and verify the handler predicates in isolation:
+ * These are logic tests rather than component-render tests; we extract and
+ * verify the handler predicates in isolation:
  *   - onBackgroundFill writes fill via updateElementData for all selected text elements
  *   - onStrokeChange writes stroke via updateElementData for all selected text elements
  *   - onFontFamily writes fontFamily to all inlines of all selected text elements
@@ -11,8 +11,8 @@
  *   - No-ops when store or slideId is absent
  */
 
-import assert from 'node:assert/strict';
-import { describe, it, mock } from 'node:test';
+import { describe, it, expect, vi } from 'vitest';
+
 import type { Block } from '@wafflebase/docs';
 import type { Stroke, ThemeColor } from '@wafflebase/slides';
 
@@ -157,8 +157,8 @@ describe('TextElementControls onBackgroundFill logic', () => {
 
   function makeStore() {
     return {
-      batch: mock.fn((fn: () => void) => fn()),
-      updateElementData: mock.fn(),
+      batch: vi.fn((fn: () => void) => fn()),
+      updateElementData: vi.fn(),
     };
   }
 
@@ -168,11 +168,11 @@ describe('TextElementControls onBackgroundFill logic', () => {
     const handler = makeOnBackgroundFill(store, slideId, elements, ['el-1']);
     handler(color);
 
-    assert.equal(store.batch.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls[0].arguments[0], slideId);
-    assert.equal(store.updateElementData.mock.calls[0].arguments[1], 'el-1');
-    assert.deepEqual(store.updateElementData.mock.calls[0].arguments[2], { fill: color });
+    expect(store.batch.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls[0][0]).toBe(slideId);
+    expect(store.updateElementData.mock.calls[0][1]).toBe('el-1');
+    expect(store.updateElementData.mock.calls[0][2]).toEqual({ fill: color });
   });
 
   it('writes fill to all selected text elements in multi-select', () => {
@@ -184,9 +184,9 @@ describe('TextElementControls onBackgroundFill logic', () => {
     const handler = makeOnBackgroundFill(store, slideId, elements, ['el-1', 'el-2']);
     handler(color);
 
-    assert.equal(store.updateElementData.mock.calls.length, 2);
-    assert.equal(store.updateElementData.mock.calls[0].arguments[1], 'el-1');
-    assert.equal(store.updateElementData.mock.calls[1].arguments[1], 'el-2');
+    expect(store.updateElementData.mock.calls.length).toBe(2);
+    expect(store.updateElementData.mock.calls[0][1]).toBe('el-1');
+    expect(store.updateElementData.mock.calls[1][1]).toBe('el-2');
   });
 
   it('skips non-text elements', () => {
@@ -195,8 +195,8 @@ describe('TextElementControls onBackgroundFill logic', () => {
     const handler = makeOnBackgroundFill(store, slideId, elements, ['img-1']);
     handler(color);
 
-    assert.equal(store.batch.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls.length).toBe(0);
   });
 
   it('no-ops when store is null', () => {
@@ -212,8 +212,8 @@ describe('TextElementControls onBackgroundFill logic', () => {
     const handler = makeOnBackgroundFill(store, undefined, elements, ['el-1']);
     handler(color);
 
-    assert.equal(store.batch.mock.calls.length, 0);
-    assert.equal(store.updateElementData.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(0);
+    expect(store.updateElementData.mock.calls.length).toBe(0);
   });
 });
 
@@ -227,8 +227,8 @@ describe('TextElementControls onStrokeChange logic', () => {
 
   function makeStore() {
     return {
-      batch: mock.fn((fn: () => void) => fn()),
-      updateElementData: mock.fn(),
+      batch: vi.fn((fn: () => void) => fn()),
+      updateElementData: vi.fn(),
     };
   }
 
@@ -238,8 +238,8 @@ describe('TextElementControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1']);
     handler(stroke);
 
-    assert.equal(store.updateElementData.mock.calls.length, 1);
-    assert.deepEqual(store.updateElementData.mock.calls[0].arguments[2], { stroke });
+    expect(store.updateElementData.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls[0][2]).toEqual({ stroke });
   });
 
   it('writes stroke to all selected text elements in multi-select', () => {
@@ -251,7 +251,7 @@ describe('TextElementControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1', 'el-2']);
     handler(stroke);
 
-    assert.equal(store.updateElementData.mock.calls.length, 2);
+    expect(store.updateElementData.mock.calls.length).toBe(2);
   });
 
   it('passes undefined stroke (clear border) through correctly', () => {
@@ -260,7 +260,7 @@ describe('TextElementControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1']);
     handler(undefined);
 
-    assert.deepEqual(store.updateElementData.mock.calls[0].arguments[2], { stroke: undefined });
+    expect(store.updateElementData.mock.calls[0][2]).toEqual({ stroke: undefined });
   });
 });
 
@@ -280,7 +280,7 @@ describe('TextElementControls onFontFamily logic', () => {
   }
 
   function makeStore(blocks: Block[]) {
-    const withTextElement = mock.fn(
+    const withTextElement = vi.fn(
       (
         _slideId: string,
         _id: string,
@@ -290,7 +290,7 @@ describe('TextElementControls onFontFamily logic', () => {
       },
     );
     return {
-      batch: mock.fn((fn: () => void) => fn()),
+      batch: vi.fn((fn: () => void) => fn()),
       withTextElement,
     };
   }
@@ -301,9 +301,9 @@ describe('TextElementControls onFontFamily logic', () => {
     const handler = makeOnFontFamily(store, slideId, family, ['el-1']);
     handler();
 
-    assert.equal(store.withTextElement.mock.calls.length, 1);
-    assert.equal(store.withTextElement.mock.calls[0].arguments[0], slideId);
-    assert.equal(store.withTextElement.mock.calls[0].arguments[1], 'el-1');
+    expect(store.withTextElement.mock.calls.length).toBe(1);
+    expect(store.withTextElement.mock.calls[0][0]).toBe(slideId);
+    expect(store.withTextElement.mock.calls[0][1]).toBe('el-1');
   });
 
   it('calls withTextElement for all selected elements in multi-select', () => {
@@ -312,17 +312,17 @@ describe('TextElementControls onFontFamily logic', () => {
     const handler = makeOnFontFamily(store, slideId, family, ['el-1', 'el-2']);
     handler();
 
-    assert.equal(store.withTextElement.mock.calls.length, 2);
-    assert.equal(store.withTextElement.mock.calls[0].arguments[1], 'el-1');
-    assert.equal(store.withTextElement.mock.calls[1].arguments[1], 'el-2');
+    expect(store.withTextElement.mock.calls.length).toBe(2);
+    expect(store.withTextElement.mock.calls[0][1]).toBe('el-1');
+    expect(store.withTextElement.mock.calls[1][1]).toBe('el-2');
   });
 
   it('the block mapper writes fontFamily into each inline style', () => {
     const block = makeBlockWithRun('Text');
     let capturedResult: Block[] | undefined;
     const store = {
-      batch: mock.fn((fn: () => void) => fn()),
-      withTextElement: mock.fn(
+      batch: vi.fn((fn: () => void) => fn()),
+      withTextElement: vi.fn(
         (_sid: string, _eid: string, fn: (blocks: Block[]) => Block[] | void) => {
           capturedResult = fn([block]) as Block[];
         },
@@ -331,9 +331,9 @@ describe('TextElementControls onFontFamily logic', () => {
     const handler = makeOnFontFamily(store, slideId, family, ['el-1']);
     handler();
 
-    assert.ok(capturedResult);
+    expect(capturedResult).toBeTruthy();
     const inline = capturedResult[0].inlines[0] as { style: { fontFamily?: string } };
-    assert.equal(inline.style.fontFamily, family);
+    expect(inline.style.fontFamily).toBe(family);
   });
 
   it('no-ops when store is null', () => {
@@ -348,8 +348,8 @@ describe('TextElementControls onFontFamily logic', () => {
     const handler = makeOnFontFamily(store, undefined, family, ['el-1']);
     handler();
 
-    assert.equal(store.batch.mock.calls.length, 0);
-    assert.equal(store.withTextElement.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(0);
+    expect(store.withTextElement.mock.calls.length).toBe(0);
   });
 });
 
@@ -368,7 +368,7 @@ describe('TextElementControls onFontSize logic', () => {
   }
 
   function makeStore(blocks: Block[]) {
-    const withTextElement = mock.fn(
+    const withTextElement = vi.fn(
       (
         _slideId: string,
         _id: string,
@@ -378,7 +378,7 @@ describe('TextElementControls onFontSize logic', () => {
       },
     );
     return {
-      batch: mock.fn((fn: () => void) => fn()),
+      batch: vi.fn((fn: () => void) => fn()),
       withTextElement,
     };
   }
@@ -387,8 +387,8 @@ describe('TextElementControls onFontSize logic', () => {
     const block = makeBlockWithRun('Hello');
     let capturedResult: Block[] | undefined;
     const store = {
-      batch: mock.fn((fn: () => void) => fn()),
-      withTextElement: mock.fn(
+      batch: vi.fn((fn: () => void) => fn()),
+      withTextElement: vi.fn(
         (_sid: string, _eid: string, fn: (blocks: Block[]) => Block[] | void) => {
           capturedResult = fn([block]) as Block[];
         },
@@ -397,9 +397,9 @@ describe('TextElementControls onFontSize logic', () => {
     const handler = makeOnFontSize(store, slideId, ['el-1']);
     handler(24);
 
-    assert.ok(capturedResult);
+    expect(capturedResult).toBeTruthy();
     const inline = capturedResult[0].inlines[0] as { style: { fontSize?: number } };
-    assert.equal(inline.style.fontSize, 24);
+    expect(inline.style.fontSize).toBe(24);
   });
 
   it('calls withTextElement for all selected elements in multi-select', () => {
@@ -408,9 +408,9 @@ describe('TextElementControls onFontSize logic', () => {
     const handler = makeOnFontSize(store, slideId, ['el-1', 'el-2']);
     handler(16);
 
-    assert.equal(store.withTextElement.mock.calls.length, 2);
-    assert.equal(store.withTextElement.mock.calls[0].arguments[1], 'el-1');
-    assert.equal(store.withTextElement.mock.calls[1].arguments[1], 'el-2');
+    expect(store.withTextElement.mock.calls.length).toBe(2);
+    expect(store.withTextElement.mock.calls[0][1]).toBe('el-1');
+    expect(store.withTextElement.mock.calls[1][1]).toBe('el-2');
   });
 
   it('no-ops when store is null', () => {
@@ -425,7 +425,7 @@ describe('TextElementControls onFontSize logic', () => {
     const handler = makeOnFontSize(store, undefined, ['el-1']);
     handler(12);
 
-    assert.equal(store.batch.mock.calls.length, 0);
-    assert.equal(store.withTextElement.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(0);
+    expect(store.withTextElement.mock.calls.length).toBe(0);
   });
 });

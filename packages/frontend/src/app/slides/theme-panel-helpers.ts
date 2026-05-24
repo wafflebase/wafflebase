@@ -6,10 +6,8 @@ import { BUILT_IN_THEMES, type SlidesStore } from "@wafflebase/slides";
  * into one entry. Throws if `themeId` is unknown.
  *
  * Extracted from `theme-panel.tsx` so it can be unit-tested without
- * rendering the React component — the frontend test runner (Node
- * `--experimental-strip-types`) can't parse JSX, so behavioural tests
- * for the panel exercise this helper directly against a
- * `MemSlidesStore`.
+ * rendering the React component — behavioural tests for the panel
+ * exercise this helper directly against a `MemSlidesStore`.
  */
 export function applyBuiltInTheme(store: SlidesStore, themeId: string): void {
   const theme = BUILT_IN_THEMES.find((t) => t.id === themeId);
