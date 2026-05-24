@@ -232,7 +232,7 @@ token, not introduced yet.
 ### Observability
 
 Structured request/response logs via [`nestjs-pino`](https://github.com/iamolegga/nestjs-pino),
-configured in `app.module.ts`:
+configured in `packages/backend/src/app.module.ts`:
 
 - Log level controlled by `LOG_LEVEL` (default `info`).
 - `req.headers.authorization`, `req.headers.cookie`, and outgoing
@@ -242,7 +242,7 @@ configured in `app.module.ts`:
 - `autoLogging` is disabled under `NODE_ENV=test` so Jest output stays
   clean.
 
-`/health` endpoints live in `src/health/health.controller.ts` and are
+`/health` endpoints live in `packages/backend/src/health/health.controller.ts` and are
 exempt from the rate limiter via `@SkipThrottle()`:
 
 | Route | Purpose | Behavior |
@@ -258,7 +258,7 @@ readiness gating — tracked as a follow-up.
 ### Rate Limiting
 
 Per-IP throttling via [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limiting),
-registered as an `APP_GUARD` in `app.module.ts`:
+registered as an `APP_GUARD` in `packages/backend/src/app.module.ts`:
 
 | Route group | Limit | Source |
 |-------------|-------|--------|
@@ -426,7 +426,7 @@ this via Passport's multi-strategy pattern.
 guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`
 overrides on auth endpoints. `/api/v1/*` and authenticated app traffic
 currently share this bucket; a per-API-key bucket is a planned follow-up.
-Behind a multi-hop proxy edge, `trust proxy: 1` (in `main.ts`) must be
+Behind a multi-hop proxy edge, `trust proxy: 1` (in `packages/backend/src/main.ts`) must be
 revisited so `req.ip` resolves correctly.
 
 **Cookie security in development** — `secure: false` in development means
