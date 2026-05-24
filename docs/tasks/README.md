@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pptx shape blipfill (2026-05-23) | [20260523-pptx-shape-blipfill-todo.md](./active/20260523-pptx-shape-blipfill-todo.md) | - |
 | slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./active/20260523-slides-ruler-todo.md) | - |
 | slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./active/20260521-slides-homepage-docs-todo.md) | - |
 | slides thumbnail async bg (2026-05-21) | [20260521-slides-thumbnail-async-bg-todo.md](./active/20260521-slides-thumbnail-async-bg-todo.md) | - |
@@ -31,7 +32,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 202
+- Archived task count: 203
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides ruler (2026-05-23)
+Latest active task: pptx shape blipfill (2026-05-23)
