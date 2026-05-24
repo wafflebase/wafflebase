@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@wafflebase/tokens/tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -50,105 +51,10 @@
   --color-wb-berry: var(--wb-berry);
   --color-wb-leaf: var(--wb-leaf);
   /* stylelint-disable value-keyword-case */
-  --font-display: "Fraunces", ui-serif, Georgia, serif;
-  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-code: var(--font-code);
   /* stylelint-enable value-keyword-case */
-}
-
-:root {
-  --radius: 0.3rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: var(--wb-syrup);
-  --primary-foreground: #fffaf0;
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: var(--wb-syrup);
-  --chart-1: var(--wb-syrup);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: var(--wb-bg);
-  --sidebar-foreground: var(--wb-ink);
-  --sidebar-primary: var(--wb-syrup);
-  --sidebar-primary-foreground: #fffaf0;
-  --sidebar-accent: color-mix(in srgb, var(--wb-butter) 30%, transparent);
-  --sidebar-accent-foreground: var(--wb-syrup-deep);
-  --sidebar-border: var(--wb-rule);
-  --sidebar-ring: var(--wb-syrup);
-  /* Butter & Maple — Light (locked design tokens for homepage redesign) */
-  --wb-bg: #fbf6ec;
-  --wb-paper: #fffdf7;
-  --wb-ink: #2a1e12;
-  --wb-sub: #6b584a;
-  --wb-rule: #e8dcc4;
-  --wb-syrup: #b8651a;
-  --wb-syrup-deep: #8a4a12;
-  --wb-butter: #f4c95d;
-  --wb-berry: #c2484c;
-  --wb-leaf: #5a7a3a;
-  /* Terminal palette — locked across light + dark so the dev-tools card
-     stays a dark code surface in both themes (no inversion). */
-  --wb-terminal-bg: #1c1610;
-  --wb-terminal-fg: #fbf6ec;
-}
-
-.dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: var(--wb-syrup);
-  --primary-foreground: #1c1610;
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: var(--wb-syrup);
-  --chart-1: var(--wb-syrup);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: var(--wb-bg);
-  --sidebar-foreground: var(--wb-ink);
-  --sidebar-primary: var(--wb-syrup);
-  --sidebar-primary-foreground: #1c1610;
-  --sidebar-accent: color-mix(in srgb, var(--wb-butter) 18%, transparent);
-  --sidebar-accent-foreground: var(--wb-syrup-deep);
-  --sidebar-border: var(--wb-rule);
-  --sidebar-ring: var(--wb-syrup);
-  /* Butter & Maple — Dark (locked design tokens for homepage redesign) */
-  --wb-bg: #1c1610;
-  --wb-paper: #241d14;
-  --wb-ink: #fbf6ec;
-  --wb-sub: #b5a48a;
-  --wb-rule: #3a2e1f;
-  --wb-syrup: #e08a3a;
-  --wb-syrup-deep: #f4c95d;
-  --wb-butter: #f4c95d;
-  --wb-berry: #e27a7e;
-  --wb-leaf: #a0c078;
 }
 
 @layer base {
