@@ -22,7 +22,40 @@ import { HealthModule } from './health/health.module';
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? 'info',
-        autoLogging: process.env.NODE_ENV !== 'test',
+        autoLogging:
+          process.env.NODE_ENV === 'test'
+            ? false
+            : {
+                // Liveness / readiness probes fire every few seconds and
+                // are not interesting at info level — skip to keep the
+                // signal-to-noise ratio sane.
+                ignore: (req) =>
+                  req.url === '/health' || req.url === '/health/ready',
+              },
+        // Map status codes to log levels so 5xx page on-call, 4xx warn,
+        // and 304 (conditional GET cache hits) stay at debug.
+        customLogLevel: (_req, res, err) => {
+          if (err || res.statusCode >= 500) return 'error';
+          if (res.statusCode >= 400) return 'warn';
+          if (res.statusCode === 304) return 'debug';
+          return 'info';
+        },
+        // Slim request/response shape: pino-http's default serializer
+        // dumps every header (sec-ch-ua-*, accept-encoding, if-none-match,
+        // etc.) and inflates each log line. Keep only what's useful for
+        // an access log; full headers stay reachable via debug if needed.
+        serializers: {
+          req: (req) => ({
+            id: req.id,
+            method: req.method,
+            url: req.url,
+            remoteAddress: req.remoteAddress,
+            userAgent: req.headers?.['user-agent'],
+          }),
+          res: (res) => ({
+            statusCode: res.statusCode,
+          }),
+        },
         redact: {
           paths: [
             'req.headers.authorization',

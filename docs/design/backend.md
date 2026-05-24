@@ -235,12 +235,21 @@ Structured request/response logs via [`nestjs-pino`](https://github.com/iamolegg
 configured in `packages/backend/src/app.module.ts`:
 
 - Log level controlled by `LOG_LEVEL` (default `info`).
+- Custom serializers slim each access log to `{ method, url,
+  remoteAddress, userAgent, statusCode, responseTime }` — pino-http's
+  default would dump every request header (`sec-ch-ua-*`,
+  `accept-encoding`, `if-none-match`, etc.) on every line and inflate
+  log volume by ~5×. Full headers remain reachable at `debug`.
+- `customLogLevel` routes status codes: `5xx → error`, `4xx → warn`,
+  `304 → debug` (conditional-GET cache hits are not interesting),
+  everything else `info`.
+- `/health` and `/health/ready` are skipped — orchestrator probes
+  would otherwise dominate the log stream.
 - `req.headers.authorization`, `req.headers.cookie`, and outgoing
-  `set-cookie` are redacted before serialization.
+  `set-cookie` are redacted.
 - Production emits raw JSON (one line per event); non-production pipes
   through `pino-pretty` for readability.
-- `autoLogging` is disabled under `NODE_ENV=test` so Jest output stays
-  clean.
+- `autoLogging` is disabled entirely under `NODE_ENV=test`.
 
 `/health` endpoints live in `packages/backend/src/health/health.controller.ts` and are
 exempt from the rate limiter via `@SkipThrottle()`:
