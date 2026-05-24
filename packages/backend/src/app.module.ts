@@ -41,11 +41,11 @@ import { HealthModule } from './health/health.module';
       },
     }),
     ThrottlerModule.forRoot({
-      // Single bucket on purpose. Named throttlers stack — every route
-      // is checked against every bucket — so adding a second strict
-      // bucket would cap all routes at the lowest limit. Auth routes
-      // override the limit per-route via `@Throttle({ default: ... })`.
-      throttlers: [{ name: 'default', ttl: 60_000, limit: 60 }],
+      // Single bucket: named throttlers stack across every route, so a
+      // second strict bucket would cap all routes at the lowest limit.
+      // Auth routes tighten per-route via @Throttle; image routes raise
+      // the ceiling to absorb doc-open upload/fetch bursts.
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
       skipIf: () => process.env.NODE_ENV === 'test',
     }),
     AuthModule,

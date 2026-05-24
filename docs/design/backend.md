@@ -262,8 +262,9 @@ registered as an `APP_GUARD` in `packages/backend/src/app.module.ts`:
 
 | Route group | Limit | Source |
 |-------------|-------|--------|
-| All routes (implicit) | 60 req / 60s / IP | `default` bucket |
+| All routes (implicit) | 120 req / 60s / IP | `default` bucket |
 | `/auth/github/callback`, `/auth/refresh`, `/auth/cli/exchange` | 10 req / 60s / IP | `@Throttle({ default: { limit: 10, ttl: 60_000 } })` |
+| `/images/**`, `/api/v1/workspaces/:id/images/**` | 600 req / 60s / IP | controller-level `@Throttle` — opening a doc with many embedded images bursts past the global cap |
 | `/health`, `/health/ready` | exempt | `@SkipThrottle()` |
 
 A single named bucket on purpose — adding a second strict bucket stacks
