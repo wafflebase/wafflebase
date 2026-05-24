@@ -44,12 +44,12 @@ at the bottom is updated whenever a PR lands.
 
 | Area            | Current state                                                          | Primary locations                                                                                          |
 | --------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Tokens          | Four sources (frontend `@theme` plus three canvas `theme.ts` files)   | `packages/frontend/src/index.css`, `packages/{sheets,docs}/src/view/theme.ts`, `packages/slides/src/model/theme.ts` |
+| Tokens          | Four sources (frontend `@theme` plus three canvas theme files)        | `packages/frontend/src/index.css`, `packages/sheets/src/view/theme.ts`, `packages/docs/src/view/theme.ts`, `packages/slides/src/model/theme.ts` |
 | UI primitives   | Radix + shadcn + CVA, ~22 components                                   | `packages/frontend/src/components/ui/`                                                                     |
-| Toolbars        | Per-package: Slides (13 files), Docs (one file), Sheets (none)         | `packages/frontend/src/app/{slides,docs}/...`                                                              |
+| Toolbars        | Per-package: Slides (13 files), Docs (one file), Sheets (none)         | `packages/frontend/src/app/slides/`, `packages/frontend/src/app/docs/`                                     |
 | Floating UI     | Radix for dropdown/tooltip; custom inline-positioned popovers elsewhere | `packages/frontend/src/app/docs/docs-link-popover.tsx`, comment popovers                                   |
-| Mobile          | Slides only                                                            | `mobile-slides-view.tsx`, `mobile-toolbar.tsx`, `use-mobile.ts`                                            |
-| Icons           | @tabler primary, lucide on the marketing homepage                      | `packages/frontend/src/app/(home)/*`                                                                       |
+| Mobile          | Slides only                                                            | `packages/frontend/src/app/slides/mobile-slides-view.tsx`, `packages/frontend/src/app/slides/toolbar/mobile-toolbar.tsx`, `packages/frontend/src/hooks/use-mobile.ts` |
+| Icons           | @tabler primary, lucide on the marketing homepage                      | `packages/frontend/src/app/(home)/`                                                                        |
 
 ### Roadmap
 
@@ -60,13 +60,15 @@ surfaces to consume shared color, radius, and typography tokens from one
 source of truth.
 
 - New package `packages/tokens/`
-  - `src/palette.ts` — raw oklch color constants (Butter & Maple, light and
-    dark maps).
-  - `src/semantic.ts` — meaning-level tokens (`primary`, `surface`,
-    `foreground`, `border`, ...).
-  - `src/radius.ts`, `src/typography.ts`, `src/spacing.ts`.
-  - `src/index.ts` — re-exports.
-  - `scripts/build-css.ts` — generates `dist/tokens.css` from the TS source.
+  - `packages/tokens/src/palette.ts` — raw oklch color constants (Butter & Maple,
+    light and dark maps).
+  - `packages/tokens/src/semantic.ts` — meaning-level tokens (`primary`,
+    `surface`, `foreground`, `border`, ...).
+  - `packages/tokens/src/radius.ts`, `packages/tokens/src/typography.ts`.
+  - `packages/tokens/src/index.ts` — re-exports.
+  - `packages/tokens/scripts/build-css.ts` — generates a CSS-variable
+    bundle from the TS source, emitted to the package's gitignored dist
+    directory at build time.
 - Migrations
   - `packages/frontend/src/index.css` — replace the inline `@theme` block
     with `@import "@wafflebase/tokens/tokens.css";` plus component-local
@@ -81,8 +83,8 @@ source of truth.
     the slides package. User-edited per-presentation themes always win at
     runtime — tokens are a default provider, not a runtime dispatcher.
 - Workspace wiring (five sites): `pnpm-workspace.yaml`, root
-  `package.json` scripts, `tsconfig.json` references, consumer package
-  `dependencies`, `knip.json`.
+  `package.json` scripts, per-package tsconfig references, consumer-package
+  `dependencies` blocks, `knip.json`.
 - Verification: `pnpm verify:fast`, `pnpm verify:self`, contrast tests
   inside the tokens package, manual light/dark smoke across four screens.
 - Risk: low. The same colors arrive via a different path. The slides PPTX
@@ -94,7 +96,8 @@ source of truth.
 #### PR #2 — Color palette tokenization (P0 #3)
 
 Replace the hardcoded `TEXT_COLORS` and `BG_COLORS` palettes in
-`formatting-colors.ts` with a token-driven swatch generator.
+`packages/frontend/src/components/formatting-colors.ts` with a token-driven
+swatch generator.
 
 - WCAG AA contrast (4.5:1) verified automatically for every swatch in both
   light and dark modes.
@@ -196,10 +199,10 @@ Extract reusable toolbar primitives that all three editors can build on.
 
 This table is updated as each PR lands.
 
-| PR  | Title                                  | State        | Notes              |
-| --- | -------------------------------------- | ------------ | ------------------ |
-| #1  | `@wafflebase/tokens` package           | In progress  | Started 2026-05-24 |
-| #2  | Palette tokenization                   | Not started  |                    |
+| PR  | Title                                  | State        | Notes                              |
+| --- | -------------------------------------- | ------------ | ---------------------------------- |
+| #1  | `@wafflebase/tokens` package           | Ready to merge | Branch `tokens-package`, 2026-05-24 |
+| #2  | Palette tokenization                   | Not started  |                                    |
 | #3  | Shared toolbar components              | Not started  |                    |
 | #4  | Slides toolbar migration               | Not started  |                    |
 | #5  | Sheets formatting toolbar              | Not started  |                    |
