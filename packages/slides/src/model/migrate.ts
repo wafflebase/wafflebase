@@ -1,6 +1,7 @@
-import type { SlidesDocument } from './presentation';
+import type { Guide, GuideAxis, SlidesDocument } from './presentation';
 import type { ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
+import { generateId } from './element';
 import { defaultLight } from '../themes/default-light';
 
 const LAYOUT_ID_MIGRATIONS: Record<string, string> = {
@@ -29,12 +30,27 @@ export function migrateDocument(input: unknown): SlidesDocument {
   return { meta, themes, masters, layouts, slides, guides };
 }
 
-function migrateGuide(g: any): any {
-  return {
-    id: g?.id,
-    axis: g?.axis === 'y' ? 'y' : 'x',
-    position: typeof g?.position === 'number' ? g.position : 0,
-  };
+/**
+ * Normalise an arbitrary guide-shaped value into a well-typed
+ * `Guide`. Two hardenings vs. raw shape pass-through:
+ *
+ * - **id**: synthesised when missing or non-string. Without this the
+ *   editor's hit-test treats a guide-shaped object as targetable
+ *   (axis + position are enough) but moveGuide / removeGuide call
+ *   into the store with `undefined`, which then throws
+ *   `Guide not found: undefined`.
+ * - **position**: only accepted if finite. `NaN` / `Infinity` would
+ *   otherwise propagate into the snap engine's `Math.abs(diff)` math
+ *   and corrupt drag dx/dy, and into the overlay's
+ *   `position * scale` arithmetic.
+ */
+function migrateGuide(g: any): Guide {
+  const id = typeof g?.id === 'string' && g.id.length > 0 ? g.id : generateId();
+  const axis: GuideAxis = g?.axis === 'y' ? 'y' : 'x';
+  const rawPos = g?.position;
+  const position =
+    typeof rawPos === 'number' && Number.isFinite(rawPos) ? rawPos : 0;
+  return { id, axis, position };
 }
 
 function migrateLayout(layout: any): any {

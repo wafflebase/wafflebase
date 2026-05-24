@@ -119,9 +119,21 @@ export function renderOverlay(
         // Thicken + deepen the line so the snap target is obvious.
         // Keeps the visual uncluttered — no extra dashed indicator on
         // top of the existing solid line.
+        //
+        // Widening from 1 px to 2 px shifts the line's right (or
+        // bottom) edge outward by 1 px — visually offsetting the
+        // emphasis by 0.5 px from the snapped coord. Counter-shift
+        // `left` / `top` by -0.5 so the centre of the 2-px line stays
+        // anchored on the snap coordinate.
         el.style.background = '#be123c';
-        if (g.axis === 'x') el.style.width = '2px';
-        else el.style.height = '2px';
+        const pos = g.position * options.scale;
+        if (g.axis === 'x') {
+          el.style.width = '2px';
+          el.style.left = `${pos - 0.5}px`;
+        } else {
+          el.style.height = '2px';
+          el.style.top = `${pos - 0.5}px`;
+        }
       }
       overlay.appendChild(el);
     }
@@ -397,12 +409,14 @@ function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
 }
 
 /**
- * Render a presentation-wide alignment guide as a 1-px magenta line
- * spanning the full slide on its axis. Phase 5 will differentiate
- * permanent vs snap guide styling; for now we match snap-guide colors
- * so Phase 3 (display-only) lands without churning the visual
- * baseline. `data-guide` carries the guide id so future interaction
- * passes (hover / hit-test) can find it.
+ * Render a presentation-wide alignment guide as a 1-px magenta line.
+ * The line is extended past the slide bounds by `GUIDE_EXTEND_PX` on
+ * each end so it visually connects into the H / V rulers — the
+ * canvas-area's `overflow: hidden` clips the excess at its outer
+ * frame edge so the line doesn't leak into the notes panel below.
+ *
+ * `data-guide` carries the guide id so future interaction passes
+ * (hover / hit-test) can find it.
  */
 function makePermanentGuide(
   guide: Guide,
@@ -417,17 +431,25 @@ function makePermanentGuide(
   el.style.pointerEvents = 'none';
   if (guide.axis === 'x') {
     el.style.left = `${guide.position * scale}px`;
-    el.style.top = '0px';
+    el.style.top = `-${GUIDE_EXTEND_PX}px`;
     el.style.width = '1px';
-    el.style.height = `${slideHeight * scale}px`;
+    el.style.height = `${GUIDE_EXTEND_PX * 2 + slideHeight * scale}px`;
   } else {
-    el.style.left = '0px';
+    el.style.left = `-${GUIDE_EXTEND_PX}px`;
     el.style.top = `${guide.position * scale}px`;
-    el.style.width = `${slideWidth * scale}px`;
+    el.style.width = `${GUIDE_EXTEND_PX * 2 + slideWidth * scale}px`;
     el.style.height = '1px';
   }
   return el;
 }
+
+/**
+ * Distance (in CSS pixels) the permanent guide line extends past
+ * the slide on every side. Large enough to always reach the
+ * canvas-area frame on any reasonable viewport; the `overflow:
+ * hidden` clip on canvasArea trims the excess.
+ */
+const GUIDE_EXTEND_PX = 10_000;
 
 function handleCursor(kind: string): string {
   switch (kind) {

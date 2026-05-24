@@ -67,7 +67,7 @@ shared low-level module so both packages stay visually consistent.
 The docs and slides rulers share a low-level rendering core; each
 package owns its own controller and interactions.
 
-```
+```text
 packages/docs/src/view/ruler/
 ├── index.ts            # MOVED — existing docs Ruler class (was view/ruler.ts)
 ├── tick-renderer.ts    # NEW (extracted) — tick + label drawing
@@ -97,7 +97,7 @@ canvases. Permanent guides paint into the existing overlay layer
 rather than into the ruler, because they belong to the slide
 coordinate system (they zoom and pan with the slide content).
 
-```
+```text
 editor-shell.tsx
 └── <slide-stage> (position: relative)
     ├── <ruler-corner>    absolute; top:0; left:0; 20×20

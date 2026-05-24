@@ -62,22 +62,28 @@ export interface GuideDragHost {
 /**
  * Hit-test a slide-logical pointer against the live guide list.
  * Returns the closest guide within `GUIDE_HIT_PX` of the pointer, or
- * null if none qualify. Caller is responsible for picking among
- * overlapping guides — `find` returns the first match in `guides[]`
- * order, which is the deck's authored z-order.
+ * `null` if none qualify. Scans the full list (instead of returning
+ * the first match) so two stacked guides near the pointer resolve to
+ * the one the user actually clicked on, not whichever sits earlier
+ * in `guides[]` order.
  */
 export function hitTestGuide(
   guides: readonly Guide[],
   point: { x: number; y: number },
 ): Guide | null {
+  let best: Guide | null = null;
+  let bestDist = GUIDE_HIT_PX + 1;
   for (const g of guides) {
     const d =
       g.axis === 'x'
         ? Math.abs(point.x - g.position)
         : Math.abs(point.y - g.position);
-    if (d <= GUIDE_HIT_PX) return g;
+    if (d <= GUIDE_HIT_PX && d < bestDist) {
+      best = g;
+      bestDist = d;
+    }
   }
-  return null;
+  return best;
 }
 
 /**

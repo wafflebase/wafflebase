@@ -292,6 +292,11 @@ export function SlidesView({
     canvasArea.style.alignItems = "center";
     canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
     canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
+    // Clip the over-sized permanent guide lines (they extend past the
+    // slide bounds so they visually reach the rulers). Also trims any
+    // shadow that might bleed past the SLIDE_FRAME_GAP — acceptable
+    // since the shadow's outer fade is already near-zero opacity.
+    canvasArea.style.overflow = "hidden";
 
     // Seed the host dimensions before mounting any DOM that references
     // them. `refitCanvas` will replace these on the first
@@ -319,13 +324,20 @@ export function SlidesView({
     // bitmap intrinsic size (300×150 default). Set explicit
     // width/height in `refitCanvas` below, and seed an initial value
     // here so the first paint isn't a 0×0 sliver in the corner.
+    // Rulers sit at z-index 1 (below canvasWrap's z-index 2) so the
+    // permanent guide lines — which extend past the slide bounds into
+    // the ruler area — paint on top of the ruler ticks instead of
+    // disappearing under them. The corner stays at z-index 3 above
+    // both; no guide can cross the corner because guides always sit
+    // at slide-x ≥ 0, which after centring + padding maps to a frame
+    // x well to the right of the corner's 14×14 footprint.
     const hRulerCanvas = document.createElement("canvas");
     hRulerCanvas.style.position = "absolute";
     hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
     hRulerCanvas.style.top = "0";
     hRulerCanvas.style.width = `${hostW}px`;
     hRulerCanvas.style.height = `${SLIDES_RULER_SIZE}px`;
-    hRulerCanvas.style.zIndex = "2";
+    hRulerCanvas.style.zIndex = "1";
     canvasArea.appendChild(hRulerCanvas);
 
     const vRulerCanvas = document.createElement("canvas");
@@ -339,9 +351,13 @@ export function SlidesView({
 
     // Canvas + overlay live inside this wrapper at the slide's
     // intrinsic host dimensions (no ruler offset — the ruler lives
-    // outside, on the canvas-area frame).
+    // outside, on the canvas-area frame). `z-index: 2` pushes its
+    // overlay (and the over-sized permanent guide lines inside it)
+    // above the ruler canvases at z-index 1 so guides visually
+    // connect through the ruler ticks.
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
+    canvasWrap.style.zIndex = "2";
     canvasWrap.style.width = `${hostW}px`;
     canvasWrap.style.height = `${hostH}px`;
 
@@ -490,6 +506,19 @@ export function SlidesView({
     // `notesHeight` changes without `right`'s own size changing).
     const refitCanvas = () => {
       const rightRect = right.getBoundingClientRect();
+      // Re-clamp notesHeight against the live column cap. The drag
+      // handler enforces MAX_NOTES_H_RATIO while the divider is being
+      // dragged, but a height restored from localStorage or a window
+      // resize would otherwise let the notes panel exceed the cap
+      // until the next user drag.
+      const maxNotesH = Math.max(
+        MIN_NOTES_H,
+        Math.floor(rightRect.height * MAX_NOTES_H_RATIO),
+      );
+      if (notesHeight > maxNotesH) {
+        notesHeight = maxNotesH;
+        notesHost.style.height = `${notesHeight}px`;
+      }
       // Notes section reserves its own height + the 6 px resizer.
       const reservedBelow = notesHeight + 6;
       const availW = Math.max(MIN_HOST_W, Math.min(MAX_HOST_W, rightRect.width));

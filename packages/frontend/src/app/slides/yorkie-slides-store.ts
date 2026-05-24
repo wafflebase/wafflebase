@@ -73,6 +73,19 @@ function clone<T>(value: T): T {
 }
 
 /**
+ * Reject `NaN` / `Infinity` before they reach the Yorkie root. The
+ * snap engine's `Math.abs(diff)` and the overlay's
+ * `position * scale` math both propagate `NaN` silently, so a bad
+ * value committed here would surface as a hard-to-diagnose
+ * downstream artifact rather than a clear error.
+ */
+function assertFiniteGuidePosition(op: string, position: number): void {
+  if (!Number.isFinite(position)) {
+    throw new Error(`${op}: position must be a finite number, got ${position}`);
+  }
+}
+
+/**
  * Convert a Yorkie object/array proxy to a plain JS value. Yorkie proxies
  * implement `toJSON()` that returns a JSON string (not a plain object), so
  * we parse it back. Returns the input unchanged when it doesn't have the
@@ -476,9 +489,18 @@ export class YorkieSlidesStore implements SlidesStore {
       // touches them needs them mirrored here. Until Task 5 ships the
       // theme-edit ops these arrays don't change, but writing them keeps
       // the Yorkie root consistent with the cloned snapshot.
-      const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+      //
+      // Guides also live on the snapshot — without rewriting them here,
+      // undo / redo of addGuide / moveGuide / removeGuide silently
+      // diverges from the editor's pre-batch state.
+      const rootAny = r as {
+        themes?: Theme[];
+        masters?: Master[];
+        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
+      };
       rootAny.themes = clone(snapshot.themes);
       rootAny.masters = clone(snapshot.masters);
+      rootAny.guides = clone(snapshot.guides ?? []);
       const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
         id: s.id,
         layoutId: s.layoutId,
@@ -1475,6 +1497,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   addGuide(axis: 'x' | 'y', position: number): string {
     this.requireBatch();
+    assertFiniteGuidePosition('addGuide', position);
     const id = generateId();
     this.doc.update((r) => {
       const rootAny = r as { guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }> };
@@ -1486,6 +1509,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   moveGuide(id: string, position: number): void {
     this.requireBatch();
+    assertFiniteGuidePosition('moveGuide', position);
     this.doc.update((r) => {
       const rootAny = r as { guides?: Array<{ id: string; position: number }> };
       const guide = rootAny.guides?.find((g) => g.id === id);

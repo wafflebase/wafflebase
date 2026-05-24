@@ -35,7 +35,9 @@ export function mountNotesPanel(
 ): NotesPanelHandle {
   const readOnly = options.readOnly === true;
   container.innerHTML = '';
+  ensureNotesPanelStyles();
   const ta = document.createElement('textarea');
+  ta.className = 'wfb-slides-notes-ta';
   ta.placeholder = 'Speaker notes…';
   ta.readOnly = readOnly;
   // Fill the host's drag-resized height instead of carrying its own
@@ -49,7 +51,10 @@ export function mountNotesPanel(
   // Theme tokens from shadcn (frontend's index.css) so the textarea
   // follows the surrounding light/dark mode. Background stays
   // transparent so the panel blends with the editor column instead of
-  // floating as its own boxy surface.
+  // floating as its own boxy surface. The `outline: none` here drops
+  // the boxy default focus ring; keyboard users get a subtler 2-px
+  // inset ring via the `:focus-visible` rule installed by
+  // `ensureNotesPanelStyles` so a11y stays intact (WCAG 2.4.7).
   ta.style.background = 'transparent';
   ta.style.color = 'var(--foreground, #ddd)';
   ta.style.border = 'none';
@@ -92,6 +97,28 @@ export function mountNotesPanel(
       offSlide();
     },
   };
+}
+
+/**
+ * Inject a `:focus-visible` outline rule for the notes textarea once
+ * per document. The inline `outline: none` strips the default focus
+ * ring (which would render as a boxy rectangle around the borderless
+ * panel); this rule re-adds a subtle 2-px inset ring that only shows
+ * for keyboard focus — WCAG 2.4.7 compliant without re-introducing
+ * the chrome we deliberately removed for mouse users.
+ */
+function ensureNotesPanelStyles(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('wfb-slides-notes-panel-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'wfb-slides-notes-panel-styles';
+  style.textContent =
+    '.wfb-slides-notes-ta:focus-visible {' +
+    '  outline: 2px solid var(--ring, #3a7);' +
+    '  outline-offset: -2px;' +
+    '  border-radius: 2px;' +
+    '}';
+  document.head.appendChild(style);
 }
 
 function blocksToText(blocks: readonly Block[]): string {
