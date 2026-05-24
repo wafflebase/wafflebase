@@ -31,6 +31,25 @@ export const THEME_ROLES: ColorRole[] = [
 ];
 
 /**
+ * Subset of `THEME_ROLES` shown in the picker UI. The remaining slots
+ * (textSecondary, backgroundAlt, hyperlink, visitedHyperlink) still
+ * resolve at render time but are rarely picked explicitly — they
+ * follow the theme automatically — so we omit them from the picker
+ * grid and surface the 8 high-traffic roles in a single row that
+ * aligns with the 8-col Standard grid below.
+ */
+export const PICKER_THEME_ROLES: ColorRole[] = [
+  "text",
+  "background",
+  "accent1",
+  "accent2",
+  "accent3",
+  "accent4",
+  "accent5",
+  "accent6",
+];
+
+/**
  * True when `value` is a role-bound ThemeColor pointing at `role`.
  * Used by the picker to render the "active" marker on the matching
  * theme swatch — if the value is `kind: 'srgb'` (a concrete color

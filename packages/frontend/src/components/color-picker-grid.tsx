@@ -23,7 +23,7 @@ export function ColorPickerGrid({ colors, onSelect, onReset }: ColorPickerGridPr
           <button
             key={color}
             type="button"
-            className="h-4 w-4 cursor-pointer rounded-sm border border-border hover:scale-125 transition-transform"
+            className="h-5 w-5 cursor-pointer rounded-sm border border-border hover:scale-125 transition-transform"
             style={{ backgroundColor: color }}
             aria-label={`Select color ${color}`}
             title={color}
