@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, expect } from 'vitest';
 
 import {
   addReply,
@@ -38,27 +37,24 @@ describe('createThread', () => {
   it('initializes a thread with a single root comment', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'hello world', author1, newId, newId, () => 42);
-    assert.equal(t.resolved, false);
-    assert.equal(t.createdAt, 42);
-    assert.equal(t.comments.length, 1);
-    assert.equal(t.comments[0].body, 'hello world');
-    assert.equal(t.comments[0].author.userId, 'u1');
-    assert.equal(t.comments[0].createdAt, 42);
-    assert.equal(t.comments[0].editedAt, undefined);
+    expect(t.resolved).toBe(false);
+    expect(t.createdAt).toBe(42);
+    expect(t.comments.length).toBe(1);
+    expect(t.comments[0].body).toBe('hello world');
+    expect(t.comments[0].author.userId).toBe('u1');
+    expect(t.comments[0].createdAt).toBe(42);
+    expect(t.comments[0].editedAt).toBe(undefined);
   });
 
   it('rejects an empty body (after trim)', () => {
     const newId = makeIds();
-    assert.throws(
-      () => createThread(cellAnchor, '   \n  ', author1, newId, newId, () => 1),
-      /empty/i,
-    );
+    expect(() => createThread(cellAnchor, '   \n  ', author1, newId, newId, () => 1)).toThrow(/empty/i);
   });
 
   it('accepts newlines inside a non-empty body', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'line1\nline2', author1, newId, newId, () => 1);
-    assert.equal(t.comments[0].body, 'line1\nline2');
+    expect(t.comments[0].body).toBe('line1\nline2');
   });
 });
 
@@ -68,17 +64,17 @@ describe('addReply', () => {
     const now = fixedTime();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, now);
     const t2 = addReply(t, 'reply', author2, newId, now);
-    assert.equal(t2.comments.length, 2);
-    assert.equal(t2.comments[0].body, 'root');
-    assert.equal(t2.comments[1].body, 'reply');
-    assert.equal(t2.comments[1].author.userId, 'u2');
+    expect(t2.comments.length).toBe(2);
+    expect(t2.comments[0].body).toBe('root');
+    expect(t2.comments[1].body).toBe('reply');
+    expect(t2.comments[1].author.userId).toBe('u2');
   });
 
   it('rejects empty reply body', () => {
     const newId = makeIds();
     const now = fixedTime();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, now);
-    assert.throws(() => addReply(t, '   ', author2, newId, now), /empty/i);
+    expect(() => addReply(t, '   ', author2, newId, now)).toThrow(/empty/i);
   });
 });
 
@@ -91,22 +87,22 @@ describe('editComment', () => {
     now = 200;
     const t2 = editComment(t, rootId, 'new', () => now);
     const edited = t2.comments.find((c) => c.id === rootId)!;
-    assert.equal(edited.body, 'new');
-    assert.equal(edited.editedAt, 200);
-    assert.ok((edited.editedAt as number) > edited.createdAt);
+    expect(edited.body).toBe('new');
+    expect(edited.editedAt).toBe(200);
+    expect((edited.editedAt as number) > edited.createdAt).toBeTruthy();
   });
 
   it('rejects empty body', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
     const id = t.comments[0].id;
-    assert.throws(() => editComment(t, id, '   ', () => 2), /empty/i);
+    expect(() => editComment(t, id, '   ', () => 2)).toThrow(/empty/i);
   });
 
   it('throws when commentId is unknown', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
-    assert.throws(() => editComment(t, 'nope', 'x', () => 2), /not found/i);
+    expect(() => editComment(t, 'nope', 'x', () => 2)).toThrow(/not found/i);
   });
 });
 
@@ -118,9 +114,9 @@ describe('deleteComment', () => {
     const t2 = addReply(t, 'reply', author2, newId, now);
     const replyId = t2.comments[1].id;
     const t3 = deleteComment(t2, replyId);
-    assert.notEqual(t3, null);
-    assert.equal(t3!.comments.length, 1);
-    assert.equal(t3!.comments[0].body, 'root');
+    expect(t3).not.toBe(null);
+    expect(t3!.comments.length).toBe(1);
+    expect(t3!.comments[0].body).toBe('root');
   });
 
   it('returns null when the root comment is deleted', () => {
@@ -128,13 +124,13 @@ describe('deleteComment', () => {
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
     const rootId = t.comments[0].id;
     const t2 = deleteComment(t, rootId);
-    assert.equal(t2, null);
+    expect(t2).toBe(null);
   });
 
   it('throws when commentId is unknown', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
-    assert.throws(() => deleteComment(t, 'nope'), /not found/i);
+    expect(() => deleteComment(t, 'nope')).toThrow(/not found/i);
   });
 });
 
@@ -143,9 +139,9 @@ describe('setThreadResolved', () => {
     const newId = makeIds();
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
     const t2 = setThreadResolved(t, true, author2, () => 999);
-    assert.equal(t2.resolved, true);
-    assert.equal(t2.resolvedBy?.userId, 'u2');
-    assert.equal(t2.resolvedAt, 999);
+    expect(t2.resolved).toBe(true);
+    expect(t2.resolvedBy?.userId).toBe('u2');
+    expect(t2.resolvedAt).toBe(999);
   });
 
   it('clears resolvedBy and resolvedAt when reopened', () => {
@@ -153,8 +149,8 @@ describe('setThreadResolved', () => {
     const t = createThread(cellAnchor, 'root', author1, newId, newId, () => 1);
     const closed = setThreadResolved(t, true, author2, () => 999);
     const reopened: Thread = setThreadResolved(closed, false, author1, () => 1500);
-    assert.equal(reopened.resolved, false);
-    assert.equal(reopened.resolvedBy, undefined);
-    assert.equal(reopened.resolvedAt, undefined);
+    expect(reopened.resolved).toBe(false);
+    expect(reopened.resolvedBy).toBe(undefined);
+    expect(reopened.resolvedAt).toBe(undefined);
   });
 });

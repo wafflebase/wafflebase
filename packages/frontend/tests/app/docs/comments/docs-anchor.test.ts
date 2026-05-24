@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, expect } from 'vitest';
 
 import {
   DEFAULT_BLOCK_STYLE,
@@ -40,34 +39,34 @@ const anchor = (
 describe('docPositionToTreePath', () => {
   it('top-level block, offset 0 → [blockIdx, 0, 0]', () => {
     const d = doc(block('b1', 'hello'));
-    assert.deepEqual(docPositionToTreePath(d, { blockId: 'b1', offset: 0 }), [0, 0, 0]);
+    expect(docPositionToTreePath(d, { blockId: 'b1', offset: 0 })).toEqual([0, 0, 0]);
   });
 
   it('second block resolves to [1, ...]', () => {
     const d = doc(block('b1', 'hello'), block('b2', 'world'));
-    assert.deepEqual(docPositionToTreePath(d, { blockId: 'b2', offset: 3 }), [1, 0, 3]);
+    expect(docPositionToTreePath(d, { blockId: 'b2', offset: 3 })).toEqual([1, 0, 3]);
   });
 
   it('offset inside second inline → correct inlineIdx + charOffset', () => {
     const d = doc(block('b1', 'Hello', ' world'));
     // offset 7 → inline 0 has 5 chars, remaining 2 in inline 1
-    assert.deepEqual(docPositionToTreePath(d, { blockId: 'b1', offset: 7 }), [0, 1, 2]);
+    expect(docPositionToTreePath(d, { blockId: 'b1', offset: 7 })).toEqual([0, 1, 2]);
   });
 
   it('offset exactly at inline boundary stays in earlier inline', () => {
     const d = doc(block('b1', 'Hello', ' world'));
     // offset 5 = end of inline 0
-    assert.deepEqual(docPositionToTreePath(d, { blockId: 'b1', offset: 5 }), [0, 0, 5]);
+    expect(docPositionToTreePath(d, { blockId: 'b1', offset: 5 })).toEqual([0, 0, 5]);
   });
 
   it('unknown blockId returns null', () => {
     const d = doc(block('b1', 'hello'));
-    assert.equal(docPositionToTreePath(d, { blockId: 'bogus', offset: 0 }), null);
+    expect(docPositionToTreePath(d, { blockId: 'bogus', offset: 0 })).toBe(null);
   });
 
   it('offset past block end clamps to last inline end (resolveOffset semantics)', () => {
     const d = doc(block('b1', 'Hello'));
-    assert.deepEqual(docPositionToTreePath(d, { blockId: 'b1', offset: 999 }), [0, 0, 5]);
+    expect(docPositionToTreePath(d, { blockId: 'b1', offset: 999 })).toEqual([0, 0, 5]);
   });
 });
 
@@ -78,8 +77,8 @@ describe('extractAnchorContext', () => {
       anchor: { blockId: 'b1', offset: 6 },
       focus: { blockId: 'b1', offset: 11 },
     });
-    assert.equal(ctx.blockId, 'b1');
-    assert.equal(ctx.quotedText, 'world');
+    expect(ctx.blockId).toBe('b1');
+    expect(ctx.quotedText).toBe('world');
   });
 
   it('reverse-ordered range (focus before anchor) is normalized', () => {
@@ -88,7 +87,7 @@ describe('extractAnchorContext', () => {
       anchor: { blockId: 'b1', offset: 11 },
       focus: { blockId: 'b1', offset: 6 },
     });
-    assert.equal(ctx.quotedText, 'world');
+    expect(ctx.quotedText).toBe('world');
   });
 
   it('multi-block range is joined with newlines', () => {
@@ -97,8 +96,8 @@ describe('extractAnchorContext', () => {
       anchor: { blockId: 'b1', offset: 2 }, // "rst"
       focus: { blockId: 'b3', offset: 3 },  // "thi"
     });
-    assert.equal(ctx.blockId, 'b1');
-    assert.equal(ctx.quotedText, 'rst\nsecond\nthi');
+    expect(ctx.blockId).toBe('b1');
+    expect(ctx.quotedText).toBe('rst\nsecond\nthi');
   });
 
   it('quotedText is capped with an ellipsis when over maxChars', () => {
@@ -112,8 +111,8 @@ describe('extractAnchorContext', () => {
       },
       10,
     );
-    assert.equal(ctx.quotedText.length, 10);
-    assert.ok(ctx.quotedText.endsWith('…'));
+    expect(ctx.quotedText.length).toBe(10);
+    expect(ctx.quotedText.endsWith('…')).toBeTruthy();
   });
 
   it('unknown start block returns empty quotedText but preserved blockId', () => {
@@ -122,8 +121,8 @@ describe('extractAnchorContext', () => {
       anchor: { blockId: 'gone', offset: 0 },
       focus: { blockId: 'gone', offset: 0 },
     });
-    assert.equal(ctx.blockId, 'gone');
-    assert.equal(ctx.quotedText, '');
+    expect(ctx.blockId).toBe('gone');
+    expect(ctx.quotedText).toBe('');
   });
 });
 
@@ -136,7 +135,7 @@ describe('resolveDocsAnchor', () => {
       ] as [number[], number[]],
     };
     const result = resolveDocsAnchor(tree, anchor('b1'));
-    assert.deepEqual(result, {
+    expect(result).toEqual({
       kind: 'live',
       startPath: [0, 0, 0],
       endPath: [0, 0, 5],
@@ -150,7 +149,7 @@ describe('resolveDocsAnchor', () => {
       },
     };
     const result = resolveDocsAnchor(tree, anchor('b1'));
-    assert.deepEqual(result, { kind: 'orphan' });
+    expect(result).toEqual({ kind: 'orphan' });
   });
 
   it('returns orphan when SDK collapses path below text level (block deleted)', () => {
@@ -159,7 +158,7 @@ describe('resolveDocsAnchor', () => {
     const tree = {
       posRangeToPathRange: () => [[0], [0]] as [number[], number[]],
     };
-    assert.deepEqual(resolveDocsAnchor(tree, anchor('b1')), { kind: 'orphan' });
+    expect(resolveDocsAnchor(tree, anchor('b1'))).toEqual({ kind: 'orphan' });
   });
 
   it('round-trip: pathRangeToPosRange → resolveDocsAnchor returns the same paths', () => {
@@ -171,11 +170,11 @@ describe('resolveDocsAnchor', () => {
     const fakePos = { roundtripped: true } as unknown as DocsRangeAnchor['posRange'];
 
     const pathRangeToPosRange = (range: [number[], number[]]) => {
-      assert.deepEqual(range, treePath);
+      expect(range).toEqual(treePath);
       return fakePos;
     };
     const posRangeToPathRange = (pos: DocsRangeAnchor['posRange']) => {
-      assert.equal(pos, fakePos);
+      expect(pos).toBe(fakePos);
       return treePath;
     };
 
@@ -184,7 +183,7 @@ describe('resolveDocsAnchor', () => {
       { posRangeToPathRange },
       anchor('b3', posRange),
     );
-    assert.deepEqual(result, {
+    expect(result).toEqual({
       kind: 'live',
       startPath: treePath[0],
       endPath: treePath[1],

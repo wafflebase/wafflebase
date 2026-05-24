@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, expect } from 'vitest';
 
 import { DEFAULT_BLOCK_STYLE, DEFAULT_INLINE_STYLE } from '@wafflebase/docs';
 import type { Block, Document } from '@wafflebase/docs';
@@ -46,19 +45,19 @@ function makeThread(
 describe('pathToDocPosition', () => {
   it('reverses docPositionToTreePath for top-level blocks', () => {
     const d = doc(block('b1', 'Hello', ' world'));
-    assert.deepEqual(pathToDocPosition(d, [0, 0, 0]), { blockId: 'b1', offset: 0 });
-    assert.deepEqual(pathToDocPosition(d, [0, 0, 5]), { blockId: 'b1', offset: 5 });
-    assert.deepEqual(pathToDocPosition(d, [0, 1, 2]), { blockId: 'b1', offset: 7 });
+    expect(pathToDocPosition(d, [0, 0, 0])).toEqual({ blockId: 'b1', offset: 0 });
+    expect(pathToDocPosition(d, [0, 0, 5])).toEqual({ blockId: 'b1', offset: 5 });
+    expect(pathToDocPosition(d, [0, 1, 2])).toEqual({ blockId: 'b1', offset: 7 });
   });
 
   it('resolves the second block and into its second inline', () => {
     const d = doc(block('b1', 'aaa'), block('b2', 'Hello', ' world'));
-    assert.deepEqual(pathToDocPosition(d, [1, 1, 3]), { blockId: 'b2', offset: 8 });
+    expect(pathToDocPosition(d, [1, 1, 3])).toEqual({ blockId: 'b2', offset: 8 });
   });
 
   it('returns null when blockIdx is out of range', () => {
     const d = doc(block('b1', 'hi'));
-    assert.equal(pathToDocPosition(d, [42, 0, 0]), null);
+    expect(pathToDocPosition(d, [42, 0, 0])).toBe(null);
   });
 
   it('returns null for a path shorter than [block, inline, char]', () => {
@@ -67,7 +66,7 @@ describe('pathToDocPosition', () => {
     // length < 3 to bail; pathToDocPosition mirrors that — it never has
     // to invent an offset for a degenerate path.
     const d = doc(block('b1', 'hello'));
-    assert.equal(pathToDocPosition(d, [0]), null);
+    expect(pathToDocPosition(d, [0])).toBe(null);
   });
 });
 
@@ -82,10 +81,10 @@ describe('computeCommentMarkers', () => {
     };
     const t = makeThread('t1', 'b1');
     const markers = computeCommentMarkers([t], d, tree);
-    assert.equal(markers.length, 1);
-    assert.equal(markers[0].id, 't1');
-    assert.deepEqual(markers[0].anchor, { blockId: 'b1', offset: 6 });
-    assert.deepEqual(markers[0].focus, { blockId: 'b1', offset: 11 });
+    expect(markers.length).toBe(1);
+    expect(markers[0].id).toBe('t1');
+    expect(markers[0].anchor).toEqual({ blockId: 'b1', offset: 6 });
+    expect(markers[0].focus).toEqual({ blockId: 'b1', offset: 11 });
   });
 
   it('drops resolved threads', () => {
@@ -101,7 +100,7 @@ describe('computeCommentMarkers', () => {
       d,
       tree,
     );
-    assert.deepEqual(markers, []);
+    expect(markers).toEqual([]);
   });
 
   it('drops orphan threads (resolveDocsAnchor → orphan)', () => {
@@ -112,7 +111,7 @@ describe('computeCommentMarkers', () => {
       },
     };
     const markers = computeCommentMarkers([makeThread('t1', 'b1')], d, tree);
-    assert.deepEqual(markers, []);
+    expect(markers).toEqual([]);
   });
 
   it('drops threads whose resolved path has no matching block', () => {
@@ -124,7 +123,7 @@ describe('computeCommentMarkers', () => {
       ] as [number[], number[]],
     };
     const markers = computeCommentMarkers([makeThread('t1', 'b1')], d, tree);
-    assert.deepEqual(markers, []);
+    expect(markers).toEqual([]);
   });
 
   it('handles multiple threads, preserving input order', () => {
@@ -142,8 +141,8 @@ describe('computeCommentMarkers', () => {
       d,
       tree,
     );
-    assert.equal(markers.length, 2);
-    assert.equal(markers[0].id, 't1');
-    assert.equal(markers[1].id, 't2');
+    expect(markers.length).toBe(2);
+    expect(markers[0].id).toBe('t1');
+    expect(markers[1].id).toBe('t2');
   });
 });

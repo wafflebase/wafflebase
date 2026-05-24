@@ -2,7 +2,8 @@ import { readFileSync } from "fs";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, loadEnv, type Plugin, type Connect } from "vite";
+import { loadEnv, type Plugin, type Connect } from "vite";
+import { defineConfig } from "vitest/config";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
@@ -186,5 +187,10 @@ export default defineConfig({
         manualChunks,
       },
     },
+  },
+  test: {
+    environment: "jsdom",
+    include: ["tests/**/*.test.ts"],
+    globals: false,
   },
 });

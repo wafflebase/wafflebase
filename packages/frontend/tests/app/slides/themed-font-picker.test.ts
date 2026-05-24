@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from 'vitest';
 import {
   SYSTEM_FONTS,
   isFontRoleSelected,
@@ -8,43 +7,37 @@ import {
 } from "@/app/slides/themed-font-picker-helpers.ts";
 
 /**
- * The themed font picker UI is a `.tsx` React component, stubbed by
- * `tests/resolve-hooks.mjs` at test load. Helper logic — system-font
- * list, role-vs-family selection detection, ThemeFont builders — is
- * extracted to `themed-font-picker-helpers.ts` and tested here.
+ * The themed font picker UI is a `.tsx` React component. Helper logic —
+ * system-font list, role-vs-family selection detection, ThemeFont
+ * builders — is extracted to `themed-font-picker-helpers.ts` and tested
+ * here without rendering React.
  */
 
 describe("themed-font-picker helpers", () => {
   it("SYSTEM_FONTS has at least 8 entries including Inter and Roboto", () => {
-    assert.ok(SYSTEM_FONTS.length >= 8);
-    assert.ok(SYSTEM_FONTS.includes("Inter"));
-    assert.ok(SYSTEM_FONTS.includes("Roboto"));
+    expect(SYSTEM_FONTS.length >= 8).toBeTruthy();
+    expect(SYSTEM_FONTS.includes("Inter")).toBeTruthy();
+    expect(SYSTEM_FONTS.includes("Roboto")).toBeTruthy();
   });
 
   it("isFontRoleSelected returns true only when value is a role match", () => {
-    assert.ok(
-      isFontRoleSelected({ kind: "role", role: "heading" }, "heading"),
-    );
-    assert.ok(
-      !isFontRoleSelected({ kind: "role", role: "heading" }, "body"),
-    );
+    expect(isFontRoleSelected({ kind: "role", role: "heading" }, "heading")).toBeTruthy();
+    expect(!isFontRoleSelected({ kind: "role", role: "heading" }, "body")).toBeTruthy();
     // family values never match a role button.
-    assert.ok(
-      !isFontRoleSelected({ kind: "family", family: "Inter" }, "heading"),
-    );
-    assert.ok(!isFontRoleSelected(undefined, "heading"));
+    expect(!isFontRoleSelected({ kind: "family", family: "Inter" }, "heading")).toBeTruthy();
+    expect(!isFontRoleSelected(undefined, "heading")).toBeTruthy();
   });
 
   it("makeRoleFont produces a role ThemeFont for both roles", () => {
-    assert.deepEqual(makeRoleFont("heading"), {
+    expect(makeRoleFont("heading")).toEqual({
       kind: "role",
       role: "heading",
     });
-    assert.deepEqual(makeRoleFont("body"), { kind: "role", role: "body" });
+    expect(makeRoleFont("body")).toEqual({ kind: "role", role: "body" });
   });
 
   it("makeFamilyFont produces a family ThemeFont", () => {
-    assert.deepEqual(makeFamilyFont("Inter"), {
+    expect(makeFamilyFont("Inter")).toEqual({
       kind: "family",
       family: "Inter",
     });

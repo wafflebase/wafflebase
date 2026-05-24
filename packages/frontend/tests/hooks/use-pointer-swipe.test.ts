@@ -1,14 +1,12 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from 'vitest';
 import { attachPointerSwipe } from "../../src/hooks/use-pointer-swipe.ts";
 
 /**
  * `attachPointerSwipe` is the pure-DOM core of the `usePointerSwipe`
- * React hook. We test it directly against a fake element so we can
- * skip JSDOM and React entirely — the frontend test runner is
- * `node:test`, not Vitest, and `.tsx` files are stubbed to no-op by
- * the resolve hook. Mirrors the pattern used by `shape-picker.test.ts`
- * (extract pure logic, test that, leave the JSX/UI for Playwright).
+ * React hook. We test it directly against a fake element, exercising the
+ * gesture logic without mounting the React hook. Mirrors the pattern used
+ * by `shape-picker.test.ts` (extract pure logic, test that, leave the
+ * JSX/UI for Playwright).
  */
 
 type Handler = (e: unknown) => void;
@@ -88,8 +86,8 @@ test("attachPointerSwipe — left swipe past threshold fires onSwipeLeft", () =>
   el.__fire("pointermove", ev("move", 120, 100, 50)); // dx = -80, locks horizontal
   el.__fire("pointerup", ev("up", 120, 100, 100));
 
-  assert.equal(left, 1);
-  assert.equal(right, 0);
+  expect(left).toBe(1);
+  expect(right).toBe(0);
   cleanup();
 });
 
@@ -106,8 +104,8 @@ test("attachPointerSwipe — right swipe past threshold fires onSwipeRight", () 
   el.__fire("pointermove", ev("move", 200, 100, 50));
   el.__fire("pointerup", ev("up", 200, 100, 100));
 
-  assert.equal(left, 0);
-  assert.equal(right, 1);
+  expect(left).toBe(0);
+  expect(right).toBe(1);
   cleanup();
 });
 
@@ -123,7 +121,7 @@ test("attachPointerSwipe — vertical movement cancels classification", () => {
   el.__fire("pointermove", ev("move", 105, 200, 50)); // |dy|=100 >> |dx|=5
   el.__fire("pointerup", ev("up", 200, 100, 100));    // dx now large but already cancelled
 
-  assert.equal(fired, 0);
+  expect(fired).toBe(0);
   cleanup();
 });
 
@@ -139,7 +137,7 @@ test("attachPointerSwipe — horizontal travel below threshold does not fire", (
   el.__fire("pointermove", ev("move", 130, 100, 50)); // dx=30 → locks horizontal
   el.__fire("pointerup", ev("up", 130, 100, 100));    // |dx|=30 < default 50px threshold
 
-  assert.equal(fired, 0);
+  expect(fired).toBe(0);
   cleanup();
 });
 
@@ -156,7 +154,7 @@ test("attachPointerSwipe — gesture over maxDurationMs is ignored", () => {
   el.__fire("pointermove", ev("move", 120, 100, 100));
   el.__fire("pointerup", ev("up", 120, 100, 1000)); // elapsed 1000 > 600
 
-  assert.equal(left, 0);
+  expect(left).toBe(0);
   cleanup();
 });
 
@@ -173,7 +171,7 @@ test("attachPointerSwipe — pointercancel mid-gesture aborts", () => {
   el.__fire("pointercancel", ev("cancel", 120, 100, 60));
   el.__fire("pointerup", ev("up", 120, 100, 100));
 
-  assert.equal(left, 0);
+  expect(left).toBe(0);
   cleanup();
 });
 
@@ -192,10 +190,10 @@ test("attachPointerSwipe — cleanup removes listeners", () => {
   el.__fire("pointermove", ev("move", 120, 100, 50));
   el.__fire("pointerup", ev("up", 120, 100, 100));
 
-  assert.equal(fired, 0);
+  expect(fired).toBe(0);
   // Listener sets should be empty after cleanup.
   for (const set of el.__handlers.values()) {
-    assert.equal(set.size, 0);
+    expect(set.size).toBe(0);
   }
 });
 
@@ -219,11 +217,11 @@ test("attachPointerSwipe — events from a different pointerId are ignored mid-g
     cancelable: true,
     preventDefault: () => {},
   });
-  assert.equal(fired, 0, "second pointer must not close the first's gesture");
+  expect(fired, "second pointer must not close the first's gesture").toBe(0);
 
   // The real pointer's up should still fire.
   el.__fire("pointerup", ev("up", 120, 100, 110));
-  assert.equal(fired, 1);
+  expect(fired).toBe(1);
 
   cleanup();
 });
@@ -256,7 +254,7 @@ test("attachPointerSwipe — second pointerdown mid-gesture is ignored", () => {
   el.__fire("pointermove", ev("move", 120, 100, 50)); // pointer 1, dx = -80
   el.__fire("pointerup", ev("up", 120, 100, 100));
 
-  assert.equal(left, 1);
+  expect(left).toBe(1);
   cleanup();
 });
 
@@ -280,6 +278,6 @@ test("attachPointerSwipe — a fresh pointerdown is accepted after pointercancel
   el.__fire("pointermove", ev("move", 220, 100, 250));
   el.__fire("pointerup", ev("up", 220, 100, 300));
 
-  assert.equal(left, 1);
+  expect(left).toBe(1);
   cleanup();
 });

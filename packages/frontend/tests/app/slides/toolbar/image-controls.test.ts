@@ -1,12 +1,12 @@
 /**
  * Logic tests for ImageControls.
  *
- * The component is TSX and cannot be rendered in the Node strip-types runner.
- * We test the data-access predicates and store-write paths directly.
+ * These are logic tests, not component-render tests: we exercise the
+ * data-access predicates and store-write paths directly.
  */
 
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
+
 import { MemSlidesStore } from '@wafflebase/slides';
 
 function setupStore(opts: { withCrop?: boolean; withAlt?: string } = {}) {
@@ -31,7 +31,7 @@ function setupStore(opts: { withCrop?: boolean; withAlt?: string } = {}) {
 function readImage(store: MemSlidesStore, slideId: string, elementId: string) {
   const slide = store.read().slides.find((s) => s.id === slideId)!;
   const el = slide.elements.find((e) => e.id === elementId);
-  assert.ok(el && el.type === 'image');
+  expect(el && el.type === 'image').toBeTruthy();
   return el;
 }
 
@@ -39,13 +39,13 @@ describe('ImageControls — hasCrop derivation', () => {
   it('hasCrop is false when no crop is set', () => {
     const { store, slideId, elementId } = setupStore({ withCrop: false });
     const el = readImage(store, slideId, elementId);
-    assert.equal(!!el.data.crop, false);
+    expect(!!el.data.crop).toBe(false);
   });
 
   it('hasCrop is true when a crop rectangle is stored', () => {
     const { store, slideId, elementId } = setupStore({ withCrop: true });
     const el = readImage(store, slideId, elementId);
-    assert.equal(!!el.data.crop, true);
+    expect(!!el.data.crop).toBe(true);
   });
 });
 
@@ -57,7 +57,7 @@ describe('ImageControls — onResetCrop', () => {
       store.updateElementData(slideId, elementId, { crop: undefined }),
     );
     const el = readImage(store, slideId, elementId);
-    assert.equal(el.data.crop, undefined);
+    expect(el.data.crop).toBe(undefined);
   });
 });
 
@@ -68,7 +68,7 @@ describe('ImageControls — onSaveAlt', () => {
       store.updateElementData(slideId, elementId, { alt: 'A chart showing sales' }),
     );
     const el = readImage(store, slideId, elementId);
-    assert.equal(el.data.alt, 'A chart showing sales');
+    expect(el.data.alt).toBe('A chart showing sales');
   });
 
   it('can overwrite existing alt text', () => {
@@ -77,6 +77,6 @@ describe('ImageControls — onSaveAlt', () => {
       store.updateElementData(slideId, elementId, { alt: 'new alt' }),
     );
     const el = readImage(store, slideId, elementId);
-    assert.equal(el.data.alt, 'new alt');
+    expect(el.data.alt).toBe('new alt');
   });
 });

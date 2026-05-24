@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import type { Document } from '@yorkie-js/sdk';
 import type { YorkieSlidesRoot } from '../../../src/types/slides-document.ts';
@@ -21,9 +20,9 @@ describe('YorkieSlidesStore — read', () => {
     const doc = makeDoc();
     const store = new YorkieSlidesStore(doc);
     const out = store.read();
-    assert.equal(out.meta.title, 'Untitled presentation');
-    assert.deepEqual(out.slides, []);
-    assert.ok(out.layouts.length > 0);
+    expect(out.meta.title).toBe('Untitled presentation');
+    expect(out.slides).toEqual([]);
+    expect(out.layouts.length > 0).toBeTruthy();
   });
 });
 
@@ -35,11 +34,8 @@ describe('YorkieSlidesStore — slide ops', () => {
     store.batch(() => {
       id = store.addSlide('blank');
     });
-    assert.deepEqual(
-      store.read().slides.map((s) => s.id),
-      [id],
-    );
-    assert.equal(typeof id, 'string');
+    expect(store.read().slides.map((s) => s.id)).toEqual([id]);
+    expect(typeof id).toBe('string');
   });
 
   it('addSlide("title-body") seeds two text placeholders', () => {
@@ -50,7 +46,7 @@ describe('YorkieSlidesStore — slide ops', () => {
       id = store.addSlide('title-body');
     });
     const slide = store.read().slides.find((s) => s.id === id)!;
-    assert.equal(slide.elements.length, 2);
+    expect(slide.elements.length).toBe(2);
   });
 
   it('removeSlide drops the slide', () => {
@@ -61,7 +57,7 @@ describe('YorkieSlidesStore — slide ops', () => {
       id = store.addSlide('blank');
     });
     store.batch(() => store.removeSlide(id));
-    assert.deepEqual(store.read().slides, []);
+    expect(store.read().slides).toEqual([]);
   });
 
   it('moveSlide reorders', () => {
@@ -72,10 +68,7 @@ describe('YorkieSlidesStore — slide ops', () => {
       for (let i = 0; i < 3; i++) ids.push(store.addSlide('blank'));
     });
     store.batch(() => store.moveSlide(ids[2], 0));
-    assert.deepEqual(
-      store.read().slides.map((s) => s.id),
-      [ids[2], ids[0], ids[1]],
-    );
+    expect(store.read().slides.map((s) => s.id)).toEqual([ids[2], ids[0], ids[1]]);
   });
 });
 
@@ -94,9 +87,9 @@ describe('YorkieSlidesStore — element ops', () => {
       });
     });
     store.batch(() => store.updateElementFrame(slideId, elId, { x: 100 }));
-    assert.equal(store.read().slides[0].elements[0].frame.x, 100);
+    expect(store.read().slides[0].elements[0].frame.x).toBe(100);
     store.batch(() => store.removeElement(slideId, elId));
-    assert.deepEqual(store.read().slides[0].elements, []);
+    expect(store.read().slides[0].elements).toEqual([]);
   });
 });
 
@@ -108,17 +101,17 @@ describe('YorkieSlidesStore — undo/redo (snapshot-based)', () => {
       store.addSlide('blank');
       store.addSlide('blank');
     });
-    assert.equal(store.read().slides.length, 2);
+    expect(store.read().slides.length).toBe(2);
     store.undo();
-    assert.deepEqual(store.read().slides, []);
+    expect(store.read().slides).toEqual([]);
     store.redo();
-    assert.equal(store.read().slides.length, 2);
+    expect(store.read().slides.length).toBe(2);
   });
 
   it('throws if a mutation is called outside a batch', () => {
     const doc = makeDoc();
     const store = new YorkieSlidesStore(doc);
-    assert.throws(() => store.addSlide('blank'), /must be wrapped in batch/);
+    expect(() => store.addSlide('blank')).toThrow(/must be wrapped in batch/);
   });
 });
 
@@ -135,7 +128,7 @@ describe('YorkieSlidesStore — remote-change subscription', () => {
       fired = true;
     };
     store.batch(() => store.addSlide('blank'));
-    assert.equal(fired, false);
+    expect(fired).toBe(false);
   });
 });
 
@@ -163,14 +156,14 @@ describe('YorkieSlidesStore — group / ungroup', () => {
     store.batch(() => {
       const result = store.group(slideId, [aId, bId]);
       groupId = result.groupId;
-      assert.equal(result.excludedConnectorIds.length, 0);
+      expect(result.excludedConnectorIds.length).toBe(0);
     });
     const slide = store.read().slides[0];
-    assert.equal(slide.elements.length, 1);
+    expect(slide.elements.length).toBe(1);
     const group = slide.elements[0];
-    assert.equal(group.type, 'group');
-    assert.equal(group.id, groupId);
-    assert.equal((group as { data: { children: unknown[] } }).data.children.length, 2);
+    expect(group.type).toBe('group');
+    expect(group.id).toBe(groupId);
+    expect((group as { data: { children: unknown[] } }).data.children.length).toBe(2);
   });
 
   it('ungroup() dissolves a group back to its parent array', () => {
@@ -199,11 +192,11 @@ describe('YorkieSlidesStore — group / ungroup', () => {
     });
     store.batch(() => {
       const childIds = store.ungroup(slideId, groupId);
-      assert.equal(childIds.length, 2);
+      expect(childIds.length).toBe(2);
     });
     const slide = store.read().slides[0];
-    assert.equal(slide.elements.length, 2);
-    assert.ok(slide.elements.every(e => e.type === 'shape'));
+    expect(slide.elements.length).toBe(2);
+    expect(slide.elements.every(e => e.type === 'shape')).toBeTruthy();
   });
 
   it('addElement(parentGroupId) appends to a group child array', () => {
@@ -237,9 +230,9 @@ describe('YorkieSlidesStore — group / ungroup', () => {
       }, groupId);
     });
     const slide = store.read().slides[0];
-    assert.equal(slide.elements.length, 1); // still one group at root
+    expect(slide.elements.length).toBe(1); // still one group at root
     const group = slide.elements[0] as { data: { children: unknown[] } };
-    assert.equal(group.data.children.length, 3); // now 3 children
+    expect(group.data.children.length).toBe(3); // now 3 children
   });
 
   it('removeElement on the last child of a group removes the group too', () => {
@@ -273,12 +266,12 @@ describe('YorkieSlidesStore — group / ungroup', () => {
     const [childA, childB] = groupEl.data.children;
     store.batch(() => store.removeElement(slideId, childA.id));
     // One child remains, group still exists.
-    assert.equal(store.read().slides[0].elements.length, 1);
-    assert.equal(store.read().slides[0].elements[0].type, 'group');
+    expect(store.read().slides[0].elements.length).toBe(1);
+    expect(store.read().slides[0].elements[0].type).toBe('group');
     store.batch(() => store.removeElement(slideId, childB.id));
     // Last child removed → group auto-pruned.
-    assert.deepEqual(store.read().slides[0].elements, []);
-    assert.ok(groupId.length > 0);
+    expect(store.read().slides[0].elements).toEqual([]);
+    expect(groupId.length > 0).toBeTruthy();
   });
 
   it('updateElementFrame on a group-nested element works', () => {
@@ -314,6 +307,6 @@ describe('YorkieSlidesStore — group / ungroup', () => {
       data: { children: Array<{ id: string; frame: { x: number } }> };
     };
     const updated = updatedGroupEl.data.children.find(c => c.id === childId)!;
-    assert.equal(updated.frame.x, 99);
+    expect(updated.frame.x).toBe(99);
   });
 });

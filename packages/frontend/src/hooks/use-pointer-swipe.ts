@@ -29,9 +29,7 @@ type Phase = "idle" | "pending" | "horizontal" | "cancelled";
  * competing scroll or history-back swipe.
  *
  * Exposed separately from `usePointerSwipe` so the gesture logic can
- * be unit-tested without a React renderer — the frontend test runner
- * is Node's native runner and stubs `.tsx` files, so component-level
- * tests on a React hook are not possible here.
+ * be unit-tested directly, without mounting a React component.
  *
  * Returns the cleanup function the caller should invoke on teardown.
  */

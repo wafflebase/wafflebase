@@ -42,8 +42,8 @@ export type Category = {
  *
  * Exported as a `readonly` `Category[]` so consumers don't mutate
  * the canonical list. The picker re-exports this through
- * `shape-picker.tsx`; the helpers module exists separately because
- * `tests/resolve-hooks.mjs` stubs `.tsx` modules at test load.
+ * `shape-picker.tsx`; the helpers module exists separately so the
+ * catalogue can be unit-tested without rendering the component.
  */
 export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
   {

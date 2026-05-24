@@ -1,15 +1,15 @@
 /**
  * Logic tests for ShapeControls handler logic.
  *
- * The React JSX component cannot be rendered by the Node --experimental-strip-types
- * test runner. We extract and verify the handler predicates in isolation:
+ * These are logic tests rather than component-render tests; we extract and
+ * verify the handler predicates in isolation:
  *   - onStrokeChange writes via updateElementData (shapes) and updateConnectorStroke (connectors)
  *   - Multi-select writes to all applicable elements
  *   - No-ops when store or slideId is absent
  */
 
-import assert from 'node:assert/strict';
-import { describe, it, mock } from 'node:test';
+import { describe, it, expect, vi } from 'vitest';
+
 import type { Stroke } from '@wafflebase/slides';
 
 // ---------------------------------------------------------------------------
@@ -54,9 +54,9 @@ describe('ShapeControls onStrokeChange logic', () => {
   const stroke: Stroke = { color: '#ff0000', width: 2, dash: 'solid' };
 
   function makeStore() {
-    const batchMock = mock.fn((fn: () => void) => fn());
-    const updateElementDataMock = mock.fn();
-    const updateConnectorStrokeMock = mock.fn();
+    const batchMock = vi.fn((fn: () => void) => fn());
+    const updateElementDataMock = vi.fn();
+    const updateConnectorStrokeMock = vi.fn();
     return {
       batch: batchMock,
       updateElementData: updateElementDataMock,
@@ -70,12 +70,12 @@ describe('ShapeControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1']);
     handler(stroke);
 
-    assert.equal(store.batch.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls[0].arguments[0], slideId);
-    assert.equal(store.updateElementData.mock.calls[0].arguments[1], 'el-1');
-    assert.deepEqual(store.updateElementData.mock.calls[0].arguments[2], { stroke });
-    assert.equal(store.updateConnectorStroke.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls[0][0]).toBe(slideId);
+    expect(store.updateElementData.mock.calls[0][1]).toBe('el-1');
+    expect(store.updateElementData.mock.calls[0][2]).toEqual({ stroke });
+    expect(store.updateConnectorStroke.mock.calls.length).toBe(0);
   });
 
   it('calls updateConnectorStroke for a single connector', () => {
@@ -84,11 +84,11 @@ describe('ShapeControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['con-1']);
     handler(stroke);
 
-    assert.equal(store.updateConnectorStroke.mock.calls.length, 1);
-    assert.equal(store.updateConnectorStroke.mock.calls[0].arguments[0], slideId);
-    assert.equal(store.updateConnectorStroke.mock.calls[0].arguments[1], 'con-1');
-    assert.deepEqual(store.updateConnectorStroke.mock.calls[0].arguments[2], stroke);
-    assert.equal(store.updateElementData.mock.calls.length, 0);
+    expect(store.updateConnectorStroke.mock.calls.length).toBe(1);
+    expect(store.updateConnectorStroke.mock.calls[0][0]).toBe(slideId);
+    expect(store.updateConnectorStroke.mock.calls[0][1]).toBe('con-1');
+    expect(store.updateConnectorStroke.mock.calls[0][2]).toEqual(stroke);
+    expect(store.updateElementData.mock.calls.length).toBe(0);
   });
 
   it('writes to both shapes and connectors in a multi-select', () => {
@@ -101,8 +101,8 @@ describe('ShapeControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1', 'con-1', 'el-2']);
     handler(stroke);
 
-    assert.equal(store.updateElementData.mock.calls.length, 2);
-    assert.equal(store.updateConnectorStroke.mock.calls.length, 1);
+    expect(store.updateElementData.mock.calls.length).toBe(2);
+    expect(store.updateConnectorStroke.mock.calls.length).toBe(1);
   });
 
   it('skips image elements entirely', () => {
@@ -112,9 +112,9 @@ describe('ShapeControls onStrokeChange logic', () => {
     handler(stroke);
 
     // batch is still called but no updates issued
-    assert.equal(store.batch.mock.calls.length, 1);
-    assert.equal(store.updateElementData.mock.calls.length, 0);
-    assert.equal(store.updateConnectorStroke.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(1);
+    expect(store.updateElementData.mock.calls.length).toBe(0);
+    expect(store.updateConnectorStroke.mock.calls.length).toBe(0);
   });
 
   it('passes undefined stroke (no border) through correctly', () => {
@@ -123,7 +123,7 @@ describe('ShapeControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, slideId, elements, ['el-1']);
     handler(undefined);
 
-    assert.deepEqual(store.updateElementData.mock.calls[0].arguments[2], { stroke: undefined });
+    expect(store.updateElementData.mock.calls[0][2]).toEqual({ stroke: undefined });
   });
 
   it('no-ops when store is null', () => {
@@ -139,8 +139,8 @@ describe('ShapeControls onStrokeChange logic', () => {
     const handler = makeOnStrokeChange(store, undefined, elements, ['el-1']);
     handler(stroke);
 
-    assert.equal(store.batch.mock.calls.length, 0);
-    assert.equal(store.updateElementData.mock.calls.length, 0);
+    expect(store.batch.mock.calls.length).toBe(0);
+    expect(store.updateElementData.mock.calls.length).toBe(0);
   });
 });
 
@@ -164,16 +164,16 @@ describe('BorderPicker onWeightChange logic', () => {
   }
 
   it('emits undefined when weight is 0', () => {
-    const onChange = mock.fn<(s: Stroke | undefined) => void>();
+    const onChange = vi.fn<(s: Stroke | undefined) => void>();
     onWeightChange({ color: '#ff0000', width: 2 }, 0, onChange);
-    assert.equal(onChange.mock.calls[0].arguments[0], undefined);
+    expect(onChange.mock.calls[0][0]).toBe(undefined);
   });
 
   it('emits updated stroke with new width', () => {
-    const onChange = mock.fn<(s: Stroke | undefined) => void>();
+    const onChange = vi.fn<(s: Stroke | undefined) => void>();
     const existing: Stroke = { color: '#ff0000', width: 2, dash: 'solid' };
     onWeightChange(existing, 4, onChange);
-    assert.deepEqual(onChange.mock.calls[0].arguments[0], {
+    expect(onChange.mock.calls[0][0]).toEqual({
       color: '#ff0000',
       width: 4,
       dash: 'solid',
@@ -181,9 +181,9 @@ describe('BorderPicker onWeightChange logic', () => {
   });
 
   it('uses DEFAULT_STROKE as base when value is undefined', () => {
-    const onChange = mock.fn<(s: Stroke | undefined) => void>();
+    const onChange = vi.fn<(s: Stroke | undefined) => void>();
     onWeightChange(undefined, 2, onChange);
-    assert.deepEqual(onChange.mock.calls[0].arguments[0], {
+    expect(onChange.mock.calls[0][0]).toEqual({
       color: '#000000',
       width: 2,
       dash: 'solid',
@@ -208,11 +208,11 @@ describe('BorderPicker onColorChange logic', () => {
   }
 
   it('re-enables stroke width from 0 when a color is chosen', () => {
-    const onChange = mock.fn<(s: Stroke | undefined) => void>();
+    const onChange = vi.fn<(s: Stroke | undefined) => void>();
     const existing: Stroke = { color: '#000000', width: 0 };
     onColorChange(existing, { kind: 'srgb', value: '#ff0000' }, onChange);
-    const result = onChange.mock.calls[0].arguments[0] as Stroke;
-    assert.equal(result.width, 1);
-    assert.deepEqual(result.color, { kind: 'srgb', value: '#ff0000' });
+    const result = onChange.mock.calls[0][0] as Stroke;
+    expect(result.width).toBe(1);
+    expect(result.color).toEqual({ kind: 'srgb', value: '#ff0000' });
   });
 });

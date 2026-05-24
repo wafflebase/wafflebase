@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import type { TabMeta } from "../../../src/types/worksheet.ts";
 import {
   buildTabNameNormalizationPatches,
@@ -18,7 +17,7 @@ function buildTabs(entries: Array<[string, string, TabMeta["type"]]>): Record<st
 }
 
 test("normalizeTabName trims surrounding whitespace", () => {
-  assert.equal(normalizeTabName("  Sheet1  "), "Sheet1");
+  expect(normalizeTabName("  Sheet1  ")).toBe("Sheet1");
 });
 
 test("isTabNameTaken checks names case-insensitively", () => {
@@ -27,9 +26,9 @@ test("isTabNameTaken checks names case-insensitively", () => {
     ["tab-2", "DataSource", "datasource"],
   ]);
 
-  assert.equal(isTabNameTaken(tabs, "sheet1"), true);
-  assert.equal(isTabNameTaken(tabs, "SHEET1", "tab-1"), false);
-  assert.equal(isTabNameTaken(tabs, "unknown"), false);
+  expect(isTabNameTaken(tabs, "sheet1")).toBe(true);
+  expect(isTabNameTaken(tabs, "SHEET1", "tab-1")).toBe(false);
+  expect(isTabNameTaken(tabs, "unknown")).toBe(false);
 });
 
 test("getUniqueTabName appends a numeric suffix when needed", () => {
@@ -38,8 +37,8 @@ test("getUniqueTabName appends a numeric suffix when needed", () => {
     ["tab-2", "Sheet1 (2)", "sheet"],
   ]);
 
-  assert.equal(getUniqueTabName(tabs, "Sheet1", "Sheet"), "Sheet1 (3)");
-  assert.equal(getUniqueTabName(tabs, "  ", "DataSource"), "DataSource");
+  expect(getUniqueTabName(tabs, "Sheet1", "Sheet")).toBe("Sheet1 (3)");
+  expect(getUniqueTabName(tabs, "  ", "DataSource")).toBe("DataSource");
 });
 
 test("getNextDefaultSheetName finds the lowest available SheetN name", () => {
@@ -49,7 +48,7 @@ test("getNextDefaultSheetName finds the lowest available SheetN name", () => {
     ["tab-3", "SHEET2", "sheet"],
   ]);
 
-  assert.equal(getNextDefaultSheetName(tabs), "Sheet4");
+  expect(getNextDefaultSheetName(tabs)).toBe("Sheet4");
 });
 
 test("buildTabNameNormalizationPatches normalizes blanks and duplicates", () => {
@@ -64,7 +63,7 @@ test("buildTabNameNormalizationPatches normalizes blanks and duplicates", () => 
     tabs,
   );
 
-  assert.deepEqual(patches, [
+  expect(patches).toEqual([
     { tabId: "tab-1", name: "Sheet1" },
     { tabId: "tab-2", name: "sheet1 (2)" },
     { tabId: "tab-3", name: "DataSource" },
