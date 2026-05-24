@@ -89,6 +89,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [docs-cli.md](docs-cli.md)                             | Docs CLI support and namespace restructure — `docs`/`sheets` plural namespaces, content/export/import for Docs |
 | [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
+| [cross-package-source-resolution.md](cross-package-source-resolution.md) | Source-first typecheck via `wafflebase-source` exports condition — kills stale-`dist/` false failures (slides→docs); runtime-channel + cross-env constraints documented |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 

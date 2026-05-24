@@ -12,6 +12,7 @@
   "types": "dist/wafflebase-document.es.d.ts",
   "exports": {
     ".": {
+      "wafflebase-source": "./src/index.ts",
       "node": {
         "types": "./dist/node.d.ts",
         "import": "./dist/node.js",
