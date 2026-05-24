@@ -1,3 +1,5 @@
+import { palette, typography } from '@wafflebase/tokens';
+
 import type { ColorRole, ColorScheme, FontScheme, Theme } from '../../model/theme';
 import { parseHexInContainer } from './color';
 import { parsePrimaryTypeface } from './font';
@@ -22,23 +24,32 @@ const SCHEME_SLOTS: Array<[string, ColorRole]> = [
   ['folHlink', 'visitedHyperlink'],
 ];
 
-/** Fallback when a theme slot is missing — uses `default-light` values. */
+/** Extract the first font family from a CSS font stack (e.g. `"Fraunces", ui-serif, ...` → `Fraunces`). */
+const firstFamily = (stack: string) => stack.split(',')[0].replace(/"/g, '').trim();
+
+/**
+ * Fallback when a theme slot is missing — uses Butter & Maple factory defaults.
+ * PPTX imports and user-edited per-presentation themes override this at runtime.
+ */
 const FALLBACK_COLORS: ColorScheme = {
-  text: '#202124',
-  background: '#FFFFFF',
-  textSecondary: '#5F6368',
-  backgroundAlt: '#F1F3F4',
-  accent1: '#1A73E8',
-  accent2: '#34A853',
-  accent3: '#FBBC04',
-  accent4: '#EA4335',
-  accent5: '#673AB7',
-  accent6: '#FF6D01',
-  hyperlink: '#1A73E8',
-  visitedHyperlink: '#7B1FA2',
+  text: palette.neutrals.light.ink,
+  background: palette.neutrals.light.paper,
+  textSecondary: palette.neutrals.light.sub,
+  backgroundAlt: palette.neutrals.light.bg,
+  accent1: palette.syrup,
+  accent2: palette.butter,
+  accent3: palette.berry,
+  accent4: palette.leaf,
+  accent5: palette.syrupDeep,
+  accent6: palette.berryBright,
+  hyperlink: palette.syrup,
+  visitedHyperlink: palette.berry,
 };
 
-const FALLBACK_FONTS: FontScheme = { heading: 'Inter', body: 'Inter' };
+const FALLBACK_FONTS: FontScheme = {
+  heading: firstFamily(typography.display),
+  body: firstFamily(typography.body),
+};
 
 /**
  * Parse a `ppt/theme/themeN.xml` into a `Theme`.

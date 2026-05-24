@@ -565,6 +565,9 @@ importers:
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
