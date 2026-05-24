@@ -57,6 +57,18 @@ interface SlidesViewProps {
 const SLIDE_ASPECT = 16 / 9;
 const MIN_HOST_W = 320;  // floor so very narrow viewports still paint something usable
 const MAX_HOST_W = 1600; // ceiling so on ultra-wide displays we don't paint a 4K bitmap
+/**
+ * Breathing room (px) between the slide edge and the ruler / canvas-
+ * area edge. Without this the slide touches the ruler at zoom-to-fit,
+ * which:
+ *   - lets the slide's 12-px drop-shadow blur into the ruler ticks
+ *   - leaves the slide's 1-px hairline outline overlapping the ruler edge
+ * Subtracting this from the available width / height shrinks the slide
+ * just enough that the flex centering produces equal padding on every
+ * side. `SlidesRuler` keeps its `(frame - host) / 2` offset math —
+ * tick "0" still lands on the slide's actual left / top edge.
+ */
+const SLIDE_FRAME_GAP = 12;
 
 function computeFitSize(availWidth: number, availHeight: number): {
   width: number;
@@ -486,9 +498,16 @@ export function SlidesView({
         rightRect.height - reservedBelow,
       );
       // Reserve the ruler gutter so the slide canvas itself never
-      // overflows the right column: canvasWrap outer = host + gutter.
-      const slideAvailW = Math.max(MIN_HOST_W, availW - SLIDES_RULER_SIZE);
-      const slideAvailH = Math.max(MIN_HOST_W / SLIDE_ASPECT, availH - SLIDES_RULER_SIZE);
+      // overflows the right column, plus a SLIDE_FRAME_GAP on both
+      // sides so the slide elevation doesn't bleed into the rulers.
+      const slideAvailW = Math.max(
+        MIN_HOST_W,
+        availW - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
+      );
+      const slideAvailH = Math.max(
+        MIN_HOST_W / SLIDE_ASPECT,
+        availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
+      );
       const fit = computeFitSize(slideAvailW, slideAvailH);
       const nextW = Math.round(fit.width);
       const nextH = Math.round(fit.height);
