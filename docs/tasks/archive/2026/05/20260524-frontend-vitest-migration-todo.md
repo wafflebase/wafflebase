@@ -31,8 +31,8 @@ false-failure class and deletes the custom loader stack.
 - [x] `pnpm frontend lint` clean; `pnpm verify:fast` exit 0
 - [x] Spot-check: `slides/src`-only symbol visible to `pnpm frontend test`
       with no rebuild (was the failing case under dist-first)
-- [ ] Self code-review the branch diff
-- [ ] Open PR (Summary + Test plan)
+- [x] Self code-review the branch diff
+- [x] Open PR (Summary + Test plan) — merged as #291
 
 ## Review (results)
 

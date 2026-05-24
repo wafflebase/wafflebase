@@ -34,7 +34,7 @@ needs the tokens `dist/`. The two deploy workflows skipped the tokens build.
 - [x] Fix `publish-ghpage.yml` — use `pnpm build:all` (builds tokens first; identical otherwise)
 - [x] Fix `Dockerfile` builder stage — copy `packages/tokens` manifest + source, build tokens before sheets
 - [x] Verify: `pnpm build:all` (Pages) and `docker build` (Docker Publish)
-- [ ] Code review, open PR
+- [x] Code review, open PR — workflow/Dockerfile fixes shipped on main via #292
 
 ## Review
 
