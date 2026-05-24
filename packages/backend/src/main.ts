@@ -1,3 +1,4 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import * as bodyParser from 'body-parser';
 import * as cookieParser from 'cookie-parser';
@@ -25,6 +26,14 @@ async function bootstrap() {
   app.use(bodyParser.json({ limit: JSON_BODY_LIMIT }));
   app.use(bodyParser.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
   app.use(cookieParser());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: false },
+    }),
+  );
   app.enableCors({
     origin: [process.env.FRONTEND_URL],
     credentials: true,
