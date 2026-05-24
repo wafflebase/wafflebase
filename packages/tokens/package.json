@@ -1,0 +1,32 @@
+{
+  "name": "@wafflebase/tokens",
+  "version": "0.4.1",
+  "license": "Apache-2.0",
+  "description": "Shared design tokens for Wafflebase (palette, semantic colors, radius, typography)",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./tokens.css": "./dist/tokens.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsx scripts/build-css.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.2",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3",
+    "vitest": "^3.1.1"
+  }
+}

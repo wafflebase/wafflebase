@@ -30,6 +30,7 @@
     "slides": "pnpm --filter @wafflebase/slides",
     "cli": "pnpm --filter @wafflebase/cli",
     "documentation": "pnpm --filter @wafflebase/documentation",
+    "tokens": "pnpm --filter @wafflebase/tokens",
     "build:all": "pnpm frontend build && pnpm documentation build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
     "postinstall": "git config core.hooksPath .githooks || true"
   },
