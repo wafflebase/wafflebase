@@ -1,5 +1,9 @@
 # PPTX Shape `<a:blipFill>` Import
 
+> **Status:** ✅ Shipped to `main` in PR #284 (`95e5686a`). Checkboxes
+> below marked complete retroactively during archival (2026-05-24);
+> the merged PR is the source of truth.
+
 ## Problem
 
 Modern PPTX templates (e.g., the user-supplied "Multicolor Pastel Doodle
@@ -52,24 +56,24 @@ two semantically-equivalent PPTX export patterns both round-trip.
 
 ## Steps
 
-- [ ] Add a `parseBlipSp` helper in `shape.ts` that returns an
+- [x] Add a `parseBlipSp` helper in `shape.ts` that returns an
       `ImageElement` for any `<p:sp>` whose `<p:spPr>` contains
       `<a:blipFill>`. Reuse the existing `parseBlipFill` helper from
       `image.ts`.
-- [ ] In `parseSp`, branch on blipFill *before* the `prstGeom` check.
+- [x] In `parseSp`, branch on blipFill *before* the `prstGeom` check.
       Emit `[image]` or `[image, text]` and short-circuit.
-- [ ] Build the `ImageParseContext` lazily to avoid allocation on the
+- [x] Build the `ImageParseContext` lazily to avoid allocation on the
       common no-blip path.
-- [ ] Add a focused unit test in
+- [x] Add a focused unit test in
       `packages/slides/test/import/pptx/shape-blipfill.test.ts`:
   - `<p:sp>` + `prstGeom rect` + `blipFill` → `ImageElement`
   - `<p:sp>` + `custGeom` + `blipFill` → `ImageElement`
   - `<p:sp>` + `blipFill` + `txBox` text → `[Image, Text]`
   - `<p:sp>` without `blipFill` → unchanged
-- [ ] `pnpm verify:fast` green.
-- [ ] Manual smoke: import the user's PPTX through `/slides/import` and
+- [x] `pnpm verify:fast` green.
+- [x] Manual smoke: import the user's PPTX through `/slides/import` and
       confirm slide 1 shows the cream background + doodles.
-- [ ] Capture lessons in `20260523-pptx-shape-blipfill-lessons.md`,
+- [x] Capture lessons in `20260523-pptx-shape-blipfill-lessons.md`,
       archive task files, open PR.
 
 ## Review
