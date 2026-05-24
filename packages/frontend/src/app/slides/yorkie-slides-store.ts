@@ -1,4 +1,4 @@
-import type { Document as YorkieDocument } from '@yorkie-js/sdk';
+import type { Document as YorkieDocument, TimeTicket } from '@yorkie-js/sdk';
 import {
   DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
@@ -59,6 +59,23 @@ import type {
  * proxy type is not exposed by the SDK.
  */
 type ProxyArray = { id: string; type: string; data?: unknown; [k: string]: unknown }[];
+
+/**
+ * The Yorkie array move primitives exposed on a JSON array proxy inside
+ * `doc.update`. Reordering through these keeps each element's CRDT identity
+ * intact, so a peer concurrently editing a child of a moved element does not
+ * lose its edit — unlike splice remove + re-insert of a rebuilt snapshot,
+ * which deletes the original nodes and merges the remote edit onto tombstones.
+ * `getElementByIndex(i).getID()` yields a stable `TimeTicket` that survives
+ * later moves (indices do not), so capture tickets before mutating.
+ */
+interface MovableArray {
+  readonly length: number;
+  getElementByIndex(index: number): { getID(): TimeTicket };
+  moveFront(id: TimeTicket): void;
+  moveAfter(prevID: TimeTicket, id: TimeTicket): void;
+  moveAfterByIndex(prevIndex: number, targetIndex: number): void;
+}
 
 type YorkieLayout = YorkieSlidesRoot['layouts'][number];
 
@@ -661,14 +678,23 @@ export class YorkieSlidesStore implements SlidesStore {
   moveSlide(slideId: string, toIndex: number): void {
     this.requireBatch();
     this.doc.update((r) => {
-      const from = r.slides.findIndex((s) => s.id === slideId);
+      const slides = r.slides;
+      const from = slides.findIndex((s) => s.id === slideId);
       if (from === -1) throw new Error(`Slide not found: ${slideId}`);
-      // Move requires reconstructing the slide because the proxy returned
-      // by splice can't be re-inserted directly.
-      const moved = this.rebuildSlide(r.slides[from]);
-      r.slides.splice(from, 1);
-      const clamped = Math.max(0, Math.min(toIndex, r.slides.length));
-      r.slides.splice(clamped, 0, moved);
+      // Final resting index, matching MemStore's remove-then-insert math.
+      const clamped = Math.max(0, Math.min(toIndex, slides.length - 1));
+      if (clamped === from) return;
+      // Reorder in place (no rebuild) so a peer concurrently editing this
+      // slide's children keeps its edit. moveAfterByIndex evaluates indices
+      // on the current array; moveFront handles the no-predecessor head case.
+      const arr = slides as unknown as MovableArray;
+      if (clamped === 0) {
+        arr.moveFront(arr.getElementByIndex(from).getID());
+      } else if (clamped > from) {
+        arr.moveAfterByIndex(clamped, from);
+      } else {
+        arr.moveAfterByIndex(clamped - 1, from);
+      }
     });
   }
 
@@ -676,43 +702,33 @@ export class YorkieSlidesStore implements SlidesStore {
     this.requireBatch();
     const set = new Set(slideIds);
     this.doc.update((r) => {
-      const moving: YorkieSlide[] = [];
-      const remaining: YorkieSlide[] = [];
-      for (const s of r.slides) {
-        const rebuilt = this.rebuildSlide(s);
-        if (set.has(s.id)) moving.push(rebuilt);
-        else remaining.push(rebuilt);
+      const slides = r.slides;
+      const arr = slides as unknown as MovableArray;
+      // Capture stable CRDT tickets and the current partition BEFORE moving:
+      // tickets survive moves, indices do not.
+      const ticketById = new Map<string, TimeTicket>();
+      const movingIds: string[] = [];
+      const remainingIds: string[] = [];
+      for (let i = 0; i < slides.length; i++) {
+        const id = slides[i].id;
+        ticketById.set(id, arr.getElementByIndex(i).getID());
+        (set.has(id) ? movingIds : remainingIds).push(id);
       }
-      const clamped = Math.max(0, Math.min(toIndex, remaining.length));
-      const next = [
-        ...remaining.slice(0, clamped),
-        ...moving,
-        ...remaining.slice(clamped),
-      ];
-      r.slides.splice(0, r.slides.length, ...(next as never[]));
+      if (movingIds.length === 0) return;
+      // Place the moving block at `clamped` among the remaining slides,
+      // preserving the moving slides' relative order — same result as
+      // MemStore's filter + splice, but in place (no rebuild), so concurrent
+      // child edits on any moved slide survive.
+      const clamped = Math.max(0, Math.min(toIndex, remainingIds.length));
+      let prevTicket: TimeTicket | null =
+        clamped === 0 ? null : ticketById.get(remainingIds[clamped - 1])!;
+      for (const id of movingIds) {
+        const t = ticketById.get(id)!;
+        if (prevTicket === null) arr.moveFront(t);
+        else arr.moveAfter(prevTicket, t);
+        prevTicket = t;
+      }
     });
-  }
-
-  /**
-   * Read a YorkieSlide proxy and return a fully-detached copy. Used by
-   * reorder / move paths where we must remove and re-insert a slide;
-   * Yorkie array splices can't safely shuffle proxies.
-   */
-  private rebuildSlide(src: YorkieSlide): YorkieSlide {
-    const background = yorkieToPlain<YorkieSlide['background']>((src as { background: unknown }).background);
-    const layoutId = (src as { layoutId: string }).layoutId;
-    const id = (src as { id: string }).id;
-    const elements = ((src as { elements: unknown[] }).elements ?? []).map(
-      (e) => unwrapElement(e) as YorkieElement,
-    );
-    const notes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
-    return {
-      id,
-      layoutId,
-      background,
-      elements,
-      notes: clone(notes),
-    };
   }
 
   updateSlideBackground(slideId: string, bg: Background): void {

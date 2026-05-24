@@ -70,6 +70,36 @@ describe('YorkieSlidesStore — slide ops', () => {
     store.batch(() => store.moveSlide(ids[2], 0));
     expect(store.read().slides.map((s) => s.id)).toEqual([ids[2], ids[0], ids[1]]);
   });
+
+  it('moveSlide reorders to a later index', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const ids: string[] = [];
+    store.batch(() => {
+      for (let i = 0; i < 4; i++) ids.push(store.addSlide('blank'));
+    });
+    // Move slide 0 down to index 2 (remove-then-insert semantics).
+    store.batch(() => store.moveSlide(ids[0], 2));
+    assert.deepEqual(
+      store.read().slides.map((s) => s.id),
+      [ids[1], ids[2], ids[0], ids[3]],
+    );
+  });
+
+  it('moveSlides moves a block, preserving relative order', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const ids: string[] = [];
+    store.batch(() => {
+      for (let i = 0; i < 4; i++) ids.push(store.addSlide('blank'));
+    });
+    // Move slides 0 and 3 (in array order) to index 1 among the rest.
+    store.batch(() => store.moveSlides([ids[3], ids[0]], 1));
+    assert.deepEqual(
+      store.read().slides.map((s) => s.id),
+      [ids[1], ids[0], ids[3], ids[2]],
+    );
+  });
 });
 
 describe('YorkieSlidesStore — element ops', () => {
