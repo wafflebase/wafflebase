@@ -1,6 +1,6 @@
 # `@wafflebase/tokens` Package Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Introduce a new `@wafflebase/tokens` workspace package as the single
 source of truth for shared design tokens (palette, semantic colors, radius,
@@ -42,7 +42,7 @@ the build script, Vitest for tests. No new third-party dependencies.
 - Modify: `package.json` (root) — add `tokens` script alias
 - Modify: `knip.json` — register the workspace
 
-- [ ] **Step 1: Create `packages/tokens/package.json`**
+- [x] **Step 1: Create `packages/tokens/package.json`**
 
 ```json
 {
@@ -79,7 +79,7 @@ the build script, Vitest for tests. No new third-party dependencies.
 }
 ```
 
-- [ ] **Step 2: Create `packages/tokens/tsconfig.json`**
+- [x] **Step 2: Create `packages/tokens/tsconfig.json`**
 
 ```json
 {
@@ -103,7 +103,7 @@ the build script, Vitest for tests. No new third-party dependencies.
 }
 ```
 
-- [ ] **Step 3: Create `packages/tokens/tsconfig.build.json`** (emits JS to dist for runtime consumers)
+- [x] **Step 3: Create `packages/tokens/tsconfig.build.json`** (emits JS to dist for runtime consumers)
 
 ```json
 {
@@ -119,14 +119,14 @@ the build script, Vitest for tests. No new third-party dependencies.
 }
 ```
 
-- [ ] **Step 4: Create `packages/tokens/src/index.ts`** (placeholder; filled in Task 2)
+- [x] **Step 4: Create `packages/tokens/src/index.ts`** (placeholder; filled in Task 2)
 
 ```ts
 // Re-export surface — populated in Task 2.
 export {};
 ```
 
-- [ ] **Step 5: Create `packages/tokens/README.md`**
+- [x] **Step 5: Create `packages/tokens/README.md`**
 
 ````markdown
 # @wafflebase/tokens
@@ -155,7 +155,7 @@ Emits `dist/index.{js,d.ts}` and `dist/tokens.css`. Consumers reach the CSS file
 via the `./tokens.css` export.
 ````
 
-- [ ] **Step 6: Add `tokens` alias to root `package.json` scripts**
+- [x] **Step 6: Add `tokens` alias to root `package.json` scripts**
 
 Modify `package.json`, inserting between `documentation` and `build:all`:
 
@@ -166,7 +166,7 @@ Modify `package.json`, inserting between `documentation` and `build:all`:
    "build:all": "...",
 ```
 
-- [ ] **Step 7: Register the workspace in `knip.json`**
+- [x] **Step 7: Register the workspace in `knip.json`**
 
 ```diff
      "packages/slides": {
@@ -179,7 +179,7 @@ Modify `package.json`, inserting between `documentation` and `build:all`:
      }
 ```
 
-- [ ] **Step 8: Install workspace dependencies and verify package resolves**
+- [x] **Step 8: Install workspace dependencies and verify package resolves**
 
 Run:
 ```bash
@@ -189,12 +189,12 @@ pnpm tokens typecheck
 
 Expected: `pnpm install` adds the new package to the workspace graph. `typecheck` exits 0 (placeholder `index.ts` has no errors).
 
-- [ ] **Step 9: Verify nothing else broke**
+- [x] **Step 9: Verify nothing else broke**
 
 Run: `pnpm verify:fast`
 Expected: PASS. Tokens package has no test files yet, so it is a no-op for the test runner.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/tokens package.json knip.json pnpm-lock.yaml
@@ -223,7 +223,7 @@ EOF
 - Create: `packages/tokens/test/palette.test.ts`
 - Create: `packages/tokens/test/semantic.test.ts`
 
-- [ ] **Step 1: Write failing test for palette structure**
+- [x] **Step 1: Write failing test for palette structure**
 
 Create `packages/tokens/test/palette.test.ts`:
 
@@ -253,12 +253,12 @@ describe('palette', () => {
 });
 ```
 
-- [ ] **Step 2: Run test, see it fail**
+- [x] **Step 2: Run test, see it fail**
 
 Run: `pnpm tokens test`
 Expected: FAIL — module `../src/palette` not found.
 
-- [ ] **Step 3: Implement `packages/tokens/src/palette.ts`**
+- [x] **Step 3: Implement `packages/tokens/src/palette.ts`**
 
 Lift the Butter & Maple constants from the current `packages/frontend/src/index.css` (lines 92–106 light, 141–151 dark). Keep them as hex literals so Canvas consumers can drop them in directly.
 
@@ -315,12 +315,12 @@ export const palette = {
 export type Palette = typeof palette;
 ```
 
-- [ ] **Step 4: Run palette test, see it pass**
+- [x] **Step 4: Run palette test, see it pass**
 
 Run: `pnpm tokens test`
 Expected: PASS (3 tests in `palette.test.ts`).
 
-- [ ] **Step 5: Write failing test for semantic tokens**
+- [x] **Step 5: Write failing test for semantic tokens**
 
 Create `packages/tokens/test/semantic.test.ts`:
 
@@ -381,12 +381,12 @@ describe('semantic tokens', () => {
 });
 ```
 
-- [ ] **Step 6: Run semantic test, see it fail**
+- [x] **Step 6: Run semantic test, see it fail**
 
 Run: `pnpm tokens test`
 Expected: FAIL — module `../src/semantic` not found.
 
-- [ ] **Step 7: Implement `packages/tokens/src/semantic.ts`**
+- [x] **Step 7: Implement `packages/tokens/src/semantic.ts`**
 
 Mirror the existing `:root` / `.dark` blocks in `packages/frontend/src/index.css` (lines 59–107 light, 109–152 dark). Preserve oklch values verbatim; reference `palette` for brand colors.
 
@@ -503,12 +503,12 @@ Note: dark-mode `sidebarAccentForeground` was `var(--wb-syrup-deep)` in the
 existing index.css, which under `.dark` resolves to `#f4c95d` (butter). We pass
 `palette.butter` directly to avoid the cross-reference.
 
-- [ ] **Step 8: Run semantic test, see it pass**
+- [x] **Step 8: Run semantic test, see it pass**
 
 Run: `pnpm tokens test`
 Expected: PASS (palette + semantic — 6 tests).
 
-- [ ] **Step 9: Implement `packages/tokens/src/radius.ts`**
+- [x] **Step 9: Implement `packages/tokens/src/radius.ts`**
 
 ```ts
 export const radius = {
@@ -522,7 +522,7 @@ export const radius = {
 export type RadiusTokens = typeof radius;
 ```
 
-- [ ] **Step 10: Implement `packages/tokens/src/typography.ts`**
+- [x] **Step 10: Implement `packages/tokens/src/typography.ts`**
 
 ```ts
 export const typography = {
@@ -537,7 +537,7 @@ export const typography = {
 export type TypographyTokens = typeof typography;
 ```
 
-- [ ] **Step 11: Wire the re-export surface in `packages/tokens/src/index.ts`**
+- [x] **Step 11: Wire the re-export surface in `packages/tokens/src/index.ts`**
 
 ```ts
 export { palette } from './palette';
@@ -550,12 +550,12 @@ export { typography } from './typography';
 export type { TypographyTokens } from './typography';
 ```
 
-- [ ] **Step 12: Run typecheck and tests once more**
+- [x] **Step 12: Run typecheck and tests once more**
 
 Run: `pnpm tokens typecheck && pnpm tokens test`
 Expected: PASS.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add packages/tokens/src packages/tokens/test
@@ -581,7 +581,7 @@ EOF
 - Create: `packages/tokens/test/build-css.test.ts`
 - Modify: `packages/tokens/package.json` (already includes `build` script from Task 1)
 
-- [ ] **Step 1: Write failing test for CSS emission**
+- [x] **Step 1: Write failing test for CSS emission**
 
 Create `packages/tokens/test/build-css.test.ts`:
 
@@ -622,12 +622,12 @@ describe('renderTokensCss', () => {
 });
 ```
 
-- [ ] **Step 2: Run test, see it fail**
+- [x] **Step 2: Run test, see it fail**
 
 Run: `pnpm tokens test`
 Expected: FAIL — module `../scripts/build-css` not found.
 
-- [ ] **Step 3: Implement `packages/tokens/scripts/build-css.ts`**
+- [x] **Step 3: Implement `packages/tokens/scripts/build-css.ts`**
 
 Two responsibilities: pure render function (testable), and a CLI entry that writes `dist/tokens.css`.
 
@@ -742,12 +742,12 @@ if (isMain) {
 }
 ```
 
-- [ ] **Step 4: Run test, see it pass**
+- [x] **Step 4: Run test, see it pass**
 
 Run: `pnpm tokens test`
 Expected: PASS — 5 tests in `build-css.test.ts`.
 
-- [ ] **Step 5: Run the actual build and inspect output**
+- [x] **Step 5: Run the actual build and inspect output**
 
 Run: `pnpm tokens build`
 Expected: emits `packages/tokens/dist/index.js`, `dist/index.d.ts`, and `dist/tokens.css`. The CSS file should match the inline blocks in the current `packages/frontend/src/index.css` (values only — formatting may differ).
@@ -757,7 +757,7 @@ Quick visual check:
 head -40 packages/tokens/dist/tokens.css
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/tokens/scripts packages/tokens/test/build-css.test.ts
@@ -782,7 +782,7 @@ EOF
 - Create: `packages/tokens/test/contrast.test.ts`
 - Create: `packages/tokens/src/contrast.ts` (small internal helper, not re-exported in index)
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `packages/tokens/test/contrast.test.ts`:
 
@@ -831,12 +831,12 @@ describe('WCAG AA contrast', () => {
 });
 ```
 
-- [ ] **Step 2: Run test, see it fail**
+- [x] **Step 2: Run test, see it fail**
 
 Run: `pnpm tokens test`
 Expected: FAIL — module `../src/contrast` not found.
 
-- [ ] **Step 3: Implement `packages/tokens/src/contrast.ts`**
+- [x] **Step 3: Implement `packages/tokens/src/contrast.ts`**
 
 We need to parse `#RRGGBB` and `oklch(L C H)` values. The contrast formula uses
 relative luminance; for oklch we convert L (perceptual lightness) back to sRGB.
@@ -905,14 +905,14 @@ export function contrastRatio(foreground: string, background: string): number {
 }
 ```
 
-- [ ] **Step 4: Run test, see it pass**
+- [x] **Step 4: Run test, see it pass**
 
 Run: `pnpm tokens test`
 Expected: PASS. If any contrast fails, that is real signal — investigate before patching. AA_NORMAL = 4.5 for body, AA_LARGE = 3.0 for large/UI text — picked per WCAG 2.1.
 
 If `primary-foreground vs primary` fails in dark mode (syrupBright + dark bg), reduce the threshold to AA_LARGE or update the palette — but log the decision in `20260524-tokens-package-lessons.md`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/tokens/src/contrast.ts packages/tokens/test/contrast.test.ts
@@ -936,7 +936,7 @@ EOF
 - Modify: `packages/frontend/package.json` — add dependency
 - Modify: `packages/frontend/src/index.css` — replace inline blocks with `@import`
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Modify `packages/frontend/package.json`. Locate the existing `dependencies` block and add:
 
@@ -951,7 +951,7 @@ Modify `packages/frontend/package.json`. Locate the existing `dependencies` bloc
 Run: `pnpm install`
 Expected: pnpm symlinks `packages/tokens` into `packages/frontend/node_modules`.
 
-- [ ] **Step 2: Ensure tokens is built before frontend dev/build**
+- [x] **Step 2: Ensure tokens is built before frontend dev/build**
 
 The tokens package emits to `dist/`. For local dev, run a one-time build:
 
@@ -964,7 +964,7 @@ map — so the file must exist on disk. CI runs `pnpm build` which already
 sequences sub-package builds; we will verify that in Task 9 by running
 `pnpm verify:self`.
 
-- [ ] **Step 3: Replace inline tokens in `packages/frontend/src/index.css`**
+- [x] **Step 3: Replace inline tokens in `packages/frontend/src/index.css`**
 
 Strip the `:root` and `.dark` blocks and replace with the import. Keep the
 `@theme inline` block (it maps CSS variables to Tailwind utility names) and
@@ -1045,13 +1045,13 @@ into the imported file. Font families that were previously inline strings now
 come from `--font-display` / `--font-body` / `--font-code` emitted by
 `build-css.ts`.
 
-- [ ] **Step 4: Run frontend lint and tests**
+- [x] **Step 4: Run frontend lint and tests**
 
 Run: `pnpm verify:fast`
 Expected: PASS. If lint flags the new `@import`, check the Tailwind 4 / PostCSS
 config — workspace `@import` should resolve via Vite's module graph.
 
-- [ ] **Step 5: Browser smoke**
+- [x] **Step 5: Browser smoke**
 
 ```bash
 pnpm dev
@@ -1067,7 +1067,7 @@ visit:
 Confirm: no visible color change vs. main. The values are identical strings, so
 this is a regression smoke, not a redesign.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/package.json packages/frontend/src/index.css pnpm-lock.yaml
@@ -1091,7 +1091,7 @@ EOF
 - Modify: `packages/sheets/package.json` — add dependency
 - Modify: `packages/sheets/src/view/theme.ts` — replace shared color literals with `palette` refs
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Modify `packages/sheets/package.json`:
 
@@ -1104,7 +1104,7 @@ Modify `packages/sheets/package.json`:
 
 Run: `pnpm install && pnpm tokens build`.
 
-- [ ] **Step 2: Inventory colors in `packages/sheets/src/view/theme.ts` that overlap with the palette**
+- [x] **Step 2: Inventory colors in `packages/sheets/src/view/theme.ts` that overlap with the palette**
 
 | Key                  | Light value                | Dark value                 | Maps to                                                  |
 | -------------------- | -------------------------- | -------------------------- | -------------------------------------------------------- |
@@ -1117,7 +1117,7 @@ Other keys (`cellBorderColor`, `cellBGColor`, `peerCursor*`, `formulaRange*`,
 `resizeHandle*`, search highlights) are domain-only or already-generic. Leave
 them.
 
-- [ ] **Step 3: Modify `packages/sheets/src/view/theme.ts`**
+- [x] **Step 3: Modify `packages/sheets/src/view/theme.ts`**
 
 Add the import at the top and replace the four overlapping values. Show the
 relevant changes only:
@@ -1162,19 +1162,19 @@ relevant changes only:
     ...
 ```
 
-- [ ] **Step 4: Run sheets typecheck and tests**
+- [x] **Step 4: Run sheets typecheck and tests**
 
 Run: `pnpm sheets typecheck && pnpm sheets test`
 Expected: PASS. Sheets theme values keep their shapes (`string`) — only the
 literal source changes.
 
-- [ ] **Step 5: Verify in the running app**
+- [x] **Step 5: Verify in the running app**
 
 If `pnpm dev` is still up from Task 5: navigate to a Sheets tab, select a cell,
 confirm the active cell ring is the same syrup color and the selection wash is
 the same butter tint. Toggle dark mode and re-confirm.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/package.json packages/sheets/src/view/theme.ts pnpm-lock.yaml
@@ -1199,7 +1199,7 @@ EOF
 - Modify: `packages/docs/package.json` — add dependency
 - Modify: `packages/docs/src/view/theme.ts`
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Modify `packages/docs/package.json`:
 
@@ -1213,7 +1213,7 @@ Modify `packages/docs/package.json`:
 
 Run: `pnpm install && pnpm tokens build`.
 
-- [ ] **Step 2: Inventory shared colors**
+- [x] **Step 2: Inventory shared colors**
 
 In `packages/docs/src/view/theme.ts`, the document chrome colors map cleanly:
 
@@ -1231,7 +1231,7 @@ Conservative choice: migrate only `defaultColor` and `cursorColor` to the
 shared neutrals (so dark mode picks up the warm ink/paper relationship). Leave
 everything else: page chrome whites/grays are intentionally neutral.
 
-- [ ] **Step 3: Modify `packages/docs/src/view/theme.ts`**
+- [x] **Step 3: Modify `packages/docs/src/view/theme.ts`**
 
 ```diff
 + import { palette } from '@wafflebase/tokens';
@@ -1274,12 +1274,12 @@ go from neutral to slightly warm. Capture the before/after in the lessons
 file. If the change feels off, fall back to `#000000` / `#e0e0e0` and skip the
 migration for this PR (log the decision).
 
-- [ ] **Step 4: Run docs typecheck and tests**
+- [x] **Step 4: Run docs typecheck and tests**
 
 Run: `pnpm --filter @wafflebase/docs typecheck && pnpm --filter @wafflebase/docs test`
 Expected: PASS.
 
-- [ ] **Step 5: Rebuild docs dist for downstream consumers**
+- [x] **Step 5: Rebuild docs dist for downstream consumers**
 
 ```bash
 pnpm --filter @wafflebase/docs build
@@ -1288,13 +1288,13 @@ pnpm --filter @wafflebase/docs build
 `@wafflebase/slides` typechecks against the docs `dist`, so refresh it before
 running broader verification.
 
-- [ ] **Step 6: Browser smoke**
+- [x] **Step 6: Browser smoke**
 
 In the running dev server, open a Docs document. Toggle dark mode. Confirm:
 caret + text color shift toward warm ink/cream. If the visual feels too warm,
 revisit Step 3 with the fallback.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/package.json packages/docs/src/view/theme.ts pnpm-lock.yaml
@@ -1319,7 +1319,7 @@ EOF
 - Modify: `packages/slides/package.json` — add dependency
 - Search-and-decide: locate where `Theme` defaults are constructed in `packages/slides/src/model/`. If a single `defaultTheme.ts` or similar exists, modify it; otherwise add one and route the existing factory through it. This is a discovery step.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Modify `packages/slides/package.json`:
 
@@ -1332,7 +1332,7 @@ Modify `packages/slides/package.json`:
 
 Run: `pnpm install && pnpm tokens build && pnpm --filter @wafflebase/docs build`.
 
-- [ ] **Step 2: Locate the Slides factory default theme**
+- [x] **Step 2: Locate the Slides factory default theme**
 
 ```bash
 rg -n "ColorScheme|defaultTheme|factoryTheme|createTheme" packages/slides/src --type ts
@@ -1342,7 +1342,7 @@ Expected: one or two call sites that construct a `Theme` literal. Identify the
 file that holds the **factory default** (the one returned when a new
 presentation is created or when PPTX import fails to resolve a theme).
 
-- [ ] **Step 3: Modify the factory to source colors from `@wafflebase/tokens`**
+- [x] **Step 3: Modify the factory to source colors from `@wafflebase/tokens`**
 
 Inside the located file, change the literal `ColorScheme` to derive from
 palette + semantic. The exact diff depends on Step 2's findings; the pattern is:
@@ -1387,7 +1387,7 @@ Document the choice in the lessons file: **slides factory default is now
 Butter & Maple branded.** User-modified themes (from PPTX import or in-app
 theme editor) override this default and are unaffected.
 
-- [ ] **Step 4: Update PPTX import snapshots if any**
+- [x] **Step 4: Update PPTX import snapshots if any**
 
 ```bash
 pnpm slides test
@@ -1403,18 +1403,18 @@ pnpm slides test -- -u
 Then re-run unfiltered: `pnpm slides test`. Note the snapshot refresh in the
 PR description.
 
-- [ ] **Step 5: Typecheck and tests pass**
+- [x] **Step 5: Typecheck and tests pass**
 
 Run: `pnpm slides typecheck && pnpm slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Rebuild slides dist for the frontend**
+- [x] **Step 6: Rebuild slides dist for the frontend**
 
 ```bash
 pnpm slides build
 ```
 
-- [ ] **Step 7: Browser smoke**
+- [x] **Step 7: Browser smoke**
 
 In dev server: create a fresh slide deck or open one that uses the default
 theme. Confirm:
@@ -1422,7 +1422,7 @@ theme. Confirm:
 2. An existing deck with a user-modified theme (or imported PPTX) shows its
    own colors — tokens did not overwrite per-presentation data.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/slides/package.json packages/slides/src pnpm-lock.yaml
@@ -1447,30 +1447,30 @@ EOF
 - Modify: `docs/design/design-system-unification.md` — flip PR #1 status to `Merged` (after merge; for the PR push it stays `In progress`)
 - Modify: `docs/tasks/active/20260524-tokens-package-lessons.md` — write up lessons
 
-- [ ] **Step 1: Run the full fast lane**
+- [x] **Step 1: Run the full fast lane**
 
 Run: `pnpm verify:fast`
 Expected: PASS. If `@wafflebase/slides` complains about missing exports from
 `@wafflebase/docs`, run `pnpm --filter @wafflebase/docs build` first and retry.
 
-- [ ] **Step 2: Run the self-lane (includes all builds)**
+- [x] **Step 2: Run the self-lane (includes all builds)**
 
 Run: `pnpm verify:self`
 Expected: PASS. Confirms tokens + docs + sheets + slides + frontend all build
 in CI ordering.
 
-- [ ] **Step 3: Browser smoke captures**
+- [x] **Step 3: Browser smoke captures**
 
 In dev mode, take light/dark before-and-after screenshots of the four screens
 listed in Task 5 step 5. Save them aside for the PR description.
 
-- [ ] **Step 4: Self-review via code-review skill**
+- [x] **Step 4: Self-review via code-review skill**
 
 Dispatch the `superpowers:requesting-code-review` skill (or `/code-review`)
 against the branch diff. Apply blocking findings; record non-blocking as known
 limitations in the lessons file.
 
-- [ ] **Step 5: Update the lessons file**
+- [x] **Step 5: Update the lessons file**
 
 Open `docs/tasks/active/20260524-tokens-package-lessons.md` and fill in:
 - What surprised you about the package wiring.
@@ -1478,7 +1478,7 @@ Open `docs/tasks/active/20260524-tokens-package-lessons.md` and fill in:
 - Whether the docs ink/cursor warming felt right or was reverted.
 - Whether any slides snapshot tests had to be refreshed.
 
-- [ ] **Step 6: Archive and re-index tasks**
+- [x] **Step 6: Archive and re-index tasks**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index
@@ -1487,7 +1487,7 @@ pnpm tasks:archive && pnpm tasks:index
 This moves `20260524-tokens-package-{todo,lessons}.md` to `docs/tasks/done/`
 and refreshes `docs/tasks/README.md`.
 
-- [ ] **Step 7: Commit lessons + index update**
+- [x] **Step 7: Commit lessons + index update**
 
 ```bash
 git add docs/tasks/
@@ -1503,7 +1503,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 8: Push and open PR**
+- [x] **Step 8: Push and open PR**
 
 ```bash
 git fetch origin

@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| tokens package (2026-05-24) | [20260524-tokens-package-todo.md](./active/20260524-tokens-package-todo.md) | [20260524-tokens-package-lessons.md](./active/20260524-tokens-package-lessons.md) |
 | pptx shape blipfill (2026-05-23) | [20260523-pptx-shape-blipfill-todo.md](./active/20260523-pptx-shape-blipfill-todo.md) | - |
 | slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./active/20260523-slides-ruler-todo.md) | - |
 | slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./active/20260521-slides-homepage-docs-todo.md) | - |
@@ -33,7 +32,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 209
+- Archived task count: 203
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: tokens package (2026-05-24)
+Latest active task: pptx shape blipfill (2026-05-23)
