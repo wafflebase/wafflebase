@@ -25,35 +25,35 @@ received a *new* advisory.
 ## Plan
 
 ### A. Update stale `pnpm.overrides` entries
-- [ ] `lodash` 4.17.23 → `lodash@<4.18.0` → 4.18.0 (#78, #77)
-- [ ] `serialize-javascript` 7.0.3 → `<7.0.5` → 7.0.5 (#88)
-- [ ] `brace-expansion`: `<1.1.13` → 1.1.13 (#73); `>=5.0.0 <5.0.6` →
+- [x] `lodash` 4.17.23 → `lodash@<4.18.0` → 4.18.0 (#78, #77)
+- [x] `serialize-javascript` 7.0.3 → `<7.0.5` → 7.0.5 (#88)
+- [x] `brace-expansion`: `<1.1.13` → 1.1.13 (#73); `>=5.0.0 <5.0.6` →
       5.0.6 (#87)
-- [ ] `file-type` broaden to `<21.3.2` → 21.3.2 (#52, covers 19.6.0)
-- [ ] `picomatch` add `<2.3.2` → 2.3.2 (#71, keep 4.x entry)
+- [x] `file-type` broaden to `<21.3.2` → 21.3.2 (#52, covers 19.6.0)
+- [x] `picomatch` add `<2.3.2` → 2.3.2 (#71, keep 4.x entry)
 
 ### B. Add new `pnpm.overrides`
-- [ ] `fast-uri@<3.1.2` → 3.1.2 (#85, #86)
-- [ ] `fast-xml-builder@<1.1.7` → 1.1.7 (#84)
-- [ ] `fast-xml-parser@<5.7.0` → 5.7.0 (#82)
-- [ ] `path-to-regexp@>=8.0.0 <8.4.0` → 8.4.0 (#75, #76)
-- [ ] `brace-expansion@>=2.0.0 <2.0.3` → 2.0.3 (#72, #7)
-- [ ] `tmp@<=0.2.3` → 0.2.4 (#12, via @nestjs/cli)
-- [ ] `esbuild@<0.25.0` → 0.25.0 (#62, via vitepress)
-- [ ] `postcss@<8.5.10` → 8.5.10 (#83)
-- [ ] `qs@<6.15.2` → 6.15.2 (#89)
+- [x] `fast-uri@<3.1.2` → 3.1.2 (#85, #86)
+- [x] `fast-xml-builder@<1.1.7` → 1.1.7 (#84)
+- [x] `fast-xml-parser@<5.7.0` → 5.7.0 (#82)
+- [x] `path-to-regexp@>=8.0.0 <8.4.0` → 8.4.0 (#75, #76)
+- [x] `brace-expansion@>=2.0.0 <2.0.3` → 2.0.3 (#72, #7)
+- [x] `tmp@<=0.2.3` → 0.2.4 (#12, via @nestjs/cli)
+- [x] `esbuild@<0.25.0` → 0.25.0 (#62, via vitepress)
+- [x] `postcss@<8.5.10` → 8.5.10 (#83)
+- [x] `qs@<6.15.2` → 6.15.2 (#89)
 
 ### C. Direct dependency bumps
-- [ ] `vite` `^6.4.1` → `^6.4.2` in frontend, docs, sheets, slides
+- [x] `vite` `^6.4.1` → `^6.4.2` in frontend, docs, sheets, slides
       (#80, #81)
-- [ ] `@nestjs/core` pull 11.1.18 via lockfile refresh (#79, `^11.1.0`
+- [x] `@nestjs/core` pull 11.1.18 via lockfile refresh (#79, `^11.1.0`
       already permits it)
 
 ### D. Verify
-- [ ] `pnpm install` regenerates lockfile cleanly
-- [ ] No vulnerable versions remain in `pnpm-lock.yaml`
-- [ ] `pnpm verify:fast` (lint + unit tests) green
-- [ ] Builds green, esp. documentation (esbuild), backend (tmp,
+- [x] `pnpm install` regenerates lockfile cleanly
+- [x] No vulnerable versions remain in `pnpm-lock.yaml`
+- [x] `pnpm verify:fast` (lint + unit tests) green
+- [x] Builds green, esp. documentation (esbuild), backend (tmp,
       file-type), frontend/sheets/docs/slides (vite)
 
 ## Risk notes

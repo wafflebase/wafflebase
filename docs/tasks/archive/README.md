@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 212
+Total archived tasks: 213
 
-## 2026/05 (67 tasks)
+## 2026/05 (68 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
+| dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
 | backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
 | build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
 | frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./2026/05/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./2026/05/20260524-frontend-vitest-migration-lessons.md) |
