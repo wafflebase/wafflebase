@@ -1,5 +1,9 @@
 # Slides Ruler — implementation plan
 
+> **Status:** ✅ Shipped to `main` in PR #285 (`eb79963e`). Checkboxes
+> below marked complete retroactively during archival (2026-05-24);
+> the merged PR is the source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Design doc:** [`docs/design/slides/slides-ruler.md`](../../design/slides/slides-ruler.md)
@@ -52,7 +56,7 @@ surface.
 - Create: `packages/docs/src/view/ruler/tick-renderer.ts`
 - Delete: `packages/docs/src/view/ruler.ts` (after Git history-preserving move)
 
-- [ ] **Step 1: Move `ruler.ts` to `ruler/index.ts`**
+- [x] **Step 1: Move `ruler.ts` to `ruler/index.ts`**
 
 ```bash
 git mv packages/docs/src/view/ruler.ts packages/docs/src/view/ruler/index.ts
@@ -60,7 +64,7 @@ git mv packages/docs/src/view/ruler.ts packages/docs/src/view/ruler/index.ts
 
 Run `pnpm verify:fast` to confirm imports still resolve.
 
-- [ ] **Step 2: Extract `unit.ts`**
+- [x] **Step 2: Extract `unit.ts`**
 
 Cut the unit type, locale detection, and grid config from `index.ts`
 into a sibling module. Keep `getGridConfig` exporting the same shape
@@ -107,7 +111,7 @@ export { detectUnit, getGridConfig, snapToGrid };
 export type { RulerUnit, GridConfig };
 ```
 
-- [ ] **Step 3: Extract `tick-renderer.ts`**
+- [x] **Step 3: Extract `tick-renderer.ts`**
 
 Move the tick-drawing helper(s) used by `renderHorizontal` /
 `renderVertical` in the Ruler class into a standalone function that
@@ -145,13 +149,13 @@ export function drawTicks(opts: TickRenderOpts): void { /* ... */ }
 The `density` parameter is set by slides (Phase 2) based on zoom; docs
 calls without it (defaults to `'full'`).
 
-- [ ] **Step 4: Update docs `Ruler` class to use `drawTicks`**
+- [x] **Step 4: Update docs `Ruler` class to use `drawTicks`**
 
 In `packages/docs/src/view/ruler/index.ts`, replace the inline tick
 drawing in `renderHorizontal` / `renderVertical` with a `drawTicks`
 call. Pass the existing 96-dpi grid (no behavior change for docs).
 
-- [ ] **Step 5: Run docs ruler unit tests**
+- [x] **Step 5: Run docs ruler unit tests**
 
 ```bash
 pnpm --filter @wafflebase/docs test ruler
@@ -160,7 +164,7 @@ pnpm --filter @wafflebase/docs test ruler
 Expected: all existing tests pass. If any fail, the extraction broke
 something — fix before continuing.
 
-- [ ] **Step 6: Visual smoke (manual)**
+- [x] **Step 6: Visual smoke (manual)**
 
 ```bash
 pnpm dev
@@ -169,7 +173,7 @@ pnpm dev
 Open any docs document, confirm the ruler looks identical to `main`
 (tick positions, labels, indent handles, margin drag).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler/
@@ -239,7 +243,7 @@ export const SLIDES_PX_PER_INCH = 144; // 1920 / 13.333
 Verify the new exports resolve with `pnpm verify:fast` before
 proceeding.
 
-- [ ] **Step 1: Write failing unit test**
+- [x] **Step 1: Write failing unit test**
 
 ```ts
 // packages/slides/test/view/editor/ruler/ruler.test.ts
@@ -278,7 +282,7 @@ describe('SlidesRuler', () => {
 Run: `pnpm --filter @wafflebase/slides test ruler`
 Expected: FAIL ("Cannot find module './ruler'").
 
-- [ ] **Step 2: Implement `SlidesRuler` skeleton**
+- [x] **Step 2: Implement `SlidesRuler` skeleton**
 
 ```ts
 // packages/slides/src/view/editor/ruler/ruler.ts
@@ -389,13 +393,13 @@ const density: 'full' | 'half-only' | 'major' | 'major-thinned' =
   : 'major-thinned';
 ```
 
-- [ ] **Step 3: Run test, verify it passes**
+- [x] **Step 3: Run test, verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test ruler
 ```
 
-- [ ] **Step 4: Add density coverage tests**
+- [x] **Step 4: Add density coverage tests**
 
 For each of the four density bands, render at the corresponding zoom
 and assert against a spied canvas context (use the existing
@@ -422,7 +426,7 @@ it('uses major-only labels at zoom 0.1', () => {
 - Modify: `packages/frontend/src/app/slides/slides-view.tsx` (or wherever the slide stage is composed)
 - Modify: `packages/slides/src/view/editor/editor.ts` (expose `setRulerViewport()` / call ruler from paint)
 
-- [ ] **Step 1: Find the slide stage DOM**
+- [x] **Step 1: Find the slide stage DOM**
 
 Search for the element that hosts `<canvas>` and the selection overlay:
 
@@ -433,7 +437,7 @@ grep -rn "slide-canvas\|slide-stage\|overlay" packages/frontend/src/app/slides/ 
 This is where the ruler canvases must be inserted as siblings of the
 existing canvas/overlay, positioned absolutely.
 
-- [ ] **Step 2: Adjust DOM structure**
+- [x] **Step 2: Adjust DOM structure**
 
 In the React shell, render three new sibling elements ahead of the
 canvas pane:
@@ -459,7 +463,7 @@ CSS (Tailwind or matching the existing styling layer):
 .canvas-pane  { position: absolute; top: 20px; left: 20px; right: 0; bottom: 0; }
 ```
 
-- [ ] **Step 3: Wire ruler to editor paint cycle**
+- [x] **Step 3: Wire ruler to editor paint cycle**
 
 In `editor.ts`, instantiate a `SlidesRuler` after the canvas is
 mounted, and call `ruler.render({ ... })` at the end of each paint:
@@ -484,7 +488,7 @@ this.ruler.render({
 
 `editor.dispose()` must call `ruler.dispose()`.
 
-- [ ] **Step 4: Manual smoke**
+- [x] **Step 4: Manual smoke**
 
 ```bash
 pnpm dev
@@ -496,7 +500,7 @@ Open a slides document. Confirm:
 - Labels at zoom 1: 0", 1", 2", … (or 0 cm, 1 cm, … on metric locales)
 - Labels thin out as you zoom out; full minor ticks appear when zoomed in past 60 px per unit
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides packages/frontend/src/app/slides packages/docs/src
@@ -533,7 +537,7 @@ visible if they exist.
 - Modify: `packages/slides/src/store/memory.ts` (implementation)
 - Test: `packages/slides/test/store/memory.test.ts`
 
-- [ ] **Step 1: Add type to model**
+- [x] **Step 1: Add type to model**
 
 ```ts
 // packages/slides/src/model/presentation.ts
@@ -557,7 +561,7 @@ export interface SlidesDocument {
 Add `guides: []` to all factory functions / fixtures that construct a
 `SlidesDocument` (search `meta:.*title` in the codebase to find them).
 
-- [ ] **Step 2: Add interface methods**
+- [x] **Step 2: Add interface methods**
 
 ```ts
 // in SlidesStore
@@ -569,7 +573,7 @@ removeGuide(id: string): void;
 Document in JSDoc that position is clamped by callers; the store does
 not enforce bounds (it is geometry-agnostic).
 
-- [ ] **Step 3: Write failing tests**
+- [x] **Step 3: Write failing tests**
 
 ```ts
 // packages/slides/test/store/memory.test.ts (append)
@@ -609,7 +613,7 @@ describe('guides', () => {
 Run: `pnpm --filter @wafflebase/slides test memory`
 Expected: FAIL ("addGuide is not a function").
 
-- [ ] **Step 4: Implement in `MemSlidesStore`**
+- [x] **Step 4: Implement in `MemSlidesStore`**
 
 ```ts
 addGuide(axis: GuideAxis, position: number): string {
@@ -638,7 +642,7 @@ removeGuide(id: string): void {
 code) handles batching and undo entry creation. Verify by reading a
 neighbouring mutator like `addElement` and copying its shape.
 
-- [ ] **Step 5: Run tests, verify they pass**
+- [x] **Step 5: Run tests, verify they pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test memory
@@ -651,7 +655,7 @@ pnpm --filter @wafflebase/slides test memory
 - Modify: `packages/backend/src/yorkie/yorkie.types.ts` (add `guides` to the slides root shape)
 - Test: `packages/frontend/tests/app/slides/yorkie-slides-store.test.ts`
 
-- [ ] **Step 1: Extend backend Yorkie type**
+- [x] **Step 1: Extend backend Yorkie type**
 
 ```ts
 // packages/backend/src/yorkie/yorkie.types.ts
@@ -664,7 +668,7 @@ export interface SlidesDocumentYorkie {
 `guides` is optional in the type so old documents (without it) still
 parse.
 
-- [ ] **Step 2: Lazy init on attach**
+- [x] **Step 2: Lazy init on attach**
 
 In `yorkie-slides-store.ts`, find the `update(root => …)` block that
 runs after attach. Add:
@@ -680,7 +684,7 @@ doc.update((root) => {
 This is idempotent — once the first session writes the empty array,
 subsequent attaches no-op.
 
-- [ ] **Step 3: Implement the three guide methods**
+- [x] **Step 3: Implement the three guide methods**
 
 Mirror the pattern of `addElement` / `removeElement` (use
 `Yorkie.Array.push` / `splice` / index-based update inside a
@@ -712,14 +716,14 @@ removeGuide(id: string): void {
 
 (Adjust API calls to match the actual Yorkie.Array surface used elsewhere in the file.)
 
-- [ ] **Step 4: Equivalence test (Mem vs Yorkie)**
+- [x] **Step 4: Equivalence test (Mem vs Yorkie)**
 
 In `yorkie-slides-store.test.ts`, add a section that runs the same
 operation sequence against both `MemSlidesStore` and a Yorkie-attached
 `YorkieSlidesStore` and asserts `read()` returns the same `guides`
 array.
 
-- [ ] **Step 5: Concurrent convergence test**
+- [x] **Step 5: Concurrent convergence test**
 
 Extend `packages/frontend/tests/app/slides/two-user-slides-yorkie.ts`
 (or the equivalent two-user helper) with a scenario where user A and
@@ -733,7 +737,7 @@ both clients converge to the same `guides` array. Gate with
 - Create: `packages/slides/src/view/editor/ruler/guides-layer.ts`
 - Modify: `packages/slides/src/view/editor/overlay.ts` (mount the guides layer)
 
-- [ ] **Step 1: Implement `paintGuides`**
+- [x] **Step 1: Implement `paintGuides`**
 
 ```ts
 // packages/slides/src/view/editor/ruler/guides-layer.ts
@@ -764,13 +768,13 @@ export function paintGuides(
 }
 ```
 
-- [ ] **Step 2: Mount in overlay paint**
+- [x] **Step 2: Mount in overlay paint**
 
 In `overlay.ts`, find the existing overlay paint sequence (selection
 handles, snap guides). Append a `paintGuides(ctx, doc.guides, view)`
 call after element overlays but before selection handles.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Open browser devtools, attach the editor, run:
 
@@ -782,7 +786,7 @@ editor.render();
 
 Confirm two magenta lines appear on the slide canvas (crossing).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides packages/frontend packages/backend
@@ -818,7 +822,7 @@ previews keep CRDT operations bounded to one per gesture.
 - Modify: `packages/slides/src/view/editor/editor.ts` (own the interaction state)
 - Modify: `packages/slides/src/view/editor/selection.ts` (presence field — `draggingGuide`)
 
-- [ ] **Step 1: Add presence field**
+- [x] **Step 1: Add presence field**
 
 Find the existing `SlidesPresence` type (search `selectedElementIds`).
 Add:
@@ -831,7 +835,7 @@ draggingGuide?: {
 };
 ```
 
-- [ ] **Step 2: Hook ruler mousedown**
+- [x] **Step 2: Hook ruler mousedown**
 
 In `ruler.ts` constructor, attach listeners (when not read-only):
 
@@ -853,7 +857,7 @@ private onRulerMousedown(e: MouseEvent, axis: 'x' | 'y') {
 
 Track listener references in a private array for `dispose()`.
 
-- [ ] **Step 3: Implement guide drag in editor**
+- [x] **Step 3: Implement guide drag in editor**
 
 ```ts
 // packages/slides/src/view/editor/ruler/interactions.ts
@@ -878,7 +882,7 @@ On `mouseup`:
 - Otherwise: discard (no store call).
 - Clear presence.
 
-- [ ] **Step 4: Tests**
+- [x] **Step 4: Tests**
 
 Use the existing editor test harness (`packages/slides/test/view/editor/editor.test.ts`).
 Simulate a mousedown on the ruler canvas + mousemove + mouseup, assert:
@@ -898,7 +902,7 @@ it('creates a guide via ruler drag-out', () => {
 - Modify: `packages/slides/src/view/editor/hit-test.ts` (add guide hit-test within 4 px)
 - Modify: `packages/slides/src/view/editor/ruler/interactions.ts`
 
-- [ ] **Step 1: Guide hit-test**
+- [x] **Step 1: Guide hit-test**
 
 Add a helper:
 
@@ -917,7 +921,7 @@ export function hitTestGuide(
 }
 ```
 
-- [ ] **Step 2: Cursor + start-drag on slide canvas**
+- [x] **Step 2: Cursor + start-drag on slide canvas**
 
 In the slide canvas `mousemove` handler (which already runs for
 element hit-testing), if no element is under the pointer but a guide
@@ -927,7 +931,7 @@ is within 4 px, set the cursor to `col-resize` (vertical guide) or
 On `mousedown` with a guide hit, start a `moveGuide` drag: presence
 preview, `moveGuide(id, position)` on mouseup.
 
-- [ ] **Step 3: Tests**
+- [x] **Step 3: Tests**
 
 ```ts
 it('moves a guide on drag', () => {
@@ -942,7 +946,7 @@ it('moves a guide on drag', () => {
 **Files:**
 - Modify: `packages/slides/src/view/editor/ruler/interactions.ts`
 
-- [ ] **Step 1: Detect ruler-region mouseup**
+- [x] **Step 1: Detect ruler-region mouseup**
 
 While dragging an existing guide, on every `mousemove` check whether
 the cursor is over a ruler canvas (use `elementFromPoint` or compare
@@ -952,7 +956,7 @@ come later).
 
 On `mouseup` over the ruler: `store.removeGuide(id)`.
 
-- [ ] **Step 2: Test**
+- [x] **Step 2: Test**
 
 ```ts
 it('deletes a guide when dragged onto the ruler', () => {
@@ -968,7 +972,7 @@ it('deletes a guide when dragged onto the ruler', () => {
 - Modify: `packages/slides/src/view/editor/context-menu.ts`
 - Modify: `packages/slides/src/view/editor/ruler/ruler.ts` (paint magenta markers)
 
-- [ ] **Step 1: Context menu entries**
+- [x] **Step 1: Context menu entries**
 
 Extend the existing slides context menu (used elsewhere in the editor)
 with three new actions, gated on a guide being under the pointer:
@@ -977,7 +981,7 @@ with three new actions, gated on a guide being under the pointer:
 - "Delete all on this axis" → `store.batch(() => guides.filter(...).forEach(removeGuide))`
 - "Delete all guides" → batch + removeAll
 
-- [ ] **Step 2: Ruler markers**
+- [x] **Step 2: Ruler markers**
 
 In `SlidesRuler.paintHorizontal` / `paintVertical`, after `drawTicks`,
 paint a small magenta triangle for each guide whose axis matches the
@@ -1001,13 +1005,13 @@ render(viewport: SlidesRulerViewport, guides: ReadonlyArray<Guide>): void
 
 Update the editor's paint call accordingly.
 
-- [ ] **Step 3: Two-user presence test**
+- [x] **Step 3: Two-user presence test**
 
 In `two-user-slides-yorkie.ts`, simulate user A dragging a guide
 and assert user B receives `draggingGuide` presence updates without
 any CRDT operation firing during the drag.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides packages/frontend
@@ -1042,7 +1046,7 @@ element edges, with explicit priority resolution.
 - Modify: `packages/slides/src/view/editor/snap-candidates.ts`
 - Test: `packages/slides/test/view/editor/snap.test.ts`
 
-- [ ] **Step 1: Extend type**
+- [x] **Step 1: Extend type**
 
 ```ts
 // snap.ts
@@ -1054,7 +1058,7 @@ export type SnapGuide = {
 };
 ```
 
-- [ ] **Step 2: Add guides to candidate list**
+- [x] **Step 2: Add guides to candidate list**
 
 In `snap-candidates.ts` (the function that builds the candidate set
 before each `snapDelta` call), append a candidate for each guide:
@@ -1065,7 +1069,7 @@ for (const g of doc.guides) {
 }
 ```
 
-- [ ] **Step 3: Priority resolution in snapDelta**
+- [x] **Step 3: Priority resolution in snapDelta**
 
 When multiple candidates fall within the threshold:
 
@@ -1075,7 +1079,7 @@ hits.sort((a, b) => order[a.kind] - order[b.kind] || Math.abs(a.delta) - Math.ab
 return hits[0];
 ```
 
-- [ ] **Step 4: Tests**
+- [x] **Step 4: Tests**
 
 ```ts
 it('prefers slide-center over a guide within the same threshold', () => {
@@ -1104,7 +1108,7 @@ it('does not trigger snap during arrow-key nudge', () => {
 **Files:**
 - Modify: `packages/slides/src/view/editor/ruler/guides-layer.ts`
 
-- [ ] **Step 1: Receive snap target**
+- [x] **Step 1: Receive snap target**
 
 Extend `paintGuides` to take an optional `snappedGuideId: string | null`
 and thicken / deepen color when it matches:
@@ -1115,18 +1119,18 @@ ctx.lineWidth = isSnapped ? 1.5 : 1;
 ctx.strokeStyle = isSnapped ? '#ff007a' : '#ff2d92';
 ```
 
-- [ ] **Step 2: Wire from overlay paint**
+- [x] **Step 2: Wire from overlay paint**
 
 ```ts
 paintGuides(ctx, doc.guides, view, editor.currentSnap?.guideId ?? null);
 ```
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 `pnpm dev`, drag an element near a guide, confirm the guide turns
 thicker / darker the moment the element snaps.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides
@@ -1159,19 +1163,19 @@ verifies persistence end-to-end.
 - Modify: `packages/slides/src/view/editor/ruler/ruler.ts` (accept `readOnly` flag)
 - Modify: `packages/slides/src/view/editor/ruler/interactions.ts` (no-op when read-only)
 
-- [ ] **Step 1: Plumb `readOnly` to the ruler**
+- [x] **Step 1: Plumb `readOnly` to the ruler**
 
 Update the `SlidesRuler` constructor to accept `readOnly?: boolean`.
 When true, skip the `mousedown` listener binding in Task 4.1 Step 2.
 
-- [ ] **Step 2: Skip interactions in read-only mode**
+- [x] **Step 2: Skip interactions in read-only mode**
 
 In `editor.ts`, where `attachInteractions()` is gated by `readOnly`,
 also skip:
 - guide hover hit-test (cursor change on `mousemove`)
 - right-click context menu entries for guides
 
-- [ ] **Step 3: Tests**
+- [x] **Step 3: Tests**
 
 ```ts
 it('does not allow guide creation in read-only mode', () => {
@@ -1188,7 +1192,7 @@ it('does not allow guide creation in read-only mode', () => {
 - Modify: `packages/slides/src/export/pdf.ts` (assert guides are ignored)
 - Test: `packages/slides/test/export/pdf.test.ts`
 
-- [ ] **Step 1: PDF test**
+- [x] **Step 1: PDF test**
 
 ```ts
 it('does not render guides into PDF output', async () => {
@@ -1202,7 +1206,7 @@ it('does not render guides into PDF output', async () => {
 Adjust assertion to whatever signal matches the existing PDF test
 infrastructure (e.g. paint-call counts).
 
-- [ ] **Step 2: Presenter check**
+- [x] **Step 2: Presenter check**
 
 Grep the presenter module:
 
@@ -1217,7 +1221,7 @@ Confirm no references. If any slipped in, remove them.
 **Files:**
 - Modify or add: `packages/frontend/tests/browser/slides-ruler.spec.ts`
 
-- [ ] **Step 1: Scenario**
+- [x] **Step 1: Scenario**
 
 ```ts
 test('guide created in one session persists after reload', async ({ page }) => {
@@ -1233,13 +1237,13 @@ Use the existing browser-test harness conventions; the locator names
 above are placeholders to be replaced with the actual selectors used
 by the project's browser tests.
 
-- [ ] **Step 2: Run**
+- [x] **Step 2: Run**
 
 ```bash
 pnpm verify:browser:docker
 ```
 
-- [ ] **Step 3: Final commit**
+- [x] **Step 3: Final commit**
 
 ```bash
 git add packages/slides packages/frontend

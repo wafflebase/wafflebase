@@ -1,5 +1,9 @@
 # Slides thumbnail — async background image + lazy paint
 
+> **Status:** ✅ Shipped to `main` in PR #271 (`dcfc9a6a`). V2 manual
+> visual smoke was the merge-gate human check (passed at review); marked
+> complete retroactively during archival (2026-05-24).
+
 ## Problem
 
 In `mountThumbnailPanel` (`packages/slides/src/view/editor/thumbnail-panel.ts:248`),
@@ -152,7 +156,7 @@ flag checked at the top of `paintThumb`.
       repaints the right thumb. Use the existing `image-cache.ts` test
       helpers; stub `getOrLoadImage` if needed.
 - [x] **V1** — `pnpm verify:fast` green.
-- [ ] **V2** — Manual visual: start `pnpm dev`, create a deck with a
+- [x] **V2** — Manual visual: start `pnpm dev`, create a deck with a
       master-level image background and ~30 slides, confirm:
       - on mount, all visible thumbs show the image (not just the color);
       - scrolling reveals lower thumbs that also paint with the image;

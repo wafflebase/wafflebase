@@ -1,5 +1,9 @@
 # Slides on homepage + documentation site
 
+> **Status:** ✅ Shipped to `main` in PR #277 (`1ba8f339`). Checkboxes
+> below marked complete retroactively during archival (2026-05-24);
+> the merged PR is the source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Design docs to update (same PR):**
@@ -59,19 +63,19 @@ Extend the existing 2-tab pattern to 3 tabs. Reuse the lazy-mount +
 `display`-toggle pattern from the Docs tab so Slides mounts only on
 first activation. Default active tab stays `sheet`.
 
-- [ ] **Step 1: Read demo-section.tsx and confirm current structure**
+- [x] **Step 1: Read demo-section.tsx and confirm current structure**
 
   Confirm `TAB_ORDER: Tab[] = ["sheet", "doc"]` and that the Doc tab uses
   lazy mounting via `docMounted`.
 
-- [ ] **Step 2: Extend the Tab type and TAB_ORDER**
+- [x] **Step 2: Extend the Tab type and TAB_ORDER**
 
   ```typescript
   type Tab = "sheet" | "doc" | "slides";
   const TAB_ORDER: Tab[] = ["sheet", "doc", "slides"];
   ```
 
-- [ ] **Step 3: Add the Slides token constant**
+- [x] **Step 3: Add the Slides token constant**
 
   ```typescript
   const DEMO_SLIDES_TOKEN =
@@ -79,53 +83,53 @@ first activation. Default active tab stays `sheet`.
     "bf4e92f1-f289-43dd-be1b-8a47c14f0e7a";
   ```
 
-- [ ] **Step 4: Mirror the Doc lazy-mount and state pattern for Slides**
+- [x] **Step 4: Mirror the Doc lazy-mount and state pattern for Slides**
 
   - Add `slidesIframeRef`, `slidesMounted` (lazy), `slidesState` ("loading" | "loaded" | "error").
   - Add `slidesUrl` locked at first render (mirroring `docUrl`).
   - Extend `useEffect(... tab === "doc" → setDocMounted(true))` to also handle `"slides" → setSlidesMounted(true)`.
   - Extend the theme-sync `useEffect` to call `postTheme(slidesIframeRef, slidesState === "loaded", resolvedTheme)`.
 
-- [ ] **Step 5: Add a third `<DemoTab>` to the tablist**
+- [x] **Step 5: Add a third `<DemoTab>` to the tablist**
 
   Order: `Spreadsheet` → `Word processor` → `Presentation` (label).
   Use a new `<SlidesIcon>` helper (small SVG, 14×14) matching the
   Sheet/Doc icon style — a rounded rectangle with a triangular play
   glyph or a single horizontal text line.
 
-- [ ] **Step 6: Add a third `<DemoFrame>` inside the tab body**
+- [x] **Step 6: Add a third `<DemoFrame>` inside the tab body**
 
   Gated behind `{slidesMounted && (...)}`. Wire `visible={tab === "slides"}`,
   `iframeRef={slidesIframeRef}`, `src={slidesUrl}`, `title="Wafflebase
   live demo presentation"`, `panelId="demo-panel-slides"`,
   `tabId="demo-tab-slides"`.
 
-- [ ] **Step 7: Update the footer tip copy**
+- [x] **Step 7: Update the footer tip copy**
 
   Extend the ternary so each tab has its own tip. Suggested:
   - sheet: existing copy
   - doc: existing copy
   - slides: "Tip: arrow keys navigate slides — press F to present."
 
-- [ ] **Step 8: Verify keyboard tab navigation still works**
+- [x] **Step 8: Verify keyboard tab navigation still works**
 
   `handleTabKey` already uses `TAB_ORDER` length, so adding a third entry
   is automatic. Manually verify ←/→ wraps through all three tabs.
 
-- [ ] **Step 9: Add the env var to the .env.example (if one exists for frontend)**
+- [x] **Step 9: Add the env var to the .env.example (if one exists for frontend)**
 
   Document `VITE_DEMO_SLIDES_SHARED_TOKEN` next to the existing two
   tokens. Default in code is the brainstorming-confirmed token, so the
   env var is optional.
 
-- [ ] **Step 10: Manual smoke**
+- [x] **Step 10: Manual smoke**
 
   `pnpm dev` → unauthenticated `/` → DemoSection shows three tabs.
   Click Slides → loads `/shared/bf4e92f1-…`, shows slide content. Switch
   back to Sheets, Docs, Slides — no reloads. Toggle theme — all three
   iframes pick up the change without reloading.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
   ```bash
   git add packages/frontend/src/app/home/demo-section.tsx
@@ -142,7 +146,7 @@ first activation. Default active tab stays `sheet`.
 - Modify: `packages/frontend/src/app/home/hero-section.tsx`
 - Modify: `packages/frontend/src/app/home/footer.tsx`
 
-- [ ] **Step 1: Rewrite Hero H1**
+- [x] **Step 1: Rewrite Hero H1**
 
   Replace the existing two-line H1 with:
 
@@ -162,7 +166,7 @@ first activation. Default active tab stays `sheet`.
   is 27 characters vs 36 for the previous title, so the constraint
   relaxes. Verify wrapping in dev at 320px / 768px / 1280px viewports.
 
-- [ ] **Step 2: Rewrite Hero sub**
+- [x] **Step 2: Rewrite Hero sub**
 
   ```tsx
   <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10">
@@ -171,7 +175,7 @@ first activation. Default active tab stays `sheet`.
   </p>
   ```
 
-- [ ] **Step 3: Update Footer brand copy**
+- [x] **Step 3: Update Footer brand copy**
 
   In `footer.tsx`, replace the brand paragraph:
 
@@ -182,12 +186,12 @@ first activation. Default active tab stays `sheet`.
   </p>
   ```
 
-- [ ] **Step 4: Manual smoke**
+- [x] **Step 4: Manual smoke**
 
   `pnpm dev` → check Hero copy at multiple viewport widths. Confirm
   no awkward orphan wrap on the H1 italic emphasis. Check Footer too.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add packages/frontend/src/app/home/hero-section.tsx \
@@ -208,7 +212,7 @@ Drop "Sharing & Permissions", add "Tables & Pagination" (Docs),
 "Themes & Layouts" (Slides), "Presentation Mode" (Slides). Reorder
 to group by product.
 
-- [ ] **Step 1: Update lucide imports**
+- [x] **Step 1: Update lucide imports**
 
   Replace the `Shield` import with the new icons. Final import:
 
@@ -225,7 +229,7 @@ to group by product.
 
   (`Shield` was used by "Sharing & Permissions" — removed.)
 
-- [ ] **Step 2: Replace SECONDARY_FEATURES**
+- [x] **Step 2: Replace SECONDARY_FEATURES**
 
   ```typescript
   const SECONDARY_FEATURES: SecondaryFeature[] = [
@@ -271,19 +275,19 @@ to group by product.
   ];
   ```
 
-- [ ] **Step 3: Verify the grid still renders cleanly**
+- [x] **Step 3: Verify the grid still renders cleanly**
 
   The existing JSX uses `md:grid-cols-2 gap-3 md:gap-4`. Six cards in a
   two-column grid renders as 3 rows of 2 — no markup change needed.
   Spot-check at 768px / 1280px breakpoints.
 
-- [ ] **Step 4: Manual smoke**
+- [x] **Step 4: Manual smoke**
 
   Hover each card → shadow + scale animation works. Click each card →
   navigates to the correct `/docs/...` path (some pages don't exist
   yet — that's expected; Chunk 5 ships them).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add packages/frontend/src/app/home/features-section.tsx
@@ -304,7 +308,7 @@ UseCase card 2 ("Customer dashboards") is a near-duplicate Sheets case.
 Replace it with a Slides case. Copy must NOT promise live Sheets-cell
 embedding inside slides (feature not implemented).
 
-- [ ] **Step 1: Replace USE_CASES[1] in use-cases-section.tsx**
+- [x] **Step 1: Replace USE_CASES[1] in use-cases-section.tsx**
 
   ```typescript
   {
@@ -317,20 +321,20 @@ embedding inside slides (feature not implemented).
 
   Leave cards 0 and 2 unchanged.
 
-- [ ] **Step 2: Update the WhySection comparison row**
+- [x] **Step 2: Update the WhySection comparison row**
 
   In `why-section.tsx`, find the row labeled `"Sheets & Docs in one
   app"` and rewrite the label to `"Slides, Docs & Sheets in one app"`.
   Wafflebase column stays `<CheckMark />`. Google Workspace column
   stays `<CheckMark />` (they do offer all three).
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
   `pnpm dev` → scroll through UseCasesSection. Card 2 reads as a Slides
   case, links to `/docs/slides/build-a-deck`. WhySection row reads
   correctly.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
   ```bash
   git add packages/frontend/src/app/home/use-cases-section.tsx \
@@ -347,7 +351,7 @@ embedding inside slides (feature not implemented).
 **Files:**
 - Modify: `packages/documentation/.vitepress/config.ts`
 
-- [ ] **Step 1: Add Slides to the top `nav`**
+- [x] **Step 1: Add Slides to the top `nav`**
 
   Insert after the "Docs" entry, before "Developers":
 
@@ -355,7 +359,7 @@ embedding inside slides (feature not implemented).
   { text: "Slides", link: "/slides/build-a-deck" },
   ```
 
-- [ ] **Step 2: Add Slides group to the `sidebar`**
+- [x] **Step 2: Add Slides group to the `sidebar`**
 
   Insert a new group object after the existing "Docs" group:
 
@@ -376,7 +380,7 @@ embedding inside slides (feature not implemented).
   },
   ```
 
-- [ ] **Step 3: Commit (config-only, before content lands)**
+- [x] **Step 3: Commit (config-only, before content lands)**
 
   ```bash
   git add packages/documentation/.vitepress/config.ts
@@ -392,9 +396,9 @@ Counterpart to `sheets/build-a-budget.md`. End-to-end tutorial:
 create a slides document → apply a theme → add a layout-based slide
 → insert and edit a text placeholder → add a shape → use Present mode.
 
-- [ ] **Step 1: Read `packages/documentation/sheets/build-a-budget.md` to mirror its tone, length, and section structure.**
+- [x] **Step 1: Read `packages/documentation/sheets/build-a-budget.md` to mirror its tone, length, and section structure.**
 
-- [ ] **Step 2: Draft the page with these sections**
+- [x] **Step 2: Draft the page with these sections**
   - One-paragraph intro: what you'll build (a 3-slide intro deck)
   - "Create a new presentation" — Workspace → New → Presentation
   - "Pick a theme" — apply one of the built-in themes; reference the 4-tier theme model briefly
@@ -404,14 +408,14 @@ create a slides document → apply a theme → add a layout-based slide
   - "Present" — F key to enter, ← / → to navigate, Esc to exit
   - "Next steps" — link to Themes & Layouts page and Keyboard Shortcuts page
 
-- [ ] **Step 3: Sanity-check screenshots / asset references**
+- [x] **Step 3: Sanity-check screenshots / asset references**
 
   This first pass can ship without screenshots if needed — a follow-up
   PR adds them. If screenshots ARE added, drop them in
   `packages/documentation/public/slides/` and reference with
   `![](/slides/build-a-deck-step3.png)`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
   ```bash
   git add packages/documentation/slides/build-a-deck.md \
@@ -427,9 +431,9 @@ create a slides document → apply a theme → add a layout-based slide
 Reference doc covering the theme model (without exposing internal
 architecture detail) and the available layouts.
 
-- [ ] **Step 1: Read `docs/design/slides/slides-themes-layouts-import.md`** as the authoritative source.
+- [x] **Step 1: Read `docs/design/slides/slides-themes-layouts-import.md`** as the authoritative source.
 
-- [ ] **Step 2: Draft user-facing sections**
+- [x] **Step 2: Draft user-facing sections**
   - "What is a theme?" — colors, fonts, background; one-paragraph intro
   - "Built-in themes" — short visual catalog (table or grid of theme names + screenshot thumbnails if available)
   - "Switching themes" — toolbar / sidebar action
@@ -440,7 +444,7 @@ architecture detail) and the available layouts.
   Keep architecture and CRDT detail in the design doc — this page is
   for end users.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   ```bash
   git add packages/documentation/slides/themes-and-layouts.md
@@ -455,9 +459,9 @@ architecture detail) and the available layouts.
 Tabular catalog. Pattern matches `sheets/keyboard-shortcuts.md` and
 `docs-editor/keyboard-shortcuts.md`.
 
-- [ ] **Step 1: Read `docs/design/slides/slides-keyboard-shortcuts.md`** to ensure the catalog matches the shipped shortcuts (it explicitly mentions a single catalog source — use it as the source of truth).
+- [x] **Step 1: Read `docs/design/slides/slides-keyboard-shortcuts.md`** to ensure the catalog matches the shipped shortcuts (it explicitly mentions a single catalog source — use it as the source of truth).
 
-- [ ] **Step 2: Draft a table grouped by category**
+- [x] **Step 2: Draft a table grouped by category**
   - Selection & navigation
   - Editing (text, shapes)
   - Insert (shapes, text box, image)
@@ -469,7 +473,7 @@ Tabular catalog. Pattern matches `sheets/keyboard-shortcuts.md` and
   format of the existing Sheets/Docs shortcut pages so cross-product
   parity is visible.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   ```bash
   git add packages/documentation/slides/keyboard-shortcuts.md
@@ -488,36 +492,36 @@ Tabular catalog. Pattern matches `sheets/keyboard-shortcuts.md` and
 Bring the design doc in sync with the shipped changes so the doc is
 authoritative again.
 
-- [ ] **Step 1: Update Summary + Goals to mention three products**
+- [x] **Step 1: Update Summary + Goals to mention three products**
 
-- [ ] **Step 2: Update the Page Sections table description for DemoSection** — "Sheet/Doc tab card" → "Sheets / Docs / Slides tab card (3 live iframes)"
+- [x] **Step 2: Update the Page Sections table description for DemoSection** — "Sheet/Doc tab card" → "Sheets / Docs / Slides tab card (3 live iframes)"
 
-- [ ] **Step 3: Rewrite the Hero subsection's title/sub quotation**
+- [x] **Step 3: Rewrite the Hero subsection's title/sub quotation**
 
-- [ ] **Step 4: Rewrite the DemoSection subsection**
+- [x] **Step 4: Rewrite the DemoSection subsection**
   - Mention the third tab and the `VITE_DEMO_SLIDES_SHARED_TOKEN` env var
   - Document that Slides mounts lazily, mirroring Docs
 
-- [ ] **Step 5: Rewrite FeaturesSection's "4 compact cards" → "6 compact cards (3×2, product-balanced)"** and list the new card titles
+- [x] **Step 5: Rewrite FeaturesSection's "4 compact cards" → "6 compact cards (3×2, product-balanced)"** and list the new card titles
 
-- [ ] **Step 6: Rewrite UseCasesSection's card list**
+- [x] **Step 6: Rewrite UseCasesSection's card list**
 
-- [ ] **Step 7: Update WhySection's comparison-row example**
+- [x] **Step 7: Update WhySection's comparison-row example**
 
-- [ ] **Step 8: Update Footer brand copy excerpt**
+- [x] **Step 8: Update Footer brand copy excerpt**
 
 ### Task 10: Update `docs/design/docs-site.md`
 
 **Files:**
 - Modify: `docs/design/docs-site.md`
 
-- [ ] **Step 1: Update the package structure tree** to include `slides/`
+- [x] **Step 1: Update the package structure tree** to include `slides/`
 
-- [ ] **Step 2: Update the VitePress Configuration section** to mention the new nav/sidebar group (order: Guide / Sheets / Docs / Slides / Developers)
+- [x] **Step 2: Update the VitePress Configuration section** to mention the new nav/sidebar group (order: Guide / Sheets / Docs / Slides / Developers)
 
-- [ ] **Step 3: Update Content Outline** with a new "Slides section" subsection listing the three pages
+- [x] **Step 3: Update Content Outline** with a new "Slides section" subsection listing the three pages
 
-- [ ] **Step 4: Commit design docs in one go**
+- [x] **Step 4: Commit design docs in one go**
 
   ```bash
   git add docs/design/homepage.md docs/design/docs-site.md
@@ -530,7 +534,7 @@ authoritative again.
 
 ### Task 11: Pre-commit verify
 
-- [ ] **Step 1: Run the fast verify gate**
+- [x] **Step 1: Run the fast verify gate**
 
   ```bash
   pnpm verify:fast
@@ -538,7 +542,7 @@ authoritative again.
 
   Expected: PASS.
 
-- [ ] **Step 2: Build the documentation site**
+- [x] **Step 2: Build the documentation site**
 
   ```bash
   pnpm --filter @wafflebase/documentation build
@@ -548,7 +552,7 @@ authoritative again.
   Confirm `.vitepress/dist/slides/build-a-deck.html` (and the other two)
   exist.
 
-- [ ] **Step 3: Build the frontend**
+- [x] **Step 3: Build the frontend**
 
   ```bash
   pnpm --filter @wafflebase/frontend build
@@ -558,7 +562,7 @@ authoritative again.
 
 ### Task 12: Manual smoke
 
-- [ ] **Step 1: Homepage in `pnpm dev`**
+- [x] **Step 1: Homepage in `pnpm dev`**
   - Unauthenticated `/` renders the new Hero copy.
   - DemoSection: three tabs, default Sheets, Slides lazy-mounts, theme sync works on all three.
   - FeaturesSection: 6 cards, 3×2 grid, all six link to `/docs/...`.
@@ -566,32 +570,32 @@ authoritative again.
   - WhySection comparison row reads "Slides, Docs & Sheets in one app".
   - Footer brand copy includes "presentations, word processor, and spreadsheet".
 
-- [ ] **Step 2: Documentation site in `pnpm --filter @wafflebase/documentation dev`**
+- [x] **Step 2: Documentation site in `pnpm --filter @wafflebase/documentation dev`**
   - Top nav has "Slides" between "Docs" and "Developers".
   - Sidebar shows the Slides group with three items.
   - Each new page renders, links to each other work, code samples (if any) format correctly.
 
-- [ ] **Step 3: Click-through from homepage to docs**
+- [x] **Step 3: Click-through from homepage to docs**
   - Homepage feature cards → docs pages
   - UseCase 2 → `/docs/slides/build-a-deck`
   - Verify these resolve (frontend serves `/docs/*` from copied VitePress build per `docs/design/docs-site.md`).
 
 ### Task 13: Self code review
 
-- [ ] **Step 1: Dispatch `/code-review` over the branch diff**
+- [x] **Step 1: Dispatch `/code-review` over the branch diff**
 
   Apply blocking findings; note non-blocking as known limitations.
 
 ### Task 14: Open PR
 
-- [ ] **Step 1: Rebase on `origin/main`**
+- [x] **Step 1: Rebase on `origin/main`**
 
   ```bash
   git fetch origin
   git rebase origin/main
   ```
 
-- [ ] **Step 2: Push and open PR**
+- [x] **Step 2: Push and open PR**
 
   Title (≤70 chars): `Add Slides to homepage and documentation site`
 
@@ -624,21 +628,21 @@ authoritative again.
 
 ### Task 15: Post-merge cleanup
 
-- [ ] **Step 1: Write the lessons file**
+- [x] **Step 1: Write the lessons file**
 
   Create `docs/tasks/active/20260521-slides-homepage-docs-lessons.md`
   with any surprises encountered (e.g., copy wrapping at a tricky
   breakpoint, an unexpected iframe reload, a VitePress sidebar quirk).
   One short note per lesson; skip if nothing notable.
 
-- [ ] **Step 2: Archive + reindex**
+- [x] **Step 2: Archive + reindex**
 
   ```bash
   pnpm tasks:archive
   pnpm tasks:index
   ```
 
-- [ ] **Step 3: Commit + push the archive move**
+- [x] **Step 3: Commit + push the archive move**
 
   ```bash
   git add docs/tasks/
