@@ -32,20 +32,24 @@ import { HealthModule } from './health/health.module';
                 ignore: (req) =>
                   req.url === '/health' || req.url === '/health/ready',
               },
-        // Default access log → debug (silent at info). Only audit-worthy
-        // operations stay at info: DELETE (destructive) and content
-        // imports (DOCX/PPTX bulk writes via `PUT .../content`). 5xx
-        // pages on-call, 4xx warns. Other business events should be
-        // emitted explicitly from service code via Logger.log instead
-        // of inferred from URL patterns here.
+        // Default access log → debug (silent at info). Every mutation
+        // (POST/PUT/PATCH/DELETE) gets info so the audit trail covers
+        // doc create, import, share, invite, api-key, datasource, etc.
+        // Two paths stay at debug because they're high-volume and not
+        // individually audit-worthy: image upload/fetch and cell-level
+        // CRUD via CLI. 5xx pages on-call, 4xx warns.
         customLogLevel: (req, res, err) => {
           if (err || res.statusCode >= 500) return 'error';
           if (res.statusCode >= 400) return 'warn';
-          if (req.method === 'DELETE') return 'info';
-          if (req.method === 'PUT' && req.url?.endsWith('/content')) {
-            return 'info';
-          }
-          return 'debug';
+          const isHighVolumePath =
+            /\/images(?:\/|$)/.test(req.url ?? '') ||
+            /\/cells(?:\/|$)/.test(req.url ?? '');
+          if (isHighVolumePath) return 'debug';
+          const isMutation =
+            req.method !== 'GET' &&
+            req.method !== 'HEAD' &&
+            req.method !== 'OPTIONS';
+          return isMutation ? 'info' : 'debug';
         },
         // Slim request/response shape: pino-http's default serializer
         // dumps every header (sec-ch-ua-*, accept-encoding, if-none-match,
