@@ -40,4 +40,11 @@ describe('WCAG AA contrast', () => {
     const ratio = contrastRatio(palette.neutrals.light.ink, palette.butter);
     expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL);
   });
+
+  it('rejects malformed hex inputs instead of returning NaN', () => {
+    expect(() => contrastRatio('#fff', palette.butter)).toThrow(
+      /unsupported hex format/,
+    );
+    expect(() => contrastRatio(palette.butter, 'not-a-color')).toThrow();
+  });
 });

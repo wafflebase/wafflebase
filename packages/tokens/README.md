@@ -16,7 +16,7 @@ radius, and typography. Single source of truth consumed by:
 
 ## Build
 
-```
+```bash
 pnpm --filter @wafflebase/tokens build
 ```
 

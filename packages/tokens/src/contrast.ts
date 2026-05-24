@@ -2,6 +2,12 @@ type RGB = { r: number; g: number; b: number };
 
 function hexToRgb(hex: string): RGB {
   const h = hex.replace('#', '');
+  // Reject short-form (#fff), alpha-bearing (#RRGGBBAA), or non-hex inputs.
+  // Without this, parseInt of `NaN` propagates and contrastRatio quietly
+  // returns garbage instead of surfacing the malformed input.
+  if (!/^[0-9A-Fa-f]{6}$/.test(h)) {
+    throw new Error(`contrast helper: unsupported hex format "${hex}"`);
+  }
   return {
     r: parseInt(h.slice(0, 2), 16) / 255,
     g: parseInt(h.slice(2, 4), 16) / 255,
