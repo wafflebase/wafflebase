@@ -18,6 +18,8 @@ import {
   MulDivContext,
   NumberContext,
   ParenthesesContext,
+  PercentContext,
+  PowContext,
   ReferenceContext,
   StrContext,
   UnarySignContext,
@@ -775,6 +777,36 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     return { t: 'num', v: left.v / right.v };
+  }
+
+  visitPercent(ctx: PercentContext): EvalNode {
+    // 1. Get the number that comes before the % sign
+    const val = NumberArgs.map(this.visit(ctx.expr()), this.grid);
+
+    // 2. If it's an error (like #VALUE!), just return the error
+    if (val.t === 'err') {
+      return val;
+    }
+    // 3. Divide by 100 and return the new number!
+    return { t: 'num', v: val.v / 100 };
+  }
+
+  visitPow(ctx: PowContext): EvalNode {
+    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    if (left.t === 'err') {
+      return left;
+    }
+
+    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    if (right.t === 'err') {
+      return right;
+    }
+
+    const result = Math.pow(left.v, right.v);
+    if (!isFinite(result)) {
+      return ErrNode.NUM;
+    }
+    return { t: 'num', v: result };
   }
 
   visitConcat(ctx: ConcatContext): EvalNode {

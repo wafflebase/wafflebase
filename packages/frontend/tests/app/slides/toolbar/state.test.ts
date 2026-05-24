@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { getToolbarState } from "../../../../src/app/slides/toolbar/state.ts";
 import type { SlidesEditor, SlidesStore, SlidesTextBoxEditor, Slide, SlidesDocument } from "@wafflebase/slides";
 
@@ -141,27 +140,27 @@ function makeConnectorElement(id: string) {
 
 test("getToolbarState returns idle when editor is null", () => {
   const state = getToolbarState(null, null);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 test("getToolbarState returns idle when selection is empty", () => {
   const editor = makeEditor({ selection: [], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeShapeElement("el-1")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 test("getToolbarState returns idle when not text-editing and store is null", () => {
   const editor = makeEditor({ selection: ["el-1"], currentSlideId: "slide-1" });
   const state = getToolbarState(editor, null);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 test("getToolbarState returns idle when slide not found in store", () => {
   const editor = makeEditor({ selection: ["el-1"], currentSlideId: "slide-unknown" });
   const store = makeStore([makeSlide("slide-1", [makeShapeElement("el-1")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 test("getToolbarState returns idle when selection IDs don't match any element on the current slide", () => {
@@ -169,7 +168,7 @@ test("getToolbarState returns idle when selection IDs don't match any element on
   const editor = makeEditor({ selection: ["nonexistent-id"], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeShapeElement("el-1")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 // ---------------------------------------------------------------------------
@@ -185,10 +184,10 @@ test("getToolbarState returns text-edit when editor.isTextEditing() is true and 
   });
   const store = makeStore([]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "text-edit");
+  expect(state.kind).toBe("text-edit");
   if (state.kind === "text-edit") {
-    assert.equal(state.elementId, "el-text");
-    assert.equal(state.textEditor, fakeTextEditor);
+    expect(state.elementId).toBe("el-text");
+    expect(state.textEditor).toBe(fakeTextEditor);
   }
 });
 
@@ -200,7 +199,7 @@ test("getToolbarState returns idle when isTextEditing is true but elementId is n
     textEditor: fakeTextEditor,
   });
   const state = getToolbarState(editor, null);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 test("getToolbarState returns idle when isTextEditing is true but textEditor is null", () => {
@@ -210,7 +209,7 @@ test("getToolbarState returns idle when isTextEditing is true but textEditor is 
     textEditor: null,
   });
   const state = getToolbarState(editor, null);
-  assert.equal(state.kind, "idle");
+  expect(state.kind).toBe("idle");
 });
 
 // ---------------------------------------------------------------------------
@@ -221,10 +220,10 @@ test("getToolbarState returns object with selectionType 'shape' for single shape
   const editor = makeEditor({ selection: ["el-1"], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeShapeElement("el-1")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "shape");
-    assert.deepEqual(Array.from(state.ids), ["el-1"]);
+    expect(state.selectionType).toBe("shape");
+    expect(Array.from(state.ids)).toEqual(["el-1"]);
   }
 });
 
@@ -232,9 +231,9 @@ test("getToolbarState returns object with selectionType 'image' for single image
   const editor = makeEditor({ selection: ["el-img"], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeImageElement("el-img")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "image");
+    expect(state.selectionType).toBe("image");
   }
 });
 
@@ -243,9 +242,9 @@ test("getToolbarState returns object with selectionType 'text-element' for singl
   const editor = makeEditor({ selection: ["el-txt"], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeTextElement("el-txt")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "text-element");
+    expect(state.selectionType).toBe("text-element");
   }
 });
 
@@ -255,9 +254,9 @@ test("getToolbarState returns object with selectionType 'mixed' for multi-type s
     makeSlide("slide-1", [makeShapeElement("el-shape"), makeTextElement("el-txt")]),
   ]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "mixed");
+    expect(state.selectionType).toBe("mixed");
   }
 });
 
@@ -267,10 +266,10 @@ test("getToolbarState includes all selected ids in the ids array", () => {
     makeSlide("slide-1", [makeShapeElement("el-1"), makeShapeElement("el-2")]),
   ]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "shape");
-    assert.deepEqual(Array.from(state.ids), ["el-1", "el-2"]);
+    expect(state.selectionType).toBe("shape");
+    expect(Array.from(state.ids)).toEqual(["el-1", "el-2"]);
   }
 });
 
@@ -278,10 +277,10 @@ test("getToolbarState returns object with selectionType 'connector' for single c
   const editor = makeEditor({ selection: ["el-conn"], currentSlideId: "slide-1" });
   const store = makeStore([makeSlide("slide-1", [makeConnectorElement("el-conn")])]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "connector");
-    assert.deepEqual(Array.from(state.ids), ["el-conn"]);
+    expect(state.selectionType).toBe("connector");
+    expect(Array.from(state.ids)).toEqual(["el-conn"]);
   }
 });
 
@@ -291,8 +290,8 @@ test("getToolbarState returns 'mixed' when selection spans connector and shape",
     makeSlide("slide-1", [makeConnectorElement("el-conn"), makeShapeElement("el-shape")]),
   ]);
   const state = getToolbarState(editor, store);
-  assert.equal(state.kind, "object");
+  expect(state.kind).toBe("object");
   if (state.kind === "object") {
-    assert.equal(state.selectionType, "mixed");
+    expect(state.selectionType).toBe("mixed");
   }
 });

@@ -143,8 +143,21 @@ Threads are keyed by their own `id`, **not** by `${rowId}|${colId}`, because
 multiple threads can attach to the same cell. The anchor lives inside the
 thread.
 
-The optional field means existing documents need no migration — `comments` is
-materialized on first thread insertion.
+New worksheets seed `comments: {}` in `createWorksheet()` (alongside the
+other map containers like `merges`, `charts`, `images`). This is required
+for convergence: Yorkie resolves concurrent assignment of the same object
+key by LWW, so if the container were created lazily on first comment
+(`if (!ws.comments) ws.comments = {}`) two users adding the first comment
+concurrently would each create a fresh map and one — with its thread —
+would be discarded wholesale. A shared, bootstrap-seeded container means
+concurrent inserts only set distinct keys, which merge.
+
+The field stays optional so existing documents need no migration: the
+lazy guard in `ensureComments()` remains as a fallback for legacy
+worksheets created before the seeding. On those, two users adding the
+*first-ever* comment concurrently can still race to create the container;
+the window is one worksheet's first concurrent comment and self-heals
+after one sync.
 
 #### Cross-tab queries
 
@@ -163,7 +176,7 @@ const allThreads = Object.values(spreadsheetDoc.sheets).flatMap(
 
 | Scenario                                                | Yorkie behavior                       | Outcome |
 | ------------------------------------------------------- | ------------------------------------- | ------- |
-| Two users add a thread to the same cell concurrently    | Different `threadId` keys; both insert | Both preserved |
+| Two users add a thread to the same cell concurrently    | Different `threadId` keys on the shared, bootstrap-seeded `comments` container | Both preserved (see container-seeding note above) |
 | Two users add a reply to the same thread concurrently   | `Thread.comments[]` array CRDT push   | Both preserved, deterministic order |
 | One user edits, another deletes the same comment        | Delete wins (parent removal)          | Comment lost (Google Sheets parity) |
 | Two users resolve the same thread concurrently          | LWW on `resolved`                     | Final state consistent |

@@ -10,6 +10,7 @@ WORKDIR /app
 # Copy package manifests and workspace config
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
+COPY packages/tokens/package.json ./packages/tokens/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
 COPY packages/slides/package.json ./packages/slides/
@@ -21,10 +22,16 @@ COPY packages/backend/prisma ./packages/backend/prisma
 RUN pnpm install --frozen-lockfile --filter @wafflebase/backend...
 
 # Copy source
+COPY packages/tokens/ ./packages/tokens/
 COPY packages/sheets/ ./packages/sheets/
 COPY packages/docs/ ./packages/docs/
 COPY packages/slides/ ./packages/slides/
 COPY packages/backend/ ./packages/backend/
+
+# Build tokens → shared design tokens (JS + CSS) consumed by sheets/docs/slides.
+# Its dist/ is gitignored, so it must be built before any consumer can resolve it.
+WORKDIR /app/packages/tokens
+RUN pnpm run build
 
 # Build sheet → platform-independent JS bundle
 WORKDIR /app/packages/sheets

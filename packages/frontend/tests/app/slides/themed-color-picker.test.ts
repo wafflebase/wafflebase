@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from 'vitest';
 import { MemSlidesStore } from "@wafflebase/slides";
 import {
   THEME_ROLES,
@@ -11,55 +10,51 @@ import {
 } from "@/app/slides/themed-color-picker-helpers.ts";
 
 /**
- * The themed color picker UI is a `.tsx` React component, stubbed by
- * `tests/resolve-hooks.mjs` at test load (Node
- * `--experimental-strip-types` can't parse JSX). So the picker's
+ * The themed color picker UI is a `.tsx` React component. Its
  * behavioural surface — role-list shape, role-vs-srgb selection
  * detection, ThemeColor builders, and the store-write helper — is
- * extracted into `themed-color-picker-helpers.ts` and tested here.
+ * extracted into `themed-color-picker-helpers.ts` and tested here
+ * without rendering React.
  */
 
 describe("themed-color-picker helpers", () => {
   it("THEME_ROLES has all 12 ColorScheme slots in OOXML order", () => {
     // Order matches the OOXML mapping the migration / picker UI relies on:
     // dk1, lt1, dk2, lt2, accent1..6, hlink, folHlink.
-    assert.deepEqual(
-      [...THEME_ROLES],
-      [
-        "text",
-        "background",
-        "textSecondary",
-        "backgroundAlt",
-        "accent1",
-        "accent2",
-        "accent3",
-        "accent4",
-        "accent5",
-        "accent6",
-        "hyperlink",
-        "visitedHyperlink",
-      ],
-    );
+    expect([...THEME_ROLES]).toEqual([
+      "text",
+      "background",
+      "textSecondary",
+      "backgroundAlt",
+      "accent1",
+      "accent2",
+      "accent3",
+      "accent4",
+      "accent5",
+      "accent6",
+      "hyperlink",
+      "visitedHyperlink",
+    ]);
   });
 
   it("isRoleSelected returns true only when value is a role match", () => {
-    assert.ok(isRoleSelected({ kind: "role", role: "accent1" }, "accent1"));
-    assert.ok(!isRoleSelected({ kind: "role", role: "accent1" }, "accent2"));
+    expect(isRoleSelected({ kind: "role", role: "accent1" }, "accent1")).toBeTruthy();
+    expect(!isRoleSelected({ kind: "role", role: "accent1" }, "accent2")).toBeTruthy();
     // srgb values never match a role swatch — they're concrete colors,
     // so no theme-role marker should appear in the picker.
-    assert.ok(!isRoleSelected({ kind: "srgb", value: "#abcdef" }, "accent1"));
-    assert.ok(!isRoleSelected(undefined, "accent1"));
+    expect(!isRoleSelected({ kind: "srgb", value: "#abcdef" }, "accent1")).toBeTruthy();
+    expect(!isRoleSelected(undefined, "accent1")).toBeTruthy();
   });
 
   it("makeRoleColor produces a role ThemeColor", () => {
-    assert.deepEqual(makeRoleColor("accent1"), {
+    expect(makeRoleColor("accent1")).toEqual({
       kind: "role",
       role: "accent1",
     });
   });
 
   it("makeSrgbColor produces an srgb ThemeColor", () => {
-    assert.deepEqual(makeSrgbColor("#abcdef"), {
+    expect(makeSrgbColor("#abcdef")).toEqual({
       kind: "srgb",
       value: "#abcdef",
     });
@@ -80,27 +75,27 @@ describe("themed-color-picker helpers", () => {
 
     const before = store.read();
     const shape = before.slides[0].elements.find((e) => e.id === elementId)!;
-    assert.equal(shape.type, "shape");
+    expect(shape.type).toBe("shape");
 
     applyShapeFill(store, slideId, shape, makeRoleColor("accent3"));
 
     const after = store.read();
     const updated = after.slides[0].elements.find((e) => e.id === elementId)!;
-    assert.equal(updated.type, "shape");
+    expect(updated.type).toBe("shape");
     if (updated.type === "shape") {
-      assert.deepEqual(updated.data.fill, { kind: "role", role: "accent3" });
+      expect(updated.data.fill).toEqual({ kind: "role", role: "accent3" });
     }
 
     // Single undo should revert the fill — proving applyShapeFill
     // batched its updateElementData write.
-    assert.ok(store.canUndo());
+    expect(store.canUndo()).toBeTruthy();
     store.undo();
     const reverted = store.read();
     const revShape = reverted.slides[0].elements.find(
       (e) => e.id === elementId,
     )!;
     if (revShape.type === "shape") {
-      assert.equal(revShape.data.fill, undefined);
+      expect(revShape.data.fill).toBe(undefined);
     }
   });
 
@@ -123,7 +118,7 @@ describe("themed-color-picker helpers", () => {
     const canUndoBefore = store.canUndo();
     applyShapeFill(store, slideId, text, makeSrgbColor("#ff0000"));
     // canUndo state is unchanged — no new batch was committed.
-    assert.equal(store.canUndo(), canUndoBefore);
+    expect(store.canUndo()).toBe(canUndoBefore);
   });
 
   it("readShapeFill returns the shape's fill, or undefined", () => {
@@ -141,13 +136,13 @@ describe("themed-color-picker helpers", () => {
     const shape = store
       .read()
       .slides[0].elements.find((e) => e.id === elementId)!;
-    assert.equal(readShapeFill(shape), undefined);
+    expect(readShapeFill(shape)).toBe(undefined);
 
     applyShapeFill(store, slideId, shape, makeSrgbColor("#123456"));
     const after = store
       .read()
       .slides[0].elements.find((e) => e.id === elementId)!;
-    assert.deepEqual(readShapeFill(after), {
+    expect(readShapeFill(after)).toEqual({
       kind: "srgb",
       value: "#123456",
     });

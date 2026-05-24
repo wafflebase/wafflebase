@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { beforeEach, describe, it } from 'node:test';
+import { beforeEach, describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
 import type { Block } from '@wafflebase/docs';
@@ -93,14 +92,14 @@ describe('YorkieCommentStore — addThread', () => {
       'is this right?',
       alice,
     );
-    assert.equal(t.anchor.kind, 'docs-range');
-    assert.equal(t.anchor.blockId, block.id);
-    assert.equal(t.anchor.quotedText, 'world');
-    assert.ok(t.anchor.posRange, 'posRange must be set by the store');
+    expect(t.anchor.kind).toBe('docs-range');
+    expect(t.anchor.blockId).toBe(block.id);
+    expect(t.anchor.quotedText).toBe('world');
+    expect(t.anchor.posRange, 'posRange must be set by the store').toBeTruthy();
 
     const stored = doc.getRoot().comments?.[t.id];
-    assert.ok(stored, 'thread must be persisted under root.comments');
-    assert.equal(stored?.comments[0].body, 'is this right?');
+    expect(stored, 'thread must be persisted under root.comments').toBeTruthy();
+    expect(stored?.comments[0].body).toBe('is this right?');
   });
 
   it('round-trips: anchor resolves back to the original path range', async () => {
@@ -115,10 +114,10 @@ describe('YorkieCommentStore — addThread', () => {
       alice,
     );
     const res = resolveDocsAnchor(doc.getRoot().content, t.anchor);
-    assert.equal(res.kind, 'live');
+    expect(res.kind).toBe('live');
     if (res.kind === 'live') {
-      assert.deepEqual(res.startPath, [0, 0, 6]);
-      assert.deepEqual(res.endPath, [0, 0, 11]);
+      expect(res.startPath).toEqual([0, 0, 6]);
+      expect(res.endPath).toEqual([0, 0, 11]);
     }
   });
 });
@@ -145,9 +144,9 @@ describe('YorkieCommentStore — replies, edit, delete', () => {
     const t = await seedThread();
     const reply = await store.addReply(t.id, 'reply', bob);
     const stored = doc.getRoot().comments?.[t.id];
-    assert.equal(stored?.comments.length, 2);
-    assert.equal(stored?.comments[1].id, reply.id);
-    assert.equal(stored?.comments[1].body, 'reply');
+    expect(stored?.comments.length).toBe(2);
+    expect(stored?.comments[1].id).toBe(reply.id);
+    expect(stored?.comments[1].body).toBe('reply');
   });
 
   it('editComment updates body and editedAt', async () => {
@@ -156,8 +155,8 @@ describe('YorkieCommentStore — replies, edit, delete', () => {
     await store.editComment(t.id, rootId, 'edited');
     const stored = doc.getRoot().comments?.[t.id];
     const edited = stored?.comments.find((c) => c.id === rootId);
-    assert.equal(edited?.body, 'edited');
-    assert.ok((edited?.editedAt as number) > edited!.createdAt);
+    expect(edited?.body).toBe('edited');
+    expect((edited?.editedAt as number) > edited!.createdAt).toBeTruthy();
   });
 
   it('deleteComment of a reply keeps the thread', async () => {
@@ -165,13 +164,13 @@ describe('YorkieCommentStore — replies, edit, delete', () => {
     const reply = await store.addReply(t.id, 'reply', bob);
     await store.deleteComment(t.id, reply.id);
     const stored = doc.getRoot().comments?.[t.id];
-    assert.equal(stored?.comments.length, 1);
+    expect(stored?.comments.length).toBe(1);
   });
 
   it('deleteComment of the root removes the whole thread', async () => {
     const t = await seedThread();
     await store.deleteComment(t.id, t.comments[0].id);
-    assert.equal(doc.getRoot().comments?.[t.id], undefined);
+    expect(doc.getRoot().comments?.[t.id]).toBe(undefined);
   });
 });
 
@@ -187,24 +186,24 @@ describe('YorkieCommentStore — listThreads + setThreadResolved', () => {
     await store.setThreadResolved(t.id, true, bob);
     const open = await store.listThreads({ resolved: false });
     const closed = await store.listThreads({ resolved: true });
-    assert.equal(open.length, 0);
-    assert.equal(closed.length, 1);
-    assert.equal(closed[0].resolvedBy?.userId, 'u2');
-    assert.ok(closed[0].resolvedAt !== undefined);
+    expect(open.length).toBe(0);
+    expect(closed.length).toBe(1);
+    expect(closed[0].resolvedBy?.userId).toBe('u2');
+    expect(closed[0].resolvedAt !== undefined).toBeTruthy();
 
     // Reopen
     await store.setThreadResolved(t.id, false, alice);
     const reopened = await store.listThreads({ resolved: false });
-    assert.equal(reopened.length, 1);
-    assert.equal(reopened[0].resolvedBy, undefined);
-    assert.equal(reopened[0].resolvedAt, undefined);
+    expect(reopened.length).toBe(1);
+    expect(reopened[0].resolvedBy).toBe(undefined);
+    expect(reopened[0].resolvedAt).toBe(undefined);
   });
 
   it('returns an empty list when comments map is unset', async () => {
     const doc = newDoc([makeBlock('hi')]);
     const store = new YorkieCommentStore(doc, { newId: makeIds(), now: makeNow() });
     const list = await store.listThreads();
-    assert.deepEqual(list, []);
+    expect(list).toEqual([]);
   });
 });
 
@@ -225,7 +224,7 @@ describe('YorkieCommentStore — orphan resolution under text deletion', () => {
     });
 
     const res = resolveDocsAnchor(doc.getRoot().content, t.anchor);
-    assert.equal(res.kind, 'live', 'partial deletion must keep the anchor live');
+    expect(res.kind, 'partial deletion must keep the anchor live').toBe('live');
   });
 
   it('deleting the entire anchored block reports orphan', async () => {
@@ -245,7 +244,7 @@ describe('YorkieCommentStore — orphan resolution under text deletion', () => {
     });
 
     const res = resolveDocsAnchor(doc.getRoot().content, t.anchor);
-    assert.equal(res.kind, 'orphan');
+    expect(res.kind).toBe('orphan');
   });
 });
 
@@ -263,10 +262,10 @@ describe('YorkieCommentStore — subscribe', () => {
       alice,
     );
     await store.addReply(t.id, 'reply', bob);
-    assert.ok(calls >= 2, `expected ≥2 subscribe calls, got ${calls}`);
+    expect(calls >= 2, `expected ≥2 subscribe calls, got ${calls}`).toBeTruthy();
     const before = calls;
     unsub();
     await store.setThreadResolved(t.id, true, bob);
-    assert.equal(calls, before, 'no further calls after unsubscribe');
+    expect(calls, 'no further calls after unsubscribe').toBe(before);
   });
 });

@@ -6,8 +6,8 @@ import type { FontRole, ThemeFont } from "@wafflebase/slides";
  * Curated to roughly match Google Slides' default system list — no
  * dynamic font loading here, the browser uses whatever is installed.
  *
- * Lives in `.ts` (not the `.tsx` component) so node:test can import it
- * without going through the JSX-stub loader (`tests/resolve-hooks.mjs`).
+ * Lives in `.ts` (not the `.tsx` component) so the helper logic can be
+ * unit-tested in isolation.
  */
 export const SYSTEM_FONTS: readonly string[] = [
   "Arial",

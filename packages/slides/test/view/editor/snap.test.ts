@@ -75,4 +75,81 @@ describe('snapDelta', () => {
     );
     expect(result.guides).toEqual([]);
   });
+
+  // --- Phase 5: presentation-wide guides as snap targets ---
+
+  it('snaps the dragged left edge to a vertical guide', () => {
+    // bbox at x=860 + dx=37 puts left edge at 897. Guide at 900 is
+    // 3 px away — inside threshold. Snap: dx = 40 (left edge → 900).
+    const guides = [{ id: 'g1', axis: 'x' as const, position: 900 }];
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, 37, 0, [], SLIDE, guides,
+    );
+    expect(result.dx).toBe(40);
+    expect(result.guides[0]).toMatchObject({
+      axis: 'x',
+      position: 900,
+      kind: 'guide',
+      guideId: 'g1',
+    });
+  });
+
+  it('prefers slide-center over a user guide within the same threshold', () => {
+    // Both candidates within threshold; slide-center wins.
+    // dragged bbox (x=860, w=100) at dx=53 → centre at 1013, snap to 960 (Δ=−3).
+    // Guide at 1014 → dragged left edge (860+53+? — use centre snap instead).
+    // Construct so slide-centre and guide both qualify; slide-centre
+    // demands centre→960 (dx=50). Guide at 960 also matches by centre
+    // (Δ=0). With ties on position they both target 960; the priority
+    // rule keeps `kind: 'slide-center'`.
+    const guides = [{ id: 'g1', axis: 'x' as const, position: 960 }];
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, 53, 0, [], SLIDE, guides,
+    );
+    expect(result.guides[0].kind).toBe('slide-center');
+  });
+
+  it('prefers a user guide over a closer element edge', () => {
+    // Edge at x=500 right edge — dragged left edge at 503 → 3 px gap.
+    // Guide at x=507 → dragged left edge at 503 → 4 px gap.
+    // Both inside threshold (8). Edge is the *closer* candidate
+    // numerically, but guide still wins via priority — which is what
+    // the priority rule actually claims. Earlier fixture had the
+    // guide at 505 (only 2 px away) so the test would have passed
+    // even without the priority rule kicking in.
+    const others: Frame[] = [f(400, 400, 100, 100)];
+    const guides = [{ id: 'g1', axis: 'x' as const, position: 507 }];
+    const result = snapDelta(
+      { x: 0, y: 0, w: 100, h: 100 }, 503, 0, others, SLIDE, guides,
+    );
+    // dragged left edge (originally 0) + dx → 507 (= guide.position).
+    expect(result.dx).toBe(507);
+    expect(result.guides[0]).toMatchObject({
+      kind: 'guide',
+      guideId: 'g1',
+    });
+  });
+
+  it('snaps the dragged top edge to a horizontal guide', () => {
+    const guides = [{ id: 'gh', axis: 'y' as const, position: 300 }];
+    const result = snapDelta(
+      { x: 0, y: 0, w: 100, h: 100 }, 0, 297, [], SLIDE, guides,
+    );
+    expect(result.dy).toBe(300);
+    expect(result.guides[0]).toMatchObject({
+      axis: 'y',
+      position: 300,
+      kind: 'guide',
+      guideId: 'gh',
+    });
+  });
+
+  it('does not snap when a guide is outside the 8-px threshold', () => {
+    const guides = [{ id: 'g1', axis: 'x' as const, position: 500 }];
+    const result = snapDelta(
+      { x: 0, y: 0, w: 100, h: 100 }, 10, 0, [], SLIDE, guides,
+    );
+    expect(result.dx).toBe(10);
+    expect(result.guides).toEqual([]);
+  });
 });

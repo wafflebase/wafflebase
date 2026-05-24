@@ -26,6 +26,8 @@
 export type {
   Background,
   BackgroundImage,
+  Guide,
+  GuideAxis,
   Layout,
   Meta,
   PlaceholderSpec,
@@ -36,6 +38,13 @@ export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentat
 
 export type { ColorScheme, FontScheme, Theme, ThemeColor, ThemeFont } from './model/theme';
 export type { Master, MasterBackground, MasterBackgroundImage } from './model/master';
+// Default master + placeholder-block seeding — pure data-model helpers
+// (sources import only model types). `YorkieSlidesStore` imports these from
+// `@wafflebase/slides`; the slides `.integration.ts` suite runs that store
+// under Node, which resolves to this entry, so they must be re-exported here.
+// Kept in sync with the browser entry (`src/index.ts`).
+export { DEFAULT_MASTER } from './model/master';
+export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
 export type {
   Crop,
@@ -56,7 +65,46 @@ export { generateId } from './model/element';
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 
-export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
+// Group geometry / transform math — pure functions over the data model
+// (no DOM). Re-exported for `YorkieSlidesStore` running under Node.
+export type { GroupTransform } from './model/group';
+export {
+  IDENTITY_GROUP_TRANSFORM,
+  applyGroupTransform,
+  applyInverseMatrix,
+  applyInversePoint,
+  composeAncestorTransform,
+  composeGroupMatrix,
+  findElementPath,
+  flattenElements,
+  groupToTransform,
+  isGroupDescendantOf,
+  normalizeToGroupLocal,
+  worldChildrenAABB,
+  worldTightFrame,
+} from './model/group';
+export {
+  applyGroupTransformToPoint,
+  applyGroupTransform as applyGroupTransformMatrix,
+} from './import/pptx/group';
+
+// Connector geometry — `computeConnectorFrame` / `resolveEndpoint` live
+// under `view/canvas/` but are pure geometry (their transitive deps
+// `connection-sites` and `routing` touch no DOM), so they are node-safe.
+export {
+  computeConnectorFrame,
+  resolveEndpoint,
+} from './view/canvas/connector-frame';
+
+export { migrateDocument } from './model/migrate';
+export { defaultLight } from './themes/default-light';
+
+export {
+  BUILT_IN_LAYOUTS,
+  applyLayoutToSlide,
+  getLayout,
+  slotRefsForLayout,
+} from './model/layout';
 
 // Store interface (the data contract — implementations may pull in
 // DOM, but the interface itself does not). The reference impl

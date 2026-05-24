@@ -235,6 +235,61 @@ describe('AuthController', () => {
     });
   });
 
+  describe('cookie SameSite policy', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it('sets SameSite=Lax with secure=true in production', async () => {
+      process.env.NODE_ENV = 'production';
+      const res = createMockResponse();
+
+      await controller.logout(res);
+
+      expect(res.clearCookie).toHaveBeenCalledTimes(2);
+      for (const call of (res.clearCookie as jest.Mock).mock.calls) {
+        const [, options] = call;
+        expect(options).toMatchObject({
+          httpOnly: true,
+          secure: true,
+          sameSite: 'lax',
+        });
+      }
+    });
+
+    it('sets SameSite=Lax with secure=false outside production', async () => {
+      process.env.NODE_ENV = 'development';
+      const res = createMockResponse();
+
+      await controller.logout(res);
+
+      for (const call of (res.clearCookie as jest.Mock).mock.calls) {
+        const [, options] = call;
+        expect(options).toMatchObject({
+          httpOnly: true,
+          secure: false,
+          sameSite: 'lax',
+        });
+      }
+    });
+
+    it('never sets SameSite=None on auth cookies', async () => {
+      for (const env of ['production', 'staging', 'development', 'test']) {
+        process.env.NODE_ENV = env;
+        const res = createMockResponse();
+
+        await controller.logout(res);
+
+        for (const call of (res.clearCookie as jest.Mock).mock.calls) {
+          const [, options] = call;
+          expect(options.sameSite).not.toBe('none');
+        }
+      }
+    });
+  });
+
   describe('POST /auth/cli/exchange', () => {
     const mockUser = {
       id: 42,

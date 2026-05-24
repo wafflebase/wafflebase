@@ -15,6 +15,11 @@ import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
 import { WorkspaceService } from '../workspace/workspace.service';
+import {
+  CreateDocumentDto,
+  CreateDocumentInWorkspaceDto,
+  UpdateDocumentDto,
+} from './document.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -30,7 +35,7 @@ export class DocumentController {
   async createInWorkspace(
     @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string; type?: string },
+    @Body() body: CreateDocumentDto,
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     const workspaceId =
@@ -38,8 +43,7 @@ export class DocumentController {
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
-      type:
-        body.type === 'doc' || body.type === 'slides' ? body.type : 'sheet',
+      type: body.type ?? 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
     });
@@ -94,14 +98,13 @@ export class DocumentController {
   @Post('documents')
   async createDocument(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string; type?: string; workspaceId: string },
+    @Body() body: CreateDocumentInWorkspaceDto,
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
-      type:
-        body.type === 'doc' || body.type === 'slides' ? body.type : 'sheet',
+      type: body.type ?? 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
     });
@@ -111,7 +114,7 @@ export class DocumentController {
   async updateDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() body: { title?: string; workspaceId?: string },
+    @Body() body: UpdateDocumentDto,
   ): Promise<DocumentModel> {
     const doc = await this.documentService.document({ id });
     if (!doc) {

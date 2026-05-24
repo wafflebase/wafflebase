@@ -34,6 +34,7 @@ import * as cookieParser from 'cookie-parser';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
 import {
+  applyGlobalBootstrap,
   clearDatabase,
   createUserFactory,
   createWorkspace,
@@ -142,6 +143,7 @@ describeFull('docs CLI round-trip', () => {
 
     app = moduleRef.createNestApplication();
     app.use(cookieParser());
+    applyGlobalBootstrap(app);
     await app.init();
     // Bind to a random port so the CLI can hit the server over real HTTP.
     await app.listen(0);

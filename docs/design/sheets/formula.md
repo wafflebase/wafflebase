@@ -39,6 +39,7 @@ formula: expr+ ;
 expr: FUNCNAME '(' args? ')'                      # Function
     | op=(ADD|SUB) expr                            # UnarySign
     | expr '(' args? ')'                           # Call
+    | <assoc=right> expr CARET expr                # Pow
     | expr op=(MUL|DIV) expr                       # MulDiv
     | expr op=(ADD|SUB) expr                       # AddSub
     | expr AMP expr                                # Concat
@@ -70,7 +71,8 @@ NUM: [0-9]+('.' [0-9]+)? ([eE] [+-]? [0-9]+)? ;
 ```
 
 **Operator precedence** (high to low): function call → unary `+ -` →
-expression call → `* /` → `+ -` → `&` → `= <> < > <= >=`.
+expression call → `^` (right-associative) → `* /` → `+ -` → `&` →
+`= <> < > <= >=`.
 
 **Cell references** support up to 3 letters and arbitrary row numbers
 (e.g., `ZZZ729443`). Optional `$` prefixes enable absolute references

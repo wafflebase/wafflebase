@@ -59,8 +59,9 @@ export function Footer() {
               Wafflebase
             </a>
             <p className="text-[14px] leading-[1.55] text-[color:var(--wb-sub)] max-w-[280px] m-0">
-              Self-hosted collaborative word processor and spreadsheet, with
-              real-time editing and a REST API for automation.
+              Self-hosted collaborative presentations, word processor, and
+              spreadsheet, with real-time editing and a REST API for
+              automation.
             </p>
           </div>
 

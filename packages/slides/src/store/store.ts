@@ -1,5 +1,9 @@
 import type { Block } from '@wafflebase/docs';
-import type { Background, SlidesDocument } from '../model/presentation';
+import type {
+  Background,
+  GuideAxis,
+  SlidesDocument,
+} from '../model/presentation';
 import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { ElementInit, Frame } from '../model/element';
 import type { Theme } from '../model/theme';
@@ -92,6 +96,25 @@ export interface SlidesStore {
    */
   ungroup(slideId: string, groupId: string): string[];
 
+  /**
+   * Re-anchor a group's frame and local coordinate space to fit the
+   * children's current visual extent. Called by the editor at "settle"
+   * points (drill-out, click outside the drilled-in group) so that
+   * `group.frame` stays consistent with what the user sees after moving
+   * children around inside drill-in.
+   *
+   * The refit preserves the group's own rotation and scale (the math
+   * is in `worldTightFrame` in `model/group.ts`); only the position +
+   * dimensions move to wrap the children, and each child's local frame
+   * is shifted by the children's local AABB offset so world positions
+   * stay invariant across the refit.
+   *
+   * No-op when the group has no children, when the children's local
+   * AABB already sits at (0, 0) with extent equal to refSize (sub-pixel
+   * tolerance), or when the group does not exist on the slide.
+   */
+  refitGroup(slideId: string, groupId: string): void;
+
   // --- connector-level ---
 
   /** Update an endpoint of an existing connector. */
@@ -121,6 +144,18 @@ export interface SlidesStore {
     elementId: string,
     stroke: import('../model/element').Stroke | undefined,
   ): void;
+
+  // --- guides (presentation-wide) ---
+
+  /**
+   * Insert a presentation-wide alignment guide. Returns the new guide id.
+   * Callers should clamp `position` into the slide's extent
+   * (`[0, SLIDE_WIDTH]` for axis `'x'`, `[0, SLIDE_HEIGHT]` for `'y'`)
+   * before calling; the store is geometry-agnostic.
+   */
+  addGuide(axis: GuideAxis, position: number): string;
+  moveGuide(id: string, position: number): void;
+  removeGuide(id: string): void;
 
   // --- text bridges (Phase 5 wires these to docs Tree) ---
 

@@ -6,13 +6,30 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 196
+Total archived tasks: 213
 
-## 2026/05 (51 tasks)
+## 2026/05 (68 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
+| dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
+| backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
+| build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
+| frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./2026/05/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./2026/05/20260524-frontend-vitest-migration-lessons.md) |
+| tokens package (2026-05-24) | [20260524-tokens-package-todo.md](./2026/05/20260524-tokens-package-todo.md) | [20260524-tokens-package-lessons.md](./2026/05/20260524-tokens-package-lessons.md) |
+| pptx shape blipfill (2026-05-23) | [20260523-pptx-shape-blipfill-todo.md](./2026/05/20260523-pptx-shape-blipfill-todo.md) | - |
+| slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./2026/05/20260523-slides-ruler-todo.md) | - |
+| slides share toolbar (2026-05-23) | [20260523-slides-share-toolbar-todo.md](./2026/05/20260523-slides-share-toolbar-todo.md) | [20260523-slides-share-toolbar-lessons.md](./2026/05/20260523-slides-share-toolbar-lessons.md) |
+| slides arrow key text edit (2026-05-21) | [20260521-slides-arrow-key-text-edit-todo.md](./2026/05/20260521-slides-arrow-key-text-edit-todo.md) | [20260521-slides-arrow-key-text-edit-lessons.md](./2026/05/20260521-slides-arrow-key-text-edit-lessons.md) |
+| slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./2026/05/20260521-slides-homepage-docs-todo.md) | - |
+| slides thumbnail async bg (2026-05-21) | [20260521-slides-thumbnail-async-bg-todo.md](./2026/05/20260521-slides-thumbnail-async-bg-todo.md) | - |
+| slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
 | slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
+| slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./2026/05/20260519-slides-mobile-shell-todo.md) | - |
+| slides mobile toolbar morph (2026-05-19) | [20260519-slides-mobile-toolbar-morph-todo.md](./2026/05/20260519-slides-mobile-toolbar-morph-todo.md) | - |
+| slides precise shape hit test (2026-05-19) | [20260519-slides-precise-shape-hit-test-todo.md](./2026/05/20260519-slides-precise-shape-hit-test-todo.md) | - |
+| slides shape move ghost (2026-05-19) | [20260519-slides-shape-move-ghost-todo.md](./2026/05/20260519-slides-shape-move-ghost-todo.md) | - |
 | release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
 | pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |

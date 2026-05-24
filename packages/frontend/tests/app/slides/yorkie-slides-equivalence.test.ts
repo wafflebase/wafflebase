@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import {
   MemSlidesStore,
@@ -60,8 +59,8 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
       store.batch(() => store.moveSlide(ids[2], 0));
       store.batch(() => store.removeSlide(ids[1]));
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
-    assert.equal(yo.slides.length, 2);
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(yo.slides.length).toBe(2);
   });
 
   it('add element, updateElementFrame, reorderElement, remove', () => {
@@ -86,9 +85,9 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
       store.batch(() => store.reorderElement(slideId, aId, 1));
       store.batch(() => store.removeElement(slideId, bId));
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
-    assert.equal(yo.slides[0].elements.length, 1);
-    assert.equal(yo.slides[0].elements[0].frame.x, 200);
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(yo.slides[0].elements.length).toBe(1);
+    expect(yo.slides[0].elements[0].frame.x).toBe(200);
   });
 
   it('applyLayout preserves user-edited elements', () => {
@@ -104,9 +103,9 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
       });
       store.batch(() => store.applyLayout(slideId, 'title-body'));
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
+    expect(stripIds(yo)).toEqual(stripIds(mem));
     // Title-body adds 2 placeholders; user shape preserved → 3 total.
-    assert.equal(yo.slides[0].elements.length, 3);
+    expect(yo.slides[0].elements.length).toBe(3);
   });
 
   it('batch / undo / redo round-trip', () => {
@@ -116,8 +115,8 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
       store.redo();
       store.batch(() => store.addSlide('title'));
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
-    assert.equal(yo.slides.length, 3);
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(yo.slides.length).toBe(3);
   });
 
   it('updateSlideBackground stores a deep clone (mem vs yorkie)', () => {
@@ -130,8 +129,8 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
       store.batch(() => store.updateSlideBackground(id, bg));
       (bg as { fill: string }).fill = '#00ff00'; // mutating the input must not change either store
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
-    assert.deepEqual(yo.slides[0].background.fill, { kind: 'srgb', value: '#ff0000' });
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(yo.slides[0].background.fill).toEqual({ kind: 'srgb', value: '#ff0000' });
   });
 
   it('withTextElement replace-mode round-trip', () => {
@@ -152,7 +151,7 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
         ]);
       });
     });
-    assert.deepEqual(stripIds(yo), stripIds(mem));
+    expect(stripIds(yo)).toEqual(stripIds(mem));
   });
 });
 
@@ -208,9 +207,9 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
       });
       store.batch(() => { store.group(slideId, [aId, bId]); });
     });
-    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
-    assert.equal(yo.slides[0].elements.length, 1);
-    assert.equal(yo.slides[0].elements[0].type, 'group');
+    expect(stripGroupIds(yo)).toEqual(stripGroupIds(mem));
+    expect(yo.slides[0].elements.length).toBe(1);
+    expect(yo.slides[0].elements[0].type).toBe('group');
   });
 
   it('group() + ungroup() round-trips to flat elements', () => {
@@ -238,9 +237,9 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
       store.batch(() => { store.ungroup(slideId, groupId); });
     });
     // Both should now have 2 flat shapes.
-    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
-    assert.equal(yo.slides[0].elements.length, 2);
-    assert.ok(yo.slides[0].elements.every(e => e.type === 'shape'));
+    expect(stripGroupIds(yo)).toEqual(stripGroupIds(mem));
+    expect(yo.slides[0].elements.length).toBe(2);
+    expect(yo.slides[0].elements.every(e => e.type === 'shape')).toBeTruthy();
   });
 
   it('addElement(parentGroupId) appends child in both stores equivalently', () => {
@@ -273,9 +272,9 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
         }, groupId);
       });
     });
-    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    expect(stripGroupIds(yo)).toEqual(stripGroupIds(mem));
     const groupEl = yo.slides[0].elements[0] as { data: { children: unknown[] } };
-    assert.equal(groupEl.data.children.length, 3);
+    expect(groupEl.data.children.length).toBe(3);
   });
 
   it('group() + ungroup() with a free-endpoint connector preserves endpoint world coords', () => {
@@ -316,24 +315,30 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
       store.batch(() => { store.ungroup(slideId, groupId); });
     });
     // Structural equivalence between both stores.
-    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
+    expect(stripGroupIds(yo)).toEqual(stripGroupIds(mem));
     // After group + ungroup the slide must be flat again.
-    assert.equal(yo.slides[0].elements.length, 3);
+    expect(yo.slides[0].elements.length).toBe(3);
     // Find the connector and verify its free endpoints survived the round-trip
     // in world coordinates — both stores must agree.
     const yoConnector = yo.slides[0].elements.find((e) => e.type === 'connector') as
       { type: 'connector'; start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } } | undefined;
     const memConnector = mem.slides[0].elements.find((e) => e.type === 'connector') as
       { type: 'connector'; start: { kind: string; x: number; y: number }; end: { kind: string; x: number; y: number } } | undefined;
-    assert.ok(yoConnector, 'connector should exist in yorkie store');
-    assert.ok(memConnector, 'connector should exist in mem store');
-    assert.equal(yoConnector.start.kind, 'free');
-    assert.equal(yoConnector.end.kind, 'free');
+    expect(yoConnector, 'connector should exist in yorkie store').toBeTruthy();
+    expect(memConnector, 'connector should exist in mem store').toBeTruthy();
+    expect(yoConnector.start.kind).toBe('free');
+    expect(yoConnector.end.kind).toBe('free');
     // Both stores must agree on the endpoint world positions.
-    assert.ok(Math.abs(yoConnector.start.x - memConnector.start.x) < 1e-6, 'start.x mismatch');
-    assert.ok(Math.abs(yoConnector.start.y - memConnector.start.y) < 1e-6, 'start.y mismatch');
-    assert.ok(Math.abs(yoConnector.end.x - memConnector.end.x) < 1e-6, 'end.x mismatch');
-    assert.ok(Math.abs(yoConnector.end.y - memConnector.end.y) < 1e-6, 'end.y mismatch');
+    expect(
+      Math.abs(yoConnector.start.x - memConnector.start.x) < 1e-6,
+      'start.x mismatch'
+    ).toBeTruthy();
+    expect(
+      Math.abs(yoConnector.start.y - memConnector.start.y) < 1e-6,
+      'start.y mismatch'
+    ).toBeTruthy();
+    expect(Math.abs(yoConnector.end.x - memConnector.end.x) < 1e-6, 'end.x mismatch').toBeTruthy();
+    expect(Math.abs(yoConnector.end.y - memConnector.end.y) < 1e-6, 'end.y mismatch').toBeTruthy();
   });
 
   it('empty-group auto-removal works in both stores', () => {
@@ -363,7 +368,7 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
       store.batch(() => store.removeElement(slideId, childB.id));
     });
     // After removing all children, the group should be gone.
-    assert.deepEqual(stripGroupIds(yo), stripGroupIds(mem));
-    assert.deepEqual(yo.slides[0].elements, []);
+    expect(stripGroupIds(yo)).toEqual(stripGroupIds(mem));
+    expect(yo.slides[0].elements).toEqual([]);
   });
 });

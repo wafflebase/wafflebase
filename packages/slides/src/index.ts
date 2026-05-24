@@ -13,6 +13,8 @@ export { ImportReport } from './import/pptx/report';
 export type {
   Background,
   BackgroundImage,
+  Guide,
+  GuideAxis,
   Layout,
   Meta,
   PlaceholderSpec,
@@ -72,6 +74,8 @@ export {
   groupToTransform,
   isGroupDescendantOf,
   normalizeToGroupLocal,
+  worldChildrenAABB,
+  worldTightFrame,
 } from './model/group';
 export {
   applyGroupTransformToPoint,
@@ -133,12 +137,21 @@ export { collectSnapCandidates } from './view/editor/snap-candidates';
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+
+// View — Ruler (H/V rulers + future guides)
+export {
+  SlidesRuler,
+  RULER_SIZE as SLIDES_RULER_SIZE,
+  SLIDES_PX_PER_INCH,
+  type SlidesRulerOptions,
+  type SlidesRulerViewport,
+} from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)
-export { mountThumbnailPanel, type ThumbnailPanelHandle } from './view/editor/thumbnail-panel';
-export { mountNotesPanel } from './view/editor/notes-panel';
+export { mountThumbnailPanel, type ThumbnailPanelHandle, type MountThumbnailPanelOptions } from './view/editor/thumbnail-panel';
+export { mountNotesPanel, type MountNotesPanelOptions, type NotesPanelHandle } from './view/editor/notes-panel';
 export { showLayoutPicker, type LayoutPickerOptions } from './view/editor/layout-picker';
 export { showContextMenu, dismiss as dismissContextMenu, type ContextMenuItem } from './view/editor/context-menu';
 export { MIME_TYPE as SLIDES_CLIPBOARD_MIME, serializeElements, deserializeElements } from './view/editor/interactions/clipboard';

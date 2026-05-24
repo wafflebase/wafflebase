@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from 'vitest';
 import {
   SHAPE_PICKER_CATEGORIES,
   type Category,
@@ -7,12 +6,10 @@ import {
 
 /**
  * The ShapePicker UI is a `.tsx` React component (Radix Popover +
- * canvas-rendered icons) which `tests/resolve-hooks.mjs` stubs at
- * test load (Node `--experimental-strip-types` cannot parse JSX).
- * The picker's testable surface — the category catalogue that
- * drives the popover's sections + grid layout — is extracted into
- * `shape-picker-helpers.ts` so the toolbar contract can be asserted
- * without rendering React.
+ * canvas-rendered icons). The picker's testable surface — the category
+ * catalogue that drives the popover's sections + grid layout — is
+ * extracted into `shape-picker-helpers.ts` so the toolbar contract can
+ * be asserted without rendering React.
  *
  * The picker contract: 8 categories (Shapes, Block Arrows, Banners,
  * Flowchart, Callouts, Equation, Stars, Action Buttons) with a
@@ -47,20 +44,17 @@ import {
 
 describe("shape-picker categories", () => {
   it("exposes 8 categories in display order", () => {
-    assert.equal(SHAPE_PICKER_CATEGORIES.length, 8);
-    assert.deepEqual(
-      SHAPE_PICKER_CATEGORIES.map((c) => c.id),
-      [
-        "shapes",
-        "block-arrows",
-        "banners",
-        "flowchart",
-        "callouts",
-        "equation",
-        "stars",
-        "action-buttons",
-      ],
-    );
+    expect(SHAPE_PICKER_CATEGORIES.length).toBe(8);
+    expect(SHAPE_PICKER_CATEGORIES.map((c) => c.id)).toEqual([
+      "shapes",
+      "block-arrows",
+      "banners",
+      "flowchart",
+      "callouts",
+      "equation",
+      "stars",
+      "action-buttons",
+    ]);
   });
 
   it("each category has a human-readable title", () => {
@@ -75,7 +69,7 @@ describe("shape-picker categories", () => {
       "action-buttons": "Action Buttons",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
-      assert.equal(cat.title, expected[cat.id]);
+      expect(cat.title).toBe(expected[cat.id]);
     }
   });
 
@@ -84,16 +78,16 @@ describe("shape-picker categories", () => {
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    assert.equal(total, 115);
+    expect(total).toBe(115);
   });
 
   it("each entry has a non-empty kind and label", () => {
     for (const cat of SHAPE_PICKER_CATEGORIES) {
       for (const entry of cat.kinds) {
-        assert.equal(typeof entry.kind, "string");
-        assert.ok(entry.kind.length > 0, `empty kind in ${cat.id}`);
-        assert.equal(typeof entry.label, "string");
-        assert.ok(entry.label.length > 0, `empty label in ${cat.id}`);
+        expect(typeof entry.kind).toBe("string");
+        expect(entry.kind.length > 0, `empty kind in ${cat.id}`).toBeTruthy();
+        expect(typeof entry.label).toBe("string");
+        expect(entry.label.length > 0, `empty label in ${cat.id}`).toBeTruthy();
       }
     }
   });
@@ -113,7 +107,7 @@ describe("shape-picker categories", () => {
       "action-buttons": "actionButtonBlank",
     };
     for (const cat of SHAPE_PICKER_CATEGORIES) {
-      assert.equal(cat.kinds[0]?.kind, firsts[cat.id]);
+      expect(cat.kinds[0]?.kind).toBe(firsts[cat.id]);
     }
   });
 
@@ -121,15 +115,15 @@ describe("shape-picker categories", () => {
     const kinds = SHAPE_PICKER_CATEGORIES.flatMap((c) =>
       c.kinds.map((k) => k.kind as string),
     );
-    assert.ok(!kinds.includes("connector:line"));
-    assert.ok(!kinds.includes("connector:arrow"));
-    assert.ok(!SHAPE_PICKER_CATEGORIES.some((c) => c.id === "lines"));
+    expect(!kinds.includes("connector:line")).toBeTruthy();
+    expect(!kinds.includes("connector:arrow")).toBeTruthy();
+    expect(!SHAPE_PICKER_CATEGORIES.some((c) => c.id === "lines")).toBeTruthy();
   });
 
   it("ShapeKind values are unique across the catalogue", () => {
     const kinds = SHAPE_PICKER_CATEGORIES.flatMap((c) =>
       c.kinds.map((k) => k.kind),
     );
-    assert.equal(new Set(kinds).size, kinds.length);
+    expect(new Set(kinds).size).toBe(kinds.length);
   });
 });

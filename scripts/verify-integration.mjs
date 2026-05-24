@@ -43,5 +43,21 @@ if (migrateExitCode !== 0) {
   process.exit(migrateExitCode);
 }
 
-const testExitCode = await runCommand("pnpm", ["backend", "test:e2e"], env);
-process.exit(testExitCode);
+const backendExitCode = await runCommand("pnpm", ["backend", "test:e2e"], env);
+
+// Frontend Yorkie integration lane (tests/**/*.integration.ts). These run
+// only when a Yorkie server is reachable (gated on YORKIE_RPC_ADDR), which
+// CI sets after starting the server. Skipping the spawn entirely when it is
+// unset keeps local `pnpm verify:integration` (backend-only) from needing
+// the built workspace dists these tests resolve against. Both lanes run so
+// failures in either are reported; exit non-zero if either failed.
+let frontendExitCode = 0;
+if (process.env.YORKIE_RPC_ADDR) {
+  frontendExitCode = await runCommand(
+    "pnpm",
+    ["--filter", "@wafflebase/frontend", "test:integration"],
+    env,
+  );
+}
+
+process.exit(backendExitCode !== 0 ? backendExitCode : frontendExitCode);

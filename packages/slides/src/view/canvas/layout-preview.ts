@@ -77,6 +77,7 @@ export function renderLayoutPreview(
     masters: [master],
     layouts: [layout],
     slides: [slide],
+    guides: [],
   };
   renderThumbnail(ctx, slide, doc, {
     hostWidth: size.w,

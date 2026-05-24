@@ -1,5 +1,9 @@
 # Slides shape move — ghost preview + move cursor
 
+> **Status:** ✅ Shipped to `main` in PR #267 (`3d265a23`). Checkboxes
+> below marked complete retroactively during archival (2026-05-24);
+> the merged PR is the source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Design doc:** [`docs/design/slides/slides-shape-move.md`](../../design/slides/slides-shape-move.md)
@@ -66,7 +70,7 @@ to `ghosts?: ReadonlyArray<Element>` so the drag-move path can hand
 multiple ghosts in one pass while the existing hover-preview path passes
 a single-element array.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/slides/test/view/canvas/slide-renderer.test.ts`. We
 use `MemSlidesStore` to build a real `SlidesDocument` (mirroring
@@ -149,13 +153,13 @@ describe('drawSlide ghosts', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test — confirm it fails**
+- [x] **Step 2: Run the test — confirm it fails**
 
 Run: `pnpm --filter @wafflebase/slides test slide-renderer`
 Expected: TypeScript error or runtime failure because `drawSlide` still
 takes `ghost?: Element` (single), not an array.
 
-- [ ] **Step 3: Update `slide-renderer.ts` to accept an array**
+- [x] **Step 3: Update `slide-renderer.ts` to accept an array**
 
 In `packages/slides/src/view/canvas/slide-renderer.ts`, change the
 `forceRender` signature and the `drawSlide` signature + ghost loop.
@@ -215,7 +219,7 @@ Replace lines 151–161 (single-ghost block):
   }
 ```
 
-- [ ] **Step 4: Update the existing `paintWithHoverGhost` caller**
+- [x] **Step 4: Update the existing `paintWithHoverGhost` caller**
 
 In `packages/slides/src/view/editor/editor.ts:1219`, change the
 single-element call to pass an array:
@@ -224,18 +228,18 @@ single-element call to pass an array:
     this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
 ```
 
-- [ ] **Step 5: Run the test — confirm it passes**
+- [x] **Step 5: Run the test — confirm it passes**
 
 Run: `pnpm --filter @wafflebase/slides test slide-renderer`
 Expected: PASS (both new tests).
 
-- [ ] **Step 6: Run the full slides suite for regressions**
+- [x] **Step 6: Run the full slides suite for regressions**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS (existing `editor.test.ts` hover-preview tests should
 still pass — the array-of-one path renders identically).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/slide-renderer.ts \
@@ -259,7 +263,7 @@ needs to see. For drag-move we want the original slide unchanged plus
 ghost overlays. Adding a sibling method keeps each call site
 single-purpose.
 
-- [ ] **Step 1: Add `paintMoveGhost` method to `SlidesEditor`**
+- [x] **Step 1: Add `paintMoveGhost` method to `SlidesEditor`**
 
 In `packages/slides/src/view/editor/editor.ts`, insert this method
 right after the existing `paintLive` (after line 1510, before
@@ -296,13 +300,13 @@ right after the existing `paintLive` (after line 1510, before
   }
 ```
 
-- [ ] **Step 2: Type-check**
+- [x] **Step 2: Type-check**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
 Expected: PASS — `paintMoveGhost` is private and unused; TS allows
 unused privates.
 
-- [ ] **Step 3: Commit (small, reviewable)**
+- [x] **Step 3: Commit (small, reviewable)**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -321,7 +325,7 @@ Replace the synthesized-slide `paintLive` call with `paintMoveGhost`.
 Build `ghosts` by cloning each selected element with offset frame.
 Exclude connectors. Keep snap calculation untouched.
 
-- [ ] **Step 1: Add a failing test for ghost-during-drag**
+- [x] **Step 1: Add a failing test for ghost-during-drag**
 
 Insert this test in `packages/slides/test/view/editor/editor.test.ts`
 after the existing "drag moves the selected element..." test (after
@@ -354,14 +358,14 @@ must preserve.
   });
 ```
 
-- [ ] **Step 2: Run the test — confirm it passes against current code**
+- [x] **Step 2: Run the test — confirm it passes against current code**
 
 Run: `pnpm --filter @wafflebase/slides test editor`
 Expected: PASS. (Current code already commits only at `pointerup` via
 `store.batch` — the test pins the contract so the rewrite cannot
 regress it.)
 
-- [ ] **Step 3: Replace `startDrag`'s `paintLive` call with `paintMoveGhost`**
+- [x] **Step 3: Replace `startDrag`'s `paintLive` call with `paintMoveGhost`**
 
 In `packages/slides/src/view/editor/editor.ts`, replace lines 1432–1485
 (the entire `startDrag` body) with:
@@ -436,14 +440,14 @@ In `packages/slides/src/view/editor/editor.ts`, replace lines 1432–1485
   }
 ```
 
-- [ ] **Step 4: Run the slides test suite**
+- [x] **Step 4: Run the slides test suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — both existing drag tests (single + multi-select drag,
 editor.test.ts lines 117 and 145) plus the new "no mid-drag mutation"
 test.
 
-- [ ] **Step 5: Add a ghost-array assertion test**
+- [x] **Step 5: Add a ghost-array assertion test**
 
 This test spies on the renderer to confirm `forceRender` receives a
 ghost array of the right length during the drag. Add after the test
@@ -490,7 +494,7 @@ inserted in Step 1:
   });
 ```
 
-- [ ] **Step 6: Run the new test**
+- [x] **Step 6: Run the new test**
 
 Run: `pnpm --filter @wafflebase/slides test editor`
 Expected: PASS.
@@ -502,7 +506,7 @@ is that the handle's left/top is anchored near `(100, 100)` (the
 original position) rather than near `(150, 130)` (the dragged
 position).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -525,7 +529,7 @@ Extend it: when not in insert mode and the pointer is inside a selected
 element's bounding box, set `canvas.style.cursor = 'move'`. Cache the
 last value so we don't write to the DOM every `mousemove`.
 
-- [ ] **Step 1: Write a failing test**
+- [x] **Step 1: Write a failing test**
 
 Add to `packages/slides/test/view/editor/editor.test.ts` (near the
 other cursor tests, after the `setInsertMode toggles a crosshair cursor`
@@ -615,14 +619,14 @@ test around line 91):
   });
 ```
 
-- [ ] **Step 2: Run the test — confirm it fails**
+- [x] **Step 2: Run the test — confirm it fails**
 
 Run: `pnpm --filter @wafflebase/slides test editor`
 Expected: FAIL — the four new tests expect `'move'` / `''` / unchanged
 `'crosshair'`, but the current handler never writes the cursor outside
 insert mode.
 
-- [ ] **Step 3: Implement hover-cursor logic**
+- [x] **Step 3: Implement hover-cursor logic**
 
 In `packages/slides/src/view/editor/editor.ts`, find the
 `onInsertHoverMove` method (starts around line 1160). Add a new
@@ -719,12 +723,12 @@ after the existing `this.options.overlay.style.cursor = cursor;`:
     if (kind === null) this.lastHoverCursor = '';
 ```
 
-- [ ] **Step 4: Run the cursor tests — confirm they pass**
+- [x] **Step 4: Run the cursor tests — confirm they pass**
 
 Run: `pnpm --filter @wafflebase/slides test editor`
 Expected: PASS for the four new cursor tests AND all existing tests.
 
-- [ ] **Step 5: Verify no flicker via assertion**
+- [x] **Step 5: Verify no flicker via assertion**
 
 Add one more test that calls `pointermove` twice in the selected bbox
 and asserts the cursor was only written once (i.e., the cache works):
@@ -781,12 +785,12 @@ and asserts the cursor was only written once (i.e., the cache works):
   });
 ```
 
-- [ ] **Step 6: Run the flicker test**
+- [x] **Step 6: Run the flicker test**
 
 Run: `pnpm --filter @wafflebase/slides test editor`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -800,17 +804,17 @@ git commit -m "Slides: move cursor on hover over selected shape"
 
 ### Task 5: Pre-commit verify and manual smoke
 
-- [ ] **Step 1: Lint + unit-test gate**
+- [x] **Step 1: Lint + unit-test gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 2: Slides-specific test pass**
+- [x] **Step 2: Slides-specific test pass**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 3: Manual smoke in dev server**
+- [x] **Step 3: Manual smoke in dev server**
 
 Run: `pnpm dev` (frontend at :5173, backend at :3000).
 
@@ -835,7 +839,7 @@ Open a Slides document and verify:
 - Insert mode: arm `rect` → cursor `crosshair` regardless of hover over
   selected shapes (insert preview still works).
 
-- [ ] **Step 4: If anything looks off, fix and re-test before commit**
+- [x] **Step 4: If anything looks off, fix and re-test before commit**
 
 Common gotchas:
 - Selection handles drift with the ghost → `paintMoveGhost` is passing
@@ -851,7 +855,7 @@ Common gotchas:
 
 ### Task 6: Open PR
 
-- [ ] **Step 1: Rebase on `origin/main`**
+- [x] **Step 1: Rebase on `origin/main`**
 
 Run:
 ```bash
@@ -859,11 +863,11 @@ git fetch origin
 git rebase origin/main
 ```
 
-- [ ] **Step 2: Self code review**
+- [x] **Step 2: Self code review**
 
 Dispatch `/code-review` over the branch diff. Address blocking findings.
 
-- [ ] **Step 3: Push branch and open PR**
+- [x] **Step 3: Push branch and open PR**
 
 Title (≤70 chars): `Slides: ghost preview + move cursor for shape drag`
 
@@ -900,21 +904,21 @@ alt-drag clone, and keyboard-nudge ghosting are intentionally deferred.
 
 ### Task 7: Post-merge cleanup
 
-- [ ] **Step 1: Write lessons file**
+- [x] **Step 1: Write lessons file**
 
 Create `docs/tasks/active/20260519-slides-shape-move-ghost-lessons.md`
 with anything surprising learned during implementation (e.g., a snap
 edge case, a jsdom quirk in the cursor test). One short note per
 lesson; skip if nothing notable.
 
-- [ ] **Step 2: Archive**
+- [x] **Step 2: Archive**
 
 ```bash
 pnpm tasks:archive
 pnpm tasks:index
 ```
 
-- [ ] **Step 3: Commit + push the archive move**
+- [x] **Step 3: Commit + push the archive move**
 
 ```bash
 git add docs/tasks/

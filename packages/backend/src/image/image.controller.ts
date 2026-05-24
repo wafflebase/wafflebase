@@ -11,12 +11,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
 import { VALID_IMAGE_ID_PATTERN } from './image.constants';
 import type { Response } from 'express';
 
+// Higher ceiling: opening a doc with many embedded images bursts >60/min.
+const IMAGE_THROTTLE = { default: { limit: 600, ttl: 60_000 } } as const;
+
 @Controller('images')
+@Throttle(IMAGE_THROTTLE)
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
 

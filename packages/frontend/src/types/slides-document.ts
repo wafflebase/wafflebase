@@ -37,6 +37,19 @@ export interface YorkieSlidesRoot {
   layouts: YorkieLayout[];
   themes?: Theme[];
   masters?: Master[];
+  /**
+   * Presentation-wide alignment guides. Optional in the Yorkie root
+   * because pre-v0.4.2 documents predate the ruler; `ensureSlidesRoot`
+   * lazy-inits an empty array on attach so consumers never see
+   * `undefined`. See docs/design/slides/slides-ruler.md.
+   */
+  guides?: YorkieGuide[];
+}
+
+export interface YorkieGuide {
+  id: string;
+  axis: 'x' | 'y';
+  position: number;
 }
 
 export interface YorkieSlide {

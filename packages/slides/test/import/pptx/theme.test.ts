@@ -42,12 +42,12 @@ describe('parseTheme', () => {
     expect(theme.fonts).toEqual({ heading: 'Roboto', body: 'Roboto' });
   });
 
-  it('falls back to default-light values when slots are missing', () => {
+  it('falls back to Butter & Maple factory defaults when slots are missing', () => {
     const empty = `<?xml version="1.0"?>
 <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements/></a:theme>`;
     const theme = parseTheme(empty, 'empty');
-    expect(theme.colors.accent1).toBe('#1A73E8'); // default-light accent1
-    expect(theme.fonts.heading).toBe('Inter');
+    expect(theme.colors.accent1).toBe('#B8651A'); // factory default: palette.syrup
+    expect(theme.fonts.heading).toBe('Fraunces'); // factory default: first family from typography.display
   });
 
   it('keeps default fonts when only Latin face is blank (inherit)', () => {
@@ -57,6 +57,6 @@ describe('parseTheme', () => {
   <a:fontScheme name="X"><a:majorFont><a:latin typeface=""/></a:majorFont><a:minorFont><a:latin typeface=""/></a:minorFont></a:fontScheme>
 </a:themeElements></a:theme>`;
     const theme = parseTheme(xml, 't');
-    expect(theme.fonts).toEqual({ heading: 'Inter', body: 'Inter' });
+    expect(theme.fonts).toEqual({ heading: 'Fraunces', body: 'Inter' }); // factory defaults: typography.display / .body
   });
 });

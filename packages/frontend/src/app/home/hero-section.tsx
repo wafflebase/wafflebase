@@ -4,6 +4,9 @@ import { WbButton } from "./primitives/wb-button";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
+// `v0.4` from `0.4.1` — minor-version label for the marketing eyebrow.
+const VERSION_LABEL = `v${__APP_VERSION__.split(".").slice(0, 2).join(".")}`;
+
 const STATS = [
   { value: "Apache-2.0", label: "License" },
   { value: "Self-hosted", label: "Deployment" },
@@ -38,24 +41,24 @@ export function HeroSection({
                   "0 0 0 3px color-mix(in srgb, var(--wb-leaf) 25%, transparent)",
               }}
             />
-            v0.3 · Apache-2.0 · Self-hosted
+            {VERSION_LABEL} · Apache-2.0 · Self-hosted
           </div>
 
           {/* Title */}
           <h1
-            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6 max-w-[16ch]"
+            className="font-display font-semibold text-[color:var(--wb-ink)] leading-[1.04] tracking-[-0.025em] text-[clamp(40px,6vw,68px)] m-0 mb-6"
             style={{ fontFeatureSettings: "'ss01' on, 'ss02' on" }}
           >
-            Word Processor & Spreadsheet{" "}
-            <em className="font-medium italic text-[color:var(--wb-syrup-deep)]">
+            <span className="block">The Office Suite</span>
+            <em className="block font-medium italic text-[color:var(--wb-syrup-deep)]">
               You Can Own
             </em>
           </h1>
 
           {/* Sub */}
           <p className="text-[color:var(--wb-sub)] leading-[1.55] text-[clamp(17px,1.4vw,19px)] max-w-[560px] m-0 mb-10">
-            Self-host a collaborative word processor and spreadsheet with
-            real-time editing and a REST API for automation.
+            Sheets, Docs, and Slides. Real-time collaboration, REST API,
+            fully self-hosted.
           </p>
 
           {/* CTAs */}

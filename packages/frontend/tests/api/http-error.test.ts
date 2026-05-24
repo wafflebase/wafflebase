@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import {
   assertOk,
   readResponseErrorMessage,
@@ -12,7 +11,7 @@ test("readResponseErrorMessage reads JSON message string", async () => {
   });
 
   const message = await readResponseErrorMessage(response);
-  assert.equal(message, "Bad request");
+  expect(message).toBe("Bad request");
 });
 
 test("readResponseErrorMessage joins JSON message arrays", async () => {
@@ -25,13 +24,13 @@ test("readResponseErrorMessage joins JSON message arrays", async () => {
   );
 
   const message = await readResponseErrorMessage(response);
-  assert.equal(message, "a, b");
+  expect(message).toBe("a, b");
 });
 
 test("readResponseErrorMessage falls back to trimmed text body", async () => {
   const response = new Response("  plain failure  ", { status: 500 });
   const message = await readResponseErrorMessage(response);
-  assert.equal(message, "plain failure");
+  expect(message).toBe("plain failure");
 });
 
 test("assertOk uses status override before response body", async () => {
@@ -40,13 +39,9 @@ test("assertOk uses status override before response body", async () => {
     headers: { "Content-Type": "application/json" },
   });
 
-  await assert.rejects(
-    () =>
-      assertOk(response, "fallback", {
-        statusMessages: { 410: "expired" },
-      }),
-    /expired/,
-  );
+  await expect(assertOk(response, "fallback", {
+    statusMessages: { 410: "expired" },
+  })).rejects.toThrow(/expired/);
 });
 
 test("assertOk uses body message then fallback", async () => {
@@ -54,13 +49,13 @@ test("assertOk uses body message then fallback", async () => {
     status: 400,
     headers: { "Content-Type": "application/json" },
   });
-  await assert.rejects(() => assertOk(withMessage, "fallback"), /detail/);
+  await expect(assertOk(withMessage, "fallback")).rejects.toThrow(/detail/);
 
   const emptyBody = new Response("", { status: 400 });
-  await assert.rejects(() => assertOk(emptyBody, "fallback"), /fallback/);
+  await expect(assertOk(emptyBody, "fallback")).rejects.toThrow(/fallback/);
 });
 
 test("assertOk does not throw for OK responses", async () => {
   const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
-  await assert.doesNotReject(() => assertOk(response, "fallback"));
+  await expect(assertOk(response, "fallback")).resolves.not.toThrow();
 });

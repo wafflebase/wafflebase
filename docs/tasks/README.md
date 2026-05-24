@@ -18,10 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./active/20260519-slides-mobile-shell-todo.md) | - |
-| slides mobile toolbar morph (2026-05-19) | [20260519-slides-mobile-toolbar-morph-todo.md](./active/20260519-slides-mobile-toolbar-morph-todo.md) | - |
-| slides precise shape hit test (2026-05-19) | [20260519-slides-precise-shape-hit-test-todo.md](./active/20260519-slides-precise-shape-hit-test-todo.md) | - |
-| docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | - |
+| docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
@@ -30,7 +27,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 196
+- Archived task count: 213
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides mobile shell (2026-05-19)
+Latest active task: docs comments followup (2026-05-17)

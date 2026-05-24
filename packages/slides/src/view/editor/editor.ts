@@ -47,13 +47,24 @@ import {
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
+import { SlidesRuler } from './ruler/ruler';
+import {
+  hitTestGuide,
+  startGuideMove,
+  startRulerDragOut,
+  type GuideDragHost,
+} from './ruler/interactions';
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
-import { findElementPath, flattenElements } from '../../model/group';
+import {
+  findElementPath,
+  flattenElements,
+  worldTightFrame,
+} from '../../model/group';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -124,6 +135,26 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * `toast.info`). No-op when omitted.
    */
   onToast?: (message: string) => void;
+  /**
+   * When true, the editor renders the deck but skips every pointer
+   * and keyboard binding. The canvas still paints from the store
+   * (so remote peer edits flow through `markDirty()` + `render()`),
+   * but clicks, drags, double-click text entry, the context menu,
+   * and every document-level keymap action become inert. Used by
+   * share-link viewers — see `shared-document.tsx`.
+   */
+  readOnly?: boolean;
+  /**
+   * Optional H/V ruler DOM hosts. When all three are supplied the
+   * editor instantiates a `SlidesRuler` and paints it on every
+   * `render()` / `setHostSize()` call. Omitting them keeps the
+   * editor ruler-free (mobile mount, headless tests). Drag-out and
+   * guide interactions land in a later phase; this PR is display
+   * only — see docs/design/slides/slides-ruler.md.
+   */
+  hRulerCanvas?: HTMLCanvasElement;
+  vRulerCanvas?: HTMLCanvasElement;
+  rulerCorner?: HTMLElement;
 }
 
 export interface SlidesEditor {
@@ -396,6 +427,22 @@ class SlidesEditorImpl implements SlidesEditor {
   private hitCtx: HitTestCtx;
   /** Per-shell click tolerance (slide-logical pixels). */
   private hitTolerance = DEFAULT_HIT_TOLERANCE;
+  /**
+   * Optional H/V ruler. Instantiated only when the host passes all
+   * three ruler DOM refs (`hRulerCanvas`, `vRulerCanvas`,
+   * `rulerCorner`). Painted at the end of every `render()` so it
+   * stays in lock-step with the slide canvas size/zoom.
+   */
+  private ruler: SlidesRuler | null = null;
+  /**
+   * Live preview of a guide being created from the ruler or an
+   * existing guide being repositioned. Non-null only while a drag is
+   * in flight; cleared on commit / cancel. Repaints flow through
+   * `repaintOverlay` which forwards this to the overlay renderer.
+   */
+  private pendingGuide:
+    | { id?: string; axis: 'x' | 'y'; position: number }
+    | null = null;
 
   constructor(options: SlidesEditorOptions) {
     this.options = options;
@@ -403,6 +450,17 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.hitCtx = ctx;
     this.renderer = new SlideRenderer(ctx, options);
+    if (
+      options.hRulerCanvas !== undefined &&
+      options.vRulerCanvas !== undefined &&
+      options.rulerCorner !== undefined
+    ) {
+      this.ruler = new SlidesRuler({
+        hCanvas: options.hRulerCanvas,
+        vCanvas: options.vRulerCanvas,
+        corner: options.rulerCorner,
+      });
+    }
     this.currentId = options.store.read().slides[0]?.id;
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
@@ -424,7 +482,14 @@ class SlidesEditorImpl implements SlidesEditor {
       group: () => this.group(),
       ungroup: () => this.ungroup(),
     });
-    this.attachInteractions();
+    // Read-only mounts (viewer-role share links) skip every pointer +
+    // keyboard binding. The renderer still paints, including remote
+    // peer edits, but the user cannot mutate. The editor's
+    // programmatic surface (`setCurrentSlide`, `markDirty`, etc.) keeps
+    // working so the host shell can drive navigation.
+    if (!options.readOnly) {
+      this.attachInteractions();
+    }
   }
 
   private requestRender(): void {
@@ -434,12 +499,17 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private repaintOverlay(): void {
-    const slide = this.currentSlide();
+    const doc = this.options.store.read();
+    const slide = this.currentId
+      ? doc.slides.find((s) => s.id === this.currentId)
+      : undefined;
     if (!slide) {
       renderOverlay(this.options.overlay, [], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: SLIDE_HEIGHT,
+        permanentGuides: doc.guides,
+      pendingGuide: this.pendingGuide,
       });
       this.reattachEditingTextBox();
       return;
@@ -462,9 +532,14 @@ class SlidesEditorImpl implements SlidesEditor {
       .map((id) => {
         const el = findElement(slide.elements, id);
         if (!el) return null;
-        // Convert the stored frame (group-local when scope is non-empty)
-        // to slide-root world coords so overlay handles land correctly.
-        const worldFrame = toWorldFrame(el.frame, scope, slide);
+        // For groups, the stored frame becomes stale once a child is
+        // moved inside drill-in. `worldTightFrame` recomputes a tight
+        // wrap around the children's current visual extent while
+        // preserving the group's rotation so handles still rotate
+        // with the group. For leaves, the stored frame is authoritative.
+        const localFrame =
+          el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
+        const worldFrame = toWorldFrame(localFrame, scope, slide);
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
@@ -478,6 +553,8 @@ class SlidesEditorImpl implements SlidesEditor {
       // pass always.
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: doc.guides,
+      pendingGuide: this.pendingGuide,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -496,6 +573,42 @@ class SlidesEditorImpl implements SlidesEditor {
     | undefined {
     if (this.connectorCursor === null) return undefined;
     return { cursor: this.connectorCursor, zoom: this.scale() };
+  }
+
+  /**
+   * When the drill-in scope pops (Esc, click outside the scoped group,
+   * empty-canvas click while drilled in, right-click outside scope),
+   * refit the popped group(s) so their `frame` matches the children's
+   * current visual extent. Matches Google Slides: dropping out of
+   * drill-in produces a tight selection box. The refit preserves the
+   * group's rotation and scale — see `worldTightFrame` in
+   * `model/group.ts` for the math.
+   *
+   * Each popped group is refit in its own batch so undo restores the
+   * pre-pop state in a single step per group. Most pops drop one scope
+   * level — the loop is here for the rare "click way outside" path
+   * which can pop multiple levels at once.
+   */
+  private refitPoppedScope(
+    beforeScope: readonly string[],
+    afterScope: readonly string[],
+    slideId: string,
+  ): void {
+    if (beforeScope.length <= afterScope.length) return;
+    // Walk innermost → outermost so a refit at depth N+1 settles before
+    // its parent at depth N is asked to refit (otherwise the parent
+    // would read stale child geometry).
+    for (let i = beforeScope.length - 1; i >= afterScope.length; i--) {
+      const groupId = beforeScope[i];
+      this.options.store.batch(() => {
+        this.options.store.refitGroup(slideId, groupId);
+      });
+    }
+    // The refit mutated the store but no listener re-renders. Mark the
+    // canvas dirty and request a paint so the next frame uses the
+    // refit'd group state (frame + children's normalized local frames).
+    this.renderer.markDirty();
+    this.repaintOverlay();
   }
 
   private reattachEditingTextBox(): void {
@@ -519,7 +632,10 @@ class SlidesEditorImpl implements SlidesEditor {
     const doc = this.options.store.read();
     const id = this.currentId;
     const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
-    if (!slide) return;
+    if (!slide) {
+      this.paintRuler();
+      return;
+    }
     // Hide the element currently in edit mode from the slide canvas —
     // the text-box editor's own canvas is layered on top of the same
     // frame, so leaving the element in the slide pass would double-paint
@@ -532,9 +648,19 @@ class SlidesEditorImpl implements SlidesEditor {
         elements: slide.elements.filter((e) => e.id !== editingId),
       };
       this.renderer.forceRender(visible, doc);
+      this.paintRuler();
       return;
     }
     this.renderer.render(slide, doc);
+    this.paintRuler();
+  }
+
+  private paintRuler(): void {
+    if (this.ruler === null) return;
+    this.ruler.render({
+      hostWidth: this.options.hostWidth,
+      hostHeight: this.options.hostHeight,
+    });
   }
 
   getSelection(): readonly string[] {
@@ -949,6 +1075,15 @@ class SlidesEditorImpl implements SlidesEditor {
 
   markDirty(): void {
     this.renderer.markDirty();
+    // External markDirty signals "the store changed in a way the editor
+    // didn't initiate" (remote Yorkie edit, host shell mutation outside
+    // an interaction handler). Both the canvas AND the overlay need to
+    // refresh — the overlay carries permanent guides and selection
+    // chrome that may now reference different ids / positions. Internal
+    // mutators call `renderer.markDirty()` directly + their own
+    // `repaintOverlay()`, so this branch only fires for external
+    // signals and doesn't double-paint.
+    this.repaintOverlay();
   }
 
   detach(): void {
@@ -967,10 +1102,21 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     this.hoverPreview = null;
     this.connectorCursor = null;
+    // Rotate-angle tooltip is attached to the overlay's parent, not the
+    // overlay itself, so renderOverlay's innerHTML rebuilds don't wipe
+    // it. That same parent ownership means we must remove it explicitly
+    // on teardown — otherwise a SlidesView remount leaves an orphan
+    // hidden div behind every cycle.
+    if (this.rotateTooltipEl !== null) {
+      this.rotateTooltipEl.remove();
+      this.rotateTooltipEl = null;
+    }
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
     this.listeners.length = 0;
+    this.ruler?.dispose();
+    this.ruler = null;
   }
 
   /** Internal helper used by interaction modules in T3-T7. */
@@ -1027,6 +1173,88 @@ class SlidesEditorImpl implements SlidesEditor {
     const onContext = (e: Event) => this.onContextMenu(e as MouseEvent);
     this.on(this.options.canvas, 'contextmenu', onContext);
     this.on(this.options.overlay, 'contextmenu', onContext);
+
+    // Ruler drag-out: pressing on either ruler canvas seeds a pending
+    // guide that follows the cursor. The drag is owned by
+    // `startRulerDragOut` (it attaches its own document-level
+    // pointermove / pointerup) so the gesture continues even if the
+    // cursor wanders off the ruler. Only bound when the host actually
+    // mounted the ruler (read-only viewers skip the ruler-canvas
+    // listener entirely so even pointermove on the ruler is inert).
+    if (this.options.hRulerCanvas !== undefined) {
+      this.on(this.options.hRulerCanvas, 'pointerdown', (e) => {
+        startRulerDragOut(this.guideDragHost(), 'x', e as PointerEvent);
+      });
+    }
+    if (this.options.vRulerCanvas !== undefined) {
+      this.on(this.options.vRulerCanvas, 'pointerdown', (e) => {
+        startRulerDragOut(this.guideDragHost(), 'y', e as PointerEvent);
+      });
+    }
+  }
+
+  /**
+   * Set the in-flight guide preview state and trigger an overlay
+   * repaint. Passing `null` clears the preview. The interaction module
+   * uses this through the `GuideDragHost` interface; the editor's
+   * `repaintOverlay` reads `this.pendingGuide` to render the preview.
+   */
+  private setPendingGuide(
+    guide: { id?: string; axis: 'x' | 'y'; position: number } | null,
+  ): void {
+    this.pendingGuide = guide;
+    this.repaintOverlay();
+  }
+
+  /**
+   * Compose the GuideDragHost backed by editor state. Captures
+   * coordinate-conversion + region tests so the ruler interaction
+   * module stays unaware of zoom / DPR / DOM layout.
+   */
+  private guideDragHost(): GuideDragHost {
+    return {
+      setPendingGuide: (guide) => this.setPendingGuide(guide),
+      commitAddGuide: (axis, position) => {
+        this.options.store.batch(() => {
+          this.options.store.addGuide(axis, position);
+        });
+      },
+      commitMoveGuide: (id, position) => {
+        this.options.store.batch(() => {
+          this.options.store.moveGuide(id, position);
+        });
+      },
+      commitRemoveGuide: (id) => {
+        this.options.store.batch(() => {
+          this.options.store.removeGuide(id);
+        });
+      },
+      readGuides: () => this.options.store.read().guides,
+      clientToLogical: (cx, cy) => this.clientToLogical(cx, cy),
+      isOverRuler: (cx, cy) => {
+        const h = this.options.hRulerCanvas;
+        const v = this.options.vRulerCanvas;
+        if (h !== undefined) {
+          const r = h.getBoundingClientRect();
+          if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+            return 'h';
+          }
+        }
+        if (v !== undefined) {
+          const r = v.getBoundingClientRect();
+          if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+            return 'v';
+          }
+        }
+        return null;
+      },
+      isInsideSlide: (x, y) =>
+        x >= 0 && x <= SLIDE_WIDTH && y >= 0 && y <= SLIDE_HEIGHT,
+      setBodyCursor: (cursor) => {
+        if (typeof document === 'undefined') return;
+        document.body.style.cursor = cursor ?? '';
+      },
+    };
   }
 
   private onContextMenu(e: MouseEvent): void {
@@ -1038,6 +1266,19 @@ class SlidesEditorImpl implements SlidesEditor {
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
     if (hitResult === null) {
+      // Guide hit takes precedence over the empty-canvas menu when the
+      // user right-clicks directly on / near an alignment guide. Same
+      // 4-px hit zone as pointerdown.
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        showContextMenu(
+          document.body,
+          this.guideContextItems(guide.id, guide.axis),
+          e.clientX,
+          e.clientY,
+        );
+        return;
+      }
       showContextMenu(document.body, this.canvasContextItems(x, y), e.clientX, e.clientY);
       return;
     }
@@ -1047,7 +1288,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // and the overlay draws handles at the wrong position; it also leaves
     // the selection on a non-group element so Ungroup stays disabled.
     if (!this.selection.has(hitResult.elementId)) {
+      const beforeScope = this.selection.getScope();
       this.selection.click(hitResult, {});
+      this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
     }
     const items = this.elementContextItems(slide.id);
     showContextMenu(document.body, items, e.clientX, e.clientY);
@@ -1086,6 +1329,46 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+    ];
+  }
+
+  private guideContextItems(
+    guideId: string,
+    axis: 'x' | 'y',
+  ): ContextMenuItem[] {
+    const store = this.options.store;
+    return [
+      {
+        label: 'Delete guide',
+        run: () => {
+          store.batch(() => store.removeGuide(guideId));
+        },
+      },
+      {
+        label: axis === 'x'
+          ? 'Delete all vertical guides'
+          : 'Delete all horizontal guides',
+        run: () => {
+          const ids = store
+            .read()
+            .guides.filter((g) => g.axis === axis)
+            .map((g) => g.id);
+          if (ids.length === 0) return;
+          store.batch(() => {
+            for (const id of ids) store.removeGuide(id);
+          });
+        },
+      },
+      {
+        label: 'Delete all guides',
+        run: () => {
+          const ids = store.read().guides.map((g) => g.id);
+          if (ids.length === 0) return;
+          store.batch(() => {
+            for (const id of ids) store.removeGuide(id);
+          });
+        },
+      },
     ];
   }
 
@@ -1195,6 +1478,17 @@ class SlidesEditorImpl implements SlidesEditor {
     // (which descends into groups) and route through Selection.click so the
     // drill-in state machine picks the right element at the current scope.
     const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
+    if (hitResult === null) {
+      // No element under the pointer — check for an alignment guide
+      // within the 4-px hit zone. Elements take precedence (guides are
+      // editor scaffolding that lives "underneath" content); guides
+      // pre-empt the empty-canvas fallbacks below (lasso, drill-out).
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        startGuideMove(this.guideDragHost(), guide, e as PointerEvent);
+        return;
+      }
+    }
     if (hitResult !== null) {
       const mods = { shift: e.shiftKey };
       // If the scope-level element under the pointer is already in the
@@ -1206,7 +1500,10 @@ class SlidesEditorImpl implements SlidesEditor {
         this.startDrag(e.clientX, e.clientY);
         return;
       }
+      const beforeScope = this.selection.getScope();
       this.selection.click(hitResult, mods);
+      const afterScope = this.selection.getScope();
+      this.refitPoppedScope(beforeScope, afterScope, slide.id);
       // Begin drag on the (possibly newly-)selected elements unless the
       // element was just removed by shift-toggle.
       if (this.selection.get().length > 0) {
@@ -1215,8 +1512,18 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
-    // Empty canvas — start a lasso unless shift is held (which would be
-    // an additive no-op per the spec).
+    // Empty canvas — Google Slides behavior:
+    //   * If drilled into a group, pop the entire scope first (and refit
+    //     each popped group). Subsequent click-actions (lasso etc.) run
+    //     at the slide root.
+    //   * Then start a lasso (unless shift is held).
+    if (this.selection.getScope().length > 0) {
+      const beforeScope = this.selection.getScope();
+      // Clear scope + ids in one notify, matching Google Slides' "click
+      // outside a drilled-in group exits drill-in".
+      this.selection.click(null, {});
+      this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
+    }
     if (e.shiftKey) {
       return;
     }
@@ -1242,7 +1549,9 @@ class SlidesEditorImpl implements SlidesEditor {
     if (hitResult.elementId === this.editingElementId) return;
 
     // Drive the drill-in state machine first.
+    const beforeScope = this.selection.getScope();
     this.selection.doubleClick(hitResult);
+    this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
 
     // After drill-in, check if the newly-selected element is a text box.
     // Use the leaf-most element id from the hit (which is what
@@ -1411,7 +1720,16 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) return;
     if (this.handleAtClient(e.clientX, e.clientY) !== null) return;
 
-    const desired = this.isPointerOverSelected(e.clientX, e.clientY) ? 'move' : '';
+    let desired = '';
+    if (this.isPointerOverSelected(e.clientX, e.clientY)) {
+      desired = 'move';
+    } else {
+      const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+      const guide = hitTestGuide(this.options.store.read().guides, { x, y });
+      if (guide !== null) {
+        desired = guide.axis === 'x' ? 'col-resize' : 'row-resize';
+      }
+    }
     if (this.lastHoverCursor === desired) return;
     this.lastHoverCursor = desired;
     this.options.canvas.style.cursor = desired;
@@ -1737,6 +2055,7 @@ class SlidesEditorImpl implements SlidesEditor {
         rawDy,
         otherFrames,
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+        this.options.store.read().guides,
       );
       liveDx = dx;
       liveDy = dy;
@@ -1894,6 +2213,8 @@ class SlidesEditorImpl implements SlidesEditor {
       guides,
       allElements: synthetic.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
     });
   }
 
@@ -1923,6 +2244,8 @@ class SlidesEditorImpl implements SlidesEditor {
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
     });
   }
 
@@ -2226,42 +2549,277 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!startSlide) return;
     const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
-    if (selectedIds.length !== 1) return; // single-element only in v1
-    const elementId = selectedIds[0];
-    const startEl = findElement(startSlide.elements, elementId);
-    if (!startEl) return;
-    // Rotation is measured in world space (the angle between the cursor
-    // and the element's visible center). Convert the stored frame to
-    // world so the center and start rotation are in world coordinates.
-    const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
-    const startRotation = startWorldFrame.rotation;
-    const cx = startWorldFrame.x + startWorldFrame.w / 2;
-    const cy = startWorldFrame.y + startWorldFrame.h / 2;
+    if (selectedIds.length === 0) return;
+
+    // Capture each selected element's starting world frame. For groups
+    // we wrap them through `worldTightFrame` so the rotation pivot uses
+    // the same combined bbox the user sees (overlay handles).
+    type Entry = {
+      id: string;
+      original: Element;
+      startWorld: Frame;
+      startCenter: { x: number; y: number };
+      startRotation: number;
+    };
+    const entries: Entry[] = [];
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (!el) continue;
+      const displayLocal =
+        el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
+      const startWorld = toWorldFrame(displayLocal, scope, startSlide);
+      entries.push({
+        id,
+        original: el,
+        startWorld,
+        startCenter: {
+          x: startWorld.x + startWorld.w / 2,
+          y: startWorld.y + startWorld.h / 2,
+        },
+        startRotation: startWorld.rotation,
+      });
+    }
+    if (entries.length === 0) return;
+
+    // Pivot = combined bbox center (matches what `renderAxisAlignedHandles`
+    // uses for the rotate handle position in multi-select).
+    const bbox = combinedBoundingBox(entries.map((e) => e.startWorld));
+    if (!bbox) return;
+    const pivotX = bbox.x + bbox.w / 2;
+    const pivotY = bbox.y + bbox.h / 2;
+
     const start = this.clientToLogical(clientX, clientY);
-    const startAngle = Math.atan2(start.y - cy, start.x - cx);
-    let liveWorldRotation = startRotation;
+    const startAngle = Math.atan2(start.y - pivotY, start.x - pivotX);
+    let liveDelta = 0;
+
+    // For a single-element selection, the rotation handle is conceptually
+    // "spin in place" — Google Slides keeps the element's center fixed.
+    // Skipping the pivot rotation in this case preserves that behavior
+    // (the pivot equals the element's own center, so the position update
+    // is a no-op anyway, but skipping the matrix work also avoids any
+    // floating-point drift on the position).
+    const isMulti = entries.length > 1;
+
+    // Selection handles stay anchored to the ORIGINAL world frames so
+    // the user reads them as "where the rotation started"; the ghost
+    // reads as "where it will land on release". Matches the drag-move
+    // ghost pattern from `slides-shape-move.md`.
+    const handleElements: Element[] = entries.map(
+      (e) => ({ ...e.original, frame: e.startWorld }) as Element,
+    );
+
+    const rotatePoint = (
+      x: number,
+      y: number,
+      cosT: number,
+      sinT: number,
+    ): { x: number; y: number } => {
+      const dx = x - pivotX;
+      const dy = y - pivotY;
+      return {
+        x: pivotX + dx * cosT - dy * sinT,
+        y: pivotY + dx * sinT + dy * cosT,
+      };
+    };
+
+    const buildLiveState = (
+      delta: number,
+    ): {
+      liveFrames: Map<string, Frame>;
+      ghosts: Element[];
+    } => {
+      const cosT = Math.cos(delta);
+      const sinT = Math.sin(delta);
+      const liveFrames = new Map<string, Frame>();
+      const ghosts: Element[] = [];
+
+      for (const e of entries) {
+        if (e.original.type === 'connector') {
+          // Connector ghost: rotate free endpoints around the pivot.
+          // Attached endpoints stay anchored to their (un-rotating)
+          // host. Frame is also rotated for consumers that read it for
+          // bbox/hit-test purposes (the renderer uses endpoints).
+          const c = e.original;
+          const rotateEp = (ep: typeof c.start) =>
+            ep.kind === 'free'
+              ? ({ kind: 'free', ...rotatePoint(ep.x, ep.y, cosT, sinT) } as typeof ep)
+              : ep;
+          const liveWorld: Frame = isMulti
+            ? (() => {
+                const c2 = rotatePoint(e.startCenter.x, e.startCenter.y, cosT, sinT);
+                return {
+                  ...e.startWorld,
+                  x: c2.x - e.startWorld.w / 2,
+                  y: c2.y - e.startWorld.h / 2,
+                  rotation: e.startRotation + delta,
+                };
+              })()
+            : { ...e.startWorld, rotation: e.startRotation + delta };
+          liveFrames.set(e.id, liveWorld);
+          ghosts.push({
+            ...c,
+            start: rotateEp(c.start),
+            end: rotateEp(c.end),
+            frame: liveWorld,
+          });
+          continue;
+        }
+
+        const liveWorld: Frame = isMulti
+          ? (() => {
+              const c = rotatePoint(e.startCenter.x, e.startCenter.y, cosT, sinT);
+              return {
+                ...e.startWorld,
+                x: c.x - e.startWorld.w / 2,
+                y: c.y - e.startWorld.h / 2,
+                rotation: e.startRotation + delta,
+              };
+            })()
+          : { ...e.startWorld, rotation: e.startRotation + delta };
+        liveFrames.set(e.id, liveWorld);
+        ghosts.push({ ...e.original, frame: liveWorld } as Element);
+      }
+
+      return { liveFrames, ghosts };
+    };
+
+    const tooltip = this.acquireRotateTooltip();
+    const showTooltip = (clientPx: number, clientPy: number, delta: number) => {
+      const rect = this.options.overlay.getBoundingClientRect();
+      const localX = clientPx - rect.left;
+      const localY = clientPy - rect.top;
+      // Show absolute rotation for single-element (matches Google Slides),
+      // delta for multi (since the selection had no group rotation).
+      const display = isMulti
+        ? delta
+        : entries[0].startRotation + delta;
+      // Normalize to (-180°, 180°] for compact display.
+      const deg = ((display * 180) / Math.PI + 540) % 360 - 180;
+      tooltip.textContent = `${Math.round(deg)}°`;
+      tooltip.style.transform = `translate(${localX + 14}px, ${localY + 14}px)`;
+      tooltip.style.display = 'block';
+    };
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
-      const angle = Math.atan2(cur.y - cy, cur.x - cx);
-      liveWorldRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
-      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
-      this.paintLiveScoped(new Map([[elementId, liveWorldFrame]]), scope);
+      const angle = Math.atan2(cur.y - pivotY, cur.x - pivotX);
+      liveDelta = applyRotate(0, startAngle, angle, ev.shiftKey);
+      const { ghosts } = buildLiveState(liveDelta);
+      this.paintMoveGhost(ghosts, handleElements);
+      showTooltip(ev.clientX, ev.clientY, liveDelta);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      // Convert the rotated world frame back to scope-local and commit.
-      const liveWorldFrame: Frame = { ...startWorldFrame, rotation: liveWorldRotation };
-      const localFrame = fromWorldFrame(liveWorldFrame, scope, startSlide);
+      this.releaseRotateTooltip();
+      if (liveDelta === 0) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
+      const { liveFrames } = buildLiveState(liveDelta);
       this.options.store.batch(() => {
-        this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
+        for (const e of entries) {
+          const liveWorld = liveFrames.get(e.id);
+          if (!liveWorld) continue;
+          // Connectors are translated via endpoints, not their frame.
+          // For multi-rotate, free endpoints rotate around the pivot;
+          // attached endpoints stay anchored to their host (and the host
+          // moves through its own commit path).
+          if (e.original.type === 'connector') {
+            this.commitConnectorRotation(
+              startSlide.id,
+              e.original,
+              pivotX,
+              pivotY,
+              liveDelta,
+            );
+            continue;
+          }
+          const localFrame = fromWorldFrame(liveWorld, scope, startSlide);
+          this.options.store.updateElementFrame(
+            startSlide.id,
+            e.id,
+            localFrame,
+          );
+        }
       });
       this.renderer.markDirty();
       this.render();
+      this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+  }
+
+  /**
+   * Lazily create and attach the rotation-angle tooltip. Lives outside
+   * the overlay's `innerHTML` so `renderOverlay` rebuilds don't wipe it
+   * mid-drag. Hidden by default.
+   */
+  private rotateTooltipEl: HTMLDivElement | null = null;
+  private acquireRotateTooltip(): HTMLDivElement {
+    if (this.rotateTooltipEl) {
+      this.rotateTooltipEl.style.display = 'block';
+      return this.rotateTooltipEl;
+    }
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-rotate-tooltip';
+    el.style.position = 'absolute';
+    el.style.top = '0';
+    el.style.left = '0';
+    el.style.padding = '2px 6px';
+    el.style.fontSize = '11px';
+    el.style.lineHeight = '14px';
+    el.style.fontFamily = 'system-ui, sans-serif';
+    el.style.color = '#fff';
+    el.style.background = 'rgba(0, 0, 0, 0.75)';
+    el.style.borderRadius = '3px';
+    el.style.pointerEvents = 'none';
+    el.style.zIndex = '1000';
+    el.style.display = 'none';
+    // Append to the overlay's parent so renderOverlay's innerHTML reset
+    // can't remove it. The overlay is positioned over the canvas; its
+    // parent is the same containing block, so absolute coordinates line up.
+    const parent = this.options.overlay.parentElement ?? this.options.overlay;
+    parent.appendChild(el);
+    this.rotateTooltipEl = el;
+    return el;
+  }
+  private releaseRotateTooltip(): void {
+    if (this.rotateTooltipEl) this.rotateTooltipEl.style.display = 'none';
+  }
+
+  /**
+   * Apply a multi-rotate delta to a connector by rotating its free
+   * endpoints around the pivot. Attached endpoints stay where they are
+   * — their host element handles its own rotation through the regular
+   * commit path. Must run inside a store batch.
+   */
+  private commitConnectorRotation(
+    slideId: string,
+    connector: Element,
+    pivotX: number,
+    pivotY: number,
+    delta: number,
+  ): void {
+    if (connector.type !== 'connector') return;
+    const cosT = Math.cos(delta);
+    const sinT = Math.sin(delta);
+    for (const side of ['start', 'end'] as const) {
+      const ep = side === 'start' ? connector.start : connector.end;
+      if (ep.kind !== 'free') continue;
+      const dx = ep.x - pivotX;
+      const dy = ep.y - pivotY;
+      const nx = pivotX + dx * cosT - dy * sinT;
+      const ny = pivotY + dx * sinT + dy * cosT;
+      this.options.store.updateConnectorEndpoint(slideId, connector.id, side, {
+        kind: 'free',
+        x: nx,
+        y: ny,
+      });
+    }
   }
 
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
@@ -2319,6 +2877,10 @@ class SlidesEditorImpl implements SlidesEditor {
 export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
+  // Paint the overlay once on mount so deck-wide chrome (permanent
+  // guides) is visible before any user interaction. Selection is empty
+  // at this point so the only overlay output is the guides themselves.
+  editor.markDirty();
   return editor;
 }
 

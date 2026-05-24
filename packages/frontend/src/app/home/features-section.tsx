@@ -1,4 +1,11 @@
-import { BarChart3, FileText, FunctionSquare, Shield } from "lucide-react";
+import {
+  BarChart3,
+  FileText,
+  FunctionSquare,
+  Palette,
+  Presentation,
+  Rows3,
+} from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { FeatureGlyph, type GlyphKind } from "./primitives/feature-glyph";
 import { SectionHead } from "./primitives/section-head";
@@ -56,15 +63,31 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
   },
   {
     Icon: FileText,
-    title: "Document Editor",
-    description: "Write and format documents with a clean, page-based editor",
+    title: "Page-Based Document Editor",
+    description:
+      "Write and format documents with a clean, paginated editor",
     href: "/docs/docs-editor/writing-a-document",
   },
   {
-    Icon: Shield,
-    title: "Sharing & Permissions",
-    description: "URL sharing with role-based access control",
-    href: "/docs/guide/collaboration",
+    Icon: Rows3,
+    title: "Tables & Pagination",
+    description:
+      "Rich tables, page breaks, and pagination for long-form documents",
+    href: "/docs/docs-editor/writing-a-document#tables",
+  },
+  {
+    Icon: Palette,
+    title: "Themes & Layouts",
+    description:
+      "Four-tier theme system and Google-Slides-parity layouts for decks",
+    href: "/docs/slides/themes-and-layouts",
+  },
+  {
+    Icon: Presentation,
+    title: "Presentation Mode",
+    description:
+      "Full-screen player with keyboard navigation and click-to-advance",
+    href: "/docs/slides/build-a-deck",
   },
 ];
 

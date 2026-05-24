@@ -1,4 +1,4 @@
-import type { Document as YorkieDocument } from '@yorkie-js/sdk';
+import type { Document as YorkieDocument, TimeTicket } from '@yorkie-js/sdk';
 import {
   DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
@@ -39,6 +39,7 @@ import {
   resolveEndpoint,
   seedPlaceholderBlocks,
   slotRefsForLayout,
+  worldTightFrame,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import type { SlidesPresence } from '@/types/users';
@@ -59,6 +60,23 @@ import type {
  */
 type ProxyArray = { id: string; type: string; data?: unknown; [k: string]: unknown }[];
 
+/**
+ * The Yorkie array move primitives exposed on a JSON array proxy inside
+ * `doc.update`. Reordering through these keeps each element's CRDT identity
+ * intact, so a peer concurrently editing a child of a moved element does not
+ * lose its edit — unlike splice remove + re-insert of a rebuilt snapshot,
+ * which deletes the original nodes and merges the remote edit onto tombstones.
+ * `getElementByIndex(i).getID()` yields a stable `TimeTicket` that survives
+ * later moves (indices do not), so capture tickets before mutating.
+ */
+interface MovableArray {
+  readonly length: number;
+  getElementByIndex(index: number): { getID(): TimeTicket };
+  moveFront(id: TimeTicket): void;
+  moveAfter(prevID: TimeTicket, id: TimeTicket): void;
+  moveAfterByIndex(prevIndex: number, targetIndex: number): void;
+}
+
 type YorkieLayout = YorkieSlidesRoot['layouts'][number];
 
 /**
@@ -69,6 +87,19 @@ type YorkieLayout = YorkieSlidesRoot['layouts'][number];
  */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * Reject `NaN` / `Infinity` before they reach the Yorkie root. The
+ * snap engine's `Math.abs(diff)` and the overlay's
+ * `position * scale` math both propagate `NaN` silently, so a bad
+ * value committed here would surface as a hard-to-diagnose
+ * downstream artifact rather than a clear error.
+ */
+function assertFiniteGuidePosition(op: string, position: number): void {
+  if (!Number.isFinite(position)) {
+    throw new Error(`${op}: position must be a finite number, got ${position}`);
+  }
 }
 
 /**
@@ -150,12 +181,23 @@ export function ensureSlidesRoot(
   // ships the proper migration; this is the minimum to keep the
   // SlidesDocument well-formed.
   doc.update((r) => {
-    const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+    const rootAny = r as {
+      themes?: Theme[];
+      masters?: Master[];
+      guides?: unknown[];
+    };
     if (rootAny.themes == null || rootAny.themes.length === 0) {
       rootAny.themes = [clone(defaultLight)];
     }
     if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];
+    }
+    // Pre-v0.4.2 (pre-ruler) docs predate the guides array. Lazy-init
+    // an empty list so the slides store and renderer can read it
+    // unconditionally. The first session writes the empty array; later
+    // attaches no-op.
+    if (rootAny.guides == null) {
+      rootAny.guides = [];
     }
     // Backfill `meta.themeId` / `meta.masterId` against the document's
     // own `themes` / `masters` arrays, not against hard-coded ids. A
@@ -296,15 +338,21 @@ export class YorkieSlidesStore implements SlidesStore {
       return { id, layoutId, background, elements, notes };
     });
     const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
-    const rootAny = root as { themes?: unknown; masters?: unknown };
+    const rootAny = root as {
+      themes?: unknown;
+      masters?: unknown;
+      guides?: unknown;
+    };
     const themes = yorkieToPlain<Theme[]>(rootAny.themes);
     const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    const guides = yorkieToPlain<unknown[]>(rootAny.guides);
     return migrateDocument({
       meta,
       themes,
       masters,
       slides,
       layouts,
+      guides,
     });
   }
 
@@ -458,9 +506,18 @@ export class YorkieSlidesStore implements SlidesStore {
       // touches them needs them mirrored here. Until Task 5 ships the
       // theme-edit ops these arrays don't change, but writing them keeps
       // the Yorkie root consistent with the cloned snapshot.
-      const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+      //
+      // Guides also live on the snapshot — without rewriting them here,
+      // undo / redo of addGuide / moveGuide / removeGuide silently
+      // diverges from the editor's pre-batch state.
+      const rootAny = r as {
+        themes?: Theme[];
+        masters?: Master[];
+        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
+      };
       rootAny.themes = clone(snapshot.themes);
       rootAny.masters = clone(snapshot.masters);
+      rootAny.guides = clone(snapshot.guides ?? []);
       const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
         id: s.id,
         layoutId: s.layoutId,
@@ -621,14 +678,23 @@ export class YorkieSlidesStore implements SlidesStore {
   moveSlide(slideId: string, toIndex: number): void {
     this.requireBatch();
     this.doc.update((r) => {
-      const from = r.slides.findIndex((s) => s.id === slideId);
+      const slides = r.slides;
+      const from = slides.findIndex((s) => s.id === slideId);
       if (from === -1) throw new Error(`Slide not found: ${slideId}`);
-      // Move requires reconstructing the slide because the proxy returned
-      // by splice can't be re-inserted directly.
-      const moved = this.rebuildSlide(r.slides[from]);
-      r.slides.splice(from, 1);
-      const clamped = Math.max(0, Math.min(toIndex, r.slides.length));
-      r.slides.splice(clamped, 0, moved);
+      // Final resting index, matching MemStore's remove-then-insert math.
+      const clamped = Math.max(0, Math.min(toIndex, slides.length - 1));
+      if (clamped === from) return;
+      // Reorder in place (no rebuild) so a peer concurrently editing this
+      // slide's children keeps its edit. moveAfterByIndex evaluates indices
+      // on the current array; moveFront handles the no-predecessor head case.
+      const arr = slides as unknown as MovableArray;
+      if (clamped === 0) {
+        arr.moveFront(arr.getElementByIndex(from).getID());
+      } else if (clamped > from) {
+        arr.moveAfterByIndex(clamped, from);
+      } else {
+        arr.moveAfterByIndex(clamped - 1, from);
+      }
     });
   }
 
@@ -636,43 +702,33 @@ export class YorkieSlidesStore implements SlidesStore {
     this.requireBatch();
     const set = new Set(slideIds);
     this.doc.update((r) => {
-      const moving: YorkieSlide[] = [];
-      const remaining: YorkieSlide[] = [];
-      for (const s of r.slides) {
-        const rebuilt = this.rebuildSlide(s);
-        if (set.has(s.id)) moving.push(rebuilt);
-        else remaining.push(rebuilt);
+      const slides = r.slides;
+      const arr = slides as unknown as MovableArray;
+      // Capture stable CRDT tickets and the current partition BEFORE moving:
+      // tickets survive moves, indices do not.
+      const ticketById = new Map<string, TimeTicket>();
+      const movingIds: string[] = [];
+      const remainingIds: string[] = [];
+      for (let i = 0; i < slides.length; i++) {
+        const id = slides[i].id;
+        ticketById.set(id, arr.getElementByIndex(i).getID());
+        (set.has(id) ? movingIds : remainingIds).push(id);
       }
-      const clamped = Math.max(0, Math.min(toIndex, remaining.length));
-      const next = [
-        ...remaining.slice(0, clamped),
-        ...moving,
-        ...remaining.slice(clamped),
-      ];
-      r.slides.splice(0, r.slides.length, ...(next as never[]));
+      if (movingIds.length === 0) return;
+      // Place the moving block at `clamped` among the remaining slides,
+      // preserving the moving slides' relative order — same result as
+      // MemStore's filter + splice, but in place (no rebuild), so concurrent
+      // child edits on any moved slide survive.
+      const clamped = Math.max(0, Math.min(toIndex, remainingIds.length));
+      let prevTicket: TimeTicket | null =
+        clamped === 0 ? null : ticketById.get(remainingIds[clamped - 1])!;
+      for (const id of movingIds) {
+        const t = ticketById.get(id)!;
+        if (prevTicket === null) arr.moveFront(t);
+        else arr.moveAfter(prevTicket, t);
+        prevTicket = t;
+      }
     });
-  }
-
-  /**
-   * Read a YorkieSlide proxy and return a fully-detached copy. Used by
-   * reorder / move paths where we must remove and re-insert a slide;
-   * Yorkie array splices can't safely shuffle proxies.
-   */
-  private rebuildSlide(src: YorkieSlide): YorkieSlide {
-    const background = yorkieToPlain<YorkieSlide['background']>((src as { background: unknown }).background);
-    const layoutId = (src as { layoutId: string }).layoutId;
-    const id = (src as { id: string }).id;
-    const elements = ((src as { elements: unknown[] }).elements ?? []).map(
-      (e) => unwrapElement(e) as YorkieElement,
-    );
-    const notes = yorkieToPlain<Block[]>((src as { notes: unknown }).notes) ?? [];
-    return {
-      id,
-      layoutId,
-      background,
-      elements,
-      notes: clone(notes),
-    };
   }
 
   updateSlideBackground(slideId: string, bg: Background): void {
@@ -1262,6 +1318,77 @@ export class YorkieSlidesStore implements SlidesStore {
     return { groupId, excludedConnectorIds };
   }
 
+  refitGroup(slideId: string, groupId: string): void {
+    this.requireBatch();
+
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) return;
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+      const path = yorkieFindElementPath(proxyElements, groupId);
+      if (!path) return;
+
+      const group = path[path.length - 1];
+      if (group.type !== 'group') return;
+
+      const plainGroup = unwrapElement(group) as unknown as GroupElement;
+      if (plainGroup.data.children.length === 0) return;
+
+      // Shared rotation-preserving refit math (see model/group.ts).
+      // Children's world positions are invariant by construction.
+      const { worldFrame: newFrame, localShift, newRefSize } =
+        worldTightFrame(plainGroup);
+
+      const EPS = 0.5;
+      const close = (a: number, b: number) => Math.abs(a - b) < EPS;
+      if (
+        close(localShift.x, 0) &&
+        close(localShift.y, 0) &&
+        close(newRefSize.w, plainGroup.data.refSize?.w ?? plainGroup.frame.w) &&
+        close(newRefSize.h, plainGroup.data.refSize?.h ?? plainGroup.frame.h)
+      ) {
+        // Local AABB already aligned with the local origin AND tight against
+        // refSize — nothing to refit.
+        return;
+      }
+
+      // Mutate the proxy in place to preserve Yorkie CRDT identity.
+      const gAny = group as unknown as {
+        frame: Frame;
+        data: { refSize: { w: number; h: number }; children: ProxyArray };
+      };
+      gAny.frame = { ...newFrame };
+      gAny.data.refSize = { ...newRefSize };
+
+      gAny.data.children.forEach((ch) => {
+        const chAny = ch as unknown as {
+          type: string;
+          frame: Frame;
+          start?: Endpoint;
+          end?: Endpoint;
+        };
+        chAny.frame = {
+          ...chAny.frame,
+          x: chAny.frame.x - localShift.x,
+          y: chAny.frame.y - localShift.y,
+        };
+        if (chAny.type === 'connector') {
+          for (const side of ['start', 'end'] as const) {
+            const ep = chAny[side];
+            if (ep && ep.kind === 'free') {
+              (chAny as unknown as Record<'start' | 'end', Endpoint>)[side] = {
+                kind: 'free',
+                x: ep.x - localShift.x,
+                y: ep.y - localShift.y,
+              };
+            }
+          }
+        }
+      });
+    });
+  }
+
   ungroup(slideId: string, groupId: string): string[] {
     this.requireBatch();
 
@@ -1379,6 +1506,41 @@ export class YorkieSlidesStore implements SlidesStore {
       // Same rationale as withTextElement above — write back regardless
       // of whether `fn` returned a value or mutated in place.
       s.notes = clone(next ?? blocks) as unknown as YorkieSlide['notes'];
+    });
+  }
+
+  // --- guides (presentation-wide) ---
+
+  addGuide(axis: 'x' | 'y', position: number): string {
+    this.requireBatch();
+    assertFiniteGuidePosition('addGuide', position);
+    const id = generateId();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }> };
+      if (rootAny.guides == null) rootAny.guides = [];
+      rootAny.guides.push({ id, axis, position });
+    });
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    assertFiniteGuidePosition('moveGuide', position);
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; position: number }> };
+      const guide = rootAny.guides?.find((g) => g.id === id);
+      if (!guide) throw new Error(`Guide not found: ${id}`);
+      guide.position = position;
+    });
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string }> };
+      const idx = rootAny.guides?.findIndex((g) => g.id === id) ?? -1;
+      if (idx === -1) throw new Error(`Guide not found: ${id}`);
+      rootAny.guides!.splice(idx, 1);
     });
   }
 

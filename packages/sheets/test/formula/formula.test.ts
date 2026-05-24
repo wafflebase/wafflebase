@@ -16,6 +16,16 @@ describe('Formula', () => {
     expect(evaluate('=100+200')).toBe('300');
   });
 
+  it('should correctly evaluate unary postfix percentage operator', () => {
+    expect(evaluate('=4%')).toBe('0.04');
+    expect(evaluate('=4%*3')).toBe('0.12');
+    expect(Number(evaluate('=5%+10%'))).toBeCloseTo(0.15);
+    expect(evaluate('=4%3')).toBe('#ERROR!');
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '200' });
+    expect(evaluate('=A1*5%', grid)).toBe('10');
+  });
+
   it('should correctly evaluate subtraction', () => {
     expect(evaluate('=5-3')).toBe('2');
     expect(evaluate('=10-5')).toBe('5');
@@ -39,6 +49,36 @@ describe('Formula', () => {
     expect(evaluate('=(2+3)*4')).toBe('20');
     expect(evaluate('=10-5/2')).toBe('7.5');
     expect(evaluate('=(10-5)/2')).toBe('2.5');
+  });
+
+  it('should correctly evaluate exponentiation with ^', () => {
+    expect(evaluate('=5^2')).toBe('25');
+    expect(evaluate('=2^10')).toBe('1024');
+    expect(Number(evaluate('=2^0.5'))).toBeCloseTo(Math.SQRT2);
+    expect(evaluate('=2^0')).toBe('1');
+    expect(evaluate('=0^0')).toBe('1');
+  });
+
+  it('should give ^ higher precedence than * and /', () => {
+    expect(evaluate('=2*3^2')).toBe('18');
+    expect(evaluate('=18/3^2')).toBe('2');
+    expect(evaluate('=2+3^2')).toBe('11');
+  });
+
+  it('should bind unary minus tighter than ^', () => {
+    // Matches Google Sheets / Excel: =-2^2 is (-2)^2 = 4, not -(2^2) = -4.
+    expect(evaluate('=-2^2')).toBe('4');
+    expect(evaluate('=-(2^2)')).toBe('-4');
+    expect(evaluate('=-2^3')).toBe('-8');
+  });
+
+  it('should treat ^ as right-associative', () => {
+    expect(evaluate('=2^3^2')).toBe('512');
+    expect(evaluate('=(2^3)^2')).toBe('64');
+  });
+
+  it('should return #NUM! when ^ overflows', () => {
+    expect(evaluate('=10^400')).toBe('#NUM!');
   });
 
   it('should correctly evaluate unary minus', () => {
@@ -825,12 +865,28 @@ describe('Formula', () => {
     expect(evaluate('=IFERROR("hello","error")')).toBe('hello');
     expect(evaluate('=IFERROR(1+2,"error")')).toBe('3');
     expect(evaluate('=IFERROR(SUM(),"fallback")')).toBe('fallback');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+    grid.set('A3', { v: 'plain' });
+
+    expect(evaluate('=IFERROR(A1,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A2,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A3,"fallback")', grid)).toBe('plain');
   });
 
   it('should correctly evaluate IFNA function', () => {
     expect(evaluate('=IFNA(SUM(),"fallback")')).toBe('fallback');
     expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#DIV/0!');
     expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+
+    expect(evaluate('=IFNA(A1,"fallback")', grid)).toBe('#DIV/0!');
+    expect(evaluate('=IFNA(A2,"fallback")', grid)).toBe('fallback');
   });
 
   it('should correctly evaluate PI function', () => {
@@ -3245,7 +3301,7 @@ describe('Formula', () => {
   it('TRANSPOSE preserves text values', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: 'hello' } as Cell); grid.set('B1', { v: 'world' } as Cell);
-    grid.set('A2', { v: '42' } as Cell);    grid.set('B2', { v: 'end' } as Cell);
+    grid.set('A2', { v: '42' } as Cell); grid.set('B2', { v: 'end' } as Cell);
     // [[hello,world],[42,end]] → transposed → [[hello,42],[world,end]]
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,1)', grid)).toBe('hello');
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,2)', grid)).toBe('42');

@@ -1,6 +1,8 @@
 import type { SlidesStore } from './store';
 import type {
   Background,
+  Guide,
+  GuideAxis,
   Slide,
   SlidesDocument,
 } from '../model/presentation';
@@ -31,12 +33,26 @@ import {
   flattenElements,
   groupToTransform,
   normalizeToGroupLocal,
+  worldTightFrame,
 } from '../model/group';
 import type { GroupTransform } from '../model/group';
 import {
   applyGroupTransform as applyMatrix,
   applyGroupTransformToPoint,
 } from '../import/pptx/group';
+
+/**
+ * Throw early when a caller passes `NaN` / `Infinity` into a guide
+ * mutator. The renderer's `position * scale` math and the snap
+ * engine's `Math.abs(diff)` both propagate `NaN` silently, so
+ * letting a bad value reach the store would surface as a hard-to-
+ * diagnose downstream artifact.
+ */
+function assertFinitePosition(op: string, position: number): void {
+  if (!Number.isFinite(position)) {
+    throw new Error(`${op}: position must be a finite number, got ${position}`);
+  }
+}
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -49,6 +65,7 @@ function emptyDocument(): SlidesDocument {
     masters: [clone(DEFAULT_MASTER)],
     layouts: clone(BUILT_IN_LAYOUTS),
     slides: [],
+    guides: [],
   };
 }
 
@@ -777,6 +794,68 @@ export class MemSlidesStore implements SlidesStore {
     return bakedChildren.map(c => c.id);
   }
 
+  refitGroup(slideId: string, groupId: string): void {
+    this.requireBatch();
+
+    const slide = this.requireSlide(slideId);
+    const path = findElementPath(slide.elements, groupId);
+    if (!path) return; // Tolerant: stale group id (remote delete) → no-op.
+
+    const group = path[path.length - 1];
+    if (group.type !== 'group') return;
+    if (group.data.children.length === 0) return;
+
+    // The shared `worldTightFrame` math computes the rotation-preserving
+    // tight world frame plus the local shift that needs to be applied to
+    // every child so the new local origin sits at the children's AABB
+    // corner. Children's world positions stay invariant by construction.
+    const tight = worldTightFrame(group);
+    const { worldFrame: newFrame, localShift, newRefSize } = tight;
+
+    const EPS = 0.5;
+    const close = (a: number, b: number) => Math.abs(a - b) < EPS;
+    if (
+      close(localShift.x, 0) &&
+      close(localShift.y, 0) &&
+      close(newRefSize.w, group.data.refSize?.w ?? group.frame.w) &&
+      close(newRefSize.h, group.data.refSize?.h ?? group.frame.h)
+    ) {
+      // Local AABB already aligned with the local origin AND tight against
+      // refSize — nothing to refit. Rotation/scale are preserved by design,
+      // so we do not need to mutate them in the no-op path.
+      return;
+    }
+
+    // Mutate the existing group in place — keeping object identity matters
+    // for Yorkie path stability across sibling mutations in the same batch.
+    group.frame = { ...newFrame };
+    group.data.refSize = { ...newRefSize };
+
+    // Shift each child's local frame by (-localShift) so it sits in the
+    // new (0..newRefSize) local box. Children's world positions are
+    // preserved because `newFrame` was solved to make T_new(P_old - shift)
+    // == T_old(P_old) for every child point P_old.
+    for (const ch of group.data.children) {
+      ch.frame = {
+        ...ch.frame,
+        x: ch.frame.x - localShift.x,
+        y: ch.frame.y - localShift.y,
+      };
+      if (ch.type === 'connector') {
+        for (const side of ['start', 'end'] as const) {
+          const ep = ch[side];
+          if (ep.kind === 'free') {
+            ch[side] = {
+              kind: 'free',
+              x: ep.x - localShift.x,
+              y: ep.y - localShift.y,
+            };
+          }
+        }
+      }
+    }
+  }
+
   // --- text bridges ---
 
   withTextElement(
@@ -805,6 +884,32 @@ export class MemSlidesStore implements SlidesStore {
     if (next !== undefined) {
       slide.notes = clone(next);
     }
+  }
+
+  // --- guides ---
+
+  addGuide(axis: GuideAxis, position: number): string {
+    this.requireBatch();
+    assertFinitePosition('addGuide', position);
+    const id = generateId();
+    const guide: Guide = { id, axis, position };
+    this.doc.guides.push(guide);
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    assertFinitePosition('moveGuide', position);
+    const guide = this.doc.guides.find((g) => g.id === id);
+    if (!guide) throw new Error(`Guide not found: ${id}`);
+    guide.position = position;
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    const idx = this.doc.guides.findIndex((g) => g.id === id);
+    if (idx === -1) throw new Error(`Guide not found: ${id}`);
+    this.doc.guides.splice(idx, 1);
   }
 
   // --- transactions ---

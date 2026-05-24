@@ -537,6 +537,34 @@ when fewer than 3 elements are selected.
   integer-typed in the toolbar; revisit with an epsilon if undo-stack
   bloat is reported.
 
+### Read-only mounts
+
+Viewer-role share links mount the same editor scaffolding as the owner
+route but with every mutating interaction suppressed. Each public
+entry point opts in via an option flag:
+
+- `initializeEditor({ ..., readOnly: true })` — the constructor skips
+  `attachInteractions()`, so the canvas + overlay + document-level
+  pointer and keyboard listeners are never bound. The programmatic
+  surface (`setCurrentSlide`, `markDirty`, `render`, …) stays live so
+  the host shell can still drive navigation; remote peer edits flow
+  through `markDirty()` + `render()` exactly as in the editable case.
+- `mountThumbnailPanel(panel, store, editor, { readOnly: true })` —
+  click-to-navigate stays wired, but each item's `draggable` flag is
+  cleared and the `dragstart` / `dragover` / `drop` / `contextmenu`
+  bindings are skipped, so drag-reorder and the bulk-delete context
+  menu are inert.
+- `mountNotesPanel(notes, store, editor, { readOnly: true })` — the
+  textarea is rendered with the native `readOnly` attribute set and
+  the `input` listener (which calls `store.withNotes`) is skipped, so
+  visitors can read speaker notes but never overwrite them.
+
+`SlidesView` (frontend) passes its `readOnly` prop through to all
+three. `SharedSlidesLayout` wires the share-link viewer role to it
+(`shared-document.tsx`) and additionally suppresses the empty-deck
+seed so a viewer arriving before the owner has saved the first slide
+never mutates the doc on their behalf.
+
 ### Presentation mode
 
 See [slides-presentation-mode.md](./slides-presentation-mode.md) for

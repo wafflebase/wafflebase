@@ -7,6 +7,16 @@ export interface NotesPanelHandle {
   dispose(): void;
 }
 
+export interface MountNotesPanelOptions {
+  /**
+   * Render the textarea as `readOnly` and skip the `input` listener
+   * that writes back into the store. Used by viewer-role share links
+   * so anonymous visitors can still read speaker notes without
+   * mutating them.
+   */
+  readOnly?: boolean;
+}
+
 /**
  * Mount a speaker-notes panel into `container`. v1 is a plain
  * `<textarea>` bound to the current slide's `notes` Block[] via
@@ -21,23 +31,37 @@ export function mountNotesPanel(
   container: HTMLElement,
   store: SlidesStore,
   editor: SlidesEditor,
+  options: MountNotesPanelOptions = {},
 ): NotesPanelHandle {
+  const readOnly = options.readOnly === true;
   container.innerHTML = '';
+  ensureNotesPanelStyles();
   const ta = document.createElement('textarea');
+  ta.className = 'wfb-slides-notes-ta';
   ta.placeholder = 'Speaker notes…';
+  ta.readOnly = readOnly;
+  // Fill the host's drag-resized height instead of carrying its own
+  // intrinsic size. The slides editor shell owns the notes resizer
+  // affordance, so the textarea here is a content slot — no border,
+  // no rounded box, no user-resize handle.
   ta.style.width = '100%';
-  ta.style.minHeight = '80px';
+  ta.style.height = '100%';
+  ta.style.boxSizing = 'border-box';
+  ta.style.resize = 'none';
   // Theme tokens from shadcn (frontend's index.css) so the textarea
-  // follows the surrounding light/dark mode. Fallbacks keep jsdom and
-  // theme-less hosts on a sensible dark surface.
-  ta.style.background = 'var(--background, #2a2a2a)';
+  // follows the surrounding light/dark mode. Background stays
+  // transparent so the panel blends with the editor column instead of
+  // floating as its own boxy surface. The `outline: none` here drops
+  // the boxy default focus ring; keyboard users get a subtler 2-px
+  // inset ring via the `:focus-visible` rule installed by
+  // `ensureNotesPanelStyles` so a11y stays intact (WCAG 2.4.7).
+  ta.style.background = 'transparent';
   ta.style.color = 'var(--foreground, #ddd)';
-  ta.style.border = '1px solid var(--border, #444)';
-  ta.style.borderRadius = '4px';
+  ta.style.border = 'none';
+  ta.style.outline = 'none';
   ta.style.padding = '8px';
   ta.style.fontFamily = 'system-ui, sans-serif';
   ta.style.fontSize = '14px';
-  ta.style.resize = 'vertical';
   container.appendChild(ta);
 
   const sync = (): void => {
@@ -48,13 +72,15 @@ export function mountNotesPanel(
     ta.value = blocksToText(slide.notes);
   };
 
-  ta.addEventListener('input', () => {
-    const id = editor.getCurrentSlideId();
-    if (!id) return;
-    store.batch(() => {
-      store.withNotes(id, () => textToBlocks(ta.value));
+  if (!readOnly) {
+    ta.addEventListener('input', () => {
+      const id = editor.getCurrentSlideId();
+      if (!id) return;
+      store.batch(() => {
+        store.withNotes(id, () => textToBlocks(ta.value));
+      });
     });
-  });
+  }
 
   // Re-bind when the current slide changes. We subscribe to BOTH
   // selection changes (covers in-place edits like select/deselect on
@@ -71,6 +97,28 @@ export function mountNotesPanel(
       offSlide();
     },
   };
+}
+
+/**
+ * Inject a `:focus-visible` outline rule for the notes textarea once
+ * per document. The inline `outline: none` strips the default focus
+ * ring (which would render as a boxy rectangle around the borderless
+ * panel); this rule re-adds a subtle 2-px inset ring that only shows
+ * for keyboard focus — WCAG 2.4.7 compliant without re-introducing
+ * the chrome we deliberately removed for mouse users.
+ */
+function ensureNotesPanelStyles(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('wfb-slides-notes-panel-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'wfb-slides-notes-panel-styles';
+  style.textContent =
+    '.wfb-slides-notes-ta:focus-visible {' +
+    '  outline: 2px solid var(--ring, #3a7);' +
+    '  outline-offset: -2px;' +
+    '  border-radius: 2px;' +
+    '}';
+  document.head.appendChild(style);
 }
 
 function blocksToText(blocks: readonly Block[]): string {

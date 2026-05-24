@@ -1,13 +1,12 @@
 /**
  * Routing logic tests for ObjectSection.
  *
- * The component itself is TSX and cannot be rendered in the Node strip-types
- * runner. We test the routing predicate that determines whether ShapeControls
- * is shown versus left empty.
+ * This is a logic test, not a component-render test: we exercise the
+ * routing predicate that determines whether ShapeControls is shown versus
+ * left empty.
  */
 
-import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, expect } from 'vitest';
 
 type SelectionType = 'shape' | 'connector' | 'image' | 'text-element' | 'mixed';
 
@@ -18,22 +17,22 @@ function showShapeControls(selectionType: SelectionType): boolean {
 
 describe('ObjectSection routing', () => {
   it('shows ShapeControls for shape selection', () => {
-    assert.equal(showShapeControls('shape'), true);
+    expect(showShapeControls('shape')).toBe(true);
   });
 
   it('shows ShapeControls for connector selection', () => {
-    assert.equal(showShapeControls('connector'), true);
+    expect(showShapeControls('connector')).toBe(true);
   });
 
   it('hides ShapeControls for image selection', () => {
-    assert.equal(showShapeControls('image'), false);
+    expect(showShapeControls('image')).toBe(false);
   });
 
   it('hides ShapeControls for text-element selection', () => {
-    assert.equal(showShapeControls('text-element'), false);
+    expect(showShapeControls('text-element')).toBe(false);
   });
 
   it('hides ShapeControls for mixed selection', () => {
-    assert.equal(showShapeControls('mixed'), false);
+    expect(showShapeControls('mixed')).toBe(false);
   });
 });

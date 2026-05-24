@@ -215,4 +215,48 @@ describe('YorkieSlidesStore concurrent edits', { skip: !shouldRun }, () => {
       await ctx.cleanup();
     }
   });
+
+  it('A moves a block of slides while B updates an element on one → both survive', async () => {
+    const ctx = await createTwoUserSlides('move-block-vs-update');
+    try {
+      let id0 = '', id1 = '', id2 = '', elId = '';
+      ctx.storeA.batch(() => {
+        id0 = ctx.storeA.addSlide('blank');
+        id1 = ctx.storeA.addSlide('blank');
+        id2 = ctx.storeA.addSlide('blank');
+        elId = ctx.storeA.addElement(id0, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect', fill: '#0a0' },
+        });
+      });
+      await ctx.sync();
+
+      // Concurrent: A moves the block [id0, id2] to index 1; B updates the
+      // element frame on id0 (which the rebuild-on-move path would discard).
+      ctx.storeA.batch(() => ctx.storeA.moveSlides([id0, id2], 1));
+      ctx.storeB.batch(() => ctx.storeB.updateElementFrame(id0, elId, { x: 500 }));
+      await ctx.sync();
+
+      const a = ctx.storeA.read();
+      const b = ctx.storeB.read();
+      assert.deepEqual(
+        a.slides.map((s) => s.id),
+        b.slides.map((s) => s.id),
+      );
+      // The block move landed: order is [id1, id0, id2].
+      assert.deepEqual(a.slides.map((s) => s.id), [id1, id0, id2]);
+      // B's concurrent element update survived on both peers.
+      assert.equal(
+        a.slides.find((s) => s.id === id0)!.elements[0].frame.x,
+        500,
+      );
+      assert.equal(
+        b.slides.find((s) => s.id === id0)!.elements[0].frame.x,
+        500,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });

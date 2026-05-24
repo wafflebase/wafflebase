@@ -9,6 +9,8 @@ import {
   groupToTransform,
   isGroupDescendantOf,
   normalizeToGroupLocal,
+  worldChildrenAABB,
+  worldTightFrame,
 } from '../../src/model/group';
 import { IDENTITY_GROUP_TRANSFORM } from '../../src/model/group';
 
@@ -329,5 +331,179 @@ describe('applyGroupTransform — resize semantics', () => {
     expect(world.y).toBeCloseTo(30, 4);
     expect(world.w).toBeCloseTo(80, 4);
     expect(world.h).toBeCloseTo(40, 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. worldChildrenAABB — used by the editor overlay so selection handles
+// stay tight around the children's current visual extent even after a
+// child was moved inside drill-in (group.frame goes stale).
+// ---------------------------------------------------------------------------
+
+describe('worldChildrenAABB', () => {
+  it('returns the AABB of two axis-aligned children in an identity group', () => {
+    // Group at origin, scale 1 — children's local frames map to world 1:1.
+    const g = group('g', { x: 0, y: 0, w: 100, h: 100 }, [
+      shape('a', { x: 0, y: 0, w: 40, h: 30 }),
+      shape('b', { x: 60, y: 60, w: 40, h: 40 }),
+    ]);
+    g.data.refSize = { w: 100, h: 100 };
+
+    const aabb = worldChildrenAABB(g);
+    expect(aabb.x).toBeCloseTo(0, 4);
+    expect(aabb.y).toBeCloseTo(0, 4);
+    expect(aabb.w).toBeCloseTo(100, 4);
+    expect(aabb.h).toBeCloseTo(100, 4);
+    expect(aabb.rotation).toBe(0);
+  });
+
+  it('expands past group.frame when a child moves outside the original bounds', () => {
+    // group.frame = (0,0,100,100), but child b sits at (60, 110) — outside.
+    // The dynamic AABB must reach to 150x150, not stay at 100x100.
+    const g = group('g', { x: 0, y: 0, w: 100, h: 100 }, [
+      shape('a', { x: 0, y: 0, w: 40, h: 30 }),
+      shape('b', { x: 60, y: 110, w: 40, h: 40 }),
+    ]);
+    g.data.refSize = { w: 100, h: 100 };
+
+    const aabb = worldChildrenAABB(g);
+    expect(aabb.x).toBeCloseTo(0, 4);
+    expect(aabb.y).toBeCloseTo(0, 4);
+    expect(aabb.w).toBeCloseTo(100, 4);
+    expect(aabb.h).toBeCloseTo(150, 4);
+  });
+
+  it('accounts for a rotated child (its world bbox is larger than its frame)', () => {
+    // A 100×20 rectangle rotated 90° has a 20×100 axis-aligned bbox.
+    const g = group('g', { x: 0, y: 0, w: 200, h: 200 }, [
+      shape('a', { x: 50, y: 90, w: 100, h: 20, rotation: Math.PI / 2 }),
+    ]);
+    g.data.refSize = { w: 200, h: 200 };
+
+    const aabb = worldChildrenAABB(g);
+    // 100×20 rotated 90° around its centre (100, 100) → bbox (90, 50)–(110, 150).
+    expect(aabb.x).toBeCloseTo(90, 4);
+    expect(aabb.y).toBeCloseTo(50, 4);
+    expect(aabb.w).toBeCloseTo(20, 4);
+    expect(aabb.h).toBeCloseTo(100, 4);
+  });
+
+  it('recurses into nested groups', () => {
+    // Inner group at local (50, 50, 50x50) with a single 40x40 child at (5, 5).
+    // Outer group is identity scale at origin.
+    const inner = group('inner', { x: 50, y: 50, w: 50, h: 50 }, [
+      shape('c', { x: 5, y: 5, w: 40, h: 40 }),
+    ]);
+    inner.data.refSize = { w: 50, h: 50 };
+
+    const outer = group('outer', { x: 0, y: 0, w: 100, h: 100 }, [
+      shape('a', { x: 0, y: 0, w: 20, h: 20 }),
+      inner,
+    ]);
+    outer.data.refSize = { w: 100, h: 100 };
+
+    // Outer leaves at world space:
+    //   a: (0, 0, 20, 20)
+    //   c (via inner): inner translates by (50, 50), so c lands at (55, 55, 40, 40).
+    // AABB: (0, 0, 95, 95).
+    const aabb = worldChildrenAABB(outer);
+    expect(aabb.x).toBeCloseTo(0, 4);
+    expect(aabb.y).toBeCloseTo(0, 4);
+    expect(aabb.w).toBeCloseTo(95, 4);
+    expect(aabb.h).toBeCloseTo(95, 4);
+  });
+
+  it('falls back to group.frame bbox when children are empty', () => {
+    const g = group('g', { x: 10, y: 20, w: 30, h: 40 }, []);
+    const aabb = worldChildrenAABB(g);
+    expect(aabb.x).toBeCloseTo(10, 4);
+    expect(aabb.y).toBeCloseTo(20, 4);
+    expect(aabb.w).toBeCloseTo(30, 4);
+    expect(aabb.h).toBeCloseTo(40, 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. worldTightFrame — rotation-preserving tight frame for selection overlay
+//    and refit math. Children's world positions stay invariant when the
+//    group's frame is swapped to `worldFrame` AND each child's local frame
+//    is shifted by `-localShift`.
+// ---------------------------------------------------------------------------
+
+describe('worldTightFrame', () => {
+  it('returns the existing frame when children fit tightly at the local origin', () => {
+    const g = group('g', { x: 10, y: 20, w: 100, h: 100 }, [
+      shape('a', { x: 0, y: 0, w: 40, h: 30 }),
+      shape('b', { x: 60, y: 60, w: 40, h: 40 }),
+    ]);
+    g.data.refSize = { w: 100, h: 100 };
+    const { worldFrame, localShift, newRefSize } = worldTightFrame(g);
+    expect(worldFrame.x).toBeCloseTo(10, 4);
+    expect(worldFrame.y).toBeCloseTo(20, 4);
+    expect(worldFrame.w).toBeCloseTo(100, 4);
+    expect(worldFrame.h).toBeCloseTo(100, 4);
+    expect(worldFrame.rotation).toBe(0);
+    expect(localShift).toEqual({ x: 0, y: 0 });
+    expect(newRefSize).toEqual({ w: 100, h: 100 });
+  });
+
+  it('preserves rotation when a child moved past the original refSize', () => {
+    // Rotated group (π/6) at world center (140, 130); refSize (80, 60).
+    // Move child b to local (-20, -10, 40, 30) — local AABB grows past
+    // the refSize bounds.
+    const rotation = Math.PI / 6;
+    const g = group(
+      'g',
+      { x: 100, y: 100, w: 80, h: 60, rotation },
+      [
+        shape('a', { x: 40, y: 30, w: 40, h: 30 }),
+        shape('b', { x: -20, y: -10, w: 40, h: 30 }),
+      ],
+    );
+    g.data.refSize = { w: 80, h: 60 };
+
+    // Capture each child's world position via the OLD group transform.
+    const aWorldBefore = applyGroupTransform(g.data.children[0].frame, g);
+    const bWorldBefore = applyGroupTransform(g.data.children[1].frame, g);
+
+    const { worldFrame, localShift, newRefSize } = worldTightFrame(g);
+
+    // Rotation preserved.
+    expect(worldFrame.rotation).toBeCloseTo(rotation, 6);
+    // Local shift matches the children's local min corner.
+    expect(localShift.x).toBeCloseTo(-20, 4);
+    expect(localShift.y).toBeCloseTo(-10, 4);
+    // refSize matches the tight local extent.
+    expect(newRefSize.w).toBeCloseTo(100, 4); // -20..80 = 100 wide
+    expect(newRefSize.h).toBeCloseTo(70, 4);  // -10..60 = 70 tall
+
+    // After applying the new group state, each child's world position
+    // stays invariant. We simulate refit on a temporary group: same
+    // `worldFrame`, new refSize, children shifted by -localShift.
+    const newGroup: typeof g = {
+      ...g,
+      frame: { ...worldFrame },
+      data: {
+        ...g.data,
+        refSize: { ...newRefSize },
+        children: g.data.children.map((ch) => ({
+          ...ch,
+          frame: {
+            ...ch.frame,
+            x: ch.frame.x - localShift.x,
+            y: ch.frame.y - localShift.y,
+          },
+        })),
+      },
+    };
+    const aWorldAfter = applyGroupTransform(newGroup.data.children[0].frame, newGroup);
+    const bWorldAfter = applyGroupTransform(newGroup.data.children[1].frame, newGroup);
+
+    expect(aWorldAfter.x).toBeCloseTo(aWorldBefore.x, 3);
+    expect(aWorldAfter.y).toBeCloseTo(aWorldBefore.y, 3);
+    expect(aWorldAfter.w).toBeCloseTo(aWorldBefore.w, 3);
+    expect(aWorldAfter.h).toBeCloseTo(aWorldBefore.h, 3);
+    expect(bWorldAfter.x).toBeCloseTo(bWorldBefore.x, 3);
+    expect(bWorldAfter.y).toBeCloseTo(bWorldBefore.y, 3);
   });
 });
