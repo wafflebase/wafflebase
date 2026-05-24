@@ -1,8 +1,6 @@
 import type { Theme } from '../model/theme';
 import { palette, typography } from '@wafflebase/tokens';
-
-const firstFamily = (stack: string) =>
-  stack.split(',')[0].replace(/"/g, '').trim();
+import { firstFamily } from './font-stack';
 
 export const defaultDark: Theme = {
   id: 'default-dark',

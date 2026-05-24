@@ -93,6 +93,36 @@ source of truth.
 - Done when light/dark toggling produces a coherent tone across frontend
   chrome and all three canvas surfaces.
 
+##### Extensions that landed alongside PR #1
+
+The plan's "non-goals" said only the plumbing would change. Three small
+visual changes shipped together because they would have been awkward to
+defer once consumers were already migrating:
+
+- **Chrome neutralization.** Sidebar surface/border/foreground in
+  `packages/tokens/src/semantic.ts` no longer reference
+  `palette.neutrals.*` (warm Butter & Maple). They use shadcn neutral
+  oklch values so the editor chrome reads as quiet workbench surface.
+  Brand still appears on primary, ring, accent, selection wash, and
+  active sidebar item. `palette.neutrals` itself is untouched — still the
+  source for Slides factory themes and marketing pages.
+- **Docs paper stays pure white.** `pageBackground` and
+  `rulerContentBackground` in `packages/docs/src/view/theme.ts` reverted
+  to `#ffffff` / `#2b2b2b` after a brief experiment with palette paper
+  tones. Caret/text still use `palette.neutrals.{light,dark}.ink` and
+  the text selection wash uses butter.
+- **Color picker densification.** `TEXT_COLORS` and `BG_COLORS` in
+  `packages/frontend/src/components/formatting-colors.ts` grew from 20
+  hardcoded Material values to 32 token-aware swatches arranged in 4
+  intent-based rows. `ColorPickerGrid` and
+  `packages/frontend/src/app/slides/themed-color-picker.tsx` unified to
+  8 cols × 20 px. The slides theme row uses `PICKER_THEME_ROLES` (8 main
+  OOXML slots) so it shares its grid with the standard row.
+
+These extensions move some of PR #2's surface area earlier. PR #2 still
+plans to introduce a contrast-validated swatch generator and remove the
+remaining hardcoded hex tail from the formatting-colors module.
+
 #### PR #2 — Color palette tokenization (P0 #3)
 
 Replace the hardcoded `TEXT_COLORS` and `BG_COLORS` palettes in

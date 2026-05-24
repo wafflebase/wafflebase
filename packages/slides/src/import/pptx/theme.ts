@@ -1,4 +1,5 @@
 import { palette, typography } from '@wafflebase/tokens';
+import { firstFamily } from '../../themes/font-stack';
 
 import type { ColorRole, ColorScheme, FontScheme, Theme } from '../../model/theme';
 import { parseHexInContainer } from './color';
@@ -23,9 +24,6 @@ const SCHEME_SLOTS: Array<[string, ColorRole]> = [
   ['hlink', 'hyperlink'],
   ['folHlink', 'visitedHyperlink'],
 ];
-
-/** Extract the first font family from a CSS font stack (e.g. `"Fraunces", ui-serif, ...` → `Fraunces`). */
-const firstFamily = (stack: string) => stack.split(',')[0].replace(/"/g, '').trim();
 
 /**
  * Fallback when a theme slot is missing — uses Butter & Maple factory defaults.
