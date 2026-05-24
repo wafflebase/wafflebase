@@ -223,10 +223,11 @@ export class AuthController {
   }
 
   private baseCookieOptions(): CookieOptions {
+    // SameSite=Lax for CSRF defense; assumes frontend + backend share eTLD+1.
     return {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      sameSite: 'lax',
     };
   }
 }
