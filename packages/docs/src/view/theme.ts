@@ -51,7 +51,7 @@ const LightTheme: DocTheme = {
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
-  selectionColor: 'rgba(66, 133, 244, 0.3)',
+  selectionColor: `rgba(${palette.butterRgb}, 0.30)`,
   selectionColorInactive: 'rgba(0, 0, 0, 0.1)',
 
   pageGap: 40,
@@ -59,11 +59,11 @@ const LightTheme: DocTheme = {
   pageShadowBlur: 8,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
-  pageBackground: '#ffffff',
+  pageBackground: palette.neutrals.light.paper,
   canvasBackground: '#f0f0f0',
 
   rulerMarginBackground: '#e8e8e8',
-  rulerContentBackground: '#ffffff',
+  rulerContentBackground: palette.neutrals.light.paper,
   rulerTickColor: '#666666',
 
   headerFooterBorderColor: '#cccccc',
@@ -79,7 +79,7 @@ const DarkTheme: DocTheme = {
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
-  selectionColor: 'rgba(100, 160, 255, 0.35)',
+  selectionColor: `rgba(${palette.butterRgb}, 0.35)`,
   selectionColorInactive: 'rgba(255, 255, 255, 0.1)',
 
   pageGap: 40,
@@ -87,11 +87,11 @@ const DarkTheme: DocTheme = {
   pageShadowBlur: 10,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
-  pageBackground: '#2b2b2b',
+  pageBackground: palette.neutrals.dark.paper,
   canvasBackground: '#1e1e1e',
 
   rulerMarginBackground: '#333333',
-  rulerContentBackground: '#2b2b2b',
+  rulerContentBackground: palette.neutrals.dark.paper,
   rulerTickColor: '#999999',
 
   headerFooterBorderColor: '#555555',

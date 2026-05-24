@@ -47,6 +47,18 @@ Paired with `20260524-tokens-package-todo.md`. Captured as the work proceeded.
   `--primary: var(--wb-syrup)` (a chain). The generated tokens.css emits
   `--primary: #B8651A` directly. The chain is gone but the resolved value is
   identical.
+- **Pulled two more cross-package mismatches into this PR after the initial
+  scope.** (1) Docs `selectionColor` moved from Google blue (`rgba(66, 133,
+  244, 0.3)` light / `rgba(100, 160, 255, 0.35)` dark) to butter
+  (`rgba(palette.butterRgb, 0.30)` / `0.35`) so text selection in docs
+  reads with the same tone as the cell-range wash in sheets. (2) Docs
+  `pageBackground` and `rulerContentBackground` moved from `#ffffff` /
+  `#2b2b2b` to `palette.neutrals.{light,dark}.paper` so the "paper sheet"
+  surface is warm-cream in both modes, matching the brand neutrals. Other
+  chrome grays (`canvasBackground`, `rulerMarginBackground`,
+  `headerFooterBorderColor`) stay neutral and will be reconsidered in a
+  later PR once a "canvas surfaces" semantic layer is justified by a
+  second consumer.
 
 ## Contrast measurements
 
