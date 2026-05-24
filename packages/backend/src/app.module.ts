@@ -32,16 +32,19 @@ import { HealthModule } from './health/health.module';
                 ignore: (req) =>
                   req.url === '/health' || req.url === '/health/ready',
               },
-        // Default access log → debug (silent at info). Only destructive
-        // operations stay at info so the audit trail still surfaces.
-        // 5xx pages on-call, 4xx warns. Meaningful business events
-        // (document.create, login success, datasource.test, etc.) should
-        // be emitted explicitly from service code as info, not relied on
-        // from this generic access log.
+        // Default access log → debug (silent at info). Only audit-worthy
+        // operations stay at info: DELETE (destructive) and content
+        // imports (DOCX/PPTX bulk writes via `PUT .../content`). 5xx
+        // pages on-call, 4xx warns. Other business events should be
+        // emitted explicitly from service code via Logger.log instead
+        // of inferred from URL patterns here.
         customLogLevel: (req, res, err) => {
           if (err || res.statusCode >= 500) return 'error';
           if (res.statusCode >= 400) return 'warn';
           if (req.method === 'DELETE') return 'info';
+          if (req.method === 'PUT' && req.url?.endsWith('/content')) {
+            return 'info';
+          }
           return 'debug';
         },
         // Slim request/response shape: pino-http's default serializer

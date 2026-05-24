@@ -241,13 +241,13 @@ configured in `packages/backend/src/app.module.ts`:
   `accept-encoding`, `if-none-match`, etc.) on every line and inflate
   log volume by ~5×. Full headers remain reachable at `debug`.
 - `customLogLevel` keeps the access log mostly silent at the default
-  `info` level: `5xx → error`, `4xx → warn`, `DELETE → info` (so the
-  destructive-action audit trail surfaces), everything else `debug`.
-  Meaningful business events (document.create, login success,
-  datasource.test, etc.) should be emitted explicitly from service
-  code via `Logger.log({ event, ... })`, not inferred from this
-  generic access log. Set `LOG_LEVEL=debug` in incident response when
-  full access logs are needed temporarily.
+  `info` level: `5xx → error`, `4xx → warn`, `DELETE → info` (audit
+  destructive ops), `PUT /api/v1/.../content → info` (DOCX/PPTX bulk
+  imports), everything else `debug`. Meaningful business events
+  (document.create, login success, datasource.test, etc.) should be
+  emitted explicitly from service code via `Logger.log({ event, ... })`,
+  not inferred from this generic access log. Set `LOG_LEVEL=debug`
+  in incident response when full access logs are needed temporarily.
 - `/health` and `/health/ready` are skipped — orchestrator probes
   would otherwise dominate the log stream.
 - `req.headers.authorization`, `req.headers.cookie`, and outgoing
