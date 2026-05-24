@@ -515,6 +515,10 @@ importers:
         version: 3.1.1(@types/node@22.14.1)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/sheets:
+    dependencies:
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
     devDependencies:
       '@types/papaparse':
         specifier: ^5.3.14
