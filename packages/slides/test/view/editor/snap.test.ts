@@ -111,16 +111,19 @@ describe('snapDelta', () => {
 
   it('prefers a user guide over a closer element edge', () => {
     // Edge at x=500 right edge — dragged left edge at 503 → 3 px gap.
-    // Guide at x=505 → dragged left edge at 503 → 2 px gap.
-    // Both inside threshold (8). Closer = edge, but guide outranks it.
+    // Guide at x=507 → dragged left edge at 503 → 4 px gap.
+    // Both inside threshold (8). Edge is the *closer* candidate
+    // numerically, but guide still wins via priority — which is what
+    // the priority rule actually claims. Earlier fixture had the
+    // guide at 505 (only 2 px away) so the test would have passed
+    // even without the priority rule kicking in.
     const others: Frame[] = [f(400, 400, 100, 100)];
-    const guides = [{ id: 'g1', axis: 'x' as const, position: 505 }];
+    const guides = [{ id: 'g1', axis: 'x' as const, position: 507 }];
     const result = snapDelta(
       { x: 0, y: 0, w: 100, h: 100 }, 503, 0, others, SLIDE, guides,
     );
-    // dragged left edge (originally 0) + dx → 505 (= guide.position).
-    // So dx should be 505 (snap by left edge to the guide).
-    expect(result.dx).toBe(505);
+    // dragged left edge (originally 0) + dx → 507 (= guide.position).
+    expect(result.dx).toBe(507);
     expect(result.guides[0]).toMatchObject({
       kind: 'guide',
       guideId: 'g1',

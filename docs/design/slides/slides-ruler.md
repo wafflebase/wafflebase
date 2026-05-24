@@ -100,18 +100,20 @@ coordinate system (they zoom and pan with the slide content).
 ```text
 editor-shell.tsx
 └── <slide-stage> (position: relative)
-    ├── <ruler-corner>    absolute; top:0; left:0; 20×20
-    ├── <h-ruler-canvas>  absolute; top:0; left:20px; right:0; height:20px
-    ├── <v-ruler-canvas>  absolute; top:20px; left:0; bottom:0; width:20px
-    └── <canvas-pane>     absolute; top:20px; left:20px; right:0; bottom:0
+    ├── <ruler-corner>    absolute; top:0; left:0; 14×14
+    ├── <h-ruler-canvas>  absolute; top:0; left:14px; right:0; height:14px
+    ├── <v-ruler-canvas>  absolute; top:14px; left:0; bottom:0; width:14px
+    └── <canvas-pane>     absolute; top:14px; left:14px; right:0; bottom:0
         ├── <slide-canvas>      # existing
         └── <overlay>           # existing
             └── <guides-layer>  # NEW — permanent magenta solid lines
 ```
 
-The slide canvas area is offset by 20 px on top and left to make room
-for the rulers. Ruler canvases use DPR-aware backing stores
-(`devicePixelRatio` ×) and `ctx.scale(dpr, dpr)`.
+The slide canvas area is offset by 14 px on top and left to make room
+for the rulers. The slim 14-px footprint (vs. the docs ruler's 20 px)
+keeps the chrome quiet — a slide is more of a stage than a measured
+page. Ruler canvases use DPR-aware backing stores (`devicePixelRatio`
+×) and `ctx.scale(dpr, dpr)`.
 
 `SlidesRuler` is the controller:
 
@@ -392,6 +394,6 @@ Verification gates:
 | Slides 144-dpi vs docs 96-dpi confuses readers and reviewers. | Subtle tick / label bugs. | The shared tick renderer accepts `pxPerUnit` as input — there is no implicit dpi constant. Tests assert tick positions at known zoom × pxPerUnit values. |
 | Guides on the Yorkie root migrate poorly for old documents. | Existing decks fail to load. | `if (!root.guides) root.guides = []` on attach. The lazy init is idempotent, runs on the first session, and adds no schema migration step. |
 | Snap priority among slide-center, guide, and edge feels surprising. | Users fight the tool. | Document the rule in user-facing help. Priority is overridable in code; tune based on early feedback before broad rollout. |
-| Always-on rulers eat 20 px on the top and left, hurting smaller laptop screens. | Cramped canvas. | The 20 px footprint matches docs. A `View > Show ruler` toggle is the planned escape hatch in a later release once a Slides View menu lands. |
+| Always-on rulers eat 14 px on the top and left, hurting smaller laptop screens. | Cramped canvas. | The slides ruler is intentionally slimmer than the docs ruler (14 vs 20 px) and uses a transparent background so the chrome stays light. A `View > Show ruler` toggle is the planned escape hatch in a later release once a Slides View menu lands. |
 | Permanent guides accidentally end up in PDFs. | Wrong export output. | `export/pdf.ts` explicitly ignores `guides`; covered by a unit test that renders a deck with one guide and asserts the PDF page contains no extra paint operations. |
 | Concurrent ruler drag-out conflicts with concurrent element drag. | Confusing presence. | The two paths use distinct presence fields (`draggingFrame` vs `draggingGuide`) and distinct interaction states in the editor, so they never collide. |
