@@ -134,6 +134,14 @@ export function createWorksheet(overrides: Partial<Worksheet> = {}): Worksheet {
     merges: {},
     charts: {},
     images: {},
+    // Seed `comments` at creation for the same reason as the other map
+    // containers: Yorkie resolves concurrent assignment of the same object
+    // key by LWW. If the map were instead created lazily on first comment
+    // (`if (!ws.comments) ws.comments = {}`), two users adding the first
+    // comment concurrently would each create a fresh map and one — with its
+    // thread — would be dropped wholesale. A shared container means
+    // concurrent inserts only set distinct keys, which merge.
+    comments: {},
     frozenRows: 0,
     frozenCols: 0,
     ...overrides,

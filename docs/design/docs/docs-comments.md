@@ -265,8 +265,21 @@ type DocsDocument = {
 Threads are keyed by their own `id`, not by `blockId`, because multiple
 threads can overlap on the same range. The anchor lives inside the thread.
 
-The optional field means existing documents need no migration — `comments`
-materializes on first thread insertion.
+New documents seed `comments: {}` at bootstrap inside
+`initialDocsRoot()` (alongside the `content` Tree), so every replica
+shares one container CRDT from creation. This is required for
+convergence: Yorkie resolves concurrent assignment of the same object
+key by LWW, so if two users created the container concurrently (the
+lazy `if (!root.comments) root.comments = {}` path) one map — and its
+thread — would be discarded wholesale. Seeding at bootstrap means
+concurrent inserts only set distinct keys, which merge.
+
+The field stays optional so existing documents need no migration: the
+lazy guard remains as a fallback for legacy docs created before the
+seeding. On those, two users adding the *first-ever* comment
+concurrently can still race to create the container; the window is a
+single document's first concurrent comment and self-heals after one
+sync.
 
 **Comments are intentionally outside the `Tree`.** Two alternatives were
 considered:
@@ -281,7 +294,7 @@ considered:
 
 | Scenario                                                  | Yorkie behavior                          | Outcome |
 | --------------------------------------------------------- | ---------------------------------------- | ------- |
-| Two users add a thread on the same range concurrently     | Different `threadId` keys; both insert    | Both preserved |
+| Two users add a thread on the same range concurrently     | Different `threadId` keys on the shared, bootstrap-seeded `comments` container | Both preserved (see container-seeding note above) |
 | Two users add a reply to the same thread concurrently     | `Thread.comments[]` array CRDT push       | Both preserved, deterministic order |
 | One user edits, another deletes the same comment          | Delete wins (parent removal)              | Comment lost (Google parity) |
 | Two users resolve the same thread concurrently            | LWW on `resolved`                         | Final state consistent |

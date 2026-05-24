@@ -145,6 +145,12 @@ export class YorkieCommentStore
     this.doc.update((root) => {
       const tree = root.content;
       const posRange = tree.pathRangeToPosRange([input.startPath, input.endPath]);
+      // New docs seed `comments` at bootstrap (see `initialDocsRoot`), so the
+      // container is shared across replicas and concurrent inserts merge. This
+      // guard only fires for legacy docs created before that seeding; on those,
+      // two users adding the first-ever comment concurrently can still race to
+      // create the container (Yorkie LWW drops one). Acceptable: the window is
+      // a single doc's first concurrent comment and self-heals after one sync.
       if (!root.comments) root.comments = {};
       root.comments[threadId] = {
         id: threadId,

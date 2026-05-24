@@ -64,8 +64,8 @@ describe(
 
           // Both peers must agree on the exact same slide elements.
           assert.deepEqual(
-            JSON.stringify(a.slides[0].elements),
-            JSON.stringify(b.slides[0].elements),
+            a.slides[0].elements,
+            b.slides[0].elements,
             'peers diverged after concurrent group()',
           );
 
@@ -129,8 +129,8 @@ describe(
         const b = ctx.storeB.read();
 
         assert.deepEqual(
-          JSON.stringify(a.slides[0].elements),
-          JSON.stringify(b.slides[0].elements),
+          a.slides[0].elements,
+          b.slides[0].elements,
           'peers diverged after ungroup vs. drag',
         );
       } finally {
@@ -197,8 +197,8 @@ describe(
 
         // Both peers must converge.
         assert.deepEqual(
-          JSON.stringify(a.slides[0].elements),
-          JSON.stringify(b.slides[0].elements),
+          a.slides[0].elements,
+          b.slides[0].elements,
           'peers diverged after concurrent addElement() into group',
         );
 
@@ -269,8 +269,8 @@ describe(
 
         // Both peers must converge.
         assert.deepEqual(
-          JSON.stringify(a.slides[0].elements),
-          JSON.stringify(b.slides[0].elements),
+          a.slides[0].elements,
+          b.slides[0].elements,
           'peers diverged after reorder vs. delete inside group',
         );
 
