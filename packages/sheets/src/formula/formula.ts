@@ -649,6 +649,11 @@ export type EvalNode =
   | ArrNode
   | LambdaNode;
 
+/**
+ * Formula numeric results are normalized through this explicit ceiling before
+ * they leave the evaluator. It is Number.MAX_VALUE today, but stays named so
+ * spreadsheet compatibility can tighten the range in one place later.
+ */
 export const MAX_FORMULA_NUMBER = Number.MAX_VALUE;
 
 export function isFormulaNumber(value: number): boolean {

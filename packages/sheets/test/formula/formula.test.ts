@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
+  evaluateWithSpill,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
@@ -176,6 +177,21 @@ describe('Formula', () => {
     expect(evaluate('=SUMSQ(1E200, 1E200)')).toBe('#NUM!');
     expect(evaluate('=SUMPRODUCT(A1:A2, B1:B2)', grid)).toBe('#NUM!');
     expect(evaluate('=MMULT({1E200,0;0,0},{1E200,0;0,0})')).toBe('#NUM!');
+    expect(evaluate('=VALUE("1E309")')).toBe('#NUM!');
+    expect(evaluate('=NUMBERVALUE("1E309")')).toBe('#NUM!');
+    expect(evaluate('=LET(x, VALUE("1E309"), x)')).toBe('#NUM!');
+    expect(evaluate('=LAMBDA(x, VALUE(x))("1E309")')).toBe('#NUM!');
+
+    expect(
+      evaluateWithSpill('=MMULT({1E200,0;0,1E200},{1E200,0;0,1E200})'),
+    ).toEqual({
+      values: [
+        ['#NUM!', '0'],
+        ['0', '#NUM!'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
   });
 
   it('should unescape doubled quotes in string literals', () => {
