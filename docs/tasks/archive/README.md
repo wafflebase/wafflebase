@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 202
+Total archived tasks: 203
 
-## 2026/05 (57 tasks)
+## 2026/05 (58 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
 | slides share toolbar (2026-05-23) | [20260523-slides-share-toolbar-todo.md](./2026/05/20260523-slides-share-toolbar-todo.md) | [20260523-slides-share-toolbar-lessons.md](./2026/05/20260523-slides-share-toolbar-lessons.md) |
 | slides arrow key text edit (2026-05-21) | [20260521-slides-arrow-key-text-edit-todo.md](./2026/05/20260521-slides-arrow-key-text-edit-todo.md) | [20260521-slides-arrow-key-text-edit-lessons.md](./2026/05/20260521-slides-arrow-key-text-edit-lessons.md) |
 | slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
