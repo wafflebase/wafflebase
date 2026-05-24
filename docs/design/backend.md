@@ -219,8 +219,50 @@ Created by `AuthService.createTokens()`:
 
 | Cookie | Production | Development |
 |--------|------------|-------------|
-| `wafflebase_session` | httpOnly, secure, sameSite=`none`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
-| `wafflebase_refresh` | httpOnly, secure, sameSite=`none`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+| `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
+| `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+
+SameSite=`lax` blocks third-party cross-site requests from carrying the
+session — the common CSRF vector — while still letting the OAuth
+callback redirect and same-eTLD+1 XHR through. The deployment assumption
+is that frontend and backend share an eTLD+1 (e.g. `*.wafflebase.com`).
+Cross-eTLD deployments would need SameSite=`none` paired with a CSRF
+token, not introduced yet.
+
+### Observability
+
+Structured request/response logs via [`nestjs-pino`](https://github.com/iamolegga/nestjs-pino),
+configured in `app.module.ts`:
+
+- Log level controlled by `LOG_LEVEL` (default `info`).
+- `req.headers.authorization`, `req.headers.cookie`, and outgoing
+  `set-cookie` are redacted before serialization.
+- Production emits raw JSON (one line per event); non-production pipes
+  through `pino-pretty` for readability.
+- `autoLogging` is disabled under `NODE_ENV=test` so Jest output stays
+  clean.
+
+`/health` endpoints live in `src/health/health.controller.ts` and are
+exempt from the rate limiter via `@SkipThrottle()`:
+
+| Route | Purpose | Behavior |
+|-------|---------|----------|
+| `GET /health` | Liveness probe | Always 200 with `{ status: 'ok' }`. No dependencies touched. |
+| `GET /health/ready` | Readiness probe | Runs `SELECT 1` through Prisma; returns 503 with `{ status: 'unhealthy', database: 'unreachable', ... }` on failure. |
+
+### Rate Limiting
+
+Per-IP throttling via [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limiting),
+registered as an `APP_GUARD` in `app.module.ts`:
+
+| Bucket | Default | Applied to |
+|--------|---------|------------|
+| `default` | 60 req / 60s | All routes (implicit) |
+| `auth` | 10 req / 60s | `@Throttle({ auth: ... })` — login callback, refresh, CLI exchange |
+
+`req.ip` is derived from the first upstream proxy hop (`trust proxy: 1`
+in `main.ts`). The limiter is bypassed under `NODE_ENV=test` so unit and
+e2e suites can burst without 429s.
 
 ### Database Schema
 
