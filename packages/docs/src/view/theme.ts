@@ -1,3 +1,5 @@
+import { palette } from '@wafflebase/tokens';
+
 /**
  * Theme mode type.
  */
@@ -43,9 +45,9 @@ export interface DocTheme {
 const LightTheme: DocTheme = {
   defaultFontSize: 11,
   defaultFontFamily: 'Arial',
-  defaultColor: '#000000',
+  defaultColor: palette.neutrals.light.ink,
 
-  cursorColor: '#000000',
+  cursorColor: palette.neutrals.light.ink,
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
@@ -71,9 +73,9 @@ const LightTheme: DocTheme = {
 const DarkTheme: DocTheme = {
   defaultFontSize: 11,
   defaultFontFamily: 'Arial',
-  defaultColor: '#e0e0e0',
+  defaultColor: palette.neutrals.dark.ink,
 
-  cursorColor: '#e0e0e0',
+  cursorColor: palette.neutrals.dark.ink,
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
