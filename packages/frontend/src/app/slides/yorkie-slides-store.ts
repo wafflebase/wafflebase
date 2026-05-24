@@ -73,6 +73,19 @@ function clone<T>(value: T): T {
 }
 
 /**
+ * Reject `NaN` / `Infinity` before they reach the Yorkie root. The
+ * snap engine's `Math.abs(diff)` and the overlay's
+ * `position * scale` math both propagate `NaN` silently, so a bad
+ * value committed here would surface as a hard-to-diagnose
+ * downstream artifact rather than a clear error.
+ */
+function assertFiniteGuidePosition(op: string, position: number): void {
+  if (!Number.isFinite(position)) {
+    throw new Error(`${op}: position must be a finite number, got ${position}`);
+  }
+}
+
+/**
  * Convert a Yorkie object/array proxy to a plain JS value. Yorkie proxies
  * implement `toJSON()` that returns a JSON string (not a plain object), so
  * we parse it back. Returns the input unchanged when it doesn't have the
@@ -151,12 +164,23 @@ export function ensureSlidesRoot(
   // ships the proper migration; this is the minimum to keep the
   // SlidesDocument well-formed.
   doc.update((r) => {
-    const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+    const rootAny = r as {
+      themes?: Theme[];
+      masters?: Master[];
+      guides?: unknown[];
+    };
     if (rootAny.themes == null || rootAny.themes.length === 0) {
       rootAny.themes = [clone(defaultLight)];
     }
     if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];
+    }
+    // Pre-v0.4.2 (pre-ruler) docs predate the guides array. Lazy-init
+    // an empty list so the slides store and renderer can read it
+    // unconditionally. The first session writes the empty array; later
+    // attaches no-op.
+    if (rootAny.guides == null) {
+      rootAny.guides = [];
     }
     // Backfill `meta.themeId` / `meta.masterId` against the document's
     // own `themes` / `masters` arrays, not against hard-coded ids. A
@@ -297,15 +321,21 @@ export class YorkieSlidesStore implements SlidesStore {
       return { id, layoutId, background, elements, notes };
     });
     const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
-    const rootAny = root as { themes?: unknown; masters?: unknown };
+    const rootAny = root as {
+      themes?: unknown;
+      masters?: unknown;
+      guides?: unknown;
+    };
     const themes = yorkieToPlain<Theme[]>(rootAny.themes);
     const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    const guides = yorkieToPlain<unknown[]>(rootAny.guides);
     return migrateDocument({
       meta,
       themes,
       masters,
       slides,
       layouts,
+      guides,
     });
   }
 
@@ -459,9 +489,18 @@ export class YorkieSlidesStore implements SlidesStore {
       // touches them needs them mirrored here. Until Task 5 ships the
       // theme-edit ops these arrays don't change, but writing them keeps
       // the Yorkie root consistent with the cloned snapshot.
-      const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+      //
+      // Guides also live on the snapshot — without rewriting them here,
+      // undo / redo of addGuide / moveGuide / removeGuide silently
+      // diverges from the editor's pre-batch state.
+      const rootAny = r as {
+        themes?: Theme[];
+        masters?: Master[];
+        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
+      };
       rootAny.themes = clone(snapshot.themes);
       rootAny.masters = clone(snapshot.masters);
+      rootAny.guides = clone(snapshot.guides ?? []);
       const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
         id: s.id,
         layoutId: s.layoutId,
@@ -1451,6 +1490,41 @@ export class YorkieSlidesStore implements SlidesStore {
       // Same rationale as withTextElement above — write back regardless
       // of whether `fn` returned a value or mutated in place.
       s.notes = clone(next ?? blocks) as unknown as YorkieSlide['notes'];
+    });
+  }
+
+  // --- guides (presentation-wide) ---
+
+  addGuide(axis: 'x' | 'y', position: number): string {
+    this.requireBatch();
+    assertFiniteGuidePosition('addGuide', position);
+    const id = generateId();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }> };
+      if (rootAny.guides == null) rootAny.guides = [];
+      rootAny.guides.push({ id, axis, position });
+    });
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    assertFiniteGuidePosition('moveGuide', position);
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string; position: number }> };
+      const guide = rootAny.guides?.find((g) => g.id === id);
+      if (!guide) throw new Error(`Guide not found: ${id}`);
+      guide.position = position;
+    });
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { guides?: Array<{ id: string }> };
+      const idx = rootAny.guides?.findIndex((g) => g.id === id) ?? -1;
+      if (idx === -1) throw new Error(`Guide not found: ${id}`);
+      rootAny.guides!.splice(idx, 1);
     });
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectUnit, getGridConfig, snapToGrid, Ruler } from '../../src/view/ruler.js';
+import { detectUnit, getGridConfig, snapToGrid, Ruler } from '../../src/view/ruler/index.js';
 
 describe('ruler units', () => {
   it('detectUnit returns inch for en-US', () => {

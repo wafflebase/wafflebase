@@ -1,31 +1,51 @@
 import type { Frame } from '../../model/element';
+import type { Guide } from '../../model/presentation';
 
 const SNAP_THRESHOLD = 8;
 
 export interface SlideDimensions { w: number; h: number; }
 
+export type SnapGuideKind = 'slide-center' | 'guide' | 'edge';
+
 export type SnapGuide =
-  | { axis: 'x'; position: number; kind: 'slide-center' | 'edge' }
-  | { axis: 'y'; position: number; kind: 'slide-center' | 'edge' };
+  | { axis: 'x'; position: number; kind: SnapGuideKind; guideId?: string }
+  | { axis: 'y'; position: number; kind: SnapGuideKind; guideId?: string };
 
 type Candidate = {
   from: number;
   to: number;
-  kind: 'slide-center' | 'edge';
+  kind: SnapGuideKind;
+  /** Set when `kind === 'guide'`; matches the source `Guide.id`. */
+  guideId?: string;
+};
+
+/**
+ * Priority among snap candidates within the same threshold band. Lower
+ * number wins. Slide-center > user-placed guide > other-element edge.
+ *
+ * Rationale: slide-center is the strongest visual anchor and most
+ * commonly intended; explicit guides reflect direct user intent and
+ * should win over implicit element-edge alignment.
+ */
+const PRIORITY: Record<SnapGuideKind, number> = {
+  'slide-center': 0,
+  'guide': 1,
+  'edge': 2,
 };
 
 /**
  * Adjust a (dx, dy) drag delta so the dragged group's bounding-box
- * edges or centre snap to the slide centre or to a non-selected
- * element's edge, whichever is closest within an 8 px threshold.
+ * edges or centre snap to the slide centre, a presentation-wide
+ * alignment guide, or a non-selected element's edge — whichever wins
+ * inside the 8 px threshold.
  *
- * Both axes are computed independently. If no candidate is within
- * threshold on an axis, the original delta is returned unchanged on
- * that axis. The smallest correction wins per axis.
+ * Both axes are computed independently. Among candidates that fall
+ * inside the threshold, `PRIORITY` resolves ties; within the same
+ * kind, the smallest correction wins.
  *
  * Also returns a `guides` array describing which alignment line(s)
- * won the snap, so an overlay layer can render visible guide lines
- * during drag. Empty when no axis snapped.
+ * won the snap so an overlay layer can render visible feedback during
+ * the drag. Empty when no axis snapped.
  */
 export function snapDelta(
   bbox: { x: number; y: number; w: number; h: number },
@@ -33,6 +53,7 @@ export function snapDelta(
   dy: number,
   others: readonly Frame[],
   slide: SlideDimensions,
+  guides: readonly Guide[] = [],
 ): { dx: number; dy: number; guides: SnapGuide[] } {
   const dragged = {
     leftPx: bbox.x + dx,
@@ -69,19 +90,37 @@ export function snapDelta(
     );
   }
 
+  // Presentation-wide guides. Three candidate offsets per guide so the
+  // dragged frame can snap by either edge or by its centre.
+  for (const g of guides) {
+    if (g.axis === 'x') {
+      xCandidates.push(
+        { from: dragged.leftPx,    to: g.position, kind: 'guide', guideId: g.id },
+        { from: dragged.rightPx,   to: g.position, kind: 'guide', guideId: g.id },
+        { from: dragged.centerXPx, to: g.position, kind: 'guide', guideId: g.id },
+      );
+    } else {
+      yCandidates.push(
+        { from: dragged.topPx,     to: g.position, kind: 'guide', guideId: g.id },
+        { from: dragged.bottomPx,  to: g.position, kind: 'guide', guideId: g.id },
+        { from: dragged.centerYPx, to: g.position, kind: 'guide', guideId: g.id },
+      );
+    }
+  }
+
   const xResult = bestSnapAdjust(xCandidates);
   const yResult = bestSnapAdjust(yCandidates);
 
-  const guides: SnapGuide[] = [];
+  const snapGuides: SnapGuide[] = [];
   const xGuide = toGuide('x', xResult.winner);
-  if (xGuide) guides.push(xGuide);
+  if (xGuide) snapGuides.push(xGuide);
   const yGuide = toGuide('y', yResult.winner);
-  if (yGuide) guides.push(yGuide);
+  if (yGuide) snapGuides.push(yGuide);
 
   return {
     dx: dx + xResult.adjust,
     dy: dy + yResult.adjust,
-    guides,
+    guides: snapGuides,
   };
 }
 
@@ -90,23 +129,40 @@ function toGuide(
   winner: Candidate | null,
 ): SnapGuide | null {
   if (!winner) return null;
-  return { axis, position: winner.to, kind: winner.kind };
+  return {
+    axis,
+    position: winner.to,
+    kind: winner.kind,
+    guideId: winner.guideId,
+  };
 }
 
 function bestSnapAdjust(
   cands: Candidate[],
 ): { adjust: number; winner: Candidate | null } {
-  let best = 0;
-  let bestAbs = SNAP_THRESHOLD + 1;
   let winner: Candidate | null = null;
+  let bestAbs = SNAP_THRESHOLD + 1;
   for (const c of cands) {
     const diff = c.to - c.from;
     const abs = Math.abs(diff);
-    if (abs <= SNAP_THRESHOLD && abs < bestAbs) {
-      best = diff;
-      bestAbs = abs;
+    if (abs > SNAP_THRESHOLD) continue;
+    if (winner === null) {
       winner = c;
+      bestAbs = abs;
+      continue;
+    }
+    const pNew = PRIORITY[c.kind];
+    const pCur = PRIORITY[winner.kind];
+    if (pNew < pCur) {
+      // Higher priority kind wins regardless of distance — guides
+      // outrank element edges even when an edge happens to be closer.
+      winner = c;
+      bestAbs = abs;
+    } else if (pNew === pCur && abs < bestAbs) {
+      winner = c;
+      bestAbs = abs;
     }
   }
-  return { adjust: best, winner };
+  if (!winner) return { adjust: 0, winner: null };
+  return { adjust: winner.to - winner.from, winner };
 }

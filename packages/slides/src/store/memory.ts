@@ -1,6 +1,8 @@
 import type { SlidesStore } from './store';
 import type {
   Background,
+  Guide,
+  GuideAxis,
   Slide,
   SlidesDocument,
 } from '../model/presentation';
@@ -39,6 +41,19 @@ import {
   applyGroupTransformToPoint,
 } from '../import/pptx/group';
 
+/**
+ * Throw early when a caller passes `NaN` / `Infinity` into a guide
+ * mutator. The renderer's `position * scale` math and the snap
+ * engine's `Math.abs(diff)` both propagate `NaN` silently, so
+ * letting a bad value reach the store would surface as a hard-to-
+ * diagnose downstream artifact.
+ */
+function assertFinitePosition(op: string, position: number): void {
+  if (!Number.isFinite(position)) {
+    throw new Error(`${op}: position must be a finite number, got ${position}`);
+  }
+}
+
 function emptyDocument(): SlidesDocument {
   return {
     meta: {
@@ -50,6 +65,7 @@ function emptyDocument(): SlidesDocument {
     masters: [clone(DEFAULT_MASTER)],
     layouts: clone(BUILT_IN_LAYOUTS),
     slides: [],
+    guides: [],
   };
 }
 
@@ -868,6 +884,32 @@ export class MemSlidesStore implements SlidesStore {
     if (next !== undefined) {
       slide.notes = clone(next);
     }
+  }
+
+  // --- guides ---
+
+  addGuide(axis: GuideAxis, position: number): string {
+    this.requireBatch();
+    assertFinitePosition('addGuide', position);
+    const id = generateId();
+    const guide: Guide = { id, axis, position };
+    this.doc.guides.push(guide);
+    return id;
+  }
+
+  moveGuide(id: string, position: number): void {
+    this.requireBatch();
+    assertFinitePosition('moveGuide', position);
+    const guide = this.doc.guides.find((g) => g.id === id);
+    if (!guide) throw new Error(`Guide not found: ${id}`);
+    guide.position = position;
+  }
+
+  removeGuide(id: string): void {
+    this.requireBatch();
+    const idx = this.doc.guides.findIndex((g) => g.id === id);
+    if (idx === -1) throw new Error(`Guide not found: ${id}`);
+    this.doc.guides.splice(idx, 1);
   }
 
   // --- transactions ---

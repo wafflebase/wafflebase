@@ -744,6 +744,48 @@ describe('initialize with readOnly: true', () => {
     ).toBeDefined();
   });
 
+  it('does not bind ruler pointerdown — drag-out cannot create a guide', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const hRulerCanvas = document.createElement('canvas');
+    const vRulerCanvas = document.createElement('canvas');
+    const rulerCorner = document.createElement('div');
+    document.body.append(hRulerCanvas, vRulerCanvas, rulerCorner);
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      readOnly: true,
+      hRulerCanvas, vRulerCanvas, rulerCorner,
+    });
+    expect(store.read().guides).toEqual([]);
+    hRulerCanvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 500, clientY: 5, pointerType: 'mouse', bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 500, clientY: 200, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(store.read().guides).toEqual([]);
+  });
+
+  it('does not start guide drag on slide canvas pointerdown', () => {
+    const { canvas, overlay, store } = makeFixture();
+    // Seed a guide so the hit-test would otherwise succeed.
+    store.batch(() => store.addGuide('x', 400));
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      readOnly: true,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 400, clientY: 100, pointerType: 'mouse', bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 500, clientY: 100, pointerType: 'mouse', bubbles: true,
+    }));
+    // Guide must stay at 400 — the readOnly editor never bound the
+    // pointerdown listener that routes to startGuideMove.
+    expect(store.read().guides[0].position).toBe(400);
+  });
+
   it('detach is safe and rendering after detach is a no-op', () => {
     const { canvas, overlay, store } = makeFixture();
     editor = initialize({

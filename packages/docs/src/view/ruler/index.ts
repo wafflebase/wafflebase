@@ -1,46 +1,25 @@
-import type { PaginatedLayout } from './pagination.js';
-import { getPageXOffset, getPageYOffset, getTotalHeight } from './pagination.js';
-import type { BlockStyle, PageMargins } from '../model/types.js';
-import { Theme } from './theme.js';
+import type { PaginatedLayout } from '../pagination.js';
+import { getPageXOffset, getPageYOffset, getTotalHeight } from '../pagination.js';
+import type { BlockStyle, PageMargins } from '../../model/types.js';
+import { Theme } from '../theme.js';
+import {
+  detectUnit,
+  getGridConfig,
+  snapToGrid,
+  type RulerUnit,
+  type GridConfig,
+} from './unit.js';
+import { drawTicks } from './tick-renderer.js';
 
-export type RulerUnit = 'inch' | 'cm';
-
-export interface GridConfig {
-  majorStepPx: number;
-  subdivisions: number;
-  minorStepPx: number;
-}
-
-const INCH_LOCALES = ['en-US', 'en-GB', 'my'];
-
-export function detectUnit(locale: string | undefined): RulerUnit {
-  if (!locale) return 'inch';
-  if (INCH_LOCALES.includes(locale)) return 'inch';
-  if (locale.startsWith('en')) return 'inch';
-  return 'cm';
-}
-
-export function getGridConfig(unit: RulerUnit): GridConfig {
-  if (unit === 'inch') {
-    return { majorStepPx: 96, subdivisions: 8, minorStepPx: 12 };
-  }
-  const cmPx = 96 / 2.54;
-  return { majorStepPx: cmPx, subdivisions: 10, minorStepPx: cmPx / 10 };
-}
-
-export function snapToGrid(px: number, step: number): number {
-  return Math.round(px / step) * step;
-}
+export { detectUnit, getGridConfig, snapToGrid, drawTicks };
+export type { RulerUnit, GridConfig };
+export type { TickDensity, DrawTicksOpts } from './tick-renderer.js';
 
 export const RULER_SIZE = 20;
-const TICK_MAJOR = 10;
-const TICK_HALF = 7;
-const TICK_MINOR = 4;
 // Colors are read from the active theme at render time.
 const marginBg = () => Theme.rulerMarginBackground;
 const contentBg = () => Theme.rulerContentBackground;
 const tickColor = () => Theme.rulerTickColor;
-const LABEL_FONT = '9px Arial';
 const HIT_ZONE = 4;
 
 export class Ruler {
@@ -180,47 +159,15 @@ export class Ruler {
     ctx.fillRect(contentLeft, 0, contentRight - contentLeft, RULER_SIZE);
 
     // 3. Draw tick marks from page left to page right
-    ctx.strokeStyle = tickColor();
-    ctx.lineWidth = 1;
-    ctx.fillStyle = tickColor();
-    ctx.font = LABEL_FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    const { subdivisions, minorStepPx } = this.grid;
-
-    // Calculate the first tick index from page start
-    const pageLeft = pageX;
-    const pageRight = pageX + pageWidth;
-
-    // Draw ticks from page left to page right
-    const startTick = 0;
-    const endTick = Math.ceil(pageWidth / minorStepPx);
-
-    ctx.beginPath();
-    for (let i = startTick; i <= endTick; i++) {
-      const xRaw = pageLeft + i * minorStepPx;
-      if (xRaw < pageLeft || xRaw > pageRight) continue;
-      const x = Math.round(xRaw) + 0.5;
-
-      let tickHeight: number;
-      if (i % subdivisions === 0) {
-        tickHeight = TICK_MAJOR;
-      } else if (i % (subdivisions / 2) === 0) {
-        tickHeight = TICK_HALF;
-      } else {
-        tickHeight = TICK_MINOR;
-      }
-
-      ctx.moveTo(x, RULER_SIZE);
-      ctx.lineTo(x, RULER_SIZE - tickHeight);
-
-      // Draw label at major ticks
-      if (i % subdivisions === 0 && i > 0) {
-        ctx.fillText(String(i / subdivisions), x, 1);
-      }
-    }
-    ctx.stroke();
+    drawTicks({
+      ctx,
+      axis: 'h',
+      start: pageX,
+      length: pageWidth,
+      grid: this.grid,
+      color: tickColor(),
+      rulerSize: RULER_SIZE,
+    });
 
     // 4. Draw indent handles if blockStyle is available
     if (blockStyle !== null) {
@@ -299,38 +246,15 @@ export class Ruler {
     this.vCtx.fillRect(0, contentTop, RULER_SIZE, contentBottom - contentTop);
 
     // Tick marks
-    const { subdivisions, minorStepPx } = this.grid;
-    const startPx = pageTopInViewport;
-    const endPx = pageTopInViewport + focusedPage.height;
-
-    this.vCtx.strokeStyle = tickColor();
-    this.vCtx.fillStyle = tickColor();
-    this.vCtx.font = LABEL_FONT;
-    this.vCtx.textAlign = 'center';
-    this.vCtx.textBaseline = 'middle';
-    this.vCtx.lineWidth = 1;
-
-    for (let px = startPx; px <= endPx; px += minorStepPx) {
-      const relPx = px - startPx;
-      const tickIndex = Math.round(relPx / minorStepPx);
-      const isMajor = tickIndex % subdivisions === 0;
-      const isHalf = tickIndex % (subdivisions / 2) === 0;
-      const tickW = isMajor ? TICK_MAJOR : isHalf ? TICK_HALF : TICK_MINOR;
-      const y = Math.round(px) + 0.5;
-
-      this.vCtx.beginPath();
-      this.vCtx.moveTo(RULER_SIZE, y);
-      this.vCtx.lineTo(RULER_SIZE - tickW, y);
-      this.vCtx.stroke();
-
-      if (isMajor && tickIndex > 0) {
-        this.vCtx.save();
-        this.vCtx.translate(6, y);
-        this.vCtx.rotate(-Math.PI / 2);
-        this.vCtx.fillText(String(tickIndex / subdivisions), 0, 0);
-        this.vCtx.restore();
-      }
-    }
+    drawTicks({
+      ctx: this.vCtx,
+      axis: 'v',
+      start: pageTopInViewport,
+      length: focusedPage.height,
+      grid: this.grid,
+      color: tickColor(),
+      rulerSize: RULER_SIZE,
+    });
 
     this.vCtx.restore();
   }

@@ -709,3 +709,90 @@ describe('MemSlidesStore — batch / undo / redo', () => {
     expect(() => store.addSlide('blank')).toThrow(/must be wrapped in batch/);
   });
 });
+
+describe('MemSlidesStore — guides', () => {
+  it('starts with no guides', () => {
+    const store = new MemSlidesStore();
+    expect(store.read().guides).toEqual([]);
+  });
+
+  it('addGuide appends and returns a stable id', () => {
+    const store = new MemSlidesStore();
+    let id!: string;
+    store.batch(() => {
+      id = store.addGuide('x', 400);
+    });
+    expect(store.read().guides).toEqual([
+      { id, axis: 'x', position: 400 },
+    ]);
+  });
+
+  it('moveGuide updates only the targeted guide position', () => {
+    const store = new MemSlidesStore();
+    let a!: string;
+    let b!: string;
+    store.batch(() => {
+      a = store.addGuide('x', 100);
+      b = store.addGuide('y', 250);
+    });
+    store.batch(() => store.moveGuide(a, 175));
+    const guides = store.read().guides;
+    expect(guides.find((g) => g.id === a)?.position).toBe(175);
+    expect(guides.find((g) => g.id === b)?.position).toBe(250);
+  });
+
+  it('removeGuide drops the guide from the list', () => {
+    const store = new MemSlidesStore();
+    let id!: string;
+    store.batch(() => {
+      id = store.addGuide('x', 100);
+      store.addGuide('y', 200);
+    });
+    store.batch(() => store.removeGuide(id));
+    const guides = store.read().guides;
+    expect(guides).toHaveLength(1);
+    expect(guides[0].axis).toBe('y');
+  });
+
+  it('moveGuide throws on missing id', () => {
+    const store = new MemSlidesStore();
+    expect(() =>
+      store.batch(() => store.moveGuide('does-not-exist', 0)),
+    ).toThrow(/Guide not found/);
+  });
+
+  it('removeGuide throws on missing id', () => {
+    const store = new MemSlidesStore();
+    expect(() =>
+      store.batch(() => store.removeGuide('does-not-exist')),
+    ).toThrow(/Guide not found/);
+  });
+
+  it('mutations require a batch', () => {
+    const store = new MemSlidesStore();
+    expect(() => store.addGuide('x', 100)).toThrow(/must be wrapped in batch/);
+    expect(() => store.moveGuide('id', 100)).toThrow(/must be wrapped in batch/);
+    expect(() => store.removeGuide('id')).toThrow(/must be wrapped in batch/);
+  });
+
+  it('groups add + move + remove into one undo step when wrapped in batch', () => {
+    const store = new MemSlidesStore();
+    store.batch(() => {
+      const id = store.addGuide('x', 100);
+      store.moveGuide(id, 200);
+      store.removeGuide(id);
+    });
+    expect(store.read().guides).toEqual([]);
+    store.undo();
+    // Single undo restores the pre-batch state (no guide).
+    expect(store.read().guides).toEqual([]);
+  });
+
+  it('undoing addGuide drops the guide', () => {
+    const store = new MemSlidesStore();
+    store.batch(() => store.addGuide('x', 100));
+    expect(store.read().guides).toHaveLength(1);
+    store.undo();
+    expect(store.read().guides).toEqual([]);
+  });
+});

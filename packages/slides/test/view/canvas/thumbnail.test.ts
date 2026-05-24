@@ -25,6 +25,7 @@ const DOC: SlidesDocument = {
   masters: [DEFAULT_MASTER],
   layouts: BUILT_IN_LAYOUTS,
   slides: [],
+  guides: [],
 };
 
 const blankSlide = (id: string): Slide => ({

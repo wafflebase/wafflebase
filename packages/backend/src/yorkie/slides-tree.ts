@@ -18,7 +18,7 @@
  * fields overwrite whatever is on the root, and `meta` is rewritten as a
  * fresh object so stale theme/master ids cannot leak from a prior write.
  */
-import type { Master, Theme } from '@wafflebase/slides';
+import type { Guide, Master, Theme } from '@wafflebase/slides';
 import type {
   SlidesDocument,
   SlidesLayout,
@@ -37,6 +37,8 @@ export interface SlidesYorkieRoot extends Record<string, unknown> {
   masters?: Master[];
   layouts?: SlidesLayout[];
   slides?: SlidesSlide[];
+  /** Presentation-wide alignment guides. Optional for pre-ruler decks. */
+  guides?: Guide[];
 }
 
 /**
@@ -62,6 +64,7 @@ export function readSlidesRoot(root: SlidesYorkieRoot): SlidesDocument {
   const masters = unwrapJson<Master[]>(root.masters) ?? [];
   const layouts = unwrapJson<SlidesLayout[]>(root.layouts) ?? [];
   const slides = unwrapJson<SlidesSlide[]>(root.slides) ?? [];
+  const guides = unwrapJson<Guide[]>(root.guides) ?? [];
   return {
     meta: {
       title: metaSrc?.title ?? 'Untitled presentation',
@@ -72,6 +75,7 @@ export function readSlidesRoot(root: SlidesYorkieRoot): SlidesDocument {
     masters,
     layouts,
     slides,
+    guides,
   };
 }
 
@@ -98,6 +102,10 @@ export function writeSlidesRoot(
   root.masters = document.masters;
   root.layouts = document.layouts;
   root.slides = document.slides;
+  // Older callers (and well-typed-but-incomplete test fixtures) may
+  // pass a document without a `guides` field. Normalize to an empty
+  // array on write so `readSlidesRoot` always returns the same shape.
+  root.guides = document.guides ?? [];
 }
 
 /**

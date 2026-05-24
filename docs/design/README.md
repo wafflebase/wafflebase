@@ -73,6 +73,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-mobile-edit.md](slides/slides-mobile-edit.md)                                 | Mobile light edit (Phase B) — mount full SlidesEditor on touch, hit-test tolerance, bottom-sheet text formatting, slide-ops FAB, undo/redo header, perm-gated read-only fallback                            |
 | [slides-group.md](slides/slides-group.md)                                             | Group / ungroup — nested element tree with group-local child coords, Google Slides drill-in selection, PPTX `<p:grpSp>` preservation, recursive renderer / hit-test / PDF export                              |
 | [slides-shape-move.md](slides/slides-shape-move.md)                                   | Shape drag-move — `move` hover cursor on selected shapes, ghost preview at `GHOST_ALPHA` follows pointer, commit only on release                                                                            |
+| [slides-ruler.md](slides/slides-ruler.md)                                             | Slides ruler — H/V rulers (corner origin, inch/cm), presentation-wide draggable guides, snap integration, read-only mount handling                                                                          |
 
 ## Common
 
