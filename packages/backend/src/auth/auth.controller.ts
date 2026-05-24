@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -63,6 +64,7 @@ export class AuthController {
   }
 
   @Get('github/callback')
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   @UseGuards(AuthGuard('github'))
   async githubAuthCallback(
     @Req() req: AuthenticatedRequest,
@@ -112,6 +114,7 @@ export class AuthController {
 
   @Post('cli/exchange')
   @HttpCode(200)
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: { code: string }) {
     const code = body?.code;
     if (!code || typeof code !== 'string') {
@@ -134,6 +137,7 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(200)
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res() res: Response) {
     const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME];
     const bodyToken =

@@ -18,6 +18,10 @@ const JSON_BODY_LIMIT = process.env.BACKEND_JSON_BODY_LIMIT ?? '25mb';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Trust one upstream proxy so req.ip resolves to the real client IP
+  // (rate limiter and audit logging key off this). Tighten only if a
+  // multi-hop edge is added later.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(bodyParser.json({ limit: JSON_BODY_LIMIT }));
   app.use(bodyParser.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
   app.use(cookieParser());

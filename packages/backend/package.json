@@ -33,6 +33,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "6.6.0",
     "@types/passport-github2": "^1.2.9",
     "@wafflebase/docs": "workspace:^",
