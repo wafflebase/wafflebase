@@ -32,13 +32,17 @@ import { HealthModule } from './health/health.module';
                 ignore: (req) =>
                   req.url === '/health' || req.url === '/health/ready',
               },
-        // Map status codes to log levels so 5xx page on-call, 4xx warn,
-        // and 304 (conditional GET cache hits) stay at debug.
-        customLogLevel: (_req, res, err) => {
+        // Default access log → debug (silent at info). Only destructive
+        // operations stay at info so the audit trail still surfaces.
+        // 5xx pages on-call, 4xx warns. Meaningful business events
+        // (document.create, login success, datasource.test, etc.) should
+        // be emitted explicitly from service code as info, not relied on
+        // from this generic access log.
+        customLogLevel: (req, res, err) => {
           if (err || res.statusCode >= 500) return 'error';
           if (res.statusCode >= 400) return 'warn';
-          if (res.statusCode === 304) return 'debug';
-          return 'info';
+          if (req.method === 'DELETE') return 'info';
+          return 'debug';
         },
         // Slim request/response shape: pino-http's default serializer
         // dumps every header (sec-ch-ua-*, accept-encoding, if-none-match,
