@@ -109,6 +109,17 @@ export async function createTwoUserDocs(
     const storeA = new YorkieDocStore(docA as never);
     storeA.setDocument({ blocks: initialBlocks });
 
+    // Mirror production document creation (see `initialDocsRoot`): the
+    // comments map is created once at bootstrap so concurrent first-inserts
+    // merge on a shared CRDT container rather than racing to create it (a
+    // race Yorkie resolves by LWW, dropping one replica's thread). Done
+    // before client B attaches so B receives the container in its snapshot.
+    (docA as { update(fn: (root: YorkieDocsRoot) => void): void }).update(
+      (root) => {
+        if (!root.comments) root.comments = {};
+      },
+    );
+
     // Sync so client B gets the initial state
     await clientA.sync(docA);
     await clientB.attach(docB, { syncMode: SyncMode.Manual });
