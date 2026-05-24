@@ -91,6 +91,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
+| [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |
 
 ## Template
 

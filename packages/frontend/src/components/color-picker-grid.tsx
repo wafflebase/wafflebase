@@ -18,12 +18,12 @@ export function ColorPickerGrid({ colors, onSelect, onReset }: ColorPickerGridPr
         <IconDropletOff size={14} />
         Reset
       </button>
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-8 gap-1">
         {colors.map((color) => (
           <button
             key={color}
             type="button"
-            className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
+            className="h-5 w-5 cursor-pointer rounded-sm border border-border hover:scale-125 transition-transform"
             style={{ backgroundColor: color }}
             aria-label={`Select color ${color}`}
             title={color}

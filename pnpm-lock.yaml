@@ -295,6 +295,9 @@ importers:
       '@pdf-lib/fontkit':
         specifier: ^1.1.1
         version: 1.1.1
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -407,6 +410,9 @@ importers:
       '@wafflebase/slides':
         specifier: workspace:*
         version: link:../slides
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       '@yorkie-js/react':
         specifier: 0.7.8
         version: 0.7.8(react@19.1.0)
@@ -512,6 +518,10 @@ importers:
         version: 3.1.1(@types/node@22.14.1)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/sheets:
+    dependencies:
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
     devDependencies:
       '@types/papaparse':
         specifier: ^5.3.14
@@ -555,6 +565,9 @@ importers:
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -580,6 +593,21 @@ importers:
       vite-plugin-dts:
         specifier: ^4.5.3
         version: 4.5.3(@types/node@25.4.0)(rollup@4.59.0)(typescript@5.9.3)(vite@6.4.1(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))
+      vitest:
+        specifier: ^3.1.1
+        version: 3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/tokens:
+    devDependencies:
+      prettier:
+        specifier: ^3.3.2
+        version: 3.5.3
+      tsx:
+        specifier: ^4.20.3
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       vitest:
         specifier: ^3.1.1
         version: 3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)

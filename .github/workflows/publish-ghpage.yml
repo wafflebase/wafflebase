@@ -25,12 +25,12 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install and Build
+        # build:all runs `pnpm tokens build` first — required because the
+        # tokens dist/ (incl. tokens.css imported by the frontend) is gitignored
+        # — then builds the frontend + docs and copies docs into the frontend dist.
         run: |
           pnpm i
-          pnpm frontend build
-          pnpm documentation build
-          rm -rf packages/frontend/dist/docs
-          cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs
+          pnpm build:all
 
       - name: Create asset manifest
         run: |

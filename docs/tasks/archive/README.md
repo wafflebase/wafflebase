@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 209
+Total archived tasks: 210
 
-## 2026/05 (64 tasks)
+## 2026/05 (65 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
 | build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
+| tokens package (2026-05-24) | [20260524-tokens-package-todo.md](./2026/05/20260524-tokens-package-todo.md) | [20260524-tokens-package-lessons.md](./2026/05/20260524-tokens-package-lessons.md) |
 | pptx shape blipfill (2026-05-23) | [20260523-pptx-shape-blipfill-todo.md](./2026/05/20260523-pptx-shape-blipfill-todo.md) | - |
 | slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./2026/05/20260523-slides-ruler-todo.md) | - |
 | slides share toolbar (2026-05-23) | [20260523-slides-share-toolbar-todo.md](./2026/05/20260523-slides-share-toolbar-todo.md) | [20260523-slides-share-toolbar-lessons.md](./2026/05/20260523-slides-share-toolbar-lessons.md) |

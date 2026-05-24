@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@wafflebase/docs": "workspace:*",
+    "@wafflebase/tokens": "workspace:*",
     "jszip": "^3.10.1"
   },
   "devDependencies": {

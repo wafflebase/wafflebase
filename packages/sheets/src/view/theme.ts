@@ -1,3 +1,5 @@
+import { palette } from '@wafflebase/tokens';
+
 export type Theme = 'light' | 'dark';
 
 export const LightTheme = {
@@ -7,11 +9,11 @@ export const LightTheme = {
   cellTextColor: '#000000',
   // Butter & Maple — active cell ring uses syrup, selection fill uses
   // butter, header chip uses solid butter. Matches the homepage MiniSpreadsheet.
-  activeCellColor: '#B8651A',
-  selectionBGColor: 'rgba(244, 201, 93, 0.18)',
+  activeCellColor: palette.syrup,
+  selectionBGColor: `rgba(${palette.butterRgb}, 0.18)`,
   headerBGColor: '#F0F0F0',
-  headerActiveBGColor: '#F4C95D',
-  ['tokens.REFERENCE']: '#B8651A',
+  headerActiveBGColor: palette.butter,
+  ['tokens.REFERENCE']: palette.syrup,
   ['tokens.NUM']: '#4DA6FF',
   // Peer cursor colors — yellow slots swapped to rose / lavender so they
   // stop competing with the syrup-amber design language.
@@ -47,11 +49,11 @@ export const DarkTheme = {
   cellTextColor: '#FFFFFF',
   // Butter & Maple — dark variant. Syrup brightens to maple-amber, butter
   // stays gold so the header chip reads against the dark grid.
-  activeCellColor: '#E08A3A',
-  selectionBGColor: 'rgba(244, 201, 93, 0.16)',
+  activeCellColor: palette.syrupBright,
+  selectionBGColor: `rgba(${palette.butterRgb}, 0.16)`,
   headerBGColor: '#2D2D2D',
-  headerActiveBGColor: '#F4C95D',
-  ['tokens.REFERENCE']: '#E08A3A',
+  headerActiveBGColor: palette.butter,
+  ['tokens.REFERENCE']: palette.syrupBright,
   ['tokens.NUM']: '#4DA6FF',
   // Peer cursor colors — yellow slots swapped to rose / lavender.
   peerCursor1: '#FF7979',
