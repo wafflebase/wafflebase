@@ -18,9 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./active/20260525-ci-tokens-build-todo.md) | - |
 | dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./active/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./active/20260525-dependabot-alerts-lessons.md) |
-| frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./active/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./active/20260524-frontend-vitest-migration-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
@@ -30,7 +28,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 210
+- Archived task count: 212
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: ci tokens build (2026-05-25)
+Latest active task: dependabot alerts (2026-05-25)
