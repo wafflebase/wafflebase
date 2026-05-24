@@ -14,12 +14,13 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
+      "require": "./dist/cjs/index.js",
       "default": "./dist/index.js"
     },
     "./tokens.css": "./dist/tokens.css"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsx scripts/build-css.ts",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\" && tsx scripts/build-css.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
     "format": "prettier --write ."
