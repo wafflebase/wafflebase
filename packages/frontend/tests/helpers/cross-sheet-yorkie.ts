@@ -1,8 +1,8 @@
 import yorkie from "@yorkie-js/sdk";
 import type { Grid, Cell, Sref, GridResolver } from "@wafflebase/sheets";
 import { parseRef, getWorksheetCell } from "@wafflebase/sheets";
-import { Sheet } from "../../../sheet/src/model/worksheet/sheet.ts";
-import { MemStore } from "../../../sheet/src/store/memory.ts";
+import { Sheet } from "../../../sheets/src/model/worksheet/sheet.ts";
+import { MemStore } from "../../../sheets/src/store/memory.ts";
 import { YorkieStore } from "@/app/spreadsheet/yorkie-store";
 import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { createWorksheet } from "@/types/worksheet";
