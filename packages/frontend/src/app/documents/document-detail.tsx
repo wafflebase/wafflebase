@@ -147,14 +147,19 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     const pending = peekPendingImport(documentId);
     if (!pending) return;
 
+    const firstTabId = pending.tabOrder[0];
+    if (!firstTabId || Object.keys(pending.tabs).length === 0) {
+      clearPendingImport(documentId);
+      return;
+    }
+
     try {
       doc.update((r) => {
         r.tabs = pending.tabs;
         r.tabOrder = pending.tabOrder;
         r.sheets = pending.sheets;
       });
-      clearPendingImport(documentId);
-      setActiveTabId(pending.tabOrder[0] ?? null);
+      setActiveTabId(firstTabId);
     } catch (error) {
       console.error("Failed to apply pending XLSX import", error);
       toast.error(
@@ -162,6 +167,8 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           ? `Failed to load imported workbook: ${error.message}`
           : "Failed to load imported workbook.",
       );
+    } finally {
+      clearPendingImport(documentId);
     }
   }, [doc, documentId]);
 

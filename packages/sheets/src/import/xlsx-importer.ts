@@ -297,9 +297,14 @@ export async function importXlsxWorkbook(
     const relationship = sheet.relationshipId
       ? relationships.get(sheet.relationshipId)
       : undefined;
-    const worksheetPath = relationship
-      ? resolveWorkbookRelationshipTarget(relationship.target)
-      : `xl/worksheets/sheet${index + 1}.xml`;
+    let worksheetPath: string;
+    if (relationship) {
+      worksheetPath = resolveWorkbookRelationshipTarget(relationship.target);
+    } else {
+      // Some older or minimally structured writers omit sheet relationship
+      // entries, so fall back to Excel's conventional worksheet path pattern.
+      worksheetPath = `xl/worksheets/sheet${index + 1}.xml`;
+    }
     const worksheetXml = await readZipText(zip, worksheetPath);
 
     if (!worksheetXml) {

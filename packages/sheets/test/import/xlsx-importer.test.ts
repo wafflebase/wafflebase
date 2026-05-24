@@ -116,6 +116,35 @@ describe('importXlsxWorkbook', () => {
     expect(sheets.map((sheet) => sheet.name).join(',')).toBe('Budget,Ops');
   });
 
+  it('falls back to conventional worksheet paths without workbook relationships', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'xl/workbook.xml',
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheets>
+          <sheet name="Fallback" sheetId="1"/>
+        </sheets>
+      </workbook>`,
+    );
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1"><c r="A1"><v>1</v></c></row>
+        </sheetData>
+      </worksheet>`,
+    );
+    const workbook = await zip.generateAsync({ type: 'uint8array' });
+
+    const sheets = await importXlsxWorkbook(workbook);
+
+    expect(sheets).toHaveLength(1);
+    expect(sheets[0].name).toBe('Fallback');
+    expect(getWorksheetCell(sheets[0].worksheet, { r: 1, c: 1 })?.v).toBe('1');
+  });
+
   it('rejects archives without workbook metadata', async () => {
     const zip = new JSZip();
     zip.file('xl/worksheets/sheet1.xml', '<worksheet/>');
