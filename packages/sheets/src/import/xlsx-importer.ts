@@ -293,6 +293,7 @@ export async function importXlsxWorkbook(
   );
 
   const importedSheets: ImportedXlsxSheet[] = [];
+  const hasWorkbookRelationships = relationships.size > 0;
   for (const [index, sheet] of workbookSheets.entries()) {
     const relationship = sheet.relationshipId
       ? relationships.get(sheet.relationshipId)
@@ -300,10 +301,14 @@ export async function importXlsxWorkbook(
     let worksheetPath: string;
     if (relationship) {
       worksheetPath = resolveWorkbookRelationshipTarget(relationship.target);
-    } else {
+    } else if (!hasWorkbookRelationships) {
       // Some older or minimally structured writers omit sheet relationship
       // entries, so fall back to Excel's conventional worksheet path pattern.
       worksheetPath = `xl/worksheets/sheet${index + 1}.xml`;
+    } else {
+      throw new Error(
+        `Invalid .xlsx file: unresolved worksheet relationship "${sheet.relationshipId ?? '(missing)'}" for sheet "${sheet.name}".`,
+      );
     }
     const worksheetXml = await readZipText(zip, worksheetPath);
 

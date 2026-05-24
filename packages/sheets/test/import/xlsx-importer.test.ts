@@ -145,6 +145,41 @@ describe('importXlsxWorkbook', () => {
     expect(getWorksheetCell(sheets[0].worksheet, { r: 1, c: 1 })?.v).toBe('1');
   });
 
+  it('rejects unresolved sheet relationship ids when workbook relationships exist', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'xl/workbook.xml',
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets>
+          <sheet name="Broken" sheetId="1" r:id="rIdMissing"/>
+        </sheets>
+      </workbook>`,
+    );
+    zip.file(
+      'xl/_rels/workbook.xml.rels',
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdOther" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+      </Relationships>`,
+    );
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1"><c r="A1"><v>wrong fallback</v></c></row>
+        </sheetData>
+      </worksheet>`,
+    );
+    const workbook = await zip.generateAsync({ type: 'uint8array' });
+
+    await expect(importXlsxWorkbook(workbook)).rejects.toThrow(
+      /unresolved worksheet relationship "rIdMissing" for sheet "Broken"/,
+    );
+  });
+
   it('rejects archives without workbook metadata', async () => {
     const zip = new JSZip();
     zip.file('xl/worksheets/sheet1.xml', '<worksheet/>');
