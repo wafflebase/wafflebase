@@ -34,9 +34,10 @@ describe('WCAG AA contrast', () => {
     ).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 
-  it('butter palette is reported correctly (smoke test for the helper)', () => {
-    // butter on dark ink should be high contrast.
-    const ratio = contrastRatio(palette.butter, palette.neutrals.dark.ink);
-    expect(ratio).toBeGreaterThanOrEqual(AA_LARGE);
+  it('butter chip text remains legible on butter background', () => {
+    // butter is used as a header/chip background; dark ink sits on top of it.
+    // light.ink is the warm dark brown used in light mode (#2A1E12).
+    const ratio = contrastRatio(palette.neutrals.light.ink, palette.butter);
+    expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 });
