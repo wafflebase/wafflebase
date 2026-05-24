@@ -30,6 +30,9 @@ GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
 PORT=3000
+LOG_LEVEL=info                          # Optional, Pino level
+BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
+BACKEND_JSON_BODY_LIMIT=25mb            # Optional, body-parser limit
 ```
 
 ### Development
