@@ -15,6 +15,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { CliExchangeDto } from './auth.dto';
 import { UserService } from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
@@ -64,7 +65,7 @@ export class AuthController {
   }
 
   @Get('github/callback')
-  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(AuthGuard('github'))
   async githubAuthCallback(
     @Req() req: AuthenticatedRequest,
@@ -114,14 +115,9 @@ export class AuthController {
 
   @Post('cli/exchange')
   @HttpCode(200)
-  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
-  async cliExchange(@Body() body: { code: string }) {
-    const code = body?.code;
-    if (!code || typeof code !== 'string') {
-      throw new UnauthorizedException('Code is required');
-    }
-
-    const userId = this.cliAuthStore.consumeCode(code);
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async cliExchange(@Body() body: CliExchangeDto) {
+    const userId = this.cliAuthStore.consumeCode(body.code);
     if (userId === undefined) {
       throw new UnauthorizedException('Invalid or expired code');
     }
@@ -137,7 +133,7 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(200)
-  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res() res: Response) {
     const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME];
     const bodyToken =

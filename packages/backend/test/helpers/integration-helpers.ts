@@ -1,3 +1,4 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 
 export const TEST_ENCRYPTION_KEY =
@@ -64,6 +65,22 @@ export function createUserFactory(prisma: PrismaService, prefix = 'test') {
 export function setIntegrationEnvDefaults() {
   process.env.DATASOURCE_ENCRYPTION_KEY ??= TEST_ENCRYPTION_KEY;
   process.env.DATABASE_URL ??= DEFAULT_TEST_DATABASE_URL;
+}
+
+/**
+ * Mirrors the production `main.ts` bootstrap pipeline so e2e suites
+ * exercise the same validation contract that real traffic hits. If
+ * this drifts from `main.ts`, integration coverage starts lying.
+ */
+export function applyGlobalBootstrap(app: INestApplication) {
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: false },
+    }),
+  );
 }
 
 export function setAuthEnvDefaults() {

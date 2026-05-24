@@ -12,6 +12,7 @@ import {
 import { DataSourceService } from './datasource.service';
 import {
   CreateDataSourceDto,
+  CreateDataSourceInWorkspaceDto,
   UpdateDataSourceDto,
   ExecuteQueryDto,
 } from './datasource.dto';
@@ -59,7 +60,7 @@ export class DataSourceController {
   @Post('datasources')
   async create(
     @Req() req: AuthenticatedRequest,
-    @Body() dto: CreateDataSourceDto & { workspaceId: string },
+    @Body() dto: CreateDataSourceInWorkspaceDto,
   ) {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(dto.workspaceId, userId);
