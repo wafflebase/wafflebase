@@ -80,10 +80,12 @@ describe('YorkieSlidesStore — slide ops', () => {
     });
     // Move slide 0 down to index 2 (remove-then-insert semantics).
     store.batch(() => store.moveSlide(ids[0], 2));
-    assert.deepEqual(
-      store.read().slides.map((s) => s.id),
-      [ids[1], ids[2], ids[0], ids[3]],
-    );
+    expect(store.read().slides.map((s) => s.id)).toEqual([
+      ids[1],
+      ids[2],
+      ids[0],
+      ids[3],
+    ]);
   });
 
   it('moveSlides moves a block, preserving relative order', () => {
@@ -95,10 +97,12 @@ describe('YorkieSlidesStore — slide ops', () => {
     });
     // Move slides 0 and 3 (in array order) to index 1 among the rest.
     store.batch(() => store.moveSlides([ids[3], ids[0]], 1));
-    assert.deepEqual(
-      store.read().slides.map((s) => s.id),
-      [ids[1], ids[0], ids[3], ids[2]],
-    );
+    expect(store.read().slides.map((s) => s.id)).toEqual([
+      ids[1],
+      ids[0],
+      ids[3],
+      ids[2],
+    ]);
   });
 });
 
