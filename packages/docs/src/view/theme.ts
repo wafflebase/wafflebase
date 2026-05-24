@@ -59,11 +59,14 @@ const LightTheme: DocTheme = {
   pageShadowBlur: 8,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
-  pageBackground: palette.neutrals.light.paper,
+  // Paper surface stays pure white in light mode — office tools feel
+  // professional when the page itself isn't tinted. Brand still appears
+  // on selection wash, caret, and text via palette refs above.
+  pageBackground: '#ffffff',
   canvasBackground: '#f0f0f0',
 
   rulerMarginBackground: '#e8e8e8',
-  rulerContentBackground: palette.neutrals.light.paper,
+  rulerContentBackground: '#ffffff',
   rulerTickColor: '#666666',
 
   headerFooterBorderColor: '#cccccc',
@@ -87,11 +90,13 @@ const DarkTheme: DocTheme = {
   pageShadowBlur: 10,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
-  pageBackground: palette.neutrals.dark.paper,
+  // Dark mode paper uses a neutral dark instead of the warm brand
+  // neutrals — keeps the editor chrome quiet across both modes.
+  pageBackground: '#2b2b2b',
   canvasBackground: '#1e1e1e',
 
   rulerMarginBackground: '#333333',
-  rulerContentBackground: palette.neutrals.dark.paper,
+  rulerContentBackground: '#2b2b2b',
   rulerTickColor: '#999999',
 
   headerFooterBorderColor: '#555555',

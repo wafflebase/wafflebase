@@ -72,7 +72,7 @@ export function ThemedColorPicker({
               aria-pressed={selected}
               title={role}
               onClick={() => onChange(makeRoleColor(role))}
-              className={`h-6 w-6 cursor-pointer rounded border transition-transform hover:scale-110 ${
+              className={`h-4 w-4 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
                 selected
                   ? "border-foreground ring-2 ring-ring/50"
                   : "border-border"
@@ -86,7 +86,7 @@ export function ThemedColorPicker({
       <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         Standard
       </p>
-      <div className="mb-2 grid grid-cols-6 gap-1">
+      <div className="mb-2 grid grid-cols-8 gap-1">
         {TEXT_COLORS.map((hex) => {
           const selected = isSrgbSelected(hex);
           return (
@@ -97,7 +97,7 @@ export function ThemedColorPicker({
               aria-pressed={selected}
               title={hex}
               onClick={() => onChange(makeSrgbColor(hex))}
-              className={`h-6 w-6 cursor-pointer rounded border transition-transform hover:scale-110 ${
+              className={`h-4 w-4 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
                 selected
                   ? "border-foreground ring-2 ring-ring/50"
                   : "border-border"

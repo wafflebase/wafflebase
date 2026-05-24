@@ -58,13 +58,16 @@ const light: SemanticColorMap = {
   chart3: 'oklch(0.398 0.07 227.392)',
   chart4: 'oklch(0.828 0.189 84.429)',
   chart5: 'oklch(0.769 0.188 70.08)',
-  sidebar: palette.neutrals.light.bg,
-  sidebarForeground: palette.neutrals.light.ink,
+  // Sidebar chrome is intentionally neutral — brand colors should appear on
+  // interaction (active item, hover, focus ring), not on the surface itself.
+  // Editor tools feel more professional when the chrome is quiet.
+  sidebar: 'oklch(0.985 0 0)',
+  sidebarForeground: 'oklch(0.141 0.005 285.823)',
   sidebarPrimary: palette.syrup,
   sidebarPrimaryForeground: '#FFFAF0',
   sidebarAccent: `rgba(${palette.butterRgb}, 0.30)`,
   sidebarAccentForeground: palette.syrupDeep,
-  sidebarBorder: palette.neutrals.light.rule,
+  sidebarBorder: 'oklch(0.92 0.004 286.32)',
   sidebarRing: palette.syrup,
 };
 
@@ -92,13 +95,14 @@ const dark: SemanticColorMap = {
   chart3: 'oklch(0.769 0.188 70.08)',
   chart4: 'oklch(0.627 0.265 303.9)',
   chart5: 'oklch(0.645 0.246 16.439)',
-  sidebar: palette.neutrals.dark.bg,
-  sidebarForeground: palette.neutrals.dark.ink,
+  // Sidebar chrome is intentionally neutral — see light-mode comment.
+  sidebar: 'oklch(0.205 0.006 285.885)',
+  sidebarForeground: 'oklch(0.985 0 0)',
   sidebarPrimary: palette.syrupBright,
-  sidebarPrimaryForeground: palette.neutrals.dark.bg,
+  sidebarPrimaryForeground: 'oklch(0.205 0.006 285.885)',
   sidebarAccent: `rgba(${palette.butterRgb}, 0.18)`,
   sidebarAccentForeground: palette.butter,
-  sidebarBorder: palette.neutrals.dark.rule,
+  sidebarBorder: 'oklch(1 0 0 / 10%)',
   sidebarRing: palette.syrupBright,
 };
 
