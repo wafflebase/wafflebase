@@ -36,7 +36,13 @@ const slidesImageUploader: UploadImage = async (
  * failed image upload — the caller surfaces a toast and aborts the
  * document-creation flow.
  */
-export async function pickAndImportPptx(): Promise<{
+export async function pickAndImportPptx(
+  onProgress?: (p: {
+    done: number;
+    total: number;
+    fileName: string;
+  }) => void,
+): Promise<{
   document: SlidesDocument;
   report: ImportReport;
   fileName: string;
@@ -46,6 +52,9 @@ export async function pickAndImportPptx(): Promise<{
   const buffer = await file.arrayBuffer();
   const { document, report } = await importPptx(buffer, {
     uploadImage: slidesImageUploader,
+    onProgress: onProgress
+      ? (done, total) => onProgress({ done, total, fileName: file.name })
+      : undefined,
   });
   return { document, report, fileName: file.name };
 }
