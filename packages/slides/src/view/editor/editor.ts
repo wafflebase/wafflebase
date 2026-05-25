@@ -58,7 +58,7 @@ import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
-import { toWorldFrame, fromWorldFrame } from './frame-space';
+import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
@@ -559,6 +559,11 @@ class SlidesEditorImpl implements SlidesEditor {
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
+    const { memberOutlines, contextBox } = groupOverlayFrames(
+      slide,
+      this.selection.get(),
+      scope,
+    );
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -571,6 +576,8 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      memberOutlines,
+      contextBox,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
