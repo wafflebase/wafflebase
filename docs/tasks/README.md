@@ -20,6 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | docker publish arm64 native (2026-05-25) | [20260525-docker-publish-arm64-native-todo.md](./active/20260525-docker-publish-arm64-native-todo.md) | - |
 | pptx blipfill fillrect crop (2026-05-25) | [20260525-pptx-blipfill-fillrect-crop-todo.md](./active/20260525-pptx-blipfill-fillrect-crop-todo.md) | - |
+| import progress toast (2026-05-25) | [20260525-import-progress-toast-todo.md](./active/20260525-import-progress-toast-todo.md) | - |
 | release v0.4.2 (2026-05-25) | [20260525-release-v0.4.2-todo.md](./active/20260525-release-v0.4.2-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
