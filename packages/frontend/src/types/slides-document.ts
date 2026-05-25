@@ -1,6 +1,7 @@
 import type { Block } from '@wafflebase/docs';
 import type {
   ArrowheadStyle,
+  AutofitMode,
   ConnectorRouting,
   Endpoint,
   Master,
@@ -94,7 +95,7 @@ export interface YorkieTextElement {
   type: 'text';
   frame: YorkieFrame;
   placeholderRef?: PlaceholderRef;
-  data: { blocks: Block[] };
+  data: { blocks: Block[]; autofit?: AutofitMode };
 }
 
 export interface YorkieImageElement {

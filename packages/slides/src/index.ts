@@ -43,6 +43,7 @@ export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
 export type {
+  AutofitMode,
   Crop,
   Element,
   ElementBase,

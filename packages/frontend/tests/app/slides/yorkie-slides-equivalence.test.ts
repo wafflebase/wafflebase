@@ -63,6 +63,49 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     expect(yo.slides.length).toBe(2);
   });
 
+  it('seeds + persists autofit defaults equivalently, surviving undo/redo', () => {
+    // Guards the production Yorkie store's text-element construction paths
+    // (addSlide placeholder seed, addElement insert, undo/redo snapshot
+    // restore), each of which rebuilds `data` and previously dropped
+    // `autofit`. stripIds() compares only type/frame, so this is separate.
+    const check = (doc: SlidesDocument, label: string): void => {
+      const slide = doc.slides[0];
+      const placeholders = slide.elements.filter(
+        (e) => e.type === 'text' && e.placeholderRef,
+      );
+      const inserted = slide.elements.filter(
+        (e) => e.type === 'text' && !e.placeholderRef,
+      );
+      expect(placeholders.length, `${label}: has placeholders`).toBeGreaterThan(0);
+      for (const p of placeholders) {
+        if (p.type === 'text') {
+          expect(p.data.autofit, `${label}: placeholder autofit`).toBe('shrink');
+        }
+      }
+      expect(inserted.length, `${label}: has inserted box`).toBe(1);
+      if (inserted[0]?.type === 'text') {
+        expect(inserted[0].data.autofit, `${label}: inserted autofit`).toBe('grow');
+      }
+    };
+
+    const { mem, yo } = runBoth((store) => {
+      let sid!: string;
+      store.batch(() => { sid = store.addSlide('title-body', 0); });
+      store.batch(() => {
+        store.addElement(sid, {
+          type: 'text',
+          frame: { x: 10, y: 10, w: 100, h: 40, rotation: 0 },
+          data: { autofit: 'grow', blocks: [] },
+        });
+      });
+      // Exercise the snapshot-restore path.
+      store.undo();
+      store.redo();
+    });
+    check(mem, 'mem');
+    check(yo, 'yorkie');
+  });
+
   it('add element, updateElementFrame, reorderElement, remove', () => {
     const { mem, yo } = runBoth((store) => {
       let slideId = '';
