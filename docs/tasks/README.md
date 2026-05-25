@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./active/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./active/20260526-slides-toolbar-add-slide-focus-lessons.md) |
 | docker publish arm64 native (2026-05-25) | [20260525-docker-publish-arm64-native-todo.md](./active/20260525-docker-publish-arm64-native-todo.md) | - |
 | import progress toast (2026-05-25) | [20260525-import-progress-toast-todo.md](./active/20260525-import-progress-toast-todo.md) | [20260525-import-progress-toast-lessons.md](./active/20260525-import-progress-toast-lessons.md) |
 | pptx blipfill fillrect crop (2026-05-25) | [20260525-pptx-blipfill-fillrect-crop-todo.md](./active/20260525-pptx-blipfill-fillrect-crop-todo.md) | - |
@@ -37,4 +38,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 213
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docker publish arm64 native (2026-05-25)
+Latest active task: slides toolbar add slide focus (2026-05-26)
