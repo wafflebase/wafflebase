@@ -1071,4 +1071,57 @@ describe('DocxImporter', () => {
     const innerText = nestedTable!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
     expect(innerText).toBe('Nested');
   });
+
+  it('reports image upload progress via onProgress', async () => {
+    const drawingXml = `
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+            <wp:extent cx="914400" cy="457200"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:blipFill>
+                    <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId5"/>
+                  </pic:blipFill>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const buffer = await createMinimalDocx(`<w:p>${drawingXml}</w:p>`, {
+      relsXml,
+      extraFiles: { 'word/media/image1.png': pngBytes },
+    });
+    const calls: Array<[number, number]> = [];
+    await DocxImporter.import(
+      buffer,
+      async () => 'https://example.com/image1.png',
+      (done, total) => calls.push([done, total]),
+    );
+    expect(calls).toEqual([[0, 1], [1, 1]]);
+  });
+
+  it('reports (0, 0) for a document with no images', async () => {
+    const buffer = await createMinimalDocx(
+      `<w:p><w:r><w:t>Hi</w:t></w:r></w:p>`,
+    );
+    const calls: Array<[number, number]> = [];
+    await DocxImporter.import(buffer, undefined, (d, t) => calls.push([d, t]));
+    expect(calls).toEqual([[0, 0]]);
+  });
 });

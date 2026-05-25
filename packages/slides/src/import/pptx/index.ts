@@ -15,6 +15,7 @@ import { parseMaster } from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
 import type { ImageParseContext } from './image';
+import { EXT_TO_MIME } from './image';
 
 export type UploadImage = (bytes: Uint8Array, mime: string) => Promise<string>;
 
@@ -27,6 +28,14 @@ export interface ImportPptxOptions {
    * Required for decks with images. Omitted for fixtures / dry runs.
    */
   uploadImage?: UploadImage;
+  /**
+   * Called once with `(0, total)` right after the archive is unzipped,
+   * then once after every image upload attempt with the running
+   * `(done, total)`. `total` is the count of image files under
+   * `ppt/media/` — a pragmatic denominator that matches the upload
+   * count for virtually all decks. Drives the import progress toast.
+   */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export interface ImportPptxResult {
@@ -57,6 +66,32 @@ export async function importPptx(
   const archive = await unzipPptx(buffer);
   const report = new ImportReport();
 
+  // Wrap the host uploader so the importer can report progress without
+  // threading a counter through every parse context. `total` is the
+  // image-media count (a pragmatic denominator); `done` bumps in a
+  // `finally` so a soft-failed upload still advances the bar.
+  let upload = opts.uploadImage;
+  if (opts.onProgress) {
+    const emit = opts.onProgress;
+    const total = archive
+      .list('ppt/media/')
+      .filter((p) => (p.split('.').pop()?.toLowerCase() ?? '') in EXT_TO_MIME)
+      .length;
+    emit(0, total);
+    if (opts.uploadImage) {
+      const inner = opts.uploadImage;
+      let done = 0;
+      upload = async (bytes: Uint8Array, mime: string): Promise<string> => {
+        try {
+          return await inner(bytes, mime);
+        } finally {
+          done += 1;
+          emit(done, total);
+        }
+      };
+    }
+  }
+
   const presentationXml = await archive.readText('ppt/presentation.xml');
   if (!presentationXml) {
     throw new Error('Invalid .pptx: missing ppt/presentation.xml');
@@ -84,7 +119,7 @@ export async function importPptx(
         masterTarget,
         importedTheme?.id ?? 'default-light',
         report,
-        opts.uploadImage,
+        upload,
         scale,
       )
     : {
@@ -115,7 +150,7 @@ export async function importPptx(
       archive,
       partPath: path,
       layoutMap: masterAndLayouts.layoutMap,
-      uploadImage: opts.uploadImage,
+      uploadImage: upload,
       scale,
       report,
       clrMap: masterAndLayouts.clrMap,

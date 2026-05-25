@@ -20,14 +20,26 @@ export const docxImageFetcher = docsImageFetcher;
  * Open a native file picker for .docx files and parse the selected file
  * into a Docs `Document`. Returns `null` if the user cancels the picker.
  */
-export async function pickAndImportDocx(): Promise<{
+export async function pickAndImportDocx(
+  onProgress?: (p: {
+    done: number;
+    total: number;
+    fileName: string;
+  }) => void,
+): Promise<{
   doc: DocsDocument;
   fileName: string;
 } | null> {
   const file = await pickFile(".docx");
   if (!file) return null;
   const buffer = await file.arrayBuffer();
-  const doc = await DocxImporter.import(buffer, docsImageUploader);
+  const doc = await DocxImporter.import(
+    buffer,
+    docsImageUploader,
+    onProgress
+      ? (done, total) => onProgress({ done, total, fileName: file.name })
+      : undefined,
+  );
   return { doc, fileName: file.name };
 }
 

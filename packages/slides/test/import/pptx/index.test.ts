@@ -31,4 +31,40 @@ describe('importPptx', () => {
     const buffer = await zip.generateAsync({ type: 'arraybuffer' });
     await expect(importPptx(buffer)).rejects.toThrow(/presentation\.xml/);
   });
+
+  it('reports image upload progress via onProgress', async () => {
+    const buffer = await buildMinimalPptx({ imageCount: 2 });
+    const calls: Array<[number, number]> = [];
+    await importPptx(buffer, {
+      uploadImage: async () => 'https://cdn/img.png',
+      onProgress: (done, total) => calls.push([done, total]),
+    });
+    // First tick is the up-front (0, total); then one per upload.
+    expect(calls[0]).toEqual([0, 2]);
+    expect(calls).toHaveLength(3);
+    expect(calls.every(([, total]) => total === 2)).toBe(true);
+    expect(calls.map(([done]) => done).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('advances progress even when uploadImage throws', async () => {
+    const buffer = await buildMinimalPptx({ imageCount: 2 });
+    const calls: Array<[number, number]> = [];
+    await importPptx(buffer, {
+      uploadImage: async () => {
+        throw new Error('network down');
+      },
+      onProgress: (done, total) => calls.push([done, total]),
+    });
+    // Both uploads soft-fail, but the `finally` still advances the bar.
+    expect(calls[0]).toEqual([0, 2]);
+    expect(calls).toHaveLength(3);
+    expect(calls.map(([done]) => done).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('reports (0, 0) for a deck with no images', async () => {
+    const buffer = await buildMinimalPptx();
+    const calls: Array<[number, number]> = [];
+    await importPptx(buffer, { onProgress: (d, t) => calls.push([d, t]) });
+    expect(calls).toEqual([[0, 0]]);
+  });
 });

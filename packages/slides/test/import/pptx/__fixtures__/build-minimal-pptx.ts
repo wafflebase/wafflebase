@@ -8,7 +8,10 @@ import JSZip from 'jszip';
  * The XML is hand-rolled and intentionally terse — just enough for the
  * importer to read.
  */
-export async function buildMinimalPptx(): Promise<ArrayBuffer> {
+export async function buildMinimalPptx(
+  opts: { imageCount?: number } = {},
+): Promise<ArrayBuffer> {
+  const imageCount = opts.imageCount ?? 0;
   const zip = new JSZip();
 
   zip.file('[Content_Types].xml', CONTENT_TYPES);
@@ -20,10 +23,56 @@ export async function buildMinimalPptx(): Promise<ArrayBuffer> {
   zip.file('ppt/slideMasters/_rels/slideMaster1.xml.rels', SLIDE_MASTER_RELS);
   zip.file('ppt/slideLayouts/slideLayout1.xml', SLIDE_LAYOUT);
   zip.file('ppt/slideLayouts/_rels/slideLayout1.xml.rels', SLIDE_LAYOUT_RELS);
-  zip.file('ppt/slides/slide1.xml', SLIDE);
-  zip.file('ppt/slides/_rels/slide1.xml.rels', SLIDE_RELS);
+  zip.file('ppt/slides/slide1.xml', buildSlide(imageCount));
+  zip.file('ppt/slides/_rels/slide1.xml.rels', buildSlideRels(imageCount));
+  for (let i = 1; i <= imageCount; i++) {
+    zip.file(`ppt/media/image${i}.png`, PNG_1X1);
+  }
 
   return zip.generateAsync({ type: 'arraybuffer' });
+}
+
+/** Minimal 1x1 transparent PNG — content is irrelevant to the importer. */
+const PNG_1X1 = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+  0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+  0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+]);
+
+function buildSlide(imageCount: number): string {
+  const pics = Array.from({ length: imageCount }, (_, k) => {
+    const i = k + 1;
+    return `<p:pic>
+      <p:nvPicPr><p:cNvPr id="${i + 10}" name="Picture ${i}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+      <p:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+      <p:spPr><a:xfrm><a:off x="914400" y="457200"/><a:ext cx="1828800" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      ${pics}
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+}
+
+function buildSlideRels(imageCount: number): string {
+  const imageRels = Array.from({ length: imageCount }, (_, k) => {
+    const i = k + 1;
+    return `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i}.png"/>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  ${imageRels}
+</Relationships>`;
 }
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -115,17 +164,3 @@ const SLIDE_LAYOUT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
 </Relationships>`;
 
-const SLIDE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-    </p:spTree>
-  </p:cSld>
-</p:sld>`;
-
-const SLIDE_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-</Relationships>`;
