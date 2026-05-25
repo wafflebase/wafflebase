@@ -5,6 +5,7 @@ import { containsHangul, parsePrimaryTypeface } from './font';
 import { ImportReport } from './report';
 import type { PptxRel } from './rels';
 import { attr, attrInt, child, children, NS, textOf } from './xml';
+import type { AutofitMode } from '../../model/element';
 
 /**
  * Per-slide context the text parser needs to resolve hyperlink relationships
@@ -24,6 +25,20 @@ export interface TextParseContext {
   defaultFontSize?: number;
   /** Master-level `<p:clrMap>` translation table for `<a:schemeClr>` lookups. */
   clrMap?: ClrMap;
+}
+
+/**
+ * Map the `<a:bodyPr>` autofit child to an AutofitMode. normAutofit's
+ * fontScale is still baked into run sizes by `parseTextBody` (keeping
+ * imported decks visually identical); this only tags the mode so the
+ * live engine re-engages once the user edits the box.
+ */
+export function detectAutofitMode(txBody: Element): AutofitMode {
+  const bodyPr = child(txBody, 'bodyPr');
+  if (!bodyPr) return 'none';
+  if (child(bodyPr, 'normAutofit')) return 'shrink';
+  if (child(bodyPr, 'spAutoFit')) return 'grow';
+  return 'none';
 }
 
 /**
