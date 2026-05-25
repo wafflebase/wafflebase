@@ -144,8 +144,8 @@ export function groupOverlayFrames(
     const path = findElementPath(slide.elements, innermostId);
     const g = path ? path[path.length - 1] : undefined;
     if (g && g.type === 'group') {
-      // worldTightFrame returns a frame in the group's own (parent =
-      // scope.slice(0,-1)) space; lift it the rest of the way to world.
+      // worldTightFrame returns a frame in the group's *parent* space
+      // (= the scope.slice(0,-1) scope); lift it the rest to world.
       contextBox = toWorldFrame(
         worldTightFrame(g).worldFrame,
         scope.slice(0, -1),

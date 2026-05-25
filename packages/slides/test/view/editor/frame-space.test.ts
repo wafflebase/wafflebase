@@ -245,4 +245,23 @@ describe('groupOverlayFrames', () => {
 
     expect(contextBox).toBeUndefined();
   });
+
+  it('returns member outlines in world coords when scope is non-empty', () => {
+    // Drilled into outer, the inner group selected. Member outlines of
+    // inner must be lifted through both inner's and outer's transforms.
+    const child = shape('c', { x: 0, y: 0, w: 50, h: 50 });
+    const inner = group('inner', { x: 10, y: 10, w: 100, h: 100 }, [child]);
+    const outer = group('outer', { x: 50, y: 50, w: 200, h: 200 }, [inner]);
+    const sl = slide([outer]);
+
+    const { memberOutlines } = groupOverlayFrames(sl, ['inner'], ['outer']);
+
+    // child (0,0) local to inner; inner at (10,10) local to outer; outer
+    // at (50,50) in world → world (60, 60).
+    expect(memberOutlines).toHaveLength(1);
+    expect(memberOutlines[0].x).toBeCloseTo(60, 4);
+    expect(memberOutlines[0].y).toBeCloseTo(60, 4);
+    expect(memberOutlines[0].w).toBeCloseTo(50, 4);
+    expect(memberOutlines[0].h).toBeCloseTo(50, 4);
+  });
 });
