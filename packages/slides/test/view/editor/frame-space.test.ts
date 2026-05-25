@@ -3,6 +3,7 @@ import {
   scopeAncestorTransform,
   toWorldFrame,
   fromWorldFrame,
+  groupOverlayFrames,
 } from '../../../src/view/editor/frame-space';
 import type { Slide } from '../../../src/model/presentation';
 import type { GroupElement, ShapeElement } from '../../../src/model/element';
@@ -173,5 +174,75 @@ describe('toWorldFrame / fromWorldFrame', () => {
     expect(world.w).toBeCloseTo(80, 3);
     expect(world.h).toBeCloseTo(40, 3);
     expect(world.rotation).toBeCloseTo(0, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// groupOverlayFrames
+// ---------------------------------------------------------------------------
+
+describe('groupOverlayFrames', () => {
+  it('returns a world-frame outline for each direct child of a selected group', () => {
+    const a = shape('a', { x: 10, y: 20, w: 30, h: 40 });
+    const b = shape('b', { x: 100, y: 50, w: 25, h: 25 });
+    // Group at origin with no refSize → group transform is identity, so
+    // child-local frames are already world frames.
+    const g = group('g', { x: 0, y: 0, w: 200, h: 200 }, [a, b]);
+    const sl = slide([g]);
+
+    const { memberOutlines, contextBox } = groupOverlayFrames(sl, ['g'], []);
+
+    expect(contextBox).toBeUndefined();
+    expect(memberOutlines).toHaveLength(2);
+    expect(memberOutlines[0]).toMatchObject({ x: 10, y: 20, w: 30, h: 40 });
+    expect(memberOutlines[1]).toMatchObject({ x: 100, y: 50, w: 25, h: 25 });
+  });
+
+  it('returns no member outlines for a single non-group element', () => {
+    const s = shape('s', { x: 5, y: 5, w: 50, h: 50 });
+    const sl = slide([s]);
+
+    const { memberOutlines, contextBox } = groupOverlayFrames(sl, ['s'], []);
+
+    expect(memberOutlines).toHaveLength(0);
+    expect(contextBox).toBeUndefined();
+  });
+
+  it('returns no member outlines for a multi-selection', () => {
+    const a = shape('a', { x: 0, y: 0, w: 10, h: 10 });
+    const b = shape('b', { x: 50, y: 50, w: 10, h: 10 });
+    const sl = slide([a, b]);
+
+    const { memberOutlines } = groupOverlayFrames(sl, ['a', 'b'], []);
+
+    expect(memberOutlines).toHaveLength(0);
+  });
+
+  it('returns the enclosing group as a world-frame context box when drilled in', () => {
+    // Child exactly fills the group, so worldTightFrame returns the
+    // group's own frame — making the expected context box obvious.
+    const child = shape('c', { x: 0, y: 0, w: 200, h: 200 });
+    const g = group('g', { x: 100, y: 100, w: 200, h: 200 }, [child]);
+    const sl = slide([g]);
+
+    // Drilled into g, child c selected.
+    const { contextBox, memberOutlines } = groupOverlayFrames(sl, ['c'], ['g']);
+
+    expect(contextBox).toBeDefined();
+    expect(contextBox!.x).toBeCloseTo(100, 4);
+    expect(contextBox!.y).toBeCloseTo(100, 4);
+    expect(contextBox!.w).toBeCloseTo(200, 4);
+    expect(contextBox!.h).toBeCloseTo(200, 4);
+    // The selected child is a shape, not a group → no member outlines.
+    expect(memberOutlines).toHaveLength(0);
+  });
+
+  it('returns no context box at the slide root (scope empty)', () => {
+    const s = shape('s', { x: 0, y: 0, w: 10, h: 10 });
+    const sl = slide([s]);
+
+    const { contextBox } = groupOverlayFrames(sl, ['s'], []);
+
+    expect(contextBox).toBeUndefined();
   });
 });

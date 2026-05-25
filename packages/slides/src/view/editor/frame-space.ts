@@ -24,6 +24,8 @@ import {
   composeAncestorTransform,
   findElementPath,
   applyInverseMatrix,
+  applyGroupTransform,
+  worldTightFrame,
   IDENTITY_GROUP_TRANSFORM,
 } from '../../model/group';
 import { applyGroupTransform as applyMatrix } from '../../import/pptx/group';
@@ -114,4 +116,58 @@ export function fromWorldFrame(
   if (scope.length === 0) return frame;
   const t = scopeAncestorTransform(slide, scope);
   return applyInverseMatrix(frame, t);
+}
+
+/**
+ * Compute the auxiliary overlay frames that distinguish a group
+ * selection from a single object. All frames are returned in world
+ * (slide-root) coordinates, ready to be scaled by the host factor in
+ * the overlay. Pure: no DOM, no editor state.
+ *
+ * - `memberOutlines`: world frames of the direct children of a
+ *   singly-selected group, so the overlay can outline the group's
+ *   members (PowerPoint-style). Empty unless exactly one group is
+ *   selected.
+ * - `contextBox`: world frame of the innermost group the user has
+ *   drilled into, so the overlay can show the enclosing group as
+ *   context (Google Slides-style). Undefined unless `scope` is
+ *   non-empty and resolves to a group.
+ */
+export function groupOverlayFrames(
+  slide: Slide,
+  selectedIds: readonly string[],
+  scope: readonly string[],
+): { memberOutlines: Frame[]; contextBox: Frame | undefined } {
+  let contextBox: Frame | undefined;
+  if (scope.length > 0) {
+    const innermostId = scope[scope.length - 1];
+    const path = findElementPath(slide.elements, innermostId);
+    const g = path ? path[path.length - 1] : undefined;
+    if (g && g.type === 'group') {
+      // worldTightFrame returns a frame in the group's own (parent =
+      // scope.slice(0,-1)) space; lift it the rest of the way to world.
+      contextBox = toWorldFrame(
+        worldTightFrame(g).worldFrame,
+        scope.slice(0, -1),
+        slide,
+      );
+    }
+  }
+
+  const memberOutlines: Frame[] = [];
+  if (selectedIds.length === 1) {
+    const path = findElementPath(slide.elements, selectedIds[0]);
+    const el = path ? path[path.length - 1] : undefined;
+    if (el && el.type === 'group') {
+      for (const child of el.data.children) {
+        // child.frame is group-local → group's parent (scope) space via
+        // applyGroupTransform, then scope space → world via toWorldFrame.
+        memberOutlines.push(
+          toWorldFrame(applyGroupTransform(child.frame, el), scope, slide),
+        );
+      }
+    }
+  }
+
+  return { memberOutlines, contextBox };
 }
