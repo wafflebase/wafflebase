@@ -60,6 +60,8 @@ import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
+import { getActiveTheme } from '../canvas/render-context';
+import { makeColorResolver } from '../canvas/text-renderer';
 import {
   findElementPath,
   flattenElements,
@@ -1586,7 +1588,12 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.editingElementId !== null) {
       this.exitEditMode('commit');
     }
-    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    // Single read so the slide and the deck theme come from the same
+    // snapshot — the text-box editor needs a theme-aware colorResolver
+    // (built below) to paint text in the deck's theme color, matching
+    // the committed slide canvas.
+    const doc = this.options.store.read();
+    const slide = doc.slides.find((s) => s.id === slideId);
     if (!slide) return;
     const element = slide.elements.find((e) => e.id === elementId);
     if (!element || element.type !== 'text') return;
@@ -1621,6 +1628,7 @@ class SlidesEditorImpl implements SlidesEditor {
       frame: element.frame,
       scale: this.scale(),
       blocks,
+      colorResolver: makeColorResolver(getActiveTheme(doc)),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {
         this.lastEditingContentHeight = h;

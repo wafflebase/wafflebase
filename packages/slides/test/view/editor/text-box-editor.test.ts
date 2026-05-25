@@ -4,6 +4,8 @@ import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
 import type { TextElement } from '../../../src/model/element';
+import { defaultDark } from '../../../src/themes';
+import { resolveColor } from '../../../src/model/theme';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
 import type {
   MountSlidesTextBoxOptions,
@@ -225,6 +227,39 @@ describe('slides text-box editor wiring', () => {
     dispatchDblClick(canvas, 150, 150);
     expect(editor.getEditingElementId()).toBeNull();
     expect(current()).toBeNull();
+  });
+
+  it('passes a theme-aware colorResolver so dark-theme text is not painted black', () => {
+    // Regression: entering edit mode in a dark deck theme painted text
+    // black/invisible because the docs text-box fell back to the default
+    // (literal-string) color resolver. The committed slide canvas remaps
+    // the docs-default '#000000' and undefined colors to the deck's text
+    // role color; edit mode must apply the SAME resolver so the text
+    // stays readable while editing.
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      store.addTheme(defaultDark);
+      store.applyTheme(defaultDark.id);
+    });
+    addTextElement(store);
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 200, 200);
+
+    const resolver = current()!.opts.colorResolver;
+    expect(resolver).toBeDefined();
+
+    const themeText = resolveColor({ kind: 'role', role: 'text' }, defaultDark);
+    // Dark theme text role is a light ink — not literal black.
+    expect(themeText.toLowerCase()).not.toBe('#000000');
+    // The docs editor seeds new inlines with color '#000000' and leaves
+    // sparse runs undefined; both must resolve to the deck's text color.
+    expect(resolver!('#000000')).toBe(themeText);
+    expect(resolver!(undefined)).toBe(themeText);
   });
 
   it('selection handles are hidden for the element while editing', () => {
