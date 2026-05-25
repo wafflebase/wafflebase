@@ -124,6 +124,22 @@ describe('applyLayoutToSlide', () => {
     }
   });
 
+  it('fresh placeholder via context preserves the seeded autofit mode', () => {
+    // The master-typography re-seed replaces data.blocks; it must keep
+    // the placeholder's autofit 'shrink' (a bare `data = { blocks }`
+    // reassignment would drop it).
+    const slide = makeSlide('blank', []);
+    applyLayoutToSlide(slide, getLayout('title-body'), {
+      master: DEFAULT_MASTER,
+      theme: defaultLight,
+    });
+    const textEls = slide.elements.filter((e) => e.type === 'text');
+    expect(textEls.length).toBeGreaterThan(0);
+    for (const el of textEls) {
+      if (el.type === 'text') expect(el.data.autofit).toBe('shrink');
+    }
+  });
+
   it('6. user-added elements are untouched', () => {
     const fromLayout = getLayout('title-body');
     const userText = textEl('user', 'mine', { x: 50, y: 50, w: 100, h: 30 }); // no ref
