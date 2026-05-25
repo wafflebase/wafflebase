@@ -47,7 +47,9 @@ export function computeAutofitHeight(
 }
 
 /**
- * Largest font scale in (FLOOR, 1] whose laid-out height fits the box.
+ * Largest font scale in [FLOOR, 1] whose laid-out height fits the box.
+ * (FLOOR is inclusive: it is returned when even the smallest probe
+ * overflows, or when the box has no usable height.)
  * Height is non-linear in scale (smaller fonts wrap differently), so this
  * binary-searches, re-laying-out per probe. Returns 1 when the content
  * already fits — shrink never enlarges past authored size.

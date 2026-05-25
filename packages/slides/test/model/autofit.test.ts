@@ -33,11 +33,14 @@ describe('scaleBlocks', () => {
   });
 
   it('multiplies inline fontSize and block margins, preserving identity', () => {
-    const [b] = scaleBlocks([para('hello', 20)], 0.5);
+    const source = [para('hello', 20)];
+    const [b] = scaleBlocks(source, 0.5);
     expect(b.inlines[0].style.fontSize).toBe(10);
     expect(b.id).toBe('b-hello');
     expect(b.inlines[0].text).toBe('hello');
     expect(b.style.marginBottom).toBe(DEFAULT_BLOCK_STYLE.marginBottom * 0.5);
+    // Source blocks must not be mutated (binary search re-scales them repeatedly).
+    expect(source[0].inlines[0].style.fontSize).toBe(20);
   });
 
   it('falls back to the default font size (11) when inline has none', () => {
@@ -76,5 +79,15 @@ describe('computeAutofitHeight', () => {
     const padded = computeAutofitHeight([para('hi', 20)], fakeMeasurer, 1000, 8);
     expect(padded).toBe(single + 16);
     expect(single).toBeGreaterThan(0);
+  });
+});
+
+describe('empty content (e.g. a freshly inserted text box)', () => {
+  it('computeAutofitScale returns 1 for no blocks', () => {
+    expect(computeAutofitScale([], fakeMeasurer, 200, 200, 0)).toBe(1);
+  });
+
+  it('computeAutofitHeight returns just the padding for no blocks', () => {
+    expect(computeAutofitHeight([], fakeMeasurer, 200, 8)).toBe(16);
   });
 });
