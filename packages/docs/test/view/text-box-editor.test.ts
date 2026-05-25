@@ -61,6 +61,32 @@ describe('initializeTextBox', () => {
     api.detach();
   });
 
+  it('applies transformLayoutBlocks to the layout blocks (not the document)', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    // transformLayoutBlocks runs inside recomputeLayout (called at
+    // construction, before the ctx check), so unlike onContentHeightChange
+    // it fires even in jsdom. Empty blocks avoid text measurement.
+    const transform = vi.fn((blocks: Block[]) => blocks);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      transformLayoutBlocks: transform,
+    });
+    expect(transform).toHaveBeenCalled();
+    const passed = transform.mock.calls[0][0];
+    expect(Array.isArray(passed)).toBe(true);
+    expect(passed[0]).toHaveProperty('id'); // received live document blocks
+    api.detach();
+  });
+
   it('setContentHeight exists and does not throw', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
