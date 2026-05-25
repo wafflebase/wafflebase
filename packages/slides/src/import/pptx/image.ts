@@ -9,7 +9,7 @@ import { ImportReport } from './report';
 import type { UploadImage } from './index';
 import { attrInt, child, NS } from './xml';
 
-const EXT_TO_MIME: Record<string, string> = {
+export const EXT_TO_MIME: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
