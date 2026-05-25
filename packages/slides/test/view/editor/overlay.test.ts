@@ -716,4 +716,36 @@ describe('renderOverlay — group member outlines + context box', () => {
     ).toBe(0);
     expect(overlay.querySelectorAll('.wfb-slides-context-box').length).toBe(0);
   });
+
+  it('rotates the context box via CSS transform when rotation is non-zero', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 200, 200)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      contextBox: { x: 10, y: 10, w: 50, h: 50, rotation: Math.PI / 6 },
+    });
+    const ctx = overlay.querySelector<HTMLDivElement>(
+      '.wfb-slides-context-box',
+    )!;
+    expect(ctx.style.transform).toBe(`rotate(${Math.PI / 6}rad)`);
+  });
+
+  it('renders both the context box and member outlines when both are supplied', () => {
+    // The two roles are mutually exclusive per element at the caller, but
+    // the renderer is additive — a drilled-in sub-group shows the parent
+    // context box plus its own member outlines.
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 50, 50)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      contextBox: { x: 0, y: 0, w: 300, h: 300, rotation: 0 },
+      memberOutlines: [{ x: 10, y: 10, w: 20, h: 20, rotation: 0 }],
+    });
+    expect(overlay.querySelectorAll('.wfb-slides-context-box').length).toBe(1);
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(1);
+  });
 });

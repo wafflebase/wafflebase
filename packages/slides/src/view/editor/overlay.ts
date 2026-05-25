@@ -423,7 +423,9 @@ function appendOutline(
   el.style.top = `${frame.y * scale}px`;
   el.style.width = `${frame.w * scale}px`;
   el.style.height = `${frame.h * scale}px`;
-  if (frame.rotation) {
+  // Match renderRotatedHandles' `!== 0` guard (Frame.rotation is always
+  // a number); a non-zero rotation CSS-rotates the box about its centre.
+  if (frame.rotation !== 0) {
     el.style.transform = `rotate(${frame.rotation}rad)`;
     el.style.transformOrigin = 'center';
   }
