@@ -295,9 +295,20 @@ export function buildInsertElement(
   end: Point,
 ): ElementInit {
   if (kind === 'text') {
+    // Text participates in the same click-vs-drag rect logic as shapes:
+    // a real drag sets the width + top-left; a sub-threshold drag uses
+    // the default width. Height is NOT taken from the drag — the editor
+    // fits it to content (one line) on the first layout / commit — so we
+    // always seed TEXT_DEFAULT_H here.
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const isClick = dx * dx + dy * dy < CLICK_THRESHOLD_PX_SQ;
+    const w = isClick ? TEXT_DEFAULT_W : Math.abs(dx);
+    const x = isClick ? start.x : Math.min(start.x, end.x);
+    const y = isClick ? start.y : Math.min(start.y, end.y);
     return {
       type: 'text',
-      frame: { x: start.x, y: start.y, w: TEXT_DEFAULT_W, h: TEXT_DEFAULT_H, rotation: 0 },
+      frame: { x, y, w, h: TEXT_DEFAULT_H, rotation: 0 },
       data: {
         blocks: [{
           id: 'placeholder',

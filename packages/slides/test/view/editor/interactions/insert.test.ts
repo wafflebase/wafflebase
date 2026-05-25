@@ -33,13 +33,26 @@ describe('buildInsertElement — drag-shaped shapes', () => {
 });
 
 describe('buildInsertElement — text', () => {
-  it('returns a default-sized text box anchored at the start point', () => {
+  it('click (no drag) → default width, height TEXT_DEFAULT_H, anchored at start', () => {
     const text = buildInsertElement('text', { x: 50, y: 50 }, { x: 50, y: 50 });
     expect(text.type).toBe('text');
-    expect(text.frame.w).toBe(400);
-    expect(text.frame.h).toBe(80);
-    expect(text.frame.x).toBe(50);
-    expect(text.frame.y).toBe(50);
+    expect(text.frame).toEqual({ x: 50, y: 50, w: 400, h: 80, rotation: 0 });
+  });
+
+  it('drag → width from the drag rect, height stays TEXT_DEFAULT_H', () => {
+    const text = buildInsertElement('text', { x: 10, y: 20 }, { x: 210, y: 220 });
+    // Width follows the drag (200); height is NOT retained (stays 80).
+    expect(text.frame).toEqual({ x: 10, y: 20, w: 200, h: 80, rotation: 0 });
+  });
+
+  it('backwards drag → top-left normalised', () => {
+    const text = buildInsertElement('text', { x: 300, y: 300 }, { x: 100, y: 50 });
+    expect(text.frame).toEqual({ x: 100, y: 50, w: 200, h: 80, rotation: 0 });
+  });
+
+  it('sub-threshold drag (< 4px) → treated as click → default width', () => {
+    const text = buildInsertElement('text', { x: 10, y: 10 }, { x: 12, y: 12 });
+    expect(text.frame).toEqual({ x: 10, y: 10, w: 400, h: 80, rotation: 0 });
   });
 });
 
