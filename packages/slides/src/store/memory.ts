@@ -122,7 +122,14 @@ export class MemSlidesStore implements SlidesStore {
             master.placeholderStyles[ref.type]
             ?? master.placeholderStyles.body;
           if (placeholderStyle) {
-            cloned.data = { blocks: seedPlaceholderBlocks(placeholderStyle, theme) };
+            // Preserve spread of the cloned spec's `data` (notably
+            // `autofit`) while replacing only `blocks` with master-styled
+            // seeds — a bare `data = { blocks }` would drop the
+            // placeholder's seeded autofit mode.
+            cloned.data = {
+              ...cloned.data,
+              blocks: seedPlaceholderBlocks(placeholderStyle, theme),
+            };
           }
         }
         return {
