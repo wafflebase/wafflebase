@@ -429,6 +429,33 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('applyStyle attribute removal', () => {
+    // Re-read via a fresh store over the same doc to bypass the optimistic
+    // cache and assert the CRDT Tree (source of truth) actually changed.
+    const reread = (b: Block) =>
+      new YorkieDocStore(doc).getBlock(b.id)!;
+
+    it('clears href from the Tree when applyStyle gets { href: undefined }', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { href: 'https://example.com' });
+      expect(reread(block).inlines[0].style.href).toBe('https://example.com');
+
+      store.applyStyle(block.id, 0, 5, { href: undefined });
+      expect(reread(block).inlines[0].style.href).toBeUndefined();
+    });
+
+    it('keeps other styles when only href is cleared', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { bold: true, href: 'https://example.com' });
+      store.applyStyle(block.id, 0, 5, { href: undefined });
+      const inline = reread(block).inlines[0];
+      expect(inline.style.href).toBeUndefined();
+      expect(inline.style.bold).toBe(true);
+    });
+  });
+
   describe('caching', () => {
     it('getDocument returns a deep clone (mutations do not affect store)', () => {
       const block = makeBlock('Hello');

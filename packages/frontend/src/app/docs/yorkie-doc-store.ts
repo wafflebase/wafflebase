@@ -100,6 +100,35 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   return attrs;
 }
 
+/**
+ * Yorkie's `styleByPath` only merges attributes — it can never delete one.
+ * When a caller clears a style by passing the key explicitly set to
+ * `undefined` (e.g. `removeLink` → `{ href: undefined }`), the key is dropped
+ * by `serializeInlineStyle`, so the merge silently keeps the old value on the
+ * Tree node. This returns the Yorkie attribute names to pass to
+ * `removeStyleByPath` so the clear actually lands in the CRDT.
+ */
+function removedInlineStyleAttrs(style: Partial<InlineStyle>): string[] {
+  const toRemove: string[] = [];
+  const clear = (key: keyof InlineStyle, ...attrNames: string[]): void => {
+    if (key in style && style[key] === undefined) toRemove.push(...attrNames);
+  };
+  clear('bold', 'bold');
+  clear('italic', 'italic');
+  clear('underline', 'underline');
+  clear('strikethrough', 'strikethrough');
+  clear('superscript', 'superscript');
+  clear('subscript', 'subscript');
+  clear('fontSize', 'fontSize');
+  clear('fontFamily', 'fontFamily');
+  clear('color', 'color');
+  clear('backgroundColor', 'backgroundColor');
+  clear('href', 'href');
+  clear('pageNumber', 'pageNumber');
+  clear('image', 'image.src', 'image.width', 'image.height', 'image.alt');
+  return toRemove;
+}
+
 function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyle {
   if (!attrs) return {};
   const style: InlineStyle = {};
@@ -1424,11 +1453,18 @@ export class YorkieDocStore implements DocStore {
 
       if (startIdx === -1 || endIdx === -1) return;
 
-      // Step 5: Apply style via styleByPath to each inline in the range
+      // Step 5: Apply style via styleByPath to each inline in the range.
+      // styleByPath only merges, so keys explicitly cleared to `undefined`
+      // (e.g. removeLink → { href: undefined }) must also be removed via
+      // removeStyleByPath; otherwise the old attribute survives on the node.
       const styleAttrs = serializeInlineStyle(style as InlineStyle);
+      const removeAttrs = removedInlineStyleAttrs(style);
       for (let i = startIdx; i < endIdx; i++) {
         const existingAttrs = inlines[i].attributes ?? {};
         tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });
+        if (removeAttrs.length > 0) {
+          tree.removeStyleByPath([...blockPath, i], [...blockPath, i + 1], removeAttrs);
+        }
       }
 
       // Step 6: Clean up empty inlines produced by boundary splits
