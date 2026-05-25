@@ -287,7 +287,10 @@ function defaultsForShape(
  * Build the ElementInit for a freshly-inserted element given the
  * pointer's drag start and end. Behaviour:
  *
- *   - `text` — single-click, default-sized box anchored at `start`.
+ *   - `text` — drag rect sets width + top-left (clamped to
+ *     `MIN_TEXT_BOX_W`); a sub-threshold drag uses `TEXT_DEFAULT_W` at
+ *     `start`. Height is always `TEXT_DEFAULT_H` (the editor fits it to
+ *     content on commit).
  *   - shape, pointer moved ≥ √CLICK_THRESHOLD_PX_SQ — drag rect.
  *   - shape, pointer ~stationary — per-kind default size from
  *     `DEFAULT_INSERT_SIZE`, top-left anchored at `start`.

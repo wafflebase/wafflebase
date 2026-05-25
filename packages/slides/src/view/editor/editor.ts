@@ -365,7 +365,8 @@ class SlidesEditorImpl implements SlidesEditor {
    * insert is armed and the cursor is over the slide. `null` whenever
    * the ghost should not paint (no insert mode, text mode, cursor
    * outside the canvas, mid-drag). Only shape kinds get a ghost —
-   * text uses a single-click insert at fixed size, no preview needed.
+   * text drag-inserts but an empty text box paints nothing, so no
+   * preview is shown.
    */
   private hoverPreview: { kind: ShapeKind; x: number; y: number } | null = null;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
@@ -1707,7 +1708,7 @@ class SlidesEditorImpl implements SlidesEditor {
   /**
    * Update the hover-ghost position as the cursor moves over the slide
    * canvas. No-op when not in shape-insert mode, when text-insert is
-   * armed (text uses a single-click insert and has no useful ghost),
+   * armed (text drag-inserts but an empty box paints no useful ghost),
    * or while a drag-to-size insert is already in flight (the live
    * drag preview from `startInsert` takes over rendering).
    */
