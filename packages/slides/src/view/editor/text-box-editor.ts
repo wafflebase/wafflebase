@@ -29,6 +29,7 @@ import {
   type BlockStyle,
   type BlockType,
   type HeadingLevel,
+  type ColorResolver,
 } from '@wafflebase/docs';
 import type { Frame } from '../../model/element';
 
@@ -58,6 +59,14 @@ export interface MountSlidesTextBoxOptions {
    * to persist the fitted frame height at commit time.
    */
   onContentHeightChange?: (contentHeight: number) => void;
+  /**
+   * Theme-aware color resolver built from the deck's active theme (see
+   * `makeColorResolver` in the canvas text-renderer). Forwarded to the
+   * docs text-box so in-place editing paints text in the same theme
+   * color as the committed slide canvas. Omitted → docs default (literal
+   * strings), which renders dark-theme text as black.
+   */
+  colorResolver?: ColorResolver;
 }
 
 export interface SlidesTextBoxEditor {
@@ -106,7 +115,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver } = opts;
 
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
@@ -207,6 +216,7 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
       api.setContentHeight(targetH);
       onContentHeightChange?.(targetH);
     },
+    colorResolver,
   });
 
   return {

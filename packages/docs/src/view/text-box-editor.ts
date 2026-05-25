@@ -26,6 +26,7 @@
  * the spec.
  */
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
+import type { ColorResolver } from '../model/color.js';
 import { createEmptyBlock } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
@@ -122,6 +123,19 @@ export interface TextBoxEditorOptions {
    * (renderNow early-returns).
    */
   onContentHeightChange?: (contentHeight: number) => void;
+
+  /**
+   * Resolves a stored `Inline.style.color` / `backgroundColor` to a hex
+   * string at paint time. Slides supplies a theme-aware resolver so the
+   * in-place editor paints text in the deck's theme color — matching the
+   * committed slide canvas (which builds the same resolver in
+   * `drawText`). Without this, stored `'#000000'` / `undefined` colors
+   * render as literal black, so dark themes show black text in edit mode.
+   *
+   * Defaults to the docs `defaultColorResolver` (string passthrough) when
+   * omitted — docs/sheets callers are unaffected.
+   */
+  colorResolver?: ColorResolver;
 }
 
 export interface TextBoxEditorAPI {
@@ -270,6 +284,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   let contentHeight = opts.contentHeight;
   const dpr = opts.dpr ?? 1;
   const scale = opts.scale ?? 1;
+  const colorResolver = opts.colorResolver;
 
   // Seed an in-memory store with the supplied blocks. Empty input gets
   // a single empty paragraph so cursor placement and the very first
@@ -385,6 +400,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       cursor: cursorOpt,
       selectionRects,
       requestRender,
+      colorResolver,
     });
     ctx.restore();
 
