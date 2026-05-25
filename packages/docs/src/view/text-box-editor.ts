@@ -113,6 +113,15 @@ export interface TextBoxEditorOptions {
    * `onLinkRequest(cb)` API.
    */
   onLinkRequest?: () => void;
+
+  /**
+   * Fired after layout when the laid-out content height changes (logical
+   * px). The host uses this to grow/shrink the editing surface and to
+   * persist the fitted height. De-duped: only fires when the height
+   * actually changes. Never fires while there is no canvas 2D context
+   * (renderNow early-returns).
+   */
+  onContentHeightChange?: (contentHeight: number) => void;
 }
 
 export interface TextBoxEditorAPI {
@@ -127,6 +136,13 @@ export interface TextBoxEditorAPI {
    * cursor blink, and flush a final `onCommit`. Idempotent.
    */
   detach(): void;
+
+  /**
+   * Resize the editing surface's logical content height and repaint.
+   * Layout is width-driven, so this does not re-wrap text — it only
+   * changes the shim page height + canvas the editor paints into.
+   */
+  setContentHeight(contentHeight: number): void;
 
   // ─── Text-formatting surface (mirrors EditorAPI) ───────────────────────────
   // These are needed so shared text-formatting toolbar components can drive
@@ -250,7 +266,8 @@ function buildShimPaginatedLayout(
  * mounting on a `dblclick`).
  */
 export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI {
-  const { container, canvas, contentWidth, contentHeight } = opts;
+  const { container, canvas, contentWidth } = opts;
+  let contentHeight = opts.contentHeight;
   const dpr = opts.dpr ?? 1;
   const scale = opts.scale ?? 1;
 
@@ -303,6 +320,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // since the shim's only page is at pageIndex 0 → pageY = pageGap).
   const ctx = canvas.getContext('2d') ?? null;
   let renderRAF: number | null = null;
+  // Last content height reported via onContentHeightChange. Starts at -1
+  // so the first real layout always fires once.
+  let lastReportedHeight = -1;
 
   const renderNow = (): void => {
     renderRAF = null;
@@ -314,6 +334,15 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     // makes this cheap: only blocks whose content / width changed
     // re-measure; the rest reuse the previous frame's lines.
     recomputeLayout();
+    // Report height changes so the host can grow/shrink the box. Fires
+    // only when the laid-out height actually changed. Lives here (post
+    // recompute) so `layout.totalHeight` is fresh; renderNow already
+    // early-returned above when there is no ctx, so this never fires in
+    // a context-less env.
+    if (layout.totalHeight !== lastReportedHeight) {
+      lastReportedHeight = layout.totalHeight;
+      opts.onContentHeightChange?.(layout.totalHeight);
+    }
     ctx.save();
     // Reset any previous transform, clear in DEVICE-pixel space, then
     // scale to CSS pixels for the rest of the paint. Caller-supplied
@@ -549,6 +578,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         textarea.removeEventListener('keydown', handleEscape, true);
         textarea.remove();
       }
+    },
+
+    setContentHeight(next: number): void {
+      contentHeight = next;
+      paginatedLayout = buildShimPaginatedLayout(layout, contentWidth, contentHeight);
+      requestRender();
     },
 
     // ── Formatting surface ────────────────────────────────────────────────────
