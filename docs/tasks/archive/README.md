@@ -6,14 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 213
+Total archived tasks: 219
 
-## 2026/05 (68 tasks)
+## 2026/05 (74 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
 | dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
+| docker publish arm64 native (2026-05-25) | [20260525-docker-publish-arm64-native-todo.md](./2026/05/20260525-docker-publish-arm64-native-todo.md) | - |
+| import progress toast (2026-05-25) | [20260525-import-progress-toast-todo.md](./2026/05/20260525-import-progress-toast-todo.md) | [20260525-import-progress-toast-lessons.md](./2026/05/20260525-import-progress-toast-lessons.md) |
+| pptx blipfill fillrect crop (2026-05-25) | [20260525-pptx-blipfill-fillrect-crop-todo.md](./2026/05/20260525-pptx-blipfill-fillrect-crop-todo.md) | - |
+| release v0.4.2 (2026-05-25) | [20260525-release-v0.4.2-todo.md](./2026/05/20260525-release-v0.4.2-todo.md) | - |
+| slides textbox autogrow (2026-05-25) | [20260525-slides-textbox-autogrow-todo.md](./2026/05/20260525-slides-textbox-autogrow-todo.md) | [20260525-slides-textbox-autogrow-lessons.md](./2026/05/20260525-slides-textbox-autogrow-lessons.md) |
+| slides textbox edit theme color (2026-05-25) | [20260525-slides-textbox-edit-theme-color-todo.md](./2026/05/20260525-slides-textbox-edit-theme-color-todo.md) | [20260525-slides-textbox-edit-theme-color-lessons.md](./2026/05/20260525-slides-textbox-edit-theme-color-lessons.md) |
 | backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
 | build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
 | frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./2026/05/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./2026/05/20260524-frontend-vitest-migration-lessons.md) |

@@ -80,7 +80,7 @@ export function SlidesToolbar({
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
-      <SlideGroup store={store} />
+      <SlideGroup store={store} editor={editor} />
       <ToolbarSeparator className="mx-1" />
       <div
         data-testid="toolbar-contextual"
