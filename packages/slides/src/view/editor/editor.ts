@@ -1638,6 +1638,10 @@ class SlidesEditorImpl implements SlidesEditor {
       frame: element.frame,
       scale: this.scale(),
       blocks,
+      // Drives editor autofit: 'shrink' scales fonts to fit the fixed box,
+      // 'grow' (and absent) tracks content height, 'none' is fixed. The
+      // wrapper gates onContentHeightChange so shrink/none never auto-grow.
+      autofit: element.data.autofit,
       colorResolver: makeColorResolver(getActiveTheme(doc)),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {

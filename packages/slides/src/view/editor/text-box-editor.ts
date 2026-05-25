@@ -23,6 +23,7 @@
  */
 import {
   initializeTextBox,
+  CanvasTextMeasurer,
   type Block,
   type TextBoxEditorAPI,
   type InlineStyle,
@@ -31,7 +32,15 @@ import {
   type HeadingLevel,
   type ColorResolver,
 } from '@wafflebase/docs';
-import type { Frame } from '../../model/element';
+import type { AutofitMode, Frame } from '../../model/element';
+import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
+
+/**
+ * Measurer for the live "shrink" scale computation. Module-scope so its
+ * font-metrics cache is shared across edit sessions; one mount lives only
+ * as long as one edit session, so there's no per-instance state to leak.
+ */
+const autofitMeasurer = new CanvasTextMeasurer();
 
 export interface MountSlidesTextBoxOptions {
   /** The slides editor's selection overlay. The wrapper appends a child container. */
@@ -59,6 +68,16 @@ export interface MountSlidesTextBoxOptions {
    * to persist the fitted frame height at commit time.
    */
   onContentHeightChange?: (contentHeight: number) => void;
+  /**
+   * Autofit mode of the text element. Drives which behavior the editor
+   * wires:
+   * - 'shrink' → fonts auto-scale down to fit the fixed box
+   *   (`transformLayoutBlocks`); the box does NOT auto-grow.
+   * - 'grow' (and absent, the pre-autofit default) → box height tracks
+   *   content via `onContentHeightChange`.
+   * - 'none' → fixed box, no scaling, text overflows.
+   */
+  autofit?: AutofitMode;
   /**
    * Theme-aware color resolver built from the deck's active theme (see
    * `makeColorResolver` in the canvas text-renderer). Forwarded to the
@@ -115,7 +134,13 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit } = opts;
+
+  // Auto-grow is the behavior for every mode except an explicit 'shrink'
+  // (fixed box, font scales) or 'none' (fixed box, overflow). Absent ⇒
+  // grow, matching the pre-autofit default so existing decks keep growing.
+  const isGrow = autofit !== 'shrink' && autofit !== 'none';
+  const isShrink = autofit === 'shrink';
 
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
@@ -202,20 +227,34 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     onCommit: handleCommit,
     onCancel: handleCancel,
     onLinkRequest,
-    onContentHeightChange: (h: number): void => {
-      // Grow/shrink the editing surface to fit content. Width is fixed;
-      // only height tracks. cssH is host pixels (logical * slide scale);
-      // the canvas bitmap also multiplies by the browser dpr captured at
-      // mount. Setting canvas.height resets the bitmap — setContentHeight
-      // then schedules a repaint at the new size.
-      const targetH = Math.max(1, h);
-      const cssH = Math.max(1, Math.round(targetH * scale));
-      container.style.height = `${cssH}px`;
-      canvas.style.height = `${cssH}px`;
-      canvas.height = Math.max(1, Math.round(cssH * dpr));
-      api.setContentHeight(targetH);
-      onContentHeightChange?.(targetH);
-    },
+    // Grow only when the mode calls for it. For 'shrink'/'none' the box
+    // stays fixed, so we leave this unwired and the docs editor never
+    // resizes the surface.
+    onContentHeightChange: isGrow
+      ? (h: number): void => {
+          // Grow/shrink the editing surface to fit content. Width is fixed;
+          // only height tracks. cssH is host pixels (logical * slide scale);
+          // the canvas bitmap also multiplies by the browser dpr captured at
+          // mount. Setting canvas.height resets the bitmap — setContentHeight
+          // then schedules a repaint at the new size.
+          const targetH = Math.max(1, h);
+          const cssH = Math.max(1, Math.round(targetH * scale));
+          container.style.height = `${cssH}px`;
+          canvas.style.height = `${cssH}px`;
+          canvas.height = Math.max(1, Math.round(cssH * dpr));
+          api.setContentHeight(targetH);
+          onContentHeightChange?.(targetH);
+        }
+      : undefined,
+    // Shrink: scale fonts down so content fits the fixed box, live as the
+    // user types. The same scale is applied in the committed renderer
+    // (text-renderer.ts) so the editing surface stays pixel-identical.
+    transformLayoutBlocks: isShrink
+      ? (bs): Block[] => {
+          const s = computeAutofitScale(bs, autofitMeasurer, frame.w, frame.h, 0);
+          return s === 1 ? bs : scaleBlocks(bs, s);
+        }
+      : undefined,
     colorResolver,
   });
 
