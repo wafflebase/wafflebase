@@ -58,6 +58,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
                 className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Text alignment"
                 disabled={isDisabled}
+                data-text-edit-keepalive
               >
                 <IconAlignLeft size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
@@ -66,7 +67,11 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
           </TooltipTrigger>
           <TooltipContent>Text alignment</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-[200px]">
+        <DropdownMenuContent
+          className="w-[200px]"
+          data-text-edit-keepalive
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           <DropdownMenuItem
             className="flex items-center justify-between"
             onClick={() => handleAlign("left")}
@@ -123,6 +128,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.toggleList("ordered");
               editor?.focus();
@@ -141,6 +147,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.toggleList("unordered");
               editor?.focus();
@@ -159,6 +166,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.outdent();
               editor?.focus();
@@ -177,6 +185,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.indent();
               editor?.focus();

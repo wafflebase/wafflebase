@@ -129,6 +129,60 @@ describe('initializeTextBox', () => {
     api.detach();
   });
 
+  it('does NOT commit when blur moves focus to a [data-text-edit-keepalive] control', () => {
+    // Repro: clicking a text-formatting toolbar control (or hovering an
+    // open Radix dropdown, which focuses menu items) blurs the hidden
+    // textarea. In the slides text-box that blur otherwise commits +
+    // detaches, dropping the user out of edit mode before the control's
+    // onClick handler runs. Controls tagged keepalive must be exempt.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    let commitCount = 0;
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit: () => { commitCount++; },
+    });
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+
+    // A toolbar button carrying the keepalive marker, and a child of a
+    // keepalive container (the dropdown-menu-content / menu-item case).
+    const toolbarButton = document.createElement('button');
+    toolbarButton.setAttribute('data-text-edit-keepalive', '');
+    document.body.appendChild(toolbarButton);
+    const menuContent = document.createElement('div');
+    menuContent.setAttribute('data-text-edit-keepalive', '');
+    const menuItem = document.createElement('div');
+    menuContent.appendChild(menuItem);
+    document.body.appendChild(menuContent);
+
+    api.focus();
+    textarea.dispatchEvent(new FocusEvent('focus'));
+    textarea.dispatchEvent(new FocusEvent('blur', { relatedTarget: toolbarButton }));
+    expect(commitCount).toBe(0);
+    // Re-focus (control handlers call api.focus()) then blur into a
+    // descendant of a keepalive container — still no commit.
+    textarea.dispatchEvent(new FocusEvent('focus'));
+    textarea.dispatchEvent(new FocusEvent('blur', { relatedTarget: menuItem }));
+    expect(commitCount).toBe(0);
+
+    // A genuine outside blur (focus to a non-keepalive element) still commits.
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    textarea.dispatchEvent(new FocusEvent('focus'));
+    textarea.dispatchEvent(new FocusEvent('blur', { relatedTarget: outside }));
+    expect(commitCount).toBe(1);
+
+    api.detach();
+  });
+
   it('detach() flushes onCommit when the editor is still focused', () => {
     // Repro: caller (e.g. React unmount) invokes detach() while the
     // textarea is the active element. Without an explicit flush,
