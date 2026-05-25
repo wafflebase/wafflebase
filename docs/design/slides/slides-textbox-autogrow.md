@@ -113,19 +113,21 @@ The wrapper exposes the host-facing callback through
 ### Slides editor (`packages/slides/src/view/editor/editor.ts`)
 
 - `startInsert` `text` branch: replace the single-click insert with a
-  drag-to-size flow mirroring the shape branch (live ghost preview via
-  `forceRender(slide, doc, [ghost])`, `buildInsertElement('text', …)`
-  for click-vs-drag). On `pointerup`, add the element, select it, disarm
-  insert mode, then call `enterEditMode(slide.id, id)`.
-- `enterEditMode`: pass an `onContentHeightChange` into `mountTextBox`.
-  Height fit is `frame.h = max(MIN_TEXT_H, contentHeight)`
-  (`MIN_TEXT_H` = one line). On change, persist via
-  `store.updateElementFrame(slideId, elementId, { h })`. Frame writes go
-  through a `batch` consistent with the rest of the editor.
+  drag-to-size flow mirroring the shape branch (`buildInsertElement('text',
+  …)` for click-vs-drag). No ghost preview — an empty text box paints
+  nothing, so the box appears on release. On `pointerup`, add the element,
+  select it, disarm insert mode, then call `enterEditMode(slide.id, id)`.
+- `enterEditMode`: pass an `onContentHeightChange` into `mountTextBox` that
+  records the latest reported content height. The height is persisted **at
+  commit**, not per-keystroke: `onCommit` writes `frame.h = max(MIN_TEXT_BOX_H,
+  contentHeight)` via `store.updateElementFrame(slideId, elementId, { h })`
+  in the **same `batch`** as the `withTextElement` text write — one undo
+  entry, no per-keystroke CRDT churn. Live visual growth is the wrapper
+  resizing its editing canvas; the store frame only changes on commit
+  (consistent with text, which is also local until commit).
 - The committed slide canvas already renders text by width via
-  `packages/slides/src/view/canvas/text-renderer.ts`; with the frame
-height now matching content, no
-  extra clipping work is needed.
+  `packages/slides/src/view/canvas/text-renderer.ts`; with the frame height
+  now matching content, no extra clipping work is needed.
 
 ### `buildInsertElement` (`packages/slides/src/view/editor/interactions/insert.ts`)
 
@@ -152,21 +154,26 @@ it to content (one line) immediately.
 ### Testing
 
 - `buildInsertElement` unit: text drag → drawn-width rect; sub-threshold
-  → default width.
-- docs `text-box-editor` unit: `onContentHeightChange` fires when a line
-  is added/removed; `setContentHeight` rebuilds the shim layout.
-- slides editor: inserting a text box sets `editingElementId` and calls
-  `focus()`; an auto-grow height change calls `updateElementFrame`.
+  → default width; height stays `TEXT_DEFAULT_H`.
+- docs `text-box-editor` unit (jsdom, no canvas ctx → `renderNow`
+  early-returns): API-surface only — `onContentHeightChange` option is
+  accepted and `setContentHeight` exists / does not throw.
+- slides `mountSlidesTextBox` (under `test-canvas-env`, where `renderNow`
+  runs): `onContentHeightChange` fires with a positive height; more
+  paragraphs report a larger height; the container resizes to fit.
+- slides editor: inserting a text box enters edit mode
+  (`getEditingElementId` set); a reported height is persisted into
+  `frame.h` at commit, in one undo batch with the text write.
 
 ## Risks and Mitigation
 
 - **Resize/recompute feedback loop.** Mitigated by firing
   `onContentHeightChange` only on `totalHeight` change and by
   `setContentHeight` not feeding back into `totalHeight`.
-- **Collaboration churn.** Live `updateElementFrame` on every keystroke
-  could spam CRDT ops. Mitigated by only persisting when the rounded
-  height actually changes; intermediate visual growth is local
-  container/canvas resizing, not a store write.
+- **Collaboration churn.** Persisting `updateElementFrame` per keystroke
+  would spam CRDT ops and fragment undo. Mitigated by committing the
+  height **once**, in the same `batch` as the text write; intermediate
+  visual growth is local container/canvas resizing, never a store write.
 - **Editing overlay vs committed canvas mismatch.** The editing canvas
   and the committed `text-renderer` both lay out by width via the same
   `computeLayout`, so a fitted height stays pixel-consistent on commit.
