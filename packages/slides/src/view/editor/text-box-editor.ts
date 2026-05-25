@@ -251,8 +251,14 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     // (text-renderer.ts) so the editing surface stays pixel-identical.
     transformLayoutBlocks: isShrink
       ? (bs): Block[] => {
-          const s = computeAutofitScale(bs, autofitMeasurer, frame.w, frame.h, 0);
-          return s === 1 ? bs : scaleBlocks(bs, s);
+          try {
+            const s = computeAutofitScale(bs, autofitMeasurer, frame.w, frame.h, 0);
+            return s === 1 ? bs : scaleBlocks(bs, s);
+          } catch {
+            // Measurement unavailable (e.g. a canvas-less headless env);
+            // fall back to unscaled blocks rather than failing the mount.
+            return bs;
+          }
         }
       : undefined,
     colorResolver,

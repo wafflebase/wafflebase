@@ -8,7 +8,6 @@ import {
 import {
   scaleBlocks,
   computeAutofitScale,
-  computeAutofitHeight,
 } from '../../src/model/autofit';
 
 // Width proportional to font size so wrapping (and therefore totalHeight)
@@ -73,21 +72,8 @@ describe('computeAutofitScale', () => {
   });
 });
 
-describe('computeAutofitHeight', () => {
-  it('returns content height plus twice the padding', () => {
-    const single = computeAutofitHeight([para('hi', 20)], fakeMeasurer, 1000, 0);
-    const padded = computeAutofitHeight([para('hi', 20)], fakeMeasurer, 1000, 8);
-    expect(padded).toBe(single + 16);
-    expect(single).toBeGreaterThan(0);
-  });
-});
-
 describe('empty content (e.g. a freshly inserted text box)', () => {
   it('computeAutofitScale returns 1 for no blocks', () => {
     expect(computeAutofitScale([], fakeMeasurer, 200, 200, 0)).toBe(1);
-  });
-
-  it('computeAutofitHeight returns just the padding for no blocks', () => {
-    expect(computeAutofitHeight([], fakeMeasurer, 200, 8)).toBe(16);
   });
 });

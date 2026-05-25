@@ -36,16 +36,6 @@ export function scaleBlocks(blocks: Block[], scale: number): Block[] {
   }));
 }
 
-/** Content height for grow mode: laid-out height + symmetric padding. */
-export function computeAutofitHeight(
-  blocks: Block[],
-  measurer: TextMeasurer,
-  frameW: number,
-  padding: number,
-): number {
-  return computeLayout(blocks, measurer, frameW).layout.totalHeight + 2 * padding;
-}
-
 /**
  * Largest font scale in [FLOOR, 1] whose laid-out height fits the box.
  * (FLOOR is inclusive: it is returned when even the smallest probe
