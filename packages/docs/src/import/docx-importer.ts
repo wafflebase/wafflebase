@@ -67,12 +67,44 @@ export class DocxImporter {
    * @param buffer - The .docx file as an ArrayBuffer.
    * @param imageUploader - Optional callback to upload images. If not provided,
    *   images are skipped.
+   * @param onProgress - Optional callback invoked as images upload.
+   *   Called once with (0, total) before any uploads begin, then once more
+   *   per image with (done, total) after each upload completes.
    */
   static async import(
     buffer: ArrayBuffer,
     imageUploader?: ImageUploader,
+    onProgress?: (done: number, total: number) => void,
   ): Promise<Document> {
     const zip = await JSZip.loadAsync(buffer);
+
+    // Wrap the uploader once so progress is reported without threading a
+    // counter through uploadImages/parseHeaderFooter. `total` is the
+    // image-media count (a pragmatic denominator); `done` bumps in a
+    // `finally` so a soft-failed upload still advances the bar.
+    let uploader = imageUploader;
+    if (onProgress) {
+      const emit = onProgress;
+      let total = 0;
+      zip.forEach((path, file) => {
+        if (file.dir || !path.startsWith('word/media/')) return;
+        const ext = (path.split('.').pop() || '').toLowerCase();
+        if (EXT_TO_IMAGE_MIME[ext]) total += 1;
+      });
+      emit(0, total);
+      if (imageUploader) {
+        const inner = imageUploader;
+        let done = 0;
+        uploader = async (data: Blob, filename: string): Promise<string> => {
+          try {
+            return await inner(data, filename);
+          } finally {
+            done += 1;
+            emit(done, total);
+          }
+        };
+      }
+    }
 
     // Parse document.xml.rels (scoped to the document part).
     const relsXml = await zip.file('word/_rels/document.xml.rels')?.async('string');
@@ -88,8 +120,8 @@ export class DocxImporter {
     // Upload images referenced from the document part. Image rIds are
     // scoped per rels file, so header/footer parts keep their own maps.
     const imageUrls = new Map<string, ResolvedImage>();
-    if (imageUploader) {
-      await DocxImporter.uploadImages(zip, rels, 'word/', imageUploader, imageUrls);
+    if (uploader) {
+      await DocxImporter.uploadImages(zip, rels, 'word/', uploader, imageUrls);
     }
 
     // Walk body children
@@ -120,10 +152,10 @@ export class DocxImporter {
       : undefined;
 
     const header = await DocxImporter.parseHeaderFooter(
-      zip, 'header', headerTarget, imageUploader,
+      zip, 'header', headerTarget, uploader,
     );
     const footer = await DocxImporter.parseHeaderFooter(
-      zip, 'footer', footerTarget, imageUploader,
+      zip, 'footer', footerTarget, uploader,
     );
 
     return { blocks, pageSetup, header, footer };
