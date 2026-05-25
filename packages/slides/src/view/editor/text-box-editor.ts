@@ -51,6 +51,13 @@ export interface MountSlidesTextBoxOptions {
    * to the docs text-box, which wires it to the inner `TextEditor`.
    */
   onLinkRequest?: () => void;
+  /**
+   * Fired (logical px) when the docs editor's content height changes.
+   * The wrapper has already resized its container/canvas and called
+   * `setContentHeight` by the time this fires; the slides editor uses it
+   * to persist the fitted frame height at commit time.
+   */
+  onContentHeightChange?: (contentHeight: number) => void;
 }
 
 export interface SlidesTextBoxEditor {
@@ -99,7 +106,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange } = opts;
 
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
@@ -181,6 +188,20 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     onCommit: handleCommit,
     onCancel: handleCancel,
     onLinkRequest,
+    onContentHeightChange: (h: number): void => {
+      // Grow/shrink the editing surface to fit content. Width is fixed;
+      // only height tracks. cssH is host pixels (logical * slide scale);
+      // the canvas bitmap also multiplies by the browser dpr captured at
+      // mount. Setting canvas.height resets the bitmap — setContentHeight
+      // then schedules a repaint at the new size.
+      const targetH = Math.max(1, h);
+      const cssH = Math.max(1, Math.round(targetH * scale));
+      container.style.height = `${cssH}px`;
+      canvas.style.height = `${cssH}px`;
+      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      api.setContentHeight(targetH);
+      onContentHeightChange?.(targetH);
+    },
   });
 
   return {
