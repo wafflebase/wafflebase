@@ -559,9 +559,9 @@ class SlidesEditorImpl implements SlidesEditor {
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
-    // Unfiltered ids on purpose: the member-outline / context-box logic
-    // must still resolve the group even when one of its children is the
-    // element currently being text-edited (excluded from `selected`).
+    // groupOverlayFrames keys off the raw selection ids, kept separate
+    // from `selected` above — which is frame-resolved and drops the
+    // text-edit element for handle rendering.
     const { memberOutlines, contextBox } = groupOverlayFrames(
       slide,
       allSelectedIds,

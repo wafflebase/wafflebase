@@ -2361,4 +2361,27 @@ describe('repaintOverlay — group selection visuals', () => {
       overlay.querySelectorAll('.wfb-slides-member-outline').length,
     ).toBe(0);
   });
+
+  it('shows a context box around the group when drilled into a child', () => {
+    const { canvas, overlay, store } = makeGroupedFixture();
+    editor = initialize({
+      canvas,
+      overlay,
+      store,
+      hostWidth: 1920,
+      hostHeight: 1080,
+      dpr: 1,
+    });
+    // Double-click inside shape A's world bounds (150, 140) drills in.
+    canvas.dispatchEvent(
+      new MouseEvent('dblclick', { clientX: 150, clientY: 140, bubbles: true }),
+    );
+
+    // The enclosing group is shown as a context box; the drilled-in
+    // child is a shape, so there are no member outlines.
+    expect(overlay.querySelectorAll('.wfb-slides-context-box').length).toBe(1);
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(0);
+  });
 });

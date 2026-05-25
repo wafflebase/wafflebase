@@ -402,7 +402,8 @@ function renderRotatedHandles(
   overlay.appendChild(makeHandle('rotate', rotateScreenX, rotateScreenY));
 }
 
-const OUTLINE_BORDER = '1px dashed rgba(58, 170, 119, 0.5)';
+// Faint dash of the selection accent #3a7 (= #33aa77 = rgb 51,170,119).
+const OUTLINE_BORDER = '1px dashed rgba(51, 170, 119, 0.5)';
 
 /**
  * Render a handle-less, non-interactive dashed rectangle at a world

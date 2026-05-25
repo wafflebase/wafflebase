@@ -86,8 +86,9 @@ correct and needs no special-casing.
 - **Selection box, handles, rotate handle:** unchanged —
   `1px solid #3a7`, the existing `makeHandle` squares, white rotate dot.
 - **Member outline and context box:** a single shared style —
-  `1px dashed`, faint accent `rgba(58, 170, 119, 0.5)` (the `#3a7`
-  accent at 50% alpha), `pointer-events: none`, **no handles**. They
+  `1px dashed`, faint accent `rgba(51, 170, 119, 0.5)` (the `#3a7`
+  accent — `#33aa77` — at 50% alpha), `pointer-events: none`, **no
+  handles**. They
   share one renderer and one look because they are mutually exclusive
   per element, so the dashed faint rectangle is unambiguous in each
   context.
