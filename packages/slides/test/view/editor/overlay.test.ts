@@ -610,3 +610,110 @@ describe('renderOverlay — connection-points affordance', () => {
     expect(dots.length).toBe(4);
   });
 });
+
+describe('renderOverlay — group member outlines + context box', () => {
+  it('renders one dashed, handle-less outline per memberOutlines frame', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 200, 200)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      memberOutlines: [
+        { x: 10, y: 20, w: 30, h: 40, rotation: 0 },
+        { x: 100, y: 50, w: 25, h: 25, rotation: 0 },
+      ],
+    });
+    const outlines = overlay.querySelectorAll<HTMLDivElement>(
+      '.wfb-slides-member-outline',
+    );
+    expect(outlines.length).toBe(2);
+    for (const o of outlines) {
+      expect(o.getAttribute('data-handle')).toBeNull();
+      expect(o.style.pointerEvents).toBe('none');
+    }
+    // First outline geometry, scaled by host factor (1:1 here).
+    expect(parseFloat(outlines[0].style.left)).toBe(10);
+    expect(parseFloat(outlines[0].style.top)).toBe(20);
+    expect(parseFloat(outlines[0].style.width)).toBe(30);
+    expect(parseFloat(outlines[0].style.height)).toBe(40);
+  });
+
+  it('scales member-outline geometry by the host scale factor', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 200, 200)], {
+      scale: 0.5,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      memberOutlines: [{ x: 10, y: 20, w: 30, h: 40, rotation: 0 }],
+    });
+    const o = overlay.querySelector<HTMLDivElement>(
+      '.wfb-slides-member-outline',
+    )!;
+    expect(parseFloat(o.style.left)).toBe(5);
+    expect(parseFloat(o.style.top)).toBe(10);
+  });
+
+  it('rotates a member outline via CSS transform', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 200, 200)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      memberOutlines: [{ x: 10, y: 10, w: 20, h: 20, rotation: Math.PI / 4 }],
+    });
+    const o = overlay.querySelector<HTMLDivElement>(
+      '.wfb-slides-member-outline',
+    )!;
+    expect(o.style.transform).toBe(`rotate(${Math.PI / 4}rad)`);
+  });
+
+  it('renders exactly one handle-less context box when provided', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 50, 50)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      contextBox: { x: 100, y: 100, w: 200, h: 200, rotation: 0 },
+    });
+    const ctx = overlay.querySelectorAll<HTMLDivElement>(
+      '.wfb-slides-context-box',
+    );
+    expect(ctx.length).toBe(1);
+    expect(ctx[0].getAttribute('data-handle')).toBeNull();
+    expect(ctx[0].style.pointerEvents).toBe('none');
+    expect(parseFloat(ctx[0].style.left)).toBe(100);
+    expect(parseFloat(ctx[0].style.width)).toBe(200);
+  });
+
+  it('paints member outlines before the resize handles (handles on top)', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 200, 200)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+      memberOutlines: [{ x: 10, y: 10, w: 20, h: 20, rotation: 0 }],
+    });
+    const kids = Array.from(overlay.children);
+    const outlineIdx = kids.findIndex((c) =>
+      c.classList.contains('wfb-slides-member-outline'),
+    );
+    const handleIdx = kids.findIndex(
+      (c) => c.getAttribute('data-handle') === 'nw',
+    );
+    expect(outlineIdx).toBeGreaterThanOrEqual(0);
+    expect(handleIdx).toBeGreaterThan(outlineIdx);
+  });
+
+  it('renders no member outlines or context box by default', () => {
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [shape(0, 0, 50, 50)], {
+      scale: HOST_SCALE,
+      slideWidth: SLIDE_W,
+      slideHeight: SLIDE_H,
+    });
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(0);
+    expect(overlay.querySelectorAll('.wfb-slides-context-box').length).toBe(0);
+  });
+});
