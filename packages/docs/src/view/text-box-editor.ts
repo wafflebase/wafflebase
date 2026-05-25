@@ -501,9 +501,22 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     requestRender();
   };
 
-  const handleBlur = (): void => {
+  const handleBlur = (e?: FocusEvent): void => {
     focused = false;
     cursor.stopBlink();
+    // Focus moving to a text-formatting control (a toolbar button, or an
+    // open dropdown whose Radix menu items grab focus on hover) must NOT
+    // end the editing session. Such controls are tagged with
+    // `data-text-edit-keepalive`; skip the commit so the text-box stays
+    // mounted, and the control's own handler re-focuses via `api.focus()`.
+    // Plain buttons additionally `preventDefault` their mousedown so they
+    // never blur in the first place; this guard covers the dropdown case
+    // where hover-focus is unavoidable.
+    const next = e?.relatedTarget;
+    if (next instanceof HTMLElement && next.closest('[data-text-edit-keepalive]')) {
+      requestRender();
+      return;
+    }
     if (!detached && !committedOnce) {
       committedOnce = true;
       try {

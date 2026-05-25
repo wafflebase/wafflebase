@@ -96,6 +96,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
             size="sm"
             pressed={!!selectionStyle?.bold}
             onPressedChange={toggleBold}
+            onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
             aria-label="Bold"
             disabled={isDisabled}
@@ -113,6 +114,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
             size="sm"
             pressed={!!selectionStyle?.italic}
             onPressedChange={toggleItalic}
+            onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
             aria-label="Italic"
             disabled={isDisabled}
@@ -130,6 +132,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
             size="sm"
             pressed={!!selectionStyle?.underline}
             onPressedChange={toggleUnderline}
+            onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
             aria-label="Underline"
             disabled={isDisabled}
@@ -147,6 +150,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
             size="sm"
             pressed={!!selectionStyle?.strikethrough}
             onPressedChange={toggleStrike}
+            onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
             aria-label="Strikethrough"
             disabled={isDisabled}
@@ -166,6 +170,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Text color"
                 disabled={isDisabled}
+                data-text-edit-keepalive
               >
                 <IconTypography size={16} />
               </button>
@@ -173,7 +178,11 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
           </TooltipTrigger>
           <TooltipContent>Text color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
+        <DropdownMenuContent
+          className="w-auto p-2"
+          data-text-edit-keepalive
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           <ColorPickerGrid
             colors={TEXT_COLORS}
             onSelect={handleTextColor}
@@ -191,6 +200,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Highlight color"
                 disabled={isDisabled}
+                data-text-edit-keepalive
               >
                 <IconHighlight size={16} />
               </button>
@@ -198,7 +208,11 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
           </TooltipTrigger>
           <TooltipContent>Highlight color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
+        <DropdownMenuContent
+          className="w-auto p-2"
+          data-text-edit-keepalive
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           <ColorPickerGrid
             colors={BG_COLORS}
             onSelect={handleHighlightColor}
@@ -212,6 +226,7 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={handleInsertLink}
             aria-label="Insert link"
             disabled={isDisabled}

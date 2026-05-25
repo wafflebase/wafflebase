@@ -59,6 +59,7 @@ export function TextStyleGroup({
               className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Text style"
               disabled={disabled || !editor}
+              data-text-edit-keepalive
             >
               <span className="truncate">
                 {blockType
@@ -71,7 +72,11 @@ export function TextStyleGroup({
         </TooltipTrigger>
         <TooltipContent>Styles</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent className="w-[210px]">
+      <DropdownMenuContent
+        className="w-[210px]"
+        data-text-edit-keepalive
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         {visibleOptions.map((opt) => (
           <DropdownMenuItem
             key={opt.label}
