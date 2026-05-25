@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
@@ -2276,5 +2276,112 @@ describe('Editor — group() with connector exclusion calls onToast', () => {
 
     // No connectors excluded → no toast.
     expect(toastCb).not.toHaveBeenCalled();
+  });
+});
+
+describe('repaintOverlay — group selection visuals', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  afterEach(() => {
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+    document.body.innerHTML = '';
+  });
+
+  function addShape(
+    store: MemSlidesStore,
+    sid: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): string {
+    let id = '';
+    store.batch(() => {
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { x, y, w, h, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return id;
+  }
+
+  it('outlines each member when a group is selected', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const aId = addShape(store, sid, 100, 100, 50, 50);
+    const bId = addShape(store, sid, 300, 100, 50, 50);
+    let groupId = '';
+    store.batch(() => {
+      groupId = store.group(sid, [aId, bId]).groupId;
+    });
+    editor = initialize({
+      canvas,
+      overlay,
+      store,
+      hostWidth: 1920,
+      hostHeight: 1080,
+      dpr: 1,
+    });
+    editor.setSelection([groupId]);
+
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(2);
+    // The group itself still gets resize handles.
+    expect(overlay.querySelector('[data-handle="nw"]')).not.toBeNull();
+  });
+
+  it('does not outline members for a single non-group element', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    const id = addShape(store, sid, 100, 100, 50, 50);
+    editor = initialize({
+      canvas,
+      overlay,
+      store,
+      hostWidth: 1920,
+      hostHeight: 1080,
+      dpr: 1,
+    });
+    editor.setSelection([id]);
+
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(0);
+  });
+
+  it('shows a context box around the group when drilled into a child', () => {
+    const { canvas, overlay, store } = makeGroupedFixture();
+    editor = initialize({
+      canvas,
+      overlay,
+      store,
+      hostWidth: 1920,
+      hostHeight: 1080,
+      dpr: 1,
+    });
+    // Double-click inside shape A's world bounds (150, 140) drills in.
+    canvas.dispatchEvent(
+      new MouseEvent('dblclick', { clientX: 150, clientY: 140, bubbles: true }),
+    );
+
+    // The enclosing group is shown as a context box; the drilled-in
+    // child is a shape, so there are no member outlines.
+    expect(overlay.querySelectorAll('.wfb-slides-context-box').length).toBe(1);
+    expect(
+      overlay.querySelectorAll('.wfb-slides-member-outline').length,
+    ).toBe(0);
   });
 });

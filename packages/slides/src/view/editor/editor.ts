@@ -58,7 +58,7 @@ import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { collectSnapCandidates } from './snap-candidates';
-import { toWorldFrame, fromWorldFrame } from './frame-space';
+import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
@@ -542,8 +542,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // frame to world coords via `toWorldFrame` so that handles paint at
     // the positions the user actually sees.
     const scope = this.selection.getScope();
-    const selected = this.selection
-      .get()
+    const allSelectedIds = this.selection.get();
+    const selected = allSelectedIds
       .filter((id) => id !== this.editingElementId)
       .map((id) => {
         const el = findElement(slide.elements, id);
@@ -559,6 +559,14 @@ class SlidesEditorImpl implements SlidesEditor {
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
+    // groupOverlayFrames keys off the raw selection ids, kept separate
+    // from `selected` above — which is frame-resolved and drops the
+    // text-edit element for handle rendering.
+    const { memberOutlines, contextBox } = groupOverlayFrames(
+      slide,
+      allSelectedIds,
+      scope,
+    );
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -571,6 +579,8 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      memberOutlines,
+      contextBox,
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after

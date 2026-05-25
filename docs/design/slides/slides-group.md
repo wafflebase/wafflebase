@@ -506,6 +506,11 @@ Verification gates: end of P1–P3 → `pnpm verify:fast`; end of P4 →
 
 ### Known Limitations / Follow-ups
 
+- **Selection overlay does not visually distinguish a group.** v1 paints
+  the same box + handles for a single object, a selected group, and a
+  drilled-in child. The distinct group/member/context overlay is designed
+  in [slides-group-selection-ui.md](./slides-group-selection-ui.md).
+
 - **PDF export not implemented for slides v1.** The slides `export/`
   directory does not exist yet. When it is added, the recursive emitter
   pattern from §9 (Task 15 in the implementation plan) can be copied

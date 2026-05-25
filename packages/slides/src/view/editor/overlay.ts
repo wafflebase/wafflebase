@@ -56,6 +56,19 @@ export interface OverlayOptions {
    */
   allElements?: readonly Element[];
   /**
+   * World frames of the direct children of a singly-selected group.
+   * Rendered as faint dashed, handle-less outlines so the user can see
+   * the group's members (PowerPoint-style). Empty / omitted = none.
+   */
+  memberOutlines?: readonly Frame[];
+  /**
+   * World frame of the innermost group the user has drilled into.
+   * Rendered as a faint dashed, handle-less context box so the user
+   * sees the enclosing group (Google Slides-style). Omitted when not
+   * drilled in.
+   */
+  contextBox?: Frame;
+  /**
    * When present, render the connection-points overlay (Task 13): blue
    * dots at the connection sites of the single nearest non-connector
    * element under `cursor`. `cursor` is in slide-logical coords; `zoom`
@@ -161,6 +174,24 @@ export function renderOverlay(
   renderConnectionPointsOverlay(overlay, options);
 
   if (selectedElements.length === 0) return;
+
+  // Context box (drill-in) + member outlines (group selected). Painted
+  // before the selection handles below so the handles stay on top. The
+  // two are mutually exclusive per element (see groupOverlayFrames), so
+  // a single faint-dashed style reads correctly in both roles.
+  if (options.contextBox) {
+    appendOutline(
+      overlay,
+      options.contextBox,
+      options.scale,
+      'wfb-slides-context-box',
+    );
+  }
+  if (options.memberOutlines) {
+    for (const frame of options.memberOutlines) {
+      appendOutline(overlay, frame, options.scale, 'wfb-slides-member-outline');
+    }
+  }
 
   // Connectors get a custom selection treatment: exactly two endpoint
   // handles (start + end) at the resolved endpoint world positions, no
@@ -369,6 +400,40 @@ function renderRotatedHandles(
   const rotateScreenX = topCenter.x * scale + sin * ROTATE_HANDLE_OFFSET;
   const rotateScreenY = topCenter.y * scale - cos * ROTATE_HANDLE_OFFSET;
   overlay.appendChild(makeHandle('rotate', rotateScreenX, rotateScreenY));
+}
+
+// Faint dash of the selection accent #3a7 (= #33aa77 = rgb 51,170,119).
+const OUTLINE_BORDER = '1px dashed rgba(51, 170, 119, 0.5)';
+
+/**
+ * Render a handle-less, non-interactive dashed rectangle at a world
+ * frame. Shared by member outlines (group selected) and the drill-in
+ * context box. Uses CSS rotate so rotation 0 and rotated frames share
+ * one path.
+ */
+function appendOutline(
+  overlay: HTMLDivElement,
+  frame: Frame,
+  scale: number,
+  className: string,
+): void {
+  const el = document.createElement('div');
+  el.className = className;
+  el.style.position = 'absolute';
+  el.style.left = `${frame.x * scale}px`;
+  el.style.top = `${frame.y * scale}px`;
+  el.style.width = `${frame.w * scale}px`;
+  el.style.height = `${frame.h * scale}px`;
+  // Match renderRotatedHandles' `!== 0` guard (Frame.rotation is always
+  // a number); a non-zero rotation CSS-rotates the box about its centre.
+  if (frame.rotation !== 0) {
+    el.style.transform = `rotate(${frame.rotation}rad)`;
+    el.style.transformOrigin = 'center';
+  }
+  el.style.boxSizing = 'border-box';
+  el.style.border = OUTLINE_BORDER;
+  el.style.pointerEvents = 'none';
+  overlay.appendChild(el);
 }
 
 function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
