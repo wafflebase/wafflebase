@@ -21,6 +21,14 @@ const DEFAULT_BACKGROUND: ThemeColor = { kind: 'role', role: 'background' };
 const DEFAULT_STROKE_WIDTH = 2;
 const TEXT_DEFAULT_W = 400;
 const TEXT_DEFAULT_H = 80;
+/**
+ * Minimum width (slide-logical px) for a drag-drawn text box. A
+ * near-vertical drag (large dy, tiny dx) clears the click threshold but
+ * would otherwise yield a sliver-width box; combined with width-driven
+ * wrapping + auto-grow that produces a pathological tall, 1-char-wide
+ * column. Clamp so an off-axis gesture still gives a usable box.
+ */
+const MIN_TEXT_BOX_W = 40;
 
 export interface Point { x: number; y: number; }
 
@@ -303,7 +311,7 @@ export function buildInsertElement(
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const isClick = dx * dx + dy * dy < CLICK_THRESHOLD_PX_SQ;
-    const w = isClick ? TEXT_DEFAULT_W : Math.abs(dx);
+    const w = isClick ? TEXT_DEFAULT_W : Math.max(MIN_TEXT_BOX_W, Math.abs(dx));
     const x = isClick ? start.x : Math.min(start.x, end.x);
     const y = isClick ? start.y : Math.min(start.y, end.y);
     return {

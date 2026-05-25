@@ -161,6 +161,11 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     onCancel();
   };
 
+  // NOTE: the `onContentHeightChange` callback below references `api`. That
+  // is safe only because `initializeTextBox` never fires it synchronously
+  // during construction — its first paint goes through `requestRender()`
+  // (rAF/microtask), so the callback always runs after this `const` binds.
+  // If the docs editor ever fires it synchronously, forward-declare `api`.
   const api: TextBoxEditorAPI = initializeTextBox({
     container,
     canvas,

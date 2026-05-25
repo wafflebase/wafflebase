@@ -54,6 +54,13 @@ describe('buildInsertElement — text', () => {
     const text = buildInsertElement('text', { x: 10, y: 10 }, { x: 12, y: 12 });
     expect(text.frame).toEqual({ x: 10, y: 10, w: 400, h: 80, rotation: 0 });
   });
+
+  it('near-vertical drag → width clamped to MIN_TEXT_BOX_W (no sliver box)', () => {
+    // dx=2, dy=60 clears the click threshold (sub-pixel width would
+    // otherwise auto-grow into a 1-char-wide column).
+    const text = buildInsertElement('text', { x: 10, y: 20 }, { x: 12, y: 80 });
+    expect(text.frame).toEqual({ x: 10, y: 20, w: 40, h: 80, rotation: 0 });
+  });
 });
 
 describe('buildInsertElement — category defaults', () => {
