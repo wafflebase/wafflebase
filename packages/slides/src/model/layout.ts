@@ -32,7 +32,7 @@ function textPlaceholder(
   return {
     type: 'text',
     frame: { x, y, w, h, rotation: 0 },
-    data: { blocks: emptyBlocks() },
+    data: { autofit: 'shrink', blocks: emptyBlocks() },
     placeholder: { type },
   };
 }

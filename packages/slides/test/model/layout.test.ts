@@ -64,6 +64,16 @@ describe('BUILT_IN_LAYOUTS', () => {
       'big-number': ['big-number', 'body'],
     });
   });
+
+  it('seeds text placeholders with shrink autofit', () => {
+    const textPlaceholders = BUILT_IN_LAYOUTS
+      .flatMap((l) => l.placeholders)
+      .filter((p) => p.type === 'text');
+    expect(textPlaceholders.length).toBeGreaterThan(0);
+    for (const p of textPlaceholders) {
+      expect(p.data.autofit).toBe('shrink');
+    }
+  });
 });
 
 describe('getLayout', () => {

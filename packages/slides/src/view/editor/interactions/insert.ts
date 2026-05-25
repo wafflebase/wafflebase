@@ -321,6 +321,7 @@ export function buildInsertElement(
       type: 'text',
       frame: { x, y, w, h: TEXT_DEFAULT_H, rotation: 0 },
       data: {
+        autofit: 'grow',
         blocks: [{
           id: 'placeholder',
           type: 'paragraph',
