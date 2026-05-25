@@ -85,7 +85,11 @@ export async function parseBlipFill(
     return undefined;
   }
 
-  const crop = blipFill ? parseSrcRect(child(blipFill, 'srcRect')) : undefined;
+  // Prefer `<a:srcRect>` (source crop); fall back to `<a:stretch><a:fillRect>`
+  // (destination cover crop). PowerPoint expresses "Fill" cropping either way.
+  const crop = blipFill
+    ? parseSrcRect(child(blipFill, 'srcRect')) ?? parseStretchFillRect(blipFill)
+    : undefined;
   const opacity = blip ? parseAlphaModFix(child(blip, 'alphaModFix')) : undefined;
   return {
     src,
@@ -151,5 +155,48 @@ function parseSrcRect(srcRect: Element | undefined): Crop | undefined {
     w: Math.max(0, 1 - l - r),
     h: Math.max(0, 1 - t - b),
   };
+}
+
+/**
+ * `<a:stretch><a:fillRect l t r b/></a:stretch>` — insets (thousandths of a
+ * percent) of the destination rectangle the image is stretched into, relative
+ * to the shape bounds. NEGATIVE insets scale the image *past* the shape
+ * (PowerPoint "Fill" / cover crop) and the shape clips it; this is the
+ * destination-side dual of `<a:srcRect>`. We convert it to the equivalent
+ * source `Crop` so the renderer's source-rect path reproduces the cover
+ * region instead of stretching the whole image into a mismatched frame.
+ *
+ * The fill region maps image fraction `u` to shape fraction `x` via
+ * `x = l + u·(1-l-r)`, so the shape window `x∈[0,1]` corresponds to source
+ * `u∈[-l/fw, (1-l)/fw]` (with `fw = 1-l-r`). Only the cover case (resulting
+ * crop within `[0,1]`) is representable: the default all-zero fillRect is a
+ * no-op, and positive insets (image inset / letterbox) would sample outside
+ * the image, so we skip them and fall back to a full stretch.
+ */
+function parseStretchFillRect(blipFill: Element): Crop | undefined {
+  const stretch = child(blipFill, 'stretch');
+  const fillRect = stretch ? child(stretch, 'fillRect') : undefined;
+  if (!fillRect) return undefined;
+  const l = (attrInt(fillRect, 'l') ?? 0) / 100_000;
+  const t = (attrInt(fillRect, 't') ?? 0) / 100_000;
+  const r = (attrInt(fillRect, 'r') ?? 0) / 100_000;
+  const b = (attrInt(fillRect, 'b') ?? 0) / 100_000;
+  // Default fillRect (no-op): image fills the shape exactly, no crop needed.
+  if (l === 0 && t === 0 && r === 0 && b === 0) return undefined;
+  const fw = 1 - l - r;
+  const fh = 1 - t - b;
+  if (fw <= 0 || fh <= 0) return undefined;
+  const crop: Crop = { x: -l / fw, y: -t / fh, w: 1 / fw, h: 1 / fh };
+  // Only the cover case maps cleanly to a source sub-rectangle.
+  const EPS = 1e-9;
+  if (
+    crop.x < -EPS ||
+    crop.y < -EPS ||
+    crop.x + crop.w > 1 + EPS ||
+    crop.y + crop.h > 1 + EPS
+  ) {
+    return undefined;
+  }
+  return crop;
 }
 
