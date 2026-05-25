@@ -725,4 +725,48 @@ then `pnpm tasks:archive && pnpm tasks:index`, commit task docs.
 
 ## Review
 
-(filled in after implementation)
+All five tasks implemented via TDD; each step's test failed first, then
+passed after the minimal change.
+
+- **Task 1 (docs engine):** added `onContentHeightChange` option +
+  `setContentHeight()`; fired (de-duped) from `renderNow` post-recompute.
+  Docs unit tests assert the API surface (no canvas ctx in jsdom).
+  794 docs tests green; typecheck clean; `dist/` rebuilt for slides.
+- **Task 2 (slides wrapper):** forwards the callback, resizes
+  container/canvas to the fitted height, delegates `setContentHeight`.
+  End-to-end test under `test-canvas-env` confirms a positive reported
+  height that grows with paragraph count and resizes the container.
+- **Task 3 (insert.ts):** text now uses the shape click-vs-drag rect
+  logic for width + top-left; height stays `TEXT_DEFAULT_H` at insert.
+- **Task 4 (editor.ts):** text insert drag-sizes then enters edit mode
+  (caret inside immediately); the reported content height is fitted into
+  `frame.h` at commit, in one batch with the text write (verified by the
+  single-undo test).
+- **Task 5 (verification):** `pnpm verify:fast` and `pnpm verify:self`
+  both exit 0 (lint, all unit tests, every build, entropy/knip/
+  doc-staleness clean).
+
+### Outcome vs goals
+
+- Insert-to-edit: ✅ — `enterEditMode` on insert (`getEditingElementId`
+  set in test).
+- Drag sizing: ✅ — width + position from the drag; sub-threshold →
+  default width.
+- Auto-grow (content fit, grow + shrink, min one line): ✅ — live canvas
+  resize while editing, `frame.h` fitted at commit.
+- Shapes unaffected: ✅ — only the `text` insert branch changed.
+
+### Known limitations / follow-ups
+
+- No live ghost preview while dragging a text box (an empty text box
+  paints nothing). The box appears on release. Acceptable for v1.
+- `enterEditMode` resolves the element via `slide.elements.find` (top
+  level), so auto-grow applies to top-level text boxes; text inside
+  groups is out of scope here.
+- Width autofit and a per-element autofit-mode selector remain non-goals.
+
+### Pending before merge
+
+- Manual UI smoke in `pnpm dev` (insert click/drag, type to grow, delete
+  to shrink, reopen to confirm persisted height, shapes still
+  select-only) — requires an interactive browser session.
