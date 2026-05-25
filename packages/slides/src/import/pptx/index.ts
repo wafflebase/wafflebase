@@ -81,7 +81,7 @@ export async function importPptx(
     if (opts.uploadImage) {
       const inner = opts.uploadImage;
       let done = 0;
-      upload = async (bytes, mime) => {
+      upload = async (bytes: Uint8Array, mime: string): Promise<string> => {
         try {
           return await inner(bytes, mime);
         } finally {

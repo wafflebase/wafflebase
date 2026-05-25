@@ -43,7 +43,22 @@ describe('importPptx', () => {
     expect(calls[0]).toEqual([0, 2]);
     expect(calls).toHaveLength(3);
     expect(calls.every(([, total]) => total === 2)).toBe(true);
-    expect(calls.map(([done]) => done).sort()).toEqual([0, 1, 2]);
+    expect(calls.map(([done]) => done).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('advances progress even when uploadImage throws', async () => {
+    const buffer = await buildMinimalPptx({ imageCount: 2 });
+    const calls: Array<[number, number]> = [];
+    await importPptx(buffer, {
+      uploadImage: async () => {
+        throw new Error('network down');
+      },
+      onProgress: (done, total) => calls.push([done, total]),
+    });
+    // Both uploads soft-fail, but the `finally` still advances the bar.
+    expect(calls[0]).toEqual([0, 2]);
+    expect(calls).toHaveLength(3);
+    expect(calls.map(([done]) => done).sort((a, b) => a - b)).toEqual([0, 1, 2]);
   });
 
   it('reports (0, 0) for a deck with no images', async () => {
