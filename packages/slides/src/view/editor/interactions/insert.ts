@@ -21,6 +21,14 @@ const DEFAULT_BACKGROUND: ThemeColor = { kind: 'role', role: 'background' };
 const DEFAULT_STROKE_WIDTH = 2;
 const TEXT_DEFAULT_W = 400;
 const TEXT_DEFAULT_H = 80;
+/**
+ * Minimum width (slide-logical px) for a drag-drawn text box. A
+ * near-vertical drag (large dy, tiny dx) clears the click threshold but
+ * would otherwise yield a sliver-width box; combined with width-driven
+ * wrapping + auto-grow that produces a pathological tall, 1-char-wide
+ * column. Clamp so an off-axis gesture still gives a usable box.
+ */
+const MIN_TEXT_BOX_W = 40;
 
 export interface Point { x: number; y: number; }
 
@@ -279,7 +287,10 @@ function defaultsForShape(
  * Build the ElementInit for a freshly-inserted element given the
  * pointer's drag start and end. Behaviour:
  *
- *   - `text` — single-click, default-sized box anchored at `start`.
+ *   - `text` — drag rect sets width + top-left (clamped to
+ *     `MIN_TEXT_BOX_W`); a sub-threshold drag uses `TEXT_DEFAULT_W` at
+ *     `start`. Height is always `TEXT_DEFAULT_H` (the editor fits it to
+ *     content on commit).
  *   - shape, pointer moved ≥ √CLICK_THRESHOLD_PX_SQ — drag rect.
  *   - shape, pointer ~stationary — per-kind default size from
  *     `DEFAULT_INSERT_SIZE`, top-left anchored at `start`.
@@ -295,9 +306,20 @@ export function buildInsertElement(
   end: Point,
 ): ElementInit {
   if (kind === 'text') {
+    // Text participates in the same click-vs-drag rect logic as shapes:
+    // a real drag sets the width + top-left; a sub-threshold drag uses
+    // the default width. Height is NOT taken from the drag — the editor
+    // fits it to content (one line) on the first layout / commit — so we
+    // always seed TEXT_DEFAULT_H here.
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const isClick = dx * dx + dy * dy < CLICK_THRESHOLD_PX_SQ;
+    const w = isClick ? TEXT_DEFAULT_W : Math.max(MIN_TEXT_BOX_W, Math.abs(dx));
+    const x = isClick ? start.x : Math.min(start.x, end.x);
+    const y = isClick ? start.y : Math.min(start.y, end.y);
     return {
       type: 'text',
-      frame: { x: start.x, y: start.y, w: TEXT_DEFAULT_W, h: TEXT_DEFAULT_H, rotation: 0 },
+      frame: { x, y, w, h: TEXT_DEFAULT_H, rotation: 0 },
       data: {
         blocks: [{
           id: 'placeholder',

@@ -78,6 +78,13 @@ export type ConnectorInsertKind = 'connector:line' | 'connector:arrow';
 
 export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
 
+/**
+ * Floor for an auto-grown text box's frame height (logical px). Content
+ * height normally exceeds this; the floor only guards against a
+ * degenerate near-zero height.
+ */
+const MIN_TEXT_BOX_H = 24;
+
 /** Internal helper — recognise connector insert-mode keys. */
 function isConnectorInsertKind(
   kind: InsertKind | null,
@@ -358,7 +365,8 @@ class SlidesEditorImpl implements SlidesEditor {
    * insert is armed and the cursor is over the slide. `null` whenever
    * the ghost should not paint (no insert mode, text mode, cursor
    * outside the canvas, mid-drag). Only shape kinds get a ghost —
-   * text uses a single-click insert at fixed size, no preview needed.
+   * text drag-inserts but an empty text box paints nothing, so no
+   * preview is shown.
    */
   private hoverPreview: { kind: ShapeKind; x: number; y: number } | null = null;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
@@ -397,6 +405,12 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private editingElementId: string | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
+  /**
+   * Latest content height (logical px) reported by the active text-box
+   * editor via onContentHeightChange. Null when not editing or when the
+   * editor has not reported yet. Read at commit to fit the frame height.
+   */
+  private lastEditingContentHeight: number | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
   /** The currently active text-box editor, or null when not editing. */
@@ -1577,6 +1591,12 @@ class SlidesEditorImpl implements SlidesEditor {
     const element = slide.elements.find((e) => e.id === elementId);
     if (!element || element.type !== 'text') return;
 
+    // Frame height at entry; the committed fit only writes when the
+    // content height differs from this. Reset the per-edit tracker so a
+    // stale height from a previous edit can't leak into this commit.
+    const enterFrameH = element.frame.h;
+    this.lastEditingContentHeight = null;
+
     // Make sure the selection is on the editing element so the rest of
     // the editor (toolbar etc.) reflects the active target.
     this.selection.set([elementId]);
@@ -1602,6 +1622,9 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       blocks,
       onLinkRequest: this.options.onLinkRequest,
+      onContentHeightChange: (h: number): void => {
+        this.lastEditingContentHeight = h;
+      },
       onCommit: (next) => {
         // Persist via withTextElement and exit edit mode. We snapshot
         // the slide id at enter-time because the user could have
@@ -1611,6 +1634,15 @@ class SlidesEditorImpl implements SlidesEditor {
           try {
             this.options.store.batch(() => {
               this.options.store.withTextElement(slideId, elementId, () => next);
+              // Fit the frame height to the content in the SAME batch as
+              // the text write — one undo entry, no per-keystroke churn.
+              const h = this.lastEditingContentHeight;
+              if (h !== null) {
+                const targetH = Math.max(MIN_TEXT_BOX_H, h);
+                if (targetH !== enterFrameH) {
+                  this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
+                }
+              }
             });
           } catch {
             // The element may have been removed during editing; swallow
@@ -1662,6 +1694,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
     this.editingElementId = null;
+    this.lastEditingContentHeight = null;
     this.activeTextEditor = null;
     for (const cb of this.textEditingListeners) cb();
     if (tb !== null) {
@@ -1675,7 +1708,7 @@ class SlidesEditorImpl implements SlidesEditor {
   /**
    * Update the hover-ghost position as the cursor moves over the slide
    * canvas. No-op when not in shape-insert mode, when text-insert is
-   * armed (text uses a single-click insert and has no useful ghost),
+   * armed (text drag-inserts but an empty box paints no useful ghost),
    * or while a drag-to-size insert is already in flight (the live
    * drag preview from `startInsert` takes over rendering).
    */
@@ -1803,15 +1836,48 @@ class SlidesEditorImpl implements SlidesEditor {
     const start = this.clientToLogical(clientX, clientY);
 
     if (kind === 'text') {
-      // Single-click insert.
-      const init = buildInsertElement('text', start, start);
-      this.options.store.batch(() => {
-        const id = this.options.store.addElement(slide.id, init);
-        this.selection.set([id]);
-      });
-      this.setInsertMode(null);
-      this.renderer.markDirty();
-      this.render();
+      // Drag-to-size like shapes, but without a ghost preview (an empty
+      // text box paints nothing). On release, place the box and drop the
+      // caret straight inside it — matching Google Slides.
+      this.insertDragging = true;
+      this.hoverPreview = null;
+      let endPoint = start;
+      let cancelled = false;
+      const onMove = (ev: MouseEvent): void => {
+        endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      };
+      const cleanup = (): void => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('keydown', onKey, true);
+        this.insertDragging = false;
+      };
+      const onUp = (): void => {
+        cleanup();
+        if (cancelled) return;
+        const init = buildInsertElement('text', start, endPoint);
+        let id = '';
+        this.options.store.batch(() => {
+          id = this.options.store.addElement(slide.id, init);
+          this.selection.set([id]);
+        });
+        this.setInsertMode(null);
+        // enterEditMode mounts the docs text-box, repaints, and focuses.
+        this.enterEditMode(slide.id, id);
+      };
+      const onKey = (ev: KeyboardEvent): void => {
+        if (ev.key !== 'Escape') return;
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        cancelled = true;
+        cleanup();
+        this.setInsertMode(null);
+        this.renderer.markDirty();
+        this.render();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('keydown', onKey, true);
       return;
     }
 

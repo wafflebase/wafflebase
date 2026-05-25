@@ -38,6 +38,47 @@ describe('initializeTextBox', () => {
     api.detach();
   });
 
+  it('accepts an onContentHeightChange option without throwing', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const onContentHeightChange = vi.fn();
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onContentHeightChange,
+    });
+    // jsdom has no 2D context, so renderNow early-returns and the
+    // callback never fires here — firing is covered in the slides
+    // package under test-canvas-env. We only assert construction.
+    expect(typeof api.setContentHeight).toBe('function');
+    api.detach();
+  });
+
+  it('setContentHeight exists and does not throw', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+    expect(() => api.setContentHeight(120)).not.toThrow();
+    api.detach();
+  });
+
   it('seeds an empty paragraph when blocks is empty', () => {
     const { container, api } = mount([]);
     // The hidden textarea TextEditor mounts is a child of `container`.
