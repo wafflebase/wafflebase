@@ -5,7 +5,7 @@ import {
   type TabMeta,
 } from "@wafflebase/sheets";
 import { pickFile } from "@/app/docs/export-utils";
-import { getUniqueTabName } from "./tab-name";
+import { getUniqueTabName } from "@/app/documents/tab-name";
 
 export function createSpreadsheetDocumentFromImportedXlsxSheets(
   importedSheets: ImportedXlsxSheet[],

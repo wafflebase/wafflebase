@@ -60,7 +60,10 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
-import { clearPendingImport, peekPendingImport } from "./pending-imports";
+import {
+  clearPendingImport,
+  peekPendingImport,
+} from "@/app/spreadsheet/pending-imports";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";

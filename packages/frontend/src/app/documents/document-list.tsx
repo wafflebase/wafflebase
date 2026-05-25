@@ -76,8 +76,8 @@ import { pickAndImportDocx } from "@/app/docs/docx-actions";
 import { setPendingImport } from "@/app/docs/pending-imports";
 import { pickAndImportPptx } from "@/app/slides/pptx-actions";
 import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
-import { pickAndImportXlsx } from "./xlsx-actions";
-import { setPendingImport as setPendingXlsxImport } from "./pending-imports";
+import { pickAndImportXlsx } from "@/app/spreadsheet/xlsx-actions";
+import { setPendingImport as setPendingXlsxImport } from "@/app/spreadsheet/pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   switch (doc.type) {
@@ -438,6 +438,13 @@ export function DocumentList({
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={importing}
+              onClick={handleImportXlsx}
+            >
+              <FileDown className="mr-2 h-4 w-4 text-green-600" />
+              Import XLSX
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={importing}
               onClick={handleImportDocx}
             >
               <FileDown className="mr-2 h-4 w-4 text-blue-500" />
@@ -449,13 +456,6 @@ export function DocumentList({
             >
               <FileDown className="mr-2 h-4 w-4 text-orange-500" />
               Import PPTX
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={importing}
-              onClick={handleImportXlsx}
-            >
-              <FileDown className="mr-2 h-4 w-4 text-green-600" />
-              Import XLSX
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -555,6 +555,13 @@ export function DocumentList({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={importing}
+                          onClick={handleImportXlsx}
+                        >
+                          <FileDown className="mr-2 h-4 w-4 text-green-600" />
+                          Import XLSX
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={importing}
                           onClick={handleImportDocx}
                         >
                           <FileDown className="mr-2 h-4 w-4 text-blue-500" />
@@ -562,10 +569,10 @@ export function DocumentList({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={importing}
-                          onClick={handleImportXlsx}
+                          onClick={handleImportPptx}
                         >
-                          <FileDown className="mr-2 h-4 w-4 text-green-600" />
-                          Import XLSX
+                          <FileDown className="mr-2 h-4 w-4 text-orange-500" />
+                          Import PPTX
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
