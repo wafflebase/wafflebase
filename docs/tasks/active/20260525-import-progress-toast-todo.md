@@ -1,7 +1,7 @@
 ---
 title: Import progress toast (PPTX + DOCX)
 date: 2026-05-25
-status: in-progress
+status: in-review
 ---
 
 # Import progress toast (PPTX + DOCX)
@@ -146,6 +146,9 @@ PPTX/DOCX import, morphing in place into the existing success/error toast.
 single injection point to count progress (no parse-context threading).
 `total` = image-media-file count. Frontend actions forward the filename;
 the document-list handlers drive a lazily-created toast.
+
+**Status:** Tasks 1–4 complete and committed (see Review). Task 5:
+`verify:self` ✓, docs ✓, final review ✓; manual smoke + PR pending.
 
 ---
 
@@ -728,8 +731,45 @@ Run a code-review pass over the branch diff (per CLAUDE.md step 3), then
 
 ## Risk notes
 
-_(filled in during/after implementation)_
+- **Pragmatic denominator drift** — `total` is the image-media-file count,
+  but both importers upload *per reference* (no dedup). A reused image
+  bumps `done` more than once; an unreferenced media file inflates
+  `total`. Mitigated by `Math.min(done, total)` in the toast and by the
+  final success toast overriding the counter. Acceptable for a progress
+  indicator and documented in both importers' JSDoc.
+- **API asymmetry** — PPTX takes `onProgress` in its options object;
+  DOCX takes it as a 3rd positional param. Each importer extended its
+  own existing convention rather than introducing a breaking change.
+- **DOCX aborts on upload error** (existing behavior, unlike PPTX's
+  per-image soft-fail). The in-flight loading toast morphs into the
+  error toast via `{ id }`; no dangling toast.
 
 ## Review
 
-_(filled in after implementation)_
+Implemented via subagent-driven development (fresh implementer + spec
+review + code-quality review per task; final whole-branch review by a
+more capable model).
+
+**Outcome**
+- Commits: `4daa375b` (slides onProgress) → `f98beaf7` (slides review
+  fixes) → `832e7ad1` (docs onProgress) → `8167d327` (frontend toast).
+- `pnpm verify:self` green (lint, all unit tests, all builds, dead-code,
+  doc-staleness — 94s). New unit tests: PPTX (progress, soft-fail still
+  advances, zero images) and DOCX (progress, zero images).
+- Final review verdict: ready to merge; no critical/important issues.
+- Design refined during planning from "thread a counter through every
+  parse context" to "wrap the injected uploader once at the single
+  injection point" — same behavior, far fewer files touched.
+
+**Known limitations (non-blocking)**
+- No unit test for the DOCX abort-on-upload-error toast path (correct by
+  inspection; the PPTX soft-fail path is tested).
+- No test for "onProgress set but uploader omitted while images exist"
+  (`emit(0, N)` once, no increments). Frontend always supplies an
+  uploader, so this is a theoretical boundary only.
+- The progress label reads "Uploading images 0 / N" during the brief
+  parse phase before uploads begin.
+
+**Pending before merge**
+- Manual smoke in `pnpm dev` (file-picker import flow) — not automatable
+  here; to be run by a human. See Plan Task 5 Step 2.
