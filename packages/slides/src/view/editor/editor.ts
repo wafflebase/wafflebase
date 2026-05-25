@@ -542,8 +542,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // frame to world coords via `toWorldFrame` so that handles paint at
     // the positions the user actually sees.
     const scope = this.selection.getScope();
-    const selected = this.selection
-      .get()
+    const allSelectedIds = this.selection.get();
+    const selected = allSelectedIds
       .filter((id) => id !== this.editingElementId)
       .map((id) => {
         const el = findElement(slide.elements, id);
@@ -559,9 +559,12 @@ class SlidesEditorImpl implements SlidesEditor {
         return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
+    // Unfiltered ids on purpose: the member-outline / context-box logic
+    // must still resolve the group even when one of its children is the
+    // element currently being text-edited (excluded from `selected`).
     const { memberOutlines, contextBox } = groupOverlayFrames(
       slide,
-      this.selection.get(),
+      allSelectedIds,
       scope,
     );
     renderOverlay(this.options.overlay, selected, {

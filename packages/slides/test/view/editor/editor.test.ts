@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
@@ -2288,6 +2288,14 @@ describe('repaintOverlay — group selection visuals', () => {
       editor.detach();
       editor = null;
     }
+  });
+
+  afterEach(() => {
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+    document.body.innerHTML = '';
   });
 
   function addShape(
