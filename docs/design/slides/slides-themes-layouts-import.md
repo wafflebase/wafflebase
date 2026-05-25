@@ -362,6 +362,9 @@ choice is **reuse existing**.
 | `<p:cxnSp>` | ShapeElement (line/arrow) | ✅ |
 | `<p:grpSp>` | Flatten: child frames composed with group transform | ⚠️ (group lost) |
 | `<p:graphicFrame><a:tbl>` | Matrix of TextElements + border ShapeElements per cell | ⚠️ (until docs-tables integration in v1.5) |
+| `<p:sp>` with `<a:blipFill>` | ImageElement (shape `xfrm` → frame); full-bleed template visuals built as `custGeom`/`prstGeom` + blip | ✅ (non-rect freeform clip path lost) |
+| `<a:blipFill>` `<a:srcRect>` | source crop → `ImageElement.data.crop` | ✅ |
+| `<a:blipFill>` `<a:stretch><a:fillRect>` (negative insets) | "Fill" / cover crop → equivalent `data.crop`. Cover case only; positive-inset letterbox falls back to full stretch; not composed with `srcRect` | ✅ |
 | `<a:blip>` `alphaModFix` | `amt / 100_000` → `ImageElement.data.opacity` (clamped to `[0, 1]`; dropped at 1) | ✅ |
 | `<a:blip>` recolor / duotone | dropped | ❌ |
 | `frame.rotation` (`rot`) | EMU degrees → radians | ✅ |

@@ -91,6 +91,122 @@ describe('parsePic', () => {
     expect(result?.data.crop).toEqual({ x: 0.1, y: 0.2, w: 0.9, h: 0.8 });
   });
 
+  it('derives a cover Crop from a negative <a:stretch><a:fillRect>', async () => {
+    // Slide-3 "Freeform 15" values: a 2:3 portrait photo fill-cropped into a
+    // square shape. Negative insets scale the image past the shape bounds; the
+    // equivalent source crop must restore the un-distorted cover region.
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"/>
+        <a:stretch><a:fillRect l="-31963" t="-36905" r="-9496" b="-75284"/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.crop?.x).toBeCloseTo(0.22595, 4);
+    expect(result?.data.crop?.y).toBeCloseTo(0.17393, 4);
+    expect(result?.data.crop?.w).toBeCloseTo(0.70692, 4);
+    expect(result?.data.crop?.h).toBeCloseTo(0.47128, 4);
+  });
+
+  it('ignores a default (all-zero) <a:fillRect> — no crop', async () => {
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"/>
+        <a:stretch><a:fillRect l="0" t="0" r="0" b="0"/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.crop).toBeUndefined();
+  });
+
+  it('skips a positive-inset (letterbox) <a:fillRect> — no crop', async () => {
+    // Positive insets draw the image *inside* the shape (margins). Our Crop
+    // model is source-only, so we leave it as a full stretch rather than
+    // sampling outside the image bounds.
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"/>
+        <a:stretch><a:fillRect l="10000" t="10000" r="10000" b="10000"/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.crop).toBeUndefined();
+  });
+
+  it('skips a degenerate <a:fillRect> whose insets collapse the fill region', async () => {
+    // l+r >= 1 (or t+b >= 1) makes the fill width/height non-positive; bail.
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"/>
+        <a:stretch><a:fillRect l="60000" t="0" r="60000" b="0"/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.crop).toBeUndefined();
+  });
+
+  it('prefers <a:srcRect> over <a:fillRect> when both are present', async () => {
+    const pic = picEl(`<p:pic>
+      <p:blipFill>
+        <a:blip r:embed="rId3"/>
+        <a:srcRect l="10000" t="20000" r="0" b="0"/>
+        <a:stretch><a:fillRect l="-50000" t="-50000" r="0" b="0"/></a:stretch>
+      </p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+    </p:pic>`);
+    const result = await parsePic(pic, {
+      archive: fakeArchive({ 'ppt/media/image1.png': new Uint8Array([1]) }),
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map([
+        ['rId3', { type: 'image', target: '../media/image1.png', external: false }],
+      ]),
+      uploadImage: async () => 'u',
+      scale: emuScale(DEFAULT_WIDESCREEN_EMU),
+      report: new ImportReport(),
+    });
+    expect(result?.data.crop).toEqual({ x: 0.1, y: 0.2, w: 0.9, h: 0.8 });
+  });
+
   it('skips and bumps the report when uploadImage throws', async () => {
     const report = new ImportReport();
     const result = await parsePic(picEl(PIC), {
