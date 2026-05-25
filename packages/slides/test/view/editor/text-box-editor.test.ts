@@ -24,6 +24,8 @@ interface MockTextBox extends SlidesTextBoxEditor {
   fireCommit(blocks: Block[]): void;
   /** Fire onCancel, simulating an Escape press. */
   fireCancel(): void;
+  /** Fire onContentHeightChange with a logical height. */
+  fireContentHeight(h: number): void;
   /** Snapshot of the original mount opts for inspection. */
   opts: MountSlidesTextBoxOptions;
 }
@@ -66,6 +68,9 @@ function makeMockMount(): {
       },
       fireCancel(): void {
         opts.onCancel();
+      },
+      fireContentHeight(h: number): void {
+        opts.onContentHeightChange?.(h);
       },
       opts,
       // Formatting surface — no-op stubs for the mock (real delegation is
@@ -536,5 +541,64 @@ describe('SlidesEditor text-editing API', () => {
     expect(typeof textEditor!.undo).toBe('function');
     expect(typeof textEditor!.redo).toBe('function');
     expect(typeof textEditor!.onCursorMove).toBe('function');
+  });
+});
+
+describe('slides text-box insert-to-edit + auto-grow', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) { editor.detach(); editor = null; }
+  });
+
+  it('inserting a text box enters edit mode and adds the element', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const { mount } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    editor.setInsertMode('text');
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 300, clientY: 200, bubbles: true }));
+
+    const els = store.read().slides[0].elements;
+    expect(els.length).toBe(1);
+    expect(els[0].type).toBe('text');
+    expect(editor.getEditingElementId()).toBe(els[0].id);
+    // Insert mode disarms after placing.
+    expect(editor.getInsertMode()).toBeNull();
+  });
+
+  it('commits the fitted content height into the element frame (one undo entry)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let elementId = '';
+    store.batch(() => {
+      elementId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 400, h: 80, rotation: 0 },
+        data: { blocks: [{ id: 'b1', type: 'paragraph', inlines: [{ text: 'hi', style: {} }], style: {} } as Block] },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    editor.enterTextEditing(elementId);
+    // Simulate the docs editor reporting a grown content height.
+    current()!.fireContentHeight(150);
+    current()!.fireCommit([{ id: 'b1', type: 'paragraph', inlines: [{ text: 'hi there', style: {} }], style: {} } as Block]);
+
+    const el = store.read().slides[0].elements.find((e) => e.id === elementId)!;
+    expect(el.frame.h).toBe(150);
+    // Text + height landed in one batch → one undo restores both.
+    store.undo();
+    const reverted = store.read().slides[0].elements.find((e) => e.id === elementId)!;
+    expect(reverted.frame.h).toBe(80);
   });
 });
