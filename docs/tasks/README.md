@@ -18,7 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides group selection ui (2026-05-26) | [20260526-slides-group-selection-ui-todo.md](./active/20260526-slides-group-selection-ui-todo.md) | - |
+| slides group selection ui (2026-05-26) | [20260526-slides-group-selection-ui-todo.md](./active/20260526-slides-group-selection-ui-todo.md) | [20260526-slides-group-selection-ui-lessons.md](./active/20260526-slides-group-selection-ui-lessons.md) |
 | slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./active/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./active/20260526-slides-toolbar-add-slide-focus-lessons.md) |
 | slides textbox toolbar focus (2026-05-25) | [20260525-slides-textbox-toolbar-focus-todo.md](./active/20260525-slides-textbox-toolbar-focus-todo.md) | [20260525-slides-textbox-toolbar-focus-lessons.md](./active/20260525-slides-textbox-toolbar-focus-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
