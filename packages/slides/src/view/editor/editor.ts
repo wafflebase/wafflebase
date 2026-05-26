@@ -581,6 +581,18 @@ class SlidesEditorImpl implements SlidesEditor {
       pendingGuide: this.pendingGuide,
       memberOutlines,
       contextBox,
+      // Autofit mode toggle (GS-style bottom-left affordance on a single
+      // selected text element). Patch only `data.autofit`, then request a
+      // render so the canvas + overlay reflect the new mode immediately
+      // (the store batch by itself does not force a repaint on this path).
+      onAutofitToggle: (elementId, nextMode) => {
+        this.options.store.batch(() => {
+          this.options.store.updateElementData(slide.id, elementId, {
+            autofit: nextMode,
+          });
+        });
+        this.requestRender();
+      },
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after

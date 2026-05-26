@@ -1,5 +1,5 @@
 import type { ConnectorElement, Endpoint } from '../../model/connector';
-import type { Element, Frame } from '../../model/element';
+import type { AutofitMode, Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
 import type { Guide } from '../../model/presentation';
 import {
@@ -83,6 +83,14 @@ export interface OverlayOptions {
     cursor: { x: number; y: number };
     zoom: number;
   };
+  /**
+   * Click handler for the autofit mode toggle. When provided AND a
+   * single text element is selected, the overlay paints a small toggle
+   * button at the element's bottom-left corner (Google-Slides parity).
+   * Clicking flips between `'grow'` (auto-grow box) and `'shrink'` (fixed
+   * box, fonts scale). Omit to suppress the toggle entirely.
+   */
+  onAutofitToggle?: (elementId: string, nextMode: AutofitMode) => void;
 }
 
 /**
@@ -219,6 +227,17 @@ export function renderOverlay(
     renderAdjustmentHandles(overlay, selectedElements[0], options);
   } else {
     renderAxisAlignedHandles(overlay, selectedElements, options);
+  }
+
+  // Autofit toggle (Google-Slides bottom-left affordance). Single text
+  // element, not currently editing (the editing element is filtered out
+  // of `selectedElements` upstream), host opted in via `onAutofitToggle`.
+  if (
+    selectedElements.length === 1 &&
+    selectedElements[0].type === 'text' &&
+    options.onAutofitToggle
+  ) {
+    renderAutofitToggle(overlay, selectedElements[0], options);
   }
 
   // Snap guide lines (drag-time visual feedback). Rendered last so they
@@ -684,4 +703,75 @@ function makeConnectionSiteDot(
   // Affordance only — must not intercept the live connector drag.
   el.style.pointerEvents = 'none';
   return el;
+}
+
+/**
+ * Autofit mode toggle button, painted at the bottom-left corner of a
+ * single selected text element (Google-Slides parity). Click flips
+ * between `'grow'` (box height tracks content) and `'shrink'` (fixed
+ * box, fonts scale to fit). `'none'` is reachable via Format menu / API,
+ * not this button — matching the GS in-context icon which is a 2-state
+ * toggle.
+ *
+ * Absent `autofit` is treated as `'grow'` (the pre-autofit default, see
+ * `slides-text-autofit.md`), so the first click on a never-set box
+ * switches it to `'shrink'`.
+ */
+const AUTOFIT_TOGGLE_SIZE = 22; // host px
+const AUTOFIT_TOGGLE_OFFSET = 4; // host px below the frame
+
+function renderAutofitToggle(
+  overlay: HTMLDivElement,
+  element: Element,
+  options: OverlayOptions,
+): void {
+  if (element.type !== 'text' || !options.onAutofitToggle) return;
+  const current: AutofitMode = element.data.autofit ?? 'grow';
+  // Cycle: grow ⇄ shrink. From 'none', go to 'grow' (re-enable autofit).
+  const next: AutofitMode =
+    current === 'shrink' ? 'grow' : current === 'grow' ? 'shrink' : 'grow';
+
+  const { scale } = options;
+  const x = element.frame.x * scale;
+  const y = (element.frame.y + element.frame.h) * scale + AUTOFIT_TOGGLE_OFFSET;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'wfb-slides-autofit-toggle';
+  // GS uses an icon-only button with a hover tooltip; we match that with
+  // a single-character glyph that visually distinguishes the two modes
+  // and a `title` attribute spelling out the current mode + click action.
+  btn.textContent = current === 'shrink' ? 'A↕' : '↕';
+  btn.title =
+    current === 'shrink'
+      ? 'Shrink text to fit (click to switch to resize shape to fit text)'
+      : current === 'grow'
+        ? 'Resize shape to fit text (click to switch to shrink text)'
+        : 'Autofit off (click to enable resize shape to fit text)';
+  btn.style.position = 'absolute';
+  btn.style.left = `${x}px`;
+  btn.style.top = `${y}px`;
+  btn.style.width = `${AUTOFIT_TOGGLE_SIZE}px`;
+  btn.style.height = `${AUTOFIT_TOGGLE_SIZE}px`;
+  btn.style.padding = '0';
+  btn.style.margin = '0';
+  btn.style.border = '1px solid #888';
+  btn.style.borderRadius = '4px';
+  btn.style.background = '#fff';
+  btn.style.color = '#333';
+  btn.style.fontSize = '11px';
+  btn.style.lineHeight = `${AUTOFIT_TOGGLE_SIZE - 2}px`;
+  btn.style.textAlign = 'center';
+  btn.style.cursor = 'pointer';
+  btn.style.boxSizing = 'border-box';
+  btn.style.pointerEvents = 'auto';
+  btn.style.userSelect = 'none';
+  // Disable browser default focus ring on mousedown so the button
+  // doesn't steal focus from the slide canvas after a click.
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    options.onAutofitToggle?.(element.id, next);
+  });
+  overlay.appendChild(btn);
 }

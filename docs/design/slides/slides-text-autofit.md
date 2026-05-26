@@ -55,9 +55,11 @@ persist `frame.h` on commit (unchanged from the auto-grow feature).
 
 ### Non-Goals
 
-- A user-facing control to switch modes (toolbar / format panel) — a
-  follow-up PR. v1 ships the engine, the selector field, and parity
-  defaults.
+- A toolbar / Format-panel mode picker. v1 ships an **in-context
+  bottom-left toggle button** on a selected text element (Google-Slides
+  parity; see "Mode toggle UI" below) that flips between `grow` and
+  `shrink`. `'none'` is reachable via the API / PPTX import only, not
+  this button.
 - Re-implementing auto-grow — it already exists; this only gates and
   reuses it.
 - Vertical text anchoring; `lnSpcReduction`; PPTX export (import only);
@@ -145,6 +147,26 @@ mode:
 persist is **automatically gated**: the wrapper only fires
 `onContentHeightChange` for grow, so `lastEditingContentHeight` stays
 `null` for shrink/none and no `frame.h` write happens.
+
+### Mode toggle UI
+
+A small button is painted at the bottom-left of a selected text
+element's frame (Google-Slides parity affordance). Clicking flips the
+mode between `'grow'` and `'shrink'`. The host opts in by passing
+`OverlayOptions.onAutofitToggle(elementId, nextMode)`; the slides editor
+wires that to a `store.batch(() => store.updateElementData(...))` that
+patches only `data.autofit`. Renderer / editor wiring already react to
+the new mode on the next repaint — no separate re-mount.
+
+- **Visibility:** single text element selected; suppressed automatically
+  during in-place editing (the editor filters the editing element out of
+  the overlay's `selected` list).
+- **From `'none'`:** clicking the button re-enables autofit by switching
+  to `'grow'`. `'none'` itself stays API-only (no UI to enter it).
+- **Mode-switch geometry:** flipping `grow` → `shrink` keeps the current
+  `frame.h` (the box becomes fixed at its current size). `shrink` → `grow`
+  re-fits height on the next edit; the renderer paints at `frame.h`
+  meanwhile.
 
 ### Default seeding & persistence
 
