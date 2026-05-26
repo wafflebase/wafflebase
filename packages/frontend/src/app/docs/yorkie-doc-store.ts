@@ -56,8 +56,11 @@ type AnchoredDocRange = {
 };
 
 // Enable with: localStorage.setItem('DOCS_DEBUG', '1')
-const isDebug = () =>
-  typeof localStorage !== 'undefined' && localStorage.getItem('DOCS_DEBUG') === '1';
+const isDebug = () => {
+  if (typeof localStorage === 'undefined') return false;
+  if (typeof localStorage.getItem !== 'function') return false;
+  return localStorage.getItem('DOCS_DEBUG') === '1';
+};
 
 /** Summarize a block's inline text for debug logging. */
 function describeBlock(block: Block): string {

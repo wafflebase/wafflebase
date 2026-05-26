@@ -1412,7 +1412,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 0, 'Hey ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 9 });
+      expect(resolved.cursor).toEqual({ blockId: block.id, offset: 9 });
     });
 
     it('resolves a non-collapsed selection after upstream text is inserted', () => {
@@ -1429,7 +1429,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 0, 'Hey ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.selection, {
+      expect(resolved.selection).toEqual({
         anchor: { blockId: block.id, offset: 6 },
         focus: { blockId: block.id, offset: 12 },
         tableCellRange: undefined,
@@ -1448,7 +1448,7 @@ describe('YorkieDocStore', () => {
       store.insertText(headerBlock.id, 0, 'Top ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: headerBlock.id, offset: 10 });
+      expect(resolved.cursor).toEqual({ blockId: headerBlock.id, offset: 10 });
     });
 
     it('resolves a footer caret independently from body blocks', () => {
@@ -1463,7 +1463,7 @@ describe('YorkieDocStore', () => {
       store.insertText(footerBlock.id, 0, 'Low ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: footerBlock.id, offset: 10 });
+      expect(resolved.cursor).toEqual({ blockId: footerBlock.id, offset: 10 });
     });
 
     it('resolves a table-cell caret through nested tree paths', () => {
@@ -1474,7 +1474,7 @@ describe('YorkieDocStore', () => {
       store.insertText(cellBlockId, 0, 'Yo ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: cellBlockId, offset: 5 });
+      expect(resolved.cursor).toEqual({ blockId: cellBlockId, offset: 5 });
     });
 
     it('round-trips a body DocPosition when nothing changes', () => {
@@ -1483,7 +1483,7 @@ describe('YorkieDocStore', () => {
       store.updateCursorPos({ blockId: block.id, offset: 4 });
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 4 });
+      expect(resolved.cursor).toEqual({ blockId: block.id, offset: 4 });
     });
 
     it('leaves the resolved caret unchanged when text is inserted after it', () => {
@@ -1494,7 +1494,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 7, 'XYZ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+      expect(resolved.cursor).toEqual({ blockId: block.id, offset: 5 });
     });
 
     it('keeps the local caret before text inserted at the same boundary', () => {
@@ -1506,7 +1506,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 5, 'X');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+      expect(resolved.cursor).toEqual({ blockId: block.id, offset: 5 });
     });
 
     it('shifts the resolved caret left when upstream text is deleted', () => {
@@ -1517,7 +1517,7 @@ describe('YorkieDocStore', () => {
       store.deleteText(block.id, 1, 3);
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+      expect(resolved.cursor).toEqual({ blockId: block.id, offset: 5 });
     });
 
     it('clamps the resolved caret when the surrounding text is deleted', () => {
@@ -1528,13 +1528,11 @@ describe('YorkieDocStore', () => {
       store.deleteText(block.id, 2, 6);
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.equal(resolved.cursor!.blockId, block.id);
+      expect(resolved.cursor!.blockId).toBe(block.id);
       const remaining = store.getBlock(block.id)!;
       const length = remaining.inlines.reduce((s, i) => s + i.text.length, 0);
-      assert.ok(
-        resolved.cursor!.offset >= 0 && resolved.cursor!.offset <= length,
-        `caret offset ${resolved.cursor!.offset} out of [0,${length}]`,
-      );
+      expect(resolved.cursor!.offset).toBeGreaterThanOrEqual(0);
+      expect(resolved.cursor!.offset).toBeLessThanOrEqual(length);
     });
 
     it('clamps to the surviving original block after a split deletes the anchored text', () => {
@@ -1550,8 +1548,8 @@ describe('YorkieDocStore', () => {
       store.splitBlock(block.id, 5, newBlockId, 'paragraph');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.equal(resolved.cursor!.blockId, block.id);
-      assert.equal(resolved.cursor!.offset, 5);
+      expect(resolved.cursor!.blockId).toBe(block.id);
+      expect(resolved.cursor!.offset).toBe(5);
     });
 
     it('falls back into the surviving region block after a merge removes the anchored block', () => {
@@ -1566,10 +1564,10 @@ describe('YorkieDocStore', () => {
       store.mergeBlock(first.id, second.id);
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.equal(resolved.cursor!.blockId, first.id);
+      expect(resolved.cursor!.blockId).toBe(first.id);
       const merged = store.getBlock(first.id)!;
       const mergedLength = merged.inlines.reduce((s, i) => s + i.text.length, 0);
-      assert.equal(resolved.cursor!.offset, mergedLength);
+      expect(resolved.cursor!.offset).toBe(mergedLength);
     });
 
     it('falls back to the end of the previous region block when the anchor block is deleted', () => {
@@ -1581,8 +1579,8 @@ describe('YorkieDocStore', () => {
       store.deleteBlock(second.id);
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.equal(resolved.cursor!.blockId, first.id);
-      assert.equal(resolved.cursor!.offset, 5);
+      expect(resolved.cursor!.blockId).toBe(first.id);
+      expect(resolved.cursor!.offset).toBe(5);
     });
 
     it('resolves the composition start anchor after upstream text shifts', () => {
@@ -1594,7 +1592,7 @@ describe('YorkieDocStore', () => {
       store.insertText(block.id, 0, 'Hey ');
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.deepEqual(resolved.compositionStart, { blockId: block.id, offset: 9 });
+      expect(resolved.compositionStart).toEqual({ blockId: block.id, offset: 9 });
     });
 
     it('clears the composition anchor when composition ends', () => {
@@ -1604,7 +1602,7 @@ describe('YorkieDocStore', () => {
       store.setCompositionStart(null);
 
       const resolved = store.resolveAnchoredLocalCursor();
-      assert.equal(resolved.compositionStart, null);
+      expect(resolved.compositionStart).toBeNull();
     });
   });
 
