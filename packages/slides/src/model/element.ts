@@ -138,8 +138,11 @@ export type TextElement = ElementBase & {
     stroke?: Stroke;
     fill?: ThemeColor;
     /**
-     * Autofit behavior. Absent ⇒ 'none' so documents created before this
-     * field keep their current fixed-size rendering (no migration).
+     * Autofit behavior. **Absent ⇒ `'grow'`** (the pre-autofit auto-grow
+     * default established by the `slides-textbox-autogrow` feature) so
+     * existing decks keep growing. Set `'none'` explicitly to disable
+     * auto-grow; `'shrink'` to scale fonts to a fixed box. See
+     * `docs/design/slides/slides-text-autofit.md`.
      */
     autofit?: AutofitMode;
   };
