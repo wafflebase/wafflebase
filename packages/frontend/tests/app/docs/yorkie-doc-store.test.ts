@@ -1403,6 +1403,189 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('local caret anchoring', () => {
+    it('resolves a body caret after upstream text is inserted', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+
+      store.insertText(block.id, 0, 'Hey ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 9 });
+    });
+
+    it('resolves a non-collapsed selection after upstream text is inserted', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos(
+        { blockId: block.id, offset: 8 },
+        {
+          anchor: { blockId: block.id, offset: 2 },
+          focus: { blockId: block.id, offset: 8 },
+        },
+      );
+
+      store.insertText(block.id, 0, 'Hey ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.selection, {
+        anchor: { blockId: block.id, offset: 6 },
+        focus: { blockId: block.id, offset: 12 },
+        tableCellRange: undefined,
+      });
+    });
+
+    it('resolves a header caret independently from body blocks', () => {
+      const headerBlock = makeBlock('HeaderText');
+      const bodyBlock = makeBlock('BodyText');
+      store.setDocument({
+        header: { blocks: [headerBlock], marginFromEdge: 48 },
+        blocks: [bodyBlock],
+      });
+      store.updateCursorPos({ blockId: headerBlock.id, offset: 6 });
+
+      store.insertText(headerBlock.id, 0, 'Top ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: headerBlock.id, offset: 10 });
+    });
+
+    it('resolves a footer caret independently from body blocks', () => {
+      const bodyBlock = makeBlock('BodyText');
+      const footerBlock = makeBlock('FooterText');
+      store.setDocument({
+        blocks: [bodyBlock],
+        footer: { blocks: [footerBlock], marginFromEdge: 48 },
+      });
+      store.updateCursorPos({ blockId: footerBlock.id, offset: 6 });
+
+      store.insertText(footerBlock.id, 0, 'Low ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: footerBlock.id, offset: 10 });
+    });
+
+    it('resolves a table-cell caret through nested tree paths', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.updateCursorPos({ blockId: cellBlockId, offset: 2 });
+
+      store.insertText(cellBlockId, 0, 'Yo ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: cellBlockId, offset: 5 });
+    });
+
+    it('round-trips a body DocPosition when nothing changes', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 4 });
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 4 });
+    });
+
+    it('leaves the resolved caret unchanged when text is inserted after it', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+
+      store.insertText(block.id, 7, 'XYZ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+    });
+
+    it('keeps the local caret before text inserted at the same boundary', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+
+      // Simulate a remote insert exactly at the anchored boundary.
+      store.insertText(block.id, 5, 'X');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+    });
+
+    it('shifts the resolved caret left when upstream text is deleted', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 8 });
+
+      store.deleteText(block.id, 1, 3);
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 5 });
+    });
+
+    it('clamps the resolved caret when the surrounding text is deleted', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+
+      store.deleteText(block.id, 2, 6);
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.equal(resolved.cursor!.blockId, block.id);
+      const remaining = store.getBlock(block.id)!;
+      const length = remaining.inlines.reduce((s, i) => s + i.text.length, 0);
+      assert.ok(
+        resolved.cursor!.offset >= 0 && resolved.cursor!.offset <= length,
+        `caret offset ${resolved.cursor!.offset} out of [0,${length}]`,
+      );
+    });
+
+    it('clamps to the surviving original block after a split deletes the anchored text', () => {
+      // splitBlock uses delete+insert (not native Yorkie splitLevel=2) so an
+      // anchor pointing into the deleted "after" portion no longer resolves
+      // through CRDT semantics. Fallback clamps to the end of the surviving
+      // original block, which keeps the caret visible without a crash.
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 7 });
+
+      const newBlockId = generateBlockId();
+      store.splitBlock(block.id, 5, newBlockId, 'paragraph');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.equal(resolved.cursor!.blockId, block.id);
+      assert.equal(resolved.cursor!.offset, 5);
+    });
+
+    it('falls back into the surviving region block after a merge removes the anchored block', () => {
+      // mergeBlock also uses delete+insert, so an anchor inside the deleted
+      // block falls through the deterministic ladder to the previous region
+      // block's end. The logical offset is not preserved through the merge.
+      const first = makeBlock('Hello');
+      const second = makeBlock('World');
+      store.setDocument({ blocks: [first, second] });
+      store.updateCursorPos({ blockId: second.id, offset: 3 });
+
+      store.mergeBlock(first.id, second.id);
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.equal(resolved.cursor!.blockId, first.id);
+      const merged = store.getBlock(first.id)!;
+      const mergedLength = merged.inlines.reduce((s, i) => s + i.text.length, 0);
+      assert.equal(resolved.cursor!.offset, mergedLength);
+    });
+
+    it('falls back to the end of the previous region block when the anchor block is deleted', () => {
+      const first = makeBlock('Hello');
+      const second = makeBlock('World');
+      store.setDocument({ blocks: [first, second] });
+      store.updateCursorPos({ blockId: second.id, offset: 2 });
+
+      store.deleteBlock(second.id);
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.equal(resolved.cursor!.blockId, first.id);
+      assert.equal(resolved.cursor!.offset, 5);
+    });
+  });
+
   describe('setBlockType', () => {
     it('should change block type to heading', () => {
       const block = makeBlock('Hello');

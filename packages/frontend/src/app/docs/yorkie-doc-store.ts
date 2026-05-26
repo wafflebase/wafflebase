@@ -18,6 +18,8 @@ import type {
   TableCell,
   CellStyle,
   BorderStyle,
+  DocPosition,
+  DocRange,
 } from '@wafflebase/docs';
 import {
   resolvePageSetup,
@@ -33,6 +35,25 @@ import {
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
+
+type DocRegion = 'body' | 'header' | 'footer';
+type TreePosRange = ReturnType<YorkieDocsRoot['content']['indexRangeToPosRange']>;
+
+type AnchoredDocPosition = {
+  region: DocRegion;
+  blockId: string;
+  offset: number;
+  /** Index of the top-level region block that contained the caret at anchor time. */
+  regionTopIndex: number;
+  yorkiePosition: TreePosRange;
+  lineAffinity?: 'forward' | 'backward';
+};
+
+type AnchoredDocRange = {
+  anchor: AnchoredDocPosition;
+  focus: AnchoredDocPosition;
+  tableCellRange?: DocRange['tableCellRange'];
+};
 
 // Enable with: localStorage.setItem('DOCS_DEBUG', '1')
 const isDebug = () =>
@@ -474,6 +495,8 @@ export class YorkieDocStore implements DocStore {
   private cachedDoc: Document | null = null;
   private dirty = true;
   private pendingCursorPos: { blockId: string; offset: number } | null = null;
+  private localCursorAnchor: AnchoredDocPosition | null = null;
+  private localSelectionAnchor: AnchoredDocRange | null = null;
   /** Undo stack depth after setDocument — users cannot undo past this point. */
   private undoFloor = 0;
 
@@ -803,6 +826,226 @@ export class YorkieDocStore implements DocStore {
       .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
       .reduce((sum, t) => sum + t.value.length, 0);
     return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
+  }
+
+  private blockTextLength(block: Block): number {
+    return block.inlines.reduce((sum, inline) => sum + inline.text.length, 0);
+  }
+
+  private anchorDocPosition(
+    pos: DocPosition,
+    lineAffinity: 'forward' | 'backward' = 'backward',
+  ): AnchoredDocPosition | null {
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') return null;
+
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(pos.blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    const blockNode = this.getTreeBlockNode(tree.getRootTreeNode(), blockPath);
+    const clampedOffset = Math.max(0, Math.min(pos.offset, this.blockTextLength(block)));
+    const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, clampedOffset);
+    const index = tree.pathToIndex([...blockPath, inlineIndex, charOffset]);
+    const regionTopIndex = this.topLevelRegionIndex(currentDoc, region, pos.blockId);
+
+    return {
+      region,
+      blockId: pos.blockId,
+      offset: clampedOffset,
+      regionTopIndex,
+      yorkiePosition: tree.indexRangeToPosRange([index, index]),
+      lineAffinity,
+    };
+  }
+
+  private topLevelRegionIndex(
+    currentDoc: Document,
+    region: DocRegion,
+    blockId: string,
+  ): number {
+    const topBlocks = this.regionBlocksFor(currentDoc, region);
+    for (let i = 0; i < topBlocks.length; i++) {
+      if (topBlocks[i].id === blockId) return i;
+      if (topBlocks[i].type === 'table' && this.findBlockInTable(topBlocks[i], blockId)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private anchorDocRange(selection: DocRange | null | undefined): AnchoredDocRange | null {
+    if (!selection) return null;
+    const anchor = this.anchorDocPosition(selection.anchor, 'backward');
+    const focus = this.anchorDocPosition(selection.focus, 'backward');
+    if (!anchor || !focus) return null;
+    return {
+      anchor,
+      focus,
+      tableCellRange: selection.tableCellRange,
+    };
+  }
+
+  private treeNodeAtPath(treeRoot: TreeNode, path: number[]): TreeNode | undefined {
+    let node: TreeNode | undefined = treeRoot;
+    for (const idx of path) {
+      node = ((node as ElementNode | undefined)?.children ?? [])[idx];
+      if (!node) return undefined;
+    }
+    return node;
+  }
+
+  private findContainingBlockPath(treeRoot: TreeNode, path: number[]): number[] | null {
+    for (let len = path.length; len >= 0; len--) {
+      const candidate = path.slice(0, len);
+      const node = this.treeNodeAtPath(treeRoot, candidate);
+      if (node?.type !== 'block') continue;
+      const attrs = ((node as ElementNode).attributes ?? {}) as Record<string, string>;
+      if (attrs.id) return candidate;
+    }
+    return null;
+  }
+
+  private blockOffsetFromPath(blockNode: TreeNode, pathInBlock: number[]): number {
+    const el = blockNode as ElementNode;
+    const inlineChildren = (el.children ?? []).filter(
+      (c): c is ElementNode => c.type === 'inline',
+    );
+    const inlineIndex = Math.max(0, Math.min(pathInBlock[0] ?? 0, inlineChildren.length - 1));
+    const charOffset = Math.max(0, pathInBlock[1] ?? 0);
+    let offset = 0;
+    for (let i = 0; i < inlineIndex; i++) {
+      offset += (inlineChildren[i].children ?? [])
+        .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+        .reduce((sum, text) => sum + text.value.length, 0);
+    }
+    const inlineLength = (inlineChildren[inlineIndex]?.children ?? [])
+      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+      .reduce((sum, text) => sum + text.value.length, 0);
+    return offset + Math.min(charOffset, inlineLength);
+  }
+
+  private resolveAnchoredDocPosition(anchor: AnchoredDocPosition): DocPosition {
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
+      return { blockId: anchor.blockId, offset: anchor.offset };
+    }
+
+    try {
+      const [index] = tree.posRangeToIndexRange(anchor.yorkiePosition);
+      const path = tree.indexToPath(index);
+      const treeRoot = tree.getRootTreeNode();
+      const blockPath = this.findContainingBlockPath(treeRoot, path);
+      if (!blockPath) return this.fallbackAnchoredDocPosition(anchor);
+
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const attrs = ((blockNode as ElementNode).attributes ?? {}) as Record<string, string>;
+      const blockId = attrs.id;
+      if (!blockId) return this.fallbackAnchoredDocPosition(anchor);
+      return {
+        blockId,
+        offset: this.blockOffsetFromPath(blockNode, path.slice(blockPath.length)),
+      };
+    } catch {
+      return this.fallbackAnchoredDocPosition(anchor);
+    }
+  }
+
+  private regionBlocksFor(currentDoc: Document, region: DocRegion): Block[] {
+    if (region === 'header') return currentDoc.header?.blocks ?? [];
+    if (region === 'footer') return currentDoc.footer?.blocks ?? [];
+    return currentDoc.blocks;
+  }
+
+  private firstEditableTopBlock(blocks: Block[]): Block | null {
+    for (const block of blocks) {
+      if (block.inlines.length > 0) return block;
+      if (block.type === 'table') return block;
+    }
+    return blocks[0] ?? null;
+  }
+
+  private endOfTopBlock(block: Block): DocPosition {
+    if (block.type === 'table' && block.tableData) {
+      const rows = block.tableData.rows;
+      const lastRow = rows[rows.length - 1];
+      const lastCell = lastRow?.cells[lastRow.cells.length - 1];
+      const lastInner = lastCell?.blocks[lastCell.blocks.length - 1];
+      if (lastInner) {
+        return { blockId: lastInner.id, offset: this.blockTextLength(lastInner) };
+      }
+    }
+    return { blockId: block.id, offset: this.blockTextLength(block) };
+  }
+
+  private startOfTopBlock(block: Block): DocPosition {
+    if (block.type === 'table' && block.tableData) {
+      const firstCell = block.tableData.rows[0]?.cells[0];
+      const firstInner = firstCell?.blocks[0];
+      if (firstInner) {
+        return { blockId: firstInner.id, offset: 0 };
+      }
+    }
+    return { blockId: block.id, offset: 0 };
+  }
+
+  private fallbackAnchoredDocPosition(anchor: AnchoredDocPosition): DocPosition {
+    const currentDoc = this.getDocument();
+    const sameBlock = this.getBlock(anchor.blockId);
+    if (sameBlock) {
+      return {
+        blockId: anchor.blockId,
+        offset: Math.min(anchor.offset, this.blockTextLength(sameBlock)),
+      };
+    }
+
+    const regionTop = this.regionBlocksFor(currentDoc, anchor.region);
+    if (anchor.regionTopIndex >= 0) {
+      const previousTop = regionTop[anchor.regionTopIndex - 1];
+      if (previousTop) {
+        return this.endOfTopBlock(previousTop);
+      }
+      const nextTop = regionTop[anchor.regionTopIndex];
+      if (nextTop) {
+        return this.startOfTopBlock(nextTop);
+      }
+    }
+
+    const regionFallback = this.firstEditableTopBlock(regionTop);
+    if (regionFallback) {
+      return this.startOfTopBlock(regionFallback);
+    }
+
+    const bodyFallback = this.firstEditableTopBlock(currentDoc.blocks);
+    if (bodyFallback) {
+      return this.startOfTopBlock(bodyFallback);
+    }
+    return { blockId: anchor.blockId, offset: 0 };
+  }
+
+  resolveAnchoredLocalCursor(): { cursor: DocPosition | null; selection: DocRange | null } {
+    const cursor = this.localCursorAnchor
+      ? this.resolveAnchoredDocPosition(this.localCursorAnchor)
+      : null;
+    const selection = this.localSelectionAnchor
+      ? {
+          anchor: this.resolveAnchoredDocPosition(this.localSelectionAnchor.anchor),
+          focus: this.resolveAnchoredDocPosition(this.localSelectionAnchor.focus),
+          tableCellRange: this.localSelectionAnchor.tableCellRange,
+        }
+      : null;
+
+    if (cursor || selection) {
+      this.doc.update((_, p) => {
+        p.set({
+          activeCursorPos: cursor ?? undefined,
+          activeSelection: selection ?? undefined,
+        } as Partial<DocsPresence>);
+      });
+    }
+
+    return { cursor, selection };
   }
 
   /**
@@ -2351,6 +2594,8 @@ export class YorkieDocStore implements DocStore {
       };
     } | null,
   ): void {
+    this.localCursorAnchor = pos ? this.anchorDocPosition(pos, 'backward') : null;
+    this.localSelectionAnchor = this.anchorDocRange(selection ?? null);
     this.doc.update((_, p) => {
       p.set({
         activeCursorPos: pos ?? undefined,

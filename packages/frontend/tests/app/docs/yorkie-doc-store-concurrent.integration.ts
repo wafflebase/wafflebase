@@ -421,6 +421,124 @@ describe('YorkieDocStore concurrent inline styling', { skip: !shouldRun }, () =>
   });
 });
 
+describe('YorkieDocStore local caret anchoring', { skip: !shouldRun }, () => {
+  it('keeps User B caret anchored when User A inserts upstream text', async () => {
+    const block = makeBlock('HelloWorld');
+    const ctx = await createTwoUserDocs('caret-anchor-insert', [block]);
+    try {
+      ctx.storeB.updateCursorPos({ blockId: block.id, offset: 5 });
+
+      ctx.storeA.insertText(block.id, 0, 'Hey ');
+      await ctx.sync();
+
+      const resolved = ctx.storeB.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: block.id, offset: 9 });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('keeps both User B selection endpoints anchored across upstream edits', async () => {
+    const block = makeBlock('HelloWorld');
+    const ctx = await createTwoUserDocs('selection-anchor-insert-delete', [block]);
+    try {
+      ctx.storeB.updateCursorPos(
+        { blockId: block.id, offset: 8 },
+        {
+          anchor: { blockId: block.id, offset: 2 },
+          focus: { blockId: block.id, offset: 8 },
+        },
+      );
+
+      ctx.storeA.insertText(block.id, 0, 'Hey ');
+      ctx.storeA.deleteText(block.id, 4, 1);
+      await ctx.sync();
+
+      const resolved = ctx.storeB.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.selection, {
+        anchor: { blockId: block.id, offset: 5 },
+        focus: { blockId: block.id, offset: 11 },
+        tableCellRange: undefined,
+      });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('keeps table-cell selection endpoints anchored across upstream edits', async () => {
+    const tableBlock = createTableBlock(2, 2);
+    const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'HelloWorld', style: {} }];
+
+    const ctx = await createTwoUserDocs('selection-anchor-table-cell', [tableBlock]);
+    try {
+      ctx.storeB.updateCursorPos(
+        { blockId: cellBlock.id, offset: 8 },
+        {
+          anchor: { blockId: cellBlock.id, offset: 2 },
+          focus: { blockId: cellBlock.id, offset: 8 },
+        },
+      );
+
+      ctx.storeA.insertText(cellBlock.id, 0, 'Hey ');
+      ctx.storeA.deleteText(cellBlock.id, 4, 1);
+      await ctx.sync();
+
+      const resolved = ctx.storeB.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.selection, {
+        anchor: { blockId: cellBlock.id, offset: 5 },
+        focus: { blockId: cellBlock.id, offset: 11 },
+        tableCellRange: undefined,
+      });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('keeps a header caret anchored across upstream edits', async () => {
+    const bodyBlock = makeBlock('Body');
+    const headerBlock = makeBlock('HeaderText');
+    const ctx = await createTwoUserDocs(
+      'caret-anchor-header',
+      [bodyBlock],
+      { blocks: [headerBlock], marginFromEdge: 48 },
+    );
+    try {
+      ctx.storeB.updateCursorPos({ blockId: headerBlock.id, offset: 6 });
+
+      ctx.storeA.insertText(headerBlock.id, 0, 'Top ');
+      await ctx.sync();
+
+      const resolved = ctx.storeB.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: headerBlock.id, offset: 10 });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('keeps a footer caret anchored across upstream edits', async () => {
+    const bodyBlock = makeBlock('Body');
+    const footerBlock = makeBlock('FooterText');
+    const ctx = await createTwoUserDocs(
+      'caret-anchor-footer',
+      [bodyBlock],
+      undefined,
+      { blocks: [footerBlock], marginFromEdge: 48 },
+    );
+    try {
+      ctx.storeB.updateCursorPos({ blockId: footerBlock.id, offset: 6 });
+
+      ctx.storeA.insertText(footerBlock.id, 0, 'Low ');
+      await ctx.sync();
+
+      const resolved = ctx.storeB.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.cursor, { blockId: footerBlock.id, offset: 10 });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Table cell concurrent editing
 // ---------------------------------------------------------------------------

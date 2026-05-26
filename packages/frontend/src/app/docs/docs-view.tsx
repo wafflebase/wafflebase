@@ -353,7 +353,12 @@ export function DocsView({
     // refresh() updates the Doc's cached document from the store, then
     // render() repaints the canvas with the latest content.
     store.onRemoteChange = () => {
+      const resolvedLocalCursor = store.resolveAnchoredLocalCursor();
       editor.getDoc().refresh();
+      editor.restoreLocalCursor(
+        resolvedLocalCursor.cursor,
+        resolvedLocalCursor.selection,
+      );
       editor.validateCursorPosition();
       editor.render();
     };

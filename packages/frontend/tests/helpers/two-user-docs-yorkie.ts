@@ -2,7 +2,7 @@ import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '@/app/docs/yorkie-doc-store.ts';
 import type { YorkieDocsRoot } from '@/types/docs-document.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
-import type { Block } from '@wafflebase/docs';
+import type { Block, HeaderFooter } from '@wafflebase/docs';
 
 type YorkieClient = {
   activate(): Promise<void>;
@@ -77,6 +77,8 @@ export interface TwoUserDocsContext {
 export async function createTwoUserDocs(
   testName: string,
   initialBlocks: Block[],
+  initialHeader?: HeaderFooter,
+  initialFooter?: HeaderFooter,
 ): Promise<TwoUserDocsContext> {
   const slug = testName.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   const docKey = `docs-concurrent-${slug}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -107,7 +109,11 @@ export async function createTwoUserDocs(
     });
 
     const storeA = new YorkieDocStore(docA as never);
-    storeA.setDocument({ blocks: initialBlocks });
+    storeA.setDocument({
+      blocks: initialBlocks,
+      header: initialHeader,
+      footer: initialFooter,
+    });
 
     // Mirror production document creation (see `initialDocsRoot`): the
     // comments map is created once at bootstrap so concurrent first-inserts

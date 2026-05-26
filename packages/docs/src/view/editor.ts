@@ -11,7 +11,7 @@ import { computeLayout, resolveInlineFont, type DocumentLayout, type LayoutCache
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
-import type { DocPosition, HeaderFooter } from '../model/types.js';
+import type { DocPosition, DocRange, HeaderFooter } from '../model/types.js';
 import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
@@ -105,6 +105,8 @@ export interface EditorAPI {
    * the cursor itself has not moved.
    */
   onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): () => void;
+  /** Restore local cursor and selection after collaborative anchor resolution. */
+  restoreLocalCursor(cursorPos: DocPosition | null, range?: DocRange | null): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
@@ -2672,6 +2674,16 @@ export function initialize(
     },
     focus: () => textEditor?.focus(),
     validateCursorPosition,
+    restoreLocalCursor: (cursorPos, range) => {
+      if (cursorPos && doc.findBlock(cursorPos.blockId)) {
+        const block = doc.getBlock(cursorPos.blockId);
+        cursor.moveTo({
+          blockId: cursorPos.blockId,
+          offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
+        });
+      }
+      selection.setRange(range ?? null);
+    },
     resetAfterDocumentReplace: () => {
       pending.clear();
       doc.refresh();
