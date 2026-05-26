@@ -79,7 +79,8 @@ The Yorkie-backed frontend integration should own the anchored representation:
 ```ts
 type AnchoredDocPosition = {
   region: 'body' | 'header' | 'footer';
-  yorkiePosition: unknown;
+  yorkiePosition: TreePos;
+  lineAffinity?: 'forward' | 'backward';
 };
 
 type AnchoredDocRange = {
@@ -89,10 +90,19 @@ type AnchoredDocRange = {
 };
 ```
 
-The concrete `yorkiePosition` type should be selected from the Yorkie SDK Tree
-position APIs used by the collaboration layer. The important boundary is that
-Yorkie-specific state does not leak into the core docs model unless
-implementation proves that the boundary is too expensive or ambiguous.
+The concrete anchor is Yorkie's Tree position type. Convert a collapsed caret
+or range endpoint with `tree.indexRangeToPosRange([index, index])`, and resolve
+it with `tree.posRangeToIndexRange(posRange)`. A caret is a collapsed range, so
+`AnchoredDocRange` maps 1:1 to two endpoint anchors. Yorkie-specific state
+does not leak into the core docs model; `packages/docs` still receives only
+resolved `DocPosition` values.
+
+Headers, body, and footers all live in the same `root.content` Tree as sibling
+top-level containers. Header and footer blocks are wrapped by top-level
+`type: 'header' | 'footer'` nodes, while body blocks are direct top-level
+block nodes. `indexRangeToPosRange` therefore handles all three regions
+uniformly. The `region` tag is retained only so fallback stays region-local
+when the anchor target is deleted.
 
 ### Data Flow
 
@@ -108,6 +118,10 @@ Remote document change arrives
   -> editor cursor and selection are updated
   -> render cache is invalidated and repaint happens
 ```
+
+The anchor is canonical. A resolved `DocPosition` is a cache derived from the
+current Tree snapshot and is invalidated on remote change. `pendingCursorPos`
+continues to store absolute offsets for undo/redo presence history for now.
 
 ### Converting DocPosition To An Anchor
 
@@ -147,9 +161,21 @@ After remote insert at start: Hi Hello wo|rld
 
 ### Remote Insert At The Same Boundary
 
-Use Yorkie Tree position semantics for tie-breaking. The implementation should
-document whether the local caret resolves before or after the concurrently
-inserted remote text at the same boundary.
+Use Yorkie Tree position semantics for tie-breaking, then apply the local
+affinity rule before fallback. The local caret uses right affinity for the
+user's own insert so typing advances the caret after inserted text. Remote
+inserts at the same boundary use left affinity so the local caret stays before
+the remotely inserted text, matching Google Docs behavior.
+
+```text
+User B anchor: He|llo
+User A inserts "y" at the same boundary
+Resolved for B: He|yllo
+```
+
+Tests must assert this same-boundary affinity. If the Yorkie SDK's
+`posRangeToIndexRange` semantics differ, the frontend wrapper normalizes the
+resolved `DocPosition` to this rule.
 
 ### Remote Delete Before Caret
 
@@ -168,11 +194,25 @@ If a remote edit splits a block before or at the local caret, the anchor should
 resolve into the correct resulting block according to Yorkie Tree semantics.
 The resolved `blockId` may change.
 
+Today's `splitBlock` implementation uses `delete + insert` rather than Yorkie's
+native `splitLevel=2`, so a Yorkie Tree position pointing into the deleted
+"after" portion cannot be preserved across the split. Resolution falls through
+the deterministic fallback ladder to the surviving original block clamped to
+its new end. Switching to native `splitLevel=2` is tracked in *Known
+Follow-Ups* and would let the anchor land in the new block at the logical
+offset without a fallback.
+
 ### Block Merge
 
 If a remote edit merges two blocks and the caret was in the removed block, the
 anchor should resolve into the surviving merged block at the corresponding
 logical offset.
+
+Today's `mergeBlock` also uses `delete + clone-insert`, so a Yorkie Tree
+position pointing into the deleted block cannot follow the merge through CRDT
+semantics. Resolution falls back to "end of the previous region block" via the
+fallback ladder; the logical offset within the merged content is not
+preserved. Native CRDT-preserving merge is tracked in *Known Follow-Ups*.
 
 ### Headers And Footers
 
@@ -204,25 +244,24 @@ land at the same position:
 5. First editable body block.
 
 Determinism matters because non-deterministic fallback would diverge selection
-state between clients during concurrent edits. The order above is illustrative
-and should be confirmed during implementation against the concrete Yorkie Tree
-semantics.
+state between clients during concurrent edits. Same-boundary affinity is
+applied first; if the Yorkie position no longer resolves to a usable block, the
+fallback ladder above is the canonical order. During implementation, verify
+and pin the exact SDK behavior for a `TreePos` whose node was deleted.
 
 ### IME Composition
 
 The local caret anchor is captured before composition starts and should remain
 tied to the composition start boundary until `compositionend`.
 
-The current editor updates the model during composition by replacing the
-previous composing text at `composition.startPosition`, then normalizes the
-final text again on `compositionend`. This design should anchor
-`composition.startPosition` itself, so a remote edit before the composing text
-does not leave composition commits targeting the old absolute offset.
-
-If a remote edit lands mid-composition, resolve the composition-start anchor
-before the next composition replacement or final commit. The visible composing
-text may shift on screen with the anchor, but it should not be committed at a
-stale absolute offset.
+The text editor anchors `composition.startPosition` itself: on
+`compositionstart` it notifies the collaboration layer with the current cursor
+position, which captures a Yorkie Tree anchor; on `compositionend` it clears
+the anchor. When a remote change arrives mid-composition, the anchor is
+resolved and the text editor's cached `composition.startPosition` is replaced
+with the new resolved `DocPosition` before the next composing-text replacement
+or final commit. The visible composing text may shift on screen with the
+anchor, but it is never committed at a stale absolute offset.
 
 ## Testing Strategy
 
@@ -230,6 +269,8 @@ stale absolute offset.
 
 - Convert a body `DocPosition` to an anchor and back with no document changes.
 - Remote insert before caret shifts the resolved offset right.
+- Remote insert at the same boundary resolves with left affinity for remote
+  text.
 - Remote insert after caret leaves the resolved offset unchanged.
 - Remote delete before caret shifts the resolved offset left.
 - Remote delete covering caret clamps to a valid nearby boundary.
@@ -238,6 +279,10 @@ stale absolute offset.
 - Header and footer anchors preserve region identity.
 - Table-cell anchors resolve through nested table paths.
 - Selection anchoring resolves both `anchor` and `focus` correctly.
+- The composition start anchor resolves to a shifted `DocPosition` after
+  remote text is inserted before it, and is cleared on `compositionend`.
+- The fallback ladder lands at the end of the previous region block when the
+  anchor's block is deleted.
 
 ### Integration Tests
 
@@ -245,8 +290,11 @@ stale absolute offset.
 - User B places the caret in the middle of a paragraph.
 - User A inserts text before User B's caret.
 - User B's caret remains attached to the same logical character boundary.
+- User B creates a non-collapsed selection in a paragraph, User A inserts and
+  deletes upstream text, and both `anchor` and `focus` resolve correctly.
 - Repeat the same scenario for a table-cell paragraph.
-- Repeat the same scenario for a header or footer paragraph.
+- Repeat the same scenario in a header paragraph.
+- Repeat the same scenario in a footer paragraph.
 
 ## Rollout Plan
 
@@ -267,6 +315,14 @@ behavior under concurrent remote edits. It is intentionally out of scope for
 this note so the first change stays focused on live caret and selection, but
 it is a natural follow-up that can reuse the same anchor representation.
 
+`splitBlock` and `mergeBlock` use `delete + insert` against the Yorkie Tree
+rather than the SDK's native `splitLevel`. As a result, an anchor whose target
+text is removed by a remote split or merge cannot follow through Yorkie CRDT
+semantics and falls through the deterministic fallback ladder. Moving these
+operations to native split/merge would let the anchor preserve its logical
+offset across remote structural edits; this requires also restoring undo/redo
+behavior previously documented as broken under `splitLevel=2`.
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |
@@ -281,9 +337,6 @@ it is a natural follow-up that can reuse the same anchor representation.
 
 ## Open Questions
 
-- Which concrete Yorkie SDK Tree position type should local anchors store?
-- What affinity should the local caret use when remote text is inserted at the
-  exact same boundary?
 - Should remote peer cursor presence eventually use the same anchored
   representation, or remain resolved display data?
 - Should fallback after a deleted block prefer visual proximity, document order,
