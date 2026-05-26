@@ -497,6 +497,7 @@ export class YorkieDocStore implements DocStore {
   private pendingCursorPos: { blockId: string; offset: number } | null = null;
   private localCursorAnchor: AnchoredDocPosition | null = null;
   private localSelectionAnchor: AnchoredDocRange | null = null;
+  private compositionStartAnchor: AnchoredDocPosition | null = null;
   /** Undo stack depth after setDocument — users cannot undo past this point. */
   private undoFloor = 0;
 
@@ -1024,7 +1025,11 @@ export class YorkieDocStore implements DocStore {
     return { blockId: anchor.blockId, offset: 0 };
   }
 
-  resolveAnchoredLocalCursor(): { cursor: DocPosition | null; selection: DocRange | null } {
+  resolveAnchoredLocalCursor(): {
+    cursor: DocPosition | null;
+    selection: DocRange | null;
+    compositionStart: DocPosition | null;
+  } {
     const cursor = this.localCursorAnchor
       ? this.resolveAnchoredDocPosition(this.localCursorAnchor)
       : null;
@@ -1034,6 +1039,9 @@ export class YorkieDocStore implements DocStore {
           focus: this.resolveAnchoredDocPosition(this.localSelectionAnchor.focus),
           tableCellRange: this.localSelectionAnchor.tableCellRange,
         }
+      : null;
+    const compositionStart = this.compositionStartAnchor
+      ? this.resolveAnchoredDocPosition(this.compositionStartAnchor)
       : null;
 
     if (cursor || selection) {
@@ -1045,7 +1053,16 @@ export class YorkieDocStore implements DocStore {
       });
     }
 
-    return { cursor, selection };
+    return { cursor, selection, compositionStart };
+  }
+
+  /**
+   * Capture or clear the IME composition start anchor. Pass null on
+   * compositionend so subsequent remote changes do not resolve a stale
+   * composition anchor.
+   */
+  setCompositionStart(pos: DocPosition | null): void {
+    this.compositionStartAnchor = pos ? this.anchorDocPosition(pos, 'backward') : null;
   }
 
   /**

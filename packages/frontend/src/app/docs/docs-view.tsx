@@ -359,9 +359,19 @@ export function DocsView({
         resolvedLocalCursor.cursor,
         resolvedLocalCursor.selection,
       );
+      if (resolvedLocalCursor.compositionStart && editor.isComposing()) {
+        editor.updateCompositionStartPosition(resolvedLocalCursor.compositionStart);
+      }
       editor.validateCursorPosition();
       editor.render();
     };
+
+    editor.onCompositionStart((startPos) => {
+      store.setCompositionStart(startPos);
+    });
+    editor.onCompositionEnd(() => {
+      store.setCompositionStart(null);
+    });
 
     const unsubPresence = doc.subscribe("others", () => {
       handlePresenceChange();

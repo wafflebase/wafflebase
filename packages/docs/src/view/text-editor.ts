@@ -169,6 +169,12 @@ export class TextEditor {
   /** Callback invoked when edit context changes (body/header/footer). */
   private editContextChangeCallback?: (context: EditContext) => void;
 
+  /** Listeners notified when an IME composition session starts. */
+  private compositionStartListeners: Array<(startPos: DocPosition) => void> = [];
+
+  /** Listeners notified when an IME composition session ends. */
+  private compositionEndListeners: Array<() => void> = [];
+
   /**
    * Optional cursor-style target. When set, `setCanvasCursor` writes the
    * CSS cursor on this element directly. When unset, the editor falls
@@ -204,6 +210,28 @@ export class TextEditor {
 
   onEditContextChange(cb: (context: EditContext) => void): void {
     this.editContextChangeCallback = cb;
+  }
+
+  onCompositionStart(cb: (startPos: DocPosition) => void): void {
+    this.compositionStartListeners.push(cb);
+  }
+
+  onCompositionEnd(cb: () => void): void {
+    this.compositionEndListeners.push(cb);
+  }
+
+  /**
+   * Replace the cached composition start position. The collaboration layer
+   * calls this after a remote change so that subsequent composition input
+   * lands at the resolved (drift-corrected) offset.
+   */
+  setCompositionStartPosition(pos: DocPosition): void {
+    if (!this.composition.active) return;
+    this.composition.startPosition = { ...pos };
+  }
+
+  isComposing(): boolean {
+    return this.composition.active;
   }
 
   /**
@@ -361,11 +389,13 @@ export class TextEditor {
     this.ignoreInputUntilNextTick = false;
     this.saveSnapshot();
     this.deleteSelection();
+    const startPosition: DocPosition = { ...this.cursor.position };
     this.composition = {
       active: true,
-      startPosition: { ...this.cursor.position },
+      startPosition,
       currentLength: 0,
     };
+    for (const cb of this.compositionStartListeners) cb({ ...startPosition });
   };
 
   private handleCompositionEnd = (e: CompositionEvent): void => {
@@ -393,6 +423,7 @@ export class TextEditor {
 
     this.composition.active = false;
     this.composition.currentLength = 0;
+    for (const cb of this.compositionEndListeners) cb();
     this.requestRender();
 
     // Ignore ALL input events fired synchronously after compositionend.

@@ -107,6 +107,19 @@ export interface EditorAPI {
   onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): () => void;
   /** Restore local cursor and selection after collaborative anchor resolution. */
   restoreLocalCursor(cursorPos: DocPosition | null, range?: DocRange | null): void;
+  /** Register a callback fired when an IME composition session starts. */
+  onCompositionStart(cb: (startPos: DocPosition) => void): void;
+  /** Register a callback fired when an IME composition session ends. */
+  onCompositionEnd(cb: () => void): void;
+  /**
+   * Update the cached IME composition start position. Called by the
+   * collaboration layer after a remote change has been resolved against
+   * the composition anchor so the next composing-text replacement targets
+   * the correct offset instead of a stale absolute one.
+   */
+  updateCompositionStartPosition(pos: DocPosition): void;
+  /** Whether an IME composition session is currently active. */
+  isComposing(): boolean;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
@@ -2684,6 +2697,12 @@ export function initialize(
       }
       selection.setRange(range ?? null);
     },
+    onCompositionStart: (cb) => textEditor?.onCompositionStart(cb),
+    onCompositionEnd: (cb) => textEditor?.onCompositionEnd(cb),
+    updateCompositionStartPosition: (pos) => {
+      textEditor?.setCompositionStartPosition(pos);
+    },
+    isComposing: () => textEditor?.isComposing() ?? false,
     resetAfterDocumentReplace: () => {
       pending.clear();
       doc.refresh();

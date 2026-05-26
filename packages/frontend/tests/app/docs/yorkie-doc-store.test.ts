@@ -1584,6 +1584,28 @@ describe('YorkieDocStore', () => {
       assert.equal(resolved.cursor!.blockId, first.id);
       assert.equal(resolved.cursor!.offset, 5);
     });
+
+    it('resolves the composition start anchor after upstream text shifts', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+      store.setCompositionStart({ blockId: block.id, offset: 5 });
+
+      store.insertText(block.id, 0, 'Hey ');
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.deepEqual(resolved.compositionStart, { blockId: block.id, offset: 9 });
+    });
+
+    it('clears the composition anchor when composition ends', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.setCompositionStart({ blockId: block.id, offset: 4 });
+      store.setCompositionStart(null);
+
+      const resolved = store.resolveAnchoredLocalCursor();
+      assert.equal(resolved.compositionStart, null);
+    });
   });
 
   describe('setBlockType', () => {
