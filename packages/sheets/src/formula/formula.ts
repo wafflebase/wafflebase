@@ -656,10 +656,12 @@ export type EvalNode =
  */
 export const MAX_FORMULA_NUMBER = Number.MAX_VALUE;
 
+/** Returns true when a numeric formula result stays within the configured range. */
 export function isFormulaNumber(value: number): boolean {
   return Number.isFinite(value) && Math.abs(value) <= MAX_FORMULA_NUMBER;
 }
 
+/** Converts non-finite or out-of-range numeric results into #NUM!. */
 export function numResult(value: number): NumNode | ErrNode {
   return isFormulaNumber(value) ? { t: 'num', v: value } : ErrNode.NUM;
 }
