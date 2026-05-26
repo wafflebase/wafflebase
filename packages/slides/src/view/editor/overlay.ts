@@ -717,8 +717,32 @@ function makeConnectionSiteDot(
  * `slides-text-autofit.md`), so the first click on a never-set box
  * switches it to `'shrink'`.
  */
-const AUTOFIT_TOGGLE_SIZE = 22; // host px
-const AUTOFIT_TOGGLE_OFFSET = 4; // host px below the frame
+const AUTOFIT_TOGGLE_SIZE = 24; // host px
+const AUTOFIT_TOGGLE_OFFSET = 6; // host px below the frame
+const AUTOFIT_ICON_SIZE = 16; // svg viewport drawn inside the button
+
+/**
+ * SVG for the "grow" mode (resize shape to fit text). Visual: a thin
+ * rectangle with a vertical two-headed arrow inside, suggesting the box
+ * height can change.
+ */
+const ICON_GROW =
+  `<svg viewBox="0 0 16 16" width="${AUTOFIT_ICON_SIZE}" height="${AUTOFIT_ICON_SIZE}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+  `<rect x="3" y="3" width="10" height="10" rx="1"/>` +
+  `<line x1="8" y1="5.5" x2="8" y2="10.5"/>` +
+  `<polyline points="6.5,7 8,5.5 9.5,7"/>` +
+  `<polyline points="6.5,9 8,10.5 9.5,9"/>` +
+  `</svg>`;
+
+/**
+ * SVG for the "shrink" mode (shrink text to fit shape). Visual: a big
+ * "A" and a smaller "a", reading as "letters scale down".
+ */
+const ICON_SHRINK =
+  `<svg viewBox="0 0 16 16" width="${AUTOFIT_ICON_SIZE}" height="${AUTOFIT_ICON_SIZE}" fill="currentColor" aria-hidden="true">` +
+  `<text x="0" y="13" font-family="-apple-system,system-ui,sans-serif" font-size="11" font-weight="700">A</text>` +
+  `<text x="8" y="13" font-family="-apple-system,system-ui,sans-serif" font-size="7" font-weight="700">a</text>` +
+  `</svg>`;
 
 function renderAutofitToggle(
   overlay: HTMLDivElement,
@@ -738,37 +762,62 @@ function renderAutofitToggle(
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'wfb-slides-autofit-toggle';
-  // GS uses an icon-only button with a hover tooltip; we match that with
-  // a single-character glyph that visually distinguishes the two modes
-  // and a `title` attribute spelling out the current mode + click action.
-  btn.textContent = current === 'shrink' ? 'A↕' : '↕';
+  // Distinct inline SVGs per mode + a `title` attribute that spells out
+  // the current mode and what clicking will do (GS-style affordance).
+  btn.innerHTML = current === 'shrink' ? ICON_SHRINK : ICON_GROW;
   btn.title =
     current === 'shrink'
       ? 'Shrink text to fit (click to switch to resize shape to fit text)'
       : current === 'grow'
         ? 'Resize shape to fit text (click to switch to shrink text)'
         : 'Autofit off (click to enable resize shape to fit text)';
+  btn.setAttribute(
+    'aria-label',
+    current === 'shrink'
+      ? 'Autofit mode: shrink text. Click to switch to resize shape.'
+      : 'Autofit mode: resize shape. Click to switch to shrink text.',
+  );
   btn.style.position = 'absolute';
   btn.style.left = `${x}px`;
   btn.style.top = `${y}px`;
   btn.style.width = `${AUTOFIT_TOGGLE_SIZE}px`;
   btn.style.height = `${AUTOFIT_TOGGLE_SIZE}px`;
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
   btn.style.padding = '0';
   btn.style.margin = '0';
-  btn.style.border = '1px solid #888';
+  btn.style.border = '1px solid rgba(60, 64, 67, 0.2)';
   btn.style.borderRadius = '4px';
   btn.style.background = '#fff';
-  btn.style.color = '#333';
-  btn.style.fontSize = '11px';
-  btn.style.lineHeight = `${AUTOFIT_TOGGLE_SIZE - 2}px`;
-  btn.style.textAlign = 'center';
+  btn.style.color = 'rgb(60, 64, 67)'; // Google-grey-700-ish
+  btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.15)';
   btn.style.cursor = 'pointer';
   btn.style.boxSizing = 'border-box';
   btn.style.pointerEvents = 'auto';
   btn.style.userSelect = 'none';
-  // Disable browser default focus ring on mousedown so the button
-  // doesn't steal focus from the slide canvas after a click.
-  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.style.transition = 'background 80ms ease, border-color 80ms ease';
+  btn.addEventListener('mouseenter', () => {
+    btn.style.background = '#f1f3f4';
+    btn.style.borderColor = 'rgba(60, 64, 67, 0.35)';
+  });
+  btn.addEventListener('mouseleave', () => {
+    btn.style.background = '#fff';
+    btn.style.borderColor = 'rgba(60, 64, 67, 0.2)';
+  });
+  // The editor attaches a `pointerdown` listener on the overlay itself
+  // (editor.ts) that runs hit-test → select-or-clear. Without stopping
+  // propagation HERE the button click would be treated as a click on
+  // empty space (the button sits below the frame), deselecting the very
+  // element we're trying to toggle. We stop at `pointerdown` because
+  // that fires before `mousedown`/`click` and is what the editor listens
+  // for. `mousedown.preventDefault()` is kept to also block the focus
+  // steal that would otherwise pull focus off the canvas.
+  btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     options.onAutofitToggle?.(element.id, next);

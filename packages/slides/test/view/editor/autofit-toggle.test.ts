@@ -94,6 +94,27 @@ describe('autofit toggle', () => {
     expect(overlay.querySelector('.wfb-slides-autofit-toggle')).toBeNull();
   });
 
+  it('stops pointerdown / mousedown / click propagation so the editor does not clear selection', () => {
+    // Regression: the editor attaches a pointerdown listener on the overlay
+    // itself that runs hit-test → select-or-clear. The toggle sits BELOW the
+    // frame, so without propagation guards the click is treated as a click on
+    // empty space and clears the selection of the very element we're toggling.
+    const overlay = makeOverlay();
+    renderOverlay(overlay, [textEl('grow')], { ...baseOpts, onAutofitToggle: vi.fn() });
+    const btn = overlay.querySelector('.wfb-slides-autofit-toggle') as HTMLButtonElement;
+
+    const overlaySpy = vi.fn();
+    overlay.addEventListener('pointerdown', overlaySpy);
+    overlay.addEventListener('mousedown', overlaySpy);
+    overlay.addEventListener('click', overlaySpy);
+
+    btn.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    btn.click();
+
+    expect(overlaySpy).not.toHaveBeenCalled();
+  });
+
   it('does not render the toggle when multiple elements are selected', () => {
     const overlay = makeOverlay();
     const t2: TextElement = { ...textEl('shrink'), id: 't2' };
