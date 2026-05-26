@@ -52,6 +52,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-copy-paste.md](docs/docs-table-copy-paste.md)                        | Docs table copy-paste — cell-range clipboard, whole-table block, external HTML table paste        |
 | [docs-table-row-splitting.md](docs/docs-table-row-splitting.md)                  | Table row splitting — split tall table rows across pages, recursive nested table support          |
 | [docs-peer-jump.md](docs/docs-peer-jump.md)                                      | Click peer avatar to scroll to that collaborator's caret in the docs editor                       |
+| [docs-comments.md](docs/docs-comments.md)                                        | Docs comments — text-range threads, CRDT-stable posRange anchors, orphan preservation, shared frontend module |
 
 ## Slides
 
@@ -62,6 +63,19 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides.md](slides/slides.md)                                                         | Slides package (v1) — data model, Yorkie schema, Canvas+DOM editor, two-pane layout, PDF export    |
 | [slides-themes-layouts-import.md](slides/slides-themes-layouts-import.md)             | Themes (4-tier) + 11 Google-Slides-parity layouts + PPTX best-effort import; 3-PR rollout plan      |
 | [slides-layout-change.md](slides/slides-layout-change.md)                             | Layout change UI — placeholder identity tracking, type-first matching, split-button + context menu  |
+| [slides-shapes.md](slides/slides-shapes.md)                                           | Shape library — 55 OOXML-aligned `ShapeKind` values, path-builder registry, `data.adjustments` storage, yellow-diamond drag handles, picker UX, phased roadmap to ~100-shape GS parity |
+| [slides-keyboard-shortcuts.md](slides/slides-keyboard-shortcuts.md)                   | Slides keyboard shortcuts — Google Slides parity pass, single catalog source, help modal, link popover wiring                                                                          |
+| [slides-presentation-mode.md](slides/slides-presentation-mode.md)                     | Slides presentation mode v1 — local-only fullscreen player, keyboard nav, click-to-advance, end screen, fullscreen-overlay fallback                                                    |
+| [slides-connectors.md](slides/slides-connectors.md)                                   | Slides connectors — endpoint-driven Line/Arrow/Elbow/Curved with per-shape connection sites, auto routing, snap-on-draw UX, 3-PR rollout                                              |
+| [slides-toolbar-redesign.md](slides/slides-toolbar-redesign.md)                       | Slides toolbar redesign — single morphing toolbar (Idle / Object / Text-editing) replacing the always-on layout, Arrange dropdown consolidating align/distribute/order/rotate, shared text-formatting components |
+| [slides-text-engine-audit.md](slides/slides-text-engine-audit.md)                     | Spike audit (Phase 5 prep) — docs RichText reuse plan: extract `paintLayout`/`findPositionAtPixel`/`initializeTextBox`, no fork                                                                              |
+| [slides-mobile-view.md](slides/slides-mobile-view.md)                                 | Mobile view (read-only) — viewport-768 branch in SlidesView, dedicated MobileSlidesView reusing SlideRenderer, swipe nav, Present entry, no editor mount                                                    |
+| [slides-mobile-edit.md](slides/slides-mobile-edit.md)                                 | Mobile light edit (Phase B) — mount full SlidesEditor on touch, hit-test tolerance, bottom-sheet text formatting, slide-ops FAB, undo/redo header, perm-gated read-only fallback                            |
+| [slides-group.md](slides/slides-group.md)                                             | Group / ungroup — nested element tree with group-local child coords, Google Slides drill-in selection, PPTX `<p:grpSp>` preservation, recursive renderer / hit-test / PDF export                              |
+| [slides-group-selection-ui.md](slides/slides-group-selection-ui.md)                   | Group selection overlay — distinct visuals for group (member outlines) vs drilled-in child (context box); overlay-only change reusing existing world-frame math                                              |
+| [slides-shape-move.md](slides/slides-shape-move.md)                                   | Shape drag-move — `move` hover cursor on selected shapes, ghost preview at `GHOST_ALPHA` follows pointer, commit only on release                                                                            |
+| [slides-ruler.md](slides/slides-ruler.md)                                             | Slides ruler — H/V rulers (corner origin, inch/cm), presentation-wide draggable guides, snap integration, read-only mount handling                                                                          |
+| [slides-textbox-autogrow.md](slides/slides-textbox-autogrow.md)                       | Text box authoring — insert-to-edit focus, drag sizing (width+position), content-fit auto-grow height via a docs `onContentHeightChange` callback                                                            |
 
 ## Common
 
@@ -79,6 +93,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
+| [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |
 
 ## Template
 

@@ -14,27 +14,19 @@ import {
 
 /**
  * `trimFunc` is the implementation of the TRIM function.
- * TRIM(text) — removes leading and trailing whitespace.
+ * TRIM(text) — removes leading/trailing whitespace and collapses internal whitespace.
  */
 export function trimFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
 
-  return { t: 'str', v: str.v.trim() };
+  return { t: 'str', v: str.v.trim().replace(/\s+/g, ' ') };
 }
 
 /**
@@ -46,15 +38,7 @@ export function lenFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
@@ -71,15 +55,7 @@ export function leftFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
@@ -103,15 +79,7 @@ export function rightFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
@@ -135,15 +103,7 @@ export function midFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
@@ -167,15 +127,7 @@ export function concatenateFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   let result = '';
   for (const expr of exprs) {
@@ -196,15 +148,7 @@ export function findFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const searchFor = toStr(visit(exprs[0]), grid);
   if (searchFor.t === 'err') {
@@ -242,15 +186,7 @@ export function searchFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const searchFor = toStr(visit(exprs[0]), grid);
   if (searchFor.t === 'err') {
@@ -291,15 +227,7 @@ export function textjoinFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const delimiter = toStr(visit(exprs[0]), grid);
   if (delimiter.t === 'err') {
@@ -351,15 +279,7 @@ export function lowerFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -378,15 +298,7 @@ export function upperFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -405,15 +317,7 @@ export function properFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -436,15 +340,7 @@ export function substituteFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') {
@@ -508,15 +404,7 @@ export function exactFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const a = toStr(visit(exprs[0]), grid);
   if (a.t === 'err') {
@@ -539,15 +427,7 @@ export function replaceFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const oldText = toStr(visit(exprs[0]), grid);
   if (oldText.t === 'err') {
@@ -587,15 +467,7 @@ export function reptFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') {
@@ -623,15 +495,7 @@ export function tFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -665,15 +529,7 @@ export function valueFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -698,15 +554,7 @@ export function textFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') {
@@ -718,32 +566,111 @@ export function textFunc(
     return fmt;
   }
 
-  const format = fmt.v;
-  const value = num.v;
+  return { t: 'str', v: formatNumberWithPlaceholders(num.v, fmt.v) };
+}
 
-  // Percentage formats
-  if (format.endsWith('%')) {
-    const decimalPart = format.slice(0, -1);
-    const decimals = (decimalPart.split('.')[1] || '').length;
-    return { t: 'str', v: (value * 100).toFixed(decimals) + '%' };
+function formatNumberWithPlaceholders(value: number, format: string): string {
+  const isPercent = format.endsWith('%');
+  const numericFormat = isPercent ? format.slice(0, -1) : format;
+  const scaledValue = isPercent ? value * 100 : value;
+  const [integerFormat, decimalFormat = ''] = numericFormat.split('.');
+  const decimalPlaceholders = decimalFormat.match(/[0#]/g)?.length ?? 0;
+  const roundingFactor = 10 ** decimalPlaceholders;
+  const rounded = (
+    Math.round(Math.abs(scaledValue) * roundingFactor) / roundingFactor
+  ).toFixed(decimalPlaceholders);
+  const [roundedInteger, roundedDecimal = ''] = rounded.split('.');
+  const integerResult = formatIntegerPlaceholders(roundedInteger, integerFormat);
+  const decimalResult = formatDecimalPlaceholders(roundedDecimal, decimalFormat);
+  const sign = scaledValue < 0 ? '-' : '';
+
+  return `${sign}${integerResult}${decimalResult}${isPercent ? '%' : ''}`;
+}
+
+function formatIntegerPlaceholders(digits: string, format: string): string {
+  const firstPlaceholder = format.search(/[0#]/);
+  const lastPlaceholder = Math.max(format.lastIndexOf('0'), format.lastIndexOf('#'));
+  if (firstPlaceholder === -1 || lastPlaceholder === -1) {
+    return digits;
   }
 
-  // Comma-separated formats
-  if (format.includes(',')) {
-    const decimals = (format.split('.')[1] || '').replace(/[^0#]/g, '').length;
-    const parts = value.toFixed(decimals).split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    return { t: 'str', v: parts.join('.') };
+  const prefix = format.slice(0, firstPlaceholder).replace(/,/g, '');
+  const suffix = format.slice(lastPlaceholder + 1).replace(/,/g, '');
+  const placeholderSection = format.slice(firstPlaceholder, lastPlaceholder + 1);
+  const hasGrouping = placeholderSection.includes(',');
+  const placeholders = placeholderSection.replace(/[^0#]/g, '');
+  const requiredDigits = [...placeholders].filter((ch) => ch === '0').length;
+  const paddedDigits = digits.padStart(requiredDigits, '0');
+  const formattedDigits = hasGrouping
+    ? applyIntegerGrouping(paddedDigits, placeholderSection)
+    : paddedDigits;
+
+  return `${prefix}${formattedDigits}${suffix}`;
+}
+
+function applyIntegerGrouping(digits: string, placeholderSection: string): string {
+  const groupSizes = placeholderSection
+    .split(',')
+    .map((token) => token.replace(/[^0#]/g, '').length)
+    .filter((size) => size > 0);
+
+  if (groupSizes.length <= 1) {
+    return digits;
   }
 
-  // Fixed decimal formats
-  if (format.includes('.')) {
-    const decimals = (format.split('.')[1] || '').length;
-    return { t: 'str', v: value.toFixed(decimals) };
+  const groups: string[] = [];
+  let remainingDigits = digits;
+  let groupIndex = groupSizes.length - 1;
+
+  while (remainingDigits.length > 0) {
+    const groupSize = groupSizes[Math.max(groupIndex, 0)];
+    groups.unshift(remainingDigits.slice(-groupSize));
+    remainingDigits = remainingDigits.slice(0, -groupSize);
+    groupIndex--;
   }
 
-  // Integer format
-  return { t: 'str', v: value.toFixed(0) };
+  return groups.join(',');
+}
+
+function formatDecimalPlaceholders(digits: string, format: string): string {
+  if (!format) {
+    return '';
+  }
+
+  const chars: string[] = [];
+  let digitIndex = 0;
+  let emittedDigit = false;
+
+  for (const ch of format) {
+    if (ch !== '0' && ch !== '#') {
+      chars.push(ch);
+      continue;
+    }
+
+    const digit = digits[digitIndex++] ?? '0';
+    if (ch === '0' || digit !== '0' || hasNonZeroDigit(digits, digitIndex)) {
+      chars.push(digit);
+      emittedDigit = true;
+    }
+  }
+
+  while (chars.length > 0 && chars[chars.length - 1] === '0') {
+    const formatIndex = chars.length - 1;
+    if (format[formatIndex] === '0') {
+      break;
+    }
+    chars.pop();
+  }
+
+  if (chars.length === 0) {
+    return '';
+  }
+
+  return emittedDigit ? `.${chars.join('')}` : chars.join('');
+}
+
+function hasNonZeroDigit(digits: string, start: number): boolean {
+  return [...digits.slice(start)].some((digit) => digit !== '0');
 }
 
 /**
@@ -754,15 +681,7 @@ export function charFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') {
@@ -785,15 +704,7 @@ export function codeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -815,15 +726,7 @@ export function cleanFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -843,15 +746,7 @@ export function numbervalueFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -909,15 +804,7 @@ export function fixedFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') {
@@ -967,15 +854,7 @@ export function dollarFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') {
@@ -1017,15 +896,7 @@ export function splitFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') {
@@ -1080,15 +951,7 @@ export function joinFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const delimiter = toStr(visit(exprs[0]), grid);
   if (delimiter.t === 'err') {
@@ -1126,15 +989,7 @@ export function regexmatchFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') {
@@ -1162,10 +1017,7 @@ export function regexextractFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') return text;
   const pattern = toStr(visit(exprs[1]), grid);
@@ -1187,10 +1039,7 @@ export function regexreplaceFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') return text;
   const pattern = toStr(visit(exprs[1]), grid);
@@ -1212,10 +1061,7 @@ export function unicodeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
   if (str.v.length === 0) return ErrNode.VALUE;
@@ -1230,10 +1076,7 @@ export function unicharFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const code = Math.trunc(num.v);
@@ -1253,10 +1096,7 @@ export function encodeurlFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   const s = toStr(node, grid);
@@ -1272,10 +1112,7 @@ export function textbeforeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const textNode = toStr(visit(exprs[0]), grid);
   if (textNode.t === 'err') return textNode;
@@ -1319,10 +1156,7 @@ export function textafterFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const textNode = toStr(visit(exprs[0]), grid);
   if (textNode.t === 'err') return textNode;
@@ -1366,10 +1200,7 @@ export function valuetotextFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1398,10 +1229,7 @@ export function textsplitFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const textNode = visit(exprs[0]);
   const text = textNode.t === 'str' ? textNode.v : textNode.t === 'num' ? String(textNode.v) : '';

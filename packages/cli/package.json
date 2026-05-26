@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/cli",
-  "version": "0.3.7",
+  "version": "0.4.2",
   "description": "CLI for Wafflebase spreadsheet API",
   "license": "Apache-2.0",
   "type": "module",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@wafflebase/docs": "workspace:*",
+    "@wafflebase/slides": "workspace:*",
     "@xmldom/xmldom": "^0.9.10",
     "commander": "^13.0.0",
     "fontkit": "^2.0.4",

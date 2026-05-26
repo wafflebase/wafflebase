@@ -219,8 +219,85 @@ Created by `AuthService.createTokens()`:
 
 | Cookie | Production | Development |
 |--------|------------|-------------|
-| `wafflebase_session` | httpOnly, secure, sameSite=`none`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
-| `wafflebase_refresh` | httpOnly, secure, sameSite=`none`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+| `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
+| `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+
+SameSite=`lax` blocks third-party cross-site requests from carrying the
+session — the common CSRF vector — while still letting the OAuth
+callback redirect and same-eTLD+1 XHR through. The deployment assumption
+is that frontend and backend share an eTLD+1 (e.g. `*.wafflebase.com`).
+Cross-eTLD deployments would need SameSite=`none` paired with a CSRF
+token, not introduced yet.
+
+### Observability
+
+Structured request/response logs via [`nestjs-pino`](https://github.com/iamolegga/nestjs-pino),
+configured in `packages/backend/src/app.module.ts`:
+
+- Log level controlled by `LOG_LEVEL` (default `info`).
+- Custom serializers slim each access log to `{ method, url,
+  remoteAddress, userAgent, statusCode, responseTime }` — pino-http's
+  default would dump every request header (`sec-ch-ua-*`,
+  `accept-encoding`, `if-none-match`, etc.) on every line and inflate
+  log volume by ~5×. Full headers remain reachable at `debug`.
+- `customLogLevel`:
+  - `5xx | err → error`, `4xx → warn`.
+  - Every mutation (`POST`/`PUT`/`PATCH`/`DELETE`) → `info`. Covers
+    doc create, content import, share-link create, invite, api-key
+    rotation, datasource CRUD, etc. without needing per-endpoint
+    instrumentation.
+  - Two high-volume paths drop to `debug` regardless of method:
+    image upload/fetch (`/images/*`) and cell-level CRUD
+    (`/cells/*`) — both are bursty and not individually
+    audit-worthy.
+  - Reads (`GET`/`HEAD`/`OPTIONS`) → `debug`.
+- Set `LOG_LEVEL=debug` in incident response when full access logs
+  are needed temporarily.
+- `/health` and `/health/ready` are skipped — orchestrator probes
+  would otherwise dominate the log stream.
+- `req.headers.authorization`, `req.headers.cookie`, and outgoing
+  `set-cookie` are redacted.
+- Production emits raw JSON (one line per event); non-production pipes
+  through `pino-pretty` for readability.
+- `autoLogging` is disabled entirely under `NODE_ENV=test`.
+
+`/health` endpoints live in `packages/backend/src/health/health.controller.ts` and are
+exempt from the rate limiter via `@SkipThrottle()`:
+
+| Route | Purpose | Behavior |
+|-------|---------|----------|
+| `GET /health` | Liveness probe | Always 200 with `{ status: 'ok' }`. No dependencies touched. |
+| `GET /health/ready` | Readiness probe | Runs `SELECT 1` through Prisma. 503 with `{ status: 'unhealthy', database: 'unreachable' }` on failure; full error is logged via Pino, not returned to the caller. |
+
+Readiness intentionally probes Postgres only. Yorkie is on the request
+path for most doc/sheet/slides interactions, so a Yorkie reachability
+check should be added before this endpoint is wired into kubelet
+readiness gating — tracked as a follow-up.
+
+### Rate Limiting
+
+Per-IP throttling via [`@nestjs/throttler`](https://docs.nestjs.com/security/rate-limiting),
+registered as an `APP_GUARD` in `packages/backend/src/app.module.ts`:
+
+| Route group | Limit | Source |
+|-------------|-------|--------|
+| All routes (implicit) | 120 req / 60s / IP | `default` bucket |
+| `/auth/github/callback`, `/auth/refresh`, `/auth/cli/exchange` | 10 req / 60s / IP | `@Throttle({ default: { limit: 10, ttl: 60_000 } })` |
+| `/images/**`, `/api/v1/workspaces/:id/images/**` | 600 req / 60s / IP | controller-level `@Throttle` — opening a doc with many embedded images bursts past the global cap |
+| `/health`, `/health/ready` | exempt | `@SkipThrottle()` |
+
+A single named bucket on purpose — adding a second strict bucket stacks
+across every route and silently caps all traffic at the lowest limit.
+Auth routes opt into a stricter limit by overriding the `default`
+bucket per-route. Per-API-key throttling for `/api/v1/*` (currently
+sharing the global IP bucket) is a planned follow-up.
+
+`req.ip` is derived from the proxy hop count configured via
+`BACKEND_TRUST_PROXY` (default 0 — direct connections only). Set to
+`1` behind a single edge proxy (nginx, Cloudflare). Enabling
+`trust proxy` without a real proxy in front would let any client spoof
+`X-Forwarded-For` to bypass per-IP limits. The limiter is bypassed
+under `NODE_ENV=test` so unit and e2e suites can burst without 429s.
 
 ### Database Schema
 
@@ -305,7 +382,10 @@ erDiagram
 | `GITHUB_CLIENT_SECRET` | Yes | — | GitHub OAuth app client secret |
 | `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
 | `PORT` | No | `3000` | Server listen port |
-| `NODE_ENV` | No | — | Affects cookie `secure` and `sameSite` settings |
+| `NODE_ENV` | No | — | Affects cookie `secure` flag, log transport, and rate-limiter skip. `production` enables `secure` cookies and JSON Pino logs; `test` disables the limiter and autoLogging. |
+| `LOG_LEVEL` | No | `info` | Pino log level (`trace`/`debug`/`info`/`warn`/`error`/`fatal`/`silent`). |
+| `BACKEND_TRUST_PROXY` | No | `0` | Number of upstream proxy hops to trust for `req.ip`. Set to `1` behind a single edge proxy (nginx, Cloudflare). Leave at `0` for direct exposure to prevent `X-Forwarded-For` spoofing. |
+| `BACKEND_JSON_BODY_LIMIT` | No | `25mb` | Max JSON request body. Passed verbatim to `body-parser`. |
 | `DATASOURCE_ENCRYPTION_KEY` | No* | — | 64-char hex string (32 bytes) for AES-256-GCM password encryption. *Required if DataSource feature is used. |
 
 ### Testing Strategy
@@ -334,8 +414,11 @@ erDiagram
 preventing client-side JavaScript from reading them. This mitigates XSS-based
 token theft.
 
-**SameSite** — Set to `'lax'` in development and `'none'` in production
-(required when frontend and backend are on different origins with HTTPS).
+**SameSite** — Set to `'lax'` in every environment. Blocks third-party
+cross-site requests from carrying the session (the common CSRF vector).
+Deployment assumes frontend and backend share an eTLD+1
+(e.g. `*.wafflebase.com`). Cross-eTLD deployments would need
+`SameSite=None` paired with a CSRF token, not yet implemented.
 
 **Authorization checks** — Document endpoints verify that `req.user.id`
 matches the document's `authorID`. Unauthorized access throws
@@ -359,10 +442,13 @@ more providers (Google, email/password) requires adding new Passport
 strategies and updating the `authProvider` field. The architecture supports
 this via Passport's multi-strategy pattern.
 
-**No rate limiting** — API endpoints are not currently rate-limited. For
-production use, NestJS `@nestjs/throttler` should be added to prevent abuse.
+**Single-bucket rate limiting** — A single `default` bucket (60 req/min/IP)
+guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`
+overrides on auth endpoints. `/api/v1/*` and authenticated app traffic
+currently share this bucket; a per-API-key bucket is a planned follow-up.
+Behind a multi-hop proxy edge, `trust proxy: 1` (in `packages/backend/src/main.ts`) must be
+revisited so `req.ip` resolves correctly.
 
-**Cookie security in development** — `secure: false` and `sameSite: 'lax'` in
-development means cookies are sent over HTTP and are vulnerable to CSRF in
-certain scenarios. This is acceptable for local development but must not be
-used in production.
+**Cookie security in development** — `secure: false` in development means
+cookies are sent over HTTP. Acceptable for local-only testing; the
+production build sets `secure: true` automatically.

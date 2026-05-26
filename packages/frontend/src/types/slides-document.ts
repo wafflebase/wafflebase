@@ -1,5 +1,14 @@
 import type { Block } from '@wafflebase/docs';
-import type { Master, PlaceholderRef, Theme, ThemeColor } from '@wafflebase/slides';
+import type {
+  ArrowheadStyle,
+  ConnectorRouting,
+  Endpoint,
+  Master,
+  PlaceholderRef,
+  ShapeKind,
+  Theme,
+  ThemeColor,
+} from '@wafflebase/slides';
 
 /**
  * Yorkie document root for the slides editor. Text element bodies
@@ -28,6 +37,19 @@ export interface YorkieSlidesRoot {
   layouts: YorkieLayout[];
   themes?: Theme[];
   masters?: Master[];
+  /**
+   * Presentation-wide alignment guides. Optional in the Yorkie root
+   * because pre-v0.4.2 documents predate the ruler; `ensureSlidesRoot`
+   * lazy-inits an empty array on attach so consumers never see
+   * `undefined`. See docs/design/slides/slides-ruler.md.
+   */
+  guides?: YorkieGuide[];
+}
+
+export interface YorkieGuide {
+  id: string;
+  axis: 'x' | 'y';
+  position: number;
 }
 
 export interface YorkieSlide {
@@ -42,7 +64,11 @@ export interface YorkieSlide {
    */
   background: {
     fill?: ThemeColor;
-    image?: { src: string; w: number; h: number };
+    image?: {
+      src: string;
+      opacity?: number;
+      crop?: { x: number; y: number; w: number; h: number };
+    };
   };
   elements: YorkieElement[];
   notes: Block[];
@@ -51,7 +77,9 @@ export interface YorkieSlide {
 export type YorkieElement =
   | YorkieTextElement
   | YorkieImageElement
-  | YorkieShapeElement;
+  | YorkieShapeElement
+  | YorkieConnectorElement
+  | YorkieGroupElement;
 
 interface YorkieFrame {
   x: number;
@@ -78,6 +106,7 @@ export interface YorkieImageElement {
     src: string;
     crop?: { x: number; y: number; w: number; h: number };
     alt?: string;
+    opacity?: number;
   };
 }
 
@@ -87,9 +116,49 @@ export interface YorkieShapeElement {
   frame: YorkieFrame;
   placeholderRef?: PlaceholderRef;
   data: {
-    kind: 'rect' | 'ellipse' | 'line' | 'arrow';
+    kind: ShapeKind;
+    adjustments?: number[];
     fill?: ThemeColor;
     stroke?: { color: ThemeColor; width: number };
+  };
+}
+
+/**
+ * Connector element — line/arrow joining two endpoints. The cached
+ * `frame` is derived from the resolved endpoint positions and refreshed
+ * on every mutation that could move them (endpoint update, source
+ * shape move, source shape delete). Connectors do not appear as layout
+ * placeholders, so they are intentionally absent from `YorkiePlaceholder`.
+ */
+export interface YorkieConnectorElement {
+  id: string;
+  type: 'connector';
+  frame: YorkieFrame;
+  routing: ConnectorRouting;
+  start: Endpoint;
+  end: Endpoint;
+  arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
+  stroke?: { color: ThemeColor; width: number };
+  elbowBend?: number;
+}
+
+/**
+ * Group element — contains a `children` array of nested elements stored in
+ * group-local coordinates. Groups can be nested arbitrarily; their children
+ * are themselves YorkieElements (including other groups).
+ */
+export interface YorkieGroupElement {
+  id: string;
+  type: 'group';
+  frame: YorkieFrame;
+  data: {
+    children: YorkieElement[];
+    /**
+     * Reference dimensions of the group's local coordinate space.
+     * See GroupElement.data.refSize for full semantics. Optional for
+     * backward compatibility; absent means scale = 1 (prior behavior).
+     */
+    refSize?: { w: number; h: number };
   };
 }
 

@@ -15,15 +15,10 @@ import {
  * TODAY() — returns the current date as YYYY-MM-DD.
  */
 export function todayFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (args && args.expr().length > 0) {
-    return ErrNode.NA;
-  }
-
   return { t: 'str', v: formatDate(new Date()) };
 }
 
@@ -32,15 +27,10 @@ export function todayFunc(
  * NOW() — returns the current date and time as YYYY-MM-DD HH:MM:SS.
  */
 export function nowFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (args && args.expr().length > 0) {
-    return ErrNode.NA;
-  }
-
   const now = new Date();
   return { t: 'str', v: `${formatDate(now)} ${formatTime(now)}` };
 }
@@ -54,15 +44,7 @@ export function dateFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const yearNode = NumberArgs.map(visit(exprs[0]), grid);
   if (yearNode.t === 'err') {
@@ -96,15 +78,7 @@ export function timeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const hourNode = NumberArgs.map(visit(exprs[0]), grid);
   if (hourNode.t === 'err') {
@@ -138,15 +112,7 @@ export function daysFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const endDate = parseDate(visit(exprs[0]), grid);
   if (!(endDate instanceof Date)) {
@@ -182,15 +148,7 @@ export function yearFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
@@ -207,15 +165,7 @@ export function monthFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
@@ -232,15 +182,7 @@ export function dayFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
@@ -257,15 +199,7 @@ export function hourFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDateTime(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -284,15 +218,7 @@ export function minuteFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDateTime(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -311,15 +237,7 @@ export function secondFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDateTime(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -338,15 +256,7 @@ export function weekdayFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -384,15 +294,7 @@ export function edateFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -417,15 +319,7 @@ export function eomonthFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -452,15 +346,7 @@ export function networkdaysFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if (!(startDate instanceof Date)) {
@@ -498,10 +384,7 @@ export function networkdaysintlFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;
@@ -553,15 +436,7 @@ export function datevalueFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -579,15 +454,7 @@ export function timevalueFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDateTime(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -611,15 +478,7 @@ export function datedifFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if (!(startDate instanceof Date)) {
@@ -714,15 +573,7 @@ export function weeknumFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -757,15 +608,7 @@ export function isoweeknumFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) {
@@ -789,15 +632,7 @@ export function workdayFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if (!(startDate instanceof Date)) {
@@ -852,10 +687,7 @@ export function workdayintlFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;
@@ -911,15 +743,7 @@ export function yearfracFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if (!(startDate instanceof Date)) {
@@ -1013,10 +837,7 @@ export function days360Func(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;

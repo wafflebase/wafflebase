@@ -1,11 +1,10 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { cn } from "../../src/lib/utils.ts";
 
 test("cn merges optional classes", () => {
-  assert.equal(cn("base", undefined, "active"), "base active");
+  expect(cn("base", undefined, "active")).toBe("base active");
 });
 
 test("cn deduplicates conflicting tailwind classes", () => {
-  assert.equal(cn("p-2 p-4", "text-left", "text-right"), "p-4 text-right");
+  expect(cn("p-2 p-4", "text-left", "text-right")).toBe("p-4 text-right");
 });

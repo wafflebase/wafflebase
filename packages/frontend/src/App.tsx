@@ -9,6 +9,7 @@ import { PrivateRoute } from "./PrivateRoute";
 import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
 import { HomeOrRedirect } from "./app/home-or-redirect";
+import { AnalyticsTracker } from "./analytics";
 
 const Login = lazy(() => import("@/app/login/page"));
 const Documents = lazy(() => import("@/app/documents/page"));
@@ -44,6 +45,7 @@ function App() {
       <TooltipProvider delayDuration={0}>
         <QueryClientProvider client={queryClient}>
           <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
+            <AnalyticsTracker />
             <Suspense fallback={<Loader />}>
               <Routes>
                 <Route element={<PublicRoute />}>

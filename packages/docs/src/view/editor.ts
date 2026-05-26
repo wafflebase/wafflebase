@@ -12,7 +12,8 @@ import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, ge
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
-import { Ruler, RULER_SIZE } from './ruler.js';
+import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
+import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
@@ -89,6 +90,12 @@ export interface EditorAPI {
   onCursorLinkChange(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
   /** Get the cursor's screen (viewport) coordinates for popover positioning */
   getCursorScreenRect(): { x: number; y: number; height: number } | undefined;
+  /**
+   * Read the active selection range. Returns null when the user has only
+   * a caret (no actual range). Used by callers that need a `DocRange` —
+   * e.g. opening a composer over the current selection.
+   */
+  getActiveSelection(): { anchor: DocPosition; focus: DocPosition } | null;
   /** Register a callback for Cmd/Ctrl+F find requests */
   onFindRequest(cb: () => void): void;
   /** Register a callback for Cmd/Ctrl+H find & replace requests */
@@ -97,6 +104,22 @@ export interface EditorAPI {
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
   /** Clear all search match highlights and optionally move cursor to active match */
   clearSearchMatches(moveCursorToActive?: boolean): void;
+  /**
+   * Set the comment markers. The editor turns each marker's range into
+   * highlight rects via the same selection layout used by search match
+   * and peer cursors, so markers track resize / zoom / line wrap
+   * automatically. Comment-naive: the editor does not interpret ids.
+   * Pass an empty array to clear. Replaces any previous set.
+   */
+  setCommentMarkers(markers: CommentMarker[]): void;
+  /**
+   * Return the marker id under a viewport-relative (clientX, clientY)
+   * point, or null when no marker is hit. The editor converts to
+   * canvas-internal document coordinates (accounting for ruler offset,
+   * scroll, and zoom) before hit-testing. When rects overlap, the
+   * marker drawn last wins.
+   */
+  getCommentMarkerAt(clientX: number, clientY: number): string | null;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -480,6 +503,9 @@ export function initialize(
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
+  let commentMarkers: CommentMarker[] = [];
+  // Cache of rects from the last render(). Read by getCommentMarkerAt.
+  let commentMarkerRects: HighlightRect[] = [];
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -835,6 +861,22 @@ export function initialize(
       );
     }
 
+    // Compute comment marker rectangles. Cached on the closure so
+    // getCommentMarkerAt can hit-test the rects the user actually sees.
+    commentMarkerRects = [];
+    for (const marker of commentMarkers) {
+      const rects = computeSelectionRects(
+        { anchor: marker.anchor, focus: marker.focus },
+        paginatedLayout,
+        layout,
+        measurer,
+        logicalCanvasWidth,
+      );
+      for (const r of rects) {
+        commentMarkerRects.push({ id: marker.id, ...r });
+      }
+    }
+
     const editCtx = textEditor?.getEditContext() ?? 'body';
 
     // Compute header/footer cursor and selection
@@ -965,6 +1007,7 @@ export function initialize(
       selectedImageRect,
       imageResizeHudText,
       dragImageRun,
+      commentMarkerRects,
     );
 
     // Draw drag guideline if active. Guideline coords are in unscaled
@@ -1860,6 +1903,23 @@ export function initialize(
       }
       return undefined;
     },
+    getActiveSelection: () => {
+      if (!selection.hasSelection() || !selection.range) return null;
+      const r = selection.range;
+      if (
+        r.anchor.blockId === r.focus.blockId &&
+        r.anchor.offset === r.focus.offset
+      ) {
+        return null;
+      }
+      // Return defensive copies — the editor mutates selection.range
+      // in place as the user moves the caret, and callers (controllers
+      // building a PendingDocsAnchor) need a stable snapshot.
+      return {
+        anchor: { blockId: r.anchor.blockId, offset: r.anchor.offset },
+        focus: { blockId: r.focus.blockId, offset: r.focus.offset },
+      };
+    },
     getCursorScreenRect: () => {
       const vw = (container.parentElement ?? container).getBoundingClientRect().width;
       const pw = paginatedLayout.pages[0]?.width ?? 0;
@@ -1925,6 +1985,21 @@ export function initialize(
           }
         }
       }
+    },
+    setCommentMarkers: (markers: CommentMarker[]) => {
+      // Clone so callers can keep their own list (e.g. memoize the
+      // marker array between renders) without our cached rect pass
+      // observing later mutations.
+      commentMarkers = markers.map((m) => ({
+        id: m.id,
+        anchor: { blockId: m.anchor.blockId, offset: m.anchor.offset },
+        focus: { blockId: m.focus.blockId, offset: m.focus.offset },
+      }));
+      render();
+    },
+    getCommentMarkerAt: (clientX: number, clientY: number) => {
+      const { x, y } = clientToDocCoords(clientX, clientY);
+      return findMarkerAt(commentMarkerRects, x, y);
     },
     clearSearchMatches: (moveCursorToActive?: boolean) => {
       // Move cursor to the active match position before clearing (Google Docs behavior)

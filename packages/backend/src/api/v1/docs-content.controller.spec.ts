@@ -10,12 +10,10 @@ import { YorkieService } from '../../yorkie/yorkie.service';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 
-/**
- * Minimal Document fixture matching the @wafflebase/docs `Document` shape
- * the controller round-trips. Only the fields the controller touches need
- * to be present.
- */
-import type { DocsDocument } from '../../yorkie/yorkie.types';
+import type {
+  DocsDocument,
+  SlidesDocument,
+} from '../../yorkie/yorkie.types';
 
 function makeDocFixture(): DocsDocument {
   return {
@@ -35,6 +33,28 @@ function makeDocFixture(): DocsDocument {
       },
     ],
   };
+}
+
+function makeSlidesFixture(): SlidesDocument {
+  return {
+    meta: {
+      title: 'Imported Deck',
+      themeId: 'default-light',
+      masterId: 'default',
+    },
+    themes: [],
+    masters: [],
+    layouts: [],
+    slides: [
+      {
+        id: 'slide-1',
+        layoutId: 'title-body',
+        background: { fill: { kind: 'role', role: 'background' } },
+        elements: [],
+        notes: [],
+      },
+    ],
+  } as unknown as SlidesDocument;
 }
 
 describe('ApiV1DocsContentController', () => {
@@ -91,6 +111,28 @@ describe('ApiV1DocsContentController', () => {
       );
     });
 
+    it('returns the SlidesDocument JSON for a slides-typed document', async () => {
+      const deck = makeSlidesFixture();
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+      yorkieService.withDocument.mockResolvedValue(deck);
+
+      const result = await controller.getContent('ws-1', 'd1');
+
+      expect(result).toEqual(deck);
+      expect(yorkieService.withDocument).toHaveBeenCalledWith(
+        'd1',
+        expect.any(Function),
+        expect.objectContaining({
+          docKeyPrefix: 'slides-',
+          syncMode: 'readonly',
+        }),
+      );
+    });
+
     it('propagates NotFoundException when the document does not exist', async () => {
       documentService.getDocumentOrThrow.mockRejectedValue(
         new NotFoundException('Document not found'),
@@ -123,7 +165,7 @@ describe('ApiV1DocsContentController', () => {
   });
 
   describe('PUT', () => {
-    it('writes the body via doc.update and echoes it back', async () => {
+    it('writes a docs body via doc.update and echoes it back', async () => {
       const doc = makeDocFixture();
       documentService.getDocumentOrThrow.mockResolvedValue({
         id: 'd1',
@@ -162,7 +204,63 @@ describe('ApiV1DocsContentController', () => {
       );
     });
 
+    it('writes a slides body via doc.update and echoes it back', async () => {
+      const deck = makeSlidesFixture();
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+
+      const capturedRoot: Record<string, unknown> = {};
+      type FakeDoc = {
+        update: (fn: (root: Record<string, unknown>) => void) => void;
+        getRoot: () => Record<string, unknown>;
+      };
+      type Cb = (doc: FakeDoc) => unknown;
+      yorkieService.withDocument.mockImplementation((_id: string, cb: Cb) => {
+        const fakeDoc: FakeDoc = {
+          update: (fn) => fn(capturedRoot),
+          getRoot: () => capturedRoot,
+        };
+        return Promise.resolve(cb(fakeDoc));
+      });
+
+      const result = await controller.putContent('ws-1', 'd1', deck);
+
+      expect(result).toEqual(deck);
+      // writeSlidesRoot assigns top-level slides fields onto the root.
+      expect(capturedRoot.meta).toEqual(deck.meta);
+      expect(capturedRoot.slides).toEqual(deck.slides);
+      expect(yorkieService.withDocument).toHaveBeenCalledWith(
+        'd1',
+        expect.any(Function),
+        { docKeyPrefix: 'slides-' },
+      );
+    });
+
+    it('returns 400 when body shape does not match document type', async () => {
+      // Body looks like docs (`blocks` array) but the document is slides.
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+
+      await expect(
+        controller.putContent('ws-1', 'd1', makeDocFixture()),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: expect.stringMatching(/shape 'doc'.*type 'slides'/),
+      });
+      expect(yorkieService.withDocument).not.toHaveBeenCalled();
+    });
+
     it('returns 409 TYPE_MISMATCH when the target is a sheet', async () => {
+      // The body must be one of the recognised shapes (docs/slides) for
+      // the type check to fire — a sheet's would-be cell payload doesn't
+      // hit this endpoint, so we send a docs body and assert the type
+      // mismatch.
       documentService.getDocumentOrThrow.mockResolvedValue({
         id: 'd1',
         workspaceId: 'ws-1',
@@ -183,29 +281,21 @@ describe('ApiV1DocsContentController', () => {
       expect(yorkieService.withDocument).not.toHaveBeenCalled();
     });
 
-    it('returns 400 BadRequestException for a payload missing blocks', async () => {
+    it('returns 400 BadRequestException for a payload missing blocks and slides', async () => {
       // The controller should reject malformed input before the type check
       // (and before any Yorkie work) so callers see a clear 400 instead of
-      // a 500 thrown from inside `writeDocsRoot`.
+      // a 500 thrown from inside the writer.
       await expect(
         controller.putContent('ws-1', 'd1', {} as never),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
-        message: "Invalid docs content payload: 'blocks' must be an array",
+        message: expect.stringMatching(/'blocks'.*'slides'/),
       });
       expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
       expect(yorkieService.withDocument).not.toHaveBeenCalled();
     });
 
-    /**
-     * The shape guard exists because the Yorkie tree builder
-     * unconditionally dereferences a handful of fields per block
-     * (`id`, `type`, `style`, plus `inlines` on non-table blocks and
-     * `tableData` on tables). Without the guard, any of these missing
-     * surfaces as a 500 with a stack trace instead of a 400 with the
-     * offending block path.
-     */
-    describe('block shape validation', () => {
+    describe('docs block shape validation', () => {
       function expectReject(body: unknown, messageRe: RegExp) {
         return expect(
           controller.putContent('ws-1', 'd1', body as never),
@@ -299,6 +389,119 @@ describe('ApiV1DocsContentController', () => {
           expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
           expect(yorkieService.withDocument).not.toHaveBeenCalled();
         });
+      });
+    });
+
+    describe('slides body shape validation', () => {
+      function expectReject(body: unknown, messageRe: RegExp) {
+        return expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toMatchObject({
+          constructor: BadRequestException,
+          message: expect.stringMatching(messageRe),
+        });
+      }
+
+      function withSlides<T extends object>(overrides: T): unknown {
+        // Build a payload that sniffBodyShape recognises as slides
+        // (`slides` array + `meta` object) but with a specific field
+        // intentionally broken.
+        return { ...makeSlidesFixture(), ...overrides };
+      }
+
+      it("rejects missing meta", async () => {
+        await expectReject(
+          { slides: [], meta: 'not-an-object' },
+          /'meta'.*object/,
+        );
+      });
+
+      it("rejects missing meta.title", async () => {
+        await expectReject(
+          withSlides({
+            meta: { title: '', themeId: 'x', masterId: 'y' },
+          }),
+          /meta\.title.*non-empty string/,
+        );
+      });
+
+      it("rejects non-array layouts", async () => {
+        await expectReject(
+          withSlides({ layouts: 'not-an-array' as unknown as [] }),
+          /'layouts'.*array/,
+        );
+      });
+
+      it("rejects a slide missing id", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: '',
+                layoutId: 'l',
+                background: {},
+                elements: [],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\].*'id'/,
+        );
+      });
+
+      it("rejects a slide with non-array elements", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: 'oops',
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\].*'elements'.*array/,
+        );
+      });
+
+      it("rejects an element missing type", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  { id: 'e1', frame: {} },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\]\.elements\[0\].*'type'/,
+        );
+      });
+
+      it("rejects an element missing frame", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  { id: 'e1', type: 'shape' },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\]\.elements\[0\].*'frame'/,
+        );
       });
     });
   });

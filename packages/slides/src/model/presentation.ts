@@ -1,11 +1,25 @@
 import type { Block } from '@wafflebase/docs';
-import type { Element, ElementInit, ImageRef, PlaceholderType } from './element';
+import type { Crop, Element, ElementInit, PlaceholderType } from './element';
 import type { Theme, ThemeColor } from './theme';
 import type { Master } from './master';
 
+/**
+ * Image fill behind a slide. Painted inside the logical 1920×1080
+ * region after `fill`; transparent regions of the image reveal the
+ * solid color underneath. Stretch mode only — there is no tile/repeat
+ * variant yet.
+ */
+export type BackgroundImage = {
+  src: string;
+  /** `[0, 1]`. Imported from OOXML `<a:blip><a:alphaModFix>`. */
+  opacity?: number;
+  /** `<a:srcRect>` sub-rectangle of the source image, in 0..1 coords. */
+  crop?: Crop;
+};
+
 export type Background = {
   fill: ThemeColor;
-  image?: ImageRef;
+  image?: BackgroundImage;
 };
 
 export type Slide = {
@@ -35,12 +49,32 @@ export type Meta = {
   masterId: string;
 };
 
+export type GuideAxis = 'x' | 'y';
+
+/**
+ * Presentation-wide alignment guide. A guide is an infinite line at a
+ * fixed slide-x (axis: 'x' → vertical guide) or slide-y (axis: 'y' →
+ * horizontal guide) value, shared across every slide in the deck.
+ * Phase 3 adds the data model + passive render; user-driven create /
+ * move / delete arrives in Phase 4.
+ *
+ * See docs/design/slides/slides-ruler.md.
+ */
+export type Guide = {
+  id: string;
+  axis: GuideAxis;
+  /** Slide logical px, clamped by callers into the slide's extent. */
+  position: number;
+};
+
 export type SlidesDocument = {
   meta: Meta;
   themes: Theme[];
   masters: Master[];
   layouts: Layout[];
   slides: Slide[];
+  /** Presentation-wide alignment guides. See {@link Guide}. */
+  guides: Guide[];
 };
 
 export const DEFAULT_BACKGROUND: Background = {

@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import {
   getWorksheetCell,
   parseRef,
@@ -73,18 +72,18 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
     normalizeCell,
   });
 
-  assert.equal(getWorksheetCell(worksheet, parseRef("A2")), undefined);
-  assert.deepEqual(getWorksheetCell(worksheet, parseRef("A3")), { v: "10" });
-  assert.deepEqual(getWorksheetCell(worksheet, parseRef("B3")), { v: "20" });
-  assert.deepEqual(worksheet.rowHeights, { "3": 24 });
-  assert.deepEqual(worksheet.rowStyles, { "3": { bg: "#ffeeaa" } });
-  assert.deepEqual(worksheet.rangeStyles, [
+  expect(getWorksheetCell(worksheet, parseRef("A2"))).toBe(undefined);
+  expect(getWorksheetCell(worksheet, parseRef("A3"))).toEqual({ v: "10" });
+  expect(getWorksheetCell(worksheet, parseRef("B3"))).toEqual({ v: "20" });
+  expect(worksheet.rowHeights).toEqual({ "3": 24 });
+  expect(worksheet.rowStyles).toEqual({ "3": { bg: "#ffeeaa" } });
+  expect(worksheet.rangeStyles).toEqual([
     {
       range: [{ r: 3, c: 1 }, { r: 3, c: 2 }],
       style: { bg: "#eeeeee" },
     },
   ]);
-  assert.deepEqual(worksheet.conditionalFormats, [
+  expect(worksheet.conditionalFormats).toEqual([
     {
       id: "cf-1",
       ranges: [[{ r: 3, c: 1 }, { r: 3, c: 1 }]],
@@ -93,8 +92,8 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
       style: { bg: "#ff0000" },
     },
   ]);
-  assert.deepEqual(worksheet.merges, { A3: { rs: 1, cs: 2 } });
-  assert.equal(worksheet.charts?.chart1.anchor, "A3");
+  expect(worksheet.merges).toEqual({ A3: { rs: 1, cs: 2 } });
+  expect(worksheet.charts?.chart1.anchor).toBe("A3");
 });
 
 test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", () => {
@@ -144,18 +143,18 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
     normalizeCell,
   });
 
-  assert.deepEqual(getWorksheetCell(worksheet, parseRef("A1")), { v: "9" });
-  assert.deepEqual(getWorksheetCell(worksheet, parseRef("A2")), { v: "5" });
-  assert.deepEqual(getWorksheetCell(worksheet, parseRef("B2")), { v: "7" });
-  assert.deepEqual(worksheet.rowHeights, { "2": 30 });
-  assert.deepEqual(worksheet.rowStyles, { "2": { bg: "#ccddee" } });
-  assert.deepEqual(worksheet.rangeStyles, [
+  expect(getWorksheetCell(worksheet, parseRef("A1"))).toEqual({ v: "9" });
+  expect(getWorksheetCell(worksheet, parseRef("A2"))).toEqual({ v: "5" });
+  expect(getWorksheetCell(worksheet, parseRef("B2"))).toEqual({ v: "7" });
+  expect(worksheet.rowHeights).toEqual({ "2": 30 });
+  expect(worksheet.rowStyles).toEqual({ "2": { bg: "#ccddee" } });
+  expect(worksheet.rangeStyles).toEqual([
     {
       range: [{ r: 2, c: 1 }, { r: 2, c: 2 }],
       style: { bg: "#dddddd" },
     },
   ]);
-  assert.deepEqual(worksheet.conditionalFormats, [
+  expect(worksheet.conditionalFormats).toEqual([
     {
       id: "cf-2",
       ranges: [[{ r: 2, c: 1 }, { r: 2, c: 1 }]],
@@ -164,6 +163,6 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
       style: { bg: "#00ff00" },
     },
   ]);
-  assert.deepEqual(worksheet.merges, { A2: { rs: 1, cs: 2 } });
-  assert.equal(worksheet.charts?.chart1.anchor, "A2");
+  expect(worksheet.merges).toEqual({ A2: { rs: 1, cs: 2 } });
+  expect(worksheet.charts?.chart1.anchor).toBe("A2");
 });

@@ -50,7 +50,9 @@ import {
 } from "./tab-name";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 import { cellAnchorToSref } from "@wafflebase/sheets";
-import { CommentSidePanel } from "@/app/spreadsheet/components/comments/CommentSidePanel";
+import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
+import type { SheetCellAnchor, Thread as SharedThread } from "@/types/comments";
+import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -203,7 +205,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     if (!docRoot?.sheets) return [];
     return Object.values(
       docRoot.sheets as Record<string, { comments?: Record<string, Thread> }>,
-    ).flatMap((ws) => Object.values(ws.comments ?? {}));
+    ).flatMap((ws) =>
+      Object.values(ws.comments ?? {}).map((t) => copyThread(t as Thread)),
+    );
   }, [docRoot]);
 
   // Jump to the anchor cell: switch tab if needed, then signal SheetView to focus the cell.
@@ -623,10 +627,22 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             />
           </div>
           {commentsPanelOpen && (
-            <CommentSidePanel
-              threads={allThreads}
-              onJumpTo={handleJumpToCell}
+            <CommentSidePanel<SheetCellAnchor>
+              threads={allThreads as unknown as SharedThread<SheetCellAnchor>[]}
+              onJumpTo={(t) => handleJumpToCell(t.anchor)}
               onClose={() => setCommentsPanelOpen(false)}
+              renderAnchorLabel={(t) => {
+                const ws = doc?.getRoot().sheets?.[t.anchor.tabId];
+                if (!ws) return null;
+                const sref = cellAnchorToSref(
+                  { rowId: t.anchor.rowId, colId: t.anchor.colId },
+                  {
+                    rowOrder: Array.from(ws.rowOrder ?? []) as string[],
+                    colOrder: Array.from(ws.colOrder ?? []) as string[],
+                  },
+                );
+                return sref ? <span>{sref}</span> : null;
+              }}
             />
           )}
         </div>

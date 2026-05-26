@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import {
   applyAddThread,
   applyAddReply,
@@ -25,7 +24,7 @@ describe('yorkie-worksheet-comments', () => {
       createdAt: 0,
     };
     applyAddThread(ws, t);
-    assert.equal(ws.comments?.t1.id, 't1');
+    expect(ws.comments?.t1.id).toBe('t1');
   });
 
   it('addReply pushes onto the thread comments array', () => {
@@ -44,8 +43,8 @@ describe('yorkie-worksheet-comments', () => {
       body: 'reply',
       createdAt: 1,
     });
-    assert.equal(ws.comments!.t1.comments.length, 2);
-    assert.equal(ws.comments!.t1.comments[1].id, 'c2');
+    expect(ws.comments!.t1.comments.length).toBe(2);
+    expect(ws.comments!.t1.comments[1].id).toBe('c2');
   });
 
   it('deleteComment of root removes the thread entry entirely', () => {
@@ -59,7 +58,7 @@ describe('yorkie-worksheet-comments', () => {
     };
     applyAddThread(ws, t);
     applyDeleteComment(ws, 't1', 'c1');
-    assert.equal(ws.comments!.t1, undefined);
+    expect(ws.comments!.t1).toBe(undefined);
   });
 
   it('resolveThread sets resolved/resolvedAt/resolvedBy', () => {
@@ -73,8 +72,10 @@ describe('yorkie-worksheet-comments', () => {
     };
     applyAddThread(ws, t);
     applyResolveThread(ws, 't1', true, { userId: 'u2', username: 'b' }, 999);
-    assert.equal(ws.comments!.t1.resolved, true);
-    assert.equal(ws.comments!.t1.resolvedAt, 999);
+    expect(ws.comments!.t1.resolved).toBe(true);
+    // Timestamps are stored as bigint so Yorkie serializes them as 64-bit Long
+    // primitives — see toYorkieMs in yorkie-worksheet-comments.ts.
+    expect(ws.comments!.t1.resolvedAt as unknown as bigint).toBe(999n);
   });
 
   it('editComment updates body and editedAt', () => {
@@ -88,8 +89,9 @@ describe('yorkie-worksheet-comments', () => {
     };
     applyAddThread(ws, t);
     applyEditComment(ws, 't1', 'c1', 'new', 555);
-    assert.equal(ws.comments!.t1.comments[0].body, 'new');
-    assert.equal(ws.comments!.t1.comments[0].editedAt, 555);
+    expect(ws.comments!.t1.comments[0].body).toBe('new');
+    // Stored as bigint — see toYorkieMs note above.
+    expect(ws.comments!.t1.comments[0].editedAt as unknown as bigint).toBe(555n);
   });
 
   it('copyThread returns a structurally-detached deep copy', () => {
@@ -106,13 +108,45 @@ describe('yorkie-worksheet-comments', () => {
       createdAt: 0,
     };
     const copy = copyThread(t);
-    assert.deepEqual(copy, t);
-    assert.notEqual(copy, t);
-    assert.notEqual(copy.anchor, t.anchor);
-    assert.notEqual(copy.comments, t.comments);
-    assert.notEqual(copy.comments[0], t.comments[0]);
-    assert.notEqual(copy.comments[0].author, t.comments[0].author);
-    assert.notEqual(copy.resolvedBy, t.resolvedBy);
+    expect(copy).toEqual(t);
+    expect(copy).not.toBe(t);
+    expect(copy.anchor).not.toBe(t.anchor);
+    expect(copy.comments).not.toBe(t.comments);
+    expect(copy.comments[0]).not.toBe(t.comments[0]);
+    expect(copy.comments[0].author).not.toBe(t.comments[0].author);
+    expect(copy.resolvedBy).not.toBe(t.resolvedBy);
+  });
+
+  it('copyThread coerces bigint timestamps back to plain numbers', () => {
+    // Mimic what Yorkie returns after wire round-trip: Long-typed primitives
+    // surface as bigint on read.  Consumers downstream (formatRelativeTime,
+    // numeric comparisons) assume plain numbers, so the boundary must coerce.
+    const raw = {
+      id: 't1',
+      anchor: { kind: 'sheet-cell', tabId: 'tab1', rowId: 'r1', colId: 'c1' },
+      comments: [
+        {
+          id: 'c1',
+          author: { userId: 'u1', username: 'a' },
+          body: 'x',
+          createdAt: 1_778_630_400_000n as unknown as number,
+          editedAt: 1_778_630_500_000n as unknown as number,
+        },
+      ],
+      resolved: true,
+      createdAt: 1_778_630_400_000n as unknown as number,
+      resolvedAt: 1_778_630_600_000n as unknown as number,
+      resolvedBy: { userId: 'u2', username: 'b' },
+    } as unknown as Thread;
+    const copy = copyThread(raw);
+    expect(typeof copy.createdAt).toBe('number');
+    expect(copy.createdAt).toBe(1_778_630_400_000);
+    expect(typeof copy.resolvedAt).toBe('number');
+    expect(copy.resolvedAt).toBe(1_778_630_600_000);
+    expect(typeof copy.comments[0].createdAt).toBe('number');
+    expect(copy.comments[0].createdAt).toBe(1_778_630_400_000);
+    expect(typeof copy.comments[0].editedAt).toBe('number');
+    expect(copy.comments[0].editedAt).toBe(1_778_630_500_000);
   });
 
   it('copyThread omits optional fields when absent', () => {
@@ -124,9 +158,9 @@ describe('yorkie-worksheet-comments', () => {
       createdAt: 0,
     };
     const copy = copyThread(t);
-    assert.equal('resolvedAt' in copy, false);
-    assert.equal('resolvedBy' in copy, false);
-    assert.equal('photo' in copy.comments[0].author, false);
-    assert.equal('editedAt' in copy.comments[0], false);
+    expect('resolvedAt' in copy).toBe(false);
+    expect('resolvedBy' in copy).toBe(false);
+    expect('photo' in copy.comments[0].author).toBe(false);
+    expect('editedAt' in copy.comments[0]).toBe(false);
   });
 });

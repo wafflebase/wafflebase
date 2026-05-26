@@ -1,18 +1,41 @@
 import type { Element, ElementInit } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
+import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
+import { findElementPath } from '../../../model/group';
+import { toWorldFrame, fromWorldFrame } from '../frame-space';
 import {
   MIME_TYPE,
   serializeElements,
   deserializeElements,
 } from './clipboard';
+import { commitTranslate } from './drag';
 
 export interface KeyboardContext {
   store: SlidesStore;
   selection: Selection;
   currentSlideId(): string | undefined;
+  /** Switch to the given slide. Used by Page Up / Page Down and Cmd+M. */
+  setCurrentSlide(id: string): void;
+  /** Enter text-edit mode on the given element. Used by F2 / Enter. */
+  enterEditMode(slideId: string, elementId: string): void;
   requestRender(): void;
+  /** Optional callbacks wired by the host shell. No-op if absent. */
+  onStartPresentation?: (from: 'current' | 'first') => void;
+  onShowShortcutsHelp?: () => void;
+  /**
+   * Current insert mode (shape kind, `'text'`, or `null`). Read by the
+   * Escape rule so it can disarm an active insert without affecting
+   * other Escape consumers (e.g. closing context menus).
+   */
+  getInsertMode(): InsertKind | null;
+  /** Called by the Escape rule to disarm a shape/text insert. */
+  setInsertMode(kind: InsertKind | null): void;
+  /** Group the current selection. No-op when fewer than 2 elements selected. */
+  group(): void;
+  /** Ungroup the currently selected group element. No-op when selection is not a single group. */
+  ungroup(): void;
 }
 
 const NUDGE = 1;
@@ -24,6 +47,24 @@ const NUDGE_SHIFT = 10;
  */
 export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
   return [
+    // Escape — disarm a shape / text insert mode and return to select
+    // mode. No-op when insert mode is already null (so other future
+    // Escape consumers, e.g. closing a popover, can layer on top).
+    // Skipped while the user is typing in an editable target so
+    // Escape inside the text-box editor still cancels the IME /
+    // exits edit mode through the docs editor's own handler.
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        ctx.getInsertMode() !== null &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.setInsertMode(null);
+      },
+    },
+
     // Undo / Redo (mod-Z and mod-shift-Z) — listed before the arrow
     // rules so a stray Z key doesn't fall through.
     {
@@ -37,29 +78,71 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       run: (e) => { e.preventDefault(); ctx.store.redo(); ctx.requestRender(); },
     },
 
+    // Delete / Backspace — remove selected elements. Skipped while the
+    // user is typing in a textarea/input/contenteditable so Backspace
+    // inside the inline text-box editor still deletes characters.
+    {
+      match: (e) =>
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const ids = ctx.selection.get();
+        if (ids.length === 0) return;
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        ctx.store.batch(() =>
+          ctx.store.removeElements(slide.id, [...ids]),
+        );
+        ctx.selection.clear();
+        ctx.requestRender();
+      },
+    },
+
     // Arrow nudge — only when something is selected and no modifier.
+    // Skipped while the user is typing in a textarea/input/contenteditable
+    // so Arrow keys inside the inline text-box editor move the text caret
+    // instead of nudging the surrounding shape.
     ...(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const).map(
       (key): KeyRule => ({
         match: (e) =>
-          e.key === key && !isModPressed(e),
+          e.key === key &&
+          !isModPressed(e) &&
+          !isEditableTarget(e.target),
         run: (e) => {
           if (ctx.selection.get().length === 0) return;
           e.preventDefault();
           const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
-          const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
-          const dy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
+          const worldDx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+          const worldDy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
           const slideId = ctx.currentSlideId();
           if (!slideId) return;
+          const scope = ctx.selection.getScope();
           ctx.store.batch(() => {
             for (const id of ctx.selection.get()) {
               const slide = ctx.store.read().slides.find((s) => s.id === slideId);
               if (!slide) continue;
-              const el = slide.elements.find((x) => x.id === id);
-              if (!el) continue;
-              ctx.store.updateElementFrame(slideId, id, {
-                x: el.frame.x + dx,
-                y: el.frame.y + dy,
-              });
+              // Find element anywhere in the tree (supports drilled-in scope).
+              const path = findElementPath(slide.elements, id);
+              if (!path) continue;
+              const el = path[path.length - 1];
+              if (el.type === 'connector') {
+                // Connector endpoints are stored in world coords, so
+                // the world delta applies directly via `commitTranslate`.
+                // The store rejects `updateElementFrame` for connectors
+                // because their `frame` is derived from `start`/`end`.
+                commitTranslate(ctx.store, slideId, el, worldDx, worldDy);
+                continue;
+              }
+              // Non-connector: apply the nudge delta in world space,
+              // then convert back to the element's parent-local space
+              // for storage. For scope = [] world == local, so this is
+              // a no-op conversion.
+              const worldFrame = toWorldFrame(el.frame, scope, slide);
+              const newWorldFrame = { ...worldFrame, x: worldFrame.x + worldDx, y: worldFrame.y + worldDy };
+              const localFrame = fromWorldFrame(newWorldFrame, scope, slide);
+              ctx.store.updateElementFrame(slideId, id, localFrame);
             }
           });
           ctx.requestRender();
@@ -176,6 +259,7 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           for (const id of ids) {
             const live = ctx.store.read().slides.find((s) => s.id === slideId);
             if (!live) continue;
+            // TODO(group): walk via findElementPath when the editor stack is group-aware
             const idx = live.elements.findIndex((el) => el.id === id);
             if (idx === -1) continue;
             const length = live.elements.length;
@@ -189,6 +273,276 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           }
         });
         ctx.requestRender();
+      },
+    },
+
+    // --- Parity pass: selection / slide / present / help ---
+
+    // Cmd+/ — show shortcuts help. Bypasses the editable-target gate so
+    // the help modal opens even while typing in a text-box. Matches
+    // only when a host handler is wired so an unhandled Cmd+/ falls
+    // through to the browser default.
+    {
+      match: (e) =>
+        keyEquals(e.key, '/') &&
+        isModPressed(e) &&
+        ctx.onShowShortcutsHelp !== undefined,
+      run: (e) => {
+        if (!ctx.onShowShortcutsHelp) return;
+        e.preventDefault();
+        ctx.onShowShortcutsHelp();
+      },
+    },
+
+    // Cmd+Shift+Enter — present from first slide. Must precede the
+    // Cmd+Enter rule so the shift variant doesn't get swallowed.
+    // Both rules are gated by the editable-target check: docs
+    // text-editor binds Cmd+Enter to a page-break op (a docs-only
+    // concept) which would corrupt slide text-element data if it ran
+    // inside a slides text-box. Users can press Esc to exit text edit
+    // before starting present mode. See design doc "Esc semantics"
+    // and the "Cmd+Enter implementation deviation" note.
+    {
+      match: (e) =>
+        e.key === 'Enter' &&
+        isModPressed(e) &&
+        e.shiftKey &&
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
+      run: (e) => {
+        if (!ctx.onStartPresentation) return;
+        e.preventDefault();
+        ctx.onStartPresentation('first');
+      },
+    },
+    {
+      match: (e) =>
+        e.key === 'Enter' &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target) &&
+        ctx.onStartPresentation !== undefined,
+      run: (e) => {
+        if (!ctx.onStartPresentation) return;
+        e.preventDefault();
+        ctx.onStartPresentation('current');
+      },
+    },
+
+    // Cmd+A — select all elements on the current slide.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'a') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide || slide.elements.length === 0) return;
+        e.preventDefault();
+        ctx.selection.set(slide.elements.map((el) => el.id));
+        ctx.requestRender();
+      },
+    },
+
+    // Cmd+M — add a new slide after the current, using the current
+    // slide's layout, and switch to it.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'm') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        const slides = ctx.store.read().slides;
+        const currentIdx = slides.findIndex((s) => s.id === slide.id);
+        let newId = '';
+        ctx.store.batch(() => {
+          newId = ctx.store.addSlide(slide.layoutId, currentIdx + 1);
+        });
+        if (newId) ctx.setCurrentSlide(newId);
+        ctx.requestRender();
+      },
+    },
+
+    // Cmd+Shift+D — duplicate the current slide explicitly. Distinct
+    // from Cmd+D, which duplicates the selected element(s) and only
+    // falls back to slide-duplicate when nothing is selected.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'd') &&
+        isModPressed(e) &&
+        e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        ctx.store.batch(() => ctx.store.duplicateSlide(slide.id));
+        ctx.requestRender();
+      },
+    },
+
+    // Page Up / Page Down — switch to previous / next slide. Gated by
+    // editable target so PgUp/PgDn inside a focused textarea retains
+    // its default behaviour (caret movement).
+    {
+      match: (e) =>
+        (e.key === 'PageUp' || e.key === 'PageDown') &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slides = ctx.store.read().slides;
+        if (slides.length === 0) return;
+        const currentId = ctx.currentSlideId();
+        const currentIdx = slides.findIndex((s) => s.id === currentId);
+        if (currentIdx === -1) return;
+        const targetIdx =
+          e.key === 'PageUp'
+            ? Math.max(0, currentIdx - 1)
+            : Math.min(slides.length - 1, currentIdx + 1);
+        if (targetIdx === currentIdx) return;
+        e.preventDefault();
+        ctx.setCurrentSlide(slides[targetIdx].id);
+      },
+    },
+
+    // Tab / Shift+Tab — cycle next / previous element on the current
+    // slide. Empty selection: Tab picks the first element, Shift+Tab
+    // picks the last (matches Google Slides).
+    {
+      match: (e) =>
+        e.key === 'Tab' &&
+        !isModPressed(e) &&
+        !e.altKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide || slide.elements.length === 0) return;
+        e.preventDefault();
+        const direction: 'next' | 'prev' = e.shiftKey ? 'prev' : 'next';
+        const selected = ctx.selection.get();
+        const len = slide.elements.length;
+        let nextIdx: number;
+        if (selected.length === 0) {
+          nextIdx = direction === 'next' ? 0 : len - 1;
+        } else {
+          // Anchor on the last element in selection (in array order)
+          // so repeated Tab walks forward through the slide.
+          let anchor = -1;
+          for (let i = len - 1; i >= 0; i--) {
+            if (selected.includes(slide.elements[i].id)) {
+              anchor = i;
+              break;
+            }
+          }
+          if (anchor === -1) {
+            nextIdx = direction === 'next' ? 0 : len - 1;
+          } else {
+            const step = direction === 'next' ? 1 : -1;
+            nextIdx = (anchor + step + len) % len;
+          }
+        }
+        ctx.selection.set([slide.elements[nextIdx].id]);
+        ctx.requestRender();
+      },
+    },
+
+    // F2 / Enter — enter text-edit mode on the selected text element.
+    // Only fires when:
+    //   - exactly one element is selected,
+    //   - that element is type 'text',
+    //   - the focused target isn't an editable input (so Enter still
+    //     submits dialogs and the text-box editor's own Enter keeps
+    //     inserting newlines).
+    {
+      match: (e) =>
+        (e.key === 'F2' || e.key === 'Enter') &&
+        !isModPressed(e) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        const selected = ctx.selection.get();
+        if (selected.length !== 1) return;
+        const element = slide.elements.find((el) => el.id === selected[0]);
+        if (!element || element.type !== 'text') return;
+        e.preventDefault();
+        ctx.enterEditMode(slide.id, element.id);
+      },
+    },
+
+    // Esc — pop drill-in scope if non-empty; otherwise clear selection.
+    // Text-box Esc is handled by the text-box editor's own capture-phase
+    // listener (which stops propagation before reaching this rule).
+    // Popover/context-menu Esc is also captured at their layer.
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        // If we are drilled into a group, pop one scope level and stop —
+        // do NOT also clear the id-selection so the group itself appears
+        // selected at the parent scope level (matching Google Slides).
+        if (ctx.selection.getScope().length > 0) {
+          e.preventDefault();
+          // Refit the innermost scoped group so its frame matches the
+          // children's current visual extent — children may have moved
+          // inside drill-in, leaving `group.frame` stale. The refit
+          // preserves the group's rotation and scale (see
+          // `worldTightFrame` in `model/group.ts`); only position +
+          // dimensions move to wrap the children. Wrapped in `batch`
+          // so undo restores the pre-refit state in one step.
+          const scope = ctx.selection.getScope();
+          const slideId = ctx.currentSlideId();
+          if (slideId !== undefined && scope.length > 0) {
+            const innermost = scope[scope.length - 1];
+            ctx.store.batch(() => {
+              ctx.store.refitGroup(slideId, innermost);
+            });
+          }
+          ctx.selection.escape();
+          ctx.requestRender();
+          return;
+        }
+        if (ctx.selection.get().length === 0) return;
+        e.preventDefault();
+        ctx.selection.clear();
+        ctx.requestRender();
+      },
+    },
+
+    // Cmd+Alt+G — group the current selection (≥2 elements).
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.group();
+      },
+    },
+
+    // Cmd+Shift+Alt+G — ungroup the selected group element.
+    {
+      match: (e) =>
+        keyEquals(e.key, 'g') &&
+        isModPressed(e) &&
+        e.altKey &&
+        e.shiftKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.ungroup();
       },
     },
   ];
@@ -279,4 +633,25 @@ function tryDeserialize(json: string): ElementInit[] | null {
 
 function keyEquals(eventKey: string, target: string): boolean {
   return eventKey.toLowerCase() === target.toLowerCase();
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if ((target as HTMLElement).isContentEditable) return true;
+  // Also gate against interactive widgets (dialogs, dropdowns, focused
+  // buttons). Without this, Tab inside the shortcuts-help dialog would
+  // be hijacked by the slides Tab-cycle rule, and Enter on a focused
+  // toolbar button would enter text-edit mode instead of activating
+  // the button. We treat any of these as "not the slide canvas" and
+  // let the default browser/widget handling run.
+  if (tag === 'BUTTON') return true;
+  if (target.closest('[role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [role="tree"], [role="grid"]')) {
+    return true;
+  }
+  if (target.matches('[role="button"], [role="menuitem"], [role="option"], [role="tab"]')) {
+    return true;
+  }
+  return false;
 }

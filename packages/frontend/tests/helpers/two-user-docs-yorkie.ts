@@ -56,6 +56,14 @@ async function syncClients(
 export interface TwoUserDocsContext {
   storeA: YorkieDocStore;
   storeB: YorkieDocStore;
+  /**
+   * Raw Yorkie documents. Exposed so tests can attach feature-specific
+   * stores (e.g. YorkieCommentStore) onto the same Yorkie handle, which
+   * lets them assert CRDT semantics for comment-store mutations end-to-end.
+   * Typed as `object` to match the helper's SDK-stub-friendly type erasure.
+   */
+  docA: object;
+  docB: object;
   sync(): Promise<void>;
   cleanup(): Promise<void>;
 }
@@ -101,6 +109,17 @@ export async function createTwoUserDocs(
     const storeA = new YorkieDocStore(docA as never);
     storeA.setDocument({ blocks: initialBlocks });
 
+    // Mirror production document creation (see `initialDocsRoot`): the
+    // comments map is created once at bootstrap so concurrent first-inserts
+    // merge on a shared CRDT container rather than racing to create it (a
+    // race Yorkie resolves by LWW, dropping one replica's thread). Done
+    // before client B attaches so B receives the container in its snapshot.
+    (docA as { update(fn: (root: YorkieDocsRoot) => void): void }).update(
+      (root) => {
+        if (!root.comments) root.comments = {};
+      },
+    );
+
     // Sync so client B gets the initial state
     await clientA.sync(docA);
     await clientB.attach(docB, { syncMode: SyncMode.Manual });
@@ -114,6 +133,8 @@ export async function createTwoUserDocs(
     return {
       storeA,
       storeB,
+      docA,
+      docB,
       async sync() {
         await syncClients([
           { client: clientA, doc: docA },

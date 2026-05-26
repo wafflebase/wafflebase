@@ -12,6 +12,40 @@ import {
 } from './functions-helpers';
 import { parseDate, formatDate } from './functions-date';
 
+function getCashFlowValues(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): number[] | ErrNode {
+  const node = visit(expr);
+  if (node.t === 'err') return node;
+
+  if (node.t === 'ref' && grid) {
+    const values: number[] = [];
+    for (const ref of toSrefs([node.v])) {
+      const cell = grid.get(ref);
+      const value = cell ? Number(cell.v) : 0;
+      if (isNaN(value)) return ErrNode.VALUE;
+      values.push(value);
+    }
+    return values;
+  }
+
+  if (node.t === 'arr') {
+    const values: number[] = [];
+    for (const row of node.v) {
+      for (const cell of row) {
+        const valueNode = NumberArgs.map(cell, grid);
+        if (valueNode.t === 'err') return valueNode;
+        values.push(valueNode.v);
+      }
+    }
+    return values;
+  }
+
+  return ErrNode.VALUE;
+}
+
 /**
  * PMT(rate, nper, pv, [fv], [type]) — calculates the periodic payment for a loan.
  */
@@ -20,10 +54,7 @@ export function pmtFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -57,10 +88,7 @@ export function fvFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -99,10 +127,7 @@ export function pvFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -141,10 +166,7 @@ export function npvFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -180,10 +202,7 @@ export function nperFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -223,10 +242,7 @@ export function ipmtFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -263,7 +279,9 @@ export function ipmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = balance * rate.v;
+  // Excel cash-flow sign convention: interest is a cash flow paid/received
+  // by the borrower/lender, so its sign is opposite the outstanding balance.
+  const ipmt = -balance * rate.v;
   if (type === 1 && per.v === 1) return { t: 'num', v: 0 };
   return { t: 'num', v: ipmt };
 }
@@ -276,10 +294,7 @@ export function ppmtFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -306,7 +321,7 @@ export function ppmtFunc(
 
   const pmt = computePmt(rate.v, nper.v, pv.v, fv, type);
 
-  // IPMT at this period
+  // IPMT at this period (Excel cash-flow sign convention: opposite of balance)
   let balance = pv.v;
   for (let i = 1; i < per.v; i++) {
     if (type === 1 && i === 1) {
@@ -316,7 +331,7 @@ export function ppmtFunc(
     balance += interest + (type === 0 ? pmt : (i > 1 ? pmt : 0));
   }
 
-  const ipmt = (type === 1 && per.v === 1) ? 0 : balance * rate.v;
+  const ipmt = (type === 1 && per.v === 1) ? 0 : -balance * rate.v;
   return { t: 'num', v: pmt - ipmt };
 }
 
@@ -328,10 +343,7 @@ export function slnFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
   const salvage = NumberArgs.map(visit(exprs[1]), grid);
@@ -350,10 +362,7 @@ export function effectFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const nominal = NumberArgs.map(visit(exprs[0]), grid);
   if (nominal.t === 'err') return nominal;
   const periods = NumberArgs.map(visit(exprs[1]), grid);
@@ -371,10 +380,7 @@ export function rateFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const nper = NumberArgs.map(visit(exprs[0]), grid);
   if (nper.t === 'err') return nper;
@@ -427,20 +433,10 @@ export function irrFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
-  const values: number[] = [];
-  const refsResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (refsResult.t === 'err') return refsResult;
-  for (const ref of refsResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
+  const values = getCashFlowValues(exprs[0], visit, grid);
+  if (!Array.isArray(values)) return values;
 
   let guess = 0.1;
   if (exprs.length === 2) {
@@ -475,10 +471,7 @@ export function dbFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -528,10 +521,7 @@ export function ddbFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -577,10 +567,7 @@ export function nominalFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const effectiveRate = NumberArgs.map(visit(exprs[0]), grid);
   if (effectiveRate.t === 'err') return effectiveRate;
   const periods = NumberArgs.map(visit(exprs[1]), grid);
@@ -598,10 +585,7 @@ export function cumipmtFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -646,10 +630,7 @@ export function cumprincFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -694,10 +675,7 @@ export function xnpvFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -743,10 +721,7 @@ export function xirrFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
   if (valuesResult.t === 'err') return valuesResult;
@@ -806,10 +781,7 @@ export function sydFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -836,25 +808,14 @@ export function mirrFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
-  const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
-  if (valuesResult.t === 'err') return valuesResult;
+  const values = getCashFlowValues(exprs[0], visit, grid);
+  if (!Array.isArray(values)) return values;
   const financeRate = NumberArgs.map(visit(exprs[1]), grid);
   if (financeRate.t === 'err') return financeRate;
   const reinvestRate = NumberArgs.map(visit(exprs[2]), grid);
   if (reinvestRate.t === 'err') return reinvestRate;
-
-  const values: number[] = [];
-  for (const ref of valuesResult.v) {
-    const cell = grid!.get(ref);
-    const v = cell ? Number(cell.v) : 0;
-    if (isNaN(v)) return ErrNode.VALUE;
-    values.push(v);
-  }
 
   const n = values.length;
   if (n < 2) return ErrNode.VALUE;
@@ -884,10 +845,7 @@ export function tbilleqFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -916,10 +874,7 @@ export function tbillpriceFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -948,10 +903,7 @@ export function tbillyieldFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -980,10 +932,7 @@ export function dollardeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const dollar = NumberArgs.map(visit(exprs[0]), grid);
   if (dollar.t === 'err') return dollar;
@@ -1006,10 +955,7 @@ export function dollarfrFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const dollar = NumberArgs.map(visit(exprs[0]), grid);
   if (dollar.t === 'err') return dollar;
@@ -1033,10 +979,7 @@ export function accrintFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const issue = parseDate(visit(exprs[0]), grid);
   if (!(issue instanceof Date)) return issue;
   // first_interest is ignored in simplified calculation
@@ -1063,10 +1006,7 @@ export function accrintmFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const issue = parseDate(visit(exprs[0]), grid);
   if (!(issue instanceof Date)) return issue;
   const settlement = parseDate(visit(exprs[1]), grid);
@@ -1090,10 +1030,7 @@ export function coupdaybsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1114,10 +1051,7 @@ export function coupdaysFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1140,10 +1074,7 @@ export function coupdaysncFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1164,10 +1095,7 @@ export function coupncdFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1187,10 +1115,7 @@ export function coupnumFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1217,10 +1142,7 @@ export function couppcdFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1240,10 +1162,7 @@ export function discFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1268,10 +1187,7 @@ export function pricediscFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1295,10 +1211,7 @@ export function yielddiscFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1323,10 +1236,7 @@ export function durationFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1367,10 +1277,7 @@ export function mdurationFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1410,10 +1317,7 @@ export function receivedFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1439,10 +1343,7 @@ export function intrateFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1467,10 +1368,7 @@ export function priceFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1516,10 +1414,7 @@ export function yieldBondFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1576,10 +1471,7 @@ export function pricematFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1610,10 +1502,7 @@ export function yieldmatFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1645,10 +1534,7 @@ export function amorlincFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
   const purchaseDate = parseDate(visit(exprs[1]), grid);
@@ -1688,10 +1574,7 @@ export function ispmtFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
   const per = NumberArgs.map(visit(exprs[1]), grid);
@@ -1711,10 +1594,7 @@ export function fvscheduleFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const principal = NumberArgs.map(visit(exprs[0]), grid);
   if (principal.t === 'err') return principal;
   const scheduleNode = visit(exprs[1]);
@@ -1745,10 +1625,7 @@ export function pdurationFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
   const pv = NumberArgs.map(visit(exprs[1]), grid);
@@ -1767,10 +1644,7 @@ export function rriFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
   const nper = NumberArgs.map(visit(exprs[0]), grid);
   if (nper.t === 'err') return nper;
   const pv = NumberArgs.map(visit(exprs[1]), grid);

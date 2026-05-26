@@ -435,7 +435,7 @@ describe('FunctionCatalog', () => {
   describe('formatSignature', () => {
     it('should format SUM signature', () => {
       const info = findFunction('SUM')!;
-      expect(formatSignature(info)).toBe('SUM(number1, [number2], ...)');
+      expect(formatSignature(info)).toBe('SUM(number1, [number2, ...])');
     });
 
     it('should format IF signature', () => {
@@ -465,14 +465,14 @@ describe('FunctionCatalog', () => {
     it('should format TEXTJOIN signature', () => {
       const info = findFunction('TEXTJOIN')!;
       expect(formatSignature(info)).toBe(
-        'TEXTJOIN(delimiter, ignore_empty, text1, [text2], ...)',
+        'TEXTJOIN(delimiter, ignore_empty, text1, [text2, ...])',
       );
     });
 
     it('should format SUMIFS signature', () => {
       const info = findFunction('SUMIFS')!;
       expect(formatSignature(info)).toBe(
-        'SUMIFS(sum_range, criteria_range1, criterion1, [criteria_range2], ..., [criterion2], ...)',
+        'SUMIFS(sum_range, criteria_range1, criterion1, [criteria_range2, ...], [criterion2, ...])',
       );
     });
 

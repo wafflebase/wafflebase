@@ -7,9 +7,10 @@ target-version: 0.1.0
 
 ## Summary
 
-Add a VitePress-based documentation site as `packages/documentation` to provide user guides
-(spreadsheet editing, formulas, collaboration) and developer references (REST API, CLI).
-Served at `wafflebase.io/docs` as a subpath of the existing GitHub Pages deployment.
+A VitePress-based documentation site at `packages/documentation` provides
+user guides for each shipped module (Sheets, Docs, Slides) and developer
+references (self-hosting, REST API, CLI). Served at `wafflebase.io/docs`
+as a subpath of the existing GitHub Pages deployment.
 
 ## Goals
 
@@ -38,19 +39,32 @@ packages/documentation/
 ├── index.md                  # Docs home (VitePress home layout)
 ├── guide/
 │   ├── getting-started.md    # Getting started
-│   ├── editing-cells.md      # Cell editing
-│   ├── formulas.md           # Formula usage
-│   └── collaboration.md      # Real-time collaboration
-└── api/
-    ├── rest-api.md           # REST API reference
-    └── cli.md                # CLI reference
+│   └── collaboration.md      # Real-time collaboration & sharing
+├── sheets/
+│   ├── build-a-budget.md     # Sheets tutorial
+│   ├── formulas.md           # Formulas reference
+│   ├── charts.md             # Charts & pivot tables
+│   └── keyboard-shortcuts.md
+├── docs-editor/
+│   ├── writing-a-document.md
+│   └── keyboard-shortcuts.md
+├── slides/
+│   ├── build-a-deck.md       # Slides tutorial
+│   ├── themes-and-layouts.md
+│   └── keyboard-shortcuts.md
+└── developers/
+    ├── self-hosting.md
+    ├── rest-api.md
+    └── cli.md
 ```
 
 ### VitePress Configuration
 
 - `base: '/docs/'` so all asset/link paths are prefixed correctly
-- Sidebar with two sections: Guide and API Reference
-- Top nav linking back to main site (`wafflebase.io`)
+- Top nav order: **Guide / Sheets / Docs / Slides / Developers** — mirrors
+  the homepage's product progression
+- Sidebar groups one per nav entry; Slides group sits between Docs and
+  Developers
 - Brand colors via CSS variable overrides to match homepage amber/gold theme
 - Built-in local search enabled
 
@@ -87,14 +101,31 @@ packages/documentation/
 ### Content Outline
 
 **Guide section:**
-- Getting Started: what Wafflebase is, how to create a document, basic navigation
-- Editing Cells: selecting, typing, copy/paste, undo/redo, cell types
-- Formulas: supported functions, formula syntax, cell references, examples
-- Collaboration: sharing documents, real-time co-editing, presence indicators
+- Getting Started: what Wafflebase is, how to create a document, basic
+  navigation
+- Collaboration & Sharing: sharing documents, real-time co-editing,
+  presence indicators
 
-**API section:**
-- REST API: authentication (API keys), endpoints for documents/tabs/cells, examples
-- CLI: installation, configuration, available commands, usage examples
+**Sheets section:**
+- Build a Budget: hands-on tutorial
+- Formulas: supported functions, syntax, cell references, examples
+- Charts & Pivot Tables: data visualization and aggregation
+- Keyboard Shortcuts: full reference
+
+**Docs section:**
+- Writing a Document: editor tour, formatting, pagination
+- Keyboard Shortcuts: full reference
+
+**Slides section:**
+- Build a Deck: hands-on tutorial (counterpart to Build a Budget)
+- Themes & Layouts: 4-tier theme model, 11 Google-Slides-parity layouts,
+  placeholders
+- Keyboard Shortcuts: full reference
+
+**Developers section:**
+- Self-Hosting: deploying Wafflebase on your own infrastructure
+- REST API: API key authentication, endpoints for documents/tabs/cells
+- CLI: installation, configuration, command reference
 
 ## Risks and Mitigation
 

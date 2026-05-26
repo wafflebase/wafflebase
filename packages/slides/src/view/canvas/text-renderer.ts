@@ -41,7 +41,7 @@ const measurer = new CanvasTextMeasurer();
  * - `ThemeColor`-shaped objects (`{ kind: 'role' | 'srgb' }`) → resolve
  *   via the slides `resolveColor`.
  */
-function makeColorResolver(theme: Theme): ColorResolver {
+export function makeColorResolver(theme: Theme): ColorResolver {
   const themeText = resolveColor({ kind: 'role', role: 'text' }, theme);
   return (c: StoredColor | undefined) => {
     if (c == null) return themeText;

@@ -1,8 +1,16 @@
-import type { Slide, SlidesDocument } from '../../model/presentation';
+import type { Element } from '../../model/element';
+import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import { flattenElements } from '../../model/group';
 import { resolveColor } from '../../model/theme';
 import { drawElement } from './element-renderer';
+import { drawImage } from './image-renderer';
 import { getActiveTheme } from './render-context';
+
+/** Global alpha applied to the hover-ghost element so the user can see
+ * exactly what (kind + size + position) is about to be inserted while
+ * still reading the slide content underneath. */
+export const GHOST_ALPHA = 0.4;
 
 export interface SlideRendererOptions {
   hostWidth: number;   // CSS pixels of the target <canvas>
@@ -63,10 +71,29 @@ export class SlideRenderer {
    * Paint unconditionally (bypass the dirty check). Used by interaction
    * live-paint paths in the editor that need to draw an in-memory
    * frame override on every mousemove without committing to the store.
+   *
+   * `ghosts` — optional elements drawn on top of the committed slide at
+   * `GHOST_ALPHA`. Used by three live-paint paths:
+   *   - shape-insert hover preview (single ghost of the to-be-inserted
+   *     shape under the cursor before mousedown).
+   *   - connector endpoint drag preview (single ghost copy of the
+   *     connector with the dragged endpoint moved to the cursor target,
+   *     while the real connector stays anchored on `slide`).
+   *   - shape-move drag preview (one ghost per selected element at the
+   *     dragged offset).
+   * Kept out of `slide` so the ghost never participates in selection,
+   * hit-test, or z-order. For a connector ghost, attached endpoints
+   * still resolve through `slide`'s element lookup, so a half-attached
+   * ghost line stays visually anchored to its host shape.
    */
-  forceRender(slide: Slide, doc: SlidesDocument): void {
+  forceRender(
+    slide: Slide,
+    doc: SlidesDocument,
+    ghosts?: readonly Element[],
+  ): void {
     this.dirty = true;
-    this.render(slide, doc);
+    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts);
+    this.dirty = false;
   }
 }
 
@@ -82,6 +109,7 @@ export function drawSlide(
   doc: SlidesDocument,
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
+  ghosts?: readonly Element[],
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
@@ -95,19 +123,72 @@ export function drawSlide(
   const scaleY = (hostHeight / SLIDE_HEIGHT) * dpr;
   const scale = Math.min(scaleX, scaleY);
 
-  // Reset to identity, clear, then re-establish the world scale so
-  // the content paints at the correct host pixel size regardless of
-  // any leftover transforms from a previous render.
+  // Reset to identity, paint the slide background across the FULL canvas
+  // (not just the logical 1920×1080 region), then re-establish the world
+  // scale so element content paints at the correct host pixel size.
+  //
+  // Filling the full canvas — rather than `fillRect(0, 0, SLIDE_W, SLIDE_H)`
+  // after the scale transform — hides 1–2 px aspect-ratio rounding gaps on
+  // the right/bottom edges. Without this, host dimensions whose ratio drifts
+  // from SLIDE_WIDTH:SLIDE_HEIGHT (rounding from `computeFitSize` →
+  // `Math.round`) leave a transparent strip that reveals the canvas's CSS
+  // `background` underneath. That strip reads white in light mode and reads
+  // as a flashing white edge in dark mode + Simple Dark, where the slide
+  // background is `#202124` but the canvas backdrop stays `#fff`.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, hostWidth * dpr, hostHeight * dpr);
+  ctx.fillStyle = resolveColor(slide.background.fill, theme);
+  ctx.fillRect(0, 0, hostWidth * dpr, hostHeight * dpr);
   ctx.scale(scale, scale);
 
-  // Background fill — image-fill backgrounds are v2.
-  ctx.fillStyle = resolveColor(slide.background.fill, theme);
-  ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
+  // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted
+  // *after* the full-canvas color fill so the surrounding strip stays
+  // background-color and transparent regions of the image still show
+  // the color underneath. Stretch to the logical 1920×1080 region
+  // because that's what OOXML `<a:stretch><a:fillRect/></a:stretch>`
+  // means; tile mode is a v3 problem.
+  const bgImage = pickBackgroundImage(slide, doc);
+  if (bgImage) {
+    drawImage(ctx, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT }, bgImage, onAssetLoad);
+  }
 
   // Iterate elements in array order = z-order, last is front.
+  // Element lookup is consumed by the connector renderer to resolve
+  // attached endpoints. Built once per slide-render so each connector
+  // doesn't rebuild it.
+  // flattenElements walks the tree DFS so elements nested inside groups
+  // are included — a connector whose endpoint targets a shape inside a
+  // group can still resolve the attachment point correctly.
+  const elementsLookup = new Map<string, Element>(
+    flattenElements(slide.elements).map((e) => [e.id, e] as const),
+  );
   for (const element of slide.elements) {
-    drawElement(ctx, element, doc, theme, onAssetLoad);
+    drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
   }
+
+  if (ghosts !== undefined && ghosts.length > 0) {
+    // Paint hover/drag-preview ghosts on top of the committed slide so
+    // their semi-transparency reveals the underlying content. One
+    // save/restore band per ghost keeps `globalAlpha` writes scoped
+    // and isolates any future per-ghost style overrides.
+    for (const ghost of ghosts) {
+      ctx.save();
+      ctx.globalAlpha = GHOST_ALPHA;
+      drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
+      ctx.restore();
+    }
+  }
+}
+
+/**
+ * Slide-level image background takes precedence; otherwise inherit
+ * from the deck's master so master-only image decks still render.
+ * Returns `undefined` when neither is set.
+ */
+function pickBackgroundImage(
+  slide: Slide,
+  doc: SlidesDocument,
+): BackgroundImage | undefined {
+  if (slide.background.image) return slide.background.image;
+  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+  return master?.background.image;
 }

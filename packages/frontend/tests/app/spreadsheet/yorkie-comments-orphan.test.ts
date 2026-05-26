@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import { deleteThreadsForAxis } from '../../../src/app/spreadsheet/yorkie-worksheet-structure.ts';
 import type { Thread } from '@wafflebase/sheets';
 
@@ -22,8 +21,8 @@ describe('deleteThreadsForAxis', () => {
       },
     };
     deleteThreadsForAxis(ws, 'row', new Set(['r1']));
-    assert.equal(ws.comments.t1, undefined);
-    assert.equal(ws.comments.t2.id, 't2');
+    expect(ws.comments.t1).toBe(undefined);
+    expect(ws.comments.t2.id).toBe('t2');
   });
 
   it('removes threads whose colId is in the deleted set', () => {
@@ -34,14 +33,14 @@ describe('deleteThreadsForAxis', () => {
       },
     };
     deleteThreadsForAxis(ws, 'col', new Set(['cA']));
-    assert.equal(ws.comments.t1, undefined);
-    assert.equal(ws.comments.t2.id, 't2');
+    expect(ws.comments.t1).toBe(undefined);
+    expect(ws.comments.t2.id).toBe('t2');
   });
 
   it('is a no-op when comments map is missing', () => {
     const ws: { comments?: Record<string, Thread> } = {};
     deleteThreadsForAxis(ws, 'row', new Set(['r1']));
-    assert.equal(ws.comments, undefined);
+    expect(ws.comments).toBe(undefined);
   });
 
   it('preserves threads not in the deleted set while removing those that are', () => {
@@ -53,8 +52,8 @@ describe('deleteThreadsForAxis', () => {
       },
     };
     deleteThreadsForAxis(ws, 'row', new Set(['r1', 'r3']));
-    assert.equal(ws.comments.t1, undefined);
-    assert.equal(ws.comments.t2.id, 't2');
-    assert.equal(ws.comments.t3, undefined);
+    expect(ws.comments.t1).toBe(undefined);
+    expect(ws.comments.t2.id).toBe('t2');
+    expect(ws.comments.t3).toBe(undefined);
   });
 });

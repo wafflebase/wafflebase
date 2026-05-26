@@ -74,6 +74,8 @@ import {
 } from "@/api/workspaces";
 import { pickAndImportDocx } from "@/app/docs/docx-actions";
 import { setPendingImport } from "@/app/docs/pending-imports";
+import { pickAndImportPptx } from "@/app/slides/pptx-actions";
+import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   switch (doc.type) {
@@ -225,26 +227,98 @@ export function DocumentList({
 
   const [importing, setImporting] = useState(false);
 
+  // Lazily create (first tick) or update the import progress toast.
+  // Returns the toast id so the caller can thread it to success/error.
+  const updateImportToast = (
+    toastId: string | number | undefined,
+    title: string,
+    done: number,
+    total: number,
+  ): string | number => {
+    const description =
+      total > 0
+        ? `Uploading images ${Math.min(done, total)} / ${total}`
+        : undefined;
+    if (toastId === undefined) {
+      return toast.loading(`Importing "${title}"…`, { description });
+    }
+    toast.loading(`Importing "${title}"…`, { id: toastId, description });
+    return toastId;
+  };
+
   const handleImportDocx = async () => {
     if (importing) return;
     setImporting(true);
+    let toastId: string | number | undefined;
     try {
-      const result = await pickAndImportDocx();
-      if (!result) return;
+      const result = await pickAndImportDocx(({ done, total, fileName }) => {
+        const title =
+          fileName.replace(/\.docx$/i, "") || "Imported Document";
+        toastId = updateImportToast(toastId, title, done, total);
+      });
+      if (!result) {
+        if (toastId !== undefined) toast.dismiss(toastId);
+        return;
+      }
 
-      const title = result.fileName.replace(/\.docx$/i, "") || "Imported Document";
+      const title =
+        result.fileName.replace(/\.docx$/i, "") || "Imported Document";
       const created = workspaceId
         ? await createWorkspaceDocument(workspaceId, { title, type: "doc" })
         : await createDocument({ title, type: "doc" });
 
       setPendingImport(String(created.id), result.doc);
-      toast.success(`Imported "${title}"`);
+      const message = `Imported "${title}"`;
+      if (toastId !== undefined) toast.success(message, { id: toastId });
+      else toast.success(message);
       navigate(getDocumentPath(created));
     } catch (err) {
       console.error("DOCX import failed", err);
-      toast.error(
-        err instanceof Error ? `Import failed: ${err.message}` : "Import failed",
-      );
+      const message =
+        err instanceof Error ? `Import failed: ${err.message}` : "Import failed";
+      if (toastId !== undefined) toast.error(message, { id: toastId });
+      else toast.error(message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportPptx = async () => {
+    if (importing) return;
+    setImporting(true);
+    let toastId: string | number | undefined;
+    try {
+      const result = await pickAndImportPptx(({ done, total, fileName }) => {
+        const title =
+          fileName.replace(/\.pptx$/i, "") || "Imported Presentation";
+        toastId = updateImportToast(toastId, title, done, total);
+      });
+      if (!result) {
+        if (toastId !== undefined) toast.dismiss(toastId);
+        return;
+      }
+
+      const title =
+        result.fileName.replace(/\.pptx$/i, "") || "Imported Presentation";
+      const created = workspaceId
+        ? await createWorkspaceDocument(workspaceId, { title, type: "slides" })
+        : await createDocument({ title, type: "slides" });
+
+      setPendingPptxImport(String(created.id), result.document);
+      const summary = result.report.summary();
+      const message =
+        summary === "Imported with no fallbacks."
+          ? `Imported "${title}"`
+          : `Imported "${title}" — ${summary}`;
+      if (toastId !== undefined) toast.success(message, { id: toastId });
+      else toast.success(message);
+      navigate(getDocumentPath(created));
+    } catch (err) {
+      console.error("PPTX import failed", err);
+      const message =
+        err instanceof Error ? `Import failed: ${err.message}` : "Import failed";
+      if (toastId !== undefined) toast.error(message, { id: toastId });
+      else toast.error(message);
     } finally {
       setImporting(false);
     }
@@ -377,6 +451,13 @@ export function DocumentList({
             >
               <FileDown className="mr-2 h-4 w-4 text-blue-500" />
               Import DOCX
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={importing}
+              onClick={handleImportPptx}
+            >
+              <FileDown className="mr-2 h-4 w-4 text-orange-500" />
+              Import PPTX
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -17,6 +17,16 @@ describe('Formula', () => {
     expect(evaluate('=100+200')).toBe('300');
   });
 
+  it('should correctly evaluate unary postfix percentage operator', () => {
+    expect(evaluate('=4%')).toBe('0.04');
+    expect(evaluate('=4%*3')).toBe('0.12');
+    expect(Number(evaluate('=5%+10%'))).toBeCloseTo(0.15);
+    expect(evaluate('=4%3')).toBe('#ERROR!');
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '200' });
+    expect(evaluate('=A1*5%', grid)).toBe('10');
+  });
+
   it('should correctly evaluate subtraction', () => {
     expect(evaluate('=5-3')).toBe('2');
     expect(evaluate('=10-5')).toBe('5');
@@ -40,6 +50,36 @@ describe('Formula', () => {
     expect(evaluate('=(2+3)*4')).toBe('20');
     expect(evaluate('=10-5/2')).toBe('7.5');
     expect(evaluate('=(10-5)/2')).toBe('2.5');
+  });
+
+  it('should correctly evaluate exponentiation with ^', () => {
+    expect(evaluate('=5^2')).toBe('25');
+    expect(evaluate('=2^10')).toBe('1024');
+    expect(Number(evaluate('=2^0.5'))).toBeCloseTo(Math.SQRT2);
+    expect(evaluate('=2^0')).toBe('1');
+    expect(evaluate('=0^0')).toBe('1');
+  });
+
+  it('should give ^ higher precedence than * and /', () => {
+    expect(evaluate('=2*3^2')).toBe('18');
+    expect(evaluate('=18/3^2')).toBe('2');
+    expect(evaluate('=2+3^2')).toBe('11');
+  });
+
+  it('should bind unary minus tighter than ^', () => {
+    // Matches Google Sheets / Excel: =-2^2 is (-2)^2 = 4, not -(2^2) = -4.
+    expect(evaluate('=-2^2')).toBe('4');
+    expect(evaluate('=-(2^2)')).toBe('-4');
+    expect(evaluate('=-2^3')).toBe('-8');
+  });
+
+  it('should treat ^ as right-associative', () => {
+    expect(evaluate('=2^3^2')).toBe('512');
+    expect(evaluate('=(2^3)^2')).toBe('64');
+  });
+
+  it('should return #NUM! when ^ overflows', () => {
+    expect(evaluate('=10^400')).toBe('#NUM!');
   });
 
   it('should correctly evaluate unary minus', () => {
@@ -636,6 +676,13 @@ describe('Formula', () => {
     expect(evaluate('=TRIM("  hello  ")')).toBe('hello');
     expect(evaluate('=TRIM("hello")')).toBe('hello');
     expect(evaluate('=TRIM("  spaces  ")')).toBe('spaces');
+    expect(evaluate('=TRIM("  hello   world  ")')).toBe('hello world');
+    expect(evaluate('=TRIM("hello   world")')).toBe('hello world');
+    expect(evaluate('=TRIM("\thello\t\tworld\t")')).toBe('hello world');
+    expect(evaluate('=TRIM("hello\n\nworld")')).toBe('hello world');
+    expect(evaluate('=TRIM("  hello \t\n  world  ")')).toBe('hello world');
+    expect(evaluate('=TRIM("")')).toBe('');
+    expect(evaluate('=TRIM("   \t\n   ")')).toBe('');
   });
 
   it('should correctly evaluate LEN function', () => {
@@ -855,12 +902,28 @@ describe('Formula', () => {
     expect(evaluate('=IFERROR("hello","error")')).toBe('hello');
     expect(evaluate('=IFERROR(1+2,"error")')).toBe('3');
     expect(evaluate('=IFERROR(SUM(),"fallback")')).toBe('fallback');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+    grid.set('A3', { v: 'plain' });
+
+    expect(evaluate('=IFERROR(A1,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A2,"fallback")', grid)).toBe('fallback');
+    expect(evaluate('=IFERROR(A3,"fallback")', grid)).toBe('plain');
   });
 
   it('should correctly evaluate IFNA function', () => {
     expect(evaluate('=IFNA(SUM(),"fallback")')).toBe('fallback');
     expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#DIV/0!');
     expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
+
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#DIV/0!' });
+    grid.set('A2', { v: '#N/A' });
+
+    expect(evaluate('=IFNA(A1,"fallback")', grid)).toBe('#DIV/0!');
+    expect(evaluate('=IFNA(A2,"fallback")', grid)).toBe('fallback');
   });
 
   it('should correctly evaluate PI function', () => {
@@ -1047,6 +1110,17 @@ describe('Formula', () => {
     expect(evaluate('=TEXT(0.75,"0%")')).toBe('75%');
     expect(evaluate('=TEXT(3.14159,"0.00")')).toBe('3.14');
     expect(evaluate('=TEXT(42,"0")')).toBe('42');
+    expect(evaluate('=TEXT(42,"00000")')).toBe('00042');
+    expect(evaluate('=TEXT(-42,"00000")')).toBe('-00042');
+    expect(evaluate('=TEXT(12.3,"000.00")')).toBe('012.30');
+    expect(evaluate('=TEXT(42,"##000")')).toBe('042');
+    expect(evaluate('=TEXT(12.3,"###.##")')).toBe('12.3');
+    expect(evaluate('=TEXT(12.3,"$###.##")')).toBe('$12.3');
+    expect(evaluate('=TEXT(1234567,"000,000,000")')).toBe('001,234,567');
+    expect(evaluate('=TEXT(1234567,"00,00,000")')).toBe('12,34,567');
+    expect(evaluate('=TEXT(12,"0.#kg")')).toBe('12kg');
+    expect(evaluate('=TEXT(12.3,"0.#kg")')).toBe('12.3kg');
+    expect(evaluate('=TEXT(12.305,"00.00")')).toBe('12.31');
   });
 
   it('should correctly evaluate CHAR function', () => {
@@ -1616,6 +1690,10 @@ describe('Formula', () => {
     expect(evaluate('=OFFSET(A1,1,1)', grid)).toBe('40');
     // OFFSET(A1, 0, 1) = B1 = 20
     expect(evaluate('=OFFSET(A1,0,1)', grid)).toBe('20');
+    expect(evaluate('=SUM(OFFSET(A1,0,0,2,1))', grid)).toBe('40');
+    expect(evaluate('=SUM(OFFSET(A1,0,0,2,2))', grid)).toBe('100');
+    expect(evaluate('=OFFSET(A1,-1,0)', grid)).toBe('#REF!');
+    expect(evaluate('=OFFSET(A1,0,0,0,1)', grid)).toBe('#REF!');
   });
 
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
@@ -1765,15 +1843,35 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate IPMT function', () => {
-    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
-    const result = evaluate('=IPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(66.67, 1);
+    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%.
+    // pv > 0 represents cash received now, so the interest portion of the
+    // payment is a cash outflow and is negative.
+    expect(Number(evaluate('=IPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-66.67, 1);
+
+    // pv < 0 (you lent $300k) → period 1 interest is +1500 (cash received).
+    expect(Number(evaluate('=IPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(1500, 1);
   });
 
   it('should correctly evaluate PPMT function', () => {
-    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
-    const result = evaluate('=PPMT(0.1/12,1,36,8000)');
-    expect(Number(result)).toBeCloseTo(-324.76, 0);
+    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%.
+    expect(Number(evaluate('=PPMT(0.1/12,1,36,8000)'))).toBeCloseTo(-191.47, 1);
+
+    // pv < 0 ($300k lent at 6% over 30y): PMT ≈ 1798.65 and IPMT = 1500,
+    // so PPMT period 1 = 1798.65 - 1500 ≈ 298.65.
+    expect(Number(evaluate('=PPMT(0.06/12,1,360,-300000)'))).toBeCloseTo(298.65, 1);
+  });
+
+  it('should preserve PMT = IPMT + PPMT identity', () => {
+    // The IPMT/PPMT split must always reconstruct PMT exactly. Test for both
+    // signs of pv so a future regression on either side surfaces here.
+    for (const pv of [8000, -300000]) {
+      const rate = pv > 0 ? 0.1 / 12 : 0.06 / 12;
+      const nper = pv > 0 ? 36 : 360;
+      const pmt = Number(evaluate(`=PMT(${rate},${nper},${pv})`));
+      const ipmt = Number(evaluate(`=IPMT(${rate},1,${nper},${pv})`));
+      const ppmt = Number(evaluate(`=PPMT(${rate},1,${nper},${pv})`));
+      expect(ipmt + ppmt).toBeCloseTo(pmt, 6);
+    }
   });
 
   it('should correctly evaluate SLN function', () => {
@@ -1803,6 +1901,11 @@ describe('Formula', () => {
     grid.set('A4', { v: '6800' } as Cell);
     const result = evaluate('=IRR(A1:A4)', grid);
     expect(Number(result)).toBeCloseTo(0.1634, 2);
+  });
+
+  it('should evaluate IRR with array literal cash flows', () => {
+    const result = evaluate('=IRR({-50000,15000,20000,25000,30000})');
+    expect(Number(result)).toBeCloseTo(0.2489, 4);
   });
 
   it('should correctly evaluate DB function', () => {
@@ -2117,6 +2220,11 @@ describe('Formula', () => {
     grid.set('A4', { v: '7000' } as Cell);
     const result = evaluate('=MIRR(A1:A4,0.1,0.12)', grid);
     expect(Number(result)).toBeGreaterThan(0);
+  });
+
+  it('should evaluate MIRR with array literal cash flows', () => {
+    const result = evaluate('=MIRR({-50000,15000,20000,25000,30000},0.1,0.12)');
+    expect(Number(result)).toBeCloseTo(0.2014, 4);
   });
 
   it('should correctly evaluate DOLLARDE function', () => {
@@ -3230,7 +3338,7 @@ describe('Formula', () => {
   it('TRANSPOSE preserves text values', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: 'hello' } as Cell); grid.set('B1', { v: 'world' } as Cell);
-    grid.set('A2', { v: '42' } as Cell);    grid.set('B2', { v: 'end' } as Cell);
+    grid.set('A2', { v: '42' } as Cell); grid.set('B2', { v: 'end' } as Cell);
     // [[hello,world],[42,end]] → transposed → [[hello,42],[world,end]]
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,1)', grid)).toBe('hello');
     expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,2)', grid)).toBe('42');

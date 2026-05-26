@@ -1,4 +1,50 @@
-import { defineConfig } from "vitepress";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, loadEnv, type HeadConfig } from "vitepress";
+
+const docsRoot = path.dirname(fileURLToPath(import.meta.url));
+// vitepress build sets NODE_ENV="production" before evaluating this file;
+// vitepress dev leaves it unset, so only treat an explicit "production"
+// signal as production. Keeps `vitepress dev` out of the GA property.
+const mode =
+  process.env.NODE_ENV === "production" ? "production" : "development";
+const env = loadEnv(mode, path.resolve(docsRoot, ".."), "VITE_");
+const gaId = env.VITE_GA_ID;
+
+const head: HeadConfig[] = [
+  ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+  [
+    "link",
+    { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" },
+  ],
+  [
+    "link",
+    {
+      rel: "stylesheet",
+      href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+    },
+  ],
+];
+
+if (gaId) {
+  head.push(
+    [
+      "script",
+      {
+        async: "",
+        src: `https://www.googletagmanager.com/gtag/js?id=${gaId}`,
+      },
+    ],
+    [
+      "script",
+      {},
+      `window.dataLayer = window.dataLayer || [];\n` +
+        `function gtag(){dataLayer.push(arguments);}\n` +
+        `gtag('js', new Date());\n` +
+        `gtag('config', '${gaId}');`,
+    ],
+  );
+}
 
 export default defineConfig({
   title: "Wafflebase Docs",
@@ -6,20 +52,7 @@ export default defineConfig({
     "Documentation for Wafflebase — collaborative spreadsheet and document editor",
   base: "/docs/",
 
-  head: [
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
-    [
-      "link",
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" },
-    ],
-    [
-      "link",
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
-      },
-    ],
-  ],
+  head,
 
   vite: {
     server: {
@@ -35,6 +68,7 @@ export default defineConfig({
       { text: "Guide", link: "/guide/getting-started" },
       { text: "Sheets", link: "/sheets/build-a-budget" },
       { text: "Docs", link: "/docs-editor/writing-a-document" },
+      { text: "Slides", link: "/slides/build-a-deck" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -71,6 +105,20 @@ export default defineConfig({
           {
             text: "Keyboard Shortcuts",
             link: "/docs-editor/keyboard-shortcuts",
+          },
+        ],
+      },
+      {
+        text: "Slides",
+        items: [
+          { text: "Build a Deck", link: "/slides/build-a-deck" },
+          {
+            text: "Themes & Layouts",
+            link: "/slides/themes-and-layouts",
+          },
+          {
+            text: "Keyboard Shortcuts",
+            link: "/slides/keyboard-shortcuts",
           },
         ],
       },

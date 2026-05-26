@@ -3,7 +3,6 @@ import {
   FunctionInfo,
   searchFunctions,
   findFunction,
-  formatSignature,
 } from '../formula/function-catalog';
 
 /**
@@ -277,13 +276,31 @@ export class FormulaAutocomplete {
     const row = document.createElement('div');
     row.style.padding = '6px 10px';
     row.style.color = textColor;
-    row.style.whiteSpace = 'nowrap';
+    row.style.whiteSpace = 'normal';
 
-    // Build: FUNC_NAME( arg1, [arg2], ... ) with the current arg highlighted
+    // Build: FUNC_NAME(arg1, [arg2, ...]) with the current arg highlighted
     const nameSpan = document.createElement('span');
     nameSpan.style.fontWeight = '600';
     nameSpan.textContent = info.name + '(';
     row.appendChild(nameSpan);
+
+    let activeIdx = -1;
+    if (info.args.length > 0) {
+      const lastIdx = info.args.length - 1;
+      let repStart = lastIdx;
+      while (
+        repStart > 0 &&
+        info.args[lastIdx].repeating &&
+        info.args[repStart - 1].repeating
+      ) {
+        repStart--;
+      }
+      const repLen = info.args.length - repStart;
+      activeIdx =
+        argIndex < info.args.length || !info.args[lastIdx].repeating
+          ? Math.min(argIndex, lastIdx)
+          : repStart + ((argIndex - repStart) % repLen);
+    }
 
     for (let i = 0; i < info.args.length; i++) {
       if (i > 0) {
@@ -291,17 +308,16 @@ export class FormulaAutocomplete {
       }
 
       const arg = info.args[i];
-      let label = arg.optional ? `[${arg.name}]` : arg.name;
+      let label = arg.name;
       if (arg.repeating) {
         label += ', ...';
       }
+      if (arg.optional) {
+        label = `[${label}]`;
+      }
 
       const argSpan = document.createElement('span');
-      // Highlight the current argument, or clamp to the last repeating arg
-      const isActive =
-        i === argIndex ||
-        (i === info.args.length - 1 && arg.repeating && argIndex >= i);
-      if (isActive) {
+      if (i === activeIdx) {
         argSpan.style.fontWeight = '700';
         argSpan.style.color = activeCellColor;
       }
@@ -317,7 +333,7 @@ export class FormulaAutocomplete {
     descEl.style.opacity = '0.7';
     descEl.style.color = textColor;
     descEl.style.padding = '2px 10px 4px';
-    descEl.textContent = formatSignature(info) + ' — ' + info.description;
+    descEl.textContent = info.description;
 
     this.container.appendChild(row);
     this.container.appendChild(descEl);

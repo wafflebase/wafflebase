@@ -58,11 +58,11 @@ export function showContextMenu(
     if (item.disabled) {
       li.style.opacity = '0.5';
     } else {
-      li.addEventListener('mouseenter', () => {
+      li.addEventListener('pointerenter', () => {
         li.style.background = '#3a7';
         li.style.color = '#fff';
       });
-      li.addEventListener('mouseleave', () => {
+      li.addEventListener('pointerleave', () => {
         li.style.background = 'transparent';
         li.style.color = '#ddd';
       });
@@ -88,7 +88,7 @@ export function showContextMenu(
   // Run AFTER current event loop so the showing right-click doesn't
   // immediately dismiss its own menu via the same event.
   const attachTimer = setTimeout(() => {
-    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('pointerdown', onOutside);
     document.addEventListener('keydown', onKey);
   }, 0);
 
@@ -102,7 +102,7 @@ export function showContextMenu(
     // `document` with no removal path. Those orphaned listeners would
     // then dismiss the second menu on the next mousedown anywhere.
     clearTimeout(attachTimer);
-    document.removeEventListener('mousedown', onOutside);
+    document.removeEventListener('pointerdown', onOutside);
     document.removeEventListener('keydown', onKey);
   };
 }

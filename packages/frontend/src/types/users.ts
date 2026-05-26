@@ -51,4 +51,15 @@ export type SlidesPresence = {
     h: number;
     rotation: number;
   }>;
+  /**
+   * Live preview of a guide being created from the ruler or an
+   * existing guide being dragged. `id` is absent when the user is
+   * creating a new guide; present when an existing guide is moving.
+   * Cleared on mouseup. See docs/design/slides/slides-ruler.md.
+   */
+  draggingGuide?: {
+    id?: string;
+    axis: 'x' | 'y';
+    position: number;
+  };
 };

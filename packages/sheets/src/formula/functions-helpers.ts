@@ -1,5 +1,5 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
-import { EvalNode, ErrNode } from './formula';
+import { ErrValue, ErrValues, EvalNode, ErrNode } from './formula';
 import { ref2str } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -60,6 +60,22 @@ export function isFormulaError(value: unknown): value is FormulaError {
     value !== null &&
     (value as FormulaError).t === 'err'
   );
+}
+
+export function errorValueFromNode(
+  node: EvalNode,
+  grid?: Grid,
+): ErrValue | undefined {
+  if (node.t === 'err') {
+    return ErrValues.includes(node.v) ? node.v : undefined;
+  }
+  if (node.t === 'ref' && grid && !isSrng(node.v)) {
+    const stored = grid.get(node.v)?.v;
+    if (stored && (ErrValues as readonly string[]).includes(stored)) {
+      return stored as ErrValue;
+    }
+  }
+  return undefined;
 }
 
 export function getRefsFromExpression(
@@ -330,4 +346,3 @@ export function wildcardToRegex(pattern: string): string {
 
   return regex;
 }
-

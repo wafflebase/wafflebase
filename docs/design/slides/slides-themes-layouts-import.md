@@ -362,7 +362,10 @@ choice is **reuse existing**.
 | `<p:cxnSp>` | ShapeElement (line/arrow) | ✅ |
 | `<p:grpSp>` | Flatten: child frames composed with group transform | ⚠️ (group lost) |
 | `<p:graphicFrame><a:tbl>` | Matrix of TextElements + border ShapeElements per cell | ⚠️ (until docs-tables integration in v1.5) |
-| `<a:blip>` `alphaModFix` | applied as image alpha | ⚠️ |
+| `<p:sp>` with `<a:blipFill>` | ImageElement (shape `xfrm` → frame); full-bleed template visuals built as `custGeom`/`prstGeom` + blip | ✅ (non-rect freeform clip path lost) |
+| `<a:blipFill>` `<a:srcRect>` | source crop → `ImageElement.data.crop` | ✅ |
+| `<a:blipFill>` `<a:stretch><a:fillRect>` (negative insets) | "Fill" / cover crop → equivalent `data.crop`. Cover case only; positive-inset letterbox falls back to full stretch; not composed with `srcRect` | ✅ |
+| `<a:blip>` `alphaModFix` | `amt / 100_000` → `ImageElement.data.opacity` (clamped to `[0, 1]`; dropped at 1) | ✅ |
 | `<a:blip>` recolor / duotone | dropped | ❌ |
 | `frame.rotation` (`rot`) | EMU degrees → radians | ✅ |
 | `<a:schemeClr>` | `ThemeColor { kind: 'role' }` | ✅ |
@@ -380,11 +383,82 @@ flattened, M groups expanded, K shapes simplified."
 
 #### EMU and slide size
 
-PPTX uses EMU (914 400 EMU = 1 inch). Our logical canvas is 1920×1080
-px, which corresponds to a 13.333" × 7.5" slide at 144 dpi (matches
-PPTX 16:9 widescreen exactly: 12 192 000 × 6 858 000 EMU). Conversion:
-`px = emu * 1920 / 12192000`. PPTX decks with non-16:9 sizes are
-imported at the closest fit and a toast warns of the aspect change.
+PPTX uses EMU (914 400 EMU = 1 inch). Our logical canvas is fixed at
+1920×1080 px (16:9), defined as `SLIDE_WIDTH` / `SLIDE_HEIGHT` constants
+in `packages/slides/src/model/presentation.ts`. The deck's own
+`<p:sldSz cx cy>` is read at parse time and used to derive the scale:
+`px_x = emu * 1920 / cx`, `px_y = emu * 1080 / cy`. Both common 16:9
+PPTX sizes (standard 9 144 000 × 5 143 500 EMU = 10″×5.625″, and
+widescreen 12 192 000 × 6 858 000 EMU = 13.333″×7.5″) map without
+aspect distortion. Decks with non-16:9 aspect are imported scaled to
+fit and a toast warns of the aspect change.
+
+#### Yorkie 캐즘 deck — re-validated gap (2026-05-15)
+
+After v0.4.0 shipped the 117-kind shape registry, first-class
+connectors, 11 built-in layouts, and 4-tier theming, the benchmark deck
+was re-inventoried against the actual current model. The gap is
+significantly smaller than the original mapping table assumed.
+
+**Inventory (36 slides, 16:9 standard 10″×5.625″, NOT widescreen):**
+
+| OOXML element | Count | Notes |
+|---|---|---|
+| `<p:sp>` (shapes, all `prstGeom`, 0 `custGeom`) | 218 | 13 distinct kinds: rect, roundRect, ellipse, rtTriangle, chevron, blockArc, uturnArrow, flowChartOffpageConnector, rightArrowCallout, leftBracket, homePlate, donut, can — **all 13 already in `ShapeKind`** |
+| `<p:pic>` | 63 | 25 unique media files (png/jpg/gif); 1 `srcRect` (crop), rest plain stretch |
+| `<p:cxnSp>` | 51 | `curvedConnector2`(28) + `straightConnector1`(20) + `curvedConnector3`(3); `stCxn`/`endCxn` shape-anchored; 38 triangle arrowheads |
+| `<p:grpSp>` | 48 | max nesting depth = 1 |
+| `<p:graphicFrame><a:tbl>` | 7 | ~3×3, 0 cell merges |
+| Animations / transitions / charts / SmartArt | 0 | none — all explicitly out of scope |
+| `<a:highlight>` (text bg highlight) | 136 | **most frequent custom text effect in this deck** |
+| `<a:hlinkClick>` (text hyperlink) | 31 | external URLs |
+| `<a:normAutofit fontScale=...>` | many | shrink-to-fit on title boxes |
+| `<a:outerShdw>` | 7 | drop shadow on shapes |
+| Slide-level `<p:bg>` overrides | 4 | rest inherit master |
+| Layouts referenced | tx(23), secHead(7), body(5), title(1) | all map to existing 11 built-ins |
+| Theme | custom 12-color palette (`accent1=#058DC7` ...) | imported as a new `Theme` |
+| Embedded fonts | Roboto, Roboto Thin/Medium, Nanum Gothic (14 `.fntdata`) | dropped, Noto Sans KR fallback |
+| Notes | Korean text on nearly every slide | map to `Slide.notes` |
+
+**Verified model support (file:line evidence in
+`docs/tasks/active/`):**
+
+| Feature in deck | Model has it? | Mapping |
+|---|---|---|
+| 13 distinct `prstGeom` kinds | ✅ all 13 in `ShapeKind` (`packages/slides/src/model/element.ts`) | direct preset → `kind` |
+| `<a:highlight>` text bg | ✅ `Inline.style.backgroundColor` (`packages/docs/src/model/types.ts:123`) | direct |
+| `<a:hlinkClick>` on text | ✅ `Inline.style.href` (`packages/docs/src/model/types.ts:126`) | resolve via slide `_rels` |
+| `<a:schemeClr>` / `<a:srgbClr>` | ✅ `ThemeColor { kind: 'role' \| 'srgb' }` | direct |
+| Connectors with shape anchors | ✅ `ConnectorElement` endpoint (`packages/slides/src/model/connector.ts`) | `stCxn id/idx` → `attached` endpoint |
+| `curvedConnector2/3` | ✅ routing `'curved'` | direct |
+| `straightConnector1` | ✅ routing `'straight'` | direct |
+| Triangle arrowheads | ✅ 8 arrowhead kinds | direct |
+| Slide-level background | ✅ `Slide.background` | direct |
+| `<a:normAutofit>` (shrink-to-fit) | ❌ `TextElement.data` has only `blocks` — no autoFit field | **lossy:** pre-apply `fontScale` to each run's stored `fontSize` at parse time; the original is approximated, no live re-fit. Acceptable: shrink-to-fit only affects display, not content. |
+| `<a:outerShdw>` shape effects | ❌ `ShapeElement.data` has only `{kind, adjustments, fill, stroke}` | **drop**, 7 cases only; toast counts |
+| Slide canvas size flexibility | ❌ `SLIDE_WIDTH/HEIGHT` are module constants in `presentation.ts:50-51`; `SlidesDocument` has no `canvasSize` field | **rescale** EMU→px using deck's own `<p:sldSz>` so geometry preserves at the deck's aspect; if aspect ≠ 16:9, fit + toast warning |
+
+**Net result:** of the original mapping table's ⚠️/❌ rows, only 3
+real model gaps remain for this deck (autoFit, shape shadow, dynamic
+canvas size) — and all 3 have acceptable lossy fallbacks. The 117-kind
+registry and first-class connectors absorb what the original v1 plan
+called out as "shape placeholder" fallbacks. **No new model fields are
+required to import this deck.**
+
+**Revised PR2 scope adjustments:**
+
+1. PR2 mapping table row "other `prst` → placeholder rect" is now
+   stale. Replace with: "any `prst` whose name matches a registered
+   `ShapeKind` → that `ShapeKind`; unknown `prst` (rare) →
+   `rect` + toast." All 13 kinds in this deck hit the supported path.
+2. PR2 mapping table row "roundRect → new shape kind" is stale —
+   `roundRect` ships in v0.4.0. Drop the "new" note.
+3. Add explicit rows for highlight, hyperlink, autoFit (lossy), and
+   shape shadow (dropped). Include their counts in the post-import
+   toast: "Imported with N tables flattened, M groups expanded, K
+   shadows dropped, L text boxes pre-scaled."
+4. Coordinate scaling reads `<p:sldSz>` per deck rather than hardcoding
+   widescreen EMU.
 
 #### UI / CLI surface
 

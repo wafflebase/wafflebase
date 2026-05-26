@@ -6,6 +6,13 @@
 
 Fixes #
 
+## Author checklist
+
+- [ ] I searched existing issues and PRs and confirmed this is not a duplicate.
+- [ ] I read every line of this diff and can explain why each change is necessary.
+- [ ] Changes follow the conventions in the touched packages; any deviations are explained in *Why* above.
+- [ ] If AI tools assisted with this PR, I noted where in *Notes for Reviewers* below.
+
 ## Verification
 
 CI automatically posts a verification summary comment on this PR with

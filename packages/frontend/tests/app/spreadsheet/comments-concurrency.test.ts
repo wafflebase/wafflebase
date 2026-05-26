@@ -8,8 +8,8 @@
  *   docker compose up -d
  *   YORKIE_RPC_ADDR=http://localhost:8080 pnpm frontend test:integration
  */
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
+
 import { createTwoUserSpreadsheet } from '../../helpers/two-user-spreadsheet-yorkie.ts';
 import type { CommentAuthor } from '@wafflebase/sheets';
 
@@ -47,12 +47,12 @@ describe('comments concurrency', { skip: !shouldRun }, () => {
       // Both sides must have converged to the same state.
       const idsA = threadsA.map((t) => t.id).sort();
       const idsB = threadsB.map((t) => t.id).sort();
-      assert.deepEqual(idsA, idsB, 'both clients must converge');
+      expect(idsA, 'both clients must converge').toEqual(idsB);
 
       // Both threads must be present.
-      assert.ok(idsA.includes(tA.id), 'thread from A must be present');
-      assert.ok(idsA.includes(tB.id), 'thread from B must be present');
-      assert.equal(idsA.length, 2, 'exactly two threads expected');
+      expect(idsA.includes(tA.id), 'thread from A must be present').toBeTruthy();
+      expect(idsA.includes(tB.id), 'thread from B must be present').toBeTruthy();
+      expect(idsA.length, 'exactly two threads expected').toBe(2);
     } finally {
       await ctx.cleanup();
     }
@@ -88,18 +88,18 @@ describe('comments concurrency', { skip: !shouldRun }, () => {
       const threadsA = await ctx.storeA.listThreads();
       const threadsB = await ctx.storeB.listThreads();
 
-      assert.equal(threadsA.length, 1);
-      assert.equal(threadsB.length, 1);
+      expect(threadsA.length).toBe(1);
+      expect(threadsB.length).toBe(1);
 
       // Same comment IDs on both sides.
       const commentIdsA = threadsA[0].comments.map((c) => c.id).sort();
       const commentIdsB = threadsB[0].comments.map((c) => c.id).sort();
-      assert.deepEqual(commentIdsA, commentIdsB, 'both clients must converge');
+      expect(commentIdsA, 'both clients must converge').toEqual(commentIdsB);
 
       // Root comment + 2 replies = 3 total.
-      assert.equal(commentIdsA.length, 3, 'root + two replies expected');
-      assert.ok(commentIdsA.includes(replyA.id), 'reply from A must be present');
-      assert.ok(commentIdsA.includes(replyB.id), 'reply from B must be present');
+      expect(commentIdsA.length, 'root + two replies expected').toBe(3);
+      expect(commentIdsA.includes(replyA.id), 'reply from A must be present').toBeTruthy();
+      expect(commentIdsA.includes(replyB.id), 'reply from B must be present').toBeTruthy();
     } finally {
       await ctx.cleanup();
     }
@@ -139,8 +139,11 @@ describe('comments concurrency', { skip: !shouldRun }, () => {
 
       const idsA = threadsA.map((t) => t.id).sort();
       const idsB = threadsB.map((t) => t.id).sort();
-      assert.deepEqual(idsA, idsB, 'both clients must converge');
-      assert.ok(!idsA.includes(thread.id), 'orphan thread must be removed after row delete');
+      expect(idsA, 'both clients must converge').toEqual(idsB);
+      expect(
+        !idsA.includes(thread.id),
+        'orphan thread must be removed after row delete'
+      ).toBeTruthy();
     } finally {
       await ctx.cleanup();
     }
@@ -175,13 +178,13 @@ describe('comments concurrency', { skip: !shouldRun }, () => {
       const threadsA = await ctx.storeA.listThreads();
       const threadsB = await ctx.storeB.listThreads();
 
-      assert.equal(threadsA.length, 1);
-      assert.equal(threadsB.length, 1);
+      expect(threadsA.length).toBe(1);
+      expect(threadsB.length).toBe(1);
 
       // Both must agree: thread is resolved.
-      assert.equal(threadsA[0].resolved, true, 'thread must be resolved on A');
-      assert.equal(threadsB[0].resolved, true, 'thread must be resolved on B');
-      assert.equal(threadsA[0].id, threadsB[0].id, 'both sides point to the same thread');
+      expect(threadsA[0].resolved, 'thread must be resolved on A').toBe(true);
+      expect(threadsB[0].resolved, 'thread must be resolved on B').toBe(true);
+      expect(threadsA[0].id, 'both sides point to the same thread').toBe(threadsB[0].id);
     } finally {
       await ctx.cleanup();
     }

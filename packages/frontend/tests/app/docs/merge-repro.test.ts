@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
+
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
@@ -60,8 +60,8 @@ describe('mergeByPath fixes split-created block merge', () => {
     store.setDocument({ blocks: [block] });
 
     store.splitBlock(block.id, 2, generateBlockId(), 'paragraph');
-    assert.equal(getTreeBlockCount(doc), 2);
-    assert.deepEqual(getTreeBlockTexts(doc), ['as', 'df']);
+    expect(getTreeBlockCount(doc)).toBe(2);
+    expect(getTreeBlockTexts(doc)).toEqual(['as', 'df']);
 
     // Use mergeByPath instead of editByPath
     doc.update((root: any) => {
@@ -73,7 +73,7 @@ describe('mergeByPath fixes split-created block merge', () => {
     const treeCount = getTreeBlockCount(doc);
     const treeTexts = getTreeBlockTexts(doc);
     console.log('After mergeByPath:', treeCount, 'blocks, texts:', treeTexts);
-    assert.equal(treeCount, 1, 'tree should have 1 block after mergeByPath');
+    expect(treeCount, 'tree should have 1 block after mergeByPath').toBe(1);
   });
 
   it('editByPath on non-split blocks works (for comparison)', () => {
@@ -88,7 +88,7 @@ describe('mergeByPath fixes split-created block merge', () => {
 
     const treeCount = getTreeBlockCount(doc);
     console.log('editByPath on non-split:', treeCount, 'blocks, texts:', getTreeBlockTexts(doc));
-    assert.equal(treeCount, 1, 'editByPath works on non-split blocks');
+    expect(treeCount, 'editByPath works on non-split blocks').toBe(1);
   });
 
   it('editByPath on split blocks works after manual split', () => {
@@ -106,7 +106,7 @@ describe('mergeByPath fixes split-created block merge', () => {
 
     const treeCount = getTreeBlockCount(doc);
     console.log('editByPath on split:', treeCount, 'blocks, texts:', getTreeBlockTexts(doc));
-    assert.equal(treeCount, 1, 'editByPath merges manual-split blocks');
+    expect(treeCount, 'editByPath merges manual-split blocks').toBe(1);
   });
 
   it('mergeByPath after split, insert, then merge full scenario', () => {
@@ -125,7 +125,7 @@ describe('mergeByPath fixes split-created block merge', () => {
     store.insertText(newBlockId, 0, 'd');
     store.insertText(newBlockId, 1, 'f');
 
-    assert.equal(getTreeBlockCount(doc), 2);
+    expect(getTreeBlockCount(doc)).toBe(2);
 
     // Backspace: use mergeByPath
     doc.update((root: any) => {
@@ -135,6 +135,6 @@ describe('mergeByPath fixes split-created block merge', () => {
     const treeCount = getTreeBlockCount(doc);
     const treeTexts = getTreeBlockTexts(doc);
     console.log('Full scenario with mergeByPath:', treeCount, 'blocks, texts:', treeTexts);
-    assert.equal(treeCount, 1, 'tree should have 1 block');
+    expect(treeCount, 'tree should have 1 block').toBe(1);
   });
 });

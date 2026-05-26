@@ -25,6 +25,11 @@ import {
   initializeTextBox,
   type Block,
   type TextBoxEditorAPI,
+  type InlineStyle,
+  type BlockStyle,
+  type BlockType,
+  type HeadingLevel,
+  type ColorResolver,
 } from '@wafflebase/docs';
 import type { Frame } from '../../model/element';
 
@@ -41,6 +46,27 @@ export interface MountSlidesTextBoxOptions {
   onCommit: (blocks: Block[]) => void;
   /** Called when Escape is pressed (BEFORE onCommit fires via the blur path). */
   onCancel: () => void;
+  /**
+   * Called when the user presses Cmd/Ctrl+K. The slides shell opens a
+   * link popover anchored near the caret. Forwarded straight through
+   * to the docs text-box, which wires it to the inner `TextEditor`.
+   */
+  onLinkRequest?: () => void;
+  /**
+   * Fired (logical px) when the docs editor's content height changes.
+   * The wrapper has already resized its container/canvas and called
+   * `setContentHeight` by the time this fires; the slides editor uses it
+   * to persist the fitted frame height at commit time.
+   */
+  onContentHeightChange?: (contentHeight: number) => void;
+  /**
+   * Theme-aware color resolver built from the deck's active theme (see
+   * `makeColorResolver` in the canvas text-renderer). Forwarded to the
+   * docs text-box so in-place editing paints text in the same theme
+   * color as the committed slide canvas. Omitted → docs default (literal
+   * strings), which renders dark-theme text as black.
+   */
+  colorResolver?: ColorResolver;
 }
 
 export interface SlidesTextBoxEditor {
@@ -65,10 +91,31 @@ export interface SlidesTextBoxEditor {
    * "click inside the editing text-box vs outside" cheaply).
    */
   readonly container: HTMLDivElement;
+
+  // ─── Text-formatting surface (mirrors TextBoxEditorAPI) ───────────────────
+  // Delegated straight through to the underlying docs TextBoxEditorAPI so
+  // shared text-formatting toolbar components can drive the slides text-box
+  // editor via the same `TextFormattingEditor` interface as the docs editor.
+
+  getSelectionStyle(): Partial<InlineStyle>;
+  applyStyle(style: Partial<InlineStyle>): void;
+  applyBlockStyle(style: Partial<BlockStyle>): void;
+  getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+  toggleList(kind: 'ordered' | 'unordered'): void;
+  indent(): void;
+  outdent(): void;
+  insertLink(url: string): void;
+  removeLink(): void;
+  getLinkAtCursor(): string | undefined;
+  requestLink(): void;
+  undo(): void;
+  redo(): void;
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver } = opts;
 
   // Container positioned over the element frame in host-pixel space.
   const container = document.createElement('div');
@@ -123,6 +170,11 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     onCancel();
   };
 
+  // NOTE: the `onContentHeightChange` callback below references `api`. That
+  // is safe only because `initializeTextBox` never fires it synchronously
+  // during construction — its first paint goes through `requestRender()`
+  // (rAF/microtask), so the callback always runs after this `const` binds.
+  // If the docs editor ever fires it synchronously, forward-declare `api`.
   const api: TextBoxEditorAPI = initializeTextBox({
     container,
     canvas,
@@ -140,8 +192,31 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     contentWidth: frame.w,
     contentHeight: frame.h,
     dpr: dpr * scale,
+    // The container CSS size is `frame * scale` host pixels but
+    // `contentWidth/Height` are in logical pixels — pass `scale` so the
+    // docs editor's pointer math divides clicks back into the logical
+    // coord space `run.x` lives in. Without this, clicks at scale != 1
+    // land at offset 0 (especially visible with center/right alignment
+    // because `localX < firstRun.x` snaps to the start of the line).
+    scale,
     onCommit: handleCommit,
     onCancel: handleCancel,
+    onLinkRequest,
+    onContentHeightChange: (h: number): void => {
+      // Grow/shrink the editing surface to fit content. Width is fixed;
+      // only height tracks. cssH is host pixels (logical * slide scale);
+      // the canvas bitmap also multiplies by the browser dpr captured at
+      // mount. Setting canvas.height resets the bitmap — setContentHeight
+      // then schedules a repaint at the new size.
+      const targetH = Math.max(1, h);
+      const cssH = Math.max(1, Math.round(targetH * scale));
+      container.style.height = `${cssH}px`;
+      canvas.style.height = `${cssH}px`;
+      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      api.setContentHeight(targetH);
+      onContentHeightChange?.(targetH);
+    },
+    colorResolver,
   });
 
   return {
@@ -164,5 +239,52 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
       container.remove();
     },
     container,
+
+    // ── Formatting surface — delegate straight through to docs TextBoxEditorAPI ─
+    getSelectionStyle(): Partial<InlineStyle> {
+      return api.getSelectionStyle();
+    },
+    applyStyle(style: Partial<InlineStyle>): void {
+      api.applyStyle(style);
+    },
+    applyBlockStyle(style: Partial<BlockStyle>): void {
+      api.applyBlockStyle(style);
+    },
+    getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number } {
+      return api.getBlockType();
+    },
+    setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void {
+      api.setBlockType(type, opts);
+    },
+    toggleList(kind: 'ordered' | 'unordered'): void {
+      api.toggleList(kind);
+    },
+    indent(): void {
+      api.indent();
+    },
+    outdent(): void {
+      api.outdent();
+    },
+    insertLink(url: string): void {
+      api.insertLink(url);
+    },
+    removeLink(): void {
+      api.removeLink();
+    },
+    getLinkAtCursor(): string | undefined {
+      return api.getLinkAtCursor();
+    },
+    requestLink(): void {
+      api.requestLink();
+    },
+    undo(): void {
+      api.undo();
+    },
+    redo(): void {
+      api.redo();
+    },
+    onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void {
+      api.onCursorMove(cb);
+    },
   };
 }

@@ -6,18 +6,75 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 161
+Total archived tasks: 219
 
-## 2026/05 (16 tasks)
+## 2026/05 (74 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
+| dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
+| docker publish arm64 native (2026-05-25) | [20260525-docker-publish-arm64-native-todo.md](./2026/05/20260525-docker-publish-arm64-native-todo.md) | - |
+| import progress toast (2026-05-25) | [20260525-import-progress-toast-todo.md](./2026/05/20260525-import-progress-toast-todo.md) | [20260525-import-progress-toast-lessons.md](./2026/05/20260525-import-progress-toast-lessons.md) |
+| pptx blipfill fillrect crop (2026-05-25) | [20260525-pptx-blipfill-fillrect-crop-todo.md](./2026/05/20260525-pptx-blipfill-fillrect-crop-todo.md) | - |
+| release v0.4.2 (2026-05-25) | [20260525-release-v0.4.2-todo.md](./2026/05/20260525-release-v0.4.2-todo.md) | - |
+| slides textbox autogrow (2026-05-25) | [20260525-slides-textbox-autogrow-todo.md](./2026/05/20260525-slides-textbox-autogrow-todo.md) | [20260525-slides-textbox-autogrow-lessons.md](./2026/05/20260525-slides-textbox-autogrow-lessons.md) |
+| slides textbox edit theme color (2026-05-25) | [20260525-slides-textbox-edit-theme-color-todo.md](./2026/05/20260525-slides-textbox-edit-theme-color-todo.md) | [20260525-slides-textbox-edit-theme-color-lessons.md](./2026/05/20260525-slides-textbox-edit-theme-color-lessons.md) |
+| backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
+| build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
+| frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./2026/05/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./2026/05/20260524-frontend-vitest-migration-lessons.md) |
+| tokens package (2026-05-24) | [20260524-tokens-package-todo.md](./2026/05/20260524-tokens-package-todo.md) | [20260524-tokens-package-lessons.md](./2026/05/20260524-tokens-package-lessons.md) |
+| pptx shape blipfill (2026-05-23) | [20260523-pptx-shape-blipfill-todo.md](./2026/05/20260523-pptx-shape-blipfill-todo.md) | - |
+| slides ruler (2026-05-23) | [20260523-slides-ruler-todo.md](./2026/05/20260523-slides-ruler-todo.md) | - |
+| slides share toolbar (2026-05-23) | [20260523-slides-share-toolbar-todo.md](./2026/05/20260523-slides-share-toolbar-todo.md) | [20260523-slides-share-toolbar-lessons.md](./2026/05/20260523-slides-share-toolbar-lessons.md) |
+| slides arrow key text edit (2026-05-21) | [20260521-slides-arrow-key-text-edit-todo.md](./2026/05/20260521-slides-arrow-key-text-edit-todo.md) | [20260521-slides-arrow-key-text-edit-lessons.md](./2026/05/20260521-slides-arrow-key-text-edit-lessons.md) |
+| slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./2026/05/20260521-slides-homepage-docs-todo.md) | - |
+| slides thumbnail async bg (2026-05-21) | [20260521-slides-thumbnail-async-bg-todo.md](./2026/05/20260521-slides-thumbnail-async-bg-todo.md) | - |
+| slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
+| slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
+| slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./2026/05/20260519-slides-mobile-shell-todo.md) | - |
+| slides mobile toolbar morph (2026-05-19) | [20260519-slides-mobile-toolbar-morph-todo.md](./2026/05/20260519-slides-mobile-toolbar-morph-todo.md) | - |
+| slides precise shape hit test (2026-05-19) | [20260519-slides-precise-shape-hit-test-todo.md](./2026/05/20260519-slides-precise-shape-hit-test-todo.md) | - |
+| slides shape move ghost (2026-05-19) | [20260519-slides-shape-move-ghost-todo.md](./2026/05/20260519-slides-shape-move-ghost-todo.md) | - |
+| release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
+| pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
+| pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
+| pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |
+| pptx rotated child group scale (2026-05-17) | [20260517-pptx-rotated-child-group-scale-todo.md](./2026/05/20260517-pptx-rotated-child-group-scale-todo.md) | [20260517-pptx-rotated-child-group-scale-lessons.md](./2026/05/20260517-pptx-rotated-child-group-scale-lessons.md) |
+| pptx unsupported shapes (2026-05-17) | [20260517-pptx-unsupported-shapes-todo.md](./2026/05/20260517-pptx-unsupported-shapes-todo.md) | [20260517-pptx-unsupported-shapes-lessons.md](./2026/05/20260517-pptx-unsupported-shapes-lessons.md) |
+| slides group (2026-05-17) | [20260517-slides-group-todo.md](./2026/05/20260517-slides-group-todo.md) | [20260517-slides-group-lessons.md](./2026/05/20260517-slides-group-lessons.md) |
+| slides mobile edit (2026-05-17) | [20260517-slides-mobile-edit-todo.md](./2026/05/20260517-slides-mobile-edit-todo.md) | [20260517-slides-mobile-edit-lessons.md](./2026/05/20260517-slides-mobile-edit-lessons.md) |
+| slides mobile view (2026-05-17) | [20260517-slides-mobile-view-todo.md](./2026/05/20260517-slides-mobile-view-todo.md) | [20260517-slides-mobile-view-lessons.md](./2026/05/20260517-slides-mobile-view-lessons.md) |
+| slides textbox click scale (2026-05-17) | [20260517-slides-textbox-click-scale-todo.md](./2026/05/20260517-slides-textbox-click-scale-todo.md) | [20260517-slides-textbox-click-scale-lessons.md](./2026/05/20260517-slides-textbox-click-scale-lessons.md) |
+| slides thumbnail scroll arrow (2026-05-17) | [20260517-slides-thumbnail-scroll-arrow-todo.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-todo.md) | [20260517-slides-thumbnail-scroll-arrow-lessons.md](./2026/05/20260517-slides-thumbnail-scroll-arrow-lessons.md) |
+| slides uturn arrow bbox flip (2026-05-17) | [20260517-slides-uturn-arrow-bbox-flip-todo.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-todo.md) | [20260517-slides-uturn-arrow-bbox-flip-lessons.md](./2026/05/20260517-slides-uturn-arrow-bbox-flip-lessons.md) |
+| docs comments (2026-05-16) | [20260516-docs-comments-todo.md](./2026/05/20260516-docs-comments-todo.md) | [20260516-docs-comments-lessons.md](./2026/05/20260516-docs-comments-lessons.md) |
+| pptx table cell margins (2026-05-16) | [20260516-pptx-table-cell-margins-todo.md](./2026/05/20260516-pptx-table-cell-margins-todo.md) | [20260516-pptx-table-cell-margins-lessons.md](./2026/05/20260516-pptx-table-cell-margins-lessons.md) |
+| pptx import (2026-05-15) | [20260515-pptx-import-todo.md](./2026/05/20260515-pptx-import-todo.md) | [20260515-pptx-import-lessons.md](./2026/05/20260515-pptx-import-lessons.md) |
+| slides connectors pr1 (2026-05-15) | [20260515-slides-connectors-pr1-todo.md](./2026/05/20260515-slides-connectors-pr1-todo.md) | [20260515-slides-connectors-pr1-lessons.md](./2026/05/20260515-slides-connectors-pr1-lessons.md) |
+| slides toolbar redesign (2026-05-15) | [20260515-slides-toolbar-redesign-todo.md](./2026/05/20260515-slides-toolbar-redesign-todo.md) | [20260515-slides-toolbar-redesign-lessons.md](./2026/05/20260515-slides-toolbar-redesign-lessons.md) |
+| slides click insert cursor (2026-05-14) | [20260514-slides-click-insert-cursor-todo.md](./2026/05/20260514-slides-click-insert-cursor-todo.md) | - |
+| slides keyboard shortcuts (2026-05-14) | [20260514-slides-keyboard-shortcuts-todo.md](./2026/05/20260514-slides-keyboard-shortcuts-todo.md) | [20260514-slides-keyboard-shortcuts-lessons.md](./2026/05/20260514-slides-keyboard-shortcuts-lessons.md) |
+| slides presentation mode (2026-05-14) | [20260514-slides-presentation-mode-todo.md](./2026/05/20260514-slides-presentation-mode-todo.md) | [20260514-slides-presentation-mode-lessons.md](./2026/05/20260514-slides-presentation-mode-lessons.md) |
+| slides shapes p3b (2026-05-13) | [20260513-slides-shapes-p3b-todo.md](./2026/05/20260513-slides-shapes-p3b-todo.md) | [20260513-slides-shapes-p3b-lessons.md](./2026/05/20260513-slides-shapes-p3b-lessons.md) |
+| comments collab fixes (2026-05-12) | [20260512-comments-collab-fixes-todo.md](./2026/05/20260512-comments-collab-fixes-todo.md) | [20260512-comments-collab-fixes-lessons.md](./2026/05/20260512-comments-collab-fixes-lessons.md) |
+| google analytics (2026-05-12) | [20260512-google-analytics-todo.md](./2026/05/20260512-google-analytics-todo.md) | [20260512-google-analytics-lessons.md](./2026/05/20260512-google-analytics-lessons.md) |
+| slides shapes p3a2 sweep (2026-05-12) | [20260512-slides-shapes-p3a2-sweep-todo.md](./2026/05/20260512-slides-shapes-p3a2-sweep-todo.md) | [20260512-slides-shapes-p3a2-sweep-lessons.md](./2026/05/20260512-slides-shapes-p3a2-sweep-lessons.md) |
+| release 0.4.0 (2026-05-11) | [20260511-release-0.4.0-todo.md](./2026/05/20260511-release-0.4.0-todo.md) | - |
+| slides guides align (2026-05-11) | [20260511-slides-guides-align-todo.md](./2026/05/20260511-slides-guides-align-todo.md) | [20260511-slides-guides-align-lessons.md](./2026/05/20260511-slides-guides-align-lessons.md) |
+| contributing md (2026-05-10) | [20260510-contributing-md-todo.md](./2026/05/20260510-contributing-md-todo.md) | - |
+| slides shapes p3a pilot (2026-05-10) | [20260510-slides-shapes-p3a-pilot-todo.md](./2026/05/20260510-slides-shapes-p3a-pilot-todo.md) | [20260510-slides-shapes-p3a-pilot-lessons.md](./2026/05/20260510-slides-shapes-p3a-pilot-lessons.md) |
+| slides thumb context menu (2026-05-10) | [20260510-slides-thumb-context-menu-todo.md](./2026/05/20260510-slides-thumb-context-menu-todo.md) | [20260510-slides-thumb-context-menu-lessons.md](./2026/05/20260510-slides-thumb-context-menu-lessons.md) |
+| slides shapes p1 (2026-05-09) | [20260509-slides-shapes-p1-todo.md](./2026/05/20260509-slides-shapes-p1-todo.md) | [20260509-slides-shapes-p1-lessons.md](./2026/05/20260509-slides-shapes-p1-lessons.md) |
+| slides shapes p2 (2026-05-09) | [20260509-slides-shapes-p2-todo.md](./2026/05/20260509-slides-shapes-p2-todo.md) | [20260509-slides-shapes-p2-lessons.md](./2026/05/20260509-slides-shapes-p2-lessons.md) |
+| slides thumb responsive (2026-05-09) | [20260509-slides-thumb-responsive-todo.md](./2026/05/20260509-slides-thumb-responsive-todo.md) | - |
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |
+| undo destroys initial block (2026-05-05) | [20260505-undo-destroys-initial-block-todo.md](./2026/05/20260505-undo-destroys-initial-block-todo.md) | - |
 | release 0.3.7 (2026-05-04) | [20260504-release-0.3.7-todo.md](./2026/05/20260504-release-0.3.7-todo.md) | - |
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |
 | docs paragraph bg selection (2026-05-03) | [20260503-docs-paragraph-bg-selection-todo.md](./2026/05/20260503-docs-paragraph-bg-selection-todo.md) | - |
@@ -26,6 +83,7 @@ Total archived tasks: 161
 | docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./2026/05/20260502-docs-cli-todo.md) | [20260502-docs-cli-lessons.md](./2026/05/20260502-docs-cli-lessons.md) |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./2026/05/20260501-release-0.3.6-todo.md) | - |
+| table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./2026/05/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |
 
@@ -38,12 +96,12 @@ Total archived tasks: 161
 | border outline extension (2026-04-28) | [20260428-border-outline-extension-todo.md](./2026/04/20260428-border-outline-extension-todo.md) | - |
 | block attr intent preserving (2026-04-23) | [20260423-block-attr-intent-preserving-todo.md](./2026/04/20260423-block-attr-intent-preserving-todo.md) | [20260423-block-attr-intent-preserving-lessons.md](./2026/04/20260423-block-attr-intent-preserving-lessons.md) |
 | cell structural edits (2026-04-23) | [20260423-cell-structural-edits-todo.md](./2026/04/20260423-cell-structural-edits-todo.md) | [20260423-cell-structural-edits-lessons.md](./2026/04/20260423-cell-structural-edits-lessons.md) |
-| inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./20260423-inline-style-tests-todo.md) | - |
-| native inline style (2026-04-23) | [20260423-native-inline-style-todo.md](./20260423-native-inline-style-todo.md) | - |
-| chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./20260421-chart-pivot-range-shift-todo.md) | - |
+| inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./2026/04/20260423-inline-style-tests-todo.md) | - |
+| native inline style (2026-04-23) | [20260423-native-inline-style-todo.md](./2026/04/20260423-native-inline-style-todo.md) | - |
+| chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./2026/04/20260421-chart-pivot-range-shift-todo.md) | - |
 | header footer granular edits (2026-04-19) | [20260419-header-footer-granular-edits-todo.md](./2026/04/20260419-header-footer-granular-edits-todo.md) | - |
-| table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./20260419-table-copy-paste-lessons.md) |
-| table row splitting (2026-04-19) | [20260419-table-row-splitting-todo.md](./20260419-table-row-splitting-todo.md) | - |
+| table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./2026/04/20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./2026/04/20260419-table-copy-paste-lessons.md) |
+| table row splitting (2026-04-19) | [20260419-table-row-splitting-todo.md](./2026/04/20260419-table-row-splitting-todo.md) | - |
 | sheet image (2026-04-18) | [20260418-sheet-image-todo.md](./2026/04/20260418-sheet-image-todo.md) | - |
 | docs mobile toolbar (2026-04-15) | [20260415-docs-mobile-toolbar-todo.md](./2026/04/20260415-docs-mobile-toolbar-todo.md) | - |
 | axis id selection (2026-04-14) | [20260414-axis-id-selection-todo.md](./2026/04/20260414-axis-id-selection-todo.md) | - |
@@ -54,7 +112,7 @@ Total archived tasks: 161
 | docs image editing (2026-04-12) | [20260412-docs-image-editing-todo.md](./2026/04/20260412-docs-image-editing-todo.md) | [20260412-docs-image-editing-lessons.md](./2026/04/20260412-docs-image-editing-lessons.md) |
 | docx image import render (2026-04-12) | [20260412-docx-image-import-render-todo.md](./2026/04/20260412-docx-image-import-render-todo.md) | [20260412-docx-image-import-render-lessons.md](./2026/04/20260412-docx-image-import-render-lessons.md) |
 | docs table merge ux (2026-04-11) | [20260411-docs-table-merge-ux-todo.md](./2026/04/20260411-docs-table-merge-ux-todo.md) | [20260411-docs-table-merge-ux-lessons.md](./2026/04/20260411-docs-table-merge-ux-lessons.md) |
-| docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./20260411-docx-table-merge-gaps-lessons.md) |
+| docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./2026/04/20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./2026/04/20260411-docx-table-merge-gaps-lessons.md) |
 | release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./2026/04/20260411-release-v0.3.2-todo.md) | - |
 | ui review polish (2026-04-11) | [20260411-ui-review-polish-todo.md](./2026/04/20260411-ui-review-polish-todo.md) | [20260411-ui-review-polish-lessons.md](./2026/04/20260411-ui-review-polish-lessons.md) |
 | v0.3.2 smoke test fixes (2026-04-11) | [20260411-v0.3.2-smoke-test-fixes-todo.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-todo.md) | [20260411-v0.3.2-smoke-test-fixes-lessons.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-lessons.md) |

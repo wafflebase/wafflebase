@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test, expect } from 'vitest';
 import { concurrencyCases } from "../../../../sheets/test/helpers/concurrency-case-table.ts";
 import { runConcurrentYorkieCase } from "../../helpers/two-user-yorkie.ts";
 
@@ -55,9 +54,9 @@ for (const testCase of serialIntentCases) {
     async () => {
       const actual = await runConcurrentYorkieCase(testCase);
 
-      assert.equal(actual.converged, true);
-      assert.deepEqual(actual.collaboratorA, actual.collaboratorB);
-      assert.equal(actual.matchesSerialOrder, true);
+      expect(actual.converged).toBe(true);
+      expect(actual.collaboratorA).toEqual(actual.collaboratorB);
+      expect(actual.matchesSerialOrder).toBe(true);
     },
   );
 }
@@ -69,9 +68,9 @@ for (const testCase of characterizationCases) {
     async () => {
       const actual = await runConcurrentYorkieCase(testCase);
 
-      assert.equal(actual.converged, true);
-      assert.deepEqual(actual.collaboratorA, actual.collaboratorB);
-      assert.equal(actual.matchesSerialOrder, false);
+      expect(actual.converged).toBe(true);
+      expect(actual.collaboratorA).toEqual(actual.collaboratorB);
+      expect(actual.matchesSerialOrder).toBe(false);
     },
   );
 }

@@ -83,6 +83,28 @@ export {
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
 
+// Block-level edit helpers. These are pure data-model transforms — the
+// source module only imports from `model/types.js`, so it carries no
+// DOM/Canvas dependency and is safe under the Node entry. `YorkieDocStore`
+// (frontend) imports these from `@wafflebase/docs`; the docs comments
+// `.integration.ts` suite runs that store under Node, which resolves to
+// this entry, so the helpers must be re-exported here as well. Kept in
+// sync with the browser entry (`src/index.ts`).
+export {
+  resolveOffset,
+  resolveDeleteRange,
+  resolveStyleRange,
+  normalizeInlines,
+  applyInsertText,
+  applyDeleteText,
+  applyInlineStyle as applyInlineStyleHelper,
+  applyInsertInline,
+  applySplitBlock,
+  applyMergeBlocks,
+  resolveOffsetForSplit,
+} from './store/block-helpers.js';
+export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
+
 // Pagination + serialization surface used by `@wafflebase/cli` to render
 // fetched documents into JSON / Markdown / plaintext and to slice them
 // by page range. None of these modules touch the DOM — they take a

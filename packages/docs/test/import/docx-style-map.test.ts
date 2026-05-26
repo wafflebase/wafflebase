@@ -167,6 +167,47 @@ describe('mapTableCellProperties', () => {
     expect(result.borderTop?.style).toBe('solid');
     expect(result.borderBottom?.style).toBe('none');
   });
+
+  // Single-number CellStyle.padding can only carry one value, so the loss
+  // direction matters: use the max of specified sides so text never collides
+  // with the cell border, even when the source asymmetrically padded one side.
+  it('should map w:tcMar to padding as max of specified dxa sides', () => {
+    const xml =
+      '<w:tcPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:tcMar>' +
+      '<w:top w:w="100" w:type="dxa"/>' +
+      '<w:bottom w:w="100" w:type="dxa"/>' +
+      '<w:left w:w="140" w:type="dxa"/>' +
+      '<w:right w:w="140" w:type="dxa"/>' +
+      '</w:tcMar></w:tcPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapTableCellProperties(el);
+    // 140 twips × 96/1440 ≈ 9.333 px
+    expect(result.padding).toBeCloseTo((140 * 96) / 1440, 5);
+  });
+
+  it('should ignore w:tcMar sides whose type is not dxa', () => {
+    const xml =
+      '<w:tcPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:tcMar><w:top w:w="100" w:type="pct"/></w:tcMar></w:tcPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = mapTableCellProperties(el);
+    expect(result.padding).toBeUndefined();
+  });
+
+  it('should map w:vAlign center/top/bottom to verticalAlign', () => {
+    const make = (val: string) => {
+      const xml =
+        '<w:tcPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+        `<w:vAlign w:val="${val}"/></w:tcPr>`;
+      const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+      return mapTableCellProperties(el);
+    };
+    // OOXML uses "center"; the docs model uses "middle".
+    expect(make('center').verticalAlign).toBe('middle');
+    expect(make('top').verticalAlign).toBe('top');
+    expect(make('bottom').verticalAlign).toBe('bottom');
+  });
 });
 
 describe('mapHighlightColor', () => {

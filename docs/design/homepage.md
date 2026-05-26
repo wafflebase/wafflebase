@@ -19,8 +19,9 @@ custom waffle-themed illustrations.
 
 - Present Wafflebase's value proposition with the locked Butter & Maple
   design language.
-- Showcase Sheets and Docs as a single cohesive workspace via two live
-  iframes (Spreadsheet / Word processor) inside a tabbed demo card.
+- Showcase Sheets, Docs, and Slides as a single cohesive office suite
+  via three live iframes (Spreadsheet / Word processor / Presentation)
+  inside a tabbed demo card.
 - Provide developers with REST API and CLI code examples in a tabbed dark
   card.
 - Preserve the existing auth flow ("Get Started Free" → `/login`, or
@@ -85,8 +86,8 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 |---|---|---|
 | 1 | NavBar | Sticky header, waffle logo, nav links, theme toggle, primary CTA |
 | 2 | Hero | Single-column centered layout: eyebrow + Fraunces H1 + sub + CTA pair + 4 product stats |
-| 3 | DemoSection | Sheet/Doc tab card — both tabs embed live `/shared/{token}` iframes (Doc tab is lazy-mounted) with theme sync via `postMessage` |
-| 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + 4 compact secondary cards |
+| 3 | DemoSection | Sheets / Docs / Slides tab card — three tabs embed live `/shared/{token}` iframes (Docs + Slides tabs lazy-mount on first activation) with theme sync via `postMessage` |
+| 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + 6 compact secondary cards (3×2, product-balanced: 2 Sheets / 2 Docs / 2 Slides) |
 | 5 | UseCasesSection | 3 scenarios (Internal tools / Customer dashboards / Specs & launch plans) |
 | 6 | WhySection | Comparison table vs Google Workspace inside a paper card |
 | 7 | DeveloperSection | Single dark code card with REST API / CLI tabs |
@@ -106,9 +107,12 @@ Right: `<ThemeToggle>` (sun/moon icon) + primary `<WbButton>` ("Get Started" or
 Single column, centered, max-width 920px, padded `pt-20 md:pt-28 pb-14 md:pb-20`.
 
 - Butter pill eyebrow `v0.3 · Apache-2.0 · Self-hosted` (leaf glow dot).
-- Fraunces `clamp(40, 6vw, 68)px` H1: "Word Processor & Spreadsheet *You Can
-  Own*" (italic + syrup-deep emphasis on the trailing phrase).
-- Sub copy 17–19px, max-width 560px.
+- Fraunces `clamp(40, 6vw, 68)px` H1: "The Office Suite *You Can Own*"
+  (italic + syrup-deep emphasis on the trailing phrase). `max-w-[20ch]`
+  accommodates the shorter title without orphan wraps.
+- Sub copy 17–19px, max-width 560px:
+  "Sheets, Docs, and Slides. Real-time collaboration, REST API, fully
+  self-hosted."
 - CTA pair: primary "Get Started Free →" (or "Go to Workspace →" if signed in)
   + ghost "View on GitHub →".
 - 4 stats: Apache-2.0 / Self-hosted / REST + CLI / Real-time, centered.
@@ -121,20 +125,25 @@ focused on messaging instead of duplicating the demo.
 
 Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
 
-- **Tab bar** — `Spreadsheet` ↔ `Word processor` icon + label tabs. Active tab
-  gets butter-tinted `--wb-paper` bg + `--wb-syrup` 2px bottom border;
-  inactive uses `--wb-sub` text.
+- **Tab bar** — `Spreadsheet` / `Word processor` / `Presentation` icon + label
+  tabs. Active tab gets butter-tinted `--wb-paper` bg + `--wb-syrup` 2px
+  bottom border; inactive uses `--wb-sub` text. Default active tab is
+  `sheet`.
 - **Sheet tab** — live iframe `/shared/{VITE_DEMO_SHARED_TOKEN}` (default
   `bed3dbe8-…`). Loaded eagerly on mount.
 - **Doc tab** — live iframe `/shared/{VITE_DEMO_DOC_SHARED_TOKEN}` (default
-  `08fe575d-…`). Mounted lazily on first activation so the initial pageload
-  only fetches the sheet demo. Once mounted, both iframes stay alive across
-  tab switches via `display` toggling — no reloads.
-- **Theme sync** — both iframes receive `{ type: 'theme-change', theme }` via
-  `postMessage` whenever the homepage theme changes; the shared
+  `08fe575d-…`). Mounted lazily on first activation.
+- **Slides tab** — live iframe `/shared/{VITE_DEMO_SLIDES_SHARED_TOKEN}`
+  (default `bf4e92f1-…`). Mounted lazily on first activation so the
+  initial pageload only fetches the sheet demo. Once mounted, all
+  iframes stay alive across tab switches via `display` toggling — no
+  reloads.
+- **Theme sync** — all three iframes receive `{ type: 'theme-change', theme }`
+  via `postMessage` whenever the homepage theme changes; the shared
   `ThemeProvider` inside the iframe applies the change without reload.
 - **Footer** — tab-aware mono hint text on the left, `wafflebase@0.3.7` on
-  the right.
+  the right (Slides hint: "Tip: arrow keys navigate slides — press F to
+  present.").
 
 #### FeaturesSection
 
@@ -144,21 +153,30 @@ Two-tier layout. 3 large cards (waffle-pocket glyphs):
 2. REST API & CLI — `embed` glyph
 3. Self-Hosted & Open Source — `reactive` glyph
 
-Plus 4 compact cards for Formulas / Charts & Pivot / Document Editor /
-Sharing & Permissions, each with a butter-tinted lucide icon chip. All cards
-use the handoff card shadow (`0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px
+Plus 6 compact cards in a 3×2 grid (`md:grid-cols-2`), product-balanced at
+2 per module so the 3-product suite reads visually:
+
+- **Sheets** — Formulas (FunctionSquare), Charts & Pivot Tables (BarChart3)
+- **Docs** — Page-Based Document Editor (FileText), Tables & Pagination (Rows3)
+- **Slides** — Themes & Layouts (Palette), Presentation Mode (Presentation)
+
+Each card uses a butter-tinted lucide icon chip. All cards use the handoff
+card shadow (`0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px
 rgba(42,30,18,0.18)`) and hover scale 1.005.
 
 #### UseCasesSection
 
 3-card grid. Each card: `0n` mono number + butter "tag" pill + 21px Fraunces
 title + sub copy + "Read the docs →" syrup link. Hover translates -2px.
-Cards are: Internal tools, Customer dashboards, Specs & launch plans.
+Cards are: Internal tools (Sheets embed), Pitch decks & all-hands (Slides
+theming + self-host), Specs & launch plans (Docs + Sheets references).
 
 #### WhySection
 
 Wafflebase vs Google Workspace comparison. Inside a `--wb-paper` card with rule
-borders. Leaf check / berry cross / butter "Limited" pill markers.
+borders. Leaf check / berry cross / butter "Limited" pill markers. The
+"single app" row reads "Slides, Docs & Sheets in one app" to match the
+3-product suite framing.
 
 #### DeveloperSection
 
@@ -189,8 +207,10 @@ landings.
 #### Footer
 
 `--wb-bg` background with rule top border. Two-column layout: brand block
-(WaffleLogo + Fraunces wordmark + tagline) + 3-column sitemap (Product /
-Community / Project). Bottom bar: copyright + repo URL.
+(WaffleLogo + Fraunces wordmark + tagline: "Self-hosted collaborative
+presentations, word processor, and spreadsheet, with real-time editing
+and a REST API for automation.") + 3-column sitemap (Product / Community
+/ Project). Bottom bar: copyright + repo URL.
 
 ### Theme System
 

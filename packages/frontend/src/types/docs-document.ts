@@ -1,10 +1,13 @@
 import { Tree } from '@yorkie-js/sdk';
+import type { DocsRangeAnchor, Thread } from '@/types/comments.ts';
 
 /**
  * Yorkie document root for the docs (rich-text) editor.
  *
  * - `content`: yorkie.Tree holding the block/inline structure
  * - `pageSetup`: document-level metadata (paper size, margins)
+ * - `comments`: threaded comments keyed by thread id, materialized on
+ *   first insertion. Existing documents without the field stay valid.
  */
 export type YorkieDocsRoot = {
   content: Tree;
@@ -13,6 +16,7 @@ export type YorkieDocsRoot = {
     orientation: 'portrait' | 'landscape';
     margins: { top: number; bottom: number; left: number; right: number };
   };
+  comments?: { [threadId: string]: Thread<DocsRangeAnchor> };
 };
 
 /**
@@ -25,9 +29,19 @@ export type YorkieDocsRoot = {
  * a long enough Cmd+Z sequence then unwinds it and destroys the
  * initial block, crashing `text-editor.handleInput` with "Block not
  * found".
+ *
+ * `comments` is initialized to an empty map for the same reason it must
+ * be created once: Yorkie resolves concurrent assignment of the same
+ * object key by LWW. If the container were instead lazily created on
+ * first comment (`if (!root.comments) root.comments = {}`), two users
+ * adding the first comment concurrently would each create a fresh map
+ * and one would be discarded wholesale, losing a thread. Seeding it at
+ * bootstrap means all replicas share one container and concurrent
+ * inserts only set distinct keys, which merge cleanly.
  */
 export function initialDocsRoot(): Partial<YorkieDocsRoot> {
   return {
+    comments: {},
     content: new Tree({
       type: 'doc',
       children: [

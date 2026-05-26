@@ -1,4 +1,5 @@
 import type { Document } from '@wafflebase/docs';
+import type { SlidesDocument } from '@wafflebase/slides/node';
 import type { CliConfig } from '../config/config.js';
 import {
   loadSession,
@@ -134,8 +135,8 @@ export class HttpClient {
   listDocuments() {
     return this.request<unknown[]>('GET', '/documents');
   }
-  createDocument(title: string, type?: 'doc' | 'sheet') {
-    const body: { title: string; type?: 'doc' | 'sheet' } = { title };
+  createDocument(title: string, type?: 'doc' | 'sheet' | 'slides') {
+    const body: { title: string; type?: 'doc' | 'sheet' | 'slides' } = { title };
     if (type) body.type = type;
     return this.request('POST', '/documents', body);
   }
@@ -161,6 +162,17 @@ export class HttpClient {
       'PUT',
       `/documents/${docId}/content`,
       doc,
+    );
+  }
+
+  // Slides content — same endpoint as docs; the backend dispatches on
+  // the persisted document type, picking the docs writer for `'doc'`
+  // and the slides writer for `'slides'`.
+  putSlidesContent(docId: string, deck: SlidesDocument) {
+    return this.request<SlidesDocument>(
+      'PUT',
+      `/documents/${docId}/content`,
+      deck,
     );
   }
 

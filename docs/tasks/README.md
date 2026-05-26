@@ -18,17 +18,20 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs unlink href (2026-05-26) | [20260526-docs-unlink-href-todo.md](./active/20260526-docs-unlink-href-todo.md) | [20260526-docs-unlink-href-lessons.md](./active/20260526-docs-unlink-href-lessons.md) |
+| slides group selection ui (2026-05-26) | [20260526-slides-group-selection-ui-todo.md](./active/20260526-slides-group-selection-ui-todo.md) | [20260526-slides-group-selection-ui-lessons.md](./active/20260526-slides-group-selection-ui-lessons.md) |
+| slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./active/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./active/20260526-slides-toolbar-add-slide-focus-lessons.md) |
+| slides textbox toolbar focus (2026-05-25) | [20260525-slides-textbox-toolbar-focus-todo.md](./active/20260525-slides-textbox-toolbar-focus-todo.md) | [20260525-slides-textbox-toolbar-focus-lessons.md](./active/20260525-slides-textbox-toolbar-focus-lessons.md) |
+| docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
-| undo destroys initial block (2026-05-05) | [20260505-undo-destroys-initial-block-todo.md](./active/20260505-undo-destroys-initial-block-todo.md) | - |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
-| table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./active/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 161
+- Archived task count: 219
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides themes layouts import (2026-05-07)
+Latest active task: docs unlink href (2026-05-26)

@@ -7,6 +7,8 @@ import { ParseTreeVisitor } from "antlr4ts/tree/ParseTreeVisitor";
 import { FunctionContext } from "./FormulaParser";
 import { UnarySignContext } from "./FormulaParser";
 import { CallContext } from "./FormulaParser";
+import { PercentContext } from "./FormulaParser";
+import { PowContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
 import { ConcatContext } from "./FormulaParser";
@@ -55,6 +57,22 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	 * @return the visitor result
 	 */
 	visitCall?: (ctx: CallContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by the `Percent`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitPercent?: (ctx: PercentContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by the `Pow`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitPow?: (ctx: PowContext) => Result;
 
 	/**
 	 * Visit a parse tree produced by the `MulDiv`

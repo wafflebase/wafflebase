@@ -2,14 +2,18 @@ import {
   initializeEditor,
   mountThumbnailPanel,
   mountNotesPanel,
+  SLIDES_RULER_SIZE,
   type SlidesEditor,
   type ThumbnailPanelHandle,
 } from "@wafflebase/slides";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
+import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
+import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
+import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 
 export type { SlidesEditor } from "@wafflebase/slides";
@@ -37,6 +41,15 @@ interface SlidesViewProps {
    * own Yorkie store wrapper.
    */
   onStoreReady?: (store: YorkieSlidesStore | null) => void;
+  /**
+   * Invoked when the editor wants to enter present mode — currently
+   * driven by Cmd/Ctrl+Enter (from current slide) and Cmd/Ctrl+Shift+
+   * Enter (from the first slide). The parent shell owns the present
+   * mode UI (Task 7); this prop just routes the editor-level shortcut
+   * to it. Captured via a ref so a new callback identity from the
+   * parent doesn't remount the editor.
+   */
+  onStartPresentation?: (from: "current" | "first") => void;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -44,6 +57,18 @@ interface SlidesViewProps {
 const SLIDE_ASPECT = 16 / 9;
 const MIN_HOST_W = 320;  // floor so very narrow viewports still paint something usable
 const MAX_HOST_W = 1600; // ceiling so on ultra-wide displays we don't paint a 4K bitmap
+/**
+ * Breathing room (px) between the slide edge and the ruler / canvas-
+ * area edge. Without this the slide touches the ruler at zoom-to-fit,
+ * which:
+ *   - lets the slide's 12-px drop-shadow blur into the ruler ticks
+ *   - leaves the slide's 1-px hairline outline overlapping the ruler edge
+ * Subtracting this from the available width / height shrinks the slide
+ * just enough that the flex centering produces equal padding on every
+ * side. `SlidesRuler` keeps its `(frame - host) / 2` offset math —
+ * tick "0" still lands on the slide's actual left / top edge.
+ */
+const SLIDE_FRAME_GAP = 12;
 
 function computeFitSize(availWidth: number, availHeight: number): {
   width: number;
@@ -86,11 +111,32 @@ function computeFitSize(availWidth: number, availHeight: number): {
  * preload Noto KR via `document.fonts.load` the same way docs'
  * PDF exporter does.
  */
-export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
+export function SlidesView({
+  documentId,
+  readOnly,
+  onEditorReady,
+  onStoreReady,
+  onStartPresentation,
+}: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
+  const readOnlyMount = readOnly === true;
+
+  // Capture the latest onStartPresentation in a ref so the editor's
+  // Cmd/Ctrl+Enter handler always calls the freshest callback, without
+  // adding the prop to the mount effect's deps (which would tear down
+  // and rebuild the editor whenever the parent re-renders with a new
+  // callback identity).
+  const onStartPresentationRef = useRef(onStartPresentation);
+  onStartPresentationRef.current = onStartPresentation;
+
+  // Stable ref for the toast callback — wired into the editor at mount time.
+  // Using sonner's toast.info directly; the ref prevents stale closure issues.
+  const onToastRef = useRef((msg: string) => toast.info(msg));
+  onToastRef.current = (msg: string) => toast.info(msg);
 
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
@@ -102,6 +148,44 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     const container = containerRef.current;
     if (!container) return;
 
+    // Consume any PPTX import staged for this document by the deck list
+    // BEFORE ensureSlidesRoot runs. Pushing the imported deck into the
+    // Yorkie root preempts the empty-deck initializer (which only fires
+    // when `root.meta` is null). We peek-then-clear so a thrown update
+    // leaves the entry in place for the next mount to retry.
+    if (documentId) {
+      const pending = peekPendingImport(documentId);
+      if (pending) {
+        try {
+          doc.update((r) => {
+            r.meta = {
+              title: pending.meta.title,
+              themeId: pending.meta.themeId,
+              masterId: pending.meta.masterId,
+            };
+            r.themes = pending.themes;
+            r.masters = pending.masters;
+            r.layouts = pending.layouts as unknown as YorkieSlidesRoot["layouts"];
+            r.slides = pending.slides as unknown as YorkieSlidesRoot["slides"];
+          });
+          clearPendingImport(documentId);
+        } catch (err) {
+          console.error("Failed to apply pending PPTX import", err);
+          toast.error(
+            err instanceof Error
+              ? `Failed to load imported deck: ${err.message}`
+              : "Failed to load imported deck.",
+          );
+        }
+      }
+    }
+
+    // Known gap (intentional in this PR): `ensureSlidesRoot` may run a
+    // `doc.update()` migration block when a viewer mounts an
+    // unmigrated pre-v0.5 deck, contradicting the empty-deck-seed
+    // policy below. Fixing it properly (gating the migration on a
+    // role, or migrating server-side) is owned by the doc-migration
+    // workstream — not the share-link toolbar work.
     ensureSlidesRoot(doc);
 
     // Build the canvas + overlay DOM into the container. The slides
@@ -186,27 +270,115 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     right.style.paddingLeft = "12px";
     right.style.display = "flex";
     right.style.flexDirection = "column";
-    right.style.gap = "12px";
+    // Gap is 0 so the notes resizer sits flush against the notes panel
+    // (mirrors Google Slides' divider treatment). Canvas-area to
+    // resizer breathing is provided by the canvas drop shadow itself.
+    right.style.gap = "0";
     right.style.minWidth = "0";  // allow the column to shrink + width-fit
     right.style.minHeight = "0";
 
-    // Canvas + overlay live inside this wrapper. Sized later by the
-    // ResizeObserver below — mounting at MIN_HOST_W avoids a flash of
-    // an unsized canvas during the first layout pass.
-    const canvasWrap = document.createElement("div");
-    canvasWrap.style.position = "relative";
-    canvasWrap.style.alignSelf = "flex-start";
+    // Canvas area: flex-1 column that vertically + horizontally
+    // centers the slide canvas inside the remaining space. The rulers
+    // sit on the area's top + left edges (NOT around the slide
+    // itself), so the slide can drift inside the frame while the
+    // ruler stays pinned. Padding-top / padding-left reserve the
+    // gutter the ruler occupies before the flex centering kicks in.
+    const canvasArea = document.createElement("div");
+    canvasArea.style.position = "relative";
+    canvasArea.style.flex = "1 1 auto";
+    canvasArea.style.minHeight = "0";
+    canvasArea.style.display = "flex";
+    canvasArea.style.justifyContent = "center";
+    canvasArea.style.alignItems = "center";
+    canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
+    canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
+    // Clip the over-sized permanent guide lines (they extend past the
+    // slide bounds so they visually reach the rulers). Also trims any
+    // shadow that might bleed past the SLIDE_FRAME_GAP — acceptable
+    // since the shadow's outer fade is already near-zero opacity.
+    canvasArea.style.overflow = "hidden";
 
+    // Seed the host dimensions before mounting any DOM that references
+    // them. `refitCanvas` will replace these on the first
+    // ResizeObserver tick; the seed only avoids a 0×0 flash.
     const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
     let hostW = initial.width;
     let hostH = initial.height;
 
+    // Ruler DOM: corner square (top-left), horizontal canvas across
+    // the top gutter, vertical canvas down the left gutter. All three
+    // are absolute to canvasArea so they hug the frame's edges
+    // regardless of where the slide ends up inside the centred
+    // content box.
+    const rulerCorner = document.createElement("div");
+    rulerCorner.style.position = "absolute";
+    rulerCorner.style.left = "0";
+    rulerCorner.style.top = "0";
+    rulerCorner.style.width = `${SLIDES_RULER_SIZE}px`;
+    rulerCorner.style.height = `${SLIDES_RULER_SIZE}px`;
+    rulerCorner.style.zIndex = "3";
+    canvasArea.appendChild(rulerCorner);
+
+    // Canvas elements don't expand to fill their containing block from
+    // absolute-position `left/right` alone — they fall back to the
+    // bitmap intrinsic size (300×150 default). Set explicit
+    // width/height in `refitCanvas` below, and seed an initial value
+    // here so the first paint isn't a 0×0 sliver in the corner.
+    // Rulers sit at z-index 1 (below canvasWrap's z-index 2) so the
+    // permanent guide lines — which extend past the slide bounds into
+    // the ruler area — paint on top of the ruler ticks instead of
+    // disappearing under them. The corner stays at z-index 3 above
+    // both; no guide can cross the corner because guides always sit
+    // at slide-x ≥ 0, which after centring + padding maps to a frame
+    // x well to the right of the corner's 14×14 footprint.
+    const hRulerCanvas = document.createElement("canvas");
+    hRulerCanvas.style.position = "absolute";
+    hRulerCanvas.style.left = `${SLIDES_RULER_SIZE}px`;
+    hRulerCanvas.style.top = "0";
+    hRulerCanvas.style.width = `${hostW}px`;
+    hRulerCanvas.style.height = `${SLIDES_RULER_SIZE}px`;
+    hRulerCanvas.style.zIndex = "1";
+    canvasArea.appendChild(hRulerCanvas);
+
+    const vRulerCanvas = document.createElement("canvas");
+    vRulerCanvas.style.position = "absolute";
+    vRulerCanvas.style.left = "0";
+    vRulerCanvas.style.top = `${SLIDES_RULER_SIZE}px`;
+    vRulerCanvas.style.width = `${SLIDES_RULER_SIZE}px`;
+    vRulerCanvas.style.height = `${hostH}px`;
+    vRulerCanvas.style.zIndex = "1";
+    canvasArea.appendChild(vRulerCanvas);
+
+    // Canvas + overlay live inside this wrapper at the slide's
+    // intrinsic host dimensions (no ruler offset — the ruler lives
+    // outside, on the canvas-area frame). `z-index: 2` pushes its
+    // overlay (and the over-sized permanent guide lines inside it)
+    // above the ruler canvases at z-index 1 so guides visually
+    // connect through the ruler ticks.
+    const canvasWrap = document.createElement("div");
+    canvasWrap.style.position = "relative";
+    canvasWrap.style.zIndex = "2";
+    canvasWrap.style.width = `${hostW}px`;
+    canvasWrap.style.height = `${hostH}px`;
+
     const canvas = document.createElement("canvas");
     canvas.width = hostW * dpr;
     canvas.height = hostH * dpr;
+    canvas.style.display = "block";
     canvas.style.width = `${hostW}px`;
     canvas.style.height = `${hostH}px`;
     canvas.style.background = "#fff";
+    // Slide elevation: 1px hairline + soft drop shadow so the slide edge
+    // stays visible when its background matches the surrounding inset's
+    // `bg-background` — happens in two pairings: default-light (white slide
+    // on white bg) and dark mode + Simple Dark (dark slide on dark bg).
+    // Hairline is mixed from `--foreground` so it inverts with the theme
+    // (dark on light, light on dark) and reads on both. The drop shadow
+    // is a black rgba — it adds depth in light mode and quietly fades in
+    // dark mode where the hairline carries the edge.
+    canvas.style.boxShadow =
+      "0 0 0 1px color-mix(in srgb, var(--foreground) 25%, transparent)," +
+      " 0 4px 12px rgba(0, 0, 0, 0.08)";
     canvasWrap.appendChild(canvas);
 
     const overlay = document.createElement("div");
@@ -218,9 +390,67 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     overlay.style.pointerEvents = "none";
     canvasWrap.appendChild(overlay);
 
-    right.appendChild(canvasWrap);
+    canvasArea.appendChild(canvasWrap);
+    right.appendChild(canvasArea);
+
+    // Notes resizer — horizontal counterpart of the thumbnail-panel
+    // divider. Drag up to expand the speaker-notes panel; drag down
+    // to shrink it. Visually a hairline at the column edge that
+    // thickens on hover, matching the left handle's behavior so the
+    // two affordances feel like a set.
+    const notesResizer = document.createElement("div");
+    notesResizer.style.cursor = "row-resize";
+    notesResizer.style.position = "relative";
+    notesResizer.style.height = "6px";
+    notesResizer.style.flexShrink = "0";
+    notesResizer.setAttribute("aria-label", "Resize speaker notes");
+    notesResizer.setAttribute("role", "separator");
+    notesResizer.setAttribute("aria-orientation", "horizontal");
+    const notesResizerLine = document.createElement("div");
+    notesResizerLine.style.position = "absolute";
+    notesResizerLine.style.left = "0";
+    notesResizerLine.style.right = "0";
+    notesResizerLine.style.top = "50%";
+    notesResizerLine.style.height = "1px";
+    notesResizerLine.style.background = "var(--border, #4444)";
+    notesResizerLine.style.transform = "translateY(-50%)";
+    notesResizerLine.style.transition = "background 120ms";
+    notesResizer.appendChild(notesResizerLine);
+    notesResizer.addEventListener("mouseenter", () => {
+      notesResizerLine.style.background = "var(--primary, #3a7)";
+      notesResizerLine.style.height = "2px";
+    });
+    notesResizer.addEventListener("mouseleave", () => {
+      notesResizerLine.style.background = "var(--border, #4444)";
+      notesResizerLine.style.height = "1px";
+    });
+    right.appendChild(notesResizer);
+
+    // Notes height is user-controlled and persisted across reloads.
+    // Mirrors the thumbnail-panel width persistence so both
+    // dimensions of the editor chrome remember the user's choice.
+    const NOTES_STORAGE_KEY = "wfb-slides-notes-height";
+    const MIN_NOTES_H = 60;
+    const DEFAULT_NOTES_H = 120;
+    /** Cap so the canvas always gets ≥ 40 % of the column even with
+     * notes maxed out. Re-evaluated against the current column height
+     * during each drag tick (not just the initial value). */
+    const MAX_NOTES_H_RATIO = 0.6;
+    let notesHeight = (() => {
+      try {
+        const raw = window.localStorage.getItem(NOTES_STORAGE_KEY);
+        const n = raw ? Number.parseInt(raw, 10) : NaN;
+        if (!Number.isFinite(n)) return DEFAULT_NOTES_H;
+        return Math.max(MIN_NOTES_H, n);
+      } catch {
+        return DEFAULT_NOTES_H;
+      }
+    })();
 
     const notesHost = document.createElement("div");
+    notesHost.style.height = `${notesHeight}px`;
+    notesHost.style.flexShrink = "0";
+    notesHost.style.overflow = "auto";
     right.appendChild(notesHost);
 
     layout.appendChild(right);
@@ -234,6 +464,19 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     document.head.appendChild(style);
 
     const store = new YorkieSlidesStore(doc);
+    // Brand-new presentations land here with `slides: []`. The editor's
+    // `render()` bails out when no current slide exists, so without this
+    // seed the canvas would stay blank until the user clicked the
+    // "+ Slide" toolbar button. Seeding once on first mount matches
+    // Google Slides' "new deck always opens with one slide" UX.
+    //
+    // Skipped when this mount is read-only — share-link viewers must
+    // never write to the deck, and a viewer arriving before the owner
+    // has saved the first slide should see an empty canvas rather
+    // than mutating the doc on their behalf.
+    if (!readOnlyMount && store.read().slides.length === 0) {
+      store.batch(() => store.addSlide("blank"));
+    }
     const editor = initializeEditor({
       canvas,
       overlay,
@@ -241,29 +484,74 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       hostWidth: hostW,
       hostHeight: hostH,
       dpr,
+      readOnly: readOnlyMount,
+      hRulerCanvas,
+      vRulerCanvas,
+      rulerCorner,
+      onShowShortcutsHelp: () => setHelpOpen(true),
+      onStartPresentation: (from) => onStartPresentationRef.current?.(from),
+      onToast: (msg) => onToastRef.current(msg),
+      // onLinkRequest is still intentionally unwired — the link popover
+      // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
+      // before it can drive the docs text-box. Cmd+K no-ops at the
+      // editor level until then.
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
     onStoreReady?.(store);
 
-    // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
-    // ticks (window resize, sidebar collapse, devtools open). Caps at
-    // MAX_HOST_W so we don't paint a 4K bitmap on ultra-wide displays
-    // — the slide is logically 1920×1080 anyway.
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const rightRect = entry.contentRect;
-      // Reserve room for the notes panel below the canvas + the column
-      // gap (12px). The notes panel is content-sized so we can't query
-      // a fixed value; subtract a generous reservation that errs on the
-      // side of leaving the canvas a bit small rather than overflowing.
-      const reservedForNotes = notesHost.getBoundingClientRect().height + 12;
+    // Refit canvas to the right column, taking the current notes height
+    // into account. Extracted into a function because two paths call
+    // it: the ResizeObserver below, and the notes-drag handler (where
+    // `notesHeight` changes without `right`'s own size changing).
+    const refitCanvas = () => {
+      const rightRect = right.getBoundingClientRect();
+      // Re-clamp notesHeight against the live column cap. The drag
+      // handler enforces MAX_NOTES_H_RATIO while the divider is being
+      // dragged, but a height restored from localStorage or a window
+      // resize would otherwise let the notes panel exceed the cap
+      // until the next user drag.
+      const maxNotesH = Math.max(
+        MIN_NOTES_H,
+        Math.floor(rightRect.height * MAX_NOTES_H_RATIO),
+      );
+      if (notesHeight > maxNotesH) {
+        notesHeight = maxNotesH;
+        notesHost.style.height = `${notesHeight}px`;
+      }
+      // Notes section reserves its own height + the 6 px resizer.
+      const reservedBelow = notesHeight + 6;
       const availW = Math.max(MIN_HOST_W, Math.min(MAX_HOST_W, rightRect.width));
-      const availH = Math.max(MIN_HOST_W / SLIDE_ASPECT, rightRect.height - reservedForNotes);
-      const fit = computeFitSize(availW, availH);
+      const availH = Math.max(
+        MIN_HOST_W / SLIDE_ASPECT,
+        rightRect.height - reservedBelow,
+      );
+      // Reserve the ruler gutter so the slide canvas itself never
+      // overflows the right column, plus a SLIDE_FRAME_GAP on both
+      // sides so the slide elevation doesn't bleed into the rulers.
+      const slideAvailW = Math.max(
+        MIN_HOST_W,
+        availW - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
+      );
+      const slideAvailH = Math.max(
+        MIN_HOST_W / SLIDE_ASPECT,
+        availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
+      );
+      const fit = computeFitSize(slideAvailW, slideAvailH);
       const nextW = Math.round(fit.width);
       const nextH = Math.round(fit.height);
+
+      // Pin each ruler canvas to the full frame extent — canvas
+      // elements don't pick up a width from `left + right` alone, so
+      // they need explicit CSS dimensions. Updated unconditionally so
+      // that a notes-drag (canvasArea height changes, host doesn't)
+      // still refreshes the vertical ruler.
+      const areaRect = canvasArea.getBoundingClientRect();
+      const rulerHCss = Math.max(0, Math.round(areaRect.width - SLIDES_RULER_SIZE));
+      const rulerVCss = Math.max(0, Math.round(areaRect.height - SLIDES_RULER_SIZE));
+      hRulerCanvas.style.width = `${rulerHCss}px`;
+      vRulerCanvas.style.height = `${rulerVCss}px`;
+
       if (nextW === hostW && nextH === hostH) return;
       hostW = nextW;
       hostH = nextH;
@@ -273,8 +561,16 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       canvas.style.height = `${hostH}px`;
       overlay.style.width = `${hostW}px`;
       overlay.style.height = `${hostH}px`;
+      canvasWrap.style.width = `${hostW}px`;
+      canvasWrap.style.height = `${hostH}px`;
       editor.setHostSize(hostW, hostH);
-    });
+    };
+
+    // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
+    // ticks (window resize, sidebar collapse, devtools open). Caps at
+    // MAX_HOST_W so we don't paint a 4K bitmap on ultra-wide displays
+    // — the slide is logically 1920×1080 anyway.
+    const resizeObserver = new ResizeObserver(() => refitCanvas());
     resizeObserver.observe(right);
 
     // Drag-to-resize the left column. Mousedown latches; mousemove
@@ -284,6 +580,11 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     let dragging = false;
     let dragStartX = 0;
     let dragStartLeft = 0;
+    // Notes drag is a sibling state machine — single document
+    // mousemove / mouseup pair routes both gestures.
+    let draggingNotes = false;
+    let dragStartY = 0;
+    let dragStartNotesH = 0;
     const onResizerDown = (e: MouseEvent) => {
       e.preventDefault();
       dragging = true;
@@ -294,28 +595,73 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     };
+    const onNotesResizerDown = (e: MouseEvent) => {
+      e.preventDefault();
+      draggingNotes = true;
+      dragStartY = e.clientY;
+      dragStartNotesH = notesHeight;
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    };
     const onDocMouseMove = (e: MouseEvent) => {
-      if (!dragging) return;
-      const next = Math.min(
-        MAX_LEFT_W,
-        Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
-      );
-      if (next === leftWidth) return;
-      leftWidth = next;
-      layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
+      if (dragging) {
+        const next = Math.min(
+          MAX_LEFT_W,
+          Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
+        );
+        if (next === leftWidth) return;
+        leftWidth = next;
+        layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
+        return;
+      }
+      if (draggingNotes) {
+        const rightRect = right.getBoundingClientRect();
+        // Cap notes at MAX_NOTES_H_RATIO of the column so the canvas
+        // always gets the remaining 40 %+. Re-evaluated each tick so
+        // dragging works even after a window resize.
+        const maxH = Math.max(
+          MIN_NOTES_H,
+          Math.floor(rightRect.height * MAX_NOTES_H_RATIO),
+        );
+        // Drag UP (cursor moves up the screen) ⇒ notes grow taller.
+        const next = Math.min(
+          maxH,
+          Math.max(MIN_NOTES_H, dragStartNotesH - (e.clientY - dragStartY)),
+        );
+        if (next === notesHeight) return;
+        notesHeight = next;
+        notesHost.style.height = `${notesHeight}px`;
+        // The right column's outer height didn't change, so the
+        // ResizeObserver won't fire. Re-fit manually so the canvas
+        // shrinks / grows in step with the notes panel.
+        refitCanvas();
+      }
     };
     const onDocMouseUp = () => {
-      if (!dragging) return;
-      dragging = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      try {
-        window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
-      } catch {
-        /* ignore quota / privacy-mode failures */
+      if (dragging) {
+        dragging = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        try {
+          window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
+        } catch {
+          /* ignore quota / privacy-mode failures */
+        }
+        return;
+      }
+      if (draggingNotes) {
+        draggingNotes = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        try {
+          window.localStorage.setItem(NOTES_STORAGE_KEY, String(notesHeight));
+        } catch {
+          /* ignore quota / privacy-mode failures */
+        }
       }
     };
     resizer.addEventListener("mousedown", onResizerDown);
+    notesResizer.addEventListener("mousedown", onNotesResizerDown);
     document.addEventListener("mousemove", onDocMouseMove);
     document.addEventListener("mouseup", onDocMouseUp);
 
@@ -323,8 +669,9 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       thumbsHost,
       store,
       editor,
+      { readOnly: readOnlyMount },
     );
-    mountNotesPanel(notesHost, store, editor);
+    mountNotesPanel(notesHost, store, editor, { readOnly: readOnlyMount });
 
     // Re-render on ANY store change — local batch commits OR remote
     // changes pushed in by another peer.
@@ -336,14 +683,18 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     // safe to call after local edits — the next render is a no-op if
     // the renderer already painted the same frame.
     //
-    // thumbHandle.refresh() is the only way A's own thumbnail picks
-    // up a drag/resize commit on the current slide, since the
-    // thumbnail panel only listens to selection / current-slide
-    // changes, neither of which fires for an in-place frame update.
+    // thumbHandle.refreshContent() picks up content edits (drag,
+    // resize, color, text) on any slide without rebuilding the panel
+    // DOM — full refresh() is reserved for structural changes (slide
+    // add/remove), driven by the rAF tick's count check below. The
+    // distinction matters because every refresh() wipes the canvas
+    // bitmaps and the IntersectionObserver, causing a one-frame blank
+    // flicker across the whole panel — visible every time the user
+    // moves a shape if it's the wrong tool.
     const offChange = store.onChange(() => {
       editor.markDirty();
       editor.render();
-      thumbHandle.refresh();
+      thumbHandle.refreshContent();
     });
 
     // Local presence: broadcast active slide + selection. Yorkie's
@@ -384,7 +735,7 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.
-      if (dragging) {
+      if (dragging || draggingNotes) {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
       }
@@ -402,12 +753,18 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     };
     // onEditorReady / onStoreReady are intentionally excluded — re-mounting
     // on every identity change of the parent's setter would tear down the
-    // editor.
+    // editor. `readOnlyMount` is also excluded: it is derived from a share-
+    // link role that is fixed for the lifetime of the route, so toggling
+    // it at runtime is not a supported scenario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
 
   if (loading) {
-    return <Loader />;
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Loader />
+      </div>
+    );
   }
 
   if (error) {
@@ -418,7 +775,12 @@ export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
     );
   }
 
-  return <div ref={containerRef} className="relative flex-1 w-full min-h-0" />;
+  return (
+    <>
+      <div ref={containerRef} className="relative flex-1 w-full min-h-0" />
+      <SlidesShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
+    </>
+  );
 }
 
 export default SlidesView;

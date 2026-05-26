@@ -5,15 +5,25 @@ import {
   type PeerCursor,
 } from "@wafflebase/docs";
 import { getPeerCursorColor } from "@wafflebase/sheets";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useDocument, Tree } from "@yorkie-js/react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
+import type { CommentAuthor } from "@/types/comments";
+import { fetchMeOptional } from "@/api/auth";
+import { Button } from "@/components/ui/button";
+import { CommentComposer } from "@/components/comments/components/CommentComposer";
+import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
+import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
+import { DocsCommentContextMenu } from "./comments/DocsCommentContextMenu";
+import { DocsCommentPopover } from "./comments/DocsCommentPopover";
+import { useDocsComments } from "./comments/docs-comments-controller";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { insertImageFromFile } from "./image-insert";
 
@@ -89,6 +99,14 @@ interface DocsViewProps {
   onJumpHandleReady?: (handle: JumpHandle | null) => void;
   readOnly?: boolean;
   /**
+   * Controlled state for the comments side panel. Provide this from a
+   * parent (e.g. DocsLayout) that owns a topbar toggle button. When
+   * omitted, the panel state is internal and only the keyboard
+   * shortcut can toggle it.
+   */
+  commentsPanelOpen?: boolean;
+  onCommentsPanelOpenChange?: (open: boolean) => void;
+  /**
    * Optional document id used to consume any pending DOCX import that
    * was staged before navigation (see `pending-imports.ts`). When set,
    * the imported `Document` is applied via `store.setDocument()` once
@@ -104,8 +122,24 @@ interface DocsViewProps {
  * It also subscribes to presence changes for peer cursors with label visibility
  * and hover detection.
  */
-export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentId }: DocsViewProps) {
+export function DocsView({
+  onEditorReady,
+  onJumpHandleReady,
+  readOnly,
+  commentsPanelOpen,
+  onCommentsPanelOpenChange,
+  documentId,
+}: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // State-mirrored handle on the same DOM node, so effects that depend
+  // on the container (the comments controller's click handler) re-bind
+  // when the element actually mounts instead of relying on a follow-up
+  // re-render triggered by mountedEditor.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const setContainerNode = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
   const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
@@ -118,6 +152,30 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
   } | null>(null);
   const { doc, loading, error } = useDocument<YorkieDocsRoot>();
   const { resolvedTheme } = useTheme();
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMeOptional,
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUser = useMemo<CommentAuthor | null>(() => {
+    if (!me) return null;
+    return {
+      userId: String(me.id),
+      username: me.username,
+      photo: me.photo || undefined,
+    };
+  }, [me]);
+
+  const comments = useDocsComments({
+    doc: doc ?? null,
+    editor: mountedEditor,
+    container: containerEl,
+    currentUser,
+    readOnly: Boolean(readOnly),
+    panelOpen: commentsPanelOpen,
+    onPanelOpenChange: onCommentsPanelOpenChange,
+  });
 
   const peerLabelTimers = useRef<Map<string, number>>(new Map());
   const prevPeerCursorPos = useRef<Map<string, string>>(new Map());
@@ -424,6 +482,24 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
     }
   }, [resolvedTheme, buildPeerCursors]);
 
+  // Keyboard shortcuts for comments.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || !e.altKey) return;
+      if (e.key === "M" || e.key === "m") {
+        if (e.shiftKey) {
+          e.preventDefault();
+          comments.togglePanel();
+        } else {
+          if (comments.beginCompose()) e.preventDefault();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [comments]);
+
   if (loading) {
     return <Loader />;
   }
@@ -437,7 +513,7 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+    <div ref={setContainerNode} className="relative flex-1 w-full min-h-0">
       <DocsLinkPopover
         editor={mountedEditor}
         containerRef={containerRef}
@@ -456,6 +532,91 @@ export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentI
         editor={mountedEditor}
         containerRef={containerRef}
       />
+      <DocsCommentContextMenu
+        editor={mountedEditor}
+        containerRef={containerRef}
+        readOnly={readOnly}
+        onInsertComment={() => {
+          comments.beginCompose();
+        }}
+      />
+      {comments.active && (
+        <DocsCommentPopover
+          thread={comments.active.thread}
+          anchorRect={comments.active.anchorRect}
+          currentUser={currentUser ?? undefined}
+          readOnly={readOnly}
+          onReply={(body) => comments.reply(comments.active!.thread.id, body)}
+          onResolveToggle={() => comments.toggleResolved(comments.active!.thread)}
+          onEdit={(commentId, body) =>
+            comments.editComment(comments.active!.thread.id, commentId, body)
+          }
+          onDelete={(commentId) =>
+            comments.deleteComment(comments.active!.thread.id, commentId)
+          }
+          onDismiss={comments.dismissPopover}
+        />
+      )}
+      {comments.composeOpen && (
+        <div
+          role="dialog"
+          aria-label="Insert comment"
+          data-comments-overlay=""
+          className="fixed left-1/2 top-1/3 z-50 w-80 -translate-x-1/2 rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
+        >
+          <CommentComposer
+            submitLabel="Comment"
+            autoFocus
+            onSubmit={comments.submitNewComment}
+            onCancel={comments.closeCompose}
+            disabled={!currentUser}
+          />
+        </div>
+      )}
+      {comments.panelOpen && (
+        <div data-comments-overlay="" className="absolute right-0 top-0 z-40 h-full">
+          <CommentSidePanel
+            threads={[...comments.state.open, ...comments.state.resolved]}
+            orphanedThreads={comments.state.orphaned}
+            onJumpTo={(t) => {
+              comments.jumpToThread(t);
+            }}
+            onClose={comments.closePanel}
+            renderAnchorLabel={(t) =>
+              t.anchor.quotedText ? (
+                <span className="italic">
+                  &ldquo;{t.anchor.quotedText.slice(0, 40)}
+                  {t.anchor.quotedText.length > 40 ? "…" : ""}&rdquo;
+                </span>
+              ) : null
+            }
+            renderOrphan={(t) => (
+              <OrphanedCard
+                quotedText={t.anchor.quotedText}
+                root={t.comments[0]}
+                commentCount={t.comments.length}
+                trailing={
+                  !readOnly && currentUser ? (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px]"
+                        onClick={() => {
+                          void comments.toggleResolved(t);
+                        }}
+                      >
+                        {t.resolved ? "Reopen" : "Resolve"}
+                      </Button>
+                    </div>
+                  ) : null
+                }
+              />
+            )}
+          />
+        </div>
+      )}
     </div>
   );
 }

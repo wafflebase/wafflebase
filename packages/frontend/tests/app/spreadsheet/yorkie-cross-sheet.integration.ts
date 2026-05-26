@@ -155,9 +155,8 @@ test("remote-change event for style edit does not need recalc", { skip: !shouldR
 
     // ClientB applies a range style (background color) to Sheet2
     await env.storeB2.addRangeStyle({
-      startRef: parseRef("A1"),
-      endRef: parseRef("B3"),
-      style: { bgColor: "#ff0000" },
+      range: [parseRef("A1"), parseRef("B3")],
+      style: { bg: "#ff0000" },
     });
     await env.sync();
 

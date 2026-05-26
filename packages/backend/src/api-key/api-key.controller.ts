@@ -12,6 +12,7 @@ import { ApiKeyService } from './api-key.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
+import { CreateApiKeyDto } from './api-key.dto';
 
 @Controller('workspaces/:workspaceId/api-keys')
 @UseGuards(JwtAuthGuard)
@@ -25,7 +26,7 @@ export class ApiKeyController {
   async create(
     @Param('workspaceId') workspaceId: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { name: string; scopes?: string[]; expiresAt?: string },
+    @Body() body: CreateApiKeyDto,
   ) {
     const userId = Number(req.user.id);
     const resolvedId = await this.workspaceService.resolveId(workspaceId);

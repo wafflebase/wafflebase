@@ -2,8 +2,8 @@
   "frontend": {
     "chunkBudgets": {
       "maxChunkKb": 710,
-      "maxChunkCount": 80,
-      "maxChunkCountReason": "Bumped from 70 → 80 in the Butter & Maple homepage redesign (Phase 9). Measured count is 71 chunks; the +9 buffer absorbs incremental primitives without an immediate re-bump.",
+      "maxChunkCount": 93,
+      "maxChunkCountReason": "Bumped from 90 → 93 when shared-document.tsx lazy-loaded SlidesToolbar alongside SlidesView for editor-role slides shares — Vite splits the toolbar's contextual subsections (idle / object / text-edit / mobile) into their own dynamic-import chunks, so the share-link route gained ~3 chunks. Only slides share-link visitors download them; sheets/docs share routes are unaffected. Prior bump: 85 → 90 in the Slides toolbar redesign — extracting the docs text-formatting controls into shared components/text-formatting/{style,format,paragraph}-group plus the new slides toolbar split (insert / arrange / object / image / text-element / text-edit sections) added measured chunks (87). +3 headroom absorbs the next incremental primitive. Prior bump: 80 → 85 when shared-document.tsx lazy-loaded SlidesView for slides share links.",
       "overrides": [
         {
           "pattern": "^pending-imports-",

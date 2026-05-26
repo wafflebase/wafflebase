@@ -15,7 +15,7 @@ export type ResolvedShareLink = {
   documentId: string;
   role: string;
   title: string;
-  type: "sheet" | "doc";
+  type: "sheet" | "doc" | "slides";
 };
 
 /**

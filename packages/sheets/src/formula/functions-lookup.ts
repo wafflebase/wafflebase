@@ -10,6 +10,7 @@ import {
   parseRange,
   parseRef,
   toColumnLabel,
+  toSrng,
 } from '../model/core/coordinates';
 import {
   toStr,
@@ -34,15 +35,7 @@ export function matchFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
   if (isFormulaError(lookup)) {
@@ -123,15 +116,7 @@ export function indexFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const mat: MatrixResult | ErrNode = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if (mat.t === 'err') return mat;
@@ -178,15 +163,7 @@ export function vlookupFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
   if (isFormulaError(lookup)) {
@@ -270,15 +247,7 @@ export function hlookupFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
   if (isFormulaError(lookup)) {
@@ -361,15 +330,7 @@ export function xlookupFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 6) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const keyNode = visit(exprs[0]);
   if (keyNode.t === 'err') {
@@ -478,10 +439,7 @@ export function xmatchFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const keyNode = visit(exprs[0]);
   if (keyNode.t === 'err') return keyNode;
@@ -572,15 +530,7 @@ export function lookupFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const keyNode = visit(exprs[0]);
   if (keyNode.t === 'err') {
@@ -639,15 +589,7 @@ export function indirectFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') {
@@ -679,15 +621,7 @@ export function offsetFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const refNode = visit(exprs[0]);
   if (refNode.t === 'err') {
@@ -716,8 +650,25 @@ export function offsetFunc(
     return ErrNode.REF;
   }
 
-  // For single cell OFFSET (no height/width or 1x1)
+  const heightNode = exprs[3] ? NumberArgs.map(visit(exprs[3]), grid) : { t: 'num' as const, v: 1 };
+  if (heightNode.t === 'err') return heightNode;
+  const widthNode = exprs[4] ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 1 };
+  if (widthNode.t === 'err') return widthNode;
+
+  const height = Math.trunc(heightNode.v);
+  const width = Math.trunc(widthNode.v);
+  if (height < 1 || width < 1) {
+    return ErrNode.REF;
+  }
+
+  const endRow = newRow + height - 1;
+  const endCol = newCol + width - 1;
   const newRef = `${toColumnLabel(newCol)}${newRow}`;
+  const endRef = `${toColumnLabel(endCol)}${endRow}`;
+  if (height > 1 || width > 1) {
+    return { t: 'ref', v: toSrng([parseRef(newRef), parseRef(endRef)]) };
+  }
+
   const cellVal = grid.get(newRef)?.v || '';
   const num = Number(cellVal);
   if (cellVal !== '' && !isNaN(num)) {
@@ -734,15 +685,9 @@ export function rowFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args || args.expr().length === 0) {
-    return ErrNode.NA;
-  }
+  const args = ctx.args()!;
 
   const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -774,15 +719,9 @@ export function columnFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args || args.expr().length === 0) {
-    return ErrNode.NA;
-  }
+  const args = ctx.args()!;
 
   const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -814,15 +753,7 @@ export function rowsFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -857,15 +788,7 @@ export function columnsFunc(
   visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length !== 1) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') {
@@ -900,15 +823,7 @@ export function addressFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rowNode = NumberArgs.map(visit(exprs[0]), grid);
   if (rowNode.t === 'err') {
@@ -958,15 +873,7 @@ export function hyperlinkFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) {
-    return ErrNode.NA;
-  }
-
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) {
-    return ErrNode.NA;
-  }
+  const exprs = ctx.args()?.expr() ?? [];
 
   const url = toStr(visit(exprs[0]), grid);
   if (url.t === 'err') {
@@ -989,13 +896,9 @@ export function hyperlinkFunc(
  * Simplified: always returns 1 for a single reference.
  */
 export function areasFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
   return { t: 'num', v: 1 };
 }
 
@@ -1007,10 +910,7 @@ export function sortFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const vals = collectNumericValues(exprs[0], visit, grid);
   if (!Array.isArray(vals)) return vals;
@@ -1036,10 +936,7 @@ export function sortbyFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1089,10 +986,7 @@ export function flattenFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1109,10 +1003,7 @@ export function transposeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1149,10 +1040,7 @@ export function filterFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1190,10 +1078,7 @@ export function sequenceFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const rowsNode = NumberArgs.map(visit(exprs[0]), grid);
   if (rowsNode.t === 'err') return rowsNode;
@@ -1218,9 +1103,8 @@ export function randarrayFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
+  const args = ctx.args()!;
   const exprs = args ? args.expr() : [];
-  if (exprs.length > 5) return ErrNode.NA;
 
   let min = 0, max = 1, whole = false;
   if (exprs.length >= 3) {
@@ -1253,10 +1137,7 @@ export function tocolFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1318,10 +1199,7 @@ export function chooserowsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1348,10 +1226,7 @@ export function choosecolsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1378,10 +1253,7 @@ export function takeFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1422,10 +1294,7 @@ export function dropFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1463,10 +1332,7 @@ export function hstackFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 1) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1497,10 +1363,7 @@ export function wrapcolsFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
@@ -1535,10 +1398,7 @@ export function expandFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
+  const exprs = ctx.args()?.expr() ?? [];
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;

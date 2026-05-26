@@ -7,6 +7,7 @@ import { PrismaService } from 'src/database/prisma.service';
 import { YorkieService } from 'src/yorkie/yorkie.service';
 import * as cookieParser from 'cookie-parser';
 import {
+  applyGlobalBootstrap,
   describeDb,
   parseDatabaseUrl,
   clearDatabase,
@@ -64,6 +65,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
 
     app = moduleRef.createNestApplication();
     app.use(cookieParser());
+    applyGlobalBootstrap(app);
     await app.init();
 
     prisma = moduleRef.get(PrismaService);

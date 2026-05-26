@@ -101,6 +101,191 @@ describe('DocxImporter', () => {
     expect(doc.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A1');
   });
 
+  it('should import w:tcMar onto cell.style.padding', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:tcMar>
+              <w:top w:w="120" w:type="dxa"/>
+              <w:bottom w:w="120" w:type="dxa"/>
+              <w:left w:w="120" w:type="dxa"/>
+              <w:right w:w="120" w:type="dxa"/>
+            </w:tcMar></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    // 120 twips ≈ 8 px.
+    expect(doc.blocks[0].tableData!.rows[0].cells[0].style.padding).toBeCloseTo(
+      8,
+      0,
+    );
+  });
+
+  it('should import w:vAlign onto cell.style.verticalAlign', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:vAlign w:val="center"/></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(
+      doc.blocks[0].tableData!.rows[0].cells[0].style.verticalAlign,
+    ).toBe('middle');
+  });
+
+  it('should import w:trHeight onto tableData.rowHeights for atLeast', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:trPr><w:trHeight w:val="480" w:hRule="atLeast"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>tall row</w:t></w:r></w:p></w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>default row</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.rowHeights).toBeDefined();
+    // 480 twips = 32 px.
+    expect(td.rowHeights![0]).toBeCloseTo(32, 0);
+    expect(td.rowHeights![1]).toBeUndefined();
+  });
+
+  it('should inherit w:tblBorders onto cell sides without explicit tcBorders', async () => {
+    // Outer 4 sides red; insideH/insideV green. A 2×2 grid lets us assert
+    // outer cells get red on their grid-edge sides and green on the
+    // shared interior sides.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:insideH w:sz="4" w:color="00FF00" w:val="single"/>
+          <w:insideV w:sz="4" w:color="00FF00" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const rows = doc.blocks[0].tableData!.rows;
+    // Top-left: outer red on top/left, interior green on bottom/right.
+    expect(rows[0].cells[0].style.borderTop?.color).toBe('#FF0000');
+    expect(rows[0].cells[0].style.borderLeft?.color).toBe('#FF0000');
+    expect(rows[0].cells[0].style.borderBottom?.color).toBe('#00FF00');
+    expect(rows[0].cells[0].style.borderRight?.color).toBe('#00FF00');
+    // Bottom-right: interior green on top/left, outer red on bottom/right.
+    expect(rows[1].cells[1].style.borderTop?.color).toBe('#00FF00');
+    expect(rows[1].cells[1].style.borderLeft?.color).toBe('#00FF00');
+    expect(rows[1].cells[1].style.borderBottom?.color).toBe('#FF0000');
+    expect(rows[1].cells[1].style.borderRight?.color).toBe('#FF0000');
+  });
+
+  it('should not let w:tblBorders override an explicit w:tcBorders side', async () => {
+    // Cell sets only top; tblBorders should fill the remaining sides
+    // while leaving the cell's explicit blue top untouched.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:tcBorders>
+              <w:top w:sz="4" w:color="0000FF" w:val="single"/>
+            </w:tcBorders></w:tcPr>
+            <w:p><w:r><w:t>x</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+    expect(cell.style.borderTop?.color).toBe('#0000FF');
+    expect(cell.style.borderBottom?.color).toBe('#FF0000');
+    expect(cell.style.borderLeft?.color).toBe('#FF0000');
+    expect(cell.style.borderRight?.color).toBe('#FF0000');
+  });
+
+  it('should treat a merged owner reaching the table edge as an edge cell for tblBorders inheritance', async () => {
+    // Owner spans both columns of a 2-col table; its right edge is the
+    // table's right edge, so the right fallback must be tblBorders.right
+    // (red), not insideV (green). The same rule applies to bottom for
+    // rowSpan and to left/top by symmetry.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblPr><w:tblBorders>
+          <w:top w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:bottom w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:left w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:right w:sz="8" w:color="FF0000" w:val="single"/>
+          <w:insideH w:sz="4" w:color="00FF00" w:val="single"/>
+          <w:insideV w:sz="4" w:color="00FF00" w:val="single"/>
+        </w:tblBorders></w:tblPr>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="2"/></w:tcPr>
+            <w:p><w:r><w:t>wide</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const owner = doc.blocks[0].tableData!.rows[0].cells[0];
+    expect(owner.colSpan).toBe(2);
+    expect(owner.style.borderRight?.color).toBe('#FF0000');
+    expect(owner.style.borderLeft?.color).toBe('#FF0000');
+    expect(owner.style.borderTop?.color).toBe('#FF0000');
+  });
+
+  it('should ignore w:trHeight with hRule=auto', async () => {
+    // hRule=auto means the value is suggestive only; we treat the row as
+    // auto-sized so the layout matches Word's behavior on these rows.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:trPr><w:trHeight w:val="480" w:hRule="auto"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>auto despite val</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.blocks[0].tableData!.rowHeights).toBeUndefined();
+  });
+
   it('should derive column widths from the outer tblGrid ratios', async () => {
     // Outer table: 3 cols with widths 1000/2000/3000 (1/6, 2/6, 3/6 of total).
     const buffer = await createMinimalDocx(`
@@ -885,5 +1070,58 @@ describe('DocxImporter', () => {
     expect(nestedTable!.tableData!.rows).toHaveLength(1);
     const innerText = nestedTable!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
     expect(innerText).toBe('Nested');
+  });
+
+  it('reports image upload progress via onProgress', async () => {
+    const drawingXml = `
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+            <wp:extent cx="914400" cy="457200"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:blipFill>
+                    <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId5"/>
+                  </pic:blipFill>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const buffer = await createMinimalDocx(`<w:p>${drawingXml}</w:p>`, {
+      relsXml,
+      extraFiles: { 'word/media/image1.png': pngBytes },
+    });
+    const calls: Array<[number, number]> = [];
+    await DocxImporter.import(
+      buffer,
+      async () => 'https://example.com/image1.png',
+      (done, total) => calls.push([done, total]),
+    );
+    expect(calls).toEqual([[0, 1], [1, 1]]);
+  });
+
+  it('reports (0, 0) for a document with no images', async () => {
+    const buffer = await createMinimalDocx(
+      `<w:p><w:r><w:t>Hi</w:t></w:r></w:p>`,
+    );
+    const calls: Array<[number, number]> = [];
+    await DocxImporter.import(buffer, undefined, (d, t) => calls.push([d, t]));
+    expect(calls).toEqual([[0, 0]]);
   });
 });

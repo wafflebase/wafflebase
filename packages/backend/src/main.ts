@@ -1,6 +1,8 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import * as bodyParser from 'body-parser';
 import * as cookieParser from 'cookie-parser';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 /**
@@ -17,10 +19,29 @@ import { AppModule } from './app.module';
 const JSON_BODY_LIMIT = process.env.BACKEND_JSON_BODY_LIMIT ?? '25mb';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+  // Trust the upstream proxy hop count from BACKEND_TRUST_PROXY so
+  // req.ip resolves to the real client IP (rate limiter and audit
+  // logging key off this). Defaults to 0 — turning on `trust proxy`
+  // without a real proxy in front lets a client spoof X-Forwarded-For
+  // and bypass per-IP limits. Set to 1 (typical: nginx, Cloudflare
+  // single hop) when deploying behind an edge that strips client XFF.
+  const trustProxy = Number(process.env.BACKEND_TRUST_PROXY ?? '0');
+  if (Number.isFinite(trustProxy) && trustProxy > 0) {
+    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
+  }
   app.use(bodyParser.json({ limit: JSON_BODY_LIMIT }));
   app.use(bodyParser.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
   app.use(cookieParser());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: false },
+    }),
+  );
   app.enableCors({
     origin: [process.env.FRONTEND_URL],
     credentials: true,

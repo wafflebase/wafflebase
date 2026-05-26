@@ -1,3 +1,5 @@
+import { palette } from '@wafflebase/tokens';
+
 /**
  * Theme mode type.
  */
@@ -43,13 +45,13 @@ export interface DocTheme {
 const LightTheme: DocTheme = {
   defaultFontSize: 11,
   defaultFontFamily: 'Arial',
-  defaultColor: '#000000',
+  defaultColor: palette.neutrals.light.ink,
 
-  cursorColor: '#000000',
+  cursorColor: palette.neutrals.light.ink,
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
-  selectionColor: 'rgba(66, 133, 244, 0.3)',
+  selectionColor: `rgba(${palette.butterRgb}, 0.30)`,
   selectionColorInactive: 'rgba(0, 0, 0, 0.1)',
 
   pageGap: 40,
@@ -57,6 +59,9 @@ const LightTheme: DocTheme = {
   pageShadowBlur: 8,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
+  // Paper surface stays pure white in light mode — office tools feel
+  // professional when the page itself isn't tinted. Brand still appears
+  // on selection wash, caret, and text via palette refs above.
   pageBackground: '#ffffff',
   canvasBackground: '#f0f0f0',
 
@@ -71,13 +76,13 @@ const LightTheme: DocTheme = {
 const DarkTheme: DocTheme = {
   defaultFontSize: 11,
   defaultFontFamily: 'Arial',
-  defaultColor: '#e0e0e0',
+  defaultColor: palette.neutrals.dark.ink,
 
-  cursorColor: '#e0e0e0',
+  cursorColor: palette.neutrals.dark.ink,
   cursorWidth: 2,
   cursorBlinkInterval: 530,
 
-  selectionColor: 'rgba(100, 160, 255, 0.35)',
+  selectionColor: `rgba(${palette.butterRgb}, 0.35)`,
   selectionColorInactive: 'rgba(255, 255, 255, 0.1)',
 
   pageGap: 40,
@@ -85,6 +90,8 @@ const DarkTheme: DocTheme = {
   pageShadowBlur: 10,
   pageShadowOffsetX: 0,
   pageShadowOffsetY: 4,
+  // Dark mode paper uses a neutral dark instead of the warm brand
+  // neutrals — keeps the editor chrome quiet across both modes.
   pageBackground: '#2b2b2b',
   canvasBackground: '#1e1e1e',
 

@@ -123,9 +123,24 @@ export {
   drawPeerLabel,
 } from './view/peer-cursor.js';
 export { Selection } from './view/selection.js';
-export { Ruler, RULER_SIZE } from './view/ruler.js';
+export {
+  Ruler,
+  RULER_SIZE,
+  detectUnit,
+  getGridConfig,
+  snapToGrid,
+  drawTicks,
+} from './view/ruler/index.js';
+export type {
+  RulerUnit,
+  GridConfig,
+  TickDensity,
+  DrawTicksOpts,
+} from './view/ruler/index.js';
 export { FindReplaceState } from './view/find-replace.js';
 export type { SearchMatch, SearchOptions } from './model/types.js';
+export type { CommentMarker, HighlightRect } from './view/comment-markers.js';
+export { findMarkerAt } from './view/comment-markers.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';

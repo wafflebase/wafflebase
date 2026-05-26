@@ -43,7 +43,7 @@ const rows: { label: string; wafflebase: ReactNode; others: ReactNode }[] = [
     others: <CheckMark />,
   },
   {
-    label: "Sheets & Docs in one app",
+    label: "Sheets, Docs & Slides in one app",
     wafflebase: <CheckMark />,
     others: <CheckMark />,
   },

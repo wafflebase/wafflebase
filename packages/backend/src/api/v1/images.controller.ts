@@ -13,6 +13,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ImageService } from '../../image/image.service';
@@ -21,6 +22,7 @@ import type { Response, Request } from 'express';
 
 @Controller('api/v1/workspaces/:workspaceId/images')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@Throttle({ default: { limit: 600, ttl: 60_000 } })
 export class ApiV1ImagesController {
   constructor(private readonly imageService: ImageService) {}
 

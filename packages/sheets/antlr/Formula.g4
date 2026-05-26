@@ -4,6 +4,8 @@ formula: expr+ ;
 expr: FUNCNAME '(' args? ')'         # Function
     | op=(ADD|SUB) expr              # UnarySign
     | expr '(' args? ')'             # Call
+    | expr PERCENT                   # Percent
+    | <assoc=right> expr CARET expr  # Pow
     | expr op=(MUL|DIV) expr         # MulDiv
     | expr op=(ADD|SUB) expr         # AddSub
     | expr AMP expr                  # Concat
@@ -45,6 +47,8 @@ DIV: '/' ;
 ADD: '+' ;
 SUB: '-' ;
 AMP: '&' ;
+CARET: '^' ;
+PERCENT: '%' ;
 EQ: '=' ;
 NEQ: '<>' ;
 LTE: '<=' ;
