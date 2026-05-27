@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { parseTextBody } from '../../../src/import/pptx/text';
+import { parseTextBody, detectAutofitMode } from '../../../src/import/pptx/text';
 import { ImportReport } from '../../../src/import/pptx/report';
 import { parseXml } from '../../../src/import/pptx/xml';
 import type { PptxRel } from '../../../src/import/pptx/rels';
@@ -143,6 +143,24 @@ describe('parseTextBody — paragraphs', () => {
     const blocks = parseTextBody(t, { report: new ImportReport() });
     expect(blocks).toHaveLength(1);
     expect(blocks[0].inlines.map((i) => i.text)).toEqual(['line1', '\n', 'line2']);
+  });
+});
+
+describe('detectAutofitMode', () => {
+  it('maps <a:normAutofit/> to shrink', () => {
+    expect(detectAutofitMode(txBody('<a:txBody><a:bodyPr><a:normAutofit/></a:bodyPr><a:p/></a:txBody>'))).toBe('shrink');
+  });
+  it('maps <a:spAutoFit/> to grow', () => {
+    expect(detectAutofitMode(txBody('<a:txBody><a:bodyPr><a:spAutoFit/></a:bodyPr><a:p/></a:txBody>'))).toBe('grow');
+  });
+  it('maps <a:noAutofit/> to none', () => {
+    expect(detectAutofitMode(txBody('<a:txBody><a:bodyPr><a:noAutofit/></a:bodyPr><a:p/></a:txBody>'))).toBe('none');
+  });
+  it('defaults to none when bodyPr has no autofit child', () => {
+    expect(detectAutofitMode(txBody('<a:txBody><a:bodyPr/><a:p/></a:txBody>'))).toBe('none');
+  });
+  it('defaults to none when there is no bodyPr', () => {
+    expect(detectAutofitMode(txBody('<a:txBody><a:p/></a:txBody>'))).toBe('none');
   });
 });
 

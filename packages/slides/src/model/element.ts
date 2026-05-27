@@ -113,6 +113,17 @@ export type PlaceholderRef = {
   index: number;
 };
 
+/**
+ * Text-box autofit behavior, mirroring OOXML `<a:bodyPr>` children:
+ * - 'none'   ↔ <a:noAutofit/>   — box fixed, text overflows
+ * - 'shrink' ↔ <a:normAutofit/> — box fixed, font auto-scales down to fit
+ * - 'grow'   ↔ <a:spAutoFit/>   — font fixed, box height tracks content
+ *
+ * The shrink scale is derived live at render/edit time and never stored.
+ * The grow height is written to `frame.h` on edit commit.
+ */
+export type AutofitMode = 'none' | 'shrink' | 'grow';
+
 export type ElementBase = {
   id: string;
   frame: Frame;
@@ -126,6 +137,14 @@ export type TextElement = ElementBase & {
     blocks: Block[];
     stroke?: Stroke;
     fill?: ThemeColor;
+    /**
+     * Autofit behavior. **Absent ⇒ `'grow'`** (the pre-autofit auto-grow
+     * default established by the `slides-textbox-autogrow` feature) so
+     * existing decks keep growing. Set `'none'` explicitly to disable
+     * auto-grow; `'shrink'` to scale fonts to a fixed box. See
+     * `docs/design/slides/slides-text-autofit.md`.
+     */
+    autofit?: AutofitMode;
   };
 };
 

@@ -42,6 +42,7 @@ import {
   worldTightFrame,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
+import type { AutofitMode } from '@wafflebase/slides';
 import type { SlidesPresence } from '@/types/users';
 import type {
   YorkieElement,
@@ -524,11 +525,20 @@ export class YorkieSlidesStore implements SlidesStore {
         background: clone(s.background),
         elements: s.elements.map((e) => {
           if (e.type === 'text') {
+            const td = e.data as { blocks?: Block[]; autofit?: AutofitMode };
             return {
               id: e.id,
               type: 'text',
               frame: { ...e.frame },
-              data: { blocks: clone(e.data.blocks ?? []) },
+              // Carry placeholderRef and autofit through snapshot restore
+              // (undo/redo); the prior bare `{ id, type, frame, blocks }`
+              // rebuild dropped both — stripping placeholder identity and
+              // the autofit mode deck-wide on every undo/redo.
+              ...(e.placeholderRef ? { placeholderRef: clone(e.placeholderRef) } : {}),
+              data: {
+                blocks: clone(td.blocks ?? []),
+                ...(td.autofit ? { autofit: td.autofit } : {}),
+              },
             } as YorkieElement;
           }
           return clone(e) as YorkieElement;
@@ -561,15 +571,24 @@ export class YorkieSlidesStore implements SlidesStore {
           const placeholderStyle =
             master.placeholderStyles[placeholderRef.type]
             ?? master.placeholderStyles.body;
+          const placeholderData = placeholder.data as {
+            blocks?: Block[];
+            autofit?: AutofitMode;
+          };
           const blocks = placeholderStyle
             ? seedPlaceholderBlocks(placeholderStyle, theme)
-            : (placeholder.data as { blocks?: Block[] }).blocks ?? [];
+            : placeholderData.blocks ?? [];
           return {
             id: elementId,
             type: 'text',
             frame: placeholder.frame,
             placeholderRef,
-            data: { blocks: clone(blocks) },
+            // Preserve the placeholder's seeded autofit mode (e.g. 'shrink')
+            // through the master-typography re-seed of `blocks`.
+            data: {
+              blocks: clone(blocks),
+              ...(placeholderData.autofit ? { autofit: placeholderData.autofit } : {}),
+            },
           } as YorkieElement;
         }
         return {
@@ -833,12 +852,17 @@ export class YorkieSlidesStore implements SlidesStore {
       }
 
       if (init.type === 'text') {
-        const blocks = (init.data as { blocks?: Block[] }).blocks ?? [];
+        const textData = init.data as { blocks?: Block[]; autofit?: AutofitMode };
         (targetArray as unknown as YorkieElement[]).push({
           id,
           type: 'text',
           frame: { ...init.frame },
-          data: { blocks: clone(blocks) },
+          // Preserve the seeded autofit mode (e.g. inserted text boxes
+          // default to 'grow'); a bare `{ blocks }` would drop it.
+          data: {
+            blocks: clone(textData.blocks ?? []),
+            ...(textData.autofit ? { autofit: textData.autofit } : {}),
+          },
         } as YorkieElement);
         return;
       }

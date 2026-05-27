@@ -125,6 +125,16 @@ export interface TextBoxEditorOptions {
   onContentHeightChange?: (contentHeight: number) => void;
 
   /**
+   * Optional transform applied to the document blocks immediately before
+   * each layout (NOT to the committed document). Slides autofit "shrink"
+   * uses this to scale font sizes down so the editor renders at the same
+   * scale as the committed slide canvas. MUST preserve block/inline
+   * identity (ids, text, counts) so cursor/selection offsets stay valid.
+   * Absent ⇒ identity (docs/sheets callers unaffected).
+   */
+  transformLayoutBlocks?: (blocks: Block[]) => Block[];
+
+  /**
    * Resolves a stored `Inline.style.color` / `backgroundColor` to a hex
    * string at paint time. Slides supplies a theme-aware resolver so the
    * in-place editor paints text in the deck's theme color — matching the
@@ -302,8 +312,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   let paginatedLayout: PaginatedLayout = buildShimPaginatedLayout(layout, contentWidth, contentHeight);
 
   const recomputeLayout = (): void => {
+    const sourceBlocks = doc.document.blocks;
+    const blocksForLayout = opts.transformLayoutBlocks
+      ? opts.transformLayoutBlocks(sourceBlocks)
+      : sourceBlocks;
     const result = computeLayout(
-      doc.document.blocks,
+      blocksForLayout,
       measurer,
       contentWidth,
       undefined,

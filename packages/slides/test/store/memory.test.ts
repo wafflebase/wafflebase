@@ -38,6 +38,21 @@ describe('MemSlidesStore — slides', () => {
     expect(store.read().slides.map((s) => s.id)).toEqual([id]);
   });
 
+  it('addSlide stamps text placeholders with shrink autofit', () => {
+    // End-to-end guard: the layout spec seeds autofit 'shrink', and the
+    // master-typography re-seed during stamping must preserve it (a bare
+    // `data = { blocks }` reassignment would drop it).
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('title-body', 0); });
+    const slide = store.read().slides.find((s) => s.id === sid)!;
+    const textEls = slide.elements.filter((e) => e.type === 'text');
+    expect(textEls.length).toBeGreaterThan(0);
+    for (const el of textEls) {
+      if (el.type === 'text') expect(el.data.autofit).toBe('shrink');
+    }
+  });
+
   it('addSlide with atIndex inserts at that position', () => {
     const store = new MemSlidesStore();
     let a!: string;

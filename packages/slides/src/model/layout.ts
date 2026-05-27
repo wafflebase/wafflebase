@@ -32,7 +32,7 @@ function textPlaceholder(
   return {
     type: 'text',
     frame: { x, y, w, h, rotation: 0 },
-    data: { blocks: emptyBlocks() },
+    data: { autofit: 'shrink', blocks: emptyBlocks() },
     placeholder: { type },
   };
 }
@@ -323,7 +323,13 @@ export function applyLayoutToSlide(
         context.master.placeholderStyles[slot.ref.type]
         ?? context.master.placeholderStyles.body;
       if (placeholderStyle) {
-        cloned.data = { blocks: seedPlaceholderBlocks(placeholderStyle, context.theme) };
+        // Preserve the cloned spec's `data` fields (notably `autofit`)
+        // while replacing only `blocks` — a bare `data = { blocks }`
+        // would drop the placeholder's seeded autofit mode.
+        cloned.data = {
+          ...cloned.data,
+          blocks: seedPlaceholderBlocks(placeholderStyle, context.theme),
+        };
       }
     }
     const fresh = {

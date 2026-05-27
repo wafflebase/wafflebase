@@ -7,6 +7,7 @@ import {
   type ColorResolver,
   type StoredColor,
 } from '@wafflebase/docs';
+import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
 import type { TextElement } from '../../model/element';
 import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
@@ -111,7 +112,17 @@ export function drawText(
     style: normalizeBlockStyle(b.style),
   }));
   const colorResolver = makeColorResolver(theme);
-  const { layout } = computeLayout(normalized, measurer, size.w);
+
+  // Shrink autofit: scale fonts down so content fits the fixed box. The
+  // same scale is applied in the in-place editor (text-box-editor.ts) so
+  // the committed canvas and editing surface stay pixel-identical.
+  let toLayout = normalized;
+  if (data.autofit === 'shrink') {
+    const scale = computeAutofitScale(normalized, measurer, size.w, size.h, 0);
+    if (scale !== 1) toLayout = scaleBlocks(normalized, scale);
+  }
+
+  const { layout } = computeLayout(toLayout, measurer, size.w);
   paintLayout(ctx, layout, 0, 0, { colorResolver });
 }
 

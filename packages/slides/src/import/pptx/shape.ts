@@ -30,7 +30,7 @@ import {
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { ImportReport } from './report';
 import { parseTable } from './table';
-import { parseTextBody } from './text';
+import { parseTextBody, detectAutofitMode } from './text';
 import type { PptxArchive } from './unzip';
 import type { PptxRel } from './rels';
 import type { UploadImage } from './index';
@@ -551,6 +551,7 @@ function buildTextElement(
     frame,
     ...(placeholderRef ? { placeholderRef } : {}),
     data: {
+      autofit: detectAutofitMode(txBody),
       blocks: parseTextBody(txBody, {
         rels: ctx.rels,
         report: ctx.report,
