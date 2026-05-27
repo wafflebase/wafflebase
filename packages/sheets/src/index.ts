@@ -182,6 +182,11 @@ import {
   addReply,
 } from './comment/thread';
 import { cellAnchorToSref, isAnchorAlive } from './comment/anchor';
+import {
+  importXlsxFile,
+  importXlsxWorkbook,
+} from './import/xlsx-importer';
+import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
 
 export {
   initialize,
@@ -281,6 +286,8 @@ export {
   addReply,
   cellAnchorToSref,
   isAnchorAlive,
+  importXlsxFile,
+  importXlsxWorkbook,
 };
 
 export type {
@@ -343,4 +350,6 @@ export type {
   CommentAnchor,
   CommentAuthor,
   Thread,
+  ImportedXlsxSheet,
+  XlsxFileLike,
 };

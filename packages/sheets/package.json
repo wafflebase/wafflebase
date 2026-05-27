@@ -27,7 +27,8 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@wafflebase/tokens": "workspace:*"
+    "@wafflebase/tokens": "workspace:*",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/papaparse": "^5.3.14",
