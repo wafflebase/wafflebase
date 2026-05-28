@@ -54,3 +54,20 @@ export function snapEndpointAngle(
     y: start.y + Math.sin(snapped) * length,
   };
 }
+
+/**
+ * Project a pointer delta onto the dominant axis. When |dx| >= |dy|
+ * returns (dx, 0); otherwise (0, dy). Tie-break (|dx| === |dy|): X
+ * wins for determinism.
+ *
+ * Re-evaluated every mousemove — when the user changes drag direction
+ * mid-stream, the lock switches axes naturally.
+ */
+export function lockAxis(
+  dx: number,
+  dy: number,
+): { dx: number; dy: number } {
+  return Math.abs(dx) >= Math.abs(dy)
+    ? { dx, dy: 0 }
+    : { dx: 0, dy };
+}

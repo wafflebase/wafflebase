@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { constrainToSquare, snapEndpointAngle } from '../../../../src/view/editor/interactions/constraints';
+import { constrainToSquare, snapEndpointAngle, lockAxis } from '../../../../src/view/editor/interactions/constraints';
 
 describe('constrainToSquare', () => {
   const ORIGIN = { x: 0, y: 0 };
@@ -123,5 +123,37 @@ describe('snapEndpointAngle', () => {
     const dx = out.x - 100;
     const dy = out.y - 100;
     expect(Math.atan2(dy, dx)).toBeCloseTo(Math.PI / 4);
+  });
+});
+
+describe('lockAxis', () => {
+  it('returns (dx, 0) when |dx| > |dy|', () => {
+    expect(lockAxis(50, 10)).toEqual({ dx: 50, dy: 0 });
+  });
+
+  it('returns (0, dy) when |dy| > |dx|', () => {
+    expect(lockAxis(10, 50)).toEqual({ dx: 0, dy: 50 });
+  });
+
+  it('breaks ties toward X (|dx| === |dy|)', () => {
+    expect(lockAxis(30, 30)).toEqual({ dx: 30, dy: 0 });
+    expect(lockAxis(-30, 30)).toEqual({ dx: -30, dy: 0 });
+  });
+
+  it('returns (0, 0) for zero delta', () => {
+    expect(lockAxis(0, 0)).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('preserves sign on negative dx', () => {
+    expect(lockAxis(-80, 20)).toEqual({ dx: -80, dy: 0 });
+  });
+
+  it('preserves sign on negative dy', () => {
+    expect(lockAxis(15, -120)).toEqual({ dx: 0, dy: -120 });
+  });
+
+  it('compares absolute values, not signed', () => {
+    // |dx| = 10, |dy| = 60 — Y wins despite dx being "more positive".
+    expect(lockAxis(10, -60)).toEqual({ dx: 0, dy: -60 });
   });
 });
