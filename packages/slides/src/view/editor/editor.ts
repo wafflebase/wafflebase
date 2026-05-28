@@ -2448,6 +2448,15 @@ class SlidesEditorImpl implements SlidesEditor {
     // shape and never crosses the move threshold below.
     this.connectorCursor = startCursor;
 
+    // World-space position of the OTHER (non-dragging) endpoint. Captured
+    // once at mousedown — the opposite endpoint stays fixed for the
+    // duration of this drag, so we don't need to re-resolve per move.
+    const otherEndpoint = side === 'start' ? startConnector.end : startConnector.start;
+    const otherWorld = resolveEndpoint(
+      otherEndpoint,
+      new Map(startSlide.elements.map((e) => [e.id, e] as const)),
+    );
+
     const recompute = (cur: { x: number; y: number }) => {
       // Other elements as snap candidates — exclude the connector itself
       // so the endpoint can't self-link. Mirrors `dragEndpoint`'s filter
@@ -2493,7 +2502,12 @@ class SlidesEditorImpl implements SlidesEditor {
     };
 
     const onMove = (ev: MouseEvent) => {
-      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      // Shift snap is relative to the fixed opposite endpoint, then the
+      // result flows through the normal snap-to-connection-site test
+      // inside `recompute(cur)`. If the snapped point lands on a site,
+      // it attaches; otherwise it stays free — same precedence as B2.
+      const cur = ev.shiftKey ? snapEndpointAngle(otherWorld, raw) : raw;
       // Update the affordance cursor on every move so the dots track
       // continuously — even sub-deadband moves should refresh the
       // highlight state under the cursor.

@@ -3,6 +3,7 @@ import type { ConnectorElement } from '../../../../src/model/connector';
 import type { Element } from '../../../../src/model/element';
 import type { SlidesStore } from '../../../../src/store/store';
 import { dragEndpoint } from '../../../../src/view/editor/interactions/connector-endpoint-drag';
+import { snapEndpointAngle } from '../../../../src/view/editor/interactions/constraints';
 
 function fakeConnector(): ConnectorElement {
   return {
@@ -111,5 +112,25 @@ describe('dragEndpoint', () => {
       elementId: 'r1',
       siteIndex: 0,
     });
+  });
+});
+
+describe('endpoint drag + Shift snaps relative to the opposite endpoint', () => {
+  it('snaps the dragging endpoint around the fixed end', () => {
+    // Other endpoint anchored at (200, 200) in world coords.
+    const other = { x: 200, y: 200 };
+    // User drags toward (300, 230). Vector (100, 30) → ~16.7° → snaps to 15°.
+    const snapped = snapEndpointAngle(other, { x: 300, y: 230 });
+    const dx = snapped.x - other.x;
+    const dy = snapped.y - other.y;
+    expect(Math.atan2(dy, dx)).toBeCloseTo(Math.PI / 12);
+    // Length preserved: hypot(100, 30) ≈ 104.4.
+    expect(Math.hypot(dx, dy)).toBeCloseTo(Math.hypot(100, 30));
+  });
+
+  it('keeps a 45° drag exactly at 45°', () => {
+    const other = { x: 0, y: 0 };
+    const snapped = snapEndpointAngle(other, { x: 80, y: 80 });
+    expect(Math.atan2(snapped.y - other.y, snapped.x - other.x)).toBeCloseTo(Math.PI / 4);
   });
 });
