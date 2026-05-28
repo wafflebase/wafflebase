@@ -286,7 +286,7 @@ Each commit independently green under `pnpm verify:fast`.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Snap-guide vs axis-lock interaction in B4 produces unexpected drift | Med | Med | Apply `lockAxis` **before** snap-guide adjustment; integration test asserts guide nudges only along the locked axis |
+| Snap-guide vs axis-lock interaction in B4 produces unexpected drift | Med | Med | Apply `lockAxis` **on both sides** of `snapDelta` (the snap engine evaluates X and Y independently, so the pre-snap lock isn't enough on its own); integration test asserts the final commit respects the lock even when a sibling edge sits within snap range of the perpendicular axis |
 | Connection-site vs angle-snap collision (B2/B3) confuses users | Med | Low | Documented decision: Shift wins, attachment falls out from snapped coordinate. Live feedback (dot doesn't light up) is self-teaching. No extra branching keeps the code simple |
 | Mac Shift + click is multi-select toggle — drag conflict? | Low | Low | Multi-select reads Shift at `mousedown`; drag constraints read at `mousemove`. Separate code paths, no interference |
 | B3 endpoint drag handler location not what the design assumes | Low | Med | Implementation task starts with a `grep`-driven scan to confirm the symbol; if endpoint drag re-uses the generic resize path, B3 needs a kind-specific branch (still small) |

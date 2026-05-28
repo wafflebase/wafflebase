@@ -91,24 +91,37 @@ The controller should also `git checkout <branch>` (or at least `git
 branch --show-current`) before each `Agent` dispatch as a safety
 belt.
 
-## 6. Snap-guide ordering is load-bearing for `lockAxis`
+## 6. `lockAxis` before snap is not enough — the lock must run AFTER snap too
 
-The plan called this out and the implementation respected it:
-`lockAxis` must run BEFORE the snap-guide / `snapDelta` pass in the
-move-drag `onMove`. If you reversed the order, smart guides could
-nudge the element off the locked axis — Shift would "almost" work
-but produce diagonal drift on slides with sibling shapes nearby.
+The plan and the design doc both claimed "lockAxis applies first so
+guides only nudge along the locked axis." Code review caught this
+as wrong: `snapDelta` evaluates X and Y snap candidates
+independently, so even when `lockAxis` zeroes the perpendicular
+axis BEFORE the snap pass, `snapDelta` can re-introduce a non-zero
+adjustment on that axis if a sibling edge or guide is within
+`SNAP_THRESHOLD` (8 logical px). The element then drifts off the
+locked axis — exactly the bug the lock was meant to prevent.
 
-**Why:** Snap guides operate on `(dx, dy)` and assume those are the
-user's intent. Axis-lock IS the user's intent when Shift is held;
-guides must align around it.
+**Fix shipped:** Apply `lockAxis` twice when Shift is held — once
+before snap (so the snap engine sees the user's intended axis as
+"the only one in play") and once after snap (to enforce the lock
+against any per-axis adjustment the snap engine added). The
+"final" lock has the last word.
 
-**How to apply:** When wiring a new pre-snap modifier into a handler
-that already has a snap pass, document the ordering as a top-level
-design decision (the doc and plan both did this) and add an
-integration test that exercises a scenario where the wrong order
-would visibly fail (e.g., move with Shift past a sibling-edge guide
-and assert dy === 0 in the commit).
+**Why:** "Pre-snap modifiers solve all snap conflicts" is a
+plausible-sounding intuition that only holds when the snap engine
+itself is axis-aware. `snapDelta` here is not — it treats X and Y
+independently — so the modifier has to bracket the snap pass on
+both sides.
+
+**How to apply:**
+- When wiring a constraint into a handler with an independent-axis
+  snap pass, default to bracketing (constraint-snap-constraint),
+  not just pre-flighting.
+- Add an integration test that places a sibling edge within
+  `SNAP_THRESHOLD` of the locked-zero axis and asserts the final
+  commit respects the lock. The original plan promised this test;
+  it shipped without one.
 
 ## 7. Connection-site precedence is implicit, not branched
 
