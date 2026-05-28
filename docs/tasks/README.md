@@ -18,9 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shift modifiers (2026-05-28) | [20260528-slides-shift-modifiers-todo.md](./active/20260528-slides-shift-modifiers-todo.md) | [20260528-slides-shift-modifiers-lessons.md](./active/20260528-slides-shift-modifiers-lessons.md) |
 | docs unlink href (2026-05-26) | [20260526-docs-unlink-href-todo.md](./active/20260526-docs-unlink-href-todo.md) | [20260526-docs-unlink-href-lessons.md](./active/20260526-docs-unlink-href-lessons.md) |
 | slides group selection ui (2026-05-26) | [20260526-slides-group-selection-ui-todo.md](./active/20260526-slides-group-selection-ui-todo.md) | [20260526-slides-group-selection-ui-lessons.md](./active/20260526-slides-group-selection-ui-lessons.md) |
-| slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./active/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./active/20260526-slides-toolbar-add-slide-focus-lessons.md) |
+| slides text autofit (2026-05-25) | [20260525-slides-text-autofit-todo.md](./active/20260525-slides-text-autofit-todo.md) | [20260525-slides-text-autofit-lessons.md](./active/20260525-slides-text-autofit-lessons.md) |
 | slides textbox toolbar focus (2026-05-25) | [20260525-slides-textbox-toolbar-focus-todo.md](./active/20260525-slides-textbox-toolbar-focus-todo.md) | [20260525-slides-textbox-toolbar-focus-lessons.md](./active/20260525-slides-textbox-toolbar-focus-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
@@ -31,7 +32,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 219
+- Archived task count: 220
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs unlink href (2026-05-26)
+Latest active task: slides shift modifiers (2026-05-28)

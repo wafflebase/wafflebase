@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 219
+Total archived tasks: 220
 
-## 2026/05 (74 tasks)
+## 2026/05 (75 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./2026/05/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./2026/05/20260526-slides-toolbar-add-slide-focus-lessons.md) |
 | ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
 | dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
 | docker publish arm64 native (2026-05-25) | [20260525-docker-publish-arm64-native-todo.md](./2026/05/20260525-docker-publish-arm64-native-todo.md) | - |
