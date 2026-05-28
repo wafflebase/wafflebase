@@ -77,6 +77,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-ruler.md](slides/slides-ruler.md)                                             | Slides ruler — H/V rulers (corner origin, inch/cm), presentation-wide draggable guides, snap integration, read-only mount handling                                                                          |
 | [slides-textbox-autogrow.md](slides/slides-textbox-autogrow.md)                       | Text box authoring — insert-to-edit focus, drag sizing (width+position), content-fit auto-grow height via a docs `onContentHeightChange` callback                                                            |
 | [slides-text-autofit.md](slides/slides-text-autofit.md)                               | Text autofit — adds `shrink` (font auto-scales to fit a fixed box) + a 3-mode `autofit` selector (none/shrink/grow) layered on the auto-grow feature; placeholder=shrink / textbox=grow defaults, PPTX bodyPr import |
+| [slides-shift-modifiers.md](slides/slides-shift-modifiers.md)                         | Shift modifiers during drag — 1:1 shape draw, 15° line/connector angle snap, 15° endpoint snap, axis-locked move; pure `constraints.ts` helpers reused at four call sites                                  |
 
 ## Common
 
