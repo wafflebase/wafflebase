@@ -20,7 +20,7 @@ describe('shortcuts catalog', () => {
   it('every entry uses a known category', () => {
     const allowed = new Set([
       'Selection', 'Slide', 'Clipboard', 'Z-order', 'Nudge',
-      'Format', 'Present', 'Help',
+      'Format', 'Present', 'Help', 'Drag',
     ]);
     for (const entry of SHORTCUTS) {
       expect(allowed.has(entry.category)).toBe(true);

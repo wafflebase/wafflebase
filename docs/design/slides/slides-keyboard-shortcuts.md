@@ -51,6 +51,28 @@ and a discoverable shortcuts-help modal.
 | Text-box | `Cmd/Ctrl+K` | Open link insert popover (callback). Only fires while a text-box is in edit mode — docs `text-editor.ts` already binds the key; slides plumbs the callback through `text-box-editor.ts`. |
 | Discoverability | `Cmd/Ctrl+/` | Open the shortcuts-help modal (callback). Fires even while editing text. |
 
+### Shift modifiers during drag
+
+Holding Shift while dragging applies a context-specific constraint.
+Sampled live — pressing or releasing Shift mid-drag updates the
+constraint immediately.
+
+| Interaction | Shift behavior |
+|---|---|
+| Shape draw | Force `w === h` — squares, circles, regular triangles. Applies to every `ShapeKind`; text-box insert is exempt. |
+| Line / connector draw | Snap endpoint angle to 15° increments from the drag start. Length preserved. |
+| Connector endpoint drag (existing line) | Snap dragging endpoint to 15° relative to the opposite endpoint. |
+| Element move | Project pointer delta onto the dominant axis (max-displacement). Re-decided every frame; tie-break is X-wins. |
+| Corner resize (existing) | Preserve aspect ratio. |
+| Rotate handle (existing) | Snap rotation to 15°. |
+
+For connector draw and endpoint drag, Shift wins over connection-site
+snap: the snapped coordinate is what the site test sees, so the
+endpoint attaches only when the angle-snapped point lands inside a
+site radius. Release Shift to attach.
+
+Full design: [slides-shift-modifiers.md](./slides-shift-modifiers.md).
+
 ### Architecture
 
 **Layer split:**
