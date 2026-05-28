@@ -29,7 +29,7 @@ import {
   snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
-import { constrainToSquare } from './interactions/constraints';
+import { constrainToSquare, snapEndpointAngle } from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
@@ -2009,7 +2009,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // the very first paint, before any mousemove.
     this.connectorCursor = start;
     const onMove = (ev: MouseEvent) => {
-      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      endPoint = ev.shiftKey ? snapEndpointAngle(start, raw) : raw;
       this.connectorCursor = endPoint;
       const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
       const ghost = { ...init, id: '__preview__' } as Element;

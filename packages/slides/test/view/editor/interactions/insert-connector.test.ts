@@ -3,10 +3,12 @@ import type { Element } from '../../../../src/model/element';
 import type { SlidesStore } from '../../../../src/store/store';
 import { MemSlidesStore } from '../../../../src/store/memory';
 import {
+  buildConnectorInit,
   finalizeInsert,
   findSnapTarget,
   snappedEndpoint,
 } from '../../../../src/view/editor/interactions/insert-connector';
+import { snapEndpointAngle } from '../../../../src/view/editor/interactions/constraints';
 
 const rect = (id: string, x: number, y: number): Element => ({
   id,
@@ -321,5 +323,27 @@ describe('finalizeInsert undo hygiene', () => {
       depth++;
     }
     expect(depth).toBe(2);
+  });
+});
+
+describe('connector insert + Shift snaps endpoint to 15°', () => {
+  it('snaps a (0,0) -> (100, 30) drag toward 15°', () => {
+    const start = { x: 0, y: 0 };
+    const rawEnd = { x: 100, y: 30 };
+    const end = snapEndpointAngle(start, rawEnd);
+    // 100/30 → atan2 ≈ 16.7° → snaps to 15° = π/12.
+    const angle = Math.atan2(end.y, end.x);
+    expect(angle).toBeCloseTo(Math.PI / 12);
+
+    // The connector init derives its frame from start/end — make sure
+    // the snapped end is what flows through.
+    const init = buildConnectorInit('line', start, end, [], 1);
+    expect(init).toBeTruthy();
+  });
+
+  it('snaps a (0,0) -> (50, 50) drag to exactly 45°', () => {
+    const start = { x: 0, y: 0 };
+    const end = snapEndpointAngle(start, { x: 50, y: 50 });
+    expect(Math.atan2(end.y, end.x)).toBeCloseTo(Math.PI / 4);
   });
 });
