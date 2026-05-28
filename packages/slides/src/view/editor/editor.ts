@@ -29,7 +29,11 @@ import {
   snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
-import { constrainToSquare, snapEndpointAngle } from './interactions/constraints';
+import {
+  constrainToSquare,
+  snapEndpointAngle,
+  lockAxis,
+} from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
@@ -2151,11 +2155,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
+      const locked = ev.shiftKey ? lockAxis(rawDx, rawDy) : { dx: rawDx, dy: rawDy };
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
       const { dx, dy, guides } = snapDelta(
         bbox,
-        rawDx,
-        rawDy,
+        locked.dx,
+        locked.dy,
         otherFrames,
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
         this.options.store.read().guides,

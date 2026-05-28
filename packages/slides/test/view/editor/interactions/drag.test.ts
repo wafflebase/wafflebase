@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Element } from '../../../../src/model/element';
 import { translateElement } from '../../../../src/view/editor/interactions/drag';
+import { lockAxis } from '../../../../src/view/editor/interactions/constraints';
 
 const shape = (id: string, x: number, y: number): Element => ({
   id, type: 'shape',
@@ -65,5 +66,24 @@ describe('translateElement', () => {
     // start is untouched — the renderer keeps it pinned to its host.
     expect(result.start).toEqual({ kind: 'attached', elementId: 'host', siteIndex: 0 });
     expect(result.end).toEqual({ kind: 'free', x: 320, y: 190 });
+  });
+});
+
+describe('move drag + Shift locks to dominant axis', () => {
+  it('locks to X when horizontal delta dominates', () => {
+    expect(lockAxis(120, 18)).toEqual({ dx: 120, dy: 0 });
+  });
+
+  it('locks to Y when vertical delta dominates', () => {
+    expect(lockAxis(18, -120)).toEqual({ dx: 0, dy: -120 });
+  });
+
+  it('switches axis live when the user changes direction', () => {
+    // Simulates two onMove frames: first horizontal-dominant, then
+    // vertical-dominant. The lock follows the cumulative pointer.
+    const t1 = lockAxis(50, 5);
+    expect(t1).toEqual({ dx: 50, dy: 0 });
+    const t2 = lockAxis(50, 200);
+    expect(t2).toEqual({ dx: 0, dy: 200 });
   });
 });
