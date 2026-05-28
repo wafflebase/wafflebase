@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildInsertElement, defaultInsertSize } from '../../../../src/view/editor/interactions/insert';
+import { constrainToSquare } from '../../../../src/view/editor/interactions/constraints';
 
 describe('buildInsertElement — drag-shaped shapes', () => {
   it('builds a rect from the drag rectangle', () => {
@@ -200,5 +201,25 @@ describe('buildInsertElement — no-drag click defaults', () => {
     // smokeyTest the helper directly with a known mapping.
     expect(defaultInsertSize('rect')).toEqual({ w: 320, h: 200 });
     expect(defaultInsertSize('actionButtonHome')).toEqual({ w: 140, h: 140 });
+  });
+});
+
+describe('shape insert + Shift produces a 1:1 frame', () => {
+  it('forces square frame for rect when |dx| > |dy|', () => {
+    const start = { x: 100, y: 100 };
+    const rawEnd = { x: 300, y: 150 }; // dx=200, dy=50.
+    const end = constrainToSquare(start, rawEnd);
+    const el = buildInsertElement('rect', start, end);
+    expect(el.frame.w).toBe(el.frame.h);
+    expect(el.frame.w).toBe(200);
+  });
+
+  it('forces square frame for ellipse when |dy| > |dx|', () => {
+    const start = { x: 0, y: 0 };
+    const rawEnd = { x: 40, y: 180 };
+    const end = constrainToSquare(start, rawEnd);
+    const el = buildInsertElement('ellipse', start, end);
+    expect(el.frame.w).toBe(el.frame.h);
+    expect(el.frame.w).toBe(180);
   });
 });

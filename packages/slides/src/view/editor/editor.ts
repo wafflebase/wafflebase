@@ -29,6 +29,7 @@ import {
   snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
+import { constrainToSquare } from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
@@ -1932,7 +1933,8 @@ class SlidesEditorImpl implements SlidesEditor {
     let endPoint = start;
     let cancelled = false;
     const onMove = (ev: MouseEvent) => {
-      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      endPoint = ev.shiftKey ? constrainToSquare(start, raw) : raw;
       const init = buildInsertElement(kind, start, endPoint);
       const ghost = { ...init, id: '__preview__' } as Element;
       this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
