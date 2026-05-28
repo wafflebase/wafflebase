@@ -7,6 +7,8 @@
  * adjustment.ts): pure functions next to their consumers.
  */
 
+const ANGLE_STEP = Math.PI / 12; // 15°, matches rotate.ts STEP.
+
 /**
  * Force a 1:1 aspect on a drag rect. The longer of |dx| / |dy|
  * defines the side length; the shorter axis's sign is preserved so
@@ -27,4 +29,28 @@ export function constrainToSquare(
   const sx = dx < 0 ? -1 : 1;
   const sy = dy < 0 ? -1 : 1;
   return { x: start.x + side * sx, y: start.y + side * sy };
+}
+
+/**
+ * Rotate `end` around `start` so the angle from start→end snaps to
+ * the nearest 15° increment. Length |end - start| is preserved; only
+ * direction changes.
+ *
+ * start === end returns end unchanged (zero-length vector has no
+ * meaningful angle).
+ */
+export function snapEndpointAngle(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): { x: number; y: number } {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return end;
+  const length = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  const snapped = Math.round(angle / ANGLE_STEP) * ANGLE_STEP;
+  return {
+    x: start.x + Math.cos(snapped) * length,
+    y: start.y + Math.sin(snapped) * length,
+  };
 }
