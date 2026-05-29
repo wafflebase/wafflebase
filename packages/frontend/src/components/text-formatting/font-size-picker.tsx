@@ -105,7 +105,7 @@ export function FontSizePicker({
         aria-label="Decrease font size"
         disabled={disabled}
         onClick={() => step(-1)}
-        className="inline-flex h-7 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+        className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
       >
         <IconMinus size={12} />
       </button>
@@ -119,14 +119,14 @@ export function FontSizePicker({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={tryCommitDraft}
         onKeyDown={onKeyDown}
-        className="h-7 w-10 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+        className="h-7 w-8 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
       />
       <button
         type="button"
         aria-label="Increase font size"
         disabled={disabled}
         onClick={() => step(1)}
-        className="inline-flex h-7 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+        className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
       >
         <IconPlus size={12} />
       </button>
@@ -136,7 +136,7 @@ export function FontSizePicker({
             type="button"
             aria-label="Font size presets"
             disabled={disabled}
-            className="inline-flex h-7 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+            className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
           >
             <IconChevronDown size={12} />
           </button>

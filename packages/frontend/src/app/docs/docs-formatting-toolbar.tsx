@@ -56,7 +56,6 @@ import {
   FontFamilyPicker,
   FontSizePicker,
   LineSpacingPicker,
-  ClearFormattingButton,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { isMac, modKey } from "@/components/text-formatting/platform";
@@ -579,7 +578,10 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
       )}
 
       {/* ── Text format (B/I/U, colors, link) ── */}
-      <TextFormatGroup editor={editor} />
+      {/* Strikethrough hidden in the Docs toolbar — it lives on the shared
+          component for the slides text-edit state, but the Docs toolbar
+          keeps the primary inline-format row compact (B/I/U + colors + link). */}
+      <TextFormatGroup editor={editor} showStrikethrough={false} />
 
       {/* ── Insert / Block Styles / Export (desktop only) ── */}
       {!isMobile && (
@@ -598,10 +600,6 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <ToolbarSeparator />
 
           <LineSpacingPicker value={lineHeight} onChange={handleLineSpacing} />
-
-          <ToolbarSeparator />
-
-          <ClearFormattingButton onClick={handleClearFormatting} />
 
           <ToolbarSeparator />
 

@@ -34,9 +34,20 @@ import { modKey } from "./platform";
 interface TextFormatGroupProps {
   editor: TextFormattingEditor | null;
   disabled?: boolean;
+  /**
+   * Whether to render the Strikethrough toggle. Defaults to `true` so the
+   * slides text-edit-state toolbar keeps it. The Docs body toolbar opts
+   * out by passing `false` to keep the inline-format row compact (B/I/U
+   * is the primary trio there; strike is rarely a first-class need).
+   */
+  showStrikethrough?: boolean;
 }
 
-export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupProps) {
+export function TextFormatGroup({
+  editor,
+  disabled = false,
+  showStrikethrough = true,
+}: TextFormatGroupProps) {
   const selectionStyle = editor?.getSelectionStyle();
 
   const toggleBold = useCallback(() => {
@@ -151,22 +162,24 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
       </Tooltip>
 
       {/* Strikethrough */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={!!selectionStyle?.strikethrough}
-            onPressedChange={toggleStrike}
-            onMouseDown={(e) => e.preventDefault()}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Strikethrough"
-            disabled={isDisabled}
-          >
-            <IconStrikethrough size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Strikethrough</TooltipContent>
-      </Tooltip>
+      {showStrikethrough && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!selectionStyle?.strikethrough}
+              onPressedChange={toggleStrike}
+              onMouseDown={(e) => e.preventDefault()}
+              className="h-7 w-7 cursor-pointer"
+              aria-label="Strikethrough"
+              disabled={isDisabled}
+            >
+              <IconStrikethrough size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Strikethrough</TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Text color */}
       <DropdownMenu>
