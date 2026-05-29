@@ -59,6 +59,7 @@ export type {
   ShapeStroke,
   Stroke,
   TextElement,
+  VerticalAnchorMode,
 } from './model/element';
 export { generateId } from './model/element';
 
