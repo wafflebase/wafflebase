@@ -95,6 +95,12 @@ export interface EditorAPI {
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  /**
+   * Read the block style at the cursor position. Used by the shared
+   * toolbar pickers (e.g. LineSpacingPicker) so they can reflect the
+   * current block's `lineHeight`, `textAlign`, etc.
+   */
+  getBlockStyle(): Partial<BlockStyle>;
   /** Set the block type for the block at cursor */
   setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
   /** Toggle list type on the block at cursor */
@@ -1927,6 +1933,10 @@ export function initialize(
         listKind: block.listKind,
         listLevel: block.listLevel,
       };
+    },
+    getBlockStyle: () => {
+      const block = doc.findBlock(cursor.position.blockId);
+      return block ? { ...block.style } : {};
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
