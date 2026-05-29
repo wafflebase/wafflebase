@@ -15,6 +15,7 @@ import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
+import type { ZoomController } from "./zoom-controller";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -50,6 +51,14 @@ interface SlidesViewProps {
    * parent doesn't remount the editor.
    */
   onStartPresentation?: (from: "current" | "first") => void;
+  /**
+   * Optional zoom controller. When provided, `refitCanvas` multiplies
+   * the fit-to-column size by the controller's value and re-fires
+   * whenever it changes. Null / undefined keeps the legacy
+   * always-Fit behavior. Owned by the parent shell so the toolbar
+   * dropdown and view share state without each rebuilding the other.
+   */
+  zoomController?: ZoomController | null;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -117,6 +126,7 @@ export function SlidesView({
   onEditorReady,
   onStoreReady,
   onStartPresentation,
+  zoomController,
 }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
@@ -538,8 +548,16 @@ export function SlidesView({
         availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
       );
       const fit = computeFitSize(slideAvailW, slideAvailH);
-      const nextW = Math.round(fit.width);
-      const nextH = Math.round(fit.height);
+      // User-controlled zoom multiplier. 1.0 = "Fit" (the legacy
+      // default). The MAX_HOST_W clamp above still bounds the painted
+      // bitmap so a 200 % zoom on a 4K display does not allocate a
+      // gigantic canvas; the user gets scroll inside `canvasWrap`
+      // when the host overflows the column.
+      const userZoom = zoomController?.get() ?? 1.0;
+      const zoomedW = fit.width * userZoom;
+      const zoomedH = fit.height * userZoom;
+      const nextW = Math.min(MAX_HOST_W, Math.round(zoomedW));
+      const nextH = Math.round(zoomedH * (nextW / zoomedW || 1));
 
       // Pin each ruler canvas to the full frame extent — canvas
       // elements don't pick up a width from `left + right` alone, so
@@ -572,6 +590,12 @@ export function SlidesView({
     // — the slide is logically 1920×1080 anyway.
     const resizeObserver = new ResizeObserver(() => refitCanvas());
     resizeObserver.observe(right);
+
+    // Re-fit on zoom changes from the toolbar dropdown. The controller
+    // identity is stable (parent owns it via ref), so subscribing once
+    // at mount is sufficient.
+    const unsubscribeZoom =
+      zoomController?.subscribe(() => refitCanvas()) ?? (() => {});
 
     // Drag-to-resize the left column. Mousedown latches; mousemove
     // updates leftWidth (clamped + rounded); mouseup persists to
@@ -732,6 +756,7 @@ export function SlidesView({
 
     return () => {
       resizeObserver.disconnect();
+      unsubscribeZoom();
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.

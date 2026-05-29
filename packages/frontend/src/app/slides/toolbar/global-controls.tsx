@@ -24,6 +24,8 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
+import type { ZoomController } from "../zoom-controller";
+import { ZoomControl } from "./zoom-control";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -102,6 +104,7 @@ export interface RightGlobalsProps {
   isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  zoomController?: ZoomController | null;
 }
 
 /**
@@ -117,6 +120,7 @@ export function RightGlobals({
   isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
+  zoomController,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   const onBackgroundChange = useCallback(
@@ -132,6 +136,7 @@ export function RightGlobals({
 
   return (
     <div className="ml-auto flex items-center gap-1">
+      {zoomController && <ZoomControl controller={zoomController} />}
       {isTextEditing && (
         <>
           <Tooltip>

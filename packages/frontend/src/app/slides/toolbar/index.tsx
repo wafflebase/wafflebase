@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { ZoomController } from "../zoom-controller";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
 import { LayoutButton } from "./layout-button";
@@ -20,6 +21,7 @@ export interface SlidesToolbarProps {
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  zoomController?: ZoomController | null;
 }
 
 /**
@@ -41,6 +43,7 @@ export function SlidesToolbar({
   upload,
   onToggleThemePanel,
   themePanelOpen,
+  zoomController,
 }: SlidesToolbarProps) {
   const isMobile = useIsMobile();
   const [state, setState] = useState<ToolbarState>(() =>
@@ -113,6 +116,7 @@ export function SlidesToolbar({
         isTextEditing={state.kind === "text-edit"}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}
+        zoomController={zoomController}
       />
     </Toolbar>
   );

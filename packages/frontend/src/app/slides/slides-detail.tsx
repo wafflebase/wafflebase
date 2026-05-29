@@ -1,7 +1,7 @@
 import { DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
+import { createZoomController, type ZoomController } from "./zoom-controller";
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -134,6 +135,11 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   const [themePanelOpen, setThemePanelOpen] = useState(false);
+  // Session-scoped zoom controller shared between SlidesView (drives
+  // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
+  // keeps identity stable so the SlidesView mount effect's captured
+  // controller stays valid across the lifetime of this layout.
+  const zoomControllerRef = useRef<ZoomController>(createZoomController(1.0));
   // Track the active theme id so the panel highlights the right swatch
   // and re-renders on remote theme changes. Subscribed to `store.onChange`
   // below — local applies notify after the batch commits, remote applies
@@ -325,6 +331,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             upload={uploadFn}
             onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
             themePanelOpen={themePanelOpen}
+            zoomController={zoomControllerRef.current}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <SlidesView
@@ -332,6 +339,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               onStoreReady={setStore}
               onStartPresentation={handleStartPresentation}
               documentId={documentId}
+              zoomController={zoomControllerRef.current}
             />
             {themePanelOpen && store && (
               <ThemePanel
