@@ -25,6 +25,7 @@ import {
   IconTypography,
   IconHighlight,
   IconLink,
+  IconClearFormatting,
 } from "@tabler/icons-react";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
@@ -83,6 +84,12 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
   const handleInsertLink = useCallback(() => {
     if (!editor) return;
     editor.requestLink();
+  }, [editor]);
+
+  const handleClearFormatting = useCallback(() => {
+    if (!editor) return;
+    editor.clearInlineFormatting();
+    editor.focus();
   }, [editor]);
 
   const isDisabled = disabled || !editor;
@@ -235,6 +242,23 @@ export function TextFormatGroup({ editor, disabled = false }: TextFormatGroupPro
           </button>
         </TooltipTrigger>
         <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
+      </Tooltip>
+
+      {/* Clear formatting */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleClearFormatting}
+            aria-label="Clear formatting"
+            disabled={isDisabled}
+            data-text-edit-keepalive
+          >
+            <IconClearFormatting size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Clear formatting</TooltipContent>
       </Tooltip>
     </>
   );

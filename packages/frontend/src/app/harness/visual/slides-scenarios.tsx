@@ -842,6 +842,7 @@ function makeStubEditor(opts: {
     enterTextEditing: () => {},
     exitTextEditing: () => {},
     setHostSize: () => {},
+    setRulerScroll: () => {},
     align: () => {},
     distribute: () => {},
     bringForward: () => {},
@@ -849,6 +850,13 @@ function makeStubEditor(opts: {
     bringToFront: () => {},
     sendToBack: () => {},
     rotateBy: () => {},
+    group: () => {},
+    ungroup: () => {},
+    deleteSelected: () => {},
+    beginFormatPaint: () => {},
+    cancelFormatPaint: () => {},
+    isPaintingFormat: () => false,
+    onPaintFormatChange: noop,
     detach: () => {},
   };
   return stub;

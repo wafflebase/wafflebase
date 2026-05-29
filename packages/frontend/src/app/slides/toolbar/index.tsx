@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { ZoomController } from "../zoom-controller";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
+import { FormatPainterButton } from "./format-painter";
+import { ZoomControl } from "./zoom-control";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
 import { IdleSection } from "./idle-section";
 import { ObjectSection } from "./object-section";
@@ -19,6 +22,7 @@ export interface SlidesToolbarProps {
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  zoomController?: ZoomController | null;
 }
 
 /**
@@ -40,6 +44,7 @@ export function SlidesToolbar({
   upload,
   onToggleThemePanel,
   themePanelOpen,
+  zoomController,
 }: SlidesToolbarProps) {
   const isMobile = useIsMobile();
   const [state, setState] = useState<ToolbarState>(() =>
@@ -80,6 +85,10 @@ export function SlidesToolbar({
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
+      <FormatPainterButton editor={editor} />
+      <ToolbarSeparator className="mx-1" />
+      <ZoomControl controller={zoomController ?? null} />
+      <ToolbarSeparator className="mx-1" />
       <SlideGroup store={store} editor={editor} />
       <ToolbarSeparator className="mx-1" />
       <div
@@ -100,7 +109,7 @@ export function SlidesToolbar({
           />
         )}
         {state.kind === "text-edit" && (
-          <TextEditSection state={state} />
+          <TextEditSection state={state} editor={editor} />
         )}
       </div>
       <ToolbarSeparator className="mx-1" />
@@ -108,7 +117,6 @@ export function SlidesToolbar({
         editor={editor}
         store={store}
         theme={theme}
-        isTextEditing={state.kind === "text-edit"}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}
       />

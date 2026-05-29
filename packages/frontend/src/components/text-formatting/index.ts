@@ -6,3 +6,5 @@ export { FontFamilyPicker } from "./font-family-picker.tsx";
 export { FontSizePicker } from "./font-size-picker.tsx";
 export { LineSpacingPicker } from "./line-spacing-picker.tsx";
 export { ClearFormattingButton } from "./clear-formatting-button.tsx";
+export { TextSizeStepper } from "./text-size-stepper";
+export { SIZE_STOPS, bumpSize } from "./text-size-stepper-helpers";

@@ -137,7 +137,7 @@ export interface SlidesTextBoxEditor {
     subscript?: boolean | 'mixed';
   };
   applyStyle(style: Partial<InlineStyle>): void;
-  clearFormatting(): void;
+  clearInlineFormatting(): void;
   applyBlockStyle(style: Partial<BlockStyle>): void;
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
   getBlockStyle(): Partial<BlockStyle>;
@@ -317,8 +317,8 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     applyStyle(style: Partial<InlineStyle>): void {
       api.applyStyle(style);
     },
-    clearFormatting(): void {
-      api.clearFormatting();
+    clearInlineFormatting(): void {
+      api.clearInlineFormatting();
     },
     applyBlockStyle(style: Partial<BlockStyle>): void {
       api.applyBlockStyle(style);

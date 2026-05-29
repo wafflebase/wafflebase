@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -66,12 +66,13 @@ export interface EditorAPI {
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
   /**
-   * Remove every inline style attribute from the current selection.
-   * Block-level styles (alignment, line height, list kind/level,
-   * heading level) are intentionally preserved — matches Google Docs'
-   * Format → Clear formatting behavior.
+   * Strip all character-level inline styles (bold, italic, underline,
+   * strikethrough, super/subscript, font size, font family, color,
+   * background color, href) from the current selection. Block-level
+   * formatting and structural inlines (page-number, image) are
+   * preserved. No-op when nothing is selected.
    */
-  clearFormatting(): void;
+  clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
   /** Undo */
@@ -97,7 +98,7 @@ export interface EditorAPI {
    * until `dispose()` is called.
    *
    * Callbacks ALSO fire after an inline / block style mutation
-   * (`applyStyle`, `clearFormatting`, `applyBlockStyle`) so toolbar
+   * (`applyStyle`, `clearInlineFormatting`, `applyBlockStyle`) so toolbar
    * pickers can refresh their selection-derived summaries even though
    * the cursor itself has not moved.
    */
@@ -522,12 +523,15 @@ export function initialize(
 
   /**
    * Apply an inline-style patch to the current selection. Shared by
-   * `applyStyle` (set keys) and `clearFormatting` (unset keys via
-   * explicit `undefined`). Handles cell-range mode, regular ranges,
-   * and the dirty-block bookkeeping needed for incremental layout.
-   * No-op when there is no real selection.
+   * `applyStyle` (set keys) and `clearInlineFormatting` (which passes
+   * `CLEAR_INLINE_STYLE` so the Yorkie store strips the attributes
+   * from the Tree node). Handles cell-range mode, regular ranges, and
+   * the dirty-block bookkeeping needed for incremental layout. Fires
+   * `notifyStyleApplied()` at the end so toolbar pickers re-derive
+   * their selection-derived state. No-op when there is no real
+   * selection.
    */
-  function applyInlineStyleToSelection(style: Partial<InlineStyle>): void {
+  function applyStyleImpl(style: Partial<InlineStyle>): void {
     if (!(selection.hasSelection() && selection.range)) return;
     docStore.snapshot();
     const range = selection.range;
@@ -1899,31 +1903,13 @@ export function initialize(
 
       return result as Summary;
     },
-    applyStyle: (style: Partial<InlineStyle>) => {
-      applyInlineStyleToSelection(style);
-    },
-    clearFormatting: () => {
-      // The full key set must match the InlineStyle interface in
-      // packages/docs/src/model/types.ts. Each key is passed as
-      // `undefined` so the Yorkie store's applyStyle path tears the
-      // attribute off the Tree node (see commit 20260526-docs-unlink-href
-      // for the underlying fix). `image` and `pageNumber` are content
-      // inlines, not formatting, so they are intentionally excluded —
-      // including them would delete inline content.
-      const clearStyle: Partial<InlineStyle> = {
-        bold: undefined,
-        italic: undefined,
-        underline: undefined,
-        strikethrough: undefined,
-        fontSize: undefined,
-        fontFamily: undefined,
-        color: undefined,
-        backgroundColor: undefined,
-        superscript: undefined,
-        subscript: undefined,
-        href: undefined,
-      };
-      applyInlineStyleToSelection(clearStyle);
+    applyStyle: applyStyleImpl,
+    clearInlineFormatting: () => {
+      // Reuse the applyStyle path so cell-range selections, snapshots,
+      // and dirty-marking all flow through the same logic as ordinary
+      // inline-style writes. CLEAR_INLINE_STYLE is the single source of
+      // truth for which keys count as "character formatting".
+      applyStyleImpl(CLEAR_INLINE_STYLE);
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();

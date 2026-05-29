@@ -80,7 +80,7 @@ function makeMockMount(): {
       getSelectionStyle: () => ({}),
       getRangeStyleSummary: () => ({}),
       applyStyle: () => {},
-      clearFormatting: () => {},
+      clearInlineFormatting: () => {},
       applyBlockStyle: () => {},
       getBlockType: () => ({ type: 'paragraph' as const }),
       getBlockStyle: () => ({}),

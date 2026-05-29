@@ -1,4 +1,13 @@
-import type { Element, Frame, ShapeKind } from '../../model/element';
+import type {
+  Element,
+  Frame,
+  ShapeKind,
+  Stroke,
+  ShapeElement,
+  TextElement,
+} from '../../model/element';
+import type { ThemeColor } from '../../model/theme';
+import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
@@ -102,6 +111,21 @@ function isConnectorInsertKind(
 /** Map a connector insert-mode key to its `ConnectorInsertVariant`. */
 function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
   return kind === 'connector:arrow' ? 'arrow' : 'line';
+}
+
+/**
+ * Style snapshot captured by `beginFormatPaint` from the current
+ * selection. `sourceType` decides which targets the snapshot can be
+ * applied to (shape / text → shape & text; connector → connector).
+ * `sourceId` is kept so a paste onto the same element no-ops cleanly
+ * (otherwise the user would get a no-op `store.batch` entry on their
+ * undo stack).
+ */
+interface PaintSnapshot {
+  sourceId: string;
+  sourceType: 'shape' | 'connector' | 'text';
+  fill?: ThemeColor;
+  stroke?: Stroke;
 }
 
 export interface SlidesEditorOptions extends SlideRendererOptions {
@@ -265,6 +289,18 @@ export interface SlidesEditor {
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
   /**
+   * Update the ruler's viewport scroll offset (CSS pixels). The slide
+   * canvas itself does not scroll — its DOM is sized via `setHostSize`
+   * and any overflow scrolling happens in a parent wrapper. The ruler
+   * needs to know the wrapper's `scrollLeft` / `scrollTop` so the tick
+   * marks track the slide's visible position when the user pans a
+   * zoomed-in canvas.
+   *
+   * No-op when the ruler is not mounted (e.g. read-only viewer). Pass
+   * (0, 0) on Fit to clear any leftover offset.
+   */
+  setRulerScroll(scrollX: number, scrollY: number): void;
+  /**
    * Align the selected elements relative to:
    *   - the combined bounding box of the selection, when ≥ 2 are selected;
    *   - the slide canvas (1920×1080), when exactly 1 is selected.
@@ -347,6 +383,30 @@ export interface SlidesEditor {
    * active. Mirrors the desktop context menu's Delete action.
    */
   deleteSelected(): void;
+
+  /**
+   * Begin a single-shot format-paint operation. Captures a style
+   * snapshot from the current selection (single shape / connector /
+   * text element only — multi-select is a no-op). The next pointer-
+   * down on a compatible element applies the snapshot and the editor
+   * auto-exits paint mode. Esc cancels. Subsequent calls re-capture
+   * a fresh snapshot from the (possibly new) selection.
+   */
+  beginFormatPaint(): void;
+
+  /** Exit paint mode without applying. Safe to call when not painting. */
+  cancelFormatPaint(): void;
+
+  /** `true` while a format-paint snapshot is staged. */
+  isPaintingFormat(): boolean;
+
+  /**
+   * Subscribe to format-paint state changes. The callback fires once
+   * on enter (after the snapshot is captured) and once on exit
+   * (whether by paste, Esc, or cancel). Returns an unsubscribe fn.
+   */
+  onPaintFormatChange(cb: () => void): () => void;
+
   detach(): void;
 }
 
@@ -420,6 +480,28 @@ class SlidesEditorImpl implements SlidesEditor {
   private lastEditingContentHeight: number | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
+  /**
+   * Current scroll offset of the slide canvas's scroll wrapper, in CSS
+   * pixels. The slide canvas itself does not scroll — the host shell
+   * owns a `scrollHost` div that wraps it. The editor mirrors the
+   * shell's `scrollLeft` / `scrollTop` so the ruler can shift its tick
+   * origin to track the visible portion of the slide.
+   */
+  private rulerScrollX = 0;
+  private rulerScrollY = 0;
+  /**
+   * Format-paint snapshot, populated by `beginFormatPaint` from the
+   * current selection. The next pointer-down on a compatible element
+   * applies it and clears the snapshot. Esc also clears.
+   *
+   * v1 supports homogeneous element-frame paint only:
+   * shape/connector/text element → shape/connector/text element. The
+   * source element type is tracked so the paste applies only to
+   * compatible targets — connectors paste only `stroke`, shapes /
+   * text-boxes paste `fill + stroke`.
+   */
+  private paintSnapshot: PaintSnapshot | null = null;
+  private paintFormatListeners = new Set<() => void>();
   /** The currently active text-box editor, or null when not editing. */
   private activeTextEditor: SlidesTextBoxEditor | null = null;
   /**
@@ -502,6 +584,8 @@ class SlidesEditorImpl implements SlidesEditor {
       setInsertMode: (kind) => this.setInsertMode(kind),
       group: () => this.group(),
       ungroup: () => this.ungroup(),
+      isPaintingFormat: () => this.isPaintingFormat(),
+      cancelFormatPaint: () => this.cancelFormatPaint(),
     });
     // Read-only mounts (viewer-role share links) skip every pointer +
     // keyboard binding. The renderer still paints, including remote
@@ -703,6 +787,8 @@ class SlidesEditorImpl implements SlidesEditor {
     this.ruler.render({
       hostWidth: this.options.hostWidth,
       hostHeight: this.options.hostHeight,
+      scrollX: this.rulerScrollX,
+      scrollY: this.rulerScrollY,
     });
   }
 
@@ -754,6 +840,21 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+  }
+
+  setRulerScroll(scrollX: number, scrollY: number): void {
+    if (
+      this.rulerScrollX === scrollX &&
+      this.rulerScrollY === scrollY
+    ) {
+      return;
+    }
+    this.rulerScrollX = scrollX;
+    this.rulerScrollY = scrollY;
+    // Only the ruler needs to repaint — the slide canvas and overlay
+    // are sized by the host shell, not by the editor's own scroll
+    // state, so calling `render()` would do redundant work.
+    this.paintRuler();
   }
 
   align(direction: AlignDirection): void {
@@ -949,6 +1050,164 @@ class SlidesEditorImpl implements SlidesEditor {
     });
     this.selection.clear();
     this.requestRender();
+  }
+
+  // ─── Format painter ──────────────────────────────────────────────────────
+  //
+  // The painter is a small state machine layered on top of the existing
+  // pointer/selection flow. `beginFormatPaint` captures a snapshot from
+  // the *current* selection (single shape / connector / text element
+  // only — multi-select and empty selection both no-op so the toolbar
+  // button can stay clickable without spurious side effects). The next
+  // pointer-down on a compatible element pastes via the same store
+  // helpers used by the contextual toolbar controls, then exits paint
+  // mode. Esc also exits via the keyboard ruleset. v1 ships
+  // homogeneous-type paint only; cross-type drops are silent no-ops.
+
+  beginFormatPaint(): void {
+    const snapshot = this.captureFormatPaintSnapshot();
+    if (snapshot === null) {
+      // Nothing eligible under the current selection — exit any existing
+      // paint mode and emit a single change event so a stuck toolbar
+      // toggle resets cleanly.
+      if (this.paintSnapshot !== null) {
+        this.paintSnapshot = null;
+        this.notifyPaintFormatChange();
+      }
+      return;
+    }
+    this.paintSnapshot = snapshot;
+    this.notifyPaintFormatChange();
+  }
+
+  cancelFormatPaint(): void {
+    if (this.paintSnapshot === null) return;
+    this.paintSnapshot = null;
+    this.notifyPaintFormatChange();
+  }
+
+  isPaintingFormat(): boolean {
+    return this.paintSnapshot !== null;
+  }
+
+  onPaintFormatChange(cb: () => void): () => void {
+    this.paintFormatListeners.add(cb);
+    return () => {
+      this.paintFormatListeners.delete(cb);
+    };
+  }
+
+  private notifyPaintFormatChange(): void {
+    for (const cb of this.paintFormatListeners) cb();
+  }
+
+  /**
+   * Read `fill` + `stroke` off the single selected element. Returns
+   * null when zero or multiple elements are selected, or when the
+   * selected element is not a shape / connector / text box.
+   */
+  private captureFormatPaintSnapshot(): PaintSnapshot | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const ids = this.selection.get();
+    if (ids.length !== 1) return null;
+    const el = findElement(slide.elements, ids[0]);
+    if (!el) return null;
+    if (el.type === 'shape') {
+      const s = el as ShapeElement;
+      return {
+        sourceId: el.id,
+        sourceType: 'shape',
+        fill: s.data.fill,
+        stroke: s.data.stroke,
+      };
+    }
+    if (el.type === 'text') {
+      const t = el as TextElement;
+      return {
+        sourceId: el.id,
+        sourceType: 'text',
+        fill: t.data.fill,
+        stroke: t.data.stroke,
+      };
+    }
+    if (el.type === 'connector') {
+      const c = el as ConnectorElement;
+      return {
+        sourceId: el.id,
+        sourceType: 'connector',
+        stroke: c.stroke,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Apply the active paint snapshot to the element under (clientX,
+   * clientY) and exit paint mode. Cross-type drops are silent no-ops
+   * (we still exit so the user's next click acts normally).
+   */
+  private applyFormatPaintAt(clientX: number, clientY: number): void {
+    const snapshot = this.paintSnapshot;
+    if (!snapshot) return;
+    const slide = this.currentSlide();
+    if (!slide) {
+      this.cancelFormatPaint();
+      return;
+    }
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const hit = hitTestSlide(slide, x, y, this.hitOptions());
+    if (hit === null) {
+      // Empty canvas: just exit paint mode.
+      this.cancelFormatPaint();
+      return;
+    }
+    const target = findElement(slide.elements, hit.elementId);
+    if (!target) {
+      this.cancelFormatPaint();
+      return;
+    }
+    // Self-paint is a no-op: clicking the same element you captured
+    // from would produce an empty undo entry. Bail before reaching the
+    // store so the user can re-click without polluting history.
+    if (target.id === snapshot.sourceId) {
+      this.cancelFormatPaint();
+      return;
+    }
+    const store = this.options.store;
+    // Homogeneous paste only. Shape ↔ text mix shares the fill+stroke
+    // shape so we group them; connector paste is stroke-only and only
+    // lands on another connector. Anything else exits silently.
+    if (
+      snapshot.sourceType !== 'connector' &&
+      (target.type === 'shape' || target.type === 'text')
+    ) {
+      // Only write keys the source *had*. Spreading
+      // `{ fill: undefined, stroke: undefined }` would `delete` those
+      // keys on the target (see yorkie-slides-store.updateElementData),
+      // clobbering the target's own fill/stroke whenever the source
+      // happened to have no fill / no stroke set.
+      const patch: { fill?: ThemeColor; stroke?: Stroke } = {};
+      if (snapshot.fill !== undefined) patch.fill = snapshot.fill;
+      if (snapshot.stroke !== undefined) patch.stroke = snapshot.stroke;
+      if (Object.keys(patch).length === 0) {
+        this.cancelFormatPaint();
+        return;
+      }
+      store.batch(() => {
+        store.updateElementData(slide.id, target.id, patch);
+      });
+    } else if (
+      snapshot.sourceType === 'connector' &&
+      target.type === 'connector' &&
+      snapshot.stroke !== undefined
+    ) {
+      store.batch(() => {
+        store.updateConnectorStroke(slide.id, target.id, snapshot.stroke);
+      });
+    }
+    // Always exit paint mode after the click — single-shot semantics.
+    this.cancelFormatPaint();
   }
 
   /**
@@ -1502,6 +1761,15 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onPointerDown(e: MouseEvent): void {
+    // Format painter: the very first branch so a paint-mode click
+    // can never accidentally trigger select / drag / lasso / insert.
+    // Paint mode is suppressed while a text box is open — the user
+    // is in a different keystroke domain — falling through to the
+    // regular text-edit click logic below.
+    if (this.paintSnapshot !== null && this.editingElementId === null) {
+      this.applyFormatPaintAt(e.clientX, e.clientY);
+      return;
+    }
     // While a text-box is being edited:
     //   - clicks INSIDE its container should pass through to the
     //     text-box editor (let the docs TextEditor handle cursor /

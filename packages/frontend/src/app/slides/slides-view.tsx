@@ -3,6 +3,8 @@ import {
   mountThumbnailPanel,
   mountNotesPanel,
   SLIDES_RULER_SIZE,
+  SLIDE_WIDTH,
+  SLIDE_HEIGHT,
   type SlidesEditor,
   type ThumbnailPanelHandle,
 } from "@wafflebase/slides";
@@ -15,6 +17,7 @@ import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
+import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -50,6 +53,14 @@ interface SlidesViewProps {
    * parent doesn't remount the editor.
    */
   onStartPresentation?: (from: "current" | "first") => void;
+  /**
+   * Optional zoom controller. When provided, `refitCanvas` multiplies
+   * the fit-to-column size by the controller's value and re-fires
+   * whenever it changes. Null / undefined keeps the legacy
+   * always-Fit behavior. Owned by the parent shell so the toolbar
+   * dropdown and view share state without each rebuilding the other.
+   */
+  zoomController?: ZoomController | null;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -117,6 +128,7 @@ export function SlidesView({
   onEditorReady,
   onStoreReady,
   onStartPresentation,
+  zoomController,
 }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
@@ -287,15 +299,10 @@ export function SlidesView({
     canvasArea.style.position = "relative";
     canvasArea.style.flex = "1 1 auto";
     canvasArea.style.minHeight = "0";
-    canvasArea.style.display = "flex";
-    canvasArea.style.justifyContent = "center";
-    canvasArea.style.alignItems = "center";
-    canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
-    canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
-    // Clip the over-sized permanent guide lines (they extend past the
-    // slide bounds so they visually reach the rulers). Also trims any
-    // shadow that might bleed past the SLIDE_FRAME_GAP — acceptable
-    // since the shadow's outer fade is already near-zero opacity.
+    // canvasArea is a positioning container for absolutely-pinned
+    // rulers plus an absolutely-sized scroll host. Overflow stays
+    // `hidden` so the rulers remain at the viewport edge during scroll
+    // — only `scrollHost` (below) gets `overflow: auto`.
     canvasArea.style.overflow = "hidden";
 
     // Seed the host dimensions before mounting any DOM that references
@@ -390,7 +397,31 @@ export function SlidesView({
     overlay.style.pointerEvents = "none";
     canvasWrap.appendChild(overlay);
 
-    canvasArea.appendChild(canvasWrap);
+    // Scroll host: covers the canvas-area minus the ruler gutter on
+    // the top + left edges. The slide canvas (`canvasWrap`) lives
+    // inside this host, centered when it fits and scrollable when the
+    // user zooms beyond the column. Keeping the scroll boundary here
+    // — rather than on `canvasArea` — lets the rulers stay pinned at
+    // the viewport edges; the editor mirrors `scrollLeft`/`scrollTop`
+    // into the ruler's tick origin so the ticks track the visible
+    // portion of the slide.
+    const scrollHost = document.createElement("div");
+    scrollHost.style.position = "absolute";
+    scrollHost.style.top = `${SLIDES_RULER_SIZE}px`;
+    scrollHost.style.left = `${SLIDES_RULER_SIZE}px`;
+    scrollHost.style.right = "0";
+    scrollHost.style.bottom = "0";
+    scrollHost.style.overflow = "auto";
+    scrollHost.style.display = "flex";
+    // `safe center` keeps the slide centered when it fits the host and
+    // falls back to flex-start when it overflows. Without `safe`, the
+    // left / top overflow becomes unreachable because justify-content:
+    // center pushes the scroll origin past the visible area.
+    scrollHost.style.justifyContent = "safe center";
+    scrollHost.style.alignItems = "safe center";
+
+    scrollHost.appendChild(canvasWrap);
+    canvasArea.appendChild(scrollHost);
     right.appendChild(canvasArea);
 
     // Notes resizer — horizontal counterpart of the thumbnail-panel
@@ -537,9 +568,34 @@ export function SlidesView({
         MIN_HOST_W / SLIDE_ASPECT,
         availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
       );
-      const fit = computeFitSize(slideAvailW, slideAvailH);
-      const nextW = Math.round(fit.width);
-      const nextH = Math.round(fit.height);
+      // Fit and absolute zoom (N %) are two different sizing models:
+      //
+      //   FIT_ZOOM → the host fills the available column, preserving
+      //              the slide aspect. MAX_HOST_W still clamps on
+      //              ultra-wide displays so a 4K column does not
+      //              allocate a 4K bitmap.
+      //
+      //   N %      → the host equals the slide's *logical* size times
+      //              the zoom factor. 100 % == 1920 × 1080 CSS px
+      //              regardless of the column width. canvasArea's
+      //              overflow:auto produces horizontal + vertical
+      //              scroll when the host exceeds the available area.
+      //
+      // No MAX_HOST_W clamp at non-Fit zoom — the user is asking for an
+      // absolute size and the slide must read at exactly that size.
+      const userZoom = zoomController?.get() ?? FIT_ZOOM;
+      let nextW: number;
+      let nextH: number;
+      if (userZoom === FIT_ZOOM) {
+        const fit = computeFitSize(slideAvailW, slideAvailH);
+        const clampedW = Math.min(MAX_HOST_W, Math.round(fit.width));
+        const scale = fit.width > 0 ? clampedW / fit.width : 1;
+        nextW = clampedW;
+        nextH = Math.round(fit.height * scale);
+      } else {
+        nextW = Math.round(SLIDE_WIDTH * userZoom);
+        nextH = Math.round(SLIDE_HEIGHT * userZoom);
+      }
 
       // Pin each ruler canvas to the full frame extent — canvas
       // elements don't pick up a width from `left + right` alone, so
@@ -564,6 +620,12 @@ export function SlidesView({
       canvasWrap.style.width = `${hostW}px`;
       canvasWrap.style.height = `${hostH}px`;
       editor.setHostSize(hostW, hostH);
+      // After a size change the browser may or may not emit a scroll
+      // event (e.g. shrinking back to Fit clamps scrollLeft to 0
+      // implicitly). Sync the ruler explicitly so its tick origin
+      // tracks the current scroll position even when no scroll event
+      // fires.
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
     };
 
     // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
@@ -572,6 +634,22 @@ export function SlidesView({
     // — the slide is logically 1920×1080 anyway.
     const resizeObserver = new ResizeObserver(() => refitCanvas());
     resizeObserver.observe(right);
+
+    // Re-fit on zoom changes from the toolbar dropdown. The controller
+    // identity is stable (parent owns it via ref), so subscribing once
+    // at mount is sufficient.
+    const unsubscribeZoom =
+      zoomController?.subscribe(() => refitCanvas()) ?? (() => {});
+
+    // Mirror the scroll host's scroll offset into the editor's ruler.
+    // The ruler is pinned at the canvas-area edges (so it stays visible
+    // during scroll), but its tick origin needs to track the slide's
+    // viewport position — without this the "0" tick stops aligning
+    // with the slide's left edge after the user pans.
+    const onScrollHostScroll = () => {
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
+    };
+    scrollHost.addEventListener("scroll", onScrollHostScroll, { passive: true });
 
     // Drag-to-resize the left column. Mousedown latches; mousemove
     // updates leftWidth (clamped + rounded); mouseup persists to
@@ -732,6 +810,8 @@ export function SlidesView({
 
     return () => {
       resizeObserver.disconnect();
+      unsubscribeZoom();
+      scrollHost.removeEventListener("scroll", onScrollHostScroll);
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.
