@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ensureGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 import type { ZoomController } from "../zoom-controller";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
@@ -56,6 +57,12 @@ export function SlidesToolbar({
   );
 
   useEffect(() => {
+    // Lazy-load the Google Fonts CSS link on the first slides toolbar
+    // mount. The ThemedFontPicker previews each row in its own family,
+    // so Roboto / Noto Sans KR / etc. need to be available for the
+    // dropdown to look right. Idempotent across HMR; routes that never
+    // mount slides (settings, login, document list) skip the cost.
+    ensureGoogleFontsLink();
     if (!editor) {
       setState(getToolbarState(null, store));
       return;
