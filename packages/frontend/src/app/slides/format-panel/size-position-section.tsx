@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { ConnectorElement, Element, Frame } from '@wafflebase/slides';
 import {
   type DisplayUnit,
@@ -74,54 +74,57 @@ export function SizePositionSection(props: SizePositionSectionProps) {
     <section aria-labelledby="format-size-position-label" className="p-3">
       <h3
         id="format-size-position-label"
-        className="mb-2 text-xs font-semibold"
+        className="mb-3 text-xs font-semibold"
       >
         Size &amp; Position
       </h3>
 
-      {showWH && (
-        <div className="mb-3 space-y-2">
-          <UnitInput
-            label="Width"
-            valuePx={w}
-            unit={unit}
-            onCommit={(px) =>
-              locked
-                ? props.onLockedResize(elements, 'w', px)
-                : props.onCommitFrame(ids, { w: px })
-            }
-          />
-          <UnitInput
-            label="Height"
-            valuePx={h}
-            unit={unit}
-            disabled={hDisabled}
-            disabledTooltip={
-              hDisabled
-                ? "Height is auto-calculated. Switch autofit to 'None' or 'Shrink' to set manually."
-                : undefined
-            }
-            onCommit={(px) =>
-              locked
-                ? props.onLockedResize(elements, 'h', px)
-                : props.onCommitFrame(ids, { h: px })
-            }
-          />
-          <button
-            type="button"
-            aria-label="Lock aspect ratio"
-            aria-pressed={locked}
-            onClick={() => setLocked((v) => !v)}
-            className={
-              'rounded border px-2 py-1 text-xs ' + (locked ? 'bg-muted' : '')
-            }
-          >
-            {locked ? 'Locked' : 'Lock aspect ratio'}
-          </button>
-        </div>
-      )}
+      <div className="space-y-2">
+        {showWH && (
+          <>
+            <UnitInput
+              label="Width"
+              valuePx={w}
+              unit={unit}
+              onCommit={(px) =>
+                locked
+                  ? props.onLockedResize(elements, 'w', px)
+                  : props.onCommitFrame(ids, { w: px })
+              }
+            />
+            <UnitInput
+              label="Height"
+              valuePx={h}
+              unit={unit}
+              disabled={hDisabled}
+              disabledTooltip={
+                hDisabled
+                  ? "Height is auto-calculated. Switch autofit to 'None' or 'Shrink' to set manually."
+                  : undefined
+              }
+              onCommit={(px) =>
+                locked
+                  ? props.onLockedResize(elements, 'h', px)
+                  : props.onCommitFrame(ids, { h: px })
+              }
+            />
+            <IndentedRow>
+              <button
+                type="button"
+                aria-label="Lock aspect ratio"
+                aria-pressed={locked}
+                onClick={() => setLocked((v) => !v)}
+                className={
+                  'rounded border px-2 py-1 text-xs hover:bg-muted ' +
+                  (locked ? 'bg-muted' : '')
+                }
+              >
+                {locked ? '🔒 Locked' : '🔓 Lock aspect ratio'}
+              </button>
+            </IndentedRow>
+          </>
+        )}
 
-      <div className="mb-3 space-y-2">
         <UnitInput
           label="X position"
           valuePx={x}
@@ -148,59 +151,69 @@ export function SizePositionSection(props: SizePositionSectionProps) {
             props.onTranslate(ids, 0, px - y);
           }}
         />
-      </div>
 
-      {showRotation && (
-        <div className="mb-3 space-y-2">
-          <RotationInput
-            valueRad={rotation}
-            onCommit={(rad) => props.onCommitFrame(ids, { rotation: rad })}
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              aria-label="Rotate 90 counter-clockwise"
-              onClick={() => props.onRotate90(ids, -1)}
-              className="rounded border px-2 py-1 text-xs hover:bg-muted"
-            >
-              {'↺ 90°'}
-            </button>
-            <button
-              type="button"
-              aria-label="Rotate 90 clockwise"
-              onClick={() => props.onRotate90(ids, 1)}
-              className="rounded border px-2 py-1 text-xs hover:bg-muted"
-            >
-              {'90° ↻'}
-            </button>
-          </div>
+        {showRotation && (
+          <>
+            <RotationInput
+              valueRad={rotation}
+              onCommit={(rad) => props.onCommitFrame(ids, { rotation: rad })}
+            />
+            <IndentedRow>
+              <button
+                type="button"
+                aria-label="Rotate 90 counter-clockwise"
+                onClick={() => props.onRotate90(ids, -1)}
+                className="rounded border px-2 py-1 text-xs hover:bg-muted"
+              >
+                {'↺ 90°'}
+              </button>
+              <button
+                type="button"
+                aria-label="Rotate 90 clockwise"
+                onClick={() => props.onRotate90(ids, 1)}
+                className="rounded border px-2 py-1 text-xs hover:bg-muted"
+              >
+                {'90° ↻'}
+              </button>
+            </IndentedRow>
+          </>
+        )}
+
+        <div className="flex items-center gap-2 pt-2 text-xs">
+          <span className="w-20 shrink-0">Units</span>
+          <label className="inline-flex items-center gap-1">
+            <input
+              type="radio"
+              name="format-unit"
+              aria-label="Inches"
+              checked={unit === 'in'}
+              onChange={() => props.onSetUnit('in')}
+            />
+            Inches
+          </label>
+          <label className="inline-flex items-center gap-1">
+            <input
+              type="radio"
+              name="format-unit"
+              aria-label="Centimeters"
+              checked={unit === 'cm'}
+              onChange={() => props.onSetUnit('cm')}
+            />
+            Centimeters
+          </label>
         </div>
-      )}
-
-      <fieldset className="mt-2 text-xs">
-        <legend className="mb-1">Units</legend>
-        <label className="mr-3 inline-flex items-center gap-1">
-          <input
-            type="radio"
-            name="format-unit"
-            aria-label="Inches"
-            checked={unit === 'in'}
-            onChange={() => props.onSetUnit('in')}
-          />
-          Inches
-        </label>
-        <label className="inline-flex items-center gap-1">
-          <input
-            type="radio"
-            name="format-unit"
-            aria-label="Centimeters"
-            checked={unit === 'cm'}
-            onChange={() => props.onSetUnit('cm')}
-          />
-          Centimeters
-        </label>
-      </fieldset>
+      </div>
     </section>
+  );
+}
+
+/** Sub-row aligned under the input column (label column left empty). */
+function IndentedRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-20 shrink-0" aria-hidden="true" />
+      {children}
+    </div>
   );
 }
 
