@@ -421,6 +421,10 @@ describe('TextBoxEditorAPI — formatting surface', () => {
  * `packages/slides/src/view/canvas/test-canvas-env.ts`.
  */
 describe('initializeTextBox — verticalAnchor', () => {
+  // TODO: a pointer-event hit-test spec would also catch a stale
+  // currentOriginY at click time. Deferred — jsdom does not return
+  // meaningful getBoundingClientRect geometry for the patched canvas.
+
   // Saved original getContext to restore after each test.
   let _origGetContext: HTMLCanvasElement['getContext'];
 
@@ -611,9 +615,12 @@ describe('initializeTextBox — verticalAnchor', () => {
     const ys = calls.map((c: unknown[]) => c[2] as number);
     const midY = Math.min(...ys);
     // Middle-anchored in a 200px frame with ~1 line of text: baseline y
-    // should be in the middle area (roughly 80–130 px).
-    expect(midY).toBeGreaterThan(60);
-    expect(midY).toBeLessThan(160);
+    // should be in the middle area. With the 8px-per-char measureText stub
+    // and a single-line "Hi" (~16px line height), the observed value is 102.
+    // Band [80, 130] is tight enough to catch a 40px formula error while
+    // remaining robust to minor font-metric variation in the stub.
+    expect(midY).toBeGreaterThan(80);
+    expect(midY).toBeLessThan(130);
     api.detach();
   });
 

@@ -395,7 +395,16 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // every renderNow pass and stashed here so the TextEditor click handler
   // (which reads it via getCanvasOffsetTop) always sees the most recent
   // value the moment a pointer event fires.
-  let currentOriginY = 0;
+  //
+  // Eagerly initialised here (not lazily inside renderNow) so clicks that
+  // fire before the first rAF already see the correct non-zero offset for
+  // middle/bottom anchors. The recomputeLayout() call above has already
+  // populated layout.totalHeight, so computeVerticalOriginY is valid.
+  let currentOriginY = computeVerticalOriginY(
+    opts.verticalAnchor,
+    contentHeight,
+    layout.totalHeight,
+  );
 
   const renderNow = (): void => {
     renderRAF = null;
@@ -686,6 +695,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     setContentHeight(next: number): void {
       contentHeight = next;
       paginatedLayout = buildShimPaginatedLayout(layout, contentWidth, contentHeight);
+      currentOriginY = computeVerticalOriginY(
+        opts.verticalAnchor,
+        contentHeight,
+        layout.totalHeight,
+      );
       requestRender();
     },
 
