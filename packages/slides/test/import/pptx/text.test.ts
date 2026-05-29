@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseTextBody, detectAutofitMode, detectVerticalAnchor } from '../../../src/import/pptx/text';
 import { ImportReport } from '../../../src/import/pptx/report';
-import { parseXml, parseXml as parseSpXml } from '../../../src/import/pptx/xml';
+import { parseXml } from '../../../src/import/pptx/xml';
 import type { PptxRel } from '../../../src/import/pptx/rels';
 import { parseSpTree } from '../../../src/import/pptx/shape';
 import type { SlideParseContext } from '../../../src/import/pptx/shape';
@@ -216,9 +216,16 @@ describe('detectVerticalAnchor', () => {
     expect(detectVerticalAnchor(t)).toBeUndefined();
   });
 
+  it('returns undefined when anchor attr is an empty string', () => {
+    const t = txBody(`<a:txBody><a:bodyPr anchor=""/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBeUndefined();
+  });
+
   it('returns "top" for unsupported anchor values (just, dist)', () => {
-    const t = txBody(`<a:txBody><a:bodyPr anchor="just"/></a:txBody>`);
-    expect(detectVerticalAnchor(t)).toBe('top');
+    const just = txBody(`<a:txBody><a:bodyPr anchor="just"/></a:txBody>`);
+    expect(detectVerticalAnchor(just)).toBe('top');
+    const dist = txBody(`<a:txBody><a:bodyPr anchor="dist"/></a:txBody>`);
+    expect(detectVerticalAnchor(dist)).toBe('top');
   });
 });
 
@@ -237,7 +244,7 @@ describe('PPTX import — verticalAnchor wiring', () => {
   }
 
   it('writes verticalAnchor="bottom" for anchor="b" placeholders', async () => {
-    const spTree = parseSpXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+    const spTree = parseXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
       <p:sp>
         <p:nvSpPr><p:cNvPr id="1" name="Title 1"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="ctrTitle"/></p:nvPr></p:nvSpPr>
         <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="2052600"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>
@@ -255,7 +262,7 @@ describe('PPTX import — verticalAnchor wiring', () => {
   });
 
   it('omits verticalAnchor when bodyPr has no anchor attr', async () => {
-    const spTree = parseSpXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+    const spTree = parseXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
       <p:sp>
         <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
         <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="2052600"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>

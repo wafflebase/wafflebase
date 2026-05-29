@@ -59,7 +59,8 @@ export function detectVerticalAnchor(txBody: Element): VerticalAnchorMode | unde
   const bodyPr = child(txBody, 'bodyPr');
   if (!bodyPr) return undefined;
   const anchor = attr(bodyPr, 'anchor');
-  if (anchor == null) return undefined;
+  if (anchor === undefined) return undefined;
+  if (anchor === '') return undefined;
   if (anchor === 'b') return 'bottom';
   if (anchor === 'ctr') return 'middle';
   // 't' is the canonical top value; unsupported values (e.g. 'just', 'dist')
