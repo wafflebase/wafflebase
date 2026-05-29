@@ -28,7 +28,10 @@ type InitOpts = {
   onContentHeightChange?: unknown;
 };
 
-function mountWith(autofit: AutofitMode | undefined): InitOpts {
+function mountWith(
+  autofit: AutofitMode | undefined,
+  outerOnContentHeightChange?: (h: number) => void,
+): InitOpts {
   initSpy.mockClear();
   const overlay = document.createElement('div');
   document.body.appendChild(overlay);
@@ -41,6 +44,7 @@ function mountWith(autofit: AutofitMode | undefined): InitOpts {
     onCommit: () => {},
     onCancel: () => {},
     autofit,
+    onContentHeightChange: outerOnContentHeightChange,
   });
   return initSpy.mock.calls[0][0] as InitOpts;
 }
@@ -66,9 +70,23 @@ describe('mountSlidesTextBox autofit hook gating', () => {
     expect(opts.transformLayoutBlocks).toBeUndefined();
   });
 
-  it("'none' wires neither hook (fixed box)", () => {
+  it("'none' wires onContentHeightChange (to grow the editing surface) but NOT transformLayoutBlocks", () => {
     const opts = mountWith('none');
-    expect(opts.onContentHeightChange).toBeUndefined();
+    expect(typeof opts.onContentHeightChange).toBe('function');
     expect(opts.transformLayoutBlocks).toBeUndefined();
+  });
+
+  it("'grow' propagates the new height to the outer onContentHeightChange callback", () => {
+    const outer = vi.fn();
+    const opts = mountWith('grow', outer);
+    (opts.onContentHeightChange as (h: number) => void)(123);
+    expect(outer).toHaveBeenCalledWith(123);
+  });
+
+  it("'none' does NOT propagate the new height — the editing surface grows but frame.h stays put", () => {
+    const outer = vi.fn();
+    const opts = mountWith('none', outer);
+    (opts.onContentHeightChange as (h: number) => void)(123);
+    expect(outer).not.toHaveBeenCalled();
   });
 });

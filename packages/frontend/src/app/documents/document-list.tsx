@@ -112,6 +112,15 @@ export function DocumentList({
     {
       accessorKey: "title",
       header: "Title",
+      filterFn: (row, columnId, filterValue) => {
+        const cellValue = String(row.getValue(columnId) ?? "")
+          .normalize("NFC")
+          .toLowerCase();
+        const search = String(filterValue ?? "")
+          .normalize("NFC")
+          .toLowerCase();
+        return cellValue.includes(search);
+      },
       cell: ({ row }) => {
         const docType = row.original.type;
         return (

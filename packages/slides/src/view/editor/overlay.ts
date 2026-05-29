@@ -707,15 +707,19 @@ function makeConnectionSiteDot(
 
 /**
  * Autofit mode toggle button, painted at the bottom-left corner of a
- * single selected text element (Google-Slides parity). Click flips
- * between `'grow'` (box height tracks content) and `'shrink'` (fixed
- * box, fonts scale to fit). `'none'` is reachable via Format menu / API,
- * not this button — matching the GS in-context icon which is a 2-state
- * toggle.
+ * single selected text element. Click advances through all three
+ * AutofitMode values in the same order the Format panel lists them:
+ *
+ *   `none` → `shrink` → `grow` → `none` → ...
+ *
+ * This is one step beyond the Google-Slides 2-state in-context icon —
+ * the third state (autofit off) was previously reachable only via the
+ * Format panel / API. Surfacing it inline lets users disable autofit
+ * without leaving the canvas.
  *
  * Absent `autofit` is treated as `'grow'` (the pre-autofit default, see
  * `slides-text-autofit.md`), so the first click on a never-set box
- * switches it to `'shrink'`.
+ * advances to `'none'`.
  */
 const AUTOFIT_TOGGLE_SIZE = 24; // host px
 const AUTOFIT_TOGGLE_OFFSET = 6; // host px below the frame
@@ -744,6 +748,18 @@ const ICON_SHRINK =
   `<text x="8" y="13" font-family="-apple-system,system-ui,sans-serif" font-size="7" font-weight="700">a</text>` +
   `</svg>`;
 
+/**
+ * SVG for the "none" mode (do not autofit). Visual: a fixed rectangle
+ * with an X inside, reading as "autofit off — box stays put, text may
+ * overflow".
+ */
+const ICON_NONE =
+  `<svg viewBox="0 0 16 16" width="${AUTOFIT_ICON_SIZE}" height="${AUTOFIT_ICON_SIZE}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+  `<rect x="3" y="3" width="10" height="10" rx="1"/>` +
+  `<line x1="5.5" y1="5.5" x2="10.5" y2="10.5"/>` +
+  `<line x1="10.5" y1="5.5" x2="5.5" y2="10.5"/>` +
+  `</svg>`;
+
 function renderAutofitToggle(
   overlay: HTMLDivElement,
   element: Element,
@@ -751,9 +767,13 @@ function renderAutofitToggle(
 ): void {
   if (element.type !== 'text' || !options.onAutofitToggle) return;
   const current: AutofitMode = element.data.autofit ?? 'grow';
-  // Cycle: grow ⇄ shrink. From 'none', go to 'grow' (re-enable autofit).
+  // 3-state cycle matching the Format panel order: none → shrink → grow → none.
   const next: AutofitMode =
-    current === 'shrink' ? 'grow' : current === 'grow' ? 'shrink' : 'grow';
+    current === 'none'
+      ? 'shrink'
+      : current === 'shrink'
+        ? 'grow'
+        : 'none';
 
   const { scale } = options;
   const x = element.frame.x * scale;
@@ -763,19 +783,26 @@ function renderAutofitToggle(
   btn.type = 'button';
   btn.className = 'wfb-slides-autofit-toggle';
   // Distinct inline SVGs per mode + a `title` attribute that spells out
-  // the current mode and what clicking will do (GS-style affordance).
-  btn.innerHTML = current === 'shrink' ? ICON_SHRINK : ICON_GROW;
-  btn.title =
+  // the current mode and what clicking will do.
+  btn.innerHTML =
     current === 'shrink'
-      ? 'Shrink text to fit (click to switch to resize shape to fit text)'
+      ? ICON_SHRINK
       : current === 'grow'
-        ? 'Resize shape to fit text (click to switch to shrink text)'
-        : 'Autofit off (click to enable resize shape to fit text)';
+        ? ICON_GROW
+        : ICON_NONE;
+  btn.title =
+    current === 'none'
+      ? 'Do not autofit (click to switch to shrink text on overflow)'
+      : current === 'shrink'
+        ? 'Shrink text on overflow (click to switch to resize shape to fit text)'
+        : 'Resize shape to fit text (click to switch to do not autofit)';
   btn.setAttribute(
     'aria-label',
-    current === 'shrink'
-      ? 'Autofit mode: shrink text. Click to switch to resize shape.'
-      : 'Autofit mode: resize shape. Click to switch to shrink text.',
+    current === 'none'
+      ? 'Autofit mode: do not autofit. Click to switch to shrink text.'
+      : current === 'shrink'
+        ? 'Autofit mode: shrink text. Click to switch to resize shape.'
+        : 'Autofit mode: resize shape. Click to switch to do not autofit.',
   );
   btn.style.position = 'absolute';
   btn.style.left = `${x}px`;

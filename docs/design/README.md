@@ -80,6 +80,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-text-autofit.md](slides/slides-text-autofit.md)                               | Text autofit — adds `shrink` (font auto-scales to fit a fixed box) + a 3-mode `autofit` selector (none/shrink/grow) layered on the auto-grow feature; placeholder=shrink / textbox=grow defaults, PPTX bodyPr import |
 | [slides-shift-modifiers.md](slides/slides-shift-modifiers.md)                         | Shift modifiers during drag — 1:1 shape draw, 15° line/connector angle snap, 15° endpoint snap, axis-locked move; pure constraint helpers reused at four call sites                                        |
 | [slides-toolbar-tier1.md](slides/slides-toolbar-tier1.md)                             | Five universal toolbar controls — Format painter, Zoom dropdown (+Cmd+/-), Layout split-button, Clear formatting, Font size A↑/A↓ steppers; additive on top of the morphing-toolbar shell                  |
+| [slides-format-options-panel.md](slides/slides-format-options-panel.md)               | Right-side Format options panel v1 — Size & Position (W/H/X/Y/Rotation, in/cm toggle), Text fitting, Image opacity, Alt text; shares right slot with ThemePanel; single `Meta.unit` field added            |
 
 ## Common
 

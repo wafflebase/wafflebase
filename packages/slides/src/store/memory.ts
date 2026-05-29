@@ -233,6 +233,14 @@ export class MemSlidesStore implements SlidesStore {
     this.doc.meta.themeId = themeId;
   }
 
+  setUnit(unit: 'in' | 'cm'): void {
+    this.requireBatch();
+    if (unit !== 'in' && unit !== 'cm') {
+      throw new Error(`[slides] invalid unit '${unit}'`);
+    }
+    this.doc.meta.unit = unit;
+  }
+
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);

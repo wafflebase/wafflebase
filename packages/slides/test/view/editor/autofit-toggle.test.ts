@@ -46,16 +46,16 @@ describe('autofit toggle', () => {
     expect(parseInt(btn!.style.top, 10)).toBeGreaterThanOrEqual(280);
   });
 
-  it('clicking the toggle on a grow element calls onAutofitToggle with shrink', () => {
+  it('clicking the toggle on a none element advances to shrink', () => {
     const overlay = makeOverlay();
     const onToggle = vi.fn();
-    renderOverlay(overlay, [textEl('grow')], { ...baseOpts, onAutofitToggle: onToggle });
+    renderOverlay(overlay, [textEl('none')], { ...baseOpts, onAutofitToggle: onToggle });
     const btn = overlay.querySelector('.wfb-slides-autofit-toggle') as HTMLButtonElement;
     btn.click();
     expect(onToggle).toHaveBeenCalledWith('t1', 'shrink');
   });
 
-  it('clicking the toggle on a shrink element calls onAutofitToggle with grow', () => {
+  it('clicking the toggle on a shrink element advances to grow', () => {
     const overlay = makeOverlay();
     const onToggle = vi.fn();
     renderOverlay(overlay, [textEl('shrink')], { ...baseOpts, onAutofitToggle: onToggle });
@@ -64,22 +64,22 @@ describe('autofit toggle', () => {
     expect(onToggle).toHaveBeenCalledWith('t1', 'grow');
   });
 
-  it('treats absent autofit as grow (next click switches to shrink)', () => {
+  it('clicking the toggle on a grow element wraps to none', () => {
+    const overlay = makeOverlay();
+    const onToggle = vi.fn();
+    renderOverlay(overlay, [textEl('grow')], { ...baseOpts, onAutofitToggle: onToggle });
+    const btn = overlay.querySelector('.wfb-slides-autofit-toggle') as HTMLButtonElement;
+    btn.click();
+    expect(onToggle).toHaveBeenCalledWith('t1', 'none');
+  });
+
+  it('treats absent autofit as grow (next click wraps to none)', () => {
     const overlay = makeOverlay();
     const onToggle = vi.fn();
     renderOverlay(overlay, [textEl(/* absent */)], { ...baseOpts, onAutofitToggle: onToggle });
     const btn = overlay.querySelector('.wfb-slides-autofit-toggle') as HTMLButtonElement;
     btn.click();
-    expect(onToggle).toHaveBeenCalledWith('t1', 'shrink');
-  });
-
-  it('clicking from "none" re-enables grow', () => {
-    const overlay = makeOverlay();
-    const onToggle = vi.fn();
-    renderOverlay(overlay, [textEl('none')], { ...baseOpts, onAutofitToggle: onToggle });
-    const btn = overlay.querySelector('.wfb-slides-autofit-toggle') as HTMLButtonElement;
-    btn.click();
-    expect(onToggle).toHaveBeenCalledWith('t1', 'grow');
+    expect(onToggle).toHaveBeenCalledWith('t1', 'none');
   });
 
   it('does not render the toggle for non-text elements', () => {

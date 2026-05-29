@@ -157,9 +157,15 @@ export interface SlidesTextBoxEditor {
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
   const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor } = opts;
 
-  // Auto-grow is the behavior for every mode except an explicit 'shrink'
-  // (fixed box, font scales) or 'none' (fixed box, overflow). Absent ⇒
-  // grow, matching the pre-autofit default so existing decks keep growing.
+  // Two related but separate flags:
+  // - allowEditorGrow: the editing canvas grows to fit content while the
+  //   user types. 'grow' and 'none' both opt in; only 'shrink' keeps the
+  //   editing surface fixed (it scales fonts instead).
+  // - isGrow: the grown height is committed back to frame.h on exit. Only
+  //   true autofit-grow does this; 'none' shows overflow live but keeps
+  //   the saved box, so post-commit the slide renderer paints the overflow
+  //   below the frame just as it did before the edit.
+  const allowEditorGrow = autofit !== 'shrink';
   const isGrow = autofit !== 'shrink' && autofit !== 'none';
   const isShrink = autofit === 'shrink';
 
@@ -248,10 +254,13 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     onCommit: handleCommit,
     onCancel: handleCancel,
     onLinkRequest,
-    // Grow only when the mode calls for it. For 'shrink'/'none' the box
-    // stays fixed, so we leave this unwired and the docs editor never
-    // resizes the surface.
-    onContentHeightChange: isGrow
+    // Grow the editor surface for both 'grow' and 'none' modes so the
+    // text the user is typing never gets clipped. 'shrink' keeps the
+    // surface fixed because it scales fonts instead (transformLayoutBlocks
+    // below). Only 'grow' propagates the new height back to frame.h —
+    // 'none' shows the overflow live during edit and leaves the saved box
+    // alone so the post-commit render matches the pre-edit frame.
+    onContentHeightChange: allowEditorGrow
       ? (h: number): void => {
           // Grow/shrink the editing surface to fit content. Width is fixed;
           // only height tracks. cssH is host pixels (logical * slide scale);
@@ -264,7 +273,7 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
           canvas.style.height = `${cssH}px`;
           canvas.height = Math.max(1, Math.round(cssH * dpr));
           api.setContentHeight(targetH);
-          onContentHeightChange?.(targetH);
+          if (isGrow) onContentHeightChange?.(targetH);
         }
       : undefined,
     // Shrink: scale fonts down so content fits the fixed box, live as the

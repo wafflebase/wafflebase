@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  IconAdjustmentsAlt,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconBackground,
@@ -101,6 +102,8 @@ export interface RightGlobalsProps {
   theme?: Theme | null;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  onToggleFormatPanel?: () => void;
+  formatPanelOpen?: boolean;
 }
 
 /**
@@ -121,6 +124,8 @@ export function RightGlobals({
   theme,
   onToggleThemePanel,
   themePanelOpen,
+  onToggleFormatPanel,
+  formatPanelOpen,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   const onBackgroundChange = useCallback(
@@ -188,6 +193,21 @@ export function RightGlobals({
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Theme</TooltipContent>
+        </Tooltip>
+      )}
+      {onToggleFormatPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!formatPanelOpen}
+              onPressedChange={() => onToggleFormatPanel()}
+              aria-label="Toggle format options"
+            >
+              <IconAdjustmentsAlt size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Format options</TooltipContent>
         </Tooltip>
       )}
     </div>
