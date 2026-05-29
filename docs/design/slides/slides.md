@@ -362,9 +362,9 @@ type SlidesPresence = {
 
 Stable `slideId` and `elementId` make selection survive remote
 structural edits, reusing the design from
-`sheets/axis-id-selection.md`. Peer cursor labels follow
-`sheets/peer-cursor-labels.md` and the docs `docs-remote-cursor.md`
-visual treatment.
+`sheets/axis-id-selection.md`. Peer cursor labels follow the
+visual treatment in `docs/docs-presence.md` (and the archived
+`archive/peer-cursor-labels.md` for the original Sheets design).
 
 ### Rendering pipeline
 
