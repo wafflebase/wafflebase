@@ -40,7 +40,7 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
             draft,
           );
         }}
-        className="w-full rounded border p-2 text-sm"
+        className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-xs shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:opacity-50"
       />
     </section>
   );

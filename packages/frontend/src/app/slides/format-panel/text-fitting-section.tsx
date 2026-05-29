@@ -29,9 +29,9 @@ export function TextFittingSection({
       >
         Text fitting
       </h3>
-      <div role="radiogroup" className="space-y-1">
+      <div role="radiogroup" className="space-y-1.5">
         {MODES.map(({ mode, label }) => (
-          <label key={mode} className="flex items-center gap-2 text-sm">
+          <label key={mode} className="flex items-center gap-2 text-xs">
             <input
               type="radio"
               name="format-text-fitting"

@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ConnectorElement, Element, Frame } from '@wafflebase/slides';
 import {
+  IconLock,
+  IconLockOpen,
+  IconRotate,
+  IconRotateClockwise,
+} from '@tabler/icons-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
   type DisplayUnit,
   degToRad,
   formatDisplay,
@@ -109,18 +117,18 @@ export function SizePositionSection(props: SizePositionSectionProps) {
               }
             />
             <IndentedRow>
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant={locked ? 'secondary' : 'outline'}
                 aria-label="Lock aspect ratio"
                 aria-pressed={locked}
                 onClick={() => setLocked((v) => !v)}
-                className={
-                  'rounded border px-2 py-1 text-xs hover:bg-muted ' +
-                  (locked ? 'bg-muted' : '')
-                }
+                className="h-7 px-2 text-xs"
               >
-                {locked ? '🔒 Locked' : '🔓 Lock aspect ratio'}
-              </button>
+                {locked ? <IconLock size={14} /> : <IconLockOpen size={14} />}
+                {locked ? 'Locked' : 'Lock aspect ratio'}
+              </Button>
             </IndentedRow>
           </>
         )}
@@ -159,22 +167,28 @@ export function SizePositionSection(props: SizePositionSectionProps) {
               onCommit={(rad) => props.onCommitFrame(ids, { rotation: rad })}
             />
             <IndentedRow>
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="outline"
                 aria-label="Rotate 90 counter-clockwise"
                 onClick={() => props.onRotate90(ids, -1)}
-                className="rounded border px-2 py-1 text-xs hover:bg-muted"
+                className="h-7 px-2 text-xs"
               >
-                {'↺ 90°'}
-              </button>
-              <button
+                <IconRotate size={14} />
+                90°
+              </Button>
+              <Button
                 type="button"
+                size="sm"
+                variant="outline"
                 aria-label="Rotate 90 clockwise"
                 onClick={() => props.onRotate90(ids, 1)}
-                className="rounded border px-2 py-1 text-xs hover:bg-muted"
+                className="h-7 px-2 text-xs"
               >
-                {'90° ↻'}
-              </button>
+                <IconRotateClockwise size={14} />
+                90°
+              </Button>
             </IndentedRow>
           </>
         )}
@@ -241,7 +255,7 @@ function UnitInput({
   return (
     <label className="flex items-center gap-2 text-xs">
       <span className="w-20 shrink-0">{label}</span>
-      <input
+      <Input
         aria-label={label}
         type="text"
         inputMode="decimal"
@@ -266,7 +280,7 @@ function UnitInput({
           }
           onCommit(unitToPx(n, unit));
         }}
-        className="w-24 rounded border px-2 py-1 text-right"
+        className="h-7 w-20 px-2 text-right text-xs"
       />
       <span className="w-6 text-muted-foreground">{unit}</span>
     </label>
@@ -286,7 +300,7 @@ function RotationInput({ valueRad, onCommit }: RotationInputProps) {
   return (
     <label className="flex items-center gap-2 text-xs">
       <span className="w-20 shrink-0">Rotation</span>
-      <input
+      <Input
         aria-label="Rotation"
         type="text"
         inputMode="decimal"
@@ -309,7 +323,7 @@ function RotationInput({ valueRad, onCommit }: RotationInputProps) {
           }
           onCommit(degToRad(n));
         }}
-        className="w-24 rounded border px-2 py-1 text-right"
+        className="h-7 w-20 px-2 text-right text-xs"
       />
       <span className="w-6 text-muted-foreground">{'°'}</span>
     </label>
