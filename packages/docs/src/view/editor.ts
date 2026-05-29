@@ -43,6 +43,26 @@ export interface EditorAPI {
   getStore(): DocStore;
   /** Get the inline style at the current cursor/selection anchor */
   getSelectionStyle(): Partial<InlineStyle>;
+  /**
+   * Summary of inline styles across the current selection. For each
+   * key, returns the resolved value when uniform, the literal 'mixed'
+   * when at least two distinct values exist within the range, or
+   * undefined when the property is unset throughout. When there is no
+   * selection, returns the style of the inline at the cursor (same
+   * shape as getSelectionStyle).
+   */
+  getRangeStyleSummary(): {
+    bold?: boolean | 'mixed';
+    italic?: boolean | 'mixed';
+    underline?: boolean | 'mixed';
+    strikethrough?: boolean | 'mixed';
+    fontFamily?: string | 'mixed';
+    fontSize?: number | 'mixed';
+    color?: InlineStyle['color'] | 'mixed';
+    backgroundColor?: InlineStyle['backgroundColor'] | 'mixed';
+    superscript?: boolean | 'mixed';
+    subscript?: boolean | 'mixed';
+  };
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
   /** Apply block style to the block containing the cursor */
@@ -207,6 +227,13 @@ export interface EditorAPI {
   resetAfterDocumentReplace(): void;
   /** Clean up */
   dispose(): void;
+  /**
+   * Test-only: set the selection range directly. Production code drives
+   * selection through pointer / keyboard events on the TextEditor; tests
+   * use this to skip the input layer and exercise selection-derived APIs
+   * (e.g. getRangeStyleSummary) without simulating drag.
+   */
+  _setSelectionForTest(range: { anchor: DocPosition; focus: DocPosition } | null): void;
 }
 
 /**
@@ -1668,6 +1695,111 @@ export function initialize(
       const last = block.inlines[block.inlines.length - 1];
       return last ? { ...last.style } : {};
     },
+    getRangeStyleSummary: () => {
+      type Summary = ReturnType<EditorAPI['getRangeStyleSummary']>;
+
+      // No range — fall back to the cursor-position style (same logic as
+      // getSelectionStyle). Inlined here so this method is self-contained
+      // and doesn't depend on a self-reference to the returned object.
+      if (!selection.hasSelection() || !selection.range) {
+        const block = layout.blockParentMap.has(cursor.position.blockId)
+          ? doc.getBlock(cursor.position.blockId)
+          : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
+        if (!block) return {};
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style } as Summary;
+          }
+          pos = inlineEnd;
+        }
+        const last = block.inlines[block.inlines.length - 1];
+        return (last ? { ...last.style } : {}) as Summary;
+      }
+
+      const range = selection.range;
+
+      const KEYS = [
+        'bold', 'italic', 'underline', 'strikethrough',
+        'fontFamily', 'fontSize', 'color', 'backgroundColor',
+        'superscript', 'subscript',
+      ] as const;
+      const result: Record<string, unknown> = {};
+      const seen: Record<string, Set<unknown>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Set()]),
+      );
+
+      const visitInlinesInBlock = (
+        blockId: string, from: number, to: number,
+      ): void => {
+        const block = layout.blockParentMap.has(blockId)
+          ? doc.findBlock(blockId)
+          : doc.document.blocks.find((b) => b.id === blockId);
+        if (!block) return;
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          // Overlap test [from, to) with [pos, inlineEnd). Treat zero-width
+          // inlines (empty placeholder runs) as out of range — they don't
+          // contribute style information for a non-empty selection.
+          if (inlineEnd > from && pos < to && inline.text.length > 0) {
+            for (const key of KEYS) {
+              seen[key].add((inline.style as Record<string, unknown>)[key]);
+            }
+          }
+          pos = inlineEnd;
+          if (pos >= to) break;
+        }
+      };
+
+      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+      const focusIdx = doc.getBlockIndex(range.focus.blockId);
+      if (anchorIdx >= 0 && focusIdx >= 0) {
+        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+
+        for (let i = startIdx; i <= endIdx; i++) {
+          const block = doc.getContextBlocks()[i];
+          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+          const from = i === startIdx ? startOff : 0;
+          const to = i === endIdx ? endOff : blockLen;
+          if (from < to) visitInlinesInBlock(block.id, from, to);
+        }
+      } else {
+        // Selection lives inside a table cell (the block IDs are not in
+        // the current top-level context). Visit the anchor and focus
+        // block ranges directly. For multi-block cell selections this is
+        // approximate, but cell-range writes already go through
+        // applyStyleToCellRange — single-block cell ranges, the common
+        // case, are handled correctly here.
+        const anchor = doc.findBlock(range.anchor.blockId);
+        const focus = doc.findBlock(range.focus.blockId);
+        if (anchor && focus && anchor.id === focus.id) {
+          const a = range.anchor.offset;
+          const b = range.focus.offset;
+          visitInlinesInBlock(anchor.id, Math.min(a, b), Math.max(a, b));
+        }
+      }
+
+      for (const key of KEYS) {
+        const set = seen[key];
+        if (set.size === 0) continue;
+        if (set.size === 1) {
+          const [only] = [...set];
+          if (only !== undefined) result[key] = only;
+        } else {
+          // size > 1: either two real values, or one real + undefined.
+          // Both count as 'mixed' — the property differs across the
+          // range.
+          result[key] = 'mixed';
+        }
+      }
+
+      return result as Summary;
+    },
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
@@ -2356,6 +2488,15 @@ export function initialize(
       document.removeEventListener('transitionend', handleTransitionEnd);
       resizeObserver.disconnect();
       canvas.remove();
+    },
+    _setSelectionForTest: (range) => {
+      selection.setRange(range);
+      if (range) {
+        cursor.moveTo({
+          blockId: range.focus.blockId,
+          offset: range.focus.offset,
+        });
+      }
     },
   };
 }
