@@ -137,7 +137,6 @@ export function RightGlobals({
   );
 
   const hasSlideStyleGroup = !!store;
-  const hasPanelGroup = !!onToggleThemePanel || !!onToggleFormatPanel;
 
   // Resolve the current slide's background fill to a CSS color string so
   // the swatch button's stripe always reflects what the user is about to

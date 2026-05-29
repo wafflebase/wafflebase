@@ -60,4 +60,19 @@ describe('ImageAdjustmentsSection', () => {
     fireEvent.pointerUp(slider);
     expect(onCommit).toHaveBeenCalledWith(['a', 'b'], 0.6);
   });
+
+  it('commits opacity on keyup so keyboard adjustments (arrow / Home / End) reach the store', () => {
+    const onCommit = vi.fn();
+    render(
+      <ImageAdjustmentsSection
+        elements={[img('a', 1)]}
+        onCommit={onCommit}
+      />,
+    );
+    const slider = screen.getByLabelText(/transparency/i);
+    // Keyboard adjustment fires onChange then keyup — no pointer event.
+    fireEvent.change(slider, { target: { value: '25' } });
+    fireEvent.keyUp(slider, { key: 'ArrowUp' });
+    expect(onCommit).toHaveBeenCalledWith(['a'], 0.75);
+  });
 });

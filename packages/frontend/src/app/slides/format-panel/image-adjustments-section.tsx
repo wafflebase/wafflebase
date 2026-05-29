@@ -27,6 +27,19 @@ export function ImageAdjustmentsSection({
     setDraft(common ?? 0);
   }, [common]);
 
+  // Commit on both pointerUp (drag release) and keyUp (arrow / Home / End
+  // / Page Up / Page Down on a native range input). Keyboard adjustments
+  // fire onChange to update the draft but never a pointer event, so
+  // without onKeyUp the change would be visible in the slider thumb but
+  // never reach the store.
+  const commit = (): void => {
+    const opacity = 1 - draft / 100;
+    onCommit(
+      elements.map((el) => el.id),
+      opacity,
+    );
+  };
+
   return (
     <section aria-labelledby="format-adjustments-label" className="p-3">
       <h3
@@ -45,13 +58,8 @@ export function ImageAdjustmentsSection({
           step={1}
           value={draft}
           onChange={(e) => setDraft(Number(e.target.value))}
-          onPointerUp={() => {
-            const opacity = 1 - draft / 100;
-            onCommit(
-              elements.map((el) => el.id),
-              opacity,
-            );
-          }}
+          onPointerUp={commit}
+          onKeyUp={commit}
           className="w-full"
         />
         <span className="text-xs text-muted-foreground">{draft}%</span>
