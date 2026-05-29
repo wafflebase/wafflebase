@@ -1,6 +1,6 @@
 # Slides Toolbar Tier 1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add five universal slides toolbar controls (Layout split-button, Font size A↑/A↓ steppers, Clear formatting, Zoom dropdown, Format painter) without changing the existing morphing-toolbar state machine.
 
@@ -62,7 +62,7 @@ Design doc: `docs/design/slides/slides-toolbar-tier1.md`.
 - Create: `packages/frontend/src/app/slides/toolbar/layout-button.tsx`
 - Test: `packages/frontend/src/app/slides/toolbar/layout-button.test.tsx`
 
-- [ ] **Step 1: Write failing unit test**
+- [x] **Step 1: Write failing unit test**
 
 Create `layout-button.test.tsx`:
 
@@ -102,12 +102,12 @@ describe('LayoutButton', () => {
 });
 ```
 
-- [ ] **Step 2: Verify test fails**
+- [x] **Step 2: Verify test fails**
 
 Run: `pnpm --filter @wafflebase/frontend test layout-button`
 Expected: FAIL (file missing).
 
-- [ ] **Step 3: Implement `LayoutButton`**
+- [x] **Step 3: Implement `LayoutButton`**
 
 Create `layout-button.tsx`:
 
@@ -175,12 +175,12 @@ export function LayoutButton({ store, editor }: LayoutButtonProps) {
 }
 ```
 
-- [ ] **Step 4: Verify test passes**
+- [x] **Step 4: Verify test passes**
 
 Run: `pnpm --filter @wafflebase/frontend test layout-button`
 Expected: PASS.
 
-- [ ] **Step 5: Mount in toolbar shell**
+- [x] **Step 5: Mount in toolbar shell**
 
 In `packages/frontend/src/app/slides/toolbar/index.tsx`, after the existing `<SlideGroup>` line:
 
@@ -191,12 +191,12 @@ import { LayoutButton } from './layout-button';
 <LayoutButton store={store} editor={editor} />
 ```
 
-- [ ] **Step 6: Verify the toolbar still renders**
+- [x] **Step 6: Verify the toolbar still renders**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/layout-button.tsx \
@@ -216,7 +216,7 @@ git commit -m "Add slides Layout split-button for current slide"
 - Create: `packages/frontend/src/components/text-formatting/text-size-stepper.test.tsx`
 - Modify: `packages/frontend/src/components/text-formatting/index.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `text-size-stepper.test.tsx`:
 
@@ -263,12 +263,12 @@ describe('TextSizeStepper', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `pnpm --filter @wafflebase/frontend test text-size-stepper`
 Expected: FAIL (file missing).
 
-- [ ] **Step 3: Implement the stepper**
+- [x] **Step 3: Implement the stepper**
 
 Create `text-size-stepper.tsx`:
 
@@ -352,7 +352,7 @@ export function TextSizeStepper({ editor, disabled = false }: TextSizeStepperPro
 }
 ```
 
-- [ ] **Step 4: Re-export from `components/text-formatting/index.ts`**
+- [x] **Step 4: Re-export from `components/text-formatting/index.ts`**
 
 Append:
 
@@ -360,12 +360,12 @@ Append:
 export { TextSizeStepper, SIZE_STOPS } from './text-size-stepper';
 ```
 
-- [ ] **Step 5: Verify tests pass**
+- [x] **Step 5: Verify tests pass**
 
 Run: `pnpm --filter @wafflebase/frontend test text-size-stepper`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/components/text-formatting/text-size-stepper.tsx \
@@ -380,7 +380,7 @@ git commit -m "Add shared TextSizeStepper for A↑/A↓ font size buttons"
 - Modify: `packages/frontend/src/app/slides/toolbar/text-edit-section.tsx`
 - Modify: `packages/frontend/src/app/slides/toolbar/text-element-controls.tsx`
 
-- [ ] **Step 1: Edit `text-edit-section.tsx`**
+- [x] **Step 1: Edit `text-edit-section.tsx`**
 
 After `<TextStyleGroup ... />` and the following `<ToolbarSeparator />`, add:
 
@@ -392,7 +392,7 @@ import { TextSizeStepper } from '@/components/text-formatting';
 <ToolbarSeparator className="mx-1" />
 ```
 
-- [ ] **Step 2: Extract `setBoxFontSize` helper inside `text-element-controls.tsx`**
+- [x] **Step 2: Extract `setBoxFontSize` helper inside `text-element-controls.tsx`**
 
 Replace the existing `onFontSize` body with a call to a top-level helper that the stepper can also reuse:
 
@@ -444,12 +444,12 @@ const boxStepperEditor: TextFormattingEditor | null = store && slideId
 <TextSizeStepper editor={boxStepperEditor} />
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/text-edit-section.tsx \
@@ -466,7 +466,7 @@ git commit -m "Mount A↑/A↓ font size stepper in slides text states"
 **Files:**
 - Modify: `packages/frontend/src/components/text-formatting/types.ts`
 
-- [ ] **Step 1: Add the method**
+- [x] **Step 1: Add the method**
 
 Append inside the interface:
 
@@ -479,7 +479,7 @@ Append inside the interface:
 clearInlineFormatting(): void;
 ```
 
-- [ ] **Step 2: Verify the build typechecks against existing callers (no implementations yet — they'll fail)**
+- [x] **Step 2: Verify the build typechecks against existing callers (no implementations yet — they'll fail)**
 
 Run: `pnpm --filter @wafflebase/frontend tsc -p . --noEmit`
 Expected: fails in slides text-box-editor.ts and docs editor-api.ts (next tasks fix).
@@ -490,7 +490,7 @@ Expected: fails in slides text-box-editor.ts and docs editor-api.ts (next tasks 
 - Modify: `packages/slides/src/view/editor/text-box-editor.ts`
 - Create: `packages/slides/test/view/editor/text-box-clear-formatting.test.ts`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `text-box-clear-formatting.test.ts` that builds a text element with `{ bold: true, color: '#f00', fontSize: 24 }` styled runs, calls `editor.clearInlineFormatting()`, and asserts the resulting blocks have empty `style` objects (`Object.keys(style).length === 0`) on every run touched by the selection.
 
@@ -510,7 +510,7 @@ describe('text-box-editor clearInlineFormatting', () => {
 });
 ```
 
-- [ ] **Step 2: Implement `clearInlineFormatting`**
+- [x] **Step 2: Implement `clearInlineFormatting`**
 
 In `text-box-editor.ts`, add a method that uses the same path as the existing `applyStyle` but writes an empty style:
 
@@ -526,7 +526,7 @@ clearInlineFormatting(): void {
 
 (The exact wiring depends on `applyStyle`'s implementation — verify whether passing `{}` yields a no-op or a clear. If no-op, switch to a low-level `replaceStyleAtRange` call that overwrites instead of merging.)
 
-- [ ] **Step 3: Verify test passes**
+- [x] **Step 3: Verify test passes**
 
 Run: `pnpm --filter @wafflebase/slides test text-box-clear-formatting`
 Expected: PASS.
@@ -536,11 +536,11 @@ Expected: PASS.
 **Files:**
 - Modify: `packages/docs/src/view/editor-api.ts`
 
-- [ ] **Step 1: Check if docs already has a clear-formatting action**
+- [x] **Step 1: Check if docs already has a clear-formatting action**
 
 Grep for `clearFormatting`, `Cmd+\\`, or `IconClearFormatting`. If a method like `clearFormatting` exists, add a thin `clearInlineFormatting` alias. If not, implement parallel to the slides version above.
 
-- [ ] **Step 2: Run docs tests**
+- [x] **Step 2: Run docs tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: PASS.
@@ -550,7 +550,7 @@ Expected: PASS.
 **Files:**
 - Modify: `packages/frontend/src/components/text-formatting/text-format-group.tsx`
 
-- [ ] **Step 1: Append button after the Link button**
+- [x] **Step 1: Append button after the Link button**
 
 Inside `TextFormatGroup`:
 
@@ -577,12 +577,12 @@ const hasStyle = styleKeys > 0;
 </Tooltip>
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 3: Commit (C1–C4 together)**
+- [x] **Step 3: Commit (C1–C4 together)**
 
 ```bash
 git add packages/frontend/src/components/text-formatting/types.ts \
@@ -603,7 +603,7 @@ git commit -m "Add Clear formatting button to docs+slides text toolbar"
 - Modify: `packages/frontend/src/app/slides/slides-view.tsx`
 - Modify: `packages/frontend/src/app/slides/slides-detail.tsx`
 
-- [ ] **Step 1: Define the controller next to the view**
+- [x] **Step 1: Define the controller next to the view**
 
 At the top of `slides-view.tsx` (before the component):
 
@@ -636,7 +636,7 @@ export function createZoomController(initial = 1.0): ZoomController {
 }
 ```
 
-- [ ] **Step 2: Accept `zoomController` as a `SlidesView` prop and apply in `refitCanvas`**
+- [x] **Step 2: Accept `zoomController` as a `SlidesView` prop and apply in `refitCanvas`**
 
 In the props interface, add `zoomController?: ZoomController | null`. Inside `refitCanvas` (around `slides-view.tsx:540`), after `const fit = computeFitSize(...)`, multiply by `userZoom`:
 
@@ -648,7 +648,7 @@ const nextH = Math.round(fit.height * userZoom);
 
 Subscribe to `zoomController?.subscribe(refitCanvas)` in the same effect that owns the `ResizeObserver`, and unsubscribe in cleanup.
 
-- [ ] **Step 3: Create the controller in `slides-detail.tsx` and thread it**
+- [x] **Step 3: Create the controller in `slides-detail.tsx` and thread it**
 
 ```tsx
 const zoomControllerRef = useRef<ZoomController>(createZoomController(1.0));
@@ -657,7 +657,7 @@ const zoomControllerRef = useRef<ZoomController>(createZoomController(1.0));
 <SlidesToolbar ... zoomController={zoomControllerRef.current} />
 ```
 
-- [ ] **Step 4: Verify the view still renders at Fit (1.0)**
+- [x] **Step 4: Verify the view still renders at Fit (1.0)**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
@@ -668,7 +668,7 @@ Expected: PASS.
 - Create: `packages/frontend/src/app/slides/toolbar/zoom-control.tsx`
 - Create: `packages/frontend/src/app/slides/toolbar/zoom-control.test.tsx`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```tsx
 import { describe, it, expect } from 'vitest';
@@ -699,7 +699,7 @@ describe('ZoomControl', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `zoom-control.tsx`:
 
@@ -758,15 +758,15 @@ export function ZoomControl({ controller }: ZoomControlProps) {
 }
 ```
 
-- [ ] **Step 3: Mount in `RightGlobals`**
+- [x] **Step 3: Mount in `RightGlobals`**
 
 Modify `global-controls.tsx`: accept `zoomController?: ZoomController | null` on `RightGlobalsProps`; render `<ZoomControl controller={zoomController ?? null} />` just before the `Slide background` dropdown.
 
-- [ ] **Step 4: Pass `zoomController` through `toolbar/index.tsx`**
+- [x] **Step 4: Pass `zoomController` through `toolbar/index.tsx`**
 
 `SlidesToolbarProps` gains `zoomController?: ZoomController | null`; threaded into `<RightGlobals ... zoomController={zoomController}/>`.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
@@ -778,7 +778,7 @@ Expected: PASS.
 - Modify: `packages/slides/src/view/editor/editor.ts` (add `onZoomStep` editor option)
 - Modify: `packages/slides/src/view/editor/shortcuts-catalog.ts`
 
-- [ ] **Step 1: Add the option**
+- [x] **Step 1: Add the option**
 
 Extend `SlidesEditorOptions` with:
 
@@ -787,11 +787,11 @@ Extend `SlidesEditorOptions` with:
 onZoomStep?: (dir: 1 | -1) => void;
 ```
 
-- [ ] **Step 2: Hook into keyboard handler**
+- [x] **Step 2: Hook into keyboard handler**
 
 In `interactions/keyboard.ts`, add cases for `Cmd+=` and `Cmd+-` that call `ctx.options.onZoomStep?.(+1 / -1)` and `event.preventDefault()`.
 
-- [ ] **Step 3: Wire on the frontend**
+- [x] **Step 3: Wire on the frontend**
 
 In `slides-view.tsx`, pass `onZoomStep` when constructing the editor:
 
@@ -805,7 +805,7 @@ onZoomStep: (dir) => {
 
 `pickPreset` is a small helper colocated in `zoom-control.tsx` and exported.
 
-- [ ] **Step 4: Catalog entry**
+- [x] **Step 4: Catalog entry**
 
 Add to `shortcuts-catalog.ts`:
 
@@ -814,12 +814,12 @@ Add to `shortcuts-catalog.ts`:
 { id: 'zoom-out', label: 'Zoom out', shortcut: 'Cmd/Ctrl + -' },
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 6: Commit Phase D**
+- [x] **Step 6: Commit Phase D**
 
 ```bash
 git add packages/frontend/src/app/slides/slides-view.tsx \
@@ -844,7 +844,7 @@ git commit -m "Add zoom dropdown with Fit/50–200% and Cmd+/- shortcuts"
 - Modify: `packages/slides/src/view/editor/editor.ts`
 - Create: `packages/slides/test/view/editor/format-paint.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 // packages/slides/test/view/editor/format-paint.test.ts
@@ -865,7 +865,7 @@ describe('format-paint editor API', () => {
 });
 ```
 
-- [ ] **Step 2: Implement public methods**
+- [x] **Step 2: Implement public methods**
 
 Add a private `paintMode: PaintSnapshot | null` field and:
 
@@ -896,7 +896,7 @@ if (this.paintMode) {
 
 Hook Esc into `cancelFormatPaint` in the existing keyboard handler.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm --filter @wafflebase/slides test format-paint`
 Expected: PASS.
@@ -908,7 +908,7 @@ Expected: PASS.
 - Create: `packages/frontend/src/app/slides/toolbar/format-painter.test.tsx`
 - Modify: `packages/frontend/src/app/slides/toolbar/index.tsx`
 
-- [ ] **Step 1: Write failing component test**
+- [x] **Step 1: Write failing component test**
 
 ```tsx
 describe('FormatPainterButton', () => {
@@ -918,7 +918,7 @@ describe('FormatPainterButton', () => {
 });
 ```
 
-- [ ] **Step 2: Implement the button**
+- [x] **Step 2: Implement the button**
 
 ```tsx
 function deriveSource(editor: SlidesEditor): PaintSource {
@@ -946,19 +946,19 @@ export function FormatPainterButton({ editor }: { editor: SlidesEditor | null })
 }
 ```
 
-- [ ] **Step 3: Mount after `<UndoRedoGroup />` in `toolbar/index.tsx`**
+- [x] **Step 3: Mount after `<UndoRedoGroup />` in `toolbar/index.tsx`**
 
 ```tsx
 <UndoRedoGroup store={store} />
 <FormatPainterButton editor={editor} />
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -979,35 +979,35 @@ git commit -m "Add slides format painter single-shot copy/paste of element style
 **Files:**
 - Modify: `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
 
-- [ ] **Step 1: Add three new scenarios**
+- [x] **Step 1: Add three new scenarios**
 
 - `slides-toolbar-tier1-idle-with-layout-and-zoom` — idle state, layout button + zoom dropdown both visible.
 - `slides-toolbar-tier1-text-edit-with-stepper-and-clear` — text-edit state showing A↑/A↓ and Clear formatting.
 - `slides-toolbar-tier1-format-painter-active` — paint mode active (toggle pressed, crosshair cursor on canvas).
 
-- [ ] **Step 2: Refresh visual baselines locally and inspect**
+- [x] **Step 2: Refresh visual baselines locally and inspect**
 
 Run: `pnpm verify:browser:docker`
 Expected: PASS after the new baselines are accepted.
 
 ### Task F2: Final verify + branch self-review
 
-- [ ] **Step 1: Full verify**
+- [x] **Step 1: Full verify**
 
 Run: `pnpm verify:fast` then `pnpm verify:self`.
 Expected: both PASS.
 
-- [ ] **Step 2: Self code review**
+- [x] **Step 2: Self code review**
 
 Dispatch `/code-review` over the full branch diff. Apply blocking findings; note non-blocking ones in the lessons file.
 
-- [ ] **Step 3: Lessons + archive**
+- [x] **Step 3: Lessons + archive**
 
 Write `docs/tasks/active/20260529-slides-toolbar-tier1-lessons.md` capturing any surprises (e.g. test-id collisions, applyStyle({}) semantics, zoom interaction with rulers).
 
 Run: `pnpm tasks:archive && pnpm tasks:index`.
 
-- [ ] **Step 4: Open PR**
+- [x] **Step 4: Open PR**
 
 Title: `Add slides toolbar tier-1 universal controls`
 Body: Summary + Test plan; reference design doc.
