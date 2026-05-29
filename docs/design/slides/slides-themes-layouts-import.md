@@ -649,9 +649,9 @@ for visual regression.
 - PR2: `pnpm verify:integration` + 36-slide e2e
 - PR3: `pnpm verify:browser:docker`
 
-### Editor parity gap (post-import)
+### Editor parity (post-import)
 
-Vertical anchor is honored by the slide canvas renderer and the read-only present mode. The in-place text-box editor still mounts at the top of the frame: while editing, text appears "snapped up"; it returns to the configured anchor on commit. Tracked for Chunk 3 of `docs/tasks/active/20260529-slides-pptx-text-vertical-anchor-todo.md`.
+Vertical anchor is honored across the slide canvas renderer, the read-only present mode, and the in-place text-box editor (commits on branch `slides-pptx-text-vertical-anchor`). Paint, caret, selection, and click hit-test all align with the configured anchor.
 
 ## Future / Out of Scope
 
