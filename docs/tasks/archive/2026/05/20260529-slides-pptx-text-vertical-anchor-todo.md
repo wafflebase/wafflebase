@@ -23,7 +23,7 @@
 - Modify: `packages/slides/src/model/element.ts:133-149`
 - Test: `packages/slides/test/model/element.test.ts` (may not exist; if absent, create or skip — the type-level change is exercised by Task 3's renderer test)
 
-- [ ] **Step 1: Add field to `TextElement['data']`**
+- [x] **Step 1: Add field to `TextElement['data']`**
 
 In `packages/slides/src/model/element.ts`, modify the `TextElement` type declaration:
 
@@ -59,12 +59,12 @@ export type TextElement = ElementBase & {
 };
 ```
 
-- [ ] **Step 2: Verify type-checks across the package**
+- [x] **Step 2: Verify type-checks across the package**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
 Expected: clean (no callers break because the field is optional).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts
@@ -89,7 +89,7 @@ EOF
 - Modify: `packages/slides/src/import/pptx/shape.ts:532-563`
 - Test: `packages/slides/test/import/pptx/text.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `packages/slides/test/import/pptx/text.test.ts` (at the end of the file, in a new `describe` block):
 
@@ -129,12 +129,12 @@ describe('detectVerticalAnchor', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to confirm it fails**
+- [x] **Step 2: Run test to confirm it fails**
 
 Run: `pnpm --filter @wafflebase/slides test text.test.ts -t "detectVerticalAnchor"`
 Expected: FAIL with `detectVerticalAnchor is not a function` (or "not exported").
 
-- [ ] **Step 3: Implement `detectVerticalAnchor` in `text.ts`**
+- [x] **Step 3: Implement `detectVerticalAnchor` in `text.ts`**
 
 In `packages/slides/src/import/pptx/text.ts`, after `detectAutofitMode` (around line 42), add:
 
@@ -166,12 +166,12 @@ export function detectVerticalAnchor(
 }
 ```
 
-- [ ] **Step 4: Run test to confirm it passes**
+- [x] **Step 4: Run test to confirm it passes**
 
 Run: `pnpm --filter @wafflebase/slides test text.test.ts -t "detectVerticalAnchor"`
 Expected: PASS (6 specs).
 
-- [ ] **Step 5: Wire into `buildTextElement` in `shape.ts`**
+- [x] **Step 5: Wire into `buildTextElement` in `shape.ts`**
 
 In `packages/slides/src/import/pptx/shape.ts`, modify the import line (around line 33) and the `buildTextElement` body (around line 532-563):
 
@@ -217,7 +217,7 @@ function buildTextElement(
 }
 ```
 
-- [ ] **Step 6: Add an importer integration test**
+- [x] **Step 6: Add an importer integration test**
 
 Add to `packages/slides/test/import/pptx/text.test.ts` a test that exercises the importer path end-to-end (this guards the `shape.ts` wiring, which the unit test of step 1 does not):
 
@@ -273,12 +273,12 @@ describe('PPTX import — verticalAnchor wiring', () => {
 });
 ```
 
-- [ ] **Step 7: Run all importer text tests**
+- [x] **Step 7: Run all importer text tests**
 
 Run: `pnpm --filter @wafflebase/slides test text.test.ts`
 Expected: PASS (existing tests + 8 new).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/slides/src/import/pptx/text.ts packages/slides/src/import/pptx/shape.ts packages/slides/test/import/pptx/text.test.ts
@@ -302,7 +302,7 @@ EOF
 - Modify: `packages/slides/src/view/canvas/text-renderer.ts:81-127`
 - Test: `packages/slides/test/view/canvas/text-renderer.test.ts`
 
-- [ ] **Step 1: Write failing renderer tests**
+- [x] **Step 1: Write failing renderer tests**
 
 Add to `packages/slides/test/view/canvas/text-renderer.test.ts` (in the existing `describe('drawText', ...)`):
 
@@ -350,12 +350,12 @@ it('falls back to top-anchored when content is taller than the frame', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 Run: `pnpm --filter @wafflebase/slides test text-renderer.test.ts -t "verticalAnchor"`
 Expected: FAIL — `verticalAnchor: 'bottom'` test paints at y < 50.
 
-- [ ] **Step 3: Apply the offset in `drawText`**
+- [x] **Step 3: Apply the offset in `drawText`**
 
 In `packages/slides/src/view/canvas/text-renderer.ts`, replace the body around lines 119-127:
 
@@ -397,17 +397,17 @@ function computeVerticalOriginY(
 }
 ```
 
-- [ ] **Step 4: Run tests to confirm pass**
+- [x] **Step 4: Run tests to confirm pass**
 
 Run: `pnpm --filter @wafflebase/slides test text-renderer.test.ts`
 Expected: PASS (existing + 4 new).
 
-- [ ] **Step 5: Run the broader slides test suite for regressions**
+- [x] **Step 5: Run the broader slides test suite for regressions**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/text-renderer.ts packages/slides/test/view/canvas/text-renderer.test.ts
@@ -434,24 +434,24 @@ EOF
 **Files:**
 - None (manual verification).
 
-- [ ] **Step 1: Start dev server**
+- [x] **Step 1: Start dev server**
 
 Run: `pnpm dev`
 Expected: frontend on :5173, backend on :3000.
 
-- [ ] **Step 2: Import the source deck**
+- [x] **Step 2: Import the source deck**
 
 In the running app, import `/Users/hackerwins/Downloads/Yorkie, 캐즘 뛰어넘기.pptx` via the slides import path (the same flow used by the share URL `http://localhost:5173/shared/8fc980e1-09ee-457a-85f8-125360c22ead`).
 
-- [ ] **Step 3: Visually compare slide 1**
+- [x] **Step 3: Visually compare slide 1**
 
 Open the imported deck and inspect slide 1. The title "Yorkie, 캐즘 뛰어넘기" should sit near the BOTTOM of the title placeholder (~2/3 down the slide), matching the source `.pptx` rendered in PowerPoint or Google Slides — NOT at the top of the placeholder box.
 
-- [ ] **Step 4: Spot-check additional slides**
+- [x] **Step 4: Spot-check additional slides**
 
 Page through 3-5 additional slides whose layouts use the title-slide / section-header masters. Note any remaining vertical position mismatches; record them for the lessons file if found.
 
-- [ ] **Step 5: Spot-check existing decks for regressions**
+- [x] **Step 5: Spot-check existing decks for regressions**
 
 Open one or two pre-existing decks (not the Yorkie one). Their title placeholders use `verticalAnchor: undefined` — they MUST render identically to before (top-anchored). If any pre-existing deck shows a visual change, stop and investigate (Task 3 step 6 commit should be the only behavioral change for legacy data).
 
@@ -464,7 +464,7 @@ Open one or two pre-existing decks (not the Yorkie one). Their title placeholder
 **Files:**
 - Modify: `docs/design/slides/slides-themes-layouts-import.md` (the existing import doc)
 
-- [ ] **Step 1: Add `<a:bodyPr anchor>` to the support matrix**
+- [x] **Step 1: Add `<a:bodyPr anchor>` to the support matrix**
 
 Locate the support matrix table near the bottom of `docs/design/slides/slides-themes-layouts-import.md`. Add a row (replace `??` with the actual file:line at write time):
 
@@ -472,13 +472,13 @@ Locate the support matrix table near the bottom of `docs/design/slides/slides-th
 | Vertical text anchor (`<a:bodyPr anchor>`) | ✅ `TextElement.data.verticalAnchor` (`packages/slides/src/import/pptx/text.ts:detectVerticalAnchor`); rendered via offset in `text-renderer.ts:computeVerticalOriginY`. `t/ctr/b` map to `top/middle/bottom`; `just`/`dist` collapse to `top`. |
 ```
 
-- [ ] **Step 2: Note the editor parity gap**
+- [x] **Step 2: Note the editor parity gap**
 
 Add a short "Known limitations" bullet (under the existing limitations section if one exists, otherwise create one above the support matrix):
 
 > Vertical anchor is honored by the slide canvas renderer and the read-only present mode, but the in-place text-box editor still mounts at the top of the frame. While editing, text appears "snapped up"; it returns to the configured anchor on commit. Tracked for Chunk 3.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/design/slides/slides-themes-layouts-import.md
@@ -507,7 +507,7 @@ This chunk closes the awkward "text snaps to top while editing" UX. It is more i
 - Modify: `packages/docs/src/view/text-box-editor.ts` (pointer handler — wherever `findPositionAtPixel` is called for clicks)
 - Test: `packages/docs/test/view/text-box-editor.test.ts` (or whichever test file exists; create one if absent)
 
-- [ ] **Step 1: Add the option**
+- [x] **Step 1: Add the option**
 
 In `TextBoxEditorOptions`, add:
 
@@ -524,7 +524,7 @@ In `TextBoxEditorOptions`, add:
   verticalAnchor?: 'top' | 'middle' | 'bottom';
 ```
 
-- [ ] **Step 2: Compute and apply origin Y in `renderNow`**
+- [x] **Step 2: Compute and apply origin Y in `renderNow`**
 
 Inside `renderNow`, just after `recomputeLayout()` and the `onContentHeightChange` notification, add:
 
@@ -563,7 +563,7 @@ function computeVerticalOriginY(
 }
 ```
 
-- [ ] **Step 3: Offset the click hit-test**
+- [x] **Step 3: Offset the click hit-test**
 
 Search for the pointer handler in `text-box-editor.ts` that calls `findPositionAtPixel` (it converts `clientX/Y` minus container rect, divides by `scale`, then calls the helper). Subtract `originY` from the y argument before calling:
 
@@ -579,18 +579,18 @@ const hit = findPositionAtPixel(layout, layoutX, adjustedY);
 
 (Read the actual handler code at edit time; the call site name and surrounding variables will reveal the right substitution.)
 
-- [ ] **Step 4: Write tests**
+- [x] **Step 4: Write tests**
 
 In the docs text-box-editor test file, add cases:
 - Mount with `verticalAnchor: 'bottom'` and assert the painted text appears in the bottom half of the canvas (mirror the slides renderer test using a ctx spy).
 - Simulate a pointer event at the visible text position and assert the cursor lands at offset 0 of the first block (the click hit must map back through the offset).
 
-- [ ] **Step 5: Run docs tests**
+- [x] **Step 5: Run docs tests**
 
 Run: `pnpm --filter @wafflebase/docs test text-box-editor`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/text-box-editor.ts packages/docs/test/view/text-box-editor.test.ts
@@ -615,7 +615,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/text-box-editor.ts:136-265` (mount body)
 - Modify: `packages/slides/src/view/editor/editor.ts` (caller — search for the `mountSlidesTextBox(` call)
 
-- [ ] **Step 1: Add option**
+- [x] **Step 1: Add option**
 
 In `MountSlidesTextBoxOptions`:
 
@@ -628,19 +628,19 @@ In `MountSlidesTextBoxOptions`:
   verticalAnchor?: 'top' | 'middle' | 'bottom';
 ```
 
-- [ ] **Step 2: Forward to `initializeTextBox`**
+- [x] **Step 2: Forward to `initializeTextBox`**
 
 In the `initializeTextBox({...})` payload inside `mountSlidesTextBox`, add `verticalAnchor: opts.verticalAnchor`.
 
-- [ ] **Step 3: Pass from the editor caller**
+- [x] **Step 3: Pass from the editor caller**
 
 In `packages/slides/src/view/editor/editor.ts`, find the call to `mountSlidesTextBox(`. Pass `verticalAnchor: element.data.verticalAnchor` from the `TextElement` being edited.
 
-- [ ] **Step 4: Smoke test edit flow**
+- [x] **Step 4: Smoke test edit flow**
 
 Run: `pnpm dev`. Import the Yorkie deck. Double-click slide 1's title to enter edit mode — the text should stay at the bottom of the frame while editing (not jump to the top). Press Escape; the canvas re-render should be visually identical to the editing surface.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/text-box-editor.ts packages/slides/src/view/editor/editor.ts
@@ -657,7 +657,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 6: Update the design doc**
+- [x] **Step 6: Update the design doc**
 
 Remove the "Known limitations" bullet added in Task 5 step 2 (or convert it to a "Resolved by …" note).
 
@@ -675,9 +675,9 @@ EOF
 
 ## Self-review checklist
 
-- [ ] **Spec coverage**: every brainstormed responsibility (parse anchor, store on model, render with offset, editor parity, design doc) has a task above. ✅
-- [ ] **No placeholders**: every step has either exact code, an exact command, or a manual verification statement. ✅
-- [ ] **Type consistency**: `verticalAnchor: 'top' | 'middle' | 'bottom'` appears identically in model, importer, slides renderer, docs editor option, and slides wrapper option. `computeVerticalOriginY` has the same signature in the slides renderer and docs editor (duplicated intentionally — separate package, no shared util). ✅
+- [x] **Spec coverage**: every brainstormed responsibility (parse anchor, store on model, render with offset, editor parity, design doc) has a task above. ✅
+- [x] **No placeholders**: every step has either exact code, an exact command, or a manual verification statement. ✅
+- [x] **Type consistency**: `verticalAnchor: 'top' | 'middle' | 'bottom'` appears identically in model, importer, slides renderer, docs editor option, and slides wrapper option. `computeVerticalOriginY` has the same signature in the slides renderer and docs editor (duplicated intentionally — separate package, no shared util). ✅
 
 ---
 

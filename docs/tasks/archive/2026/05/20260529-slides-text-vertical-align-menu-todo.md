@@ -24,7 +24,7 @@
 
 The existing `ContextMenuItem` has `label`, `run`, `disabled?`. Add an optional `selected?: boolean` so callers can mark "this is the currently active choice in a radio group" (e.g. the current `verticalAnchor`). The menu prefixes selected items with a check-mark glyph so they read distinctly without restructuring the menu into a submenu.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 In `packages/slides/test/view/editor/context-menu.test.ts`, append:
 
@@ -78,7 +78,7 @@ describe('showContextMenu — selected indicator', () => {
 
 If the existing context-menu test file lacks the `dismiss` import, add it from `../../../src/view/editor/context-menu`.
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 ```bash
 pnpm --filter @wafflebase/slides test context-menu.test.ts
@@ -86,7 +86,7 @@ pnpm --filter @wafflebase/slides test context-menu.test.ts
 
 Expect failure: `selected` field unknown / no check-mark prefix on the rendered `<li>`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `packages/slides/src/view/editor/context-menu.ts`, change the `ContextMenuItem` interface:
 
@@ -129,7 +129,7 @@ li.textContent = anySelected
   : item.label;
 ```
 
-- [ ] **Step 4: Run tests to confirm pass**
+- [x] **Step 4: Run tests to confirm pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test context-menu.test.ts
@@ -137,7 +137,7 @@ pnpm --filter @wafflebase/slides test context-menu.test.ts
 
 Expect 3 new specs pass; existing menu specs unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/context-menu.ts packages/slides/test/view/editor/context-menu.test.ts
@@ -164,7 +164,7 @@ EOF
 
 The new items appear ONLY when the selection contains exactly one `TextElement`. Multi-select hides them.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Find the existing slides editor test that exercises `elementContextItems` (or `showContextMenu` invoked by right-click). Look for tests under `packages/slides/test/view/editor/` that build a slide with a text element, right-click it, and assert menu items. If no such test exists, append to `context-menu.test.ts` an editor-facing test that goes through `editor.onContextMenu` directly.
 
@@ -245,7 +245,7 @@ The exact harness API (`buildEditorWithText`, `elementContextItemsForTest`) depe
 
 Pick whichever the existing test file uses. If nothing exists, prefer the `(editor as unknown as { elementContextItems(id: string): ContextMenuItem[] })` cast — least-invasive.
 
-- [ ] **Step 2: Run tests to confirm failure**
+- [x] **Step 2: Run tests to confirm failure**
 
 ```bash
 pnpm --filter @wafflebase/slides test -t "Align text"
@@ -253,7 +253,7 @@ pnpm --filter @wafflebase/slides test -t "Align text"
 
 Expect failure: items missing.
 
-- [ ] **Step 3: Implement in `elementContextItems`**
+- [x] **Step 3: Implement in `elementContextItems`**
 
 In `packages/slides/src/view/editor/editor.ts`, locate `elementContextItems` (around line 1342). After the existing `groupItem` / `ungroupItem` definitions but before the `return` array, add:
 
@@ -306,7 +306,7 @@ Add `...textAlignItems,` to the returned array. The natural slot is BEFORE the "
 
 If `selectedIds` or `slide` aren't already declared in `elementContextItems`'s body, re-use the existing locals — the function already does `const slide = this.options.store.read().slides.find((s) => s.id === slideId);` and `const selectedIds = [...this.selection.get()];`.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test -t "Align text"
@@ -314,7 +314,7 @@ pnpm --filter @wafflebase/slides test -t "Align text"
 
 Expect 4 new specs pass.
 
-- [ ] **Step 5: Run full slides + docs tests**
+- [x] **Step 5: Run full slides + docs tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test --run
@@ -323,7 +323,7 @@ pnpm --filter @wafflebase/docs test --run
 
 Expect no regressions.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/test/view/editor/context-menu.test.ts
@@ -350,13 +350,13 @@ EOF
 
 **Files:** None (verification only).
 
-- [ ] **Step 1: Start dev server**
+- [x] **Step 1: Start dev server**
 
 ```bash
 pnpm dev
 ```
 
-- [ ] **Step 2: Verify on imported PPTX**
+- [x] **Step 2: Verify on imported PPTX**
 
 Open or re-import the Yorkie deck. Right-click slide 1's title:
 - Three "Align text" items appear after the group/ungroup section.
@@ -364,14 +364,14 @@ Open or re-import the Yorkie deck. Right-click slide 1's title:
 - Clicking "Align text top" moves the title to the top of the placeholder; the menu reopens with "Align text top" checked.
 - Refreshing the page preserves the new value (Yorkie persistence).
 
-- [ ] **Step 3: Verify on a new text box**
+- [x] **Step 3: Verify on a new text box**
 
 Create a fresh slide, insert a text box, type some text. Right-click:
 - "Align text top" is checked (unset ⇒ implicit top).
 - Switching to "Align text middle" / "bottom" moves the text accordingly.
 - The visible position matches the committed render before AND after entering edit mode (no snap; covered by the editor parity work).
 
-- [ ] **Step 4: Verify multi-select hides the items**
+- [x] **Step 4: Verify multi-select hides the items**
 
 Select two text boxes (shift-click). Right-click:
 - No "Align text" items in the menu.
