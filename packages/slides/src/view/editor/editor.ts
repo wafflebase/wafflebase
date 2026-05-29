@@ -29,6 +29,11 @@ import {
   snappedEndpoint,
   type ConnectorInsertVariant,
 } from './interactions/insert-connector';
+import {
+  constrainToSquare,
+  snapEndpointAngle,
+  lockAxis,
+} from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
@@ -1932,7 +1937,8 @@ class SlidesEditorImpl implements SlidesEditor {
     let endPoint = start;
     let cancelled = false;
     const onMove = (ev: MouseEvent) => {
-      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      endPoint = ev.shiftKey ? constrainToSquare(start, raw) : raw;
       const init = buildInsertElement(kind, start, endPoint);
       const ghost = { ...init, id: '__preview__' } as Element;
       this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
@@ -2007,7 +2013,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // the very first paint, before any mousemove.
     this.connectorCursor = start;
     const onMove = (ev: MouseEvent) => {
-      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      endPoint = ev.shiftKey ? snapEndpointAngle(start, raw) : raw;
       this.connectorCursor = endPoint;
       const init = buildConnectorInit(variant, start, endPoint, slide.elements, this.scale());
       const ghost = { ...init, id: '__preview__' } as Element;
@@ -2148,15 +2155,24 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
+      const locked = ev.shiftKey ? lockAxis(rawDx, rawDy) : { dx: rawDx, dy: rawDy };
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
-      const { dx, dy, guides } = snapDelta(
+      const snapped = snapDelta(
         bbox,
-        rawDx,
-        rawDy,
+        locked.dx,
+        locked.dy,
         otherFrames,
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
         this.options.store.read().guides,
       );
+      // Re-lock after snap: snapDelta evaluates X and Y independently,
+      // so a sibling edge within the snap threshold of the locked-zero
+      // axis would otherwise un-zero it and let Shift-drag drift off
+      // axis. The lock has the final say.
+      const final = ev.shiftKey ? lockAxis(snapped.dx, snapped.dy) : snapped;
+      const dx = final.dx;
+      const dy = final.dy;
+      const guides = snapped.guides;
       liveDx = dx;
       liveDy = dy;
 
@@ -2445,6 +2461,20 @@ class SlidesEditorImpl implements SlidesEditor {
     // shape and never crosses the move threshold below.
     this.connectorCursor = startCursor;
 
+    // World-space position of the OTHER (non-dragging) endpoint. Captured
+    // once at mousedown — the opposite endpoint stays fixed for the
+    // duration of this drag, so we don't need to re-resolve per move.
+    const otherEndpoint = side === 'start' ? startConnector.end : startConnector.start;
+    // Use flattenElements so endpoints attached to shapes nested inside
+    // groups resolve correctly — a flat root scan would miss them and
+    // resolveEndpoint would return its {0,0} sentinel, snapping the
+    // Shift constraint to the slide origin instead of the real anchor.
+    // Mirrors the move-drag lookup above.
+    const otherWorld = resolveEndpoint(
+      otherEndpoint,
+      new Map(flattenElements(startSlide.elements).map((e) => [e.id, e] as const)),
+    );
+
     const recompute = (cur: { x: number; y: number }) => {
       // Other elements as snap candidates — exclude the connector itself
       // so the endpoint can't self-link. Mirrors `dragEndpoint`'s filter
@@ -2490,14 +2520,17 @@ class SlidesEditorImpl implements SlidesEditor {
     };
 
     const onMove = (ev: MouseEvent) => {
-      const cur = this.clientToLogical(ev.clientX, ev.clientY);
-      // Update the affordance cursor on every move so the dots track
-      // continuously — even sub-deadband moves should refresh the
-      // highlight state under the cursor.
-      this.connectorCursor = cur;
+      const raw = this.clientToLogical(ev.clientX, ev.clientY);
+      // Deadband is measured against the RAW pointer position, not the
+      // Shift-snapped one — `snapEndpointAngle` preserves distance from
+      // `otherWorld`, not from `startCursor`, so a snapped click can
+      // land many logical units from `startCursor` and falsely cross
+      // the threshold (detaching an attached endpoint on what the user
+      // intended as a click). Apply Shift only after the pure-click
+      // gate has been cleared.
       if (!moved) {
-        const dx = cur.x - startCursor.x;
-        const dy = cur.y - startCursor.y;
+        const dx = raw.x - startCursor.x;
+        const dy = raw.y - startCursor.y;
         // Use the same screen-pixel constant as insert so click-vs-drag
         // feels identical across modes (insert / endpoint-drag) and
         // across zoom levels. `MIN_DRAG_DISTANCE` is in screen pixels;
@@ -2506,9 +2539,20 @@ class SlidesEditorImpl implements SlidesEditor {
         // reinterprets the endpoint (e.g. detaches an attached
         // endpoint because the free cursor landed off-site).
         const threshold = CONNECTOR_MIN_DRAG_DISTANCE / this.scale();
-        if (dx * dx + dy * dy < threshold * threshold) return;
+        if (dx * dx + dy * dy < threshold * threshold) {
+          // Update the affordance cursor with the raw position so dots
+          // track continuously below the deadband.
+          this.connectorCursor = raw;
+          return;
+        }
         moved = true;
       }
+      // Shift snap is relative to the fixed opposite endpoint, then the
+      // result flows through the normal snap-to-connection-site test
+      // inside `recompute(cur)`. If the snapped point lands on a site,
+      // it attaches; otherwise it stays free — same precedence as B2.
+      const cur = ev.shiftKey ? snapEndpointAngle(otherWorld, raw) : raw;
+      this.connectorCursor = cur;
       recompute(cur);
       paintLiveConnector();
     };

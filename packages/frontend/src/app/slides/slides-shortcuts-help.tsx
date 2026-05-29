@@ -21,6 +21,7 @@ const CATEGORY_ORDER: ReadonlyArray<ShortcutCategory> = [
   "Selection",
   "Slide",
   "Nudge",
+  "Drag",
   "Clipboard",
   "Z-order",
   "Format",

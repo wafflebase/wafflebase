@@ -27,7 +27,8 @@ export type ShortcutCategory =
   | 'Nudge'
   | 'Format'
   | 'Present'
-  | 'Help';
+  | 'Help'
+  | 'Drag';
 
 export interface ShortcutEntry {
   category: ShortcutCategory;
@@ -82,6 +83,12 @@ export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { category: 'Help', keys: ['Mod+Z'],          description: 'Undo' },
   { category: 'Help', keys: ['Mod+Shift+Z'],    description: 'Redo' },
   { category: 'Help', keys: ['Mod+/'],          description: 'Show keyboard shortcuts' },
+
+  // Drag modifiers --------------------------------------------------------
+  { category: 'Drag', keys: ['Shift'], description: 'While drawing a shape: force 1:1 (square / circle / regular polygon)' },
+  { category: 'Drag', keys: ['Shift'], description: 'While drawing a line / connector: snap endpoint angle to 15°' },
+  { category: 'Drag', keys: ['Shift'], description: 'While dragging a line endpoint: snap to 15° relative to the opposite end' },
+  { category: 'Drag', keys: ['Shift'], description: 'While moving selected elements: lock to the dominant axis (H or V)' },
 ];
 
 /**

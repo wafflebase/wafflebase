@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { Element } from '../../../../src/model/element';
 import { translateElement } from '../../../../src/view/editor/interactions/drag';
+import { lockAxis } from '../../../../src/view/editor/interactions/constraints';
+import { snapDelta } from '../../../../src/view/editor/snap';
 
 const shape = (id: string, x: number, y: number): Element => ({
   id, type: 'shape',
@@ -65,5 +67,58 @@ describe('translateElement', () => {
     // start is untouched — the renderer keeps it pinned to its host.
     expect(result.start).toEqual({ kind: 'attached', elementId: 'host', siteIndex: 0 });
     expect(result.end).toEqual({ kind: 'free', x: 320, y: 190 });
+  });
+});
+
+describe('move drag + Shift locks to dominant axis', () => {
+  it('locks to X when horizontal delta dominates', () => {
+    expect(lockAxis(120, 18)).toEqual({ dx: 120, dy: 0 });
+  });
+
+  it('locks to Y when vertical delta dominates', () => {
+    expect(lockAxis(18, -120)).toEqual({ dx: 0, dy: -120 });
+  });
+
+  it('switches axis live when the user changes direction', () => {
+    // Simulates two onMove frames: first horizontal-dominant, then
+    // vertical-dominant. The lock follows the cumulative pointer.
+    const t1 = lockAxis(50, 5);
+    expect(t1).toEqual({ dx: 50, dy: 0 });
+    const t2 = lockAxis(50, 200);
+    expect(t2).toEqual({ dx: 0, dy: 200 });
+  });
+
+  // Regression: snapDelta evaluates X and Y independently, so a pre-snap
+  // lockAxis isn't enough on its own. If a sibling edge sits within
+  // SNAP_THRESHOLD of the locked-zero axis, snapDelta will re-introduce
+  // a non-zero adjustment on that axis and the element drifts off-lock.
+  // The editor's move-drag handler must re-apply lockAxis AFTER snap to
+  // preserve the constraint.
+  it('lockAxis after snapDelta keeps the perpendicular axis at zero', () => {
+    const dragged = { x: 0, y: 0, w: 100, h: 100 };
+    // Sibling sits with its left edge at y=2 — within snap threshold of
+    // the dragged top after a pure-horizontal move that started at y=0.
+    const sibling = { x: 500, y: 2, w: 50, h: 50, rotation: 0 };
+    const slide = { w: 1920, h: 1080 };
+
+    // Pre-snap lock: user dragged (200, 5), horizontal dominant → (200, 0).
+    const preLock = lockAxis(200, 5);
+    expect(preLock).toEqual({ dx: 200, dy: 0 });
+
+    // snapDelta re-introduces dy because sibling.top=2 is 2px from the
+    // dragged top (which is at y=0 after preLock.dy=0).
+    const snapped = snapDelta(
+      dragged,
+      preLock.dx,
+      preLock.dy,
+      [sibling],
+      slide,
+    );
+    expect(snapped.dy).not.toBe(0);
+
+    // Re-locking AFTER snap restores the perpendicular zero.
+    const final = lockAxis(snapped.dx, snapped.dy);
+    expect(final.dy).toBe(0);
+    expect(final.dx).toBe(snapped.dx);
   });
 });
