@@ -10,6 +10,15 @@ export interface ContextMenuItem {
   label: string;
   run: () => void;
   disabled?: boolean;
+  /**
+   * Opt this item into a radio-group display: when set to `true` or
+   * `false`, the menu draws a check-mark column (`✓` for selected
+   * items, three spaces for non-selected items so labels stay
+   * column-aligned). Items that leave the field `undefined` render
+   * without any prefix, so unrelated action items in the same menu
+   * are not visually shifted. Has no effect on `run()` semantics.
+   */
+  selected?: boolean;
   /** Use a horizontal divider when label is the literal string '---'. */
 }
 
@@ -52,7 +61,15 @@ export function showContextMenu(
       continue;
     }
     const li = document.createElement('li');
-    li.textContent = item.label;
+    // Per-item radio group: items opt in by setting `selected` to a
+    // boolean. Action items leave it undefined and render with no
+    // prefix, so a single radio group inside the menu doesn't leak
+    // the column onto unrelated entries.
+    li.textContent = item.selected === undefined
+      ? item.label
+      : item.selected
+        ? `✓ ${item.label}`
+        : `   ${item.label}`;
     li.style.padding = '6px 16px';
     li.style.cursor = item.disabled ? 'default' : 'pointer';
     if (item.disabled) {

@@ -8,7 +8,7 @@ import {
   type StoredColor,
 } from '@wafflebase/docs';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
-import type { TextElement } from '../../model/element';
+import type { TextElement, VerticalAnchorMode } from '../../model/element';
 import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
 import { resolveColor, resolveFont } from '../../model/theme';
@@ -97,6 +97,9 @@ export function drawText(
 
   if (allEmpty) {
     if (options?.placeholderHint) {
+      // Hint always paints at the top of the frame regardless of
+      // data.verticalAnchor — placeholder ghost text is not anchor-aware
+      // today. Revisit alongside editor parity.
       drawHint(
         ctx,
         size,
@@ -118,12 +121,39 @@ export function drawText(
   // the committed canvas and editing surface stay pixel-identical.
   let toLayout = normalized;
   if (data.autofit === 'shrink') {
+    // padding=0 here so the shrink scale targets the full frame height.
+    // computeVerticalOriginY below also compares against size.h, so the
+    // scaled totalHeight will fit and originY stays non-negative. If a
+    // future caller changes the padding arg, mirror it in originY.
     const scale = computeAutofitScale(normalized, measurer, size.w, size.h, 0);
     if (scale !== 1) toLayout = scaleBlocks(normalized, scale);
   }
 
   const { layout } = computeLayout(toLayout, measurer, size.w);
-  paintLayout(ctx, layout, 0, 0, { colorResolver });
+  const originY = computeVerticalOriginY(data.verticalAnchor, size.h, layout.totalHeight);
+  paintLayout(ctx, layout, 0, originY, { colorResolver });
+}
+
+/**
+ * Compute the y offset that aligns laid-out content to the requested
+ * vertical anchor inside a frame of height `frameH`.
+ *
+ * - `'top'` (and absent) ⇒ 0 (preserves pre-feature behavior).
+ * - `'middle'` ⇒ `(frameH − contentH) / 2`.
+ * - `'bottom'` ⇒ `frameH − contentH`.
+ *
+ * Clamped to ≥ 0 — when content overflows the frame (autofit='none' or
+ * a sufficiently small frame in 'shrink' mode), painting starts at the
+ * top so visible text isn't clipped above the frame entirely.
+ */
+function computeVerticalOriginY(
+  anchor: VerticalAnchorMode | undefined,
+  frameH: number,
+  contentH: number,
+): number {
+  if (anchor === 'middle') return Math.max(0, (frameH - contentH) / 2);
+  if (anchor === 'bottom') return Math.max(0, frameH - contentH);
+  return 0;
 }
 
 /**

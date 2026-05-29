@@ -114,6 +114,12 @@ export type PlaceholderRef = {
 };
 
 /**
+ * Vertical position of laid-out content inside a text frame. Mirrors
+ * OOXML `<a:bodyPr anchor>` (`t` / `ctr` / `b`).
+ */
+export type VerticalAnchorMode = 'top' | 'middle' | 'bottom';
+
+/**
  * Text-box autofit behavior, mirroring OOXML `<a:bodyPr>` children:
  * - 'none'   ↔ <a:noAutofit/>   — box fixed, text overflows
  * - 'shrink' ↔ <a:normAutofit/> — box fixed, font auto-scales down to fit
@@ -145,6 +151,18 @@ export type TextElement = ElementBase & {
      * `docs/design/slides/slides-text-autofit.md`.
      */
     autofit?: AutofitMode;
+    /**
+     * Vertical position of the laid-out content inside the text frame.
+     * Mirrors OOXML `<a:bodyPr anchor>`:
+     * - `'top'` ↔ `anchor="t"` (and absent — preserves pre-feature behavior)
+     * - `'middle'` ↔ `anchor="ctr"`
+     * - `'bottom'` ↔ `anchor="b"`
+     *
+     * Imported from PPTX; the renderer translates the paint origin by
+     * `(frame.h − layout.totalHeight) * factor` so content sits at the
+     * top / middle / bottom of the frame.
+     */
+    verticalAnchor?: VerticalAnchorMode;
   };
 };
 

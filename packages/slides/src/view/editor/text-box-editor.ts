@@ -32,7 +32,7 @@ import {
   type HeadingLevel,
   type ColorResolver,
 } from '@wafflebase/docs';
-import type { AutofitMode, Frame } from '../../model/element';
+import type { AutofitMode, Frame, VerticalAnchorMode } from '../../model/element';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
 
 /**
@@ -78,6 +78,13 @@ export interface MountSlidesTextBoxOptions {
    * - 'none' → fixed box, no scaling, text overflows.
    */
   autofit?: AutofitMode;
+  /**
+   * Vertical anchor of the text element. Forwarded to the docs text-box
+   * editor so the in-place editor positions text at the same y as the
+   * committed slide canvas. Mirrors OOXML `<a:bodyPr anchor>`. Absent ⇒
+   * top, matching pre-feature behaviour.
+   */
+  verticalAnchor?: VerticalAnchorMode;
   /**
    * Theme-aware color resolver built from the deck's active theme (see
    * `makeColorResolver` in the canvas text-renderer). Forwarded to the
@@ -134,7 +141,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor } = opts;
 
   // Auto-grow is the behavior for every mode except an explicit 'shrink'
   // (fixed box, font scales) or 'none' (fixed box, overflow). Absent ⇒
@@ -262,6 +269,7 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
         }
       : undefined,
     colorResolver,
+    verticalAnchor,
   });
 
   return {

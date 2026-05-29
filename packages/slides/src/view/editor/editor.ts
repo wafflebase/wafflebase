@@ -1357,6 +1357,30 @@ class SlidesEditorImpl implements SlidesEditor {
       run: () => this.ungroup(),
     };
 
+    // Vertical text alignment for single-text-element selections.
+    // Sparse: undefined === 'top' (matches the renderer's fallback).
+    // Skip for multi-selection or non-text elements so the action's
+    // target is unambiguous.
+    const textAlignItems: ContextMenuItem[] = [];
+    if (selectedIds.length === 1 && slide) {
+      const el = slide.elements.find((e) => e.id === selectedIds[0]);
+      if (el?.type === 'text') {
+        const current = el.data.verticalAnchor ?? 'top';
+        const elementId = el.id;
+        const store = this.options.store;
+        const writeAnchor = (anchor: 'top' | 'middle' | 'bottom'): void => {
+          if (anchor === current) return; // no-op write would still create an undo entry
+          store.batch(() => store.updateElementData(slideId, elementId, { verticalAnchor: anchor }));
+        };
+        textAlignItems.push(
+          { label: '---', run: () => undefined },
+          { label: 'Align text top',    selected: current === 'top',    run: () => writeAnchor('top') },
+          { label: 'Align text middle', selected: current === 'middle', run: () => writeAnchor('middle') },
+          { label: 'Align text bottom', selected: current === 'bottom', run: () => writeAnchor('bottom') },
+        );
+      }
+    }
+
     return [
       { label: 'Copy',  run: () => this.dispatchKey('c', { meta: true }) },
       { label: 'Cut',   run: () => this.dispatchKey('x', { meta: true }) },
@@ -1367,6 +1391,7 @@ class SlidesEditorImpl implements SlidesEditor {
       { label: '---', run: () => undefined },
       groupItem,
       ungroupItem,
+      ...textAlignItems,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
@@ -1659,6 +1684,9 @@ class SlidesEditorImpl implements SlidesEditor {
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
       // wrapper gates onContentHeightChange so shrink/none never auto-grow.
       autofit: element.data.autofit,
+      // Mirror the slide canvas offset so in-place editing keeps the
+      // caret and text glyphs aligned with the committed render.
+      verticalAnchor: element.data.verticalAnchor,
       colorResolver: makeColorResolver(getActiveTheme(doc)),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {
