@@ -3,6 +3,8 @@ import {
   mountThumbnailPanel,
   mountNotesPanel,
   SLIDES_RULER_SIZE,
+  SLIDE_WIDTH,
+  SLIDE_HEIGHT,
   type SlidesEditor,
   type ThumbnailPanelHandle,
 } from "@wafflebase/slides";
@@ -298,15 +300,20 @@ export function SlidesView({
     canvasArea.style.flex = "1 1 auto";
     canvasArea.style.minHeight = "0";
     canvasArea.style.display = "flex";
-    canvasArea.style.justifyContent = "center";
-    canvasArea.style.alignItems = "center";
+    // `safe center` keeps the slide centered when it fits the column
+    // and falls back to flex-start when the user picks a zoom that
+    // exceeds the column width — without `safe`, the overflowed left /
+    // top portion would be unreachable because justify-content: center
+    // pushes scroll origin past the visible area.
+    canvasArea.style.justifyContent = "safe center";
+    canvasArea.style.alignItems = "safe center";
     canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
     canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
-    // Clip the over-sized permanent guide lines (they extend past the
-    // slide bounds so they visually reach the rulers). Also trims any
-    // shadow that might bleed past the SLIDE_FRAME_GAP — acceptable
-    // since the shadow's outer fade is already near-zero opacity.
-    canvasArea.style.overflow = "hidden";
+    // `auto` so zooming above the column-fit size reveals scroll bars
+    // (horizontal + vertical). At Fit (1.0) the host always tracks the
+    // available area, so no scroll appears; the overflow:auto declaration
+    // is harmless in that case.
+    canvasArea.style.overflow = "auto";
 
     // Seed the host dimensions before mounting any DOM that references
     // them. `refitCanvas` will replace these on the first
@@ -547,17 +554,34 @@ export function SlidesView({
         MIN_HOST_W / SLIDE_ASPECT,
         availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
       );
-      const fit = computeFitSize(slideAvailW, slideAvailH);
-      // User-controlled zoom multiplier. 1.0 = "Fit" (the legacy
-      // default). The MAX_HOST_W clamp above still bounds the painted
-      // bitmap so a 200 % zoom on a 4K display does not allocate a
-      // gigantic canvas; the user gets scroll inside `canvasWrap`
-      // when the host overflows the column.
+      // Fit (1.0) and absolute zoom (N %) are two different sizing
+      // models:
+      //
+      //   Fit  → the host fills the available column, preserving the
+      //          slide aspect. MAX_HOST_W still clamps on ultra-wide
+      //          displays so a 4K column does not allocate a 4K bitmap.
+      //
+      //   N %  → the host equals the slide's *logical* size times the
+      //          zoom factor. 100 % == 1920 × 1080 CSS px regardless of
+      //          the column width. canvasArea's overflow:auto produces
+      //          horizontal + vertical scroll when the host exceeds the
+      //          available area.
+      //
+      // No MAX_HOST_W clamp at non-Fit zoom — the user is asking for an
+      // absolute size and the slide must read at exactly that size.
       const userZoom = zoomController?.get() ?? 1.0;
-      const zoomedW = fit.width * userZoom;
-      const zoomedH = fit.height * userZoom;
-      const nextW = Math.min(MAX_HOST_W, Math.round(zoomedW));
-      const nextH = Math.round(zoomedH * (nextW / zoomedW || 1));
+      let nextW: number;
+      let nextH: number;
+      if (userZoom === 1.0) {
+        const fit = computeFitSize(slideAvailW, slideAvailH);
+        const clampedW = Math.min(MAX_HOST_W, Math.round(fit.width));
+        const scale = fit.width > 0 ? clampedW / fit.width : 1;
+        nextW = clampedW;
+        nextH = Math.round(fit.height * scale);
+      } else {
+        nextW = Math.round(SLIDE_WIDTH * userZoom);
+        nextH = Math.round(SLIDE_HEIGHT * userZoom);
+      }
 
       // Pin each ruler canvas to the full frame extent — canvas
       // elements don't pick up a width from `left + right` alone, so
