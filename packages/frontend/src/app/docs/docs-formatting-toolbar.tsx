@@ -377,6 +377,13 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <span className="mr-2 text-xs text-muted-foreground">{contextLabel}</span>
 
         <ToolbarSeparator />
+        <FontFamilyPicker
+          value={familyValue}
+          onChange={handleFontFamily}
+          onPrefetch={ensureFont}
+        />
+        <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+        <ToolbarSeparator />
 
         {/* ── Font Styles ── */}
         <Tooltip>
