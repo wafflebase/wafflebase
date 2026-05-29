@@ -21,6 +21,7 @@ import { IconColorSwatch } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
+import { TextSizeStepper } from '@/components/text-formatting';
 
 export interface TextElementControlsProps {
   editor: SlidesEditor | null;
@@ -218,6 +219,25 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <TextSizeStepper
+        currentSize={firstRunFontSize(firstElement)}
+        onPick={(size) => onFontSize(size)}
+        disabled={!store || !slideId}
+      />
     </>
   );
+}
+
+/**
+ * Probe the first text run's `fontSize` for the box-level stepper. The
+ * box may legitimately have many runs at different sizes; for the
+ * stepper baseline we follow the same rule the existing Font picker
+ * does (first run wins) so the up / down steps feel like extensions of
+ * the dropdown selection. Returns `undefined` if no run is present;
+ * the stepper then falls back to its default of 11pt.
+ */
+function firstRunFontSize(el: TextElement | undefined): number | undefined {
+  const firstRun = el?.data.blocks?.[0]?.inlines?.[0];
+  return firstRun?.style?.fontSize;
 }

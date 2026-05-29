@@ -17,6 +17,7 @@ import {
   TextStyleGroup,
   TextFormatGroup,
   TextParagraphGroup,
+  TextSizeStepper,
 } from '@/components/text-formatting';
 
 export interface TextEditSectionProps {
@@ -30,6 +31,13 @@ export function TextEditSection({ state }: TextEditSectionProps) {
       <TextStyleGroup
         editor={editor}
         allowedBlockTypes={['paragraph', 'heading']}
+      />
+      <TextSizeStepper
+        currentSize={editor.getSelectionStyle().fontSize}
+        onPick={(size) => {
+          editor.applyStyle({ fontSize: size });
+          editor.focus();
+        }}
       />
       <ToolbarSeparator className="mx-1" />
       <TextFormatGroup editor={editor} />
