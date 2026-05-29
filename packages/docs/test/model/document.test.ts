@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Doc } from '../../src/model/document.js';
-import { type BlockCellInfo, type Inline, createEmptyBlock, getBlockText } from '../../src/model/types.js';
+import { type BlockCellInfo, type Inline, createEmptyBlock, getBlockText, CLEAR_INLINE_STYLE } from '../../src/model/types.js';
 import { MemDocStore } from '../../src/store/memory.js';
 
 function buildParentMap(doc: Doc, tableBlockId: string): Map<string, BlockCellInfo> {
@@ -158,6 +158,58 @@ describe('Doc', () => {
   });
 
   describe('applyInlineStyle', () => {
+    it('CLEAR_INLINE_STYLE strips bold/italic/color/fontSize from a styled run', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'HELLO');
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 0 }, focus: { blockId, offset: 5 } },
+        { bold: true, italic: true, color: '#ff0000', fontSize: 24 },
+      );
+      const beforeStyle = doc.document.blocks[0].inlines[0].style;
+      expect(beforeStyle.bold).toBe(true);
+      expect(beforeStyle.color).toBe('#ff0000');
+      expect(beforeStyle.fontSize).toBe(24);
+
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 0 }, focus: { blockId, offset: 5 } },
+        CLEAR_INLINE_STYLE,
+      );
+
+      const after = doc.document.blocks[0].inlines[0].style;
+      // The spread `{ ...inline.style, ...CLEAR_INLINE_STYLE }` writes
+      // `undefined` to every cleared key, which is functionally
+      // equivalent to "key removed" for all consumers that read
+      // `style.bold` as a boolean. Asserting falsy keeps the test
+      // tolerant of either representation.
+      expect(after.bold).toBeFalsy();
+      expect(after.italic).toBeFalsy();
+      expect(after.color).toBeFalsy();
+      expect(after.fontSize).toBeFalsy();
+    });
+
+    it('CLEAR_INLINE_STYLE only affects the selection range, not other inlines', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'AABB');
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 0 }, focus: { blockId, offset: 4 } },
+        { bold: true },
+      );
+      // Clear only positions 2..4 (the BB).
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        CLEAR_INLINE_STYLE,
+      );
+
+      const inlines = doc.document.blocks[0].inlines;
+      // First inline (AA) keeps bold; second inline (BB) lost it.
+      const aRun = inlines.find((i) => i.text === 'AA');
+      const bRun = inlines.find((i) => i.text === 'BB');
+      expect(aRun?.style.bold).toBe(true);
+      expect(bRun?.style.bold).toBeFalsy();
+    });
+
     it('should apply bold to a range', () => {
       const doc = Doc.create();
       const blockId = doc.document.blocks[0].id;

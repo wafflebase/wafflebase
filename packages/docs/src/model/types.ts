@@ -174,6 +174,27 @@ export const DEFAULT_INLINE_STYLE: InlineStyle = {
   color: '#000000',
 };
 
+/**
+ * Inline-style override used by Clear formatting actions: every
+ * surface-level key set to `undefined` so the inline-style merge in
+ * `applyInlineStyle` strips them all in one call. `pageNumber` and
+ * `image` are intentionally omitted — they are structural inline kinds,
+ * not character formatting.
+ */
+export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
+  bold: undefined,
+  italic: undefined,
+  underline: undefined,
+  strikethrough: undefined,
+  fontSize: undefined,
+  fontFamily: undefined,
+  color: undefined,
+  backgroundColor: undefined,
+  superscript: undefined,
+  subscript: undefined,
+  href: undefined,
+};
+
 let counter = 0;
 
 /**

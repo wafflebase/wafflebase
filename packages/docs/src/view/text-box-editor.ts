@@ -27,7 +27,7 @@
  */
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import type { ColorResolver } from '../model/color.js';
-import { createEmptyBlock } from '../model/types.js';
+import { createEmptyBlock, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
@@ -190,6 +190,15 @@ export interface TextBoxEditorAPI {
 
   /** Apply inline style to the current selection. No-op when nothing is selected. */
   applyStyle(style: Partial<InlineStyle>): void;
+
+  /**
+   * Strip all character-level inline styles (bold, italic, underline,
+   * strikethrough, super/subscript, font size, font family, color,
+   * background color, href) from the current selection. Block-level
+   * formatting and structural inlines are preserved. No-op when nothing
+   * is selected.
+   */
+  clearInlineFormatting(): void;
 
   /**
    * Apply block style to blocks covered by the current selection (or the
@@ -656,6 +665,24 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     if (block) fn(block);
   };
 
+  /**
+   * Apply inline style to the active selection. Extracted as a local so
+   * both `applyStyle` and `clearInlineFormatting` route through the same
+   * snapshot + dirty + render path.
+   */
+  const applyStyleImpl = (style: Partial<InlineStyle>): void => {
+    if (!selection.hasSelection() || !selection.range) return;
+    docStore.snapshot();
+    const range = selection.range;
+    doc.applyInlineStyle(range, style);
+    const startIdx = doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = doc.getBlockIndex(range.focus.blockId);
+    if (startIdx >= 0 && endIdx >= 0) {
+      layoutCache = undefined;
+    }
+    requestRender();
+  };
+
   const api: TextBoxEditorAPI = {
     focus(): void {
       textEditor.focus();
@@ -722,16 +749,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
 
     applyStyle(style: Partial<InlineStyle>): void {
-      if (!selection.hasSelection() || !selection.range) return;
-      docStore.snapshot();
-      const range = selection.range;
-      doc.applyInlineStyle(range, style);
-      const startIdx = doc.getBlockIndex(range.anchor.blockId);
-      const endIdx = doc.getBlockIndex(range.focus.blockId);
-      if (startIdx >= 0 && endIdx >= 0) {
-        layoutCache = undefined;
-      }
-      requestRender();
+      applyStyleImpl(style);
+    },
+
+    clearInlineFormatting(): void {
+      // Reuse the same path as applyStyle so snapshot + dirty + render
+      // happen identically. CLEAR_INLINE_STYLE keeps the keyset in one
+      // place (shared with the full docs `EditorAPI`).
+      applyStyleImpl(CLEAR_INLINE_STYLE);
     },
 
     applyBlockStyle(style: Partial<BlockStyle>): void {

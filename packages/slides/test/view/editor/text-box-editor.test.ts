@@ -79,6 +79,7 @@ function makeMockMount(): {
       // tested separately via the docs TextBoxEditorAPI tests).
       getSelectionStyle: () => ({}),
       applyStyle: () => {},
+      clearInlineFormatting: () => {},
       applyBlockStyle: () => {},
       getBlockType: () => ({ type: 'paragraph' as const }),
       setBlockType: () => {},

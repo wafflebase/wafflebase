@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -45,6 +45,14 @@ export interface EditorAPI {
   getSelectionStyle(): Partial<InlineStyle>;
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
+  /**
+   * Strip all character-level inline styles (bold, italic, underline,
+   * strikethrough, super/subscript, font size, font family, color,
+   * background color, href) from the current selection. Block-level
+   * formatting and structural inlines (page-number, image) are
+   * preserved. No-op when nothing is selected.
+   */
+  clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
   /** Undo */
@@ -1645,6 +1653,48 @@ export function initialize(
     textEditor.focus();
   }
 
+  /**
+   * Apply inline style to the current selection. Extracted from the
+   * `applyStyle` member so `clearInlineFormatting` can call the same
+   * path with `CLEAR_INLINE_STYLE` without going through `this`.
+   */
+  const applyStyleImpl = (style: Partial<InlineStyle>): void => {
+    if (selection.hasSelection() && selection.range) {
+      docStore.snapshot();
+      const range = selection.range;
+
+      // Cell-range mode: apply to all cells in range
+      if (range.tableCellRange) {
+        applyStyleToCellRange(range.tableCellRange, style);
+        markDirty(range.tableCellRange.blockId);
+        render();
+        return;
+      }
+
+      doc.applyInlineStyle(range, style);
+      // Mark affected blocks as dirty
+      const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+      const focusCI = layout.blockParentMap.get(range.focus.blockId);
+      if (anchorCI) {
+        // Cell block: mark the parent table block dirty
+        markDirty(anchorCI.tableBlockId);
+      } else if (focusCI) {
+        markDirty(focusCI.tableBlockId);
+      } else {
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        if (startIdx >= 0 && endIdx >= 0) {
+          const lo = Math.min(startIdx, endIdx);
+          const hi = Math.max(startIdx, endIdx);
+          for (let i = lo; i <= hi; i++) {
+            markDirty(doc.document.blocks[i].id);
+          }
+        }
+      }
+      render();
+    }
+  };
+
   return {
     render,
     getDoc: () => doc,
@@ -1668,41 +1718,13 @@ export function initialize(
       const last = block.inlines[block.inlines.length - 1];
       return last ? { ...last.style } : {};
     },
-    applyStyle: (style: Partial<InlineStyle>) => {
-      if (selection.hasSelection() && selection.range) {
-        docStore.snapshot();
-        const range = selection.range;
-
-        // Cell-range mode: apply to all cells in range
-        if (range.tableCellRange) {
-          applyStyleToCellRange(range.tableCellRange, style);
-          markDirty(range.tableCellRange.blockId);
-          render();
-          return;
-        }
-
-        doc.applyInlineStyle(range, style);
-        // Mark affected blocks as dirty
-        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-        const focusCI = layout.blockParentMap.get(range.focus.blockId);
-        if (anchorCI) {
-          // Cell block: mark the parent table block dirty
-          markDirty(anchorCI.tableBlockId);
-        } else if (focusCI) {
-          markDirty(focusCI.tableBlockId);
-        } else {
-          const startIdx = doc.getBlockIndex(range.anchor.blockId);
-          const endIdx = doc.getBlockIndex(range.focus.blockId);
-          if (startIdx >= 0 && endIdx >= 0) {
-            const lo = Math.min(startIdx, endIdx);
-            const hi = Math.max(startIdx, endIdx);
-            for (let i = lo; i <= hi; i++) {
-              markDirty(doc.document.blocks[i].id);
-            }
-          }
-        }
-        render();
-      }
+    applyStyle: applyStyleImpl,
+    clearInlineFormatting: () => {
+      // Reuse the applyStyle path so cell-range selections, snapshots,
+      // and dirty-marking all flow through the same logic as ordinary
+      // inline-style writes. CLEAR_INLINE_STYLE is the single source of
+      // truth for which keys count as "character formatting".
+      applyStyleImpl(CLEAR_INLINE_STYLE);
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();

@@ -32,9 +32,17 @@ describe('initializeTextBox', () => {
     expect(typeof api.focus).toBe('function');
     expect(typeof api.blur).toBe('function');
     expect(typeof api.detach).toBe('function');
+    expect(typeof api.applyStyle).toBe('function');
+    expect(typeof api.clearInlineFormatting).toBe('function');
     // The factory should not have stolen focus on construction —
     // slides callers focus explicitly after the dblclick handler runs.
     expect(document.activeElement).not.toBe(document.querySelector('textarea'));
+    api.detach();
+  });
+
+  it('clearInlineFormatting is a no-op when nothing is selected', () => {
+    const { api } = mount([]);
+    expect(() => api.clearInlineFormatting()).not.toThrow();
     api.detach();
   });
 
