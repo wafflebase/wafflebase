@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  IconAdjustmentsAlt,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconBackground,
@@ -101,6 +102,8 @@ export interface RightGlobalsProps {
   theme?: Theme | null;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  onToggleFormatPanel?: () => void;
+  formatPanelOpen?: boolean;
 }
 
 /**
@@ -121,6 +124,8 @@ export function RightGlobals({
   theme,
   onToggleThemePanel,
   themePanelOpen,
+  onToggleFormatPanel,
+  formatPanelOpen,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   const onBackgroundChange = useCallback(
@@ -132,6 +137,7 @@ export function RightGlobals({
   );
 
   const hasSlideStyleGroup = !!store;
+  const hasPanelGroup = !!onToggleThemePanel || !!onToggleFormatPanel;
 
   // Resolve the current slide's background fill to a CSS color string so
   // the swatch button's stripe always reflects what the user is about to
@@ -188,6 +194,25 @@ export function RightGlobals({
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Theme</TooltipContent>
+        </Tooltip>
+      )}
+      {onToggleFormatPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Format options"
+              aria-pressed={!!formatPanelOpen}
+              onClick={onToggleFormatPanel}
+              className={
+                "inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted " +
+                (formatPanelOpen ? "bg-muted" : "")
+              }
+            >
+              <IconAdjustmentsAlt size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Format options</TooltipContent>
         </Tooltip>
       )}
     </div>
