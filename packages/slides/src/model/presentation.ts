@@ -47,6 +47,12 @@ export type Meta = {
   title: string;
   themeId: string;
   masterId: string;
+  /**
+   * Display unit for the Format options panel (and, when adopted,
+   * the ruler). Renderer never reads this field; it only switches
+   * what the panel's numeric inputs show. Absent ⇒ 'in'.
+   */
+  unit?: 'in' | 'cm';
 };
 
 export type GuideAxis = 'x' | 'y';
