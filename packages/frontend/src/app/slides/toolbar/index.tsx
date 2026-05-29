@@ -4,6 +4,7 @@ import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
+import { LayoutButton } from "./layout-button";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
 import { IdleSection } from "./idle-section";
 import { ObjectSection } from "./object-section";
@@ -81,6 +82,7 @@ export function SlidesToolbar({
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <SlideGroup store={store} editor={editor} />
+      <LayoutButton store={store} editor={editor} />
       <ToolbarSeparator className="mx-1" />
       <div
         data-testid="toolbar-contextual"
