@@ -74,7 +74,7 @@ in the README index — the roadmap no longer duplicates their content.
 |------|------|----|
 | Phase 1: Block type extensions | Headings, lists, horizontal rule, title/subtitle, layout-engine branching, toolbar grouping, markdown auto-conversion | This `Current State` table; PR #83 in git history |
 | Phase 2: Inline + clipboard + find-replace | Hyperlinks, highlight, superscript/subscript, JSON+HTML clipboard, format painter, Find & Replace | This `Current State` table; PR notes in git history |
-| Phase 3.2: Tables | Cells as `Block[]` containers, row/column ops, cell merge, Tree CRDT | [`docs-tables.md`](docs-tables.md), [`docs-table-ui.md`](docs-table-ui.md), [`docs-table-crdt.md`](docs-table-crdt.md), [`docs-table-resize.md`](docs-table-resize.md), [`docs-table-copy-paste.md`](docs-table-copy-paste.md), [`docs-table-row-splitting.md`](docs-table-row-splitting.md), [`docs-nested-tables.md`](docs-nested-tables.md) |
+| Phase 3.2: Tables | Cells as `Block[]` containers, row/column ops, cell merge, Tree CRDT | [`docs-tables.md`](docs-tables.md) (umbrella) and the per-feature docs under [`tables/`](tables/) — UI, resize, copy-paste, row splitting, nested tables |
 | Phase 3.1: Images | Insert, resize, rotate, crop, Image Options panel | [`docs-image-editing.md`](docs-image-editing.md) |
 | Phase 4.1: Header / Footer | Editable per-page header/footer regions | [`docs-header-footer.md`](docs-header-footer.md) |
 | Phase 5.1: Comments | Text-range threads, posRange anchors, orphan preservation | [`docs-comments.md`](docs-comments.md) |

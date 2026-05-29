@@ -33,11 +33,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-pagination.md](docs/docs-pagination.md)                                    | Docs pagination — page setup, line-level page splitting, paginated rendering pipeline              |
 | [docs-header-footer.md](docs/docs-header-footer.md)                              | Docs header & footer — editable per-page header/footer regions in the paginated editor             |
 | [docs-rendering-optimization.md](docs/docs-rendering-optimization.md)            | Docs rendering optimization — scroll repaint, measureText cache, incremental layout               |
-| [docs-tables.md](docs/docs-tables.md)                                            | Docs tables — data model, cell merge, layout, rendering, extensibility path                       |
-| [docs-table-ui.md](docs/docs-table-ui.md)                                        | Docs table UI — grid picker, context menu, IME cell routing                                       |
-| [docs-table-crdt.md](docs/docs-table-crdt.md)                                    | Table CRDT collaboration — Tree node structure, container cells, concurrent editing               |
-| [docs-table-resize.md](docs/docs-table-resize.md)                                | Docs table resize — column/row border drag handles, guideline rendering                           |
-| [docs-nested-tables.md](docs/docs-nested-tables.md)                              | Nested tables — recursive nesting, layout, rendering, editing, CRDT synchronization               |
+| [docs-tables.md](docs/docs-tables.md)                                            | Docs tables — umbrella: data model, Yorkie Tree structure, cursor/navigation, layout, granular store ops, pagination. Per-feature docs under [`docs/tables/`](docs/tables/) |
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
 | [docs-docx-import-export.md](docs/docs-docx-import-export.md)                    | DOCX import/export — round-trip mapping between DOCX and the Docs data model                       |
 | [docs-pdf-export.md](docs/docs-pdf-export.md)                                    | PDF export — vector PDF via pdf-lib + fontkit, reuses `paginateLayout`, lazy Noto KR fonts        |
@@ -47,8 +43,6 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-mobile-zoom-to-fit.md](docs/docs-mobile-zoom-to-fit.md)                    | Docs mobile zoom-to-fit — Canvas scale transform for narrow viewports                             |
 | [docs-wordprocessor-roadmap.md](docs/docs-wordprocessor-roadmap.md)              | Docs word processor roadmap — current state + remaining phases for Google Docs parity              |
 | [docs-ruler.md](docs/docs-ruler.md)                                              | Docs ruler design                                                                                 |
-| [docs-table-copy-paste.md](docs/docs-table-copy-paste.md)                        | Docs table copy-paste — cell-range clipboard, whole-table block, external HTML table paste        |
-| [docs-table-row-splitting.md](docs/docs-table-row-splitting.md)                  | Table row splitting — split tall table rows across pages, recursive nested table support          |
 | [docs-comments.md](docs/docs-comments.md)                                        | Docs comments — text-range threads, CRDT-stable posRange anchors, orphan preservation, shared frontend module |
 
 ## Slides
