@@ -16,7 +16,7 @@ depends on it and provides a `YorkieStore` for real-time collaboration.
 
 - Provide a self-contained spreadsheet engine that can run with any `Store`
   implementation (in-memory, CRDT-backed, server-backed, etc.).
-- Support large grids (up to 1,000,000 rows x 182,780 columns) with
+- Support large grids (up to 1,000,000 rows x 18,278 columns) with
   viewport-only Canvas rendering.
 - Evaluate formulas with correct dependency ordering and cycle detection.
 - Handle row/column insert and delete with automatic formula reference shifting.
@@ -123,8 +123,11 @@ all cell, selection, and navigation operations.
   user-defined row heights for restore.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
-**Grid dimensions:** `1,000,000 rows x 182,780 columns` (constants in the
-Sheet class). The `dimensionRange` property returns this as a `Range`.
+**Grid dimensions:** `1,000,000 rows x 18,278 columns` — authoritative
+constants live in `packages/sheets/src/model/worksheet/sheet.ts`
+(`Dimensions`). The `dimensionRange` property returns this as a
+`Range`. All other docs in this directory must reference this value
+rather than restating it.
 
 ### Store Interface
 
@@ -314,9 +317,12 @@ positions from the `CellIndex`.
 
 ### Formula Engine
 
-ANTLR-based parser, visitor-pattern evaluator, 439 built-in functions, and
-cross-sheet reference resolution via pluggable `GridResolver` / `FormulaResolver`
-callbacks. See [formula.md](formula.md) for full details.
+ANTLR-based parser, visitor-pattern evaluator, ~430 built-in
+functions, and cross-sheet reference resolution via pluggable
+`GridResolver` / `FormulaResolver` callbacks. See
+[formula.md](formula.md) for the engine and
+[formula-coverage.md](formula-coverage.md) for the authoritative
+function catalog (counts, categories, per-function status).
 
 ### Calculator
 
@@ -545,8 +551,9 @@ canvas-rendered cells while respecting scroll remapping and freeze panes.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 439 function entries (426 unique) are
-implemented. See [formula.md](formula.md) for details.
+**Formula function coverage** — see
+[formula-coverage.md](formula-coverage.md) for the authoritative
+catalog of function entries, categories, and per-function status.
 
 **Function discoverability UI** — The engine exposes a function browser dialog
 backed by `packages/sheets/src/formula/function-catalog.ts` with search by

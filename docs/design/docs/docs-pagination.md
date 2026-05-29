@@ -397,7 +397,7 @@ the existing pattern for `horizontal-rule` and `table`.
 
 ## Table Row Splitting
 
-See [docs-table-row-splitting.md](docs-table-row-splitting.md) for the full
+See [tables/docs-table-row-splitting.md](tables/docs-table-row-splitting.md) for the full
 design.
 
 ### Motivation

@@ -1,32 +1,35 @@
-# Context Menu — Unified Design
+---
+title: context-menu
+target-version: 0.2.0
+---
 
-## Status
+# Unified Context Menu
 
-Implemented — 2026-03-03
+## Summary
 
-## Problem
+A single React component, backed by `@radix-ui/react-context-menu`, replaces
+three legacy context menu implementations (desktop sheet, mobile sheet, tab
+bar). Both desktop right-click and mobile long-press route through the same
+Radix trigger so cell/row/column/tab menus expose identical capabilities on
+every platform. Shipped 2026-03-03.
 
-Three separate context menu implementations existed with inconsistent
-behavior across platforms:
+## Goals / Non-Goals
 
-1. **Desktop (sheet package)**: Vanilla JS context menu — row/column
-   headers only, no cell menu, no icons.
-2. **Mobile (frontend)**: React mobile context menu — cells and
-   rows/columns, but missing Hide/Show, no multi-selection labels.
-3. **Tab bar (frontend)**: Radix `DropdownMenu` — Rename/Delete only,
-   different component base.
+### Goals
 
-Users saw different capabilities depending on platform and interaction
-method.
+- One implementation, one component, one menu item set across desktop and
+  mobile for the sheet grid and tab bar.
+- Preserve Hide/Show, multi-selection labels, and destructive-variant styling
+  on both platforms.
+- Reuse the existing shadcn/ui pattern so menu styling stays in sync with the
+  rest of the app.
 
-## Solution
+### Non-Goals
 
-Replace all three implementations with a single React component backed by
-`@radix-ui/react-context-menu`, following the existing shadcn/ui pattern.
-Mobile long-press triggers the same Radix ContextMenu via a synthetic
-`contextmenu` event, unifying the trigger path.
+- Docs and slides context menus — out of scope for this pass.
+- Custom keyboard shortcuts surfaced inside the menu (covered separately).
 
-## Architecture
+## Proposal Details
 
 ### Trigger Flow
 
@@ -43,7 +46,8 @@ Mobile long-press     ──→  synthetic contextmenu ──→  (same path)
 
 Both platforms go through the same Radix ContextMenu. Mobile dispatches a
 synthetic `MouseEvent('contextmenu', { clientX, clientY, bubbles: true })`
-from the long-press handler in `packages/frontend/src/hooks/use-mobile-sheet-gestures.ts`.
+from the long-press handler in
+`packages/frontend/src/hooks/use-mobile-sheet-gestures.ts`.
 
 ### Component Structure
 
@@ -67,12 +71,14 @@ components/ui/context-menu.tsx (new)
 ### Menu Items
 
 #### Cell Menu
+
 - Cut (disabled if readOnly)
 - Copy
 - Paste (disabled if readOnly)
 - Delete (disabled if readOnly)
 
 #### Row Menu
+
 - Insert N row(s) above
 - Insert N row(s) below
 - Delete N row(s)
@@ -84,9 +90,11 @@ All items disabled if readOnly. Labels reflect multi-selection count
 (e.g., "Insert 3 rows above").
 
 #### Column Menu
+
 Same pattern as Row Menu with left/right instead of above/below.
 
 #### Tab Menu
+
 - Rename
 - ─── separator ───
 - Delete (destructive variant, only if multiple tabs)
@@ -119,7 +127,7 @@ getAdjacentHiddenColumns(from: number, to: number):
   { from: number; to: number } | null
 ```
 
-## Key Files
+### Key Files
 
 - `packages/frontend/src/components/ui/context-menu.tsx` — shadcn/ui wrapper
 - `packages/frontend/src/components/sheet-context-menu.tsx` — unified sheet menu
@@ -128,7 +136,7 @@ getAdjacentHiddenColumns(from: number, to: number):
 - `packages/sheets/src/view/worksheet.ts` — canvas event handling
 - `packages/sheets/src/view/spreadsheet.ts` — facade API
 
-## Risks
+## Risks and Mitigation
 
 - **Synthetic contextmenu on mobile**: If Radix does not respond to
   synthetic events, fall back to controlled `open` state with manual

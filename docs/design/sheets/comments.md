@@ -130,13 +130,13 @@ export type Thread = {
 
 ### 3. Yorkie Schema
 
-`Worksheet` gains one optional field:
+The canonical `Worksheet` shape lives in
+[`collaboration.md`](collaboration.md#canonical-worksheet-shape).
+This feature adds one optional field:
 
 ```typescript
-type Worksheet = {
-  // ... existing fields ...
-  comments?: { [threadId: string]: Thread };
-};
+// patch on Worksheet
++  comments?: { [threadId: string]: Thread };
 ```
 
 Threads are keyed by their own `id`, **not** by `${rowId}|${colId}`, because

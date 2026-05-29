@@ -150,18 +150,23 @@ Key methods:
 Source: `packages/sheets/src/formula/functions.ts`
 
 Functions are registered in `FunctionMap`. Each function receives a
-`FunctionContext` (ANTLR node), a `visit` callback, and an optional `Grid`.
-LET and LAMBDA are handled as special forms in the Evaluator (not in
-`FunctionMap`) because they require direct scope access. The engine
-implements **439 function entries (426 unique functions, plus 13
-aliases)** across 10 categories:
+`FunctionContext` (ANTLR node), a `visit` callback, and an optional
+`Grid`. LET and LAMBDA are handled as special forms in the Evaluator
+(not in `FunctionMap`) because they require direct scope access.
 
-| Category    | Count | Examples                                              |
-| ----------- | ----: | ----------------------------------------------------- |
-| Math        |    84 | SUM, ABS, ROUND, CEILING, FLOOR, SIN, COS, LOG, GCD  |
-| Statistical |   103 | AVERAGE, STDEV, NORM.DIST, T.DIST, CHISQ.TEST, CORREL|
-| Engineering |    50 | COMPLEX, IMSUM, BESSELJ, HEX2DEC, BITAND, ERF, DELTA |
-| Financial   |    49 | PMT, NPV, IRR, PRICE, YIELD, ACCRINT, DURATION, XIRR |
+> **Catalog counts and per-function status** live in
+> [formula-coverage.md](formula-coverage.md). That doc tracks the
+> total entry count, unique-function count, alias count, the
+> category table, and Google-Sheets parity status. The summary
+> below is a category sketch only — `formula-coverage.md` is
+> authoritative.
+
+| Category    | Examples                                              |
+| ----------- | ----------------------------------------------------- |
+| Math        | SUM, ABS, ROUND, CEILING, FLOOR, SIN, COS, LOG, GCD  |
+| Statistical | AVERAGE, STDEV, NORM.DIST, T.DIST, CHISQ.TEST, CORREL|
+| Engineering | COMPLEX, IMSUM, BESSELJ, HEX2DEC, BITAND, ERF, DELTA |
+| Financial   | PMT, NPV, IRR, PRICE, YIELD, ACCRINT, DURATION, XIRR |
 | Text        |    38 | TRIM, LEFT, MID, SUBSTITUTE, TEXTJOIN, REGEXMATCH     |
 | Lookup      |    32 | VLOOKUP, XLOOKUP, INDEX, MATCH, SORT, FILTER, XMATCH  |
 | Date        |    25 | TODAY, DATE, EDATE, NETWORKDAYS, YEARFRAC, DAYS360     |
@@ -293,12 +298,14 @@ referenced sheet itself changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 439 function entries (426 unique) are
-implemented across all major categories. LET/LAMBDA are implemented as
-special forms in the Evaluator with variable scoping and closures.
-Remaining gaps are mainly legacy aliases, byte-variant text functions,
-and higher-order array functions (MAP, REDUCE, SCAN, BYROW, BYCOL,
-MAKEARRAY) that need function implementations using the existing LAMBDA
-infrastructure. New functions are added to `FunctionMap` and
-`FunctionCatalog` following the same pattern: accept `(ctx, visit, grid?)`,
-return an `EvalNode`.
+**Formula function coverage** — see
+[formula-coverage.md](formula-coverage.md) for the authoritative
+catalog (entry counts, category breakdown, per-function status).
+LET/LAMBDA are implemented as special forms in the Evaluator with
+variable scoping and closures. Remaining gaps are mainly legacy
+aliases, byte-variant text functions, and higher-order array
+functions (MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY) that need
+function implementations using the existing LAMBDA infrastructure.
+New functions are added to `FunctionMap` and `FunctionCatalog`
+following the same pattern: accept `(ctx, visit, grid?)`, return an
+`EvalNode`.
