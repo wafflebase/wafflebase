@@ -37,7 +37,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
 | [docs-docx-import-export.md](docs/docs-docx-import-export.md)                    | DOCX import/export — round-trip mapping between DOCX and the Docs data model                       |
 | [docs-pdf-export.md](docs/docs-pdf-export.md)                                    | PDF export — vector PDF via pdf-lib + fontkit, reuses `paginateLayout`, lazy Noto KR fonts        |
-| [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration — Yorkie Tree CRDT, `YorkieDocStore`, snapshot/restore (block-level history; current text-edit path lives in `docs-intent-preserving-edits.md`) |
+| [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration — Yorkie Tree CRDT, `YorkieDocStore`, snapshot/restore (block-level history; current text-edit path lives in docs-intent-preserving-edits.md) |
 | [docs-intent-preserving-edits.md](docs/docs-intent-preserving-edits.md)          | Intent-preserving Yorkie edits — character-level Tree editing for concurrent same-paragraph edits |
 | [docs-presence.md](docs/docs-presence.md)                                        | Docs presence — peer cursor carets + name labels and avatar click-to-jump in the collaborative docs editor |
 | [docs-mobile-zoom-to-fit.md](docs/docs-mobile-zoom-to-fit.md)                    | Docs mobile zoom-to-fit — Canvas scale transform for narrow viewports                             |

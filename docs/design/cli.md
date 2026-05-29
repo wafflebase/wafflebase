@@ -113,8 +113,8 @@ All CLI state lives under `~/.wafflebase/`:
 `~/.wafflebase/config.yaml` automatically and prints a notice. After
 migration, only `~/.wafflebase/` is consulted.
 
-**`config.yaml`** — profiles selected with `--profile` (default
-`default`):
+**Config file** (config.yaml) — profiles selected with `--profile`
+(default `default`):
 
 ```yaml
 profiles:
@@ -128,7 +128,7 @@ profiles:
     workspace: ws-uuid-here
 ```
 
-**`session.json`** — written `0600`, owner read/write only:
+**Session file** (session.json) — written `0600`, owner read/write only:
 
 ```json
 {
