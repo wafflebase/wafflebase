@@ -2608,6 +2608,8 @@ describe('elementContextItems — text vertical align', () => {
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     editor.setSelection([textId]);
+    const undoBefore = store.canUndo();
+    const redoBefore = store.canRedo();
     const before = JSON.stringify(store.read().slides[0].elements);
     const items = getContextItems(editor, slideId);
 
@@ -2615,5 +2617,8 @@ describe('elementContextItems — text vertical align', () => {
 
     const after = JSON.stringify(store.read().slides[0].elements);
     expect(after).toBe(before);
+    // The short-circuit must not push a no-op batch onto the undo stack.
+    expect(store.canUndo()).toBe(undoBefore);
+    expect(store.canRedo()).toBe(redoBefore);
   });
 });
