@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ImageElement } from '@wafflebase/slides';
 import { getCommonValue } from './units';
 
@@ -20,6 +20,12 @@ export function ImageAdjustmentsSection({
     opacityToTransparency(el.data.opacity),
   );
   const [draft, setDraft] = useState<number>(common ?? 0);
+  // Re-sync the slider when the parent swaps to a different image (or a
+  // remote edit changes opacity). Without this the draft sticks to the
+  // value captured at mount and the next pointerUp commits stale data.
+  useEffect(() => {
+    setDraft(common ?? 0);
+  }, [common]);
 
   return (
     <section aria-labelledby="format-adjustments-label" className="p-3">

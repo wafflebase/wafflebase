@@ -234,6 +234,7 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   setUnit(unit: 'in' | 'cm'): void {
+    this.requireBatch();
     if (unit !== 'in' && unit !== 'cm') {
       throw new Error(`[slides] invalid unit '${unit}'`);
     }
