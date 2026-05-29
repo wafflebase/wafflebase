@@ -36,15 +36,34 @@ single HTML Canvas element.
   interface + `MemDocStore` implementation).
 - Maintain the same build/test tooling (Vite library build, Vitest).
 
-### Non-Goals
+### Non-Goals (original v1 scope — most have since shipped)
 
-- Real-time collaboration (Yorkie integration) — deferred to a future phase.
-- Tables, lists, images, headers/footers, pagination — deferred.
-- Frontend integration (React component, routing) — deferred.
-- Full IME composition handling — Korean IME (desktop + Mobile Safari
-  workaround) is supported; other CJK languages deferred.
-- Copy/paste with rich formatting — deferred.
-- Performance optimization for very large documents — deferred.
+The list below is the original v1 scope cut. It is preserved for
+historical context; every item except "performance for very large
+documents" has since landed and now lives in a dedicated design doc:
+
+- Real-time collaboration (Yorkie integration) — shipped, see
+  [`docs-collaboration.md`](docs-collaboration.md) and
+  [`docs-intent-preserving-edits.md`](docs-intent-preserving-edits.md).
+- Tables — shipped, see [`docs-tables.md`](docs-tables.md) and the
+  table-cluster docs in the README index.
+- Lists, headings, horizontal rules — shipped (Phase 1 of the
+  [word-processor roadmap](docs-wordprocessor-roadmap.md)).
+- Images — shipped, see
+  [`docs-image-editing.md`](docs-image-editing.md).
+- Headers / footers — shipped, see
+  [`docs-header-footer.md`](docs-header-footer.md).
+- Pagination — shipped, see [`docs-pagination.md`](docs-pagination.md).
+- Frontend integration (React component, routing) — shipped (the
+  PR notes are archived at
+  [`../archive/docs-frontend-integration.md`](../archive/docs-frontend-integration.md)).
+- Full IME composition handling — Korean IME (desktop + Mobile Safari)
+  shipped; other CJK still deferred.
+- Copy/paste with rich formatting — shipped (Phase 2 of the
+  [word-processor roadmap](docs-wordprocessor-roadmap.md)).
+- Performance optimization for very large documents — partly shipped,
+  see [`docs-rendering-optimization.md`](docs-rendering-optimization.md);
+  further work tracked under the roadmap.
 
 ## Data Model
 
