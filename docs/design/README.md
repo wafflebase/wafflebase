@@ -17,11 +17,9 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [charts.md](sheets/charts.md)                                        | Chart system — registry architecture, chart types, editor panel, phased roadmap                    |
 | [sheet-image.md](sheets/sheet-image.md)                              | Sheet image — floating images, workspace image API, insertion paths, phased roadmap               |
 | [pivot-table.md](sheets/pivot-table.md)                              | Pivot table — materialized cells, calculation engine, side panel editor, collaboration             |
-| [conditional-format-multi-range.md](sheets/conditional-format-multi-range.md) | Conditional formatting multi-range support                                                |
 | [batch-transactions.md](sheets/batch-transactions.md)                | Store-level batch transactions for atomic undo/redo grouping                                       |
 | [collaboration.md](sheets/collaboration.md)                          | Yorkie collaboration — worksheet storage, structural concurrency, and test strategy              |
 | [datasource.md](sheets/datasource.md)                                | External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore                    |
-| [peer-cursor-labels.md](sheets/peer-cursor-labels.md)               | Peer cursor name labels — transient username tags on collaborative sheet cursors                  |
 | [axis-id-selection.md](sheets/axis-id-selection.md)                  | Axis ID based selection & presence — stable selection across remote structural edits              |
 | [comments.md](sheets/comments.md)                                    | Sheet cell comments — threaded comments, resolve flow, anchor stability, side panel UI            |
 
@@ -43,7 +41,6 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
 | [docs-docx-import-export.md](docs/docs-docx-import-export.md)                    | DOCX import/export — round-trip mapping between DOCX and the Docs data model                       |
 | [docs-pdf-export.md](docs/docs-pdf-export.md)                                    | PDF export — vector PDF via pdf-lib + fontkit, reuses `paginateLayout`, lazy Noto KR fonts        |
-| [docs-frontend-integration.md](docs/docs-frontend-integration.md)                | Docs frontend integration — document type field, list UI, routing, backend API changes            |
 | [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration design                                                                         |
 | [docs-remote-cursor.md](docs/docs-remote-cursor.md)                              | Docs remote cursor — peer cursor carets + name labels in collaborative docs editor                |
 | [docs-mobile-zoom-to-fit.md](docs/docs-mobile-zoom-to-fit.md)                    | Docs mobile zoom-to-fit — Canvas scale transform for narrow viewports                             |
@@ -71,7 +68,6 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-toolbar-redesign.md](slides/slides-toolbar-redesign.md)                       | Slides toolbar redesign — single morphing toolbar (Idle / Object / Text-editing) replacing the always-on layout, Arrange dropdown consolidating align/distribute/order/rotate, shared text-formatting components |
 | [slides-mobile.md](slides/slides-mobile.md)                                           | Mobile view + light edit — viewport-768 branch, MobileSlidesView shell with `mode: 'view' \| 'edit'`, bottom-sheet text formatting, slide-ops FAB, undo/redo header, perm-gated read-only fallback           |
 | [slides-group.md](slides/slides-group.md)                                             | Group / ungroup — nested element tree with group-local child coords, Google Slides drill-in selection, distinct group/member/context selection overlay, PPTX `<p:grpSp>` preservation, recursive renderer / hit-test / PDF export |
-| [slides-shape-move.md](slides/slides-shape-move.md)                                   | Shape drag-move — `move` hover cursor on selected shapes, ghost preview at `GHOST_ALPHA` follows pointer, commit only on release                                                                            |
 | [slides-ruler.md](slides/slides-ruler.md)                                             | Slides ruler — H/V rulers (corner origin, inch/cm), presentation-wide draggable guides, snap integration, read-only mount handling                                                                          |
 | [slides-text-autofit.md](slides/slides-text-autofit.md)                               | Text autofit — three-mode `autofit` selector (none/shrink/grow), insert-to-edit + drag sizing + content-fit auto-grow via docs `onContentHeightChange` hook (grow mode), placeholder=shrink / textbox=grow defaults, PPTX bodyPr import |
 | [slides-shift-modifiers.md](slides/slides-shift-modifiers.md)                         | Shift modifiers during drag — 1:1 shape draw, 15° line/connector angle snap, 15° endpoint snap, axis-locked move; pure constraint helpers reused at four call sites                                        |
@@ -94,6 +90,14 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 | [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |
+
+## Archive
+
+Single-PR design notes for shipped features whose ongoing design
+surface lives elsewhere now sit under
+[`archive/`](archive/README.md). They are kept for historical
+context; they are not part of the load-bearing design surface a new
+contributor should read first.
 
 ## Template
 

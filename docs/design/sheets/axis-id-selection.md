@@ -212,6 +212,13 @@ interface Store {
   area with the peer's color at ~10% opacity.
 - Skip peers whose `activeCell` axis ID is not found in current row/col order.
 
+> The transient name-tag UX painted above each peer's active cell
+> (4-second auto-show on cell change, hover trigger, viewport
+> edge-case clamping) lives in
+> [`docs/design/archive/peer-cursor-labels.md`](../archive/peer-cursor-labels.md).
+> Its presence-schema half was superseded by `SelectionPresence`
+> (above); the label-rendering details still apply to `overlay.ts`.
+
 ### Migration / Backward Compatibility
 
 During rollout, peers may run old code that sets `activeCell: Sref` in presence
