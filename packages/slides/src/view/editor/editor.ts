@@ -1659,6 +1659,9 @@ class SlidesEditorImpl implements SlidesEditor {
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
       // wrapper gates onContentHeightChange so shrink/none never auto-grow.
       autofit: element.data.autofit,
+      // Mirror the slide canvas offset so in-place editing keeps the
+      // caret and text glyphs aligned with the committed render.
+      verticalAnchor: element.data.verticalAnchor,
       colorResolver: makeColorResolver(getActiveTheme(doc)),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {
