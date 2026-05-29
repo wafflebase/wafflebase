@@ -15,10 +15,10 @@ single HTML Canvas element.
 
 > The `wafflebase` CLI's word-processor surface — `docs content`,
 > `docs export`, `docs import` — lives under
-> [`docs/design/docs-cli.md`](../docs-cli.md). That doc covers the
-> namespace shuffle (`doc → docs`), Markdown / page-slicing / DOCX
-> mapping, and the Phase 6-10 wiring against the
-> `/api/v1/.../documents/:id/content` endpoint.
+> [`docs/design/cli.md`](../cli.md), which covers Markdown /
+> page-slicing / DOCX mapping and the wiring against the
+> `/api/v1/.../documents/:id/content` endpoint defined in
+> [`docs/design/rest-api.md`](../rest-api.md).
 
 ### Goals
 

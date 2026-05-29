@@ -504,12 +504,107 @@ Verification gates: end of P1–P3 → `pnpm verify:fast`; end of P4 →
   invariant test runs new (preserving) and old (flattening) code
   paths and compares world bboxes per leaf within 0.5 px.
 
-### Known Limitations / Follow-ups
+### 13. Selection Overlay (groups vs. drilled-in child)
 
-- **Selection overlay does not visually distinguish a group.** v1 paints
-  the same box + handles for a single object, a selected group, and a
-  drilled-in child. The distinct group/member/context overlay is designed
-  in [slides-group-selection-ui.md](./slides-group-selection-ui.md).
+The base overlay (`view/editor/overlay.ts`) paints a `1px solid #3a7`
+box plus eight resize handles and a rotate handle for any selection.
+That treatment alone cannot distinguish three group-related states:
+
+| State | Selection box + handles | Added overlay |
+| --- | --- | --- |
+| Single object | solid `#3a7`, 8 resize + rotate handles | none |
+| Group selected | same solid box + handles on the group's tight world frame | faint dashed outline per **direct** child (no handles) |
+| Drilled-in child | same solid box + handles on the child | faint dashed **context box** around the innermost enclosing group (no handles) |
+
+This follows the PowerPoint / Google Slides hybrid: PowerPoint-style
+member preview when the group is selected, Google-Slides-style drill-in
+context when the user is inside the group. Selection state, hit-test,
+and the double-click drill-in / `Esc`-to-pop interaction defined in §4
+are **unchanged** — the overlay is a purely visual layer on top.
+
+**Composition.** The two added overlays never collide: member outlines
+render only when the *selected* element is a group; the context box
+renders only when `scope.length > 0`. When a sub-group is selected
+while drilled into a parent group, both appear (context box for the
+parent plus member outlines for the selected sub-group) — the
+composition is correct without special-casing.
+
+**Styling.** Member outline and context box share one renderer and one
+look — `1px dashed` at `rgba(51, 170, 119, 0.5)` (`#3a7` at 50% alpha),
+`pointer-events: none`, **no handles**. Paint order: context box first,
+then member outlines, then the existing selection handles on top, so
+handles are never occluded. Rotation uses the same CSS
+`transform: rotate(rad)` approach `renderRotatedHandles` already uses,
+so rotated groups, rotated members, and rotated context boxes all
+align.
+
+**Overlay options.** `OverlayOptions` extends with two optional fields
+consumed by `renderOverlay` after the permanent-guide block and before
+the selection-handle branches:
+
+```ts
+export interface OverlayOptions {
+  // ...existing fields...
+
+  /** World frames of the direct children of a singly-selected group.
+   *  Rendered as faint dashed, handle-less outlines (PowerPoint-style). */
+  memberOutlines?: readonly Frame[];
+
+  /** World frame of the innermost group the user has drilled into.
+   *  Rendered as a faint dashed, handle-less context box (Google-Slides). */
+  contextBox?: Frame;
+}
+```
+
+Both render through one private helper `appendOutline(overlay, frame,
+scale, className)`. `renderOverlay` calls it once for the context box
+(`'wfb-slides-context-box'`) and once per member frame
+(`'wfb-slides-member-outline'`); existing connector / rotated /
+axis-aligned handle branches paint afterward.
+
+**`editor.ts` (`repaintOverlay`)** computes the new option values from
+the current selection + scope:
+
+- **`contextBox`** — when `scope.length > 0`, resolve the innermost
+  scoped group `g = findElement(slide.elements, scope[scope.length-1])`
+  and pass
+  `toWorldFrame(worldTightFrame(g).worldFrame, scope.slice(0, -1), slide)`.
+  Mirrors how the selected-group box's frame is already derived in §4.
+- **`memberOutlines`** — when exactly one element is selected and it is
+  a group `g`, map each `c` of `g.data.children` to
+  `toWorldFrame(applyGroupTransform(c.frame, g), scope, slide)`.
+  `applyGroupTransform` lifts the child's group-local frame into the
+  group's parent (scope-level) space; `toWorldFrame` lifts scope-level
+  space to world.
+
+No other call site of `renderOverlay` needs the new fields (they default
+to "none"). Multi-selection paints the combined-bbox box + handles as
+today; member outlines are suppressed unless exactly one selected
+element is a group.
+
+**Edge cases.**
+
+- *Rotated group / rotated members.* Handled by the existing world
+  transforms plus the CSS-rotate outline renderer.
+- *Nested group selected while drilled in.* Context box (parent) and
+  member outlines (selected sub-group) compose correctly.
+- *Connector as a group member.* Its frame is a derived endpoint bbox;
+  outlining it with a faint rectangle is acceptable and matches how it
+  contributes to `combinedBoundingBox`.
+- *Group invariant.* A group always has ≥1 child (invariant 1 in §1),
+  so `memberOutlines` is never empty when present.
+
+**Testing.** Unit (`view/editor/overlay.test.ts`): single group selected
+with `memberOutlines` of length N → N `.wfb-slides-member-outline`
+nodes, each with zero `data-handle` descendants and
+`pointer-events: none`; `contextBox` set → exactly one
+`.wfb-slides-context-box`, dashed, no handles; non-group selection /
+multi-selection → no outlines. Editor unit: `repaintOverlay` computes
+correct world frames including rotated group and one-level nested
+drill-in. Visual: extend the existing group scenario with a
+group-selected baseline and a drilled-in baseline.
+
+### Known Limitations / Follow-ups
 
 - **PDF export not implemented for slides v1.** The slides `export/`
   directory does not exist yet. When it is added, the recursive emitter
