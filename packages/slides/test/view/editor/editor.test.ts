@@ -2385,3 +2385,205 @@ describe('repaintOverlay — group selection visuals', () => {
     ).toBe(0);
   });
 });
+
+describe('elementContextItems — text vertical align', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  type ContextItemLike = { label: string; selected?: boolean; run: () => void };
+  type EditorWithContextItems = {
+    elementContextItems(slideId: string): ReadonlyArray<ContextItemLike>;
+  };
+
+  function getContextItems(ed: SlidesEditor, slideId: string): ReadonlyArray<ContextItemLike> {
+    return (ed as unknown as EditorWithContextItems).elementContextItems(slideId);
+  }
+
+  it('shows three text-align items for a single TextElement', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 300, h: 200, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: 'Hello', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([textId]);
+    const items = getContextItems(editor, slideId);
+
+    const labels = items.map((it) => it.label);
+    expect(labels).toContain('Align text top');
+    expect(labels).toContain('Align text middle');
+    expect(labels).toContain('Align text bottom');
+
+    // undefined verticalAnchor => implicit top => 'Align text top' is selected
+    const top = items.find((it) => it.label === 'Align text top');
+    expect(top?.selected).toBe(true);
+  });
+
+  it('marks the configured anchor as selected', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 300, h: 200, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: 'Hi', style: {} }],
+            style: {},
+          } as Block],
+          verticalAnchor: 'bottom',
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([textId]);
+    const items = getContextItems(editor, slideId);
+
+    expect(items.find((it) => it.label === 'Align text bottom')?.selected).toBe(true);
+    expect(items.find((it) => it.label === 'Align text top')?.selected).toBeFalsy();
+  });
+
+  it('omits the items when more than one element is selected', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      aId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'a',
+            type: 'paragraph',
+            inlines: [{ text: 'A', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+      bId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 60, w: 100, h: 50, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b',
+            type: 'paragraph',
+            inlines: [{ text: 'B', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    const items = getContextItems(editor, slideId);
+
+    expect(items.find((it) => it.label.startsWith('Align text'))).toBeUndefined();
+  });
+
+  it('omits the items for a non-text element', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([shapeId]);
+    const items = getContextItems(editor, slideId);
+
+    expect(items.find((it) => it.label.startsWith('Align text'))).toBeUndefined();
+  });
+
+  it('clicking an item calls store.updateElementData with the new anchor', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 300, h: 200, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: 'Hi', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([textId]);
+    const items = getContextItems(editor, slideId);
+
+    const middle = items.find((it) => it.label === 'Align text middle')!;
+    expect(middle).toBeDefined();
+    middle.run();
+
+    const updated = store.read().slides[0].elements.find((el) => el.id === textId);
+    expect(updated?.type).toBe('text');
+    if (updated?.type === 'text') {
+      expect(updated.data.verticalAnchor).toBe('middle');
+    }
+  });
+
+  it('clicking an item commits one undo entry (store.batch)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 300, h: 200, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: 'Hi', style: {} }],
+            style: {},
+          } as Block],
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([textId]);
+    const items = getContextItems(editor, slideId);
+
+    items.find((it) => it.label === 'Align text bottom')!.run();
+
+    // One undo reverts the anchor change back to undefined (top).
+    expect(store.canUndo()).toBe(true);
+    store.undo();
+    const reverted = store.read().slides[0].elements.find((el) => el.id === textId);
+    if (reverted?.type === 'text') {
+      expect(reverted.data.verticalAnchor).toBeUndefined();
+    }
+  });
+});
