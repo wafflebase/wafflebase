@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { showContextMenu } from '../../../src/view/editor/context-menu';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { showContextMenu, dismiss } from '../../../src/view/editor/context-menu';
 
 beforeEach(() => {
   document.body.innerHTML = '';
@@ -125,5 +125,51 @@ describe('showContextMenu', () => {
     )!;
     item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('showContextMenu — selected indicator', () => {
+  let host: HTMLDivElement;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+  });
+
+  afterEach(() => {
+    dismiss();
+    host.remove();
+  });
+
+  it('prefixes selected items with a check-mark glyph', () => {
+    showContextMenu(host, [
+      { label: 'Top',    run: () => undefined, selected: true },
+      { label: 'Middle', run: () => undefined },
+      { label: 'Bottom', run: () => undefined },
+    ], 0, 0);
+    const items = Array.from(host.querySelectorAll('li')).map((li) => li.textContent ?? '');
+    expect(items[0]).toMatch(/^✓\s/);
+    expect(items[1]).not.toMatch(/^✓/);
+    expect(items[2]).not.toMatch(/^✓/);
+  });
+
+  it('omits the check-mark glyph entirely when no item is selected', () => {
+    showContextMenu(host, [
+      { label: 'Top',    run: () => undefined },
+      { label: 'Middle', run: () => undefined },
+    ], 0, 0);
+    for (const li of host.querySelectorAll('li')) {
+      expect(li.textContent ?? '').not.toMatch(/^✓/);
+    }
+  });
+
+  it('still fires run() when a selected item is clicked', () => {
+    const handler = vi.fn();
+    showContextMenu(host, [
+      { label: 'Top', run: handler, selected: true },
+    ], 0, 0);
+    const li = host.querySelector('li')!;
+    li.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(handler).toHaveBeenCalledOnce();
   });
 });

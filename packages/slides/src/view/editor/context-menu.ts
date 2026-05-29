@@ -10,6 +10,13 @@ export interface ContextMenuItem {
   label: string;
   run: () => void;
   disabled?: boolean;
+  /**
+   * Mark this item as the current choice in a radio-group (e.g. the
+   * active `verticalAnchor`). The menu prefixes selected items with a
+   * check-mark glyph; non-selected items get a matching-width spacer so
+   * labels stay column-aligned. Has no effect on `run()` semantics.
+   */
+  selected?: boolean;
   /** Use a horizontal divider when label is the literal string '---'. */
 }
 
@@ -43,6 +50,8 @@ export function showContextMenu(
   menu.style.color = '#ddd';
   menu.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.5)';
 
+  const anySelected = items.some((it) => it.label !== '---' && it.selected === true);
+
   for (const item of items) {
     if (item.label === '---') {
       const sep = document.createElement('li');
@@ -52,7 +61,9 @@ export function showContextMenu(
       continue;
     }
     const li = document.createElement('li');
-    li.textContent = item.label;
+    li.textContent = anySelected
+      ? (item.selected ? `✓ ${item.label}` : `   ${item.label}`)
+      : item.label;
     li.style.padding = '6px 16px';
     li.style.cursor = item.disabled ? 'default' : 'pointer';
     if (item.disabled) {
