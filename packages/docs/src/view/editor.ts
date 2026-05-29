@@ -89,8 +89,19 @@ export interface EditorAPI {
    * before the first paint() has run.
    */
   scrollToPosition(pos: DocPosition): void;
-  /** Register a callback for cursor position changes */
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): void;
+  /**
+   * Register a callback for cursor position changes. Multiple callbacks
+   * may be registered; they fire in registration order. The returned
+   * function unsubscribes the callback. Old call sites that ignore the
+   * return value remain valid — the callback simply stays registered
+   * until `dispose()` is called.
+   *
+   * Callbacks ALSO fire after an inline / block style mutation
+   * (`applyStyle`, `clearFormatting`, `applyBlockStyle`) so toolbar
+   * pickers can refresh their selection-derived summaries even though
+   * the cursor itself has not moved.
+   */
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): () => void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
@@ -526,6 +537,7 @@ export function initialize(
       applyStyleToCellRange(range.tableCellRange, style);
       markDirty(range.tableCellRange.blockId);
       render();
+      notifyStyleApplied();
       return;
     }
 
@@ -550,6 +562,26 @@ export function initialize(
       }
     }
     render();
+    notifyStyleApplied();
+  }
+
+  /**
+   * Fire the cursor-move callbacks after an inline / block style
+   * mutation. The cursor itself did not move, but the style data under
+   * it changed — toolbar pickers driven by `getRangeStyleSummary` /
+   * `getBlockStyle` need to refresh. We pass the current selection
+   * range when one exists so callbacks see the same shape they would
+   * after a real cursor move.
+   */
+  function notifyStyleApplied(): void {
+    const selRange = selection.hasSelection() && selection.range
+      ? {
+          anchor: selection.range.anchor,
+          focus: selection.range.focus,
+          tableCellRange: selection.range.tableCellRange,
+        }
+      : undefined;
+    fireCursorMoveCallbacks(cursor.position, selRange);
   }
 
   /** Apply inline style to all blocks in all cells within a cell range. */
@@ -582,7 +614,18 @@ export function initialize(
 
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
-  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void) | null = null;
+  type CursorMoveCallback = (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void;
+  // Multi-listener fan-out. Previously a single slot, which silently
+  // overwrote earlier subscribers (e.g. the toolbar refresh effect
+  // stomping on the presence broadcaster from docs-view.tsx). The Set
+  // preserves insertion order so callbacks fire in registration order.
+  const cursorMoveCallbacks = new Set<CursorMoveCallback>();
+  function fireCursorMoveCallbacks(
+    pos: { blockId: string; offset: number },
+    selection?: Parameters<CursorMoveCallback>[1],
+  ): void {
+    for (const cb of cursorMoveCallbacks) cb(pos, selection);
+  }
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
@@ -1269,7 +1312,7 @@ export function initialize(
           tableCellRange: selection.range.tableCellRange,
         }
       : null;
-    cursorMoveCallback?.(cursor.position, selRange);
+    fireCursorMoveCallbacks(cursor.position, selRange);
     // Notify cursor-based link detection.
     // Convert document-space coordinates to screen (viewport) coordinates
     // so the popover can use position:fixed reliably regardless of scroll.
@@ -1888,6 +1931,7 @@ export function initialize(
         doc.applyBlockStyle(block.id, style);
       });
       render();
+      notifyStyleApplied();
     },
     undo: undoFn,
     redo: redoFn,
@@ -1919,7 +1963,10 @@ export function initialize(
       });
     },
     onCursorMove: (cb) => {
-      cursorMoveCallback = cb;
+      cursorMoveCallbacks.add(cb);
+      return () => {
+        cursorMoveCallbacks.delete(cb);
+      };
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
@@ -2521,7 +2568,7 @@ export function initialize(
     },
     dispose: () => {
       peerCursors = [];
-      cursorMoveCallback = null;
+      cursorMoveCallbacks.clear();
       lastPeerPixels = [];
       selectedImage = null;
       imageResizeDrag = null;

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorAPI, EditContext } from "@wafflebase/docs";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
@@ -40,6 +40,7 @@ import {
   IconPhoto,
   IconDotsVertical,
   IconChevronDown,
+  IconClearFormatting,
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
 import { TableGridPicker } from "./table-grid-picker";
@@ -51,6 +52,10 @@ import {
   TextStyleGroup,
   TextFormatGroup,
   TextParagraphGroup,
+  FontFamilyPicker,
+  FontSizePicker,
+  LineSpacingPicker,
+  ClearFormattingButton,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { isMac, modKey } from "@/components/text-formatting/platform";
@@ -273,6 +278,64 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     editor?.focus();
   }, [editor]);
 
+  // ── Reactive selection summary ────────────────────────────────────────────
+  // Drives the FontFamily / FontSize / LineSpacing pickers. Placed above the
+  // header/footer early return so the slim toolbar (Task 12) can read the
+  // same state. `editor.onCursorMove` is multi-listener and returns an
+  // unsubscribe function — we MUST call it on cleanup so we do not leak
+  // stale closures into the editor across remounts (and to keep parity
+  // with the presence broadcaster registered in docs-view.tsx).
+  type RangeSummary = ReturnType<NonNullable<typeof editor>["getRangeStyleSummary"]>;
+  const [summary, setSummary] = useState<Partial<RangeSummary>>({});
+  const [lineHeight, setLineHeight] = useState<number>(1.5);
+
+  useEffect(() => {
+    if (!editor) return;
+    const refresh = () => {
+      setSummary(editor.getRangeStyleSummary());
+      const bs = editor.getBlockStyle();
+      setLineHeight(typeof bs.lineHeight === "number" ? bs.lineHeight : 1.5);
+    };
+    refresh();
+    const unsubscribe = editor.onCursorMove(refresh);
+    return unsubscribe;
+  }, [editor]);
+
+  const familyValue =
+    summary.fontFamily === "mixed" ? undefined : summary.fontFamily;
+  const sizeValue =
+    summary.fontSize === "mixed" ? undefined : summary.fontSize;
+
+  // DocStore does not currently expose a `fonts` registry, so the
+  // ensureFont prefetch hook is best-effort: cast to read it without
+  // adding a typing dependency on a yet-to-be-wired field.
+  const ensureFont = (family: string) => {
+    if (!editor) return;
+    const store = editor.getStore() as unknown as {
+      fonts?: { ensureFont?: (f: string) => void };
+    };
+    store.fonts?.ensureFont?.(family);
+  };
+
+  const handleFontFamily = (family: string) => {
+    if (!editor) return;
+    ensureFont(family);
+    editor.applyStyle({ fontFamily: family });
+    editor.focus();
+  };
+  const handleFontSize = (size: number) => {
+    editor?.applyStyle({ fontSize: size });
+    editor?.focus();
+  };
+  const handleLineSpacing = (lh: number) => {
+    editor?.applyBlockStyle({ lineHeight: lh });
+    editor?.focus();
+  };
+  const handleClearFormatting = () => {
+    editor?.clearFormatting();
+    editor?.focus();
+  };
+
   const isHeaderFooter = editContext === 'header' || editContext === 'footer';
   const contextLabel = editContext === 'header' ? 'Header' : 'Footer';
 
@@ -487,6 +550,13 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <>
           <TextStyleGroup editor={editor} />
           <ToolbarSeparator />
+          <FontFamilyPicker
+            value={familyValue}
+            onChange={handleFontFamily}
+            onPrefetch={ensureFont}
+          />
+          <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+          <ToolbarSeparator />
         </>
       )}
 
@@ -506,6 +576,14 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
           {/* ── Paragraph styles (align, lists, indent) ── */}
           <TextParagraphGroup editor={editor} />
+
+          <ToolbarSeparator />
+
+          <LineSpacingPicker value={lineHeight} onChange={handleLineSpacing} />
+
+          <ToolbarSeparator />
+
+          <ClearFormattingButton onClick={handleClearFormatting} />
 
           <ToolbarSeparator />
 
@@ -551,6 +629,18 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Font</DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className="flex flex-col items-stretch gap-1 p-2"
+              >
+                <FontFamilyPicker
+                  value={familyValue}
+                  onChange={handleFontFamily}
+                />
+                <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>Styles</DropdownMenuLabel>
               {STYLE_OPTIONS.map((opt) => (
                 <DropdownMenuItem
@@ -632,6 +722,21 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
               <DropdownMenuItem onClick={() => { editor?.indent(); editor?.focus(); }}>
                 <IconIndentIncrease size={16} className="mr-2" />
                 Increase indent
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Spacing</DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className="p-2"
+              >
+                <LineSpacingPicker
+                  value={lineHeight}
+                  onChange={handleLineSpacing}
+                />
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleClearFormatting}>
+                <IconClearFormatting size={16} className="mr-2" />
+                Clear formatting
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Export</DropdownMenuLabel>
