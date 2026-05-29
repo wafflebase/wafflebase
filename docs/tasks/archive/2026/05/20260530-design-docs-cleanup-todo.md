@@ -1,5 +1,10 @@
 # Design Docs Cleanup
 
+**Status:** Completed 2026-05-30. 8 commits on
+`cleanup/design-docs-pr-a-low-risk-wins` (49 files, +3,081 / -4,842).
+Lessons captured in
+[`20260530-design-docs-cleanup-lessons.md`](20260530-design-docs-cleanup-lessons.md).
+
 Multi-PR cleanup of `docs/design/` based on a 4-area audit (Sheets / Docs /
 Slides / Common). Goal: remove duplication, stale "shipped phase" sections,
 schema drift, and orphan files; align frontmatter/structure with
@@ -13,16 +18,16 @@ section has the rationale inline so the PR author does not need to re-derive.
 Semantic content of design unchanged; only metadata, structure, and "shipped
 phase" tables are touched.
 
-- [ ] **A1** Add `docs/docs-header-footer.md` to README index (orphan).
+- [x] **A1** Add `docs/docs-header-footer.md` to README index (orphan).
   - Currently exists but not listed in `docs/design/README.md` Docs table.
-- [ ] **A2** Normalize `context-menu.md` to template format.
+- [x] **A2** Normalize `context-menu.md` to template format.
   - Add `--- title / target-version ---` frontmatter; restructure into
     `Summary / Goals / Non-Goals / Proposal Details / Risks and Mitigation`.
     Only `context-menu.md` violates the template among Common docs.
-- [ ] **A3** Unify `target-version` frontmatter notation across all design docs.
+- [x] **A3** Unify `target-version` frontmatter notation across all design docs.
   - `template.md` uses bare `0.2.0`. One outlier: `docs-nested-tables.md` uses
     `v0.3.3`. Drop the `v` prefix to match the template.
-- [ ] **A4** Trim small shipped phase tables (large `docs-wordprocessor-roadmap.md`
+- [x] **A4** Trim small shipped phase tables (large `docs-wordprocessor-roadmap.md`
       cleanup deferred to PR D).
   - `slides.md` "Phasing" (P1–P5 all shipped) → demote to "Historical phasing"
     or remove.
@@ -32,33 +37,33 @@ phase" tables are touched.
     PR3 deferred" header and collapse historical detail.
   - `pivot-table.md` "IMPLEMENTED" checkboxes → remove (changelog content, not
     design content).
-- [ ] Run `pnpm verify:fast`, commit.
+- [x] Run `pnpm verify:fast`, commit.
 
 ## PR B — Slides consolidations (`cleanup/design-docs-pr-b-slides`)
 
-- [ ] **B1** Archive `slides-text-engine-audit.md` (Phase 5 spike, conclusions
+- [x] **B1** Archive `slides-text-engine-audit.md` (Phase 5 spike, conclusions
       absorbed; commit `fbd9553a` already signaled archive intent).
-- [ ] **B2** Merge `slides-textbox-autogrow.md` into `slides-text-autofit.md`
+- [x] **B2** Merge `slides-textbox-autogrow.md` into `slides-text-autofit.md`
       (autofit absorbs autogrow as `'grow'` mode). Archive autogrow doc.
-- [ ] **B3** Merge `slides-mobile-view.md` + `slides-mobile-edit.md` →
+- [x] **B3** Merge `slides-mobile-view.md` + `slides-mobile-edit.md` →
       `slides-mobile.md` (edit doc already absorbs view via `mode: 'view'`
       fallback).
-- [ ] **B4** Merge `slides-group-selection-ui.md` into `slides-group.md`
+- [x] **B4** Merge `slides-group-selection-ui.md` into `slides-group.md`
       (selection-ui is overlay-only, depends entirely on group model).
-- [ ] **B5** Deduplicate Shift-modifiers table from `slides-keyboard-shortcuts.md`
+- [x] **B5** Deduplicate Shift-modifiers table from `slides-keyboard-shortcuts.md`
       (keep summary + xref to `slides-shift-modifiers.md`).
-- [ ] **B6** Update README index for all moves/merges.
-- [ ] Run `pnpm verify:fast`, commit.
+- [x] **B6** Update README index for all moves/merges.
+- [x] Run `pnpm verify:fast`, commit.
 
 ## PR C — Common CLI consolidation (`cleanup/design-docs-pr-c-cli`)
 
-- [ ] **C1** Split `rest-api-and-cli.md` into:
+- [x] **C1** Split `rest-api-and-cli.md` into:
   - `rest-api.md` — REST + API key + `/api/v1/*` + workspace scope.
   - `cli.md` — sheets/docs namespaces, OAuth login, context switching,
     DOCX/PDF export.
-- [ ] **C2** Absorb `docs-cli.md` and `cli-oauth-login.md` into `cli.md`.
-- [ ] **C3** Update README index.
-- [ ] Run `pnpm verify:fast`, commit.
+- [x] **C2** Absorb `docs-cli.md` and `cli-oauth-login.md` into `cli.md`.
+- [x] **C3** Update README index.
+- [x] Run `pnpm verify:fast`, commit.
 
 ## PR D — Docs and Sheets deep restructure (`cleanup/design-docs-pr-d-restructure`)
 
@@ -66,47 +71,47 @@ Largest PR; split further if it grows. Will likely need its own todo file.
 
 ### D1 — Docs table cluster (7 → 3)
 
-- [ ] Rewrite `docs-tables.md` against current model (block-container cells,
+- [x] Rewrite `docs-tables.md` against current model (block-container cells,
       CRDT tree), absorb `docs-table-crdt.md`.
-- [ ] Delete deprecated `cellAddress` / `*InCell` / "Cell-Aware Text Selection"
+- [x] Delete deprecated `cellAddress` / `*InCell` / "Cell-Aware Text Selection"
       sections (~220 lines).
-- [ ] Move `docs-table-ui.md`, `docs-table-resize.md`, `docs-table-copy-paste.md`,
+- [x] Move `docs-table-ui.md`, `docs-table-resize.md`, `docs-table-copy-paste.md`,
       `docs-table-row-splitting.md`, `docs-nested-tables.md` into
       `docs/design/docs/tables/` subfolder with `docs-tables.md` as index.
 
 ### D2 — Docs collaboration cluster
 
-- [ ] Rewrite `docs-collaboration.md` against intent-preserving model
+- [x] Rewrite `docs-collaboration.md` against intent-preserving model
       (Phases 1–8 are all shipped). Archive
       `docs-intent-preserving-edits.md` or compress into phase log.
-- [ ] Merge `docs-remote-cursor.md` + `docs-peer-jump.md` → `docs-presence.md`
+- [x] Merge `docs-remote-cursor.md` + `docs-peer-jump.md` → `docs-presence.md`
       (shared presence state/timers/`buildPeerCursors`).
 
 ### D3 — Docs roadmap shrink
 
-- [ ] Trim `docs-wordprocessor-roadmap.md` ~70%: drop completed Phase 1.1–2.5
+- [x] Trim `docs-wordprocessor-roadmap.md` ~70%: drop completed Phase 1.1–2.5
       content, compress unimplemented items to one paragraph each + design doc
       links. Remove stale Non-Goals in `docs.md`.
 
 ### D4 — Sheets schema single-source-of-truth
 
-- [ ] Designate `collaboration.md` as canonical `Worksheet` /
+- [x] Designate `collaboration.md` as canonical `Worksheet` /
       `SpreadsheetDocument` source. Convert other docs (comments/pivot/
       datasource/image/charts) to "add this field" patch format.
-- [ ] Slim `sheet.md` (~612 → index/Store role). Remove duplicated
+- [x] Slim `sheet.md` (~612 → index/Store role). Remove duplicated
       style/scroll/batch/formula summaries. Fix grid dimensions to a single
       source of truth (currently 3 different values).
-- [ ] Designate `formula-coverage.md` as the only home for function counts and
+- [x] Designate `formula-coverage.md` as the only home for function counts and
       category tables. Strip from `sheet.md` and `formula.md`.
 
 ### D5 — Sheets presence merge
 
-- [ ] Absorb `peer-cursor-labels.md` into `axis-id-selection.md` or
+- [x] Absorb `peer-cursor-labels.md` into `axis-id-selection.md` or
       `collaboration.md`. The two presence docs are mutually inconsistent.
 
 ### D6 — Archive single-PR notes
 
-- [ ] Move to `docs/design/archive/`:
+- [x] Move to `docs/design/archive/`:
   - `conditional-format-multi-range.md`
   - `peer-cursor-labels.md` (after D5)
   - `docs-frontend-integration.md`
