@@ -66,6 +66,15 @@ than to "two users edited the same spreadsheet structure".
 
 ## Canonical Worksheet Shape
 
+> **Single source of truth.** This is the canonical definition of
+> `Worksheet` and `SpreadsheetDocument` for the entire `docs/design/`
+> tree. Other docs (`comments.md`, `pivot-table.md`, `datasource.md`,
+> `sheet-image.md`, `charts.md`, ...) must show only the fields they
+> *add* in patch form (`+ comments?: Comments` etc.) and link back
+> here. Re-stating the full type drifts: when a new optional field
+> lands, only the doc that owns that field gets updated, and the
+> other copies silently fall out of date.
+
 Each collaborative spreadsheet is a multi-tab Yorkie document:
 
 ```typescript
@@ -86,16 +95,19 @@ type Worksheet = {
   filter?: WorksheetFilterState;
   hiddenRows?: number[];
   hiddenColumns?: number[];
-  charts?: { [id: string]: SheetChart };
+  charts?: { [id: string]: SheetChart };          // see charts.md
   frozenRows: number;
   frozenCols: number;
-  pivotTable?: PivotTableDefinition;
+  pivotTable?: PivotTableDefinition;              // see pivot-table.md
+  comments?: CommentsCollection;                  // see comments.md
+  images?: { [id: string]: SheetImage };          // see sheet-image.md
 };
 
 type SpreadsheetDocument = {
   tabs: { [id: string]: TabMeta };
   tabOrder: string[];
   sheets: { [tabId: string]: Worksheet };
+  datasources?: { [id: string]: DatasourceConfig }; // see datasource.md
 };
 ```
 

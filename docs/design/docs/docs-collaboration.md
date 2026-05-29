@@ -5,6 +5,17 @@ target-version: 0.2.0
 
 # Docs Collaboration
 
+> **Status (2026-05):** This document captures the original v0.2.0
+> Yorkie integration — `YorkieDocStore` over `yorkie.Tree`, block-level
+> `updateBlock` writes that replace whole blocks per edit. That model
+> shipped and is still in the store interface, but the **editor no
+> longer uses it for text edits**. Concurrent same-paragraph edits go
+> through the character-level intent-preserving path described in
+> [`docs-intent-preserving-edits.md`](docs-intent-preserving-edits.md)
+> (Phases 1–8 shipped in v0.4.x). Read this doc for the tree node
+> structure, snapshot/restore, and undo strategy; read intent-preserving
+> for what actually happens on every keystroke today.
+
 ## Summary
 
 Add real-time collaborative editing to the docs (document editor) package using

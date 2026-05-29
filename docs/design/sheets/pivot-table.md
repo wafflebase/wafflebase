@@ -147,11 +147,13 @@ Pivot definition lives in two places with distinct roles:
 | `TabMeta.kind` | Fast identification (icon, menu) | Always (tab bar) |
 | `Worksheet.pivotTable` | Full configuration (fields, source) | Active tab only |
 
+The canonical `Worksheet` shape lives in
+[`collaboration.md`](collaboration.md#canonical-worksheet-shape).
+This feature adds one optional field:
+
 ```typescript
-type Worksheet = {
-  // ... existing fields
-  pivotTable?: PivotTableDefinition;  // present when kind === "pivot"
-};
+// patch on Worksheet
++  pivotTable?: PivotTableDefinition;  // present when kind === "pivot"
 ```
 
 Both are set together when creating a pivot table and cleared together
@@ -429,18 +431,7 @@ the source range, and passes it to the calculator.
 
 ## Phase Roadmap
 
-### Phase 1 (this document) — IMPLEMENTED
-
-- [x] Pivot table creation from data range selection (context menu)
-- [x] Row/column/value/filter field configuration
-- [x] 6 aggregation functions: SUM, COUNT, COUNTA, AVERAGE, MIN, MAX
-- [x] Materialized cell output on dedicated sheet
-- [x] Side panel editor with field management
-- [x] Manual refresh, read-only cell protection
-- [x] Grand totals (row and column)
-- [x] Yorkie persistence and collaboration
-- [x] TabMeta.kind subtype for pivot tab identification
-- [x] Distinct pivot icon in tab bar
+Phase 1 (this document) shipped. Subsequent phases are still planning.
 
 ### Phase 2
 

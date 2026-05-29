@@ -362,9 +362,9 @@ type SlidesPresence = {
 
 Stable `slideId` and `elementId` make selection survive remote
 structural edits, reusing the design from
-`sheets/axis-id-selection.md`. Peer cursor labels follow
-`sheets/peer-cursor-labels.md` and the docs `docs-remote-cursor.md`
-visual treatment.
+`sheets/axis-id-selection.md`. Peer cursor labels follow the
+visual treatment in `docs/docs-presence.md` (and the archived
+`archive/peer-cursor-labels.md` for the original Sheets design).
 
 ### Rendering pipeline
 
@@ -635,9 +635,12 @@ reads naturally in English.
 - **Design docs** — this directory (`docs/design/slides/`) plus a new
   Slides section in `docs/design/README.md`.
 
-### Phasing
+### Phasing (historical — P1–P5 all shipped)
 
-Each phase ends with something demoable.
+The v1 rollout was delivered in five phases. All five have landed; the
+table is retained for historical context only. Subsequent feature work
+(themes, layouts, PPTX import, presentation mode, mobile, group, etc.)
+lives in its own design docs under `docs/design/slides/`.
 
 | Phase | Deliverable | Verification |
 |---|---|---|
@@ -646,9 +649,6 @@ Each phase ends with something demoable.
 | P3. Editor (single user) | 2-pane shell, contextual toolbar, select/drag/resize/rotate, undo/redo | Vitest interaction tests + manual |
 | P4. Yorkie + multi-user | `YorkieSlidesStore`, presence, peer cursors, backend type registration, frontend routing | `two-user-slides-yorkie.ts` integration tests |
 | P5. Text + Present + Export | docs RichText bridge, presentation mode, PDF export, CLI | Integration tests + visual PDF check |
-
-Phases P1–P3 don't touch backend, so progress is fast. P4 onward
-crosses the package boundary into frontend and backend.
 
 ### Testing strategy
 

@@ -3,8 +3,6 @@ title: slides-text-autofit
 target-version: 0.5.0
 ---
 
-<!-- Make sure to append document link in design README.md after creating the document. -->
-
 # Slides Text Autofit
 
 ## Summary
@@ -18,13 +16,11 @@ each box (or the layout slot that owns it) picks one:
 | Shrink on overflow | Box fixed; **font size auto-shrinks** to fit       | `<a:normAutofit fontScale=…/>` |
 | Resize to fit text | Font fixed; **box height grows/shrinks** to content | `<a:spAutoFit/>` |
 
-The **grow** behavior ("resize to fit text") already shipped — see
-[slides-textbox-autogrow.md](slides-textbox-autogrow.md), which made text
-boxes auto-grow their height to content via a docs `onContentHeightChange`
-hook, persisted to the frame on commit. That was the single, unconditional
-text-box behavior.
-
-This document **layers the remaining two modes on top of auto-grow**:
+The **grow** behavior ("resize to fit text") shipped first as the single,
+unconditional text-box behavior — insert-to-edit focus, drag-to-size, and
+live height tracking via a docs `onContentHeightChange` hook (see
+[Grow mode wiring](#grow-mode-wiring-formerly-slides-textbox-autogrowmd)
+below). This document **layers the remaining two modes on top of grow**:
 
 - A persisted `AutofitMode` field (`'none' | 'shrink' | 'grow'`) that
   selects the behavior per text element.
@@ -189,6 +185,63 @@ Yorkie equivalence test asserts the field survives all three paths.
 child: `normAutofit`→`shrink`, `spAutoFit`→`grow`, `noAutofit`/absent→
 `none`. The existing `normAutofit` fontScale baking is kept (imported
 decks render visually identical); the live engine re-engages on edit.
+
+### Grow mode wiring (formerly slides-textbox-autogrow.md)
+
+`grow` mode is implemented by three coordinated behaviors shipped before
+this autofit feature. They remain authoritative for what `grow` does today:
+
+1. **Insert-to-edit** — inserting a text box drops the caret straight into
+   it (`enterEditMode` + `focus()`), matching Google Slides / PowerPoint.
+   Shapes are unaffected; they still insert selected.
+2. **Drag sizing** — a text box can be drawn by dragging a rectangle
+   (width + position), reusing the existing shape drag-preview flow. A
+   sub-threshold drag falls back to `TEXT_DEFAULT_W`. Height is *not*
+   retained from the drag — it snaps to content on creation (one line
+   when empty), so the drag contributes width and top-left position only.
+3. **Live height via a docs callback** — the docs text engine already
+   computes `layout.totalHeight` in `computeLayout`. Two seams in
+   `packages/docs/src/view/text-box-editor.ts` surface it to the host:
+
+   ```ts
+   // TextBoxEditorOptions
+   onContentHeightChange?: (contentHeight: number) => void;
+   // TextBoxEditorAPI
+   setContentHeight(contentHeight: number): void;
+   ```
+
+   `renderNow` fires `onContentHeightChange(totalHeight)` only when the
+   value changes (same de-dupe pattern as `onCursorMove`). The slides
+   wrapper resizes its container/canvas to the new height, calls
+   `api.setContentHeight()` so the docs editor's pointer math stays
+   consistent, and surfaces the new logical height to the slides editor.
+   There is no loop: height is not a layout input, so `setContentHeight`
+   does not re-fire `onContentHeightChange`.
+
+**Persistence.** Height is persisted **at commit**, not per-keystroke.
+`onCommit` writes `frame.h = max(MIN_TEXT_BOX_H, contentHeight)` via
+`store.updateElementFrame(...)` in the **same `batch`** as the
+`withTextElement` text write — one undo entry, no per-keystroke CRDT
+churn. Live visual growth during typing is the wrapper resizing its
+editing canvas; the store frame only changes on commit (consistent with
+text, which is also local until commit).
+
+The autofit selector layered on top gates these callbacks: `grow` keeps
+them wired (auto-grow); `shrink`/`none` unwire `onContentHeightChange`
+so the box stays fixed and `transformLayoutBlocks` takes over for
+`shrink`. See the [Editor wiring](#in-place-editor) table above for the
+gating matrix.
+
+**Files (grow mode):**
+
+- `packages/docs/src/view/text-box-editor.ts` — `onContentHeightChange`
+  option, `setContentHeight()` API, fire-on-change in `renderNow`.
+- `packages/slides/src/view/editor/text-box-editor.ts` — forward
+  callback, resize container/canvas, delegate `setContentHeight`.
+- `packages/slides/src/view/editor/interactions/insert.ts` — text
+  click-vs-drag sizing.
+- `packages/slides/src/view/editor/editor.ts` — text drag insert +
+  `enterEditMode` on insert; persist height on commit.
 
 ### Risks and Mitigation
 

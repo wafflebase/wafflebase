@@ -7,10 +7,13 @@ target-version: 0.1.0
 
 ## Summary
 
-Wafflebase supports a grid of up to 729,443 rows x 18,278 columns (A1 to
-ZZZ729443). Rendering this grid requires two mechanisms working together:
-viewport-based Canvas rendering that only draws visible cells, and proportional
-scroll remapping that maps a browser-safe scroll area to the full logical grid.
+Wafflebase supports a grid of up to 1,000,000 rows x 18,278 columns
+(A1 to ZZZ1000000) — authoritative dimensions live in
+`packages/sheets/src/model/worksheet/sheet.ts` and are summarized in
+[`sheet.md`](sheet.md). Rendering this grid requires two mechanisms
+working together: viewport-based Canvas rendering that only draws
+visible cells, and proportional scroll remapping that maps a
+browser-safe scroll area to the full logical grid.
 
 ### Goals
 
@@ -98,9 +101,10 @@ Browsers impose maximum CSS element sizes:
 | Safari         | 2^24 = 16,777,216 px |
 | Chrome/Firefox | 2^25 = 33,554,432 px |
 
-At default dimensions, the full grid height is 729,443 x 23px = 16,777,189 px,
-which is at Safari's limit. Adding rows or increasing row heights would exceed
-it.
+At the previous default of 729,443 rows, the full grid height was
+729,443 x 23 px = 16,777,189 px — right at Safari's limit. The
+current 1,000,000-row default exceeds it (23,000,000 px), so a
+direct mapping is no longer viable on any browser.
 
 **Solution**: `GridContainer` caps the dummy scroll container at
 `MAX_SCROLL_SIZE = 10,000,000 px` and linearly maps between physical (capped)

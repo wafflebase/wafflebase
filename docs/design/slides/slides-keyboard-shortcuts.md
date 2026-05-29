@@ -53,25 +53,15 @@ and a discoverable shortcuts-help modal.
 
 ### Shift modifiers during drag
 
-Holding Shift while dragging applies a context-specific constraint.
-Sampled live — pressing or releasing Shift mid-drag updates the
-constraint immediately.
+Holding Shift while dragging applies a context-specific constraint
+(1:1 shape draw, 15° angle snap on lines/connectors and endpoints,
+axis lock on element move; the existing aspect-ratio resize and 15°
+rotate continue to apply). Sampled live — pressing or releasing Shift
+mid-drag updates the constraint immediately. For connector draw and
+endpoint drag, Shift wins over connection-site snap.
 
-| Interaction | Shift behavior |
-|---|---|
-| Shape draw | Force `w === h` — squares, circles, regular triangles. Applies to every `ShapeKind`; text-box insert is exempt. |
-| Line / connector draw | Snap endpoint angle to 15° increments from the drag start. Length preserved. |
-| Connector endpoint drag (existing line) | Snap dragging endpoint to 15° relative to the opposite endpoint. |
-| Element move | Project pointer delta onto the dominant axis (max-displacement). Re-decided every frame; tie-break is X-wins. |
-| Corner resize (existing) | Preserve aspect ratio. |
-| Rotate handle (existing) | Snap rotation to 15°. |
-
-For connector draw and endpoint drag, Shift wins over connection-site
-snap: the snapped coordinate is what the site test sees, so the
-endpoint attaches only when the angle-snapped point lands inside a
-site radius. Release Shift to attach.
-
-Full design: [slides-shift-modifiers.md](./slides-shift-modifiers.md).
+Full design and per-interaction matrix:
+[slides-shift-modifiers.md](./slides-shift-modifiers.md).
 
 ### Architecture
 

@@ -54,16 +54,15 @@ export type SheetImage = {
 
 #### Worksheet Document Structure
 
-Images are stored in a top-level `images` map on the Worksheet, mirroring
-the existing `charts` field:
+Images are stored in a top-level `images` map on the Worksheet,
+mirroring the existing `charts` field. The canonical `Worksheet`
+shape lives in
+[`collaboration.md`](collaboration.md#canonical-worksheet-shape);
+this feature adds one optional field:
 
 ```typescript
-export type Worksheet = {
-  cells: { [key: string]: Cell };
-  charts?: { [id: string]: SheetChart };
-  images?: { [id: string]: SheetImage };  // NEW
-  // ... existing fields ...
-};
+// patch on Worksheet
++  images?: { [id: string]: SheetImage };
 ```
 
 #### Document Mutations

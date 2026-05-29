@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 223
+Total archived tasks: 225
 
-## 2026/05 (78 tasks)
+## 2026/05 (80 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| design docs cleanup (2026-05-30) | [20260530-design-docs-cleanup-todo.md](./2026/05/20260530-design-docs-cleanup-todo.md) | [20260530-design-docs-cleanup-lessons.md](./2026/05/20260530-design-docs-cleanup-lessons.md) |
 | slides format options panel (2026-05-29) | [20260529-slides-format-options-panel-todo.md](./2026/05/20260529-slides-format-options-panel-todo.md) | [20260529-slides-format-options-panel-lessons.md](./2026/05/20260529-slides-format-options-panel-lessons.md) |
 | slides pptx text vertical anchor (2026-05-29) | [20260529-slides-pptx-text-vertical-anchor-todo.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-todo.md) | [20260529-slides-pptx-text-vertical-anchor-lessons.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-lessons.md) |
 | slides text vertical align menu (2026-05-29) | [20260529-slides-text-vertical-align-menu-todo.md](./2026/05/20260529-slides-text-vertical-align-menu-todo.md) | [20260529-slides-text-vertical-align-menu-lessons.md](./2026/05/20260529-slides-text-vertical-align-menu-lessons.md) |
