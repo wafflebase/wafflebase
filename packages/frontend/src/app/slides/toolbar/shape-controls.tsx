@@ -8,6 +8,7 @@ import type {
   Theme,
   ThemeColor,
 } from '@wafflebase/slides';
+import { resolveColor } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,10 +16,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
-import { IconColorSwatch } from '@tabler/icons-react';
+import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
+import { ColorSwatchButton } from './color-swatch-button';
 
 export interface ShapeControlsProps {
   editor: SlidesEditor | null;
@@ -87,6 +89,14 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         ? (firstElement as ConnectorElement).stroke
         : undefined;
 
+  const currentFill =
+    isShape && theme
+      ? (() => {
+          const v = readShapeFill(firstElement as ShapeElement);
+          return v ? resolveColor(v, theme) : undefined;
+        })()
+      : undefined;
+
   return (
     <>
       {/* Fill: shapes only — connectors have no fill */}
@@ -95,14 +105,12 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Fill color"
+                <ColorSwatchButton
+                  icon={<IconBucketDroplet size={14} />}
+                  color={currentFill}
+                  label="Fill color"
                   disabled={!store || !slideId || !theme}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <IconColorSwatch size={16} />
-                </button>
+                />
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Fill color</TooltipContent>

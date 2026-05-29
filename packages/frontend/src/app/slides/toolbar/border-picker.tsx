@@ -1,4 +1,5 @@
 import type { Stroke, Theme, ThemeColor } from '@wafflebase/slides';
+import { resolveColor } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,7 +8,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemedColorPicker } from '../themed-color-picker';
-import { IconBorderAll, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
+import { ColorSwatchButton } from './color-swatch-button';
+import { IconBorderStyle2, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
 
 export interface BorderPickerProps {
   value?: Stroke;
@@ -55,6 +57,10 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
   const btnClass =
     'inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50';
 
+  const pickerColor = resolvePickerColor(value?.color);
+  const currentBorderColor =
+    pickerColor && theme ? resolveColor(pickerColor, theme) : undefined;
+
   return (
     <>
       {/* Border color */}
@@ -62,9 +68,12 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button type="button" aria-label="Border color" disabled={disabled} className={btnClass}>
-                <IconBorderAll size={16} />
-              </button>
+              <ColorSwatchButton
+                icon={<IconBorderStyle2 size={14} />}
+                color={currentBorderColor}
+                label="Border color"
+                disabled={disabled}
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Border color</TooltipContent>
@@ -72,7 +81,7 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
         <DropdownMenuContent align="start" className="w-auto p-2">
           {theme && (
             <ThemedColorPicker
-              value={resolvePickerColor(value?.color)}
+              value={pickerColor}
               theme={theme}
               onChange={onColorChange}
             />

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
-  IconColorSwatch,
+  IconBackground,
   IconPalette,
 } from "@tabler/icons-react";
 import type {
@@ -11,6 +11,7 @@ import type {
   Theme,
   ThemeColor,
 } from "@wafflebase/slides";
+import { resolveColor } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import {
   DropdownMenu,
@@ -23,7 +24,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
-import { LayoutButton } from "./layout-button";
+import { ColorSwatchButton } from "./color-swatch-button";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -130,6 +131,17 @@ export function RightGlobals({
 
   const hasSlideStyleGroup = !!store;
 
+  // Resolve the current slide's background fill to a CSS color string so
+  // the swatch button's stripe always reflects what the user is about to
+  // change. Falls back to undefined (renders as the empty outlined slot)
+  // when nothing is known yet.
+  const currentBackground = useMemo(() => {
+    if (!store || !slideId || !theme) return undefined;
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const fill = slide?.background?.fill;
+    return fill ? resolveColor(fill, theme) : undefined;
+  }, [store, slideId, theme]);
+
   return (
     <div
       className="ml-auto flex items-center gap-1"
@@ -140,14 +152,12 @@ export function RightGlobals({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Slide background"
+                <ColorSwatchButton
+                  icon={<IconBackground size={14} />}
+                  color={currentBackground}
+                  label="Slide background"
                   disabled={!store || !slideId || !theme}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <IconColorSwatch size={16} />
-                </button>
+                />
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Slide background</TooltipContent>
@@ -163,7 +173,6 @@ export function RightGlobals({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      <LayoutButton store={store} editor={editor} />
       {onToggleThemePanel && (
         <Tooltip>
           <TooltipTrigger asChild>
