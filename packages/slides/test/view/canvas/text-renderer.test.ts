@@ -99,6 +99,48 @@ describe('drawText', () => {
     drawText(asCtx(ctx), size, data([paragraph('one'), paragraph('two')]), THEME);
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
   });
+
+  it('paints at y=0 by default (top-anchored, no field)', () => {
+    const ctx = createCtxSpy();
+    drawText(asCtx(ctx), { w: 400, h: 200 }, data([paragraph('Hi')]), THEME);
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
+    // y is the baseline of the first line; for default body text the
+    // baseline sits well within the top quartile of the frame.
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeLessThan(40);
+  });
+
+  it('paints near the bottom of the frame when verticalAnchor="bottom"', () => {
+    const ctx = createCtxSpy();
+    const d: TextElement['data'] = { blocks: [paragraph('Hi')], verticalAnchor: 'bottom' };
+    drawText(asCtx(ctx), { w: 400, h: 200 }, d, THEME);
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
+    // Bottom-anchored text in a 200px-tall frame must paint in the lower
+    // half — guards against the old "always paint at the top" behavior.
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeGreaterThan(150);
+  });
+
+  it('paints near the vertical center when verticalAnchor="middle"', () => {
+    const ctx = createCtxSpy();
+    const d: TextElement['data'] = { blocks: [paragraph('Hi')], verticalAnchor: 'middle' };
+    drawText(asCtx(ctx), { w: 400, h: 200 }, d, THEME);
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeGreaterThan(80);
+    expect(firstY).toBeLessThan(130);
+  });
+
+  it('falls back to top-anchored when content is taller than the frame', () => {
+    const ctx = createCtxSpy();
+    // 30 paragraphs of default-size text is comfortably > 40 px tall.
+    const blocks = Array.from({ length: 30 }, (_, i) => paragraph(`line ${i}`));
+    const d: TextElement['data'] = { blocks, verticalAnchor: 'bottom' };
+    drawText(asCtx(ctx), { w: 400, h: 40 }, d, THEME);
+    // Negative offset would push text out the top of the frame; clamp at 0.
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeLessThan(40);
+    expect(firstY).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe('drawText placeholder hint', () => {
