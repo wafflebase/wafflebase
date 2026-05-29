@@ -141,16 +141,33 @@ describe('showContextMenu — selected indicator', () => {
     host.remove();
   });
 
-  it('prefixes selected items with a check-mark glyph', () => {
+  it('prefixes selected items with a check-mark glyph (radio group)', () => {
     showContextMenu(host, [
       { label: 'Top',    run: () => undefined, selected: true },
-      { label: 'Middle', run: () => undefined },
-      { label: 'Bottom', run: () => undefined },
+      { label: 'Middle', run: () => undefined, selected: false },
+      { label: 'Bottom', run: () => undefined, selected: false },
     ], 0, 0);
     const items = Array.from(host.querySelectorAll('li')).map((li) => li.textContent ?? '');
     expect(items[0]).toMatch(/^✓\s/);
-    expect(items[1]).not.toMatch(/^✓/);
-    expect(items[2]).not.toMatch(/^✓/);
+    expect(items[1]).toMatch(/^\s{3}/);
+    expect(items[2]).toMatch(/^\s{3}/);
+  });
+
+  it('does not indent unrelated items when a radio group is present', () => {
+    showContextMenu(host, [
+      { label: 'Copy',   run: () => undefined },
+      { label: 'Cut',    run: () => undefined },
+      { label: '---',    run: () => undefined },
+      { label: 'Top',    run: () => undefined, selected: true },
+      { label: 'Middle', run: () => undefined, selected: false },
+    ], 0, 0);
+    const items = Array.from(host.querySelectorAll('li'))
+      .filter((li) => li.textContent && li.textContent.trim() !== '')
+      .map((li) => li.textContent ?? '');
+    expect(items.find((t) => t.includes('Copy'))).toBe('Copy');
+    expect(items.find((t) => t.includes('Cut'))).toBe('Cut');
+    expect(items.find((t) => t.startsWith('✓'))).toMatch(/^✓ Top/);
+    expect(items.find((t) => t.includes('Middle'))).toMatch(/^\s{3}Middle/);
   });
 
   it('omits the check-mark glyph entirely when no item is selected', () => {

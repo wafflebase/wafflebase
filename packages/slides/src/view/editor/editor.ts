@@ -1369,6 +1369,7 @@ class SlidesEditorImpl implements SlidesEditor {
         const elementId = el.id;
         const store = this.options.store;
         const writeAnchor = (anchor: 'top' | 'middle' | 'bottom'): void => {
+          if (anchor === current) return; // no-op write would still create an undo entry
           store.batch(() => store.updateElementData(slideId, elementId, { verticalAnchor: anchor }));
         };
         textAlignItems.push(

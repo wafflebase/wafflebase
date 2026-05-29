@@ -2586,4 +2586,34 @@ describe('elementContextItems — text vertical align', () => {
       expect(reverted.data.verticalAnchor).toBeUndefined();
     }
   });
+
+  it('clicking the currently-selected anchor does not change the store', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1',
+            type: 'paragraph',
+            inlines: [{ text: 'Hi', style: {} }],
+            style: {},
+          } as Block],
+          verticalAnchor: 'middle',
+        },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([textId]);
+    const before = JSON.stringify(store.read().slides[0].elements);
+    const items = getContextItems(editor, slideId);
+
+    items.find((it) => it.label === 'Align text middle')!.run();
+
+    const after = JSON.stringify(store.read().slides[0].elements);
+    expect(after).toBe(before);
+  });
 });
