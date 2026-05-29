@@ -299,21 +299,11 @@ export function SlidesView({
     canvasArea.style.position = "relative";
     canvasArea.style.flex = "1 1 auto";
     canvasArea.style.minHeight = "0";
-    canvasArea.style.display = "flex";
-    // `safe center` keeps the slide centered when it fits the column
-    // and falls back to flex-start when the user picks a zoom that
-    // exceeds the column width — without `safe`, the overflowed left /
-    // top portion would be unreachable because justify-content: center
-    // pushes scroll origin past the visible area.
-    canvasArea.style.justifyContent = "safe center";
-    canvasArea.style.alignItems = "safe center";
-    canvasArea.style.paddingTop = `${SLIDES_RULER_SIZE}px`;
-    canvasArea.style.paddingLeft = `${SLIDES_RULER_SIZE}px`;
-    // `auto` so zooming above the column-fit size reveals scroll bars
-    // (horizontal + vertical). At Fit (1.0) the host always tracks the
-    // available area, so no scroll appears; the overflow:auto declaration
-    // is harmless in that case.
-    canvasArea.style.overflow = "auto";
+    // canvasArea is a positioning container for absolutely-pinned
+    // rulers plus an absolutely-sized scroll host. Overflow stays
+    // `hidden` so the rulers remain at the viewport edge during scroll
+    // — only `scrollHost` (below) gets `overflow: auto`.
+    canvasArea.style.overflow = "hidden";
 
     // Seed the host dimensions before mounting any DOM that references
     // them. `refitCanvas` will replace these on the first
@@ -407,7 +397,31 @@ export function SlidesView({
     overlay.style.pointerEvents = "none";
     canvasWrap.appendChild(overlay);
 
-    canvasArea.appendChild(canvasWrap);
+    // Scroll host: covers the canvas-area minus the ruler gutter on
+    // the top + left edges. The slide canvas (`canvasWrap`) lives
+    // inside this host, centered when it fits and scrollable when the
+    // user zooms beyond the column. Keeping the scroll boundary here
+    // — rather than on `canvasArea` — lets the rulers stay pinned at
+    // the viewport edges; the editor mirrors `scrollLeft`/`scrollTop`
+    // into the ruler's tick origin so the ticks track the visible
+    // portion of the slide.
+    const scrollHost = document.createElement("div");
+    scrollHost.style.position = "absolute";
+    scrollHost.style.top = `${SLIDES_RULER_SIZE}px`;
+    scrollHost.style.left = `${SLIDES_RULER_SIZE}px`;
+    scrollHost.style.right = "0";
+    scrollHost.style.bottom = "0";
+    scrollHost.style.overflow = "auto";
+    scrollHost.style.display = "flex";
+    // `safe center` keeps the slide centered when it fits the host and
+    // falls back to flex-start when it overflows. Without `safe`, the
+    // left / top overflow becomes unreachable because justify-content:
+    // center pushes the scroll origin past the visible area.
+    scrollHost.style.justifyContent = "safe center";
+    scrollHost.style.alignItems = "safe center";
+
+    scrollHost.appendChild(canvasWrap);
+    canvasArea.appendChild(scrollHost);
     right.appendChild(canvasArea);
 
     // Notes resizer — horizontal counterpart of the thumbnail-panel
@@ -606,6 +620,12 @@ export function SlidesView({
       canvasWrap.style.width = `${hostW}px`;
       canvasWrap.style.height = `${hostH}px`;
       editor.setHostSize(hostW, hostH);
+      // After a size change the browser may or may not emit a scroll
+      // event (e.g. shrinking back to Fit clamps scrollLeft to 0
+      // implicitly). Sync the ruler explicitly so its tick origin
+      // tracks the current scroll position even when no scroll event
+      // fires.
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
     };
 
     // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
@@ -620,6 +640,16 @@ export function SlidesView({
     // at mount is sufficient.
     const unsubscribeZoom =
       zoomController?.subscribe(() => refitCanvas()) ?? (() => {});
+
+    // Mirror the scroll host's scroll offset into the editor's ruler.
+    // The ruler is pinned at the canvas-area edges (so it stays visible
+    // during scroll), but its tick origin needs to track the slide's
+    // viewport position — without this the "0" tick stops aligning
+    // with the slide's left edge after the user pans.
+    const onScrollHostScroll = () => {
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
+    };
+    scrollHost.addEventListener("scroll", onScrollHostScroll, { passive: true });
 
     // Drag-to-resize the left column. Mousedown latches; mousemove
     // updates leftWidth (clamped + rounded); mouseup persists to
@@ -781,6 +811,7 @@ export function SlidesView({
     return () => {
       resizeObserver.disconnect();
       unsubscribeZoom();
+      scrollHost.removeEventListener("scroll", onScrollHostScroll);
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);
       // If the user navigated mid-drag, restore body cursor / select.

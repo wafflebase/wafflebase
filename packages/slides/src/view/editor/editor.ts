@@ -285,6 +285,18 @@ export interface SlidesEditor {
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
   /**
+   * Update the ruler's viewport scroll offset (CSS pixels). The slide
+   * canvas itself does not scroll — its DOM is sized via `setHostSize`
+   * and any overflow scrolling happens in a parent wrapper. The ruler
+   * needs to know the wrapper's `scrollLeft` / `scrollTop` so the tick
+   * marks track the slide's visible position when the user pans a
+   * zoomed-in canvas.
+   *
+   * No-op when the ruler is not mounted (e.g. read-only viewer). Pass
+   * (0, 0) on Fit to clear any leftover offset.
+   */
+  setRulerScroll(scrollX: number, scrollY: number): void;
+  /**
    * Align the selected elements relative to:
    *   - the combined bounding box of the selection, when ≥ 2 are selected;
    *   - the slide canvas (1920×1080), when exactly 1 is selected.
@@ -464,6 +476,15 @@ class SlidesEditorImpl implements SlidesEditor {
   private lastEditingContentHeight: number | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
+  /**
+   * Current scroll offset of the slide canvas's scroll wrapper, in CSS
+   * pixels. The slide canvas itself does not scroll — the host shell
+   * owns a `scrollHost` div that wraps it. The editor mirrors the
+   * shell's `scrollLeft` / `scrollTop` so the ruler can shift its tick
+   * origin to track the visible portion of the slide.
+   */
+  private rulerScrollX = 0;
+  private rulerScrollY = 0;
   /**
    * Format-paint snapshot, populated by `beginFormatPaint` from the
    * current selection. The next pointer-down on a compatible element
@@ -762,6 +783,8 @@ class SlidesEditorImpl implements SlidesEditor {
     this.ruler.render({
       hostWidth: this.options.hostWidth,
       hostHeight: this.options.hostHeight,
+      scrollX: this.rulerScrollX,
+      scrollY: this.rulerScrollY,
     });
   }
 
@@ -813,6 +836,21 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+  }
+
+  setRulerScroll(scrollX: number, scrollY: number): void {
+    if (
+      this.rulerScrollX === scrollX &&
+      this.rulerScrollY === scrollY
+    ) {
+      return;
+    }
+    this.rulerScrollX = scrollX;
+    this.rulerScrollY = scrollY;
+    // Only the ruler needs to repaint — the slide canvas and overlay
+    // are sized by the host shell, not by the editor's own scroll
+    // state, so calling `render()` would do redundant work.
+    this.paintRuler();
   }
 
   align(direction: AlignDirection): void {
