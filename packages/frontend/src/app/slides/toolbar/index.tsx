@@ -6,6 +6,7 @@ import type { ZoomController } from "../zoom-controller";
 import { getToolbarState, type ToolbarState } from "./state";
 import { SlideGroup } from "./slide-group";
 import { LayoutButton } from "./layout-button";
+import { FormatPainterButton } from "./format-painter";
 import { UndoRedoGroup, RightGlobals } from "./global-controls";
 import { IdleSection } from "./idle-section";
 import { ObjectSection } from "./object-section";
@@ -83,6 +84,7 @@ export function SlidesToolbar({
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       <UndoRedoGroup store={store} />
+      <FormatPainterButton editor={editor} />
       <ToolbarSeparator className="mx-1" />
       <SlideGroup store={store} editor={editor} />
       <LayoutButton store={store} editor={editor} />
