@@ -805,10 +805,23 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         'fontFamily', 'fontSize', 'color', 'backgroundColor',
         'superscript', 'subscript',
       ] as const;
-      const result: Record<string, unknown> = {};
-      const seen: Record<string, Set<unknown>> = Object.fromEntries(
-        KEYS.map((k) => [k, new Set()]),
+      // Token-based "seen" sets so structurally-equal StoredColor
+      // objects (theme refs like { role: 'accent1' }) compare equal.
+      // Without this, two inlines carrying the same theme color
+      // compare by reference and the picker incorrectly shows 'mixed'.
+      const seen: Record<string, Set<string>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Set<string>()]),
       );
+      const rawByToken: Record<string, Map<string, unknown>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Map<string, unknown>()]),
+      );
+      const tokenize = (value: unknown): string => {
+        if (value === undefined) return '__undefined__';
+        if (value !== null && typeof value === 'object') {
+          return `obj:${JSON.stringify(value)}`;
+        }
+        return `prim:${String(value)}`;
+      };
 
       const visitInlinesInBlock = (
         blockId: string, from: number, to: number,
@@ -820,7 +833,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
           const inlineEnd = pos + inline.text.length;
           if (inlineEnd > from && pos < to && inline.text.length > 0) {
             for (const key of KEYS) {
-              seen[key].add((inline.style as Record<string, unknown>)[key]);
+              const raw = (inline.style as Record<string, unknown>)[key];
+              const token = tokenize(raw);
+              if (!seen[key].has(token)) {
+                seen[key].add(token);
+                rawByToken[key].set(token, raw);
+              }
             }
           }
           pos = inlineEnd;
@@ -843,17 +861,25 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
           const to = i === endIdx ? endOff : blockLen;
           if (from < to) visitInlinesInBlock(block.id, from, to);
         }
+      } else if (range.anchor.blockId === range.focus.blockId) {
+        // Single-block fallback (defensive: getBlockIndex can fall
+        // through if the text-box's document is mid-mutation).
+        const a = range.anchor.offset;
+        const b = range.focus.offset;
+        visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
       }
 
+      const result: Record<string, unknown> = {};
       for (const key of KEYS) {
         const set = seen[key];
         if (set.size === 0) continue;
         if (set.size === 1) {
-          const [only] = [...set];
+          const [onlyToken] = [...set];
+          const only = rawByToken[key].get(onlyToken);
           if (only !== undefined) result[key] = only;
         } else {
-          // size > 1: either two real values, or one real + undefined.
-          // Both count as 'mixed'.
+          // Two or more distinct values — including "some inlines set,
+          // others unset". Both count as 'mixed'.
           result[key] = 'mixed';
         }
       }

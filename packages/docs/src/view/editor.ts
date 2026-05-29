@@ -1801,54 +1801,75 @@ export function initialize(
     getRangeStyleSummary: () => {
       type Summary = ReturnType<EditorAPI['getRangeStyleSummary']>;
 
-      // No range — fall back to the cursor-position style (same logic as
-      // getSelectionStyle). Inlined here so this method is self-contained
-      // and doesn't depend on a self-reference to the returned object.
-      if (!selection.hasSelection() || !selection.range) {
-        const block = layout.blockParentMap.has(cursor.position.blockId)
-          ? doc.getBlock(cursor.position.blockId)
-          : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
-        if (!block) return {};
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style } as Summary;
-          }
-          pos = inlineEnd;
-        }
-        const last = block.inlines[block.inlines.length - 1];
-        return (last ? { ...last.style } : {}) as Summary;
-      }
-
-      const range = selection.range;
-
       const KEYS = [
         'bold', 'italic', 'underline', 'strikethrough',
         'fontFamily', 'fontSize', 'color', 'backgroundColor',
         'superscript', 'subscript',
       ] as const;
-      const result: Record<string, unknown> = {};
-      const seen: Record<string, Set<unknown>> = Object.fromEntries(
-        KEYS.map((k) => [k, new Set()]),
+
+      // doc.findBlock walks body + header + footer + table cells, so
+      // the same caret/range traversal works in every editing context.
+      // Without this, header/footer carets fell through to body-only
+      // search and the picker showed empty.
+      const styleAtCaret = (): Partial<InlineStyle> => {
+        const block = doc.findBlock(cursor.position.blockId);
+        if (!block) return {};
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style };
+          }
+          pos = inlineEnd;
+        }
+        const last = block.inlines[block.inlines.length - 1];
+        return last ? { ...last.style } : {};
+      };
+
+      // No range — return the caret style.
+      if (!selection.hasSelection() || !selection.range) {
+        return { ...styleAtCaret() } as Summary;
+      }
+
+      const range = selection.range;
+
+      // Token-based "seen" sets so structurally-equal StoredColor
+      // objects (theme refs like { role: 'accent1' }) compare equal.
+      // Without this, two inlines carrying the same theme color
+      // compare by reference and the picker incorrectly shows 'mixed'.
+      const seen: Record<string, Set<string>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Set<string>()]),
       );
+      const rawByToken: Record<string, Map<string, unknown>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Map<string, unknown>()]),
+      );
+      const tokenize = (value: unknown): string => {
+        if (value === undefined) return '__undefined__';
+        if (value !== null && typeof value === 'object') {
+          return `obj:${JSON.stringify(value)}`;
+        }
+        return `prim:${String(value)}`;
+      };
 
       const visitInlinesInBlock = (
         blockId: string, from: number, to: number,
       ): void => {
-        const block = layout.blockParentMap.has(blockId)
-          ? doc.findBlock(blockId)
-          : doc.document.blocks.find((b) => b.id === blockId);
+        const block = doc.findBlock(blockId);
         if (!block) return;
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
-          // Overlap test [from, to) with [pos, inlineEnd). Treat zero-width
-          // inlines (empty placeholder runs) as out of range — they don't
-          // contribute style information for a non-empty selection.
+          // Overlap test [from, to) with [pos, inlineEnd). Treat
+          // zero-width inlines (empty placeholder runs) as out of
+          // range — they don't contribute style information.
           if (inlineEnd > from && pos < to && inline.text.length > 0) {
             for (const key of KEYS) {
-              seen[key].add((inline.style as Record<string, unknown>)[key]);
+              const raw = (inline.style as Record<string, unknown>)[key];
+              const token = tokenize(raw);
+              if (!seen[key].has(token)) {
+                seen[key].add(token);
+                rawByToken[key].set(token, raw);
+              }
             }
           }
           pos = inlineEnd;
@@ -1856,47 +1877,95 @@ export function initialize(
         }
       };
 
-      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-      const focusIdx = doc.getBlockIndex(range.focus.blockId);
-      if (anchorIdx >= 0 && focusIdx >= 0) {
-        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-
-        for (let i = startIdx; i <= endIdx; i++) {
-          const block = doc.getContextBlocks()[i];
-          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-          const from = i === startIdx ? startOff : 0;
-          const to = i === endIdx ? endOff : blockLen;
-          if (from < to) visitInlinesInBlock(block.id, from, to);
+      // Rectangle of selected table cells — walk every block inside.
+      if (range.tableCellRange) {
+        const cr = range.tableCellRange;
+        const tableBlock = doc.findBlock(cr.blockId);
+        if (tableBlock?.tableData) {
+          const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+          const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+          const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
+          const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
+          for (let r = minRow; r <= maxRow; r++) {
+            for (let c = minCol; c <= maxCol; c++) {
+              const cell = tableBlock.tableData.rows[r]?.cells[c];
+              if (!cell || cell.colSpan === 0) continue;
+              for (const cb of cell.blocks) {
+                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+                if (len > 0) visitInlinesInBlock(cb.id, 0, len);
+              }
+            }
+          }
         }
       } else {
-        // Selection lives inside a table cell (the block IDs are not in
-        // the current top-level context). Visit the anchor and focus
-        // block ranges directly. For multi-block cell selections this is
-        // approximate, but cell-range writes already go through
-        // applyStyleToCellRange — single-block cell ranges, the common
-        // case, are handled correctly here.
-        const anchor = doc.findBlock(range.anchor.blockId);
-        const focus = doc.findBlock(range.focus.blockId);
-        if (anchor && focus && anchor.id === focus.id) {
-          const a = range.anchor.offset;
-          const b = range.focus.offset;
-          visitInlinesInBlock(anchor.id, Math.min(a, b), Math.max(a, b));
+        const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+        const focusIdx = doc.getBlockIndex(range.focus.blockId);
+        if (anchorIdx >= 0 && focusIdx >= 0) {
+          // Linear selection across the current top-level context
+          // (body or header/footer — whichever getContextBlocks
+          // resolves to).
+          const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+            (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+            ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+            : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+
+          for (let i = startIdx; i <= endIdx; i++) {
+            const block = doc.getContextBlocks()[i];
+            const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+            const from = i === startIdx ? startOff : 0;
+            const to = i === endIdx ? endOff : blockLen;
+            if (from < to) visitInlinesInBlock(block.id, from, to);
+          }
+        } else {
+          // Selection lives inside a table cell but isn't a cell-range
+          // (user selected text within one cell rather than a
+          // rectangle of cells). Walk the cell's blocks between anchor
+          // and focus, handling multi-block same-cell ranges.
+          const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+          const focusCI = layout.blockParentMap.get(range.focus.blockId);
+          if (
+            anchorCI && focusCI &&
+            anchorCI.tableBlockId === focusCI.tableBlockId &&
+            anchorCI.rowIndex === focusCI.rowIndex &&
+            anchorCI.colIndex === focusCI.colIndex
+          ) {
+            const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+            const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+            const anchorBI = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
+            const focusBI = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
+            if (anchorBI >= 0 && focusBI >= 0) {
+              const [fromIdx, toIdx, fromOff, toOff] = anchorBI <= focusBI
+                ? [anchorBI, focusBI, range.anchor.offset, range.focus.offset]
+                : [focusBI, anchorBI, range.focus.offset, range.anchor.offset];
+              for (let i = fromIdx; i <= toIdx; i++) {
+                const cb = cell.blocks[i];
+                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+                const from = i === fromIdx ? fromOff : 0;
+                const to = i === toIdx ? toOff : len;
+                if (from < to) visitInlinesInBlock(cb.id, from, to);
+              }
+            }
+          } else if (range.anchor.blockId === range.focus.blockId) {
+            // Same block fallback (e.g. a header/footer block that
+            // didn't resolve through getBlockIndex for some reason).
+            const a = range.anchor.offset;
+            const b = range.focus.offset;
+            visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+          }
         }
       }
 
+      const result: Record<string, unknown> = {};
       for (const key of KEYS) {
         const set = seen[key];
         if (set.size === 0) continue;
         if (set.size === 1) {
-          const [only] = [...set];
+          const [onlyToken] = [...set];
+          const only = rawByToken[key].get(onlyToken);
           if (only !== undefined) result[key] = only;
         } else {
-          // size > 1: either two real values, or one real + undefined.
-          // Both count as 'mixed' — the property differs across the
-          // range.
+          // Two or more distinct values — including "some inlines set,
+          // others unset". Both count as 'mixed'.
           result[key] = 'mixed';
         }
       }

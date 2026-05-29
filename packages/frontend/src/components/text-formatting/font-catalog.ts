@@ -65,3 +65,24 @@ export function buildGoogleFontsHref(): string {
     .join('&');
   return `https://fonts.googleapis.com/css2?${params}&display=swap`;
 }
+
+/**
+ * Idempotently inject the Google Fonts CSS `<link>` into `document.head`.
+ * Call from surfaces that need the web fonts (e.g. the Docs editor mount)
+ * rather than from the app root — every non-docs route would otherwise
+ * pay the third-party request and CSP cost for fonts it never paints.
+ *
+ * SSR-safe (no-op when `document` is undefined) and HMR-safe (guarded by
+ * an id). Subsequent calls return immediately.
+ */
+export function ensureGoogleFontsLink(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('wafflebase-google-fonts')) return;
+  const href = buildGoogleFontsHref();
+  if (!href) return;
+  const link = document.createElement('link');
+  link.id = 'wafflebase-google-fonts';
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
