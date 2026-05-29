@@ -199,18 +199,14 @@ export function RightGlobals({
       {onToggleFormatPanel && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="Format options"
-              aria-pressed={!!formatPanelOpen}
-              onClick={onToggleFormatPanel}
-              className={
-                "inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted " +
-                (formatPanelOpen ? "bg-muted" : "")
-              }
+            <Toggle
+              size="sm"
+              pressed={!!formatPanelOpen}
+              onPressedChange={() => onToggleFormatPanel()}
+              aria-label="Toggle format options"
             >
               <IconAdjustmentsAlt size={16} />
-            </button>
+            </Toggle>
           </TooltipTrigger>
           <TooltipContent>Format options</TooltipContent>
         </Tooltip>
