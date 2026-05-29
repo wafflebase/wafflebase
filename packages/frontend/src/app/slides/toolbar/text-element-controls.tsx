@@ -8,7 +8,7 @@ import type {
   ThemeColor,
   ThemeFont,
 } from '@wafflebase/slides';
-import { resolveFont } from '@wafflebase/slides';
+import { resolveColor, resolveFont } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,10 +17,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
-import { IconColorSwatch } from '@tabler/icons-react';
+import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
+import { ColorSwatchButton } from './color-swatch-button';
+import { TextSizeStepper } from '@/components/text-formatting';
 
 export interface TextElementControlsProps {
   editor: SlidesEditor | null;
@@ -130,6 +132,11 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   const buttonClass =
     'inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50';
 
+  const currentTextBoxFill =
+    firstElement?.data.fill && theme
+      ? resolveColor(firstElement.data.fill, theme)
+      : undefined;
+
   return (
     <>
       {/* Background fill — the text box itself, not text color */}
@@ -137,14 +144,12 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Text box background"
+              <ColorSwatchButton
+                icon={<IconBucketDroplet size={14} />}
+                color={currentTextBoxFill}
+                label="Text box background"
                 disabled={!store || !theme}
-                className={buttonClass}
-              >
-                <IconColorSwatch size={16} />
-              </button>
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Text box background</TooltipContent>
@@ -218,6 +223,25 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <TextSizeStepper
+        currentSize={firstRunFontSize(firstElement)}
+        onPick={(size) => onFontSize(size)}
+        disabled={!store || !slideId}
+      />
     </>
   );
+}
+
+/**
+ * Probe the first text run's `fontSize` for the box-level stepper. The
+ * box may legitimately have many runs at different sizes; for the
+ * stepper baseline we follow the same rule the existing Font picker
+ * does (first run wins) so the up / down steps feel like extensions of
+ * the dropdown selection. Returns `undefined` if no run is present;
+ * the stepper then falls back to its default of 11pt.
+ */
+function firstRunFontSize(el: TextElement | undefined): number | undefined {
+  const firstRun = el?.data.blocks?.[0]?.inlines?.[0];
+  return firstRun?.style?.fontSize;
 }

@@ -131,6 +131,8 @@ export class SlidesRuler {
   render(viewport: SlidesRulerViewport): void {
     if (this.disposed) return;
     const { hostWidth, hostHeight } = viewport;
+    const scrollX = viewport.scrollX ?? 0;
+    const scrollY = viewport.scrollY ?? 0;
     if (hostWidth <= 0 || hostHeight <= 0) return;
 
     const zoom = hostWidth / SLIDE_WIDTH;
@@ -141,8 +143,8 @@ export class SlidesRuler {
     };
     const density = pickDensity(scaledGrid.majorStepPx);
 
-    this.paintHorizontal(hostWidth, scaledGrid, density);
-    this.paintVertical(hostHeight, scaledGrid, density);
+    this.paintHorizontal(hostWidth, scaledGrid, density, scrollX);
+    this.paintVertical(hostHeight, scaledGrid, density, scrollY);
   }
 
   /**
@@ -163,6 +165,7 @@ export class SlidesRuler {
     hostWidth: number,
     grid: GridConfig,
     density: TickDensity,
+    scrollX: number,
   ): void {
     const ctx = this.hCtx;
     if (!ctx) return;
@@ -173,11 +176,17 @@ export class SlidesRuler {
     const frameWidth = this.hCanvas.clientWidth || hostWidth;
     this.resizeCanvas(this.hCanvas, frameWidth, RULER_SIZE);
     ctx.clearRect(0, 0, frameWidth, RULER_SIZE);
-    // The slide is centred horizontally inside the canvas area's
-    // content box (canvasArea has padding-left: RULER_SIZE), so within
-    // the H ruler's own coordinate system the slide left edge sits at
-    // half the leftover space.
-    const slideOffset = Math.max(0, (frameWidth - hostWidth) / 2);
+    // The slide's left edge sits at:
+    //   - the midpoint of the slack when the slide fits inside the
+    //     scroll host (centered, scrollX = 0), or
+    //   - the scroll content's origin (0) when it overflows, then
+    //     shifted left by `scrollX` to track the viewport.
+    // Negative results are legitimate: they mean the slide's 0 tick has
+    // scrolled off-screen to the left. `drawTicks` clips ticks that
+    // fall outside `[0, frameWidth]` naturally.
+    const slack = frameWidth - hostWidth;
+    const slideContentOffset = slack > 0 ? slack / 2 : 0;
+    const slideOffset = slideContentOffset - scrollX;
     drawTicks({
       ctx,
       axis: 'h',
@@ -198,13 +207,16 @@ export class SlidesRuler {
     hostHeight: number,
     grid: GridConfig,
     density: TickDensity,
+    scrollY: number,
   ): void {
     const ctx = this.vCtx;
     if (!ctx) return;
     const frameHeight = this.vCanvas.clientHeight || hostHeight;
     this.resizeCanvas(this.vCanvas, RULER_SIZE, frameHeight);
     ctx.clearRect(0, 0, RULER_SIZE, frameHeight);
-    const slideOffset = Math.max(0, (frameHeight - hostHeight) / 2);
+    const slack = frameHeight - hostHeight;
+    const slideContentOffset = slack > 0 ? slack / 2 : 0;
+    const slideOffset = slideContentOffset - scrollY;
     drawTicks({
       ctx,
       axis: 'v',

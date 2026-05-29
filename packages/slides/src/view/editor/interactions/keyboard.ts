@@ -36,6 +36,10 @@ export interface KeyboardContext {
   group(): void;
   /** Ungroup the currently selected group element. No-op when selection is not a single group. */
   ungroup(): void;
+  /** Whether the editor is currently waiting for a format-paint drop. */
+  isPaintingFormat(): boolean;
+  /** Cancel a staged format-paint snapshot. */
+  cancelFormatPaint(): void;
 }
 
 const NUDGE = 1;
@@ -62,6 +66,22 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       run: (e) => {
         e.preventDefault();
         ctx.setInsertMode(null);
+      },
+    },
+
+    // Escape — cancel a staged format-paint snapshot. Separate rule
+    // from the insert-mode Escape so the two states are independent:
+    // the user can begin paint with no insert active and Esc out of
+    // paint without affecting any other mode.
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        ctx.isPaintingFormat() &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        e.preventDefault();
+        ctx.cancelFormatPaint();
       },
     },
 

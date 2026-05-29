@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
-  IconColorSwatch,
+  IconBackground,
   IconPalette,
 } from "@tabler/icons-react";
 import type {
@@ -11,8 +11,8 @@ import type {
   Theme,
   ThemeColor,
 } from "@wafflebase/slides";
+import { resolveColor } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
-import { ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -24,6 +24,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
+import { ColorSwatchButton } from "./color-swatch-button";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -98,23 +99,26 @@ export interface RightGlobalsProps {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
   theme?: Theme | null;
-  /** When true, shows a Done button to exit text editing (Esc-equivalent). */
-  isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
 }
 
 /**
- * Right-aligned global controls: Theme panel toggle + Present split-button.
- * When isTextEditing is true, also renders a Done button before the theme
- * toggle that exits text editing (equivalent to pressing Escape).
- * Aligned to the right of the toolbar via ml-auto on the wrapper.
+ * Right-side slide-style cluster: Slide background ▸ Theme.
+ *
+ * Mirrors Google Slides' arrangement of the "what does this deck look
+ * like?" controls so they read as one group. Layout was tried here
+ * during this PR's smoke test and removed (the context menu and
+ * thumbnail-panel chevron already cover layout-change). Zoom moved
+ * out to the toolbar's left edge (closer to Undo/Redo / Format
+ * painter); Done moved into the text-edit contextual section so it
+ * doesn't sit among slide-style controls. `aria-label` on the wrapper
+ * lets tests anchor on the cluster without relying on visual order.
  */
 export function RightGlobals({
   editor,
   store,
   theme,
-  isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
 }: RightGlobalsProps) {
@@ -128,43 +132,34 @@ export function RightGlobals({
   );
 
   const hasSlideStyleGroup = !!store;
-  const hasPanelGroup = !!onToggleThemePanel;
+
+  // Resolve the current slide's background fill to a CSS color string so
+  // the swatch button's stripe always reflects what the user is about to
+  // change. Falls back to undefined (renders as the empty outlined slot)
+  // when nothing is known yet.
+  const currentBackground = useMemo(() => {
+    if (!store || !slideId || !theme) return undefined;
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const fill = slide?.background?.fill;
+    return fill ? resolveColor(fill, theme) : undefined;
+  }, [store, slideId, theme]);
 
   return (
-    <div className="ml-auto flex items-center gap-1">
-      {isTextEditing && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => editor?.exitTextEditing()}
-                aria-label="Done editing text"
-                className="inline-flex h-7 items-center justify-center rounded-md px-3 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                Done
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Exit text edit (Esc)</TooltipContent>
-          </Tooltip>
-          {(hasSlideStyleGroup || hasPanelGroup) && (
-            <ToolbarSeparator className="mx-1" />
-          )}
-        </>
-      )}
+    <div
+      className="ml-auto flex items-center gap-1"
+      aria-label="Slide style"
+    >
       {hasSlideStyleGroup && (
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Slide background"
+                <ColorSwatchButton
+                  icon={<IconBackground size={14} />}
+                  color={currentBackground}
+                  label="Slide background"
                   disabled={!store || !slideId || !theme}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <IconColorSwatch size={16} />
-                </button>
+                />
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Slide background</TooltipContent>

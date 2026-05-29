@@ -1147,6 +1147,7 @@ describe('z-order and rotate', () => {
         container,
         getSelectionStyle: () => ({}),
         applyStyle: () => {},
+        clearInlineFormatting: () => {},
         applyBlockStyle: () => {},
         getBlockType: () => ({ type: 'paragraph' as const }),
         setBlockType: () => {},

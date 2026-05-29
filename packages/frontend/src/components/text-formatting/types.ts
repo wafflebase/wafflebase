@@ -56,4 +56,12 @@ export interface TextFormattingEditor {
 
   /** Programmatically trigger the link request (same as Ctrl+K). */
   requestLink(): void;
+
+  /**
+   * Strip all character-level inline styles (bold, italic, underline,
+   * strikethrough, super/subscript, font size, font family, color,
+   * background color, href) from the current selection. Block-level
+   * style is preserved. No-op when nothing is selected.
+   */
+  clearInlineFormatting(): void;
 }
