@@ -117,8 +117,12 @@ function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
  * Style snapshot captured by `beginFormatPaint` from the current
  * selection. `sourceType` decides which targets the snapshot can be
  * applied to (shape / text → shape & text; connector → connector).
+ * `sourceId` is kept so a paste onto the same element no-ops cleanly
+ * (otherwise the user would get a no-op `store.batch` entry on their
+ * undo stack).
  */
 interface PaintSnapshot {
+  sourceId: string;
   sourceType: 'shape' | 'connector' | 'text';
   fill?: ThemeColor;
   stroke?: Stroke;
@@ -1111,15 +1115,29 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!el) return null;
     if (el.type === 'shape') {
       const s = el as ShapeElement;
-      return { sourceType: 'shape', fill: s.data.fill, stroke: s.data.stroke };
+      return {
+        sourceId: el.id,
+        sourceType: 'shape',
+        fill: s.data.fill,
+        stroke: s.data.stroke,
+      };
     }
     if (el.type === 'text') {
       const t = el as TextElement;
-      return { sourceType: 'text', fill: t.data.fill, stroke: t.data.stroke };
+      return {
+        sourceId: el.id,
+        sourceType: 'text',
+        fill: t.data.fill,
+        stroke: t.data.stroke,
+      };
     }
     if (el.type === 'connector') {
       const c = el as ConnectorElement;
-      return { sourceType: 'connector', stroke: c.stroke };
+      return {
+        sourceId: el.id,
+        sourceType: 'connector',
+        stroke: c.stroke,
+      };
     }
     return null;
   }
@@ -1149,6 +1167,13 @@ class SlidesEditorImpl implements SlidesEditor {
       this.cancelFormatPaint();
       return;
     }
+    // Self-paint is a no-op: clicking the same element you captured
+    // from would produce an empty undo entry. Bail before reaching the
+    // store so the user can re-click without polluting history.
+    if (target.id === snapshot.sourceId) {
+      this.cancelFormatPaint();
+      return;
+    }
     const store = this.options.store;
     // Homogeneous paste only. Shape ↔ text mix shares the fill+stroke
     // shape so we group them; connector paste is stroke-only and only
@@ -1157,13 +1182,26 @@ class SlidesEditorImpl implements SlidesEditor {
       snapshot.sourceType !== 'connector' &&
       (target.type === 'shape' || target.type === 'text')
     ) {
+      // Only write keys the source *had*. Spreading
+      // `{ fill: undefined, stroke: undefined }` would `delete` those
+      // keys on the target (see yorkie-slides-store.updateElementData),
+      // clobbering the target's own fill/stroke whenever the source
+      // happened to have no fill / no stroke set.
+      const patch: { fill?: ThemeColor; stroke?: Stroke } = {};
+      if (snapshot.fill !== undefined) patch.fill = snapshot.fill;
+      if (snapshot.stroke !== undefined) patch.stroke = snapshot.stroke;
+      if (Object.keys(patch).length === 0) {
+        this.cancelFormatPaint();
+        return;
+      }
       store.batch(() => {
-        store.updateElementData(slide.id, target.id, {
-          fill: snapshot.fill,
-          stroke: snapshot.stroke,
-        });
+        store.updateElementData(slide.id, target.id, patch);
       });
-    } else if (snapshot.sourceType === 'connector' && target.type === 'connector') {
+    } else if (
+      snapshot.sourceType === 'connector' &&
+      target.type === 'connector' &&
+      snapshot.stroke !== undefined
+    ) {
       store.batch(() => {
         store.updateConnectorStroke(slide.id, target.id, snapshot.stroke);
       });

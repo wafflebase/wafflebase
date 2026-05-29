@@ -192,4 +192,72 @@ describe('Format painter (editor-level)', () => {
     }));
     expect(editor.isPaintingFormat()).toBe(false);
   });
+
+  it('preserves the target\'s fill when the source has none (no clobber)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    // Source has stroke only, no fill.
+    let srcId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      srcId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', stroke: { color: '#ff0000', width: 4 } },
+      });
+    });
+    // Target has its own fill that must survive the paste.
+    let tgtId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      tgtId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 500, y: 300, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0000ff' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([srcId]);
+    editor.beginFormatPaint();
+
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: rect.left + 600,
+      clientY: rect.top + 350,
+      pointerType: 'mouse',
+      button: 0,
+      bubbles: true,
+    }));
+
+    expect(shapeFill(store, tgtId)).toEqual({ kind: 'srgb', value: '#0000ff' });
+    expect(editor.isPaintingFormat()).toBe(false);
+  });
+
+  it('self-paint (click the source) is a no-op without writing to the store', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const srcId = addShape(store, { kind: 'srgb' as const, value: '#aa0000' });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([srcId]);
+    editor.beginFormatPaint();
+
+    // Wrap store.batch to count calls without changing behavior.
+    const realBatch = store.batch.bind(store);
+    let batchCalls = 0;
+    store.batch = (fn: () => void) => {
+      batchCalls += 1;
+      return realBatch(fn);
+    };
+
+    // Click at the source's logical center.
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: rect.left + 200,
+      clientY: rect.top + 150,
+      pointerType: 'mouse',
+      button: 0,
+      bubbles: true,
+    }));
+
+    expect(batchCalls).toBe(0);
+    expect(editor.isPaintingFormat()).toBe(false);
+  });
 });

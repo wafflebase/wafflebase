@@ -104,10 +104,12 @@ export interface RightGlobalsProps {
 }
 
 /**
- * Right-side slide-style cluster: Slide background ▸ Layout ▾ ▸ Theme.
+ * Right-side slide-style cluster: Slide background ▸ Theme.
  *
- * Mirrors Google Slides' arrangement of the three "what does this
- * deck look like?" controls so they read as one group. Zoom moved
+ * Mirrors Google Slides' arrangement of the "what does this deck look
+ * like?" controls so they read as one group. Layout was tried here
+ * during this PR's smoke test and removed (the context menu and
+ * thumbnail-panel chevron already cover layout-change). Zoom moved
  * out to the toolbar's left edge (closer to Undo/Redo / Format
  * painter); Done moved into the text-edit contextual section so it
  * doesn't sit among slide-style controls. `aria-label` on the wrapper

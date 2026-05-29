@@ -110,6 +110,71 @@ both.**
 contextmenu-bound "Change layout…" entry would crash on import.
 Don't omit either when writing new editor-touching tests.
 
+## Code-review fixes applied before merge
+
+Self code-review against the full branch diff (commits `c23accaa` →
+`9fcdff0c`) surfaced three issues fixed in a follow-up commit:
+
+1. **Format painter `undefined` clobber.** `applyFormatPaintAt` was
+   spreading `{ fill: snapshot.fill, stroke: snapshot.stroke }` into
+   `store.updateElementData`. When the source shape had no fill (or
+   no stroke), the `undefined` value would `delete` that key on the
+   target via `yorkie-slides-store.updateElementData`, *clearing*
+   the target's own fill or stroke. Fixed by building the patch from
+   only the defined snapshot keys.
+
+2. **Self-paint produces empty undo entry.** Clicking the same
+   element you captured from would still call `store.batch`, leaving
+   a no-op on the undo stack. Captured `sourceId` in the snapshot and
+   bail when `target.id === sourceId`.
+
+3. **Stale `Layout ▾` mention in the `RightGlobals` header
+   comment.** Layout was dropped during smoke testing but the
+   docblock still claimed it was rendered. Replaced with the
+   accurate Bg ▸ Theme description and a note on why Layout went
+   away (so the next reader doesn't try to re-add it).
+
+Format-paint tests gained two cases for the new branches:
+no-source-fill preserves target's fill, and self-paint does not
+call `store.batch`.
+
+## Known deviations from the design doc
+
+- **`MAX_HOST_W` clamp dropped at non-Fit zoom.** Design doc
+  `slides-toolbar-tier1.md:310` listed `MAX_HOST_W = 1600` as the
+  bitmap-memory mitigation. The implementation drops it for
+  absolute zoom because the user is asking for an exact slide size
+  and a clamp would distort the slide. At 2.0 × on a 4 K display
+  with DPR 2 the canvas backing store is ~33 MP × 4 B ≈ 132 MB —
+  acceptable on a modern workstation but worth flagging if low-end
+  hardware ever becomes a target. A soft cap (clamp the *bitmap*
+  but let CSS size grow) is the natural next step.
+
+- **`Cmd+= / Cmd+-` zoom shortcuts** (plan Task D3) are not wired.
+  The dropdown was sufficient for the smoke pass; the shortcuts
+  catalog was therefore left unchanged so the help modal does not
+  advertise behavior that doesn't exist.
+
+- **No editor-level test for `clearInlineFormatting` on the slides
+  text-box** (plan Task C2 step 1). Behavior is covered at the
+  docs model layer (`CLEAR_INLINE_STYLE` round-trip in
+  `document.test.ts`) and the slides wrapper is a one-line
+  delegation, so the test was omitted; flagged here so a future
+  regression on the slides side surfaces correctly.
+
+- **No interaction test for zoom + ruler scroll integration.** The
+  scroll-host restructure and `setRulerScroll` wiring were verified
+  manually in `pnpm dev`. Adding a jsdom test that drives
+  `scrollHost.scrollLeft` and asserts `setRulerScroll` is called
+  would be a worthwhile follow-up.
+
+- **`TextSizeStepper` is silent with cursor-only.** Both editors'
+  `applyStyle` early-return on no-selection, so clicking A↑ with
+  just a blinking caret does nothing visible. Google Slides applies
+  the bump to the cursor so the next typed character takes the new
+  size; matching that needs a cursor-style write path through the
+  text editors.
+
 ## Follow-ups intentionally deferred
 
 These were listed in the design doc as v1.1 / out-of-scope and are
