@@ -522,13 +522,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   //     logical-pixel space as `run.x`. Slides passes the live zoom
   //     here; full-document docs callers pass 1 (their container's CSS
   //     size already matches contentWidth).
-  //   - getCanvasOffsetTop: -(Theme.pageGap + currentOriginY) * scale.
-  //     TextEditor computes `(clientY - rect.top - canvasOffsetTop) / scale`,
-  //     so the offset lives in HOST pixels. Adding currentOriginY shifts the
-  //     effective canvas top down by the vertical anchor offset so a click at
-  //     host-pixel `rect.top + currentOriginY * scale` (where visible text
-  //     actually starts) resolves to layout-local y = 0 (the very first line),
-  //     not somewhere above the visible text.
+  //   - getCanvasOffsetTop: (currentOriginY - Theme.pageGap) * scale.
+  //     TextEditor computes `(clientY - rect.top - canvasOffsetTop) /
+  //     scale = py`, then paginatedPixelToPosition derives
+  //     `localY = py - pageGap`. A click at host-y = currentOriginY*scale
+  //     (the visible top of anchor-shifted text) resolves to py = pageGap
+  //     and localY = 0 — the very start of the layout. Reduces to
+  //     `-pageGap * scale` when currentOriginY = 0, preserving the
+  //     default-path behavior for docs/sheets callers.
   const textEditor = new TextEditor(
     container,
     doc,
@@ -539,7 +540,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     () => measurer,
     () => contentWidth,
     () => scale,
-    () => -(Theme.pageGap + currentOriginY) * scale,
+    () => (currentOriginY - Theme.pageGap) * scale,
     requestRender,
     () => docStore.snapshot(),
     () => {
