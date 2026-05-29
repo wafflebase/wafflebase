@@ -5,3 +5,4 @@ export { TextParagraphGroup } from "./text-paragraph-group";
 export { FontFamilyPicker } from "./font-family-picker.tsx";
 export { FontSizePicker } from "./font-size-picker.tsx";
 export { LineSpacingPicker } from "./line-spacing-picker.tsx";
+export { ClearFormattingButton } from "./clear-formatting-button.tsx";
