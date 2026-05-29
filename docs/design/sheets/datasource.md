@@ -82,12 +82,16 @@ type TabMeta = {
   datasourceId?: string;  // datasource tabs only
   query?: string;         // saved SQL query
 };
+```
 
-type SpreadsheetDocument = {
-  tabs: { [id: string]: TabMeta };
-  tabOrder: string[];
-  sheets: { [tabId: string]: Worksheet };
-};
+The canonical `SpreadsheetDocument` shape lives in
+[`collaboration.md`](collaboration.md#canonical-worksheet-shape);
+this feature extends `TabMeta` with the `datasourceId` / `query`
+fields above and adds one optional top-level field:
+
+```typescript
+// patch on SpreadsheetDocument
++  datasources?: { [id: string]: DatasourceConfig };
 ```
 
 - **Sheet tabs** store data in `sheets[tabId]` (the existing `Worksheet` structure).

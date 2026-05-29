@@ -147,11 +147,13 @@ Pivot definition lives in two places with distinct roles:
 | `TabMeta.kind` | Fast identification (icon, menu) | Always (tab bar) |
 | `Worksheet.pivotTable` | Full configuration (fields, source) | Active tab only |
 
+The canonical `Worksheet` shape lives in
+[`collaboration.md`](collaboration.md#canonical-worksheet-shape).
+This feature adds one optional field:
+
 ```typescript
-type Worksheet = {
-  // ... existing fields
-  pivotTable?: PivotTableDefinition;  // present when kind === "pivot"
-};
+// patch on Worksheet
++  pivotTable?: PivotTableDefinition;  // present when kind === "pivot"
 ```
 
 Both are set together when creating a pivot table and cleared together
