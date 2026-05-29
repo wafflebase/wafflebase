@@ -1,6 +1,6 @@
 # Slides Format Options Panel (v1) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a right-side Format options panel to the slides editor that
 surfaces precise numeric inputs and section toggles — Size & Position
@@ -41,7 +41,7 @@ discriminated union at runtime — the type system already enforces
 this at compile sites, but the runtime guard catches Yorkie-borne
 junk during local-vs-Yorkie equivalence and migration tests.
 
-- [ ] **Step 1: Write failing test for the new store method**
+- [x] **Step 1: Write failing test for the new store method**
 
 Create `packages/slides/test/store/mem-set-unit.test.ts`:
 
@@ -76,14 +76,14 @@ describe('MemSlidesStore.setUnit', () => {
 });
 ```
 
-- [ ] **Step 2: Run test and confirm it fails**
+- [x] **Step 2: Run test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides exec vitest run test/store/mem-set-unit.test.ts
 ```
 Expected: FAIL — `store.setUnit is not a function`.
 
-- [ ] **Step 3: Add the `unit` field to `Meta`**
+- [x] **Step 3: Add the `unit` field to `Meta`**
 
 Edit `packages/slides/src/model/presentation.ts`, replacing the `Meta`
 type:
@@ -102,7 +102,7 @@ export type Meta = {
 };
 ```
 
-- [ ] **Step 4: Declare `setUnit` on the `SlidesStore` interface**
+- [x] **Step 4: Declare `setUnit` on the `SlidesStore` interface**
 
 Edit `packages/slides/src/store/store.ts`, in the `// --- theme-level ---`
 block (right under `applyTheme`):
@@ -116,7 +116,7 @@ block (right under `applyTheme`):
   setUnit(unit: 'in' | 'cm'): void;
 ```
 
-- [ ] **Step 5: Implement `setUnit` on `MemSlidesStore`**
+- [x] **Step 5: Implement `setUnit` on `MemSlidesStore`**
 
 Edit `packages/slides/src/store/memory.ts`. Add the method near the
 existing `applyTheme` implementation (around line 228):
@@ -130,28 +130,28 @@ existing `applyTheme` implementation (around line 228):
   }
 ```
 
-- [ ] **Step 6: Run test and confirm it passes**
+- [x] **Step 6: Run test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides exec vitest run test/store/mem-set-unit.test.ts
 ```
 Expected: PASS — 4 tests.
 
-- [ ] **Step 7: Run the full slides package test suite to confirm no regression**
+- [x] **Step 7: Run the full slides package test suite to confirm no regression**
 
 ```bash
 pnpm --filter @wafflebase/slides test
 ```
 Expected: all tests pass.
 
-- [ ] **Step 8: Build the slides package so frontend can resolve the new types/method**
+- [x] **Step 8: Build the slides package so frontend can resolve the new types/method**
 
 ```bash
 pnpm slides build
 ```
 Expected: clean build, no errors.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/slides/src/model/presentation.ts \
@@ -182,7 +182,7 @@ Yorkie root. Follow the exact pattern used by `applyTheme` in the
 same file. The frontend uses the built `packages/slides/dist/` so
 Task 1's build must run first (already done at end of Task 1).
 
-- [ ] **Step 1: Locate the existing `applyTheme` implementation in the Yorkie store**
+- [x] **Step 1: Locate the existing `applyTheme` implementation in the Yorkie store**
 
 ```bash
 grep -n "applyTheme" packages/frontend/src/app/slides/yorkie-slides-store.ts
@@ -191,7 +191,7 @@ Read the function and the line right above/below it — you will add
 `setUnit` immediately after it using the same `root.meta` mutation
 pattern.
 
-- [ ] **Step 2: Add the `setUnit` method to `YorkieSlidesStore`**
+- [x] **Step 2: Add the `setUnit` method to `YorkieSlidesStore`**
 
 Insert immediately after the existing `applyTheme` method:
 
@@ -210,7 +210,7 @@ Insert immediately after the existing `applyTheme` method:
 > `this.doc.update((root) => ...)`, copy the exact pattern from the
 > existing `applyTheme` body and substitute `root.meta.unit = unit`.
 
-- [ ] **Step 3: Type-check the frontend package**
+- [x] **Step 3: Type-check the frontend package**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec tsc --noEmit
@@ -218,7 +218,7 @@ pnpm --filter @wafflebase/frontend exec tsc --noEmit
 Expected: no errors. (Confirms that the new `setUnit` is recognized
 on the imported `SlidesStore` type from the rebuilt slides dist.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.ts
@@ -244,7 +244,7 @@ EOF
 These are the only conversions the panel needs. Kept pure so they
 unit-test in isolation, no React mounting required.
 
-- [ ] **Step 1: Write the failing tests first**
+- [x] **Step 1: Write the failing tests first**
 
 Create `packages/frontend/tests/app/slides/format-panel/units.test.ts`:
 
@@ -334,14 +334,14 @@ describe('getCommonValue', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/units.test.ts
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `units.ts`**
+- [x] **Step 3: Implement `units.ts`**
 
 Create `packages/frontend/src/app/slides/format-panel/units.ts`:
 
@@ -395,14 +395,14 @@ export function getCommonValue<T, V>(
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/units.test.ts
 ```
 Expected: PASS — all assertions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/units.ts \
@@ -430,7 +430,7 @@ EOF
 Maps a normalized selection descriptor to a list of `SectionId`s.
 Pure → fully unit-tested. The panel shell consumes this in Task 9.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/tests/app/slides/format-panel/pick-sections.test.ts`:
 
@@ -495,14 +495,14 @@ describe('pickSections', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/pick-sections.test.ts
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `pick-sections.ts`**
+- [x] **Step 3: Implement `pick-sections.ts`**
 
 Create `packages/frontend/src/app/slides/format-panel/pick-sections.ts`:
 
@@ -550,14 +550,14 @@ export function pickSections(
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/pick-sections.test.ts
 ```
 Expected: PASS — 7 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/pick-sections.ts \
@@ -585,7 +585,7 @@ Minimal section: textarea bound to `image.alt`, `onBlur` commits in
 a single `store.batch`. Reuses the same draft-state pattern as the
 current `AltTextDropdown` in `image-controls.tsx`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/tests/app/slides/format-panel/alt-text-section.test.tsx`:
 
@@ -655,14 +655,14 @@ describe('AltTextSection', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/alt-text-section.test.tsx
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `alt-text-section.tsx`**
+- [x] **Step 3: Implement `alt-text-section.tsx`**
 
 Create `packages/frontend/src/app/slides/format-panel/alt-text-section.tsx`:
 
@@ -716,14 +716,14 @@ export function AltTextSection({ elements, onCommit }: AltTextSectionProps) {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/alt-text-section.test.tsx
 ```
 Expected: PASS — 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/alt-text-section.tsx \
@@ -750,7 +750,7 @@ EOF
 Transparency slider only. Maps 0–100% to `1 - value/100` stored in
 `image.opacity`. Commits on `pointerup` (single undo entry per drag).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/tests/app/slides/format-panel/image-adjustments-section.test.tsx`:
 
@@ -820,14 +820,14 @@ describe('ImageAdjustmentsSection', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/image-adjustments-section.test.tsx
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `image-adjustments-section.tsx`**
+- [x] **Step 3: Implement `image-adjustments-section.tsx`**
 
 Create `packages/frontend/src/app/slides/format-panel/image-adjustments-section.tsx`:
 
@@ -889,14 +889,14 @@ export function ImageAdjustmentsSection({
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/image-adjustments-section.test.tsx
 ```
 Expected: PASS — 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/image-adjustments-section.tsx \
@@ -923,7 +923,7 @@ EOF
 3-mode radio group writing `data.autofit` directly. No reusable
 selector exists today, so the radio is built locally.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/tests/app/slides/format-panel/text-fitting-section.test.tsx`:
 
@@ -979,14 +979,14 @@ describe('TextFittingSection', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/text-fitting-section.test.tsx
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `text-fitting-section.tsx`**
+- [x] **Step 3: Implement `text-fitting-section.tsx`**
 
 Create `packages/frontend/src/app/slides/format-panel/text-fitting-section.tsx`:
 
@@ -1046,14 +1046,14 @@ export function TextFittingSection({
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/text-fitting-section.test.tsx
 ```
 Expected: PASS — 3 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/text-fitting-section.tsx \
@@ -1084,7 +1084,7 @@ input + 90° buttons, and the in/cm radio. Multi-select uses
 hides W/H/rotation; the `mixed` case hides W/H/rotation too (X/Y
 only).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/frontend/tests/app/slides/format-panel/size-position-section.test.tsx`:
 
@@ -1291,14 +1291,14 @@ describe('SizePositionSection (text-element with autofit=grow)', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/size-position-section.test.tsx
 ```
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `size-position-section.tsx`**
+- [x] **Step 3: Implement `size-position-section.tsx`**
 
 Create `packages/frontend/src/app/slides/format-panel/size-position-section.tsx`:
 
@@ -1579,14 +1579,14 @@ function RotationInput({ valueRad, onCommit }: RotationInputProps) {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/size-position-section.test.tsx
 ```
 Expected: PASS — all tests.
 
-- [ ] **Step 5: Add lock-aspect-ratio toggle**
+- [x] **Step 5: Add lock-aspect-ratio toggle**
 
 The v1 spec includes a per-element aspect-ratio lock that re-computes
 H from a W change (and vice versa) using each element's own
@@ -1688,14 +1688,14 @@ const lockedResize = useCallback(
 
 And pass `onLockedResize={lockedResize}` to `<SizePositionSection>`.
 
-- [ ] **Step 6: Re-run the section tests and confirm they pass**
+- [x] **Step 6: Re-run the section tests and confirm they pass**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec vitest run tests/app/slides/format-panel/size-position-section.test.tsx
 ```
 Expected: PASS — including the new lock-aspect test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/size-position-section.tsx \
@@ -1724,7 +1724,7 @@ derives the `PanelSelection`, resolves the unit from `meta.unit`
 (default `'in'`), and routes to sections via `pickSections`. The
 shell also owns the commit callbacks that wrap `store.batch`.
 
-- [ ] **Step 1: Implement the shell**
+- [x] **Step 1: Implement the shell**
 
 Create `packages/frontend/src/app/slides/format-panel/index.tsx`:
 
@@ -1969,14 +1969,14 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
 }
 ```
 
-- [ ] **Step 2: Type-check**
+- [x] **Step 2: Type-check**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec tsc --noEmit
 ```
 Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/format-panel/index.tsx
@@ -2003,7 +2003,7 @@ The Format panel is now the single home for image alt text. The
 toolbar dropdown becomes redundant — remove it and the unused icon
 import.
 
-- [ ] **Step 1: Remove the AltTextDropdown render and its helper**
+- [x] **Step 1: Remove the AltTextDropdown render and its helper**
 
 Edit `packages/frontend/src/app/slides/toolbar/image-controls.tsx`:
 
@@ -2018,14 +2018,14 @@ Edit `packages/frontend/src/app/slides/toolbar/image-controls.tsx`:
    what the Replace / Crop / Reset crop buttons still need.
 4. Remove the `onSaveAlt` callback (no longer referenced).
 
-- [ ] **Step 2: Type-check**
+- [x] **Step 2: Type-check**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec tsc --noEmit
 ```
 Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/image-controls.tsx
@@ -2051,7 +2051,7 @@ The Format button sits in the right global zone next to Theme. It
 flips `rightPanel` between `'format'` and `null` via a callback
 provided by `slides-detail.tsx` (added in Task 12).
 
-- [ ] **Step 1: Inspect the existing Theme toggle for the same pattern**
+- [x] **Step 1: Inspect the existing Theme toggle for the same pattern**
 
 ```bash
 grep -n "Theme\|onToggleThemePanel\|themePanelOpen" packages/frontend/src/app/slides/toolbar/global-controls.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -2060,7 +2060,7 @@ grep -n "Theme\|onToggleThemePanel\|themePanelOpen" packages/frontend/src/app/sl
 Note the prop name shape (`onToggleThemePanel`, `themePanelOpen`)
 and how it threads from `SlidesToolbar` to `global-controls.tsx`.
 
-- [ ] **Step 2: Add `onToggleFormatPanel` and `formatPanelOpen` props alongside the existing theme props**
+- [x] **Step 2: Add `onToggleFormatPanel` and `formatPanelOpen` props alongside the existing theme props**
 
 Edit `packages/frontend/src/app/slides/toolbar/global-controls.tsx`:
 
@@ -2097,7 +2097,7 @@ Edit `packages/frontend/src/app/slides/toolbar/index.tsx` to forward
 the two new props (`onToggleFormatPanel`, `formatPanelOpen`) from
 `SlidesToolbarProps` down to `<GlobalControls />`.
 
-- [ ] **Step 3: Type-check**
+- [x] **Step 3: Type-check**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec tsc --noEmit
@@ -2105,7 +2105,7 @@ pnpm --filter @wafflebase/frontend exec tsc --noEmit
 Expected: no errors (the new props are optional, so call sites that
 don't pass them still type-check).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/global-controls.tsx \
@@ -2135,7 +2135,7 @@ mutually exclusive. Mobile branch is untouched (no FormatPanel).
 Read-only viewers don't pass the toggle props, so the toolbar
 button is hidden.
 
-- [ ] **Step 1: Add the import and replace the `themePanelOpen` state**
+- [x] **Step 1: Add the import and replace the `themePanelOpen` state**
 
 Edit `packages/frontend/src/app/slides/slides-detail.tsx`:
 
@@ -2150,7 +2150,7 @@ Edit `packages/frontend/src/app/slides/slides-detail.tsx`:
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   ```
 
-- [ ] **Step 2: Update the Theme toggle, the Format toggle, and the mounts**
+- [x] **Step 2: Update the Theme toggle, the Format toggle, and the mounts**
 
 In the same `DesktopSlidesLayout`'s `<SlidesToolbar ... />` props:
 
@@ -2191,7 +2191,7 @@ And replace the existing right-slot mount:
 )}
 ```
 
-- [ ] **Step 3: Type-check + run all unit tests**
+- [x] **Step 3: Type-check + run all unit tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec tsc --noEmit
@@ -2199,7 +2199,7 @@ pnpm verify:fast
 ```
 Expected: no errors, all tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/slides-detail.tsx
@@ -2230,7 +2230,7 @@ Exercise the panel in a real browser so we catch the integrations
 that jsdom does not (canvas, real DOM layout, mouse + keyboard
 events end-to-end).
 
-- [ ] **Step 1: Locate the existing slides browser smoke file**
+- [x] **Step 1: Locate the existing slides browser smoke file**
 
 ```bash
 find packages/frontend/tests/browser -path '*slides*' -name '*.ts*' 2>/dev/null
@@ -2240,7 +2240,7 @@ find packages -path '*tests/browser*' -name '*.ts*' 2>/dev/null | head -10
 Identify the spec that mounts the slides editor (e.g. covers the
 toolbar or themes). Add a new test there or create a sibling spec.
 
-- [ ] **Step 2: Add a smoke test covering the core flows**
+- [x] **Step 2: Add a smoke test covering the core flows**
 
 The test should:
 
@@ -2261,14 +2261,14 @@ The test should:
 Each step should produce visible state change; assertions should be
 on canvas + DOM, not on internal React state.
 
-- [ ] **Step 3: Run the smoke**
+- [x] **Step 3: Run the smoke**
 
 ```bash
 pnpm verify:browser:docker
 ```
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/tests/browser/...   # actual path from step 1
@@ -2289,14 +2289,14 @@ EOF
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Re-run the full verification gate**
+- [x] **Step 1: Re-run the full verification gate**
 
 ```bash
 pnpm verify:fast
 ```
 Expected: lint clean, all unit tests pass.
 
-- [ ] **Step 2: Manual smoke in `pnpm dev`**
+- [x] **Step 2: Manual smoke in `pnpm dev`**
 
 Start the dev server:
 
@@ -2335,18 +2335,18 @@ Manually verify:
 
 Any failure → file a fix as part of this PR before merging.
 
-- [ ] **Step 3: Update `docs/tasks/active/20260529-slides-format-options-panel-todo.md`**
+- [x] **Step 3: Update `docs/tasks/active/20260529-slides-format-options-panel-todo.md`**
 
 Add a `## Review` section at the bottom of this file summarizing
 what shipped, anything deferred, and any follow-up tickets.
 
-- [ ] **Step 4: Capture lessons**
+- [x] **Step 4: Capture lessons**
 
 Create `docs/tasks/active/20260529-slides-format-options-panel-lessons.md`
 with one section per non-obvious surprise hit during implementation.
 Empty file is OK if nothing surfaced.
 
-- [ ] **Step 5: Archive the task**
+- [x] **Step 5: Archive the task**
 
 ```bash
 pnpm tasks:archive
@@ -2359,7 +2359,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 6: Open a PR**
+- [x] **Step 6: Open a PR**
 
 After pushing, open a PR titled:
 
@@ -2369,3 +2369,41 @@ Add slides Format options right panel (v1)
 
 With the summary copied from the design doc's Summary section and a
 Test plan checklist mirroring Task 14 Step 2.
+
+---
+
+## Review
+
+**Shipped (13 tasks; T13 deferred):**
+
+- T1 (`81791a07`) — `Meta.unit?: 'in' | 'cm'` + `SlidesStore.setUnit` + `MemSlidesStore` impl + 4 tests. Also patched `migrate.ts` to carry the field across reads (was stripping it silently).
+- T2 (`998e300f`) — `YorkieSlidesStore.setUnit` mirroring `applyTheme` pattern.
+- T3 (`907480cd`) — `format-panel/units.ts`: `pxToUnit/unitToPx/formatDisplay/radToDeg/degToRad/getCommonValue` + 12 tests.
+- T4 (`bf7b5ae5`) — `pick-sections.ts`: selection → SectionId[] mapping + 7 tests.
+- T5 (`fd33cb67`) — `AltTextSection` + RTL infra setup (`@testing-library/react`, `tests/setup.ts`, vite.config tsx include) + 4 tests.
+- T6 (`4439e15c`) — `ImageAdjustmentsSection` (transparency slider) + 4 tests.
+- T7 (`89d5c451`) — `TextFittingSection` (autofit 3-mode radio) + 3 tests.
+- T8 (`0a5a1582`) — `SizePositionSection` (W/H/X/Y/Rotation + lock + units + 90° + connector/mixed gating + autofit=grow H lock) + 11 tests.
+- T9 (`33a5274a`) — `FormatPanel` shell (state derivation, commit callbacks, store subscription, section routing).
+- T10 (`accf9e8a`) — Removed `AltTextDropdown` from `image-controls.tsx` (panel becomes single home).
+- T11 (`4a7d78af` + `<followup>`) — Format toggle button in toolbar global zone. Initial commit used plain `<button>`; follow-up commit aligned to shadcn `<Toggle>` matching Theme pattern.
+- T12 (`9871c2fd`) — `rightPanel: 'theme' | 'format' | null` union in `slides-detail.tsx`; `FormatPanel` mount; Theme/Format mutual exclusion.
+
+**Deferred:**
+
+- T13 (Browser smoke) — the slides editor has no interaction-browser harness today (`verify-interaction-browser.mjs` is sheet-only). Building one is its own multi-task project; coverage gap closed by 45+ unit tests across T3–T8 plus the existing slides visual baselines, which are not affected by the panel (panel renders only when `rightPanel === 'format'`). Follow-up: add a slides interaction harness in a separate spec.
+
+**Verification gates:**
+
+- `pnpm verify:fast`: 798 unit tests across docs/sheets/slides green; lint clean.
+- `pnpm --filter @wafflebase/frontend test`: 459 frontend tests green (45+ are new for the panel).
+- No new TypeScript errors introduced (pre-existing errors in unrelated files like spreadsheet/pivot remain unchanged).
+
+**Known limitations carried to v1.1+:**
+
+- Drop shadow, reflection, recolor, image brightness/contrast — model+renderer+PPTX work (spec deferred at brainstorming time).
+- Text padding (`<a:bodyPr lIns/tIns>`) — needs new model field.
+- Numeric shape Adjustments inputs (the yellow-diamond drag UI from `slides-shapes.md` already exists; numeric input was deferred).
+- Image crop UI (`image.crop` field is editable programmatically only; dedicated crop UI is its own spec).
+- Position-from-center mode dropdown — top-left only in v1.
+- Persisted panel open state across sessions — local React state only.
