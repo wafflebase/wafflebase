@@ -145,6 +145,18 @@ export type TextElement = ElementBase & {
      * `docs/design/slides/slides-text-autofit.md`.
      */
     autofit?: AutofitMode;
+    /**
+     * Vertical position of the laid-out content inside the text frame.
+     * Mirrors OOXML `<a:bodyPr anchor>`:
+     * - `'top'` ↔ `anchor="t"` (and absent — preserves pre-feature behavior)
+     * - `'middle'` ↔ `anchor="ctr"`
+     * - `'bottom'` ↔ `anchor="b"`
+     *
+     * Imported from PPTX; the renderer translates the paint origin by
+     * `(frame.h − layout.totalHeight) * factor` so content sits at the
+     * top / middle / bottom of the frame.
+     */
+    verticalAnchor?: 'top' | 'middle' | 'bottom';
   };
 };
 
