@@ -22,6 +22,8 @@ export interface SlidesToolbarProps {
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
+  onToggleFormatPanel?: () => void;
+  formatPanelOpen?: boolean;
   zoomController?: ZoomController | null;
 }
 
@@ -44,6 +46,8 @@ export function SlidesToolbar({
   upload,
   onToggleThemePanel,
   themePanelOpen,
+  onToggleFormatPanel,
+  formatPanelOpen,
   zoomController,
 }: SlidesToolbarProps) {
   const isMobile = useIsMobile();
@@ -119,6 +123,8 @@ export function SlidesToolbar({
         theme={theme}
         onToggleThemePanel={onToggleThemePanel}
         themePanelOpen={themePanelOpen}
+        onToggleFormatPanel={onToggleFormatPanel}
+        formatPanelOpen={formatPanelOpen}
       />
     </Toolbar>
   );

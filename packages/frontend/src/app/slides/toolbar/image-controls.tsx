@@ -1,22 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import type { ImageElement, SlidesEditor, SlidesStore } from '@wafflebase/slides';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { toast } from 'sonner';
 import {
   IconReplace,
   IconCrop,
   IconArrowBackUp,
-  IconAccessible,
 } from '@tabler/icons-react';
 import { replaceImageOnSlide } from '../replace-image';
 
@@ -33,7 +26,9 @@ export interface ImageControlsProps {
  * - Replace: opens a hidden file input, uploads, and swaps src + clears crop.
  * - Crop: disabled placeholder — full crop UI is deferred to a separate spec.
  * - Reset crop: clears the crop field (enabled only when a crop exists).
- * - Alt text: DropdownMenu with a textarea to set accessibility text.
+ *
+ * Alt text moved to the Format panel's Alt text section — the panel is
+ * the single home for image accessibility metadata.
  */
 export function ImageControls({
   editor,
@@ -82,16 +77,6 @@ export function ImageControls({
       store.updateElementData(slideId, firstId, { crop: undefined }),
     );
   }, [store, slideId, firstId]);
-
-  const onSaveAlt = useCallback(
-    (alt: string) => {
-      if (!store || !slideId) return;
-      store.batch(() =>
-        store.updateElementData(slideId, firstId, { alt }),
-      );
-    },
-    [store, slideId, firstId],
-  );
 
   const hasCrop = !!image?.data.crop;
 
@@ -143,62 +128,6 @@ export function ImageControls({
         </TooltipTrigger>
         <TooltipContent>Reset crop</TooltipContent>
       </Tooltip>
-
-      <ToolbarSeparator className="mx-1" />
-
-      {/* Alt text */}
-      <AltTextDropdown
-        value={image?.data.alt ?? ''}
-        onSave={onSaveAlt}
-        disabled={!store || !slideId}
-      />
     </>
-  );
-}
-
-interface AltTextDropdownProps {
-  value: string;
-  onSave: (alt: string) => void;
-  disabled: boolean;
-}
-
-function AltTextDropdown({ value, onSave, disabled }: AltTextDropdownProps) {
-  const [draft, setDraft] = useState(value);
-  // Re-sync when the parent swaps to a different image (or the value
-  // changes from a remote edit) — without this, stale alt text bleeds
-  // across selections and saves back over the new image.
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Alt text"
-              disabled={disabled}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-            >
-              <IconAccessible size={16} />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Alt text (accessibility)</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="start" className="w-72 p-2">
-        <label className="block text-xs font-medium">Alt text</label>
-        <textarea
-          className="mt-1 w-full rounded border p-1 text-sm"
-          rows={3}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => onSave(draft)}
-          placeholder="Describe this image for screen readers"
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

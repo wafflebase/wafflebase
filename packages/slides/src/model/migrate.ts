@@ -10,11 +10,15 @@ const LAYOUT_ID_MIGRATIONS: Record<string, string> = {
 
 export function migrateDocument(input: unknown): SlidesDocument {
   const raw = input as any;
-  const meta = {
+  const meta: import('./presentation').Meta = {
     title: raw?.meta?.title ?? 'Untitled presentation',
     themeId: raw?.meta?.themeId ?? 'default-light',
     masterId: raw?.meta?.masterId ?? 'default',
   };
+  // Preserve the optional unit field if present and valid.
+  if (raw?.meta?.unit === 'in' || raw?.meta?.unit === 'cm') {
+    meta.unit = raw.meta.unit;
+  }
   const themes = Array.isArray(raw?.themes) && raw.themes.length > 0
     ? raw.themes
     : [defaultLight];

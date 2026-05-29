@@ -46,6 +46,13 @@ export interface SlidesStore {
   /** Apply a theme as the active theme. Theme must already be in `themes[]`. */
   applyTheme(themeId: string): void;
 
+  /**
+   * Set the display unit for numeric inputs in the Format options
+   * panel (and ruler, when wired). Persisted on `meta.unit` so peers
+   * see the same preference. No effect on rendering.
+   */
+  setUnit(unit: 'in' | 'cm'): void;
+
   // --- element-level ---
 
   /**
