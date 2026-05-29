@@ -136,10 +136,12 @@ describe('drawText', () => {
     const blocks = Array.from({ length: 30 }, (_, i) => paragraph(`line ${i}`));
     const d: TextElement['data'] = { blocks, verticalAnchor: 'bottom' };
     drawText(asCtx(ctx), { w: 400, h: 40 }, d, THEME);
-    // Negative offset would push text out the top of the frame; clamp at 0.
+    // Clamping kicks in: originY would be negative without Math.max, so
+    // firstY must be >= 0. Also confirm we're still near the top (no offset
+    // applied), not somewhere mid-frame.
     const firstY = ctx.fillText.mock.calls[0][2] as number;
-    expect(firstY).toBeLessThan(40);
     expect(firstY).toBeGreaterThanOrEqual(0);
+    expect(firstY).toBeLessThan(20);
   });
 });
 

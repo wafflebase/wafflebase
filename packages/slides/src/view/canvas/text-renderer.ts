@@ -97,6 +97,9 @@ export function drawText(
 
   if (allEmpty) {
     if (options?.placeholderHint) {
+      // Hint always paints at the top of the frame regardless of
+      // data.verticalAnchor — placeholder ghost text is not anchor-aware
+      // today. Revisit alongside editor parity.
       drawHint(
         ctx,
         size,
@@ -118,6 +121,10 @@ export function drawText(
   // the committed canvas and editing surface stay pixel-identical.
   let toLayout = normalized;
   if (data.autofit === 'shrink') {
+    // padding=0 here so the shrink scale targets the full frame height.
+    // computeVerticalOriginY below also compares against size.h, so the
+    // scaled totalHeight will fit and originY stays non-negative. If a
+    // future caller changes the padding arg, mirror it in originY.
     const scale = computeAutofitScale(normalized, measurer, size.w, size.h, 0);
     if (scale !== 1) toLayout = scaleBlocks(normalized, scale);
   }
