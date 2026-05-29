@@ -146,6 +146,18 @@ export interface TextBoxEditorOptions {
    * omitted — docs/sheets callers are unaffected.
    */
   colorResolver?: ColorResolver;
+
+  /**
+   * Translate the paint origin (and click hit-test) by this anchor so
+   * laid-out content sits at the top / middle / bottom of the editing
+   * surface. Mirrors the slides canvas-renderer offset so the in-place
+   * editor stays pixel-aligned with the committed slide canvas.
+   * Recomputed each frame against `layout.totalHeight` since content
+   * height changes as the user types.
+   *
+   * Defaults to `'top'` — docs/sheets full-document callers unaffected.
+   */
+  verticalAnchor?: 'top' | 'middle' | 'bottom';
 }
 
 export interface TextBoxEditorAPI {
@@ -283,6 +295,33 @@ function buildShimPaginatedLayout(
 }
 
 /**
+ * Compute the y offset that aligns laid-out content to the requested
+ * vertical anchor inside a frame of height `frameH`.
+ *
+ * - `'top'` (and absent) ⇒ 0 (preserves pre-feature behavior).
+ * - `'middle'` ⇒ `(frameH − contentH) / 2`.
+ * - `'bottom'` ⇒ `frameH − contentH`.
+ *
+ * Clamped to ≥ 0 — when content overflows the frame (autofit='none' or
+ * a sufficiently small frame in 'shrink' mode), painting starts at the
+ * top so visible text isn't clipped above the frame entirely.
+ *
+ * Mirrors `computeVerticalOriginY` in slides' `text-renderer.ts` so
+ * both the committed canvas and the in-place editor apply an identical
+ * offset. Intentionally duplicated (slides depends on docs, not the
+ * other way around) — if the algorithm changes, update both.
+ */
+function computeVerticalOriginY(
+  anchor: 'top' | 'middle' | 'bottom' | undefined,
+  frameH: number,
+  contentH: number,
+): number {
+  if (anchor === 'middle') return Math.max(0, (frameH - contentH) / 2);
+  if (anchor === 'bottom') return Math.max(0, frameH - contentH);
+  return 0;
+}
+
+/**
  * Mount an in-place rich-text editor inside the supplied `container` /
  * `canvas`. Returns an `TextBoxEditorAPI` for the host to drive focus
  * / blur / teardown. The factory does NOT auto-focus — the caller
@@ -352,6 +391,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   // Last content height reported via onContentHeightChange. Starts at -1
   // so the first real layout always fires once.
   let lastReportedHeight = -1;
+  // Vertical anchor offset in logical pixels. Recomputed at the start of
+  // every renderNow pass and stashed here so the TextEditor click handler
+  // (which reads it via getCanvasOffsetTop) always sees the most recent
+  // value the moment a pointer event fires.
+  let currentOriginY = 0;
 
   const renderNow = (): void => {
     renderRAF = null;
@@ -372,6 +416,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       lastReportedHeight = layout.totalHeight;
       opts.onContentHeightChange?.(layout.totalHeight);
     }
+    // Vertical anchor: recompute the y offset for this frame. Written to
+    // the closure-level `currentOriginY` so the TextEditor click handler
+    // sees the freshest value at pointer-event time.
+    currentOriginY = computeVerticalOriginY(
+      opts.verticalAnchor,
+      contentHeight,
+      layout.totalHeight,
+    );
     ctx.save();
     // Reset any previous transform, clear in DEVICE-pixel space, then
     // scale to CSS pixels for the rest of the paint. Caller-supplied
@@ -384,7 +436,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     // Selection rectangles. computeSelectionRects returns coordinates
     // in the same page-space as Cursor.getPixelPosition — translate
-    // back into layout-local before handing to paintLayout.
+    // back into layout-local (subtract Theme.pageGap) before handing
+    // to paintLayout. paintLayout itself adds originY (currentOriginY)
+    // to each rect.y internally, so we do NOT pre-add it here.
     let selectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
     if (selection.range) {
       const pageGap = Theme.pageGap;
@@ -398,7 +452,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       selectionRects = rects.map((r) => ({ x: r.x, y: r.y - pageGap, width: r.width, height: r.height }));
     }
 
-    // Cursor caret. Same page-space → layout-local translation.
+    // Cursor caret. Same page-space → layout-local translation (subtract
+    // Theme.pageGap). paintLayout adds originY to cursor.y internally,
+    // so we do NOT pre-add currentOriginY here either.
     let cursorOpt: { x: number; y: number; height: number; visible: boolean } | undefined;
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, measurer, contentWidth);
     if (cursorPixel) {
@@ -410,7 +466,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       };
     }
 
-    paintLayout(ctx, layout, 0, 0, {
+    // Pass currentOriginY as originY so paintLayout shifts all content
+    // (text, cursor, selection rects) by the vertical anchor offset. The
+    // cursor and selectionRects coords above are already in layout-local
+    // space; paintLayout adds originY to them internally.
+    paintLayout(ctx, layout, 0, currentOriginY, {
       cursor: cursorOpt,
       selectionRects,
       requestRender,
@@ -453,13 +513,13 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   //     logical-pixel space as `run.x`. Slides passes the live zoom
   //     here; full-document docs callers pass 1 (their container's CSS
   //     size already matches contentWidth).
-  //   - getCanvasOffsetTop: -Theme.pageGap * scale. TextEditor computes
-  //     `(clientY - rect.top - canvasOffsetTop) / scale`, so the offset
-  //     lives in HOST pixels — using a raw logical pageGap inflates the
-  //     y by an extra `(1 - scale) * pageGap / scale` per click. With
-  //     the scale factor, clicking the canvas top resolves to logical
-  //     `pageGap` (= page-0 top in paginatedPixelToPosition's coord
-  //     space) at any zoom.
+  //   - getCanvasOffsetTop: -(Theme.pageGap + currentOriginY) * scale.
+  //     TextEditor computes `(clientY - rect.top - canvasOffsetTop) / scale`,
+  //     so the offset lives in HOST pixels. Adding currentOriginY shifts the
+  //     effective canvas top down by the vertical anchor offset so a click at
+  //     host-pixel `rect.top + currentOriginY * scale` (where visible text
+  //     actually starts) resolves to layout-local y = 0 (the very first line),
+  //     not somewhere above the visible text.
   const textEditor = new TextEditor(
     container,
     doc,
@@ -470,7 +530,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     () => measurer,
     () => contentWidth,
     () => scale,
-    () => -Theme.pageGap * scale,
+    () => -(Theme.pageGap + currentOriginY) * scale,
     requestRender,
     () => docStore.snapshot(),
     () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { initializeTextBox } from '../../src/view/text-box-editor.js';
 import type { Block } from '../../src/model/types.js';
 
@@ -403,5 +403,273 @@ describe('TextBoxEditorAPI — formatting surface', () => {
     api.requestLink();
     expect(onLinkRequest).toHaveBeenCalledTimes(1);
     api.detach();
+  });
+});
+
+/**
+ * verticalAnchor tests.
+ *
+ * These tests patch `HTMLCanvasElement.prototype.getContext` to return a
+ * spy ctx so `renderNow` runs its full paint path (instead of
+ * early-returning on `ctx === null`). This lets us verify that
+ * `paintLayout` receives a non-zero `originY` for middle/bottom anchors
+ * by observing the y argument of `fillText` (run text).
+ *
+ * jsdom does not provide OffscreenCanvas (used by CanvasTextMeasurer), so
+ * we also install a minimal OffscreenCanvas stub that returns a fake
+ * measureText. This matches the pattern in slides'
+ * `packages/slides/src/view/canvas/test-canvas-env.ts`.
+ */
+describe('initializeTextBox — verticalAnchor', () => {
+  // Saved original getContext to restore after each test.
+  let _origGetContext: HTMLCanvasElement['getContext'];
+
+  /** A narrow spy object for the 2D context. */
+  interface CtxRecorder {
+    fillRect: ReturnType<typeof vi.fn>;
+    fillText: ReturnType<typeof vi.fn>;
+    clearRect: ReturnType<typeof vi.fn>;
+    setTransform: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
+    scale: ReturnType<typeof vi.fn>;
+    measureText: (text: string) => { width: number };
+    fillStyle: string;
+    strokeStyle: string;
+    lineWidth: number;
+    font: string;
+    textAlign: CanvasTextAlign;
+    textBaseline: CanvasTextBaseline;
+    globalAlpha: number;
+    beginPath: ReturnType<typeof vi.fn>;
+    closePath: ReturnType<typeof vi.fn>;
+    moveTo: ReturnType<typeof vi.fn>;
+    lineTo: ReturnType<typeof vi.fn>;
+    arc: ReturnType<typeof vi.fn>;
+    stroke: ReturnType<typeof vi.fn>;
+  }
+
+  function makeCtxSpy(): CtxRecorder {
+    return {
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      font: '10px sans-serif',
+      textAlign: 'start',
+      textBaseline: 'alphabetic',
+      globalAlpha: 1,
+      fillRect: vi.fn(),
+      fillText: vi.fn(),
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      scale: vi.fn(),
+      measureText: (text: string) => ({ width: text.length * 8 }),
+      beginPath: vi.fn(),
+      closePath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arc: vi.fn(),
+      stroke: vi.fn(),
+    };
+  }
+
+  let currentSpy: CtxRecorder;
+  let _origRAF: typeof window.requestAnimationFrame;
+
+  beforeEach(() => {
+    // Install a stub OffscreenCanvas (used by CanvasTextMeasurer).
+    if (!(globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas) {
+      class FakeOffscreenCanvas {
+        constructor(public width: number, public height: number) {}
+        getContext(_type: string): unknown {
+          return {
+            font: '10px sans-serif',
+            measureText: (text: string) => ({ width: text.length * 8 }),
+          };
+        }
+      }
+      (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas = FakeOffscreenCanvas;
+    }
+
+    // Patch HTMLCanvasElement.prototype.getContext to return our spy.
+    currentSpy = makeCtxSpy();
+    _origGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function patchedGetContext(
+      contextId: string,
+    ): unknown {
+      if (contextId === '2d') return currentSpy;
+      return null;
+    } as HTMLCanvasElement['getContext'];
+
+    // Patch requestAnimationFrame to run callbacks synchronously on the
+    // next microtask, so tests can flush renderNow via `await`.
+    _origRAF = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      queueMicrotask(() => cb(performance.now()));
+      return 0;
+    };
+  });
+
+  afterEach(() => {
+    // Restore original getContext and requestAnimationFrame.
+    HTMLCanvasElement.prototype.getContext = _origGetContext;
+    window.requestAnimationFrame = _origRAF;
+  });
+
+  function makeBlock(text: string): Block {
+    return {
+      id: `b${Math.random().toString(36).slice(2, 8)}`,
+      type: 'paragraph',
+      inlines: [{ text, style: {} }],
+      style: {},
+    } as Block;
+  }
+
+  /**
+   * With verticalAnchor absent (default 'top'), originY = 0. The text
+   * baseline y must be small — near the top of the 400×200 canvas.
+   */
+  it('default (top-anchored) paints text near the top of the canvas', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('Hi')],
+      contentWidth: 400,
+      contentHeight: 200,
+      // No verticalAnchor — defaults to top.
+    });
+    // renderNow is scheduled as a microtask (jsdom path); flush it.
+    await new Promise<void>((r) => queueMicrotask(r));
+    const calls = currentSpy.fillText.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    // For top-anchor, text baseline must be in the top half of the 200px frame.
+    const ys = calls.map((c: unknown[]) => c[2] as number);
+    expect(Math.max(...ys)).toBeLessThan(100);
+    api.detach();
+  });
+
+  /**
+   * With verticalAnchor='bottom', originY = contentHeight - layout.totalHeight
+   * (clamped to 0). For a short text in a tall frame, originY is large,
+   * so fillText baseline y must be in the lower part of the canvas.
+   */
+  it('bottom-anchored paints text near the bottom of the canvas', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('Hi')],
+      contentWidth: 400,
+      contentHeight: 200,
+      verticalAnchor: 'bottom',
+    });
+    await new Promise<void>((r) => queueMicrotask(r));
+    const calls = currentSpy.fillText.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    // For bottom-anchor in a 200px frame with ~1 line of text (~20px),
+    // the baseline y should be well above 100 (near the bottom).
+    const ys = calls.map((c: unknown[]) => c[2] as number);
+    expect(Math.min(...ys)).toBeGreaterThan(100);
+    api.detach();
+  });
+
+  /**
+   * With verticalAnchor='middle', originY = (contentHeight - totalHeight) / 2.
+   * For a short text in a 200px frame, the baseline y is near the center.
+   */
+  it('middle-anchored paints text near the vertical center of the canvas', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('Hi')],
+      contentWidth: 400,
+      contentHeight: 200,
+      verticalAnchor: 'middle',
+    });
+    await new Promise<void>((r) => queueMicrotask(r));
+    const calls = currentSpy.fillText.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const ys = calls.map((c: unknown[]) => c[2] as number);
+    const midY = Math.min(...ys);
+    // Middle-anchored in a 200px frame with ~1 line of text: baseline y
+    // should be in the middle area (roughly 80–130 px).
+    expect(midY).toBeGreaterThan(60);
+    expect(midY).toBeLessThan(160);
+    api.detach();
+  });
+
+  /**
+   * When content is taller than the frame, originY clamps to 0, and text
+   * paints at the top regardless of the anchor value.
+   */
+  it('clamps originY to 0 when content overflows the frame', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 20; // Very small frame.
+    container.appendChild(canvas);
+    // 10 paragraphs ensures content height >> frame height.
+    const blocks = Array.from({ length: 10 }, (_, i) => makeBlock(`line ${i}`));
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks,
+      contentWidth: 400,
+      contentHeight: 20,
+      verticalAnchor: 'bottom',
+    });
+    await new Promise<void>((r) => queueMicrotask(r));
+    const calls = currentSpy.fillText.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    // With clamp, the first visible line's baseline should be close to
+    // the top of the frame (< 40px even with the clamped-to-0 offset).
+    const firstY = calls[0][2] as number;
+    expect(firstY).toBeGreaterThanOrEqual(0);
+    expect(firstY).toBeLessThan(40);
+    api.detach();
+  });
+
+  /**
+   * Verify the option is accepted without throwing even when the blocks
+   * array is empty (uses the seeded empty paragraph internally).
+   */
+  it('accepts verticalAnchor without throwing when blocks is empty', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    expect(() => {
+      const api = initializeTextBox({
+        container,
+        canvas,
+        blocks: [],
+        contentWidth: 400,
+        contentHeight: 200,
+        verticalAnchor: 'bottom',
+      });
+      api.detach();
+    }).not.toThrow();
   });
 });
