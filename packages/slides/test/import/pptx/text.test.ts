@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { parseTextBody, detectAutofitMode } from '../../../src/import/pptx/text';
+import { parseTextBody, detectAutofitMode, detectVerticalAnchor } from '../../../src/import/pptx/text';
 import { ImportReport } from '../../../src/import/pptx/report';
-import { parseXml } from '../../../src/import/pptx/xml';
+import { parseXml, parseXml as parseSpXml } from '../../../src/import/pptx/xml';
 import type { PptxRel } from '../../../src/import/pptx/rels';
+import { parseSpTree } from '../../../src/import/pptx/shape';
+import type { SlideParseContext } from '../../../src/import/pptx/shape';
+import type { TextElement } from '../../../src/model/element';
 
 function txBody(xml: string): Element {
   return parseXml(
@@ -184,5 +187,83 @@ describe('parseTextBody — normAutofit pre-scale', () => {
     const report = new ImportReport();
     parseTextBody(t, { report });
     expect(report.textBoxesPreScaled).toBe(0);
+  });
+});
+
+describe('detectVerticalAnchor', () => {
+  it('returns "bottom" for anchor="b"', () => {
+    const t = txBody(`<a:txBody><a:bodyPr anchor="b"/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBe('bottom');
+  });
+
+  it('returns "middle" for anchor="ctr"', () => {
+    const t = txBody(`<a:txBody><a:bodyPr anchor="ctr"/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBe('middle');
+  });
+
+  it('returns "top" for anchor="t"', () => {
+    const t = txBody(`<a:txBody><a:bodyPr anchor="t"/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBe('top');
+  });
+
+  it('returns undefined when bodyPr is absent', () => {
+    const t = txBody(`<a:txBody><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBeUndefined();
+  });
+
+  it('returns undefined when anchor attr is missing', () => {
+    const t = txBody(`<a:txBody><a:bodyPr/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBeUndefined();
+  });
+
+  it('returns "top" for unsupported anchor values (just, dist)', () => {
+    const t = txBody(`<a:txBody><a:bodyPr anchor="just"/></a:txBody>`);
+    expect(detectVerticalAnchor(t)).toBe('top');
+  });
+});
+
+describe('PPTX import — verticalAnchor wiring', () => {
+  function makeCtx(): SlideParseContext {
+    return {
+      archive: { readBytes: async () => undefined, readText: async () => undefined },
+      slidePartPath: 'ppt/slides/slide1.xml',
+      rels: new Map(),
+      scale: { kx: 1 / 9525, ky: 1 / 9525 },
+      report: new ImportReport(),
+      idMap: new Map(),
+      placeholderSizes: new Map(),
+      clrMap: {},
+    } as unknown as SlideParseContext;
+  }
+
+  it('writes verticalAnchor="bottom" for anchor="b" placeholders', async () => {
+    const spTree = parseSpXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="1" name="Title 1"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="ctrTitle"/></p:nvPr></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="2052600"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>
+        <p:txBody>
+          <a:bodyPr anchor="b"/>
+          <a:p><a:r><a:t>Title</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    </p:spTree>`).documentElement;
+    const elements = await parseSpTree(spTree, makeCtx());
+    expect(elements).toHaveLength(1);
+    const txt = elements[0] as TextElement;
+    expect(txt.type).toBe('text');
+    expect(txt.data.verticalAnchor).toBe('bottom');
+  });
+
+  it('omits verticalAnchor when bodyPr has no anchor attr', async () => {
+    const spTree = parseSpXml(`<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="2052600"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>
+        <p:txBody><a:bodyPr/><a:p><a:r><a:t>Body</a:t></a:r></a:p></p:txBody>
+      </p:sp>
+    </p:spTree>`).documentElement;
+    const elements = await parseSpTree(spTree, makeCtx());
+    const txt = elements[0] as TextElement;
+    expect(txt.data.verticalAnchor).toBeUndefined();
   });
 });

@@ -5,7 +5,7 @@ import { containsHangul, parsePrimaryTypeface } from './font';
 import { ImportReport } from './report';
 import type { PptxRel } from './rels';
 import { attr, attrInt, child, children, NS, textOf } from './xml';
-import type { AutofitMode } from '../../model/element';
+import type { AutofitMode, VerticalAnchorMode } from '../../model/element';
 
 /**
  * Per-slide context the text parser needs to resolve hyperlink relationships
@@ -39,6 +39,32 @@ export function detectAutofitMode(txBody: Element): AutofitMode {
   if (child(bodyPr, 'normAutofit')) return 'shrink';
   if (child(bodyPr, 'spAutoFit')) return 'grow';
   return 'none';
+}
+
+/**
+ * Map the `<a:bodyPr anchor>` attribute to a `VerticalAnchorMode`.
+ *
+ * OOXML anchor values:
+ *   - `"t"`    → `'top'`    — content hugs the top of the frame (default)
+ *   - `"ctr"`  → `'middle'` — content is vertically centred
+ *   - `"b"`    → `'bottom'` — content sits at the bottom of the frame
+ *   - `"just"` / `"dist"` — justify/distribute (rare, unsupported by the
+ *     renderer) — fall back to `'top'` so content stays visible rather than
+ *     being clipped or misplaced.
+ *
+ * Returns `undefined` when `<a:bodyPr>` is absent or has no `anchor`
+ * attribute, preserving the pre-feature default behaviour.
+ */
+export function detectVerticalAnchor(txBody: Element): VerticalAnchorMode | undefined {
+  const bodyPr = child(txBody, 'bodyPr');
+  if (!bodyPr) return undefined;
+  const anchor = attr(bodyPr, 'anchor');
+  if (anchor == null) return undefined;
+  if (anchor === 'b') return 'bottom';
+  if (anchor === 'ctr') return 'middle';
+  // 't' is the canonical top value; unsupported values (e.g. 'just', 'dist')
+  // fall back to 'top' so content remains visible.
+  return 'top';
 }
 
 /**

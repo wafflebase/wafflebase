@@ -30,7 +30,7 @@ import {
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { ImportReport } from './report';
 import { parseTable } from './table';
-import { parseTextBody, detectAutofitMode } from './text';
+import { parseTextBody, detectAutofitMode, detectVerticalAnchor } from './text';
 import type { PptxArchive } from './unzip';
 import type { PptxRel } from './rels';
 import type { UploadImage } from './index';
@@ -545,6 +545,7 @@ function buildTextElement(
     ? PLACEHOLDER_DEFAULT_FONT_SIZE[placeholderRef.type]
     : undefined;
   const defaultFontSize = layoutSize ?? fallbackSize;
+  const verticalAnchor = detectVerticalAnchor(txBody);
   return {
     id,
     type: 'text',
@@ -552,6 +553,7 @@ function buildTextElement(
     ...(placeholderRef ? { placeholderRef } : {}),
     data: {
       autofit: detectAutofitMode(txBody),
+      ...(verticalAnchor !== undefined ? { verticalAnchor } : {}),
       blocks: parseTextBody(txBody, {
         rels: ctx.rels,
         report: ctx.report,
