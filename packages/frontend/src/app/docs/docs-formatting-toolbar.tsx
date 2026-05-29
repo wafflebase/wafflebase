@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorAPI, EditContext } from "@wafflebase/docs";
+import { DEFAULT_INLINE_STYLE } from "@wafflebase/docs";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
@@ -301,10 +302,20 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     return unsubscribe;
   }, [editor]);
 
+  // Distinguish "unset throughout the selection" (use the document default,
+  // matching what the renderer paints) from "mixed values" (show empty in the
+  // picker). Without this fallback a fresh document — whose only inline has
+  // an empty `style: {}` — would render the family picker with an em-dash
+  // and the size input empty, even though the renderer is laying out at the
+  // default Arial 11.
   const familyValue =
-    summary.fontFamily === "mixed" ? undefined : summary.fontFamily;
+    summary.fontFamily === "mixed"
+      ? undefined
+      : (summary.fontFamily ?? DEFAULT_INLINE_STYLE.fontFamily);
   const sizeValue =
-    summary.fontSize === "mixed" ? undefined : summary.fontSize;
+    summary.fontSize === "mixed"
+      ? undefined
+      : (summary.fontSize ?? DEFAULT_INLINE_STYLE.fontSize);
 
   // DocStore does not currently expose a `fonts` registry, so the
   // ensureFont prefetch hook is best-effort: cast to read it without
@@ -332,7 +343,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     editor?.focus();
   };
   const handleClearFormatting = () => {
-    editor?.clearFormatting();
+    editor?.clearInlineFormatting();
     editor?.focus();
   };
 

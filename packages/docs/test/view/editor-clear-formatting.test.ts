@@ -8,7 +8,7 @@ import type { Block } from '../../src/model/types.js';
 const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
 
 /**
- * jsdom-friendly tests for `EditorAPI.clearFormatting`. Shares the same
+ * jsdom-friendly tests for `EditorAPI.clearInlineFormatting`. Shares the same
  * canvas / ResizeObserver shim, selection helper, and editor mount
  * pattern as `editor-range-style-summary.test.ts` — both files exercise
  * selection-derived APIs that need a real editor pipeline (Doc + store
@@ -102,7 +102,7 @@ describe('clearFormatting', () => {
       focus: { blockId, offset: 5 },
     });
 
-    editor.clearFormatting();
+    editor.clearInlineFormatting();
 
     const block = editor.getDoc().document.blocks[0];
     for (const inline of block.inlines) {
@@ -134,7 +134,7 @@ describe('clearFormatting', () => {
       focus: { blockId, offset: 5 },
     });
 
-    editor.clearFormatting();
+    editor.clearInlineFormatting();
 
     const block = editor.getDoc().document.blocks[0];
     expect(block.type).toBe('heading');

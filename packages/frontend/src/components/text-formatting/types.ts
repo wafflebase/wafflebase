@@ -48,7 +48,7 @@ export interface TextFormattingEditor {
   applyStyle(style: Partial<InlineStyle>): void;
 
   /** Remove every inline style attribute on the current selection. */
-  clearFormatting(): void;
+  clearInlineFormatting(): void;
 
   /** Apply block style to blocks in the current selection. */
   applyBlockStyle(style: Partial<BlockStyle>): void;

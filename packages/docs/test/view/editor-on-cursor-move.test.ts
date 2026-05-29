@@ -165,7 +165,7 @@ describe('EditorAPI.onCursorMove', () => {
     const afterBlockStyle = cb.mock.calls.length;
     expect(afterBlockStyle).toBeGreaterThan(0);
 
-    editor.clearFormatting();
+    editor.clearInlineFormatting();
     expect(cb.mock.calls.length).toBeGreaterThan(afterBlockStyle);
 
     editor.dispose();
