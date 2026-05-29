@@ -17,7 +17,7 @@ import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
-import type { ZoomController } from "./zoom-controller";
+import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -554,25 +554,25 @@ export function SlidesView({
         MIN_HOST_W / SLIDE_ASPECT,
         availH - SLIDES_RULER_SIZE - SLIDE_FRAME_GAP * 2,
       );
-      // Fit (1.0) and absolute zoom (N %) are two different sizing
-      // models:
+      // Fit and absolute zoom (N %) are two different sizing models:
       //
-      //   Fit  → the host fills the available column, preserving the
-      //          slide aspect. MAX_HOST_W still clamps on ultra-wide
-      //          displays so a 4K column does not allocate a 4K bitmap.
+      //   FIT_ZOOM → the host fills the available column, preserving
+      //              the slide aspect. MAX_HOST_W still clamps on
+      //              ultra-wide displays so a 4K column does not
+      //              allocate a 4K bitmap.
       //
-      //   N %  → the host equals the slide's *logical* size times the
-      //          zoom factor. 100 % == 1920 × 1080 CSS px regardless of
-      //          the column width. canvasArea's overflow:auto produces
-      //          horizontal + vertical scroll when the host exceeds the
-      //          available area.
+      //   N %      → the host equals the slide's *logical* size times
+      //              the zoom factor. 100 % == 1920 × 1080 CSS px
+      //              regardless of the column width. canvasArea's
+      //              overflow:auto produces horizontal + vertical
+      //              scroll when the host exceeds the available area.
       //
       // No MAX_HOST_W clamp at non-Fit zoom — the user is asking for an
       // absolute size and the slide must read at exactly that size.
-      const userZoom = zoomController?.get() ?? 1.0;
+      const userZoom = zoomController?.get() ?? FIT_ZOOM;
       let nextW: number;
       let nextH: number;
-      if (userZoom === 1.0) {
+      if (userZoom === FIT_ZOOM) {
         const fit = computeFitSize(slideAvailW, slideAvailH);
         const clampedW = Math.min(MAX_HOST_W, Math.round(fit.width));
         const scale = fit.width > 0 ? clampedW / fit.width : 1;

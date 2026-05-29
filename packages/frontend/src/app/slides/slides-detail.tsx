@@ -26,7 +26,11 @@ import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
-import { createZoomController, type ZoomController } from "./zoom-controller";
+import {
+  createZoomController,
+  FIT_ZOOM,
+  type ZoomController,
+} from "./zoom-controller";
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -139,7 +143,9 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
   // keeps identity stable so the SlidesView mount effect's captured
   // controller stays valid across the lifetime of this layout.
-  const zoomControllerRef = useRef<ZoomController>(createZoomController(1.0));
+  const zoomControllerRef = useRef<ZoomController>(
+    createZoomController(FIT_ZOOM),
+  );
   // Track the active theme id so the panel highlights the right swatch
   // and re-renders on remote theme changes. Subscribed to `store.onChange`
   // below — local applies notify after the batch commits, remote applies

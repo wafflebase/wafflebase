@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { IconChevronDown } from "@tabler/icons-react";
 import type { ZoomController } from "../zoom-controller";
-import { ZOOM_PRESETS } from "../zoom-controller";
+import { FIT_ZOOM, ZOOM_PRESETS } from "../zoom-controller";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
@@ -19,14 +20,26 @@ export interface ZoomControlProps {
 }
 
 /**
- * Zoom dropdown shown in the slides toolbar's right-global zone.
- * Reads + writes through the `ZoomController` shared with `SlidesView`,
- * so picking a preset triggers `refitCanvas` automatically. The
- * "Fit" label corresponds to a zoom of 1.0 — the editor's legacy
- * column-fit behavior.
+ * Zoom dropdown shown in the slides toolbar's left zone.
+ *
+ * Mirrors Google Slides:
+ *   ┌──────────┐
+ *   │ Fit      │ ← always at the top — viewport-relative scale
+ *   ├──────────┤
+ *   │ 50%      │
+ *   │ 75%      │ ← absolute presets — slide size × N %
+ *   │ 100%     │
+ *   │ 150%     │
+ *   │ 200%     │
+ *   └──────────┘
+ *
+ * Picking Fit triggers `refitCanvas` with the column-fit path;
+ * picking N% switches to the absolute-zoom path with scroll bars.
  */
 export function ZoomControl({ controller }: ZoomControlProps) {
-  const [value, setValue] = useState<number>(controller?.get() ?? 1.0);
+  const [value, setValue] = useState<number>(
+    controller?.get() ?? FIT_ZOOM,
+  );
 
   useEffect(() => {
     if (!controller) return;
@@ -34,7 +47,7 @@ export function ZoomControl({ controller }: ZoomControlProps) {
     return controller.subscribe(() => setValue(controller.get()));
   }, [controller]);
 
-  const label = value === 1.0 ? "Fit" : `${Math.round(value * 100)}%`;
+  const label = value === FIT_ZOOM ? "Fit" : `${Math.round(value * 100)}%`;
 
   return (
     <DropdownMenu>
@@ -54,13 +67,17 @@ export function ZoomControl({ controller }: ZoomControlProps) {
         </TooltipTrigger>
         <TooltipContent>Zoom</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onClick={() => controller?.set(FIT_ZOOM)}>
+          Fit
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {ZOOM_PRESETS.map((preset) => (
           <DropdownMenuItem
             key={preset}
             onClick={() => controller?.set(preset)}
           >
-            {preset === 1.0 ? "Fit" : `${Math.round(preset * 100)}%`}
+            {`${Math.round(preset * 100)}%`}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
