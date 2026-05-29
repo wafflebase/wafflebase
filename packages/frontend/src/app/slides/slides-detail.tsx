@@ -25,6 +25,7 @@ import { PresentButton } from "./slides-present-button";
 import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
+import { FormatPanel } from "./format-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
 import {
   createZoomController,
@@ -138,7 +139,8 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  const [themePanelOpen, setThemePanelOpen] = useState(false);
+  type RightPanel = "theme" | "format" | null;
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   // Session-scoped zoom controller shared between SlidesView (drives
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
   // keeps identity stable so the SlidesView mount effect's captured
@@ -335,8 +337,14 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             theme={activeTheme}
             onImagePick={handleImagePick}
             upload={uploadFn}
-            onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
-            themePanelOpen={themePanelOpen}
+            onToggleThemePanel={() =>
+              setRightPanel((p) => (p === "theme" ? null : "theme"))
+            }
+            themePanelOpen={rightPanel === "theme"}
+            onToggleFormatPanel={() =>
+              setRightPanel((p) => (p === "format" ? null : "format"))
+            }
+            formatPanelOpen={rightPanel === "format"}
             zoomController={zoomControllerRef.current}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -347,11 +355,18 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               documentId={documentId}
               zoomController={zoomControllerRef.current}
             />
-            {themePanelOpen && store && (
+            {rightPanel === "theme" && store && (
               <ThemePanel
                 store={store}
                 currentThemeId={currentThemeId}
-                onClose={() => setThemePanelOpen(false)}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "format" && store && editor && (
+              <FormatPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
               />
             )}
           </div>
