@@ -678,56 +678,17 @@ describe('initializeTextBox — verticalAnchor', () => {
    * If you need to assert the exact cursor position after a click, add a
    * Playwright test in packages/slides or packages/frontend instead.
    */
-  it.skip('routes a click at the visible text top to layout-y = 0 for bottom anchor (requires real layout)', async () => {
-    // This test is skipped because jsdom's getBoundingClientRect always
-    // returns { top: 0, left: 0, ... } for canvas elements, making
-    // `clientY - rect.top` always equal to clientY. The TextEditor's
-    // `(clientY - rect.top - canvasOffsetTop) / scale` computation then
-    // uses canvasOffsetTop = (originY - pageGap)*scale correctly, but the
-    // resulting py would be:
-    //   (clientY - (originY - pageGap)*scale) / scale
-    //   = clientY/scale - originY + pageGap
-    // For a click at clientY = originY*scale this gives pageGap, so
-    // localY = py - pageGap = 0 — correct. But since rect.top is not
-    // originY*scale in jsdom (it's 0), we cannot simulate the click with
-    // meaningful geometry here.
-    //
-    // The rendering tests above (bottom-anchored paints near bottom) already
-    // confirm that originY is computed correctly; the formula fix is verified
-    // by the arithmetic: (0 - pageGap)*scale = -pageGap*scale for originY=0,
-    // and (originY - pageGap)*scale for the anchored case, both correct.
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const canvas = document.createElement('canvas');
-    canvas.width = 400;
-    canvas.height = 200;
-    container.appendChild(canvas);
-    const api = initializeTextBox({
-      container,
-      canvas,
-      blocks: [makeBlock('Hi')],
-      contentWidth: 400,
-      contentHeight: 200,
-      verticalAnchor: 'bottom',
-    });
-    await new Promise<void>((r) => queueMicrotask(r));
-    // Stub getBoundingClientRect so the click math has stable geometry.
-    container.getBoundingClientRect = () => ({
-      left: 0, top: 0, right: 400, bottom: 200, width: 400, height: 200,
-      x: 0, y: 0, toJSON: () => ({}),
-    });
-    const click = new MouseEvent('mousedown', {
-      clientX: 10,
-      clientY: 185, // ~5px below the painted baseline; should still hit line 1
-      bubbles: true,
-    });
-    container.dispatchEvent(click);
-    await new Promise<void>((r) => queueMicrotask(r));
-    // TODO: assert cursor position once a cursor-read API is exposed or a
-    // Playwright harness is available.
-    expect(api).toBeDefined();
-    api.detach();
-  });
+  // Skipped: jsdom's getBoundingClientRect always returns { top: 0, ... }
+  // for canvas elements, so a click at host-y = originY*scale collapses to
+  // clientY = originY*scale with no rect offset. The TextEditor math then
+  // sees a stale geometry and we can't assert that a click on the visible
+  // bottom-anchored text resolves to layout-y = 0.
+  //
+  // The formula correctness is verified algebraically in the JSDoc on
+  // getCanvasOffsetTop (text-box-editor.ts) and behaviorally by the paint
+  // tests above. Move this to a Playwright spec (packages/slides or
+  // packages/frontend) when end-to-end harness time is available.
+  it.skip('routes a click at the visible text top to layout-y = 0 for bottom anchor', () => undefined);
 
   /**
    * Verify the option is accepted without throwing even when the blocks

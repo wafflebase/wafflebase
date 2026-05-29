@@ -653,6 +653,10 @@ for visual regression.
 
 Vertical anchor is honored across the slide canvas renderer, the read-only present mode, and the in-place text-box editor (commits on branch `slides-pptx-text-vertical-anchor`). Paint, caret, selection, and click hit-test all align with the configured anchor.
 
+Known carve-outs:
+
+- Empty placeholder ghost text ("Click to add title" hints rendered by `drawHint`) still paints at the top of the frame regardless of `verticalAnchor`. The hint disappears the moment the user starts typing, so the divergence is short-lived; revisit when authoring tools that lean on the hint surface land.
+
 ## Future / Out of Scope
 
 The following remain out of scope but are unblocked by this work:
