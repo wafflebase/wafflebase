@@ -65,6 +65,13 @@ export interface EditorAPI {
   };
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
+  /**
+   * Remove every inline style attribute from the current selection.
+   * Block-level styles (alignment, line height, list kind/level,
+   * heading level) are intentionally preserved — matches Google Docs'
+   * Format → Clear formatting behavior.
+   */
+  clearFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
   /** Undo */
@@ -495,6 +502,49 @@ export function initialize(
       selection.setRange(null);
     }
   };
+
+  /**
+   * Apply an inline-style patch to the current selection. Shared by
+   * `applyStyle` (set keys) and `clearFormatting` (unset keys via
+   * explicit `undefined`). Handles cell-range mode, regular ranges,
+   * and the dirty-block bookkeeping needed for incremental layout.
+   * No-op when there is no real selection.
+   */
+  function applyInlineStyleToSelection(style: Partial<InlineStyle>): void {
+    if (!(selection.hasSelection() && selection.range)) return;
+    docStore.snapshot();
+    const range = selection.range;
+
+    // Cell-range mode: apply to all cells in range
+    if (range.tableCellRange) {
+      applyStyleToCellRange(range.tableCellRange, style);
+      markDirty(range.tableCellRange.blockId);
+      render();
+      return;
+    }
+
+    doc.applyInlineStyle(range, style);
+    // Mark affected blocks as dirty
+    const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+    const focusCI = layout.blockParentMap.get(range.focus.blockId);
+    if (anchorCI) {
+      // Cell block: mark the parent table block dirty
+      markDirty(anchorCI.tableBlockId);
+    } else if (focusCI) {
+      markDirty(focusCI.tableBlockId);
+    } else {
+      const startIdx = doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          markDirty(doc.document.blocks[i].id);
+        }
+      }
+    }
+    render();
+  }
 
   /** Apply inline style to all blocks in all cells within a cell range. */
   function applyStyleToCellRange(
@@ -1801,40 +1851,30 @@ export function initialize(
       return result as Summary;
     },
     applyStyle: (style: Partial<InlineStyle>) => {
-      if (selection.hasSelection() && selection.range) {
-        docStore.snapshot();
-        const range = selection.range;
-
-        // Cell-range mode: apply to all cells in range
-        if (range.tableCellRange) {
-          applyStyleToCellRange(range.tableCellRange, style);
-          markDirty(range.tableCellRange.blockId);
-          render();
-          return;
-        }
-
-        doc.applyInlineStyle(range, style);
-        // Mark affected blocks as dirty
-        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-        const focusCI = layout.blockParentMap.get(range.focus.blockId);
-        if (anchorCI) {
-          // Cell block: mark the parent table block dirty
-          markDirty(anchorCI.tableBlockId);
-        } else if (focusCI) {
-          markDirty(focusCI.tableBlockId);
-        } else {
-          const startIdx = doc.getBlockIndex(range.anchor.blockId);
-          const endIdx = doc.getBlockIndex(range.focus.blockId);
-          if (startIdx >= 0 && endIdx >= 0) {
-            const lo = Math.min(startIdx, endIdx);
-            const hi = Math.max(startIdx, endIdx);
-            for (let i = lo; i <= hi; i++) {
-              markDirty(doc.document.blocks[i].id);
-            }
-          }
-        }
-        render();
-      }
+      applyInlineStyleToSelection(style);
+    },
+    clearFormatting: () => {
+      // The full key set must match the InlineStyle interface in
+      // packages/docs/src/model/types.ts. Each key is passed as
+      // `undefined` so the Yorkie store's applyStyle path tears the
+      // attribute off the Tree node (see commit 20260526-docs-unlink-href
+      // for the underlying fix). `image` and `pageNumber` are content
+      // inlines, not formatting, so they are intentionally excluded —
+      // including them would delete inline content.
+      const clearStyle: Partial<InlineStyle> = {
+        bold: undefined,
+        italic: undefined,
+        underline: undefined,
+        strikethrough: undefined,
+        fontSize: undefined,
+        fontFamily: undefined,
+        color: undefined,
+        backgroundColor: undefined,
+        superscript: undefined,
+        subscript: undefined,
+        href: undefined,
+      };
+      applyInlineStyleToSelection(clearStyle);
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
