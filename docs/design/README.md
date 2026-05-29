@@ -33,6 +33,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | [docs.md](docs/docs.md)                                                          | Docs package — Canvas-based document editor, data model, layout engine, rendering pipeline         |
 | [docs-pagination.md](docs/docs-pagination.md)                                    | Docs pagination — page setup, line-level page splitting, paginated rendering pipeline              |
+| [docs-header-footer.md](docs/docs-header-footer.md)                              | Docs header & footer — editable per-page header/footer regions in the paginated editor             |
 | [docs-rendering-optimization.md](docs/docs-rendering-optimization.md)            | Docs rendering optimization — scroll repaint, measureText cache, incremental layout               |
 | [docs-tables.md](docs/docs-tables.md)                                            | Docs tables — data model, cell merge, layout, rendering, extensibility path                       |
 | [docs-table-ui.md](docs/docs-table-ui.md)                                        | Docs table UI — grid picker, context menu, IME cell routing                                       |

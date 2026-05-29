@@ -429,18 +429,7 @@ the source range, and passes it to the calculator.
 
 ## Phase Roadmap
 
-### Phase 1 (this document) — IMPLEMENTED
-
-- [x] Pivot table creation from data range selection (context menu)
-- [x] Row/column/value/filter field configuration
-- [x] 6 aggregation functions: SUM, COUNT, COUNTA, AVERAGE, MIN, MAX
-- [x] Materialized cell output on dedicated sheet
-- [x] Side panel editor with field management
-- [x] Manual refresh, read-only cell protection
-- [x] Grand totals (row and column)
-- [x] Yorkie persistence and collaboration
-- [x] TabMeta.kind subtype for pivot tab identification
-- [x] Distinct pivot icon in tab bar
+Phase 1 (this document) shipped. Subsequent phases are still planning.
 
 ### Phase 2
 

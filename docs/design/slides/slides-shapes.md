@@ -389,15 +389,12 @@ match OOXML units (typically thousandths) so
 
 The library is delivered incrementally:
 
-| Phase | Cumulative shapes | Adds | Adjustments UX |
-|---|---|---|---|
-| P1 — Foundation | 35 | 2 lines + 15 basic + 8 block arrows + 4 callouts + 6 equation | defaults only |
-| P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only |
-| ~~P3-A.1 — Pilot handles~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for 9 pilot shapes (4 axis types)~~ |
-| ~~P3-A.2 — Sweep~~ | ~~55~~ | ~~(no new shapes)~~ | ~~drag handles for remaining 24 parametric shapes~~ |
-| ~~P3-B — GS parity~~ | ~~117~~ | ~~+ 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons~~ | ~~handles ship with shape (`drawActionButton` for action buttons; new `angular` axis for arc-based shapes)~~ |
-| ~~P3-C — Import gaps~~ | ~~128~~ | ~~+ 7 arrow callouts + 4 brackets/braces; `homePlate` import alias~~ | ~~handles ship with shape~~ |
-| P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) |
+| Phase | Cumulative shapes | Adds | Adjustments UX | Status |
+|---|---|---|---|---|
+| P1 — Foundation | 35 | 2 lines + 15 basic + 8 block arrows + 4 callouts + 6 equation | defaults only | shipped |
+| P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only | shipped |
+| P3 — Handles + GS parity | 128 | + 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons + 7 arrow callouts + 4 brackets/braces; `homePlate` import alias | drag handles for all parametric shapes (4 axis types incl. `angular` for arc-based shapes) | shipped |
+| P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) | planned |
 
 Each phase is tracked as a task pair in `docs/tasks/` (search
 `slides-shapes` in the archive index). Architectural decisions

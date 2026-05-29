@@ -1,6 +1,6 @@
 ---
 title: docs-nested-tables
-target-version: v0.3.3
+target-version: 0.3.3
 ---
 
 # Nested Tables

@@ -514,6 +514,10 @@ Out of v1 scope (deferred to v1.5):
 
 ## PR Plan
 
+**Status:** PR1 (themes + 11 layouts) and PR2 (PPTX best-effort import)
+shipped. PR3 (in-editor theme builder) deferred. The original rollout plan
+is retained below for historical context.
+
 ### PR1 — Themed authoring (XL)
 
 User value: theme switching, 11 layouts, themed pickers — all in one
