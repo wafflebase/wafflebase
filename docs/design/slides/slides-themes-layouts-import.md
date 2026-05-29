@@ -435,6 +435,7 @@ significantly smaller than the original mapping table assumed.
 | Triangle arrowheads | ✅ 8 arrowhead kinds | direct |
 | Slide-level background | ✅ `Slide.background` | direct |
 | `<a:normAutofit>` (shrink-to-fit) | ❌ `TextElement.data` has only `blocks` — no autoFit field | **lossy:** pre-apply `fontScale` to each run's stored `fontSize` at parse time; the original is approximated, no live re-fit. Acceptable: shrink-to-fit only affects display, not content. |
+| `<a:bodyPr anchor>` (vertical text anchor) | ✅ `TextElement.data.verticalAnchor` (`packages/slides/src/import/pptx/text.ts:detectVerticalAnchor`); rendered via paint-origin offset in `packages/slides/src/view/canvas/text-renderer.ts:computeVerticalOriginY`. `t/ctr/b` map to `top/middle/bottom`; `just`/`dist` collapse to `top`; empty / absent → undefined (inherit). |
 | `<a:outerShdw>` shape effects | ❌ `ShapeElement.data` has only `{kind, adjustments, fill, stroke}` | **drop**, 7 cases only; toast counts |
 | Slide canvas size flexibility | ❌ `SLIDE_WIDTH/HEIGHT` are module constants in `presentation.ts:50-51`; `SlidesDocument` has no `canvasSize` field | **rescale** EMU→px using deck's own `<p:sldSz>` so geometry preserves at the deck's aspect; if aspect ≠ 16:9, fit + toast warning |
 
@@ -647,6 +648,10 @@ for visual regression.
   for the harness slides scenarios
 - PR2: `pnpm verify:integration` + 36-slide e2e
 - PR3: `pnpm verify:browser:docker`
+
+### Editor parity gap (post-import)
+
+Vertical anchor is honored by the slide canvas renderer and the read-only present mode. The in-place text-box editor still mounts at the top of the frame: while editing, text appears "snapped up"; it returns to the configured anchor on commit. Tracked for Chunk 3 of `docs/tasks/active/20260529-slides-pptx-text-vertical-anchor-todo.md`.
 
 ## Future / Out of Scope
 
