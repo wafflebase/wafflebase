@@ -151,27 +151,29 @@ export function SizePositionSection(props: SizePositionSectionProps) {
       </div>
 
       {showRotation && (
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 space-y-2">
           <RotationInput
             valueRad={rotation}
             onCommit={(rad) => props.onCommitFrame(ids, { rotation: rad })}
           />
-          <button
-            type="button"
-            aria-label="Rotate 90 counter-clockwise"
-            onClick={() => props.onRotate90(ids, -1)}
-            className="rounded border px-2 py-1 text-xs hover:bg-muted"
-          >
-            {'↺'}
-          </button>
-          <button
-            type="button"
-            aria-label="Rotate 90 clockwise"
-            onClick={() => props.onRotate90(ids, 1)}
-            className="rounded border px-2 py-1 text-xs hover:bg-muted"
-          >
-            {'↻'}
-          </button>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              aria-label="Rotate 90 counter-clockwise"
+              onClick={() => props.onRotate90(ids, -1)}
+              className="rounded border px-2 py-1 text-xs hover:bg-muted"
+            >
+              {'↺ 90°'}
+            </button>
+            <button
+              type="button"
+              aria-label="Rotate 90 clockwise"
+              onClick={() => props.onRotate90(ids, 1)}
+              className="rounded border px-2 py-1 text-xs hover:bg-muted"
+            >
+              {'90° ↻'}
+            </button>
+          </div>
         </div>
       )}
 
