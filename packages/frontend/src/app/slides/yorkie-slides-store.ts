@@ -782,6 +782,16 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  setUnit(unit: 'in' | 'cm'): void {
+    if (unit !== 'in' && unit !== 'cm') {
+      throw new Error(`[slides] invalid unit '${unit}'`);
+    }
+    this.requireBatch();
+    this.doc.update((r) => {
+      r.meta.unit = unit;
+    });
+  }
+
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
     const layout = getLayout(layoutId);
