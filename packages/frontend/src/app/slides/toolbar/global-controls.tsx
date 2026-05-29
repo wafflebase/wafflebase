@@ -12,7 +12,6 @@ import type {
   ThemeColor,
 } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
-import { ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -24,8 +23,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
-import type { ZoomController } from "../zoom-controller";
-import { ZoomControl } from "./zoom-control";
+import { LayoutButton } from "./layout-button";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -100,27 +98,26 @@ export interface RightGlobalsProps {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
   theme?: Theme | null;
-  /** When true, shows a Done button to exit text editing (Esc-equivalent). */
-  isTextEditing?: boolean;
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
-  zoomController?: ZoomController | null;
 }
 
 /**
- * Right-aligned global controls: Theme panel toggle + Present split-button.
- * When isTextEditing is true, also renders a Done button before the theme
- * toggle that exits text editing (equivalent to pressing Escape).
- * Aligned to the right of the toolbar via ml-auto on the wrapper.
+ * Right-side slide-style cluster: Slide background ▸ Layout ▾ ▸ Theme.
+ *
+ * Mirrors Google Slides' arrangement of the three "what does this
+ * deck look like?" controls so they read as one group. Zoom moved
+ * out to the toolbar's left edge (closer to Undo/Redo / Format
+ * painter); Done moved into the text-edit contextual section so it
+ * doesn't sit among slide-style controls. `aria-label` on the wrapper
+ * lets tests anchor on the cluster without relying on visual order.
  */
 export function RightGlobals({
   editor,
   store,
   theme,
-  isTextEditing = false,
   onToggleThemePanel,
   themePanelOpen,
-  zoomController,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   const onBackgroundChange = useCallback(
@@ -132,31 +129,12 @@ export function RightGlobals({
   );
 
   const hasSlideStyleGroup = !!store;
-  const hasPanelGroup = !!onToggleThemePanel;
 
   return (
-    <div className="ml-auto flex items-center gap-1">
-      {zoomController && <ZoomControl controller={zoomController} />}
-      {isTextEditing && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => editor?.exitTextEditing()}
-                aria-label="Done editing text"
-                className="inline-flex h-7 items-center justify-center rounded-md px-3 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                Done
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Exit text edit (Esc)</TooltipContent>
-          </Tooltip>
-          {(hasSlideStyleGroup || hasPanelGroup) && (
-            <ToolbarSeparator className="mx-1" />
-          )}
-        </>
-      )}
+    <div
+      className="ml-auto flex items-center gap-1"
+      aria-label="Slide style"
+    >
       {hasSlideStyleGroup && (
         <DropdownMenu>
           <Tooltip>
@@ -185,6 +163,7 @@ export function RightGlobals({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <LayoutButton store={store} editor={editor} />
       {onToggleThemePanel && (
         <Tooltip>
           <TooltipTrigger asChild>
