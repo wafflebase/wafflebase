@@ -8,12 +8,28 @@ const FONT_MAP: Record<string, string> = {
   'Malgun Gothic': "'Malgun Gothic', 'Noto Sans KR', sans-serif",
   '바탕': "'Batang', 'Noto Serif KR', serif",
   'Batang': "'Batang', 'Noto Serif KR', serif",
+  'Noto Sans KR': "'Noto Sans KR', sans-serif",
+  'Noto Serif KR': "'Noto Serif KR', serif",
+  'Nanum Gothic': "'Nanum Gothic', sans-serif",
   'HY헤드라인M': "'Noto Sans KR', sans-serif",
   'Arial': "'Arial', sans-serif",
+  'Helvetica': "'Helvetica', 'Arial', sans-serif",
+  'Roboto': "'Roboto', sans-serif",
   'Tahoma': "'Tahoma', sans-serif",
+  'Verdana': "'Verdana', sans-serif",
+  'Times New Roman': "'Times New Roman', 'Times', serif",
+  'Georgia': "'Georgia', serif",
+  'Cambria': "'Cambria', 'Georgia', serif",
+  'Courier New': "'Courier New', 'Courier', monospace",
 };
 
-const SERIF_FONTS = new Set(['바탕', 'Batang', 'Noto Serif KR', 'Times New Roman', 'Georgia']);
+const SERIF_FONTS = new Set([
+  '바탕', 'Batang',
+  'Noto Serif KR',
+  'Times New Roman', 'Georgia', 'Cambria',
+]);
+
+const MONOSPACE_FONTS = new Set(['Courier New', 'Courier', 'Consolas']);
 
 /**
  * Escape a font family name for use in a CSS single-quoted string.
@@ -31,7 +47,11 @@ export function resolveFontFamily(family: string): string {
   const mapped = FONT_MAP[family];
   if (mapped) return mapped;
 
-  const generic = SERIF_FONTS.has(family) ? 'serif' : 'sans-serif';
+  const generic = MONOSPACE_FONTS.has(family)
+    ? 'monospace'
+    : SERIF_FONTS.has(family)
+      ? 'serif'
+      : 'sans-serif';
   return `'${escapeFontFamily(family)}', ${generic}`;
 }
 
