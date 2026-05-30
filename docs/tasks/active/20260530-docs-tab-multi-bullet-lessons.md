@@ -66,3 +66,25 @@ worktree). Don't stash.
 
 **How to apply:** Whenever the intent is "temporarily set this one
 file back to HEAD," reach for `checkout HEAD --`, not `stash`.
+
+## 4. Slides text-boxes inherit this fix for free
+
+`packages/slides/src/view/editor/interactions/keyboard.ts:437-441`
+gates its slide-element Tab-cycle on `!isEditableTarget(e.target)`,
+so once the user is inside a text-box (focus on the docs textarea)
+Tab is no longer intercepted by slides — it flows through to the
+docs `TextEditor`. The fix therefore also makes multi-bullet
+Tab/Shift+Tab work inside slides text-boxes with no slides-side
+changes. Worth knowing so the next slides bug report on bullet
+behavior doesn't get traced through the wrong layer.
+
+## 5. Follow-up worth filing
+
+Four call sites now share the same listLevel clamp + step constants
+(`handleTab`, `handleIndent`, `handleOutdent` in `text-editor.ts`;
+`indent()` / `outdent()` in `editor.ts`). This fix added the fourth,
+and it inlines the clamp as `Math.max(0, …) / Math.min(8, …)` rather
+than the named `MAX_LIST_LEVEL = 8` const the other three use —
+slightly worsens the drift. Extract a shared
+`applyListLevelDelta(block, delta)` helper as a follow-up; deliberately
+left out of this PR to keep the bugfix surface minimal.

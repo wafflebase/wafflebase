@@ -156,6 +156,54 @@ describe('Tab / Shift+Tab on multi-bullet selection', () => {
     editor.dispose();
   });
 
+  test('Tab clamps at listLevel 8; Shift+Tab clamps at 0', () => {
+    const { editor, container } = setupEditor([
+      makeListItem('b1', 'maxed', 8),
+      makeListItem('b2', 'mixed', 7),
+      makeListItem('b3', 'zero', 0),
+    ]);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b3', offset: 4 },
+    });
+
+    pressTab(container, /* shift */ false);
+    let blocks = editor.getDoc().document.blocks;
+    expect(blocks.find((b) => b.id === 'b1')?.listLevel).toBe(8);
+    expect(blocks.find((b) => b.id === 'b2')?.listLevel).toBe(8);
+    expect(blocks.find((b) => b.id === 'b3')?.listLevel).toBe(1);
+
+    pressTab(container, /* shift */ true);
+    pressTab(container, /* shift */ true);
+    blocks = editor.getDoc().document.blocks;
+    expect(blocks.find((b) => b.id === 'b1')?.listLevel).toBe(6);
+    expect(blocks.find((b) => b.id === 'b2')?.listLevel).toBe(6);
+    expect(blocks.find((b) => b.id === 'b3')?.listLevel).toBe(0);
+    editor.dispose();
+  });
+
+  test('Tab on an all-paragraph selection is a no-op (focus on paragraph)', () => {
+    const { editor, container } = setupEditor([
+      makeParagraph('b1', 'one'),
+      makeParagraph('b2', 'two'),
+    ]);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b2', offset: 3 },
+    });
+
+    pressTab(container, false);
+
+    const blocks = editor.getDoc().document.blocks;
+    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[1].type).toBe('paragraph');
+    expect(blocks[0].style.marginLeft ?? 0).toBe(0);
+    expect(blocks[1].style.marginLeft ?? 0).toBe(0);
+    editor.dispose();
+  });
+
   test('Tab in a mixed selection only changes list-item blocks', () => {
     const { editor, container } = setupEditor([
       makeListItem('b1', 'bullet a'),

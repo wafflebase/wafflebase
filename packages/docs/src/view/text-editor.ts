@@ -1743,6 +1743,10 @@ export class TextEditor {
       return;
     }
 
+    // Gate on the focus block: Tab is the list-level shortcut, not the
+    // general indent (Cmd+] / handleIndent is). When focus lands on a
+    // plain paragraph, no-op even if the selection extends into bullets
+    // behind it — keeps Tab quiet in non-list contexts.
     const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
     if (cursorBlock.type !== 'list-item') return;
 
