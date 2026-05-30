@@ -3050,6 +3050,7 @@ export class TextEditor {
       if (block.headingLevel !== undefined) cloned.headingLevel = block.headingLevel;
       if (block.listKind !== undefined) cloned.listKind = block.listKind;
       if (block.listLevel !== undefined) cloned.listLevel = block.listLevel;
+      if (block.marker !== undefined) cloned.marker = { ...block.marker };
       if (block.tableData) {
         cloned.tableData = {
           columnWidths: [...block.tableData.columnWidths],
@@ -3209,6 +3210,7 @@ export class TextEditor {
       headBlock.headingLevel = firstPasted.headingLevel;
       headBlock.listKind = firstPasted.listKind;
       headBlock.listLevel = firstPasted.listLevel;
+      headBlock.marker = firstPasted.marker ? { ...firstPasted.marker } : undefined;
       this.doc.updateBlockDirect(pos.blockId, headBlock);
 
       // Insert middle blocks (blocks[1..n-2]) after head block
@@ -3235,6 +3237,7 @@ export class TextEditor {
       tailBlock.headingLevel = lastPasted.headingLevel;
       tailBlock.listKind = lastPasted.listKind;
       tailBlock.listLevel = lastPasted.listLevel;
+      tailBlock.marker = lastPasted.marker ? { ...lastPasted.marker } : undefined;
       this.doc.updateBlockDirect(tailBlockId, tailBlock);
 
       const newPos = { blockId: tailBlockId, offset: lastPastedTextLen };

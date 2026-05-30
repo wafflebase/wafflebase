@@ -462,7 +462,11 @@ export function renderListMarker(
   const firstInline = block.inlines[0]?.style;
   const fontSize = m?.fontSize ?? firstInline?.fontSize ?? theme.defaultFontSize;
   const fontFamily = m?.fontFamily ?? firstInline?.fontFamily;
-  const colorSource = m?.color !== undefined ? m.color : firstInline?.color;
+  // `StoredColor` has no falsy legal value (hex strings start with '#',
+  // role / srgb shapes are objects), so `??` and `!== undefined` produce
+  // identical results here — keep `??` for stylistic uniformity with the
+  // axes above.
+  const colorSource = m?.color ?? firstInline?.color;
   const fontSizePx = ptToPx(fontSize);
   const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
   ctx.font = buildFont(fontSize, fontFamily, false, false);

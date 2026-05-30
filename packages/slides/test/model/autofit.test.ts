@@ -50,6 +50,39 @@ describe('scaleBlocks', () => {
     }];
     expect(scaleBlocks(blocks, 0.5)[0].inlines[0].style.fontSize).toBe(5.5);
   });
+
+  it('scales marker.fontSize alongside inline fontSize', () => {
+    const source: Block[] = [{
+      id: 'b-marker',
+      type: 'list-item',
+      inlines: [{ text: 'x', style: { fontSize: 18 } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      listKind: 'unordered',
+      listLevel: 0,
+      marker: { fontSize: 18, fontFamily: 'Arial', color: '#FF9900' },
+    }];
+    const [b] = scaleBlocks(source, 0.5);
+    expect(b.marker?.fontSize).toBe(9);
+    // Non-size axes pass through unchanged.
+    expect(b.marker?.fontFamily).toBe('Arial');
+    expect(b.marker?.color).toBe('#FF9900');
+    // Source must not be mutated (binary search re-scales repeatedly).
+    expect(source[0].marker?.fontSize).toBe(18);
+  });
+
+  it('preserves marker objects without fontSize untouched', () => {
+    const source: Block[] = [{
+      id: 'b-color-only',
+      type: 'list-item',
+      inlines: [{ text: 'x', style: { fontSize: 18 } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      listKind: 'unordered',
+      listLevel: 0,
+      marker: { color: '#FF9900' },
+    }];
+    const [b] = scaleBlocks(source, 0.5);
+    expect(b.marker).toEqual({ color: '#FF9900' });
+  });
 });
 
 describe('computeAutofitScale', () => {

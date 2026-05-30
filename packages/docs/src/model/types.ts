@@ -55,6 +55,15 @@ export interface Block {
    * paragraph-level `<a:buFont>`, `<a:buSzPts>`, `<a:buClr>` properties
    * which PowerPoint applies to the bullet glyph regardless of run font.
    * When omitted, `renderListMarker` falls back to `inlines[0].style`.
+   *
+   * Persistence: today only the slides path (which stores text-element
+   * blocks as plain JSON via `YorkieSlidesStore`) round-trips this
+   * field. `YorkieDocStore` (docs collaborative editor) does **not**
+   * serialize `marker` through its Yorkie Tree node attributes — there
+   * is no docs UX yet that authors marker style, so the gap is latent.
+   * Wire it up alongside the first docs feature that needs authored
+   * markers (or alongside a DOCX-import round-trip into the docs
+   * editor).
    */
   marker?: BlockMarker;
 }
