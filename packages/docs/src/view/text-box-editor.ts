@@ -27,6 +27,7 @@
  */
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import type { ColorResolver } from '../model/color.js';
+import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
 import { createEmptyBlock, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
@@ -502,14 +503,25 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     // Cursor caret. Same page-space → layout-local translation (subtract
     // Theme.pageGap). paintLayout adds originY to cursor.y internally,
     // so we do NOT pre-add currentOriginY here either.
-    let cursorOpt: { x: number; y: number; height: number; visible: boolean } | undefined;
+    // Caret color follows the resolved text color at the cursor position
+    // so the caret stays readable on deck themes where `Theme.cursorColor`
+    // (docs light/dark mode) does not match the slide background.
+    let cursorOpt: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, measurer, contentWidth);
     if (cursorPixel) {
+      const cursorBlock = doc.findBlock(cursor.position.blockId);
+      const cursorColor = resolveColorAtPosition(
+        cursorBlock,
+        cursor.position.offset,
+        colorResolver ?? defaultColorResolver,
+        Theme.cursorColor,
+      );
       cursorOpt = {
         x: cursorPixel.x,
         y: cursorPixel.y - Theme.pageGap,
         height: cursorPixel.height,
         visible: cursorPixel.visible && focused,
+        color: cursorColor,
       };
     }
 

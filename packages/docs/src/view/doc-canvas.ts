@@ -141,7 +141,7 @@ export class DocCanvas {
     scrollY: number,
     canvasWidth: number,
     viewportHeight: number,
-    cursor?: { x: number; y: number; height: number; visible: boolean },
+    cursor?: { x: number; y: number; height: number; visible: boolean; color?: string },
     selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
     focused: boolean = true,
     peerCursors?: Array<{
@@ -163,8 +163,8 @@ export class DocCanvas {
     footerLayout?: DocumentLayout | null,
     headerFooter?: { header?: { marginFromEdge: number }; footer?: { marginFromEdge: number } },
     editContext?: EditContext,
-    headerCursor?: { x: number; y: number; height: number; visible: boolean },
-    footerCursor?: { x: number; y: number; height: number; visible: boolean },
+    headerCursor?: { x: number; y: number; height: number; visible: boolean; color?: string },
+    footerCursor?: { x: number; y: number; height: number; visible: boolean; color?: string },
     hfSelectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
     imageSelectionRect?: ImageRect,
     imageResizeHudText?: string,
@@ -270,7 +270,7 @@ export class DocCanvas {
         }
 
         if (editContext === 'header' && headerCursor?.visible) {
-          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillStyle = headerCursor.color ?? Theme.cursorColor;
           this.ctx.fillRect(headerCursor.x, headerCursor.y, Theme.cursorWidth, headerCursor.height);
         }
 
@@ -325,7 +325,7 @@ export class DocCanvas {
         }
 
         if (editContext === 'footer' && footerCursor?.visible) {
-          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillStyle = footerCursor.color ?? Theme.cursorColor;
           this.ctx.fillRect(footerCursor.x, footerCursor.y, Theme.cursorWidth, footerCursor.height);
         }
 
@@ -563,7 +563,7 @@ export class DocCanvas {
       if (focused && cursor?.visible && !imageSelectionRect) {
         if (cursor.y >= pageY + margins.top &&
             cursor.y < pageY + margins.top + contentHeight) {
-          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillStyle = cursor.color ?? Theme.cursorColor;
           this.ctx.fillRect(cursor.x, cursor.y, Theme.cursorWidth, cursor.height);
         }
       }

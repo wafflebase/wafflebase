@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   defaultColorResolver,
+  resolveColorAtPosition,
   storedColorsEqual,
   wrapLegacyColor,
 } from '../../src/model/color.js';
@@ -97,5 +98,59 @@ describe('storedColorsEqual', () => {
         { kind: 'srgb', value: '#abc' },
       ),
     ).toBe(false);
+  });
+});
+
+describe('resolveColorAtPosition', () => {
+  const fallback = '#000000';
+  it('returns the fallback when the block is missing or empty', () => {
+    expect(resolveColorAtPosition(undefined, 0, defaultColorResolver, fallback)).toBe(fallback);
+    expect(
+      resolveColorAtPosition({ inlines: [] }, 0, defaultColorResolver, fallback),
+    ).toBe(fallback);
+  });
+
+  it('returns the color of the inline whose span covers offset', () => {
+    const block = {
+      inlines: [
+        { text: 'red', style: { color: '#ff0000' } },
+        { text: 'blue', style: { color: '#0000ff' } },
+      ],
+    };
+    // offset 0..3 → inside "red"
+    expect(resolveColorAtPosition(block, 0, defaultColorResolver, fallback)).toBe('#ff0000');
+    expect(resolveColorAtPosition(block, 2, defaultColorResolver, fallback)).toBe('#ff0000');
+    // offset 3 sits at the seam — the cursor belongs to the first inline
+    // (matches getStyleAtCursor / getSelectionStyle behaviour).
+    expect(resolveColorAtPosition(block, 3, defaultColorResolver, fallback)).toBe('#ff0000');
+    // offset 4 lands inside "blue"
+    expect(resolveColorAtPosition(block, 4, defaultColorResolver, fallback)).toBe('#0000ff');
+  });
+
+  it('falls back when the resolved color is undefined (e.g. role with no resolver)', () => {
+    const block = {
+      inlines: [{ text: 'hi', style: { color: { kind: 'role' as const, role: 'accent1' } } }],
+    };
+    // defaultColorResolver returns undefined for role colors → fallback.
+    expect(resolveColorAtPosition(block, 0, defaultColorResolver, fallback)).toBe(fallback);
+  });
+
+  it('honours a theme-aware resolver for role colors', () => {
+    const block = {
+      inlines: [{ text: 'hi', style: { color: { kind: 'role' as const, role: 'accent1' } } }],
+    };
+    expect(
+      resolveColorAtPosition(
+        block,
+        0,
+        (c) => (c && typeof c === 'object' && c.kind === 'role' ? '#abcdef' : undefined),
+        fallback,
+      ),
+    ).toBe('#abcdef');
+  });
+
+  it('returns the fallback when the inline has no color set', () => {
+    const block = { inlines: [{ text: 'hi', style: {} }] };
+    expect(resolveColorAtPosition(block, 0, defaultColorResolver, fallback)).toBe(fallback);
   });
 });

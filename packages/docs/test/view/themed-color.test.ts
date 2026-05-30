@@ -69,6 +69,45 @@ describe('paintLayout colorResolver', () => {
     expect(fillStyles).toContain('#ff9900');
   });
 
+  it('paints the cursor caret in the supplied cursor.color (overrides theme cursor)', () => {
+    const blocks: Block[] = [
+      {
+        id: 'b1',
+        type: 'paragraph',
+        inlines: [{ text: 'Hi', style: { color: '#ffffff' } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+    ];
+    const { ctx, fillStyles } = makeFakeCtx();
+    const measurer = new StubMeasurer();
+    const { layout } = computeLayout(blocks, measurer, 200);
+    paintLayout(ctx, layout, 0, 0, {
+      cursor: { x: 10, y: 0, height: 16, visible: true, color: '#ffffff' },
+    });
+    // The white caret color must reach fillStyle — without the override
+    // the dark `Theme.cursorColor` would paint instead.
+    expect(fillStyles).toContain('#ffffff');
+  });
+
+  it('falls back to theme cursorColor when cursor.color is omitted', () => {
+    const blocks: Block[] = [
+      {
+        id: 'b1',
+        type: 'paragraph',
+        inlines: [{ text: 'Hi', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+    ];
+    const { ctx, fillStyles } = makeFakeCtx();
+    const measurer = new StubMeasurer();
+    const { layout } = computeLayout(blocks, measurer, 200);
+    paintLayout(ctx, layout, 0, 0, {
+      cursor: { x: 10, y: 0, height: 16, visible: true },
+    });
+    // No explicit color → theme.cursorColor (a hex value) used.
+    expect(fillStyles.some((s) => /^#[0-9a-fA-F]{6}$/.test(s))).toBe(true);
+  });
+
   it('falls back to theme defaultColor when the resolver returns undefined', () => {
     const blocks: Block[] = [
       {
