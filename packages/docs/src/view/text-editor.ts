@@ -1743,17 +1743,21 @@ export class TextEditor {
       return;
     }
 
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (block.type !== 'list-item') return;
+    const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
+    if (cursorBlock.type !== 'list-item') return;
 
     this.saveSnapshot();
-    const currentLevel = block.listLevel ?? 0;
-    const newLevel = shift ? Math.max(0, currentLevel - 1) : Math.min(8, currentLevel + 1);
-    if (newLevel === currentLevel) return;
-
-    this.doc.setBlockType(block.id, 'list-item', {
-      listKind: block.listKind,
-      listLevel: newLevel,
+    this.forEachBlockInSelection((b) => {
+      if (b.type !== 'list-item') return;
+      const currentLevel = b.listLevel ?? 0;
+      const newLevel = shift
+        ? Math.max(0, currentLevel - 1)
+        : Math.min(8, currentLevel + 1);
+      if (newLevel === currentLevel) return;
+      this.doc.setBlockType(b.id, 'list-item', {
+        listKind: b.listKind,
+        listLevel: newLevel,
+      });
     });
     this.invalidateLayout();
     this.requestRender();
