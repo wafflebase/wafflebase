@@ -3221,6 +3221,10 @@ export class TextEditor {
           id: generateBlockId(),
           inlines: blocks[i].inlines.map((il) => ({ text: il.text, style: { ...il.style } })),
           style: { ...blocks[i].style },
+          // Deep-copy marker so middle-block mutation (e.g. clearFormatting)
+          // can't leak back into the source clipboard payload. Symmetric
+          // with the head/tail block treatment above.
+          ...(blocks[i].marker ? { marker: { ...blocks[i].marker } } : {}),
         };
         insertAfterIdx++;
         this.doc.insertBlockAt(insertAfterIdx, newBlock);

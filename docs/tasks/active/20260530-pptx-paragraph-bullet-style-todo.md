@@ -63,13 +63,30 @@ painter, so imported decks render markers exactly as authored.
    - Docs renderer: assert that `renderListMarker` uses `block.marker`
      when present, falling back to `inlines[0]` otherwise.
 
-5. **Out of scope**
+5. **Re-validated gap (originally "out of scope")**
+   - The first iteration of this task assumed paragraph-level bullet
+     props alone would close the regression. That was wrong: the
+     benchmark "Yorkie 캐즘" deck inlines only `<a:buSzPts>` /
+     `<a:buChar>` per paragraph while `<a:buFont typeface="Arial"/>`
+     lives exclusively in the master's `<p:bodyStyle>`. With master
+     inheritance disabled, the importer left `marker.fontFamily`
+     undefined and `renderListMarker`'s per-axis fallback revealed
+     the original Hangul-fontFamily-fallback drift on bullet 4.
+   - Resolved in this PR: master `<p:txStyles>` is now parsed into a
+     `TxStylesMarkers` map (slot × level → `BlockMarker`) and merged
+     under each paragraph's own marker per-axis.
+
+6. **Still out of scope**
    - `<a:buSzPct>` percentage marker size (none of the benchmark decks
      use it; left as a follow-up if needed).
-   - Layout/master-level bullet style inheritance — the benchmark
-     deck inlines bullet props per paragraph, so per-slide reads
-     cover the visible regression. Inheritance is a separate
-     v1.5/v2 surface.
+   - Layout-placeholder bullet defaults — `<p:sldLayout>` placeholders
+     can declare their own bullet style on `<p:txBody><a:lstStyle>
+     <a:lvlNpPr>`, sitting between the master's `<p:txStyles>` and
+     the slide paragraph. The benchmark deck doesn't exercise this
+     layer, so it's deferred. Natural follow-up: extend
+     `parseLayout` to harvest per-placeholder marker defaults the
+     same shape as master's `TxStylesMarkers`, threaded through
+     `LayoutResolution` alongside `placeholderSizes`.
 
 ## Checklist
 

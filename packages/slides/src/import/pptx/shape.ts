@@ -585,6 +585,12 @@ function buildTextElement(
  * — title-style for titles, body-style for the outline/body group, and
  * other-style as the catch-all — so non-placeholder text boxes inherit
  * via the body bucket (matches PowerPoint's "default text" behaviour).
+ *
+ * Note: `OOXML_PH_TO_TYPE` (above) only emits `title` / `subtitle` /
+ * `body` from PPTX import today. The `big-number` / `caption` branch is
+ * Waffle-only placeholder kinds the importer never produces — kept here
+ * so future placeholder additions route deterministically rather than
+ * silently falling through to the body bucket.
  */
 function placeholderTypeToTxStylesSlot(
   type: PlaceholderType | undefined,
