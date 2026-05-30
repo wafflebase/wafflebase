@@ -56,7 +56,7 @@ export function TextStyleGroup({
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <button
-              className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-7 min-w-[100px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Text style"
               disabled={disabled || !editor}
               data-text-edit-keepalive

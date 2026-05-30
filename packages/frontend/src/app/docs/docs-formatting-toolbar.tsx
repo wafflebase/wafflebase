@@ -18,6 +18,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
+import { ColorSwatchButton } from "@/components/color-swatch-button";
 import {
   IconBold,
   IconItalic,
@@ -56,6 +57,7 @@ import {
   FontFamilyPicker,
   FontSizePicker,
   LineSpacingPicker,
+  InsertLinkButton,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { isMac, modKey } from "@/components/text-formatting/platform";
@@ -388,6 +390,17 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
       editor?.focus();
     };
 
+    const slimSelectionStyle = editor?.getSelectionStyle();
+    const slimAlignment = editor?.getBlockStyle()?.alignment ?? "left";
+    const SlimAlignIcon =
+      slimAlignment === "center"
+        ? IconAlignCenter
+        : slimAlignment === "right"
+          ? IconAlignRight
+          : slimAlignment === "justify"
+            ? IconAlignJustified
+            : IconAlignLeft;
+
     return (
       <Toolbar>
         <span className="mr-2 text-xs text-muted-foreground">{contextLabel}</span>
@@ -433,9 +446,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Text color">
-                  <IconTypography size={16} />
-                </button>
+                <ColorSwatchButton
+                  icon={<IconTypography size={14} />}
+                  color={slimSelectionStyle?.color || "var(--wb-ink)"}
+                  label="Text color"
+                />
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Text color</TooltipContent>
@@ -449,9 +464,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Highlight color">
-                  <IconHighlight size={16} />
-                </button>
+                <ColorSwatchButton
+                  icon={<IconHighlight size={14} />}
+                  color={slimSelectionStyle?.backgroundColor || "var(--wb-paper)"}
+                  label="Highlight color"
+                />
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Highlight color</TooltipContent>
@@ -469,7 +486,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
-                  <IconAlignLeft size={16} />
+                  <SlimAlignIcon size={16} />
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -583,16 +600,30 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </>
       )}
 
-      {/* ── Text format (B/I/U, colors, link) ── */}
+      {/* ── Text format (B/I/U, colors, clear) ── */}
       {/* Strikethrough hidden in the Docs toolbar — it lives on the shared
           component for the slides text-edit state, but the Docs toolbar
-          keeps the primary inline-format row compact (B/I/U + colors + link). */}
-      <TextFormatGroup editor={editor} showStrikethrough={false} />
+          keeps the primary inline-format row compact (B/I/U + colors).
+          Link is hoisted out of the format group into the Insert cluster
+          below so "insert something" actions (Link/Image/Table) sit
+          together. */}
+      <TextFormatGroup
+        editor={editor}
+        showStrikethrough={false}
+        showLink={false}
+        defaultTextColor="var(--wb-ink)"
+        defaultHighlightColor="var(--wb-paper)"
+      />
 
       {/* ── Insert / Block Styles / Export (desktop only) ── */}
       {!isMobile && (
         <>
           <ToolbarSeparator />
+
+          <InsertLinkButton
+            onClick={() => editor?.requestLink()}
+            disabled={!editor}
+          />
 
           <InsertImageDropdown editor={editor} />
 

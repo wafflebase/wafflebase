@@ -20,7 +20,7 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
-import { ColorSwatchButton } from './color-swatch-button';
+import { ColorSwatchButton } from '@/components/color-swatch-button';
 
 export interface ShapeControlsProps {
   editor: SlidesEditor | null;

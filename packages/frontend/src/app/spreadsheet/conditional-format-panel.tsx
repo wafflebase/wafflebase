@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
+import { ColorSwatchButton } from "@/components/color-swatch-button";
 
 type ConditionalFormatPanelProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -586,17 +587,11 @@ export function ConditionalFormatPanel({
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                      aria-label="Text color"
-                    >
-                      <IconTypography size={16} />
-                      <span
-                        className="absolute mt-5 h-0.5 w-3.5 rounded"
-                        style={{ backgroundColor: selectedRule.style.tc || "#000000" }}
-                      />
-                    </button>
+                    <ColorSwatchButton
+                      icon={<IconTypography size={14} />}
+                      color={selectedRule.style.tc || "var(--foreground)"}
+                      label="Text color"
+                    />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-auto p-2">
                     <button
@@ -632,20 +627,11 @@ export function ConditionalFormatPanel({
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                      aria-label="Background color"
-                    >
-                      <IconDropletHalf2Filled size={16} />
-                      <span
-                        className="absolute mt-5 h-0.5 w-3.5 rounded"
-                        style={{
-                          backgroundColor: selectedRule.style.bg || "transparent",
-                          border: selectedRule.style.bg ? "none" : "1px solid #ccc",
-                        }}
-                      />
-                    </button>
+                    <ColorSwatchButton
+                      icon={<IconDropletHalf2Filled size={14} />}
+                      color={selectedRule.style.bg || "var(--background)"}
+                      label="Background color"
+                    />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-auto p-2">
                     <button

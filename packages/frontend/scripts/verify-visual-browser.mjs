@@ -209,9 +209,26 @@ async function captureScreenshots(playwright) {
             "*,*::before,*::after{animation:none!important;transition:none!important;}",
         });
         await page.evaluate(async () => {
-          if (document.fonts && document.fonts.ready) {
-            await document.fonts.ready;
-          }
+          if (!document.fonts) return;
+          // The slides ThemedFontPicker previews each system family in its
+          // own face by injecting the Google Fonts CSS link from a child
+          // effect. networkidle + a bare fonts.ready can race the
+          // post-mount link injection on certain viewports (mobile.dark in
+          // particular), causing one of two stable renders. Force-load each
+          // web family explicitly so the screenshot is taken post-swap.
+          const families = [
+            "Noto Sans KR",
+            "Noto Serif KR",
+            "Nanum Gothic",
+            "Roboto",
+          ];
+          await Promise.all(
+            families.flatMap((family) => [
+              document.fonts.load(`400 12px "${family}"`),
+              document.fonts.load(`700 12px "${family}"`),
+            ]),
+          );
+          await document.fonts.ready;
         });
 
         const root = page.locator("[data-testid='visual-harness-root']");

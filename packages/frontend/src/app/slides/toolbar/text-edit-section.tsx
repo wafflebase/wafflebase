@@ -26,7 +26,7 @@ import {
   TextStyleGroup,
   TextFormatGroup,
   TextParagraphGroup,
-  TextSizeStepper,
+  FontSizePicker,
 } from '@/components/text-formatting';
 
 export interface TextEditSectionProps {
@@ -42,9 +42,9 @@ export function TextEditSection({ state, editor }: TextEditSectionProps) {
         editor={textEditor}
         allowedBlockTypes={['paragraph', 'heading']}
       />
-      <TextSizeStepper
-        currentSize={textEditor.getSelectionStyle().fontSize}
-        onPick={(size) => {
+      <FontSizePicker
+        value={textEditor.getSelectionStyle().fontSize}
+        onChange={(size) => {
           textEditor.applyStyle({ fontSize: size });
           textEditor.focus();
         }}

@@ -47,6 +47,19 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
 
   const isDisabled = disabled || !editor;
 
+  // Mirror the current paragraph alignment on the trigger icon so the
+  // toolbar reads the user's state at a glance. Falls back to Left when
+  // unset — matches the renderer's default.
+  const alignment = editor?.getBlockStyle?.()?.alignment ?? "left";
+  const AlignIcon =
+    alignment === "center"
+      ? IconAlignCenter
+      : alignment === "right"
+        ? IconAlignRight
+        : alignment === "justify"
+          ? IconAlignJustified
+          : IconAlignLeft;
+
   return (
     <>
       {/* Alignment dropdown */}
@@ -60,7 +73,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
                 disabled={isDisabled}
                 data-text-edit-keepalive
               >
-                <IconAlignLeft size={16} />
+                <AlignIcon size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
               </button>
             </DropdownMenuTrigger>
