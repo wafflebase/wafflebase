@@ -124,10 +124,23 @@ export interface SlidesTextBoxEditor {
   // editor via the same `TextFormattingEditor` interface as the docs editor.
 
   getSelectionStyle(): Partial<InlineStyle>;
+  getRangeStyleSummary(): {
+    bold?: boolean | 'mixed';
+    italic?: boolean | 'mixed';
+    underline?: boolean | 'mixed';
+    strikethrough?: boolean | 'mixed';
+    fontFamily?: string | 'mixed';
+    fontSize?: number | 'mixed';
+    color?: InlineStyle['color'] | 'mixed';
+    backgroundColor?: InlineStyle['backgroundColor'] | 'mixed';
+    superscript?: boolean | 'mixed';
+    subscript?: boolean | 'mixed';
+  };
   applyStyle(style: Partial<InlineStyle>): void;
   clearInlineFormatting(): void;
   applyBlockStyle(style: Partial<BlockStyle>): void;
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  getBlockStyle(): Partial<BlockStyle>;
   setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
   toggleList(kind: 'ordered' | 'unordered'): void;
   indent(): void;
@@ -307,6 +320,9 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     getSelectionStyle(): Partial<InlineStyle> {
       return api.getSelectionStyle();
     },
+    getRangeStyleSummary() {
+      return api.getRangeStyleSummary();
+    },
     applyStyle(style: Partial<InlineStyle>): void {
       api.applyStyle(style);
     },
@@ -318,6 +334,9 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     },
     getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number } {
       return api.getBlockType();
+    },
+    getBlockStyle(): Partial<BlockStyle> {
+      return api.getBlockStyle();
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void {
       api.setBlockType(type, opts);

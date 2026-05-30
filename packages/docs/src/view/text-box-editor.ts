@@ -188,6 +188,28 @@ export interface TextBoxEditorAPI {
   /** Get the inline style at the current cursor/selection anchor. */
   getSelectionStyle(): Partial<InlineStyle>;
 
+  /**
+   * Summary of inline styles across the current selection. For each key,
+   * returns the resolved value when uniform, the literal 'mixed' when at
+   * least two distinct values exist within the range, or undefined when
+   * the property is unset throughout. With no selection, returns the
+   * style at the cursor (same shape as `getSelectionStyle`). Matches the
+   * `EditorAPI.getRangeStyleSummary` shape so shared toolbar pickers can
+   * drive either editor through `TextFormattingEditor`.
+   */
+  getRangeStyleSummary(): {
+    bold?: boolean | 'mixed';
+    italic?: boolean | 'mixed';
+    underline?: boolean | 'mixed';
+    strikethrough?: boolean | 'mixed';
+    fontFamily?: string | 'mixed';
+    fontSize?: number | 'mixed';
+    color?: InlineStyle['color'] | 'mixed';
+    backgroundColor?: InlineStyle['backgroundColor'] | 'mixed';
+    superscript?: boolean | 'mixed';
+    subscript?: boolean | 'mixed';
+  };
+
   /** Apply inline style to the current selection. No-op when nothing is selected. */
   applyStyle(style: Partial<InlineStyle>): void;
 
@@ -195,8 +217,8 @@ export interface TextBoxEditorAPI {
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
    * background color, href) from the current selection. Block-level
-   * formatting and structural inlines are preserved. No-op when nothing
-   * is selected.
+   * formatting and structural inlines are preserved — matches the docs
+   * `EditorAPI.clearInlineFormatting` contract.
    */
   clearInlineFormatting(): void;
 
@@ -208,6 +230,13 @@ export interface TextBoxEditorAPI {
 
   /** Get the block type at the cursor position. */
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+
+  /**
+   * Read the block style at the cursor position. Used by shared toolbar
+   * pickers (e.g. LineSpacingPicker) to reflect the current block's
+   * `lineHeight` etc. Matches `EditorAPI.getBlockStyle`.
+   */
+  getBlockStyle(): Partial<BlockStyle>;
 
   /**
    * Set the block type for the block at cursor.
@@ -748,6 +777,116 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       return last ? { ...last.style } : {};
     },
 
+    getRangeStyleSummary: () => {
+      type Summary = ReturnType<TextBoxEditorAPI['getRangeStyleSummary']>;
+
+      // No range — fall back to the cursor-position style (same shape as
+      // getSelectionStyle). Text-boxes have no tables, so a flat block
+      // lookup is enough.
+      if (!selection.hasSelection() || !selection.range) {
+        const block = doc.findBlock(cursor.position.blockId);
+        if (!block) return {};
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style } as Summary;
+          }
+          pos = inlineEnd;
+        }
+        const last = block.inlines[block.inlines.length - 1];
+        return (last ? { ...last.style } : {}) as Summary;
+      }
+
+      const range = selection.range;
+
+      const KEYS = [
+        'bold', 'italic', 'underline', 'strikethrough',
+        'fontFamily', 'fontSize', 'color', 'backgroundColor',
+        'superscript', 'subscript',
+      ] as const;
+      // Token-based "seen" sets so structurally-equal StoredColor
+      // objects (theme refs like { role: 'accent1' }) compare equal.
+      // Without this, two inlines carrying the same theme color
+      // compare by reference and the picker incorrectly shows 'mixed'.
+      const seen: Record<string, Set<string>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Set<string>()]),
+      );
+      const rawByToken: Record<string, Map<string, unknown>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Map<string, unknown>()]),
+      );
+      const tokenize = (value: unknown): string => {
+        if (value === undefined) return '__undefined__';
+        if (value !== null && typeof value === 'object') {
+          return `obj:${JSON.stringify(value)}`;
+        }
+        return `prim:${String(value)}`;
+      };
+
+      const visitInlinesInBlock = (
+        blockId: string, from: number, to: number,
+      ): void => {
+        const block = doc.findBlock(blockId);
+        if (!block) return;
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (inlineEnd > from && pos < to && inline.text.length > 0) {
+            for (const key of KEYS) {
+              const raw = (inline.style as Record<string, unknown>)[key];
+              const token = tokenize(raw);
+              if (!seen[key].has(token)) {
+                seen[key].add(token);
+                rawByToken[key].set(token, raw);
+              }
+            }
+          }
+          pos = inlineEnd;
+          if (pos >= to) break;
+        }
+      };
+
+      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+      const focusIdx = doc.getBlockIndex(range.focus.blockId);
+      if (anchorIdx >= 0 && focusIdx >= 0) {
+        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+
+        for (let i = startIdx; i <= endIdx; i++) {
+          const block = doc.document.blocks[i];
+          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+          const from = i === startIdx ? startOff : 0;
+          const to = i === endIdx ? endOff : blockLen;
+          if (from < to) visitInlinesInBlock(block.id, from, to);
+        }
+      } else if (range.anchor.blockId === range.focus.blockId) {
+        // Single-block fallback (defensive: getBlockIndex can fall
+        // through if the text-box's document is mid-mutation).
+        const a = range.anchor.offset;
+        const b = range.focus.offset;
+        visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+      }
+
+      const result: Record<string, unknown> = {};
+      for (const key of KEYS) {
+        const set = seen[key];
+        if (set.size === 0) continue;
+        if (set.size === 1) {
+          const [onlyToken] = [...set];
+          const only = rawByToken[key].get(onlyToken);
+          if (only !== undefined) result[key] = only;
+        } else {
+          // Two or more distinct values — including "some inlines set,
+          // others unset". Both count as 'mixed'.
+          result[key] = 'mixed';
+        }
+      }
+
+      return result as Summary;
+    },
+
     applyStyle(style: Partial<InlineStyle>): void {
       applyStyleImpl(style);
     },
@@ -777,6 +916,11 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         listKind: block.listKind,
         listLevel: block.listLevel,
       };
+    },
+
+    getBlockStyle(): Partial<BlockStyle> {
+      const block = doc.findBlock(cursor.position.blockId);
+      return block ? { ...block.style } : {};
     },
 
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void {

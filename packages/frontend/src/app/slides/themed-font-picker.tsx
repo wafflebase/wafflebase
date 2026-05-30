@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import type { Theme, ThemeFont } from "@wafflebase/slides";
+import { ensureGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 import {
   SYSTEM_FONTS,
   isFontRoleSelected,
@@ -36,6 +38,13 @@ export function ThemedFontPicker({
   onChange,
   hint,
 }: ThemedFontPickerProps) {
+  // Each row previews in its own family; load the Google Fonts CSS link
+  // so Roboto / Noto Sans KR / etc. render in their actual face. Routes
+  // that never mount a font picker skip the third-party request.
+  useEffect(() => {
+    ensureGoogleFontsLink();
+  }, []);
+
   const headingSelected = isFontRoleSelected(value, "heading");
   const bodySelected = isFontRoleSelected(value, "body");
   const isFamilySelected = (family: string) =>

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, test, expect } from 'vitest';
 import { FontRegistry, resolveFontFamily } from '../../src/view/fonts.js';
 
 describe('FontRegistry', () => {
@@ -41,5 +41,30 @@ describe('FontRegistry', () => {
   it('should escape backslashes in unknown font family names', () => {
     const result = resolveFontFamily('Font\\Name');
     expect(result).toBe("'Font\\\\Name', sans-serif");
+  });
+});
+
+describe('resolveFontFamily — catalog coverage', () => {
+  test.each([
+    ['맑은 고딕', /Malgun Gothic/],
+    ['Noto Sans KR', /Noto Sans KR/],
+    ['Noto Serif KR', /Noto Serif KR/],
+    ['Nanum Gothic', /Nanum Gothic/],
+    ['Roboto', /Roboto/],
+    ['Helvetica', /Helvetica/],
+    ['Georgia', /Georgia/],
+    ['Cambria', /Cambria/],
+    ['Times New Roman', /Times New Roman/],
+    ['Courier New', /Courier New/],
+  ])('resolves %s with a fallback chain', (family, expected) => {
+    expect(resolveFontFamily(family)).toMatch(expected);
+  });
+
+  test('Noto Serif KR ends in serif fallback', () => {
+    expect(resolveFontFamily('Noto Serif KR')).toMatch(/serif$/);
+  });
+
+  test('Courier New ends in monospace fallback', () => {
+    expect(resolveFontFamily('Courier New')).toMatch(/monospace$/);
   });
 });

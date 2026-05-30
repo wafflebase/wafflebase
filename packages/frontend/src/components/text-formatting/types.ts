@@ -21,8 +21,34 @@ export interface TextFormattingEditor {
   /** Get the inline style at the current cursor/selection anchor. */
   getSelectionStyle(): Partial<InlineStyle>;
 
+  /**
+   * Summary of inline styles across the current selection. For each key,
+   * returns the resolved value when uniform, the literal `'mixed'` when
+   * the selection contains more than one value for that key, or
+   * `undefined` when the property is unset throughout. With no selection,
+   * returns the style at the cursor (same shape as `getSelectionStyle`).
+   * The `color` / `backgroundColor` types match the docs `EditorAPI`
+   * (`InlineStyle['color']`, i.e. `StoredColor | undefined`) so docs and
+   * slides editors structurally satisfy this interface without casts.
+   */
+  getRangeStyleSummary(): {
+    bold?: boolean | "mixed";
+    italic?: boolean | "mixed";
+    underline?: boolean | "mixed";
+    strikethrough?: boolean | "mixed";
+    fontFamily?: string | "mixed";
+    fontSize?: number | "mixed";
+    color?: InlineStyle["color"] | "mixed";
+    backgroundColor?: InlineStyle["backgroundColor"] | "mixed";
+    superscript?: boolean | "mixed";
+    subscript?: boolean | "mixed";
+  };
+
   /** Apply inline style to the current selection. */
   applyStyle(style: Partial<InlineStyle>): void;
+
+  /** Remove every inline style attribute on the current selection. */
+  clearInlineFormatting(): void;
 
   /** Apply block style to blocks in the current selection. */
   applyBlockStyle(style: Partial<BlockStyle>): void;
@@ -34,6 +60,14 @@ export interface TextFormattingEditor {
     listKind?: "ordered" | "unordered";
     listLevel?: number;
   };
+
+  /**
+   * Read the inline style at the cursor for the current block. Optional
+   * so existing slides text-box implementations that don't yet expose it
+   * keep type-checking; both the docs `EditorAPI` and the slides
+   * `SlidesTextBoxEditor` satisfy it structurally.
+   */
+  getBlockStyle?(): Partial<BlockStyle>;
 
   /** Set the block type for the block at cursor. */
   setBlockType(

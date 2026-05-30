@@ -454,6 +454,54 @@ describe('YorkieDocStore', () => {
       expect(inline.style.href).toBeUndefined();
       expect(inline.style.bold).toBe(true);
     });
+
+    // Regression: editor.clearFormatting() calls applyStyle with every
+    // inline format key set to `undefined`. The Yorkie store must tear
+    // those attributes off the underlying Tree node — not just the
+    // in-memory cache — or a peer / reload sees zombie attrs. Same class
+    // of bug as 20260526-docs-unlink-href, but covering the broader key
+    // set (fontFamily, fontSize, color, bold, ...).
+    it('clearFormatting-style applyStyle({ ...: undefined }) removes attrs from the Tree', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      // Initial: bold + color + Roboto + 20pt + italic. We will clear
+      // every key except `italic` to assert non-cleared keys survive.
+      store.applyStyle(block.id, 0, 5, {
+        bold: true,
+        italic: true,
+        color: '#ff0000',
+        fontFamily: 'Roboto',
+        fontSize: 20,
+      });
+      const initial = reread(block).inlines[0];
+      expect(initial.style.bold).toBe(true);
+      expect(initial.style.italic).toBe(true);
+      expect(initial.style.color).toBe('#ff0000');
+      expect(initial.style.fontFamily).toBe('Roboto');
+      expect(initial.style.fontSize).toBe(20);
+
+      // Same key set as editor.ts clearFormatting() minus `italic`.
+      store.applyStyle(block.id, 0, 5, {
+        bold: undefined,
+        underline: undefined,
+        strikethrough: undefined,
+        fontSize: undefined,
+        fontFamily: undefined,
+        color: undefined,
+        backgroundColor: undefined,
+        superscript: undefined,
+        subscript: undefined,
+        href: undefined,
+      });
+
+      const cleared = reread(block).inlines[0];
+      expect(cleared.style.bold).toBeUndefined();
+      expect(cleared.style.fontSize).toBeUndefined();
+      expect(cleared.style.fontFamily).toBeUndefined();
+      expect(cleared.style.color).toBeUndefined();
+      // Non-cleared key survives.
+      expect(cleared.style.italic).toBe(true);
+    });
   });
 
   describe('caching', () => {

@@ -78,10 +78,12 @@ function makeMockMount(): {
       // Formatting surface — no-op stubs for the mock (real delegation is
       // tested separately via the docs TextBoxEditorAPI tests).
       getSelectionStyle: () => ({}),
+      getRangeStyleSummary: () => ({}),
       applyStyle: () => {},
       clearInlineFormatting: () => {},
       applyBlockStyle: () => {},
       getBlockType: () => ({ type: 'paragraph' as const }),
+      getBlockStyle: () => ({}),
       setBlockType: () => {},
       toggleList: () => {},
       indent: () => {},

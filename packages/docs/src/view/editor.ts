@@ -43,6 +43,26 @@ export interface EditorAPI {
   getStore(): DocStore;
   /** Get the inline style at the current cursor/selection anchor */
   getSelectionStyle(): Partial<InlineStyle>;
+  /**
+   * Summary of inline styles across the current selection. For each
+   * key, returns the resolved value when uniform, the literal 'mixed'
+   * when at least two distinct values exist within the range, or
+   * undefined when the property is unset throughout. When there is no
+   * selection, returns the style of the inline at the cursor (same
+   * shape as getSelectionStyle).
+   */
+  getRangeStyleSummary(): {
+    bold?: boolean | 'mixed';
+    italic?: boolean | 'mixed';
+    underline?: boolean | 'mixed';
+    strikethrough?: boolean | 'mixed';
+    fontFamily?: string | 'mixed';
+    fontSize?: number | 'mixed';
+    color?: InlineStyle['color'] | 'mixed';
+    backgroundColor?: InlineStyle['backgroundColor'] | 'mixed';
+    superscript?: boolean | 'mixed';
+    subscript?: boolean | 'mixed';
+  };
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
   /**
@@ -70,12 +90,29 @@ export interface EditorAPI {
    * before the first paint() has run.
    */
   scrollToPosition(pos: DocPosition): void;
-  /** Register a callback for cursor position changes */
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): void;
+  /**
+   * Register a callback for cursor position changes. Multiple callbacks
+   * may be registered; they fire in registration order. The returned
+   * function unsubscribes the callback. Old call sites that ignore the
+   * return value remain valid — the callback simply stays registered
+   * until `dispose()` is called.
+   *
+   * Callbacks ALSO fire after an inline / block style mutation
+   * (`applyStyle`, `clearInlineFormatting`, `applyBlockStyle`) so toolbar
+   * pickers can refresh their selection-derived summaries even though
+   * the cursor itself has not moved.
+   */
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): () => void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  /**
+   * Read the block style at the cursor position. Used by the shared
+   * toolbar pickers (e.g. LineSpacingPicker) so they can reflect the
+   * current block's `lineHeight`, `textAlign`, etc.
+   */
+  getBlockStyle(): Partial<BlockStyle>;
   /** Set the block type for the block at cursor */
   setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
   /** Toggle list type on the block at cursor */
@@ -215,6 +252,13 @@ export interface EditorAPI {
   resetAfterDocumentReplace(): void;
   /** Clean up */
   dispose(): void;
+  /**
+   * Test-only: set the selection range directly. Production code drives
+   * selection through pointer / keyboard events on the TextEditor; tests
+   * use this to skip the input layer and exercise selection-derived APIs
+   * (e.g. getRangeStyleSummary) without simulating drag.
+   */
+  _setSelectionForTest(range: { anchor: DocPosition; focus: DocPosition } | null): void;
 }
 
 /**
@@ -477,6 +521,73 @@ export function initialize(
     }
   };
 
+  /**
+   * Apply an inline-style patch to the current selection. Shared by
+   * `applyStyle` (set keys) and `clearInlineFormatting` (which passes
+   * `CLEAR_INLINE_STYLE` so the Yorkie store strips the attributes
+   * from the Tree node). Handles cell-range mode, regular ranges, and
+   * the dirty-block bookkeeping needed for incremental layout. Fires
+   * `notifyStyleApplied()` at the end so toolbar pickers re-derive
+   * their selection-derived state. No-op when there is no real
+   * selection.
+   */
+  function applyStyleImpl(style: Partial<InlineStyle>): void {
+    if (!(selection.hasSelection() && selection.range)) return;
+    docStore.snapshot();
+    const range = selection.range;
+
+    // Cell-range mode: apply to all cells in range
+    if (range.tableCellRange) {
+      applyStyleToCellRange(range.tableCellRange, style);
+      markDirty(range.tableCellRange.blockId);
+      render();
+      notifyStyleApplied();
+      return;
+    }
+
+    doc.applyInlineStyle(range, style);
+    // Mark affected blocks as dirty
+    const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+    const focusCI = layout.blockParentMap.get(range.focus.blockId);
+    if (anchorCI) {
+      // Cell block: mark the parent table block dirty
+      markDirty(anchorCI.tableBlockId);
+    } else if (focusCI) {
+      markDirty(focusCI.tableBlockId);
+    } else {
+      const startIdx = doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          markDirty(doc.document.blocks[i].id);
+        }
+      }
+    }
+    render();
+    notifyStyleApplied();
+  }
+
+  /**
+   * Fire the cursor-move callbacks after an inline / block style
+   * mutation. The cursor itself did not move, but the style data under
+   * it changed — toolbar pickers driven by `getRangeStyleSummary` /
+   * `getBlockStyle` need to refresh. We pass the current selection
+   * range when one exists so callbacks see the same shape they would
+   * after a real cursor move.
+   */
+  function notifyStyleApplied(): void {
+    const selRange = selection.hasSelection() && selection.range
+      ? {
+          anchor: selection.range.anchor,
+          focus: selection.range.focus,
+          tableCellRange: selection.range.tableCellRange,
+        }
+      : undefined;
+    fireCursorMoveCallbacks(cursor.position, selRange);
+  }
+
   /** Apply inline style to all blocks in all cells within a cell range. */
   function applyStyleToCellRange(
     cellRange: { blockId: string; start: CellAddress; end: CellAddress },
@@ -507,7 +618,18 @@ export function initialize(
 
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
-  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void) | null = null;
+  type CursorMoveCallback = (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void;
+  // Multi-listener fan-out. Previously a single slot, which silently
+  // overwrote earlier subscribers (e.g. the toolbar refresh effect
+  // stomping on the presence broadcaster from docs-view.tsx). The Set
+  // preserves insertion order so callbacks fire in registration order.
+  const cursorMoveCallbacks = new Set<CursorMoveCallback>();
+  function fireCursorMoveCallbacks(
+    pos: { blockId: string; offset: number },
+    selection?: Parameters<CursorMoveCallback>[1],
+  ): void {
+    for (const cb of cursorMoveCallbacks) cb(pos, selection);
+  }
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
@@ -1194,7 +1316,7 @@ export function initialize(
           tableCellRange: selection.range.tableCellRange,
         }
       : null;
-    cursorMoveCallback?.(cursor.position, selRange);
+    fireCursorMoveCallbacks(cursor.position, selRange);
     // Notify cursor-based link detection.
     // Convert document-space coordinates to screen (viewport) coordinates
     // so the popover can use position:fixed reliably regardless of scroll.
@@ -1653,48 +1775,6 @@ export function initialize(
     textEditor.focus();
   }
 
-  /**
-   * Apply inline style to the current selection. Extracted from the
-   * `applyStyle` member so `clearInlineFormatting` can call the same
-   * path with `CLEAR_INLINE_STYLE` without going through `this`.
-   */
-  const applyStyleImpl = (style: Partial<InlineStyle>): void => {
-    if (selection.hasSelection() && selection.range) {
-      docStore.snapshot();
-      const range = selection.range;
-
-      // Cell-range mode: apply to all cells in range
-      if (range.tableCellRange) {
-        applyStyleToCellRange(range.tableCellRange, style);
-        markDirty(range.tableCellRange.blockId);
-        render();
-        return;
-      }
-
-      doc.applyInlineStyle(range, style);
-      // Mark affected blocks as dirty
-      const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-      const focusCI = layout.blockParentMap.get(range.focus.blockId);
-      if (anchorCI) {
-        // Cell block: mark the parent table block dirty
-        markDirty(anchorCI.tableBlockId);
-      } else if (focusCI) {
-        markDirty(focusCI.tableBlockId);
-      } else {
-        const startIdx = doc.getBlockIndex(range.anchor.blockId);
-        const endIdx = doc.getBlockIndex(range.focus.blockId);
-        if (startIdx >= 0 && endIdx >= 0) {
-          const lo = Math.min(startIdx, endIdx);
-          const hi = Math.max(startIdx, endIdx);
-          for (let i = lo; i <= hi; i++) {
-            markDirty(doc.document.blocks[i].id);
-          }
-        }
-      }
-      render();
-    }
-  };
-
   return {
     render,
     getDoc: () => doc,
@@ -1718,6 +1798,180 @@ export function initialize(
       const last = block.inlines[block.inlines.length - 1];
       return last ? { ...last.style } : {};
     },
+    getRangeStyleSummary: () => {
+      type Summary = ReturnType<EditorAPI['getRangeStyleSummary']>;
+
+      const KEYS = [
+        'bold', 'italic', 'underline', 'strikethrough',
+        'fontFamily', 'fontSize', 'color', 'backgroundColor',
+        'superscript', 'subscript',
+      ] as const;
+
+      // doc.findBlock walks body + header + footer + table cells, so
+      // the same caret/range traversal works in every editing context.
+      // Without this, header/footer carets fell through to body-only
+      // search and the picker showed empty.
+      const styleAtCaret = (): Partial<InlineStyle> => {
+        const block = doc.findBlock(cursor.position.blockId);
+        if (!block) return {};
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style };
+          }
+          pos = inlineEnd;
+        }
+        const last = block.inlines[block.inlines.length - 1];
+        return last ? { ...last.style } : {};
+      };
+
+      // No range — return the caret style.
+      if (!selection.hasSelection() || !selection.range) {
+        return { ...styleAtCaret() } as Summary;
+      }
+
+      const range = selection.range;
+
+      // Token-based "seen" sets so structurally-equal StoredColor
+      // objects (theme refs like { role: 'accent1' }) compare equal.
+      // Without this, two inlines carrying the same theme color
+      // compare by reference and the picker incorrectly shows 'mixed'.
+      const seen: Record<string, Set<string>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Set<string>()]),
+      );
+      const rawByToken: Record<string, Map<string, unknown>> = Object.fromEntries(
+        KEYS.map((k) => [k, new Map<string, unknown>()]),
+      );
+      const tokenize = (value: unknown): string => {
+        if (value === undefined) return '__undefined__';
+        if (value !== null && typeof value === 'object') {
+          return `obj:${JSON.stringify(value)}`;
+        }
+        return `prim:${String(value)}`;
+      };
+
+      const visitInlinesInBlock = (
+        blockId: string, from: number, to: number,
+      ): void => {
+        const block = doc.findBlock(blockId);
+        if (!block) return;
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          // Overlap test [from, to) with [pos, inlineEnd). Treat
+          // zero-width inlines (empty placeholder runs) as out of
+          // range — they don't contribute style information.
+          if (inlineEnd > from && pos < to && inline.text.length > 0) {
+            for (const key of KEYS) {
+              const raw = (inline.style as Record<string, unknown>)[key];
+              const token = tokenize(raw);
+              if (!seen[key].has(token)) {
+                seen[key].add(token);
+                rawByToken[key].set(token, raw);
+              }
+            }
+          }
+          pos = inlineEnd;
+          if (pos >= to) break;
+        }
+      };
+
+      // Rectangle of selected table cells — walk every block inside.
+      if (range.tableCellRange) {
+        const cr = range.tableCellRange;
+        const tableBlock = doc.findBlock(cr.blockId);
+        if (tableBlock?.tableData) {
+          const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+          const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+          const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
+          const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
+          for (let r = minRow; r <= maxRow; r++) {
+            for (let c = minCol; c <= maxCol; c++) {
+              const cell = tableBlock.tableData.rows[r]?.cells[c];
+              if (!cell || cell.colSpan === 0) continue;
+              for (const cb of cell.blocks) {
+                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+                if (len > 0) visitInlinesInBlock(cb.id, 0, len);
+              }
+            }
+          }
+        }
+      } else {
+        const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+        const focusIdx = doc.getBlockIndex(range.focus.blockId);
+        if (anchorIdx >= 0 && focusIdx >= 0) {
+          // Linear selection across the current top-level context
+          // (body or header/footer — whichever getContextBlocks
+          // resolves to).
+          const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+            (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+            ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+            : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+
+          for (let i = startIdx; i <= endIdx; i++) {
+            const block = doc.getContextBlocks()[i];
+            const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+            const from = i === startIdx ? startOff : 0;
+            const to = i === endIdx ? endOff : blockLen;
+            if (from < to) visitInlinesInBlock(block.id, from, to);
+          }
+        } else {
+          // Selection lives inside a table cell but isn't a cell-range
+          // (user selected text within one cell rather than a
+          // rectangle of cells). Walk the cell's blocks between anchor
+          // and focus, handling multi-block same-cell ranges.
+          const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+          const focusCI = layout.blockParentMap.get(range.focus.blockId);
+          if (
+            anchorCI && focusCI &&
+            anchorCI.tableBlockId === focusCI.tableBlockId &&
+            anchorCI.rowIndex === focusCI.rowIndex &&
+            anchorCI.colIndex === focusCI.colIndex
+          ) {
+            const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+            const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+            const anchorBI = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
+            const focusBI = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
+            if (anchorBI >= 0 && focusBI >= 0) {
+              const [fromIdx, toIdx, fromOff, toOff] = anchorBI <= focusBI
+                ? [anchorBI, focusBI, range.anchor.offset, range.focus.offset]
+                : [focusBI, anchorBI, range.focus.offset, range.anchor.offset];
+              for (let i = fromIdx; i <= toIdx; i++) {
+                const cb = cell.blocks[i];
+                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+                const from = i === fromIdx ? fromOff : 0;
+                const to = i === toIdx ? toOff : len;
+                if (from < to) visitInlinesInBlock(cb.id, from, to);
+              }
+            }
+          } else if (range.anchor.blockId === range.focus.blockId) {
+            // Same block fallback (e.g. a header/footer block that
+            // didn't resolve through getBlockIndex for some reason).
+            const a = range.anchor.offset;
+            const b = range.focus.offset;
+            visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+          }
+        }
+      }
+
+      const result: Record<string, unknown> = {};
+      for (const key of KEYS) {
+        const set = seen[key];
+        if (set.size === 0) continue;
+        if (set.size === 1) {
+          const [onlyToken] = [...set];
+          const only = rawByToken[key].get(onlyToken);
+          if (only !== undefined) result[key] = only;
+        } else {
+          // Two or more distinct values — including "some inlines set,
+          // others unset". Both count as 'mixed'.
+          result[key] = 'mixed';
+        }
+      }
+
+      return result as Summary;
+    },
     applyStyle: applyStyleImpl,
     clearInlineFormatting: () => {
       // Reuse the applyStyle path so cell-range selections, snapshots,
@@ -1732,6 +1986,7 @@ export function initialize(
         doc.applyBlockStyle(block.id, style);
       });
       render();
+      notifyStyleApplied();
     },
     undo: undoFn,
     redo: redoFn,
@@ -1763,7 +2018,10 @@ export function initialize(
       });
     },
     onCursorMove: (cb) => {
-      cursorMoveCallback = cb;
+      cursorMoveCallbacks.add(cb);
+      return () => {
+        cursorMoveCallbacks.delete(cb);
+      };
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
@@ -1777,6 +2035,10 @@ export function initialize(
         listKind: block.listKind,
         listLevel: block.listLevel,
       };
+    },
+    getBlockStyle: () => {
+      const block = doc.findBlock(cursor.position.blockId);
+      return block ? { ...block.style } : {};
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
@@ -2361,7 +2623,7 @@ export function initialize(
     },
     dispose: () => {
       peerCursors = [];
-      cursorMoveCallback = null;
+      cursorMoveCallbacks.clear();
       lastPeerPixels = [];
       selectedImage = null;
       imageResizeDrag = null;
@@ -2378,6 +2640,15 @@ export function initialize(
       document.removeEventListener('transitionend', handleTransitionEnd);
       resizeObserver.disconnect();
       canvas.remove();
+    },
+    _setSelectionForTest: (range) => {
+      selection.setRange(range);
+      if (range) {
+        cursor.moveTo({
+          blockId: range.focus.blockId,
+          offset: range.focus.offset,
+        });
+      }
     },
   };
 }
