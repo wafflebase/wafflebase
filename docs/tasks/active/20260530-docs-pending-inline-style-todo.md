@@ -649,6 +649,11 @@ Expected: lint clean + all unit tests green across the monorepo.
 
 Start: `pnpm dev`
 
+First pass surfaced two bugs (Cmd+B did nothing on collapsed caret,
+never toggled off). Both fixed in 876e40f0 — see lessons file under
+"Browser smoke caught a parallel keyboard code path." Re-verify the
+six scenarios below before merge.
+
 Confirm in `localhost:5173`:
 1. Empty document, click into the first paragraph, press Cmd+B, type
    `Hello`. → `Hello` renders bold.

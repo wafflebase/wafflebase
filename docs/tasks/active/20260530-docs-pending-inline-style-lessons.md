@@ -53,6 +53,42 @@ Companion to `20260530-docs-pending-inline-style-todo.md` (design doc at
   `store.setDocument({ blocks: [createEmptyBlock()] })` was needed
   (matches the pattern in `test/model/document.test.ts:680`).
 
+## Browser smoke caught a parallel keyboard code path (876e40f0)
+
+After the first commit batch landed, manual `pnpm dev` smoke surfaced
+two symptoms: Cmd+B at an empty caret did nothing, and re-pressing
+Cmd+B never toggled off. Root cause was a second entry point into
+inline-style writes that the design doc never named: the toolbar
+buttons call `editor.applyStyle` → `applyStyleImpl`, but keyboard
+shortcuts call private `text-editor.toggleStyle` / `clearFormatting`,
+and only the toolbar surface had been wired for pending. Both private
+methods early-returned on `!hasSelection`.
+
+Fix: route both methods through `pending.set` on collapsed selection,
+flipping the toggle against the *visual* style (caret style + pending
+merged) so re-pressing reads the displayed state and not the stale
+doc state. 4 new keyboard-path tests
+(`pending-style-editor.test.ts`) dispatch synthetic `KeyboardEvent`s
+on the hidden textarea to exercise the surface end-to-end.
+
+### Generalisable lesson
+
+Cross-cutting state changes need test coverage at every public surface,
+not just the most prominent one. Controller-level integration tests
+(`pending-style-integration.test.ts`) and the editor-API spec
+(`pending-style-editor.test.ts`'s `applyStyle` test) both pass with
+this bug present — neither touched the keyboard path. The follow-up
+keyboard-shortcut tests are the institutional fix: any future
+inline-style write must come through one of two surfaces, and both
+have explicit coverage.
+
+When the design doc lists Architecture, walk every code path that
+*writes the data the design models* — not just the most visible one.
+The original design doc named `applyStyleImpl` and
+`clearInlineFormatting` but never mentioned `text-editor.toggleStyle`,
+which is what the keyboard shortcuts call. That omission is what
+allowed the gap to ship past the controller-level tests.
+
 ## Things I'd note for future similar work
 
 - When wiring a cross-cutting transient state, prefer wrapping the
@@ -79,8 +115,11 @@ Companion to `20260530-docs-pending-inline-style-todo.md` (design doc at
 - Pre-commit hook ran `verify:fast` on the Task 2+3+4 commit and
   succeeded.
 
-## Pending — user gate
+## Manual browser smoke
 
-- **Manual browser smoke**: per the design doc's "Testing" section, 6
-  manual scenarios in `pnpm dev`. I cannot drive the browser from this
-  shell; this is the user's gate before merging.
+- First pass surfaced two bugs in `pnpm dev`: Cmd+B did nothing on
+  collapsed caret and never toggled off. Both fixed in 876e40f0; see
+  "Browser smoke caught a parallel keyboard code path" above.
+- Remaining scenarios from the design doc's "Testing" section (Enter
+  preserve, arrow-key clear, IME, color via toolbar, mobile bottom
+  sheet) — user verifies before merge.

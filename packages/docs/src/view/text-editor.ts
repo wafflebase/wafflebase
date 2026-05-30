@@ -2478,6 +2478,7 @@ export class TextEditor {
   }
 
   private selectAll(): void {
+    this.pending?.clear();
     const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const firstBlock = blocks[0];
@@ -2536,7 +2537,11 @@ export class TextEditor {
     // Resolve the visual style at the caret — caret's inline style with
     // any pending-style overrides layered on so re-toggling reads the
     // currently *displayed* state (toolbar buttons + pending) and not
-    // the stale doc-level style underneath.
+    // the stale doc-level style underneath. Pending is collapsed-only:
+    // the common selection-creating paths (handleMouseDown, handleArrow,
+    // selectAll) clear it before extending. When `selection.hasSelection()`
+    // is true the merge is therefore expected to be a no-op — the
+    // unguarded form is defense-in-depth, not a behaviour change.
     const base = this.getStyleAtCursor();
     const visual = this.pending?.has()
       ? { ...base, ...this.pending.get()! }

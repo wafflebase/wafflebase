@@ -51,6 +51,15 @@ untouched. Pending state is never persisted or shared with collaborators.
 A small controller module owns the transient state. The editor wires it into
 the existing inline-style write path and into the text input pipeline.
 
+Inline-style writes enter through two surfaces — toolbar buttons via
+`editor.applyStyle` / `clearInlineFormatting`, and keyboard shortcuts
+(Cmd+B/I/U/X/./, Cmd+\\) via private `text-editor.toggleStyle` /
+`clearFormatting`. Both surfaces share the same collapsed-caret
+contract: they read the *visual* style (caret style + any existing
+pending merged) so re-toggles flip the displayed state, and on
+collapsed selection they write to `pending.set` instead of mutating
+the document.
+
 ```
 editor.ts ────────► PendingStyle ◄──────── text-editor.ts
   applyStyleImpl        get/set/clear           consumeForInsert(...)
