@@ -68,7 +68,7 @@ export function FontFamilyPicker({
               type="button"
               aria-label="Font"
               disabled={disabled}
-              className="inline-flex h-7 min-w-[130px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-7 min-w-[112px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               data-text-edit-keepalive
             >
               <span className="truncate" style={{ fontFamily: value }}>

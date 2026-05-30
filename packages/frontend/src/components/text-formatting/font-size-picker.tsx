@@ -2,9 +2,10 @@
  * Shared font-size picker. Stateless — the caller owns the current size
  * and reacts to `onChange`. The component combines:
  *   - a `−` button that decrements by 1pt,
- *   - a numeric input that commits on Enter / blur,
- *   - a `+` button that increments by 1pt,
- *   - a chevron-trigger preset dropdown.
+ *   - a numeric input that doubles as the preset-dropdown trigger
+ *     (clicking the input opens the dropdown AND focuses the input so
+ *     the user can either pick a preset or start typing),
+ *   - a `+` button that increments by 1pt.
  *
  * Commit policy: `onChange` fires only on Enter, blur, ± click, or preset
  * pick — never on every keystroke. Typed values that clamp to the current
@@ -18,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IconChevronDown, IconPlus, IconMinus } from "@tabler/icons-react";
+import { IconPlus, IconMinus } from "@tabler/icons-react";
 import {
   FONT_SIZE_PRESETS,
   FONT_SIZE_MIN,
@@ -99,56 +100,62 @@ export function FontSizePicker({
   };
 
   return (
-    <div className="inline-flex h-7 items-center rounded-md border border-transparent hover:border-border">
-      <button
-        type="button"
-        aria-label="Decrease font size"
-        disabled={disabled}
-        onClick={() => step(-1)}
-        className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
-      >
-        <IconMinus size={12} />
-      </button>
-      <input
-        aria-label="Font size"
-        type="number"
-        min={FONT_SIZE_MIN}
-        max={FONT_SIZE_MAX}
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={tryCommitDraft}
-        onKeyDown={onKeyDown}
-        className="h-7 w-8 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-      />
-      <button
-        type="button"
-        aria-label="Increase font size"
-        disabled={disabled}
-        onClick={() => step(1)}
-        className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
-      >
-        <IconPlus size={12} />
-      </button>
-      <DropdownMenu>
+    <DropdownMenu>
+      <div className="inline-flex h-7 items-center rounded-md border border-transparent hover:border-border">
+        <button
+          type="button"
+          aria-label="Decrease font size"
+          disabled={disabled}
+          onClick={() => step(-1)}
+          className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+        >
+          <IconMinus size={12} />
+        </button>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Font size presets"
+          <input
+            aria-label="Font size"
+            type="number"
+            min={FONT_SIZE_MIN}
+            max={FONT_SIZE_MAX}
+            value={draft}
             disabled={disabled}
-            className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
-          >
-            <IconChevronDown size={12} />
-          </button>
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={tryCommitDraft}
+            onKeyDown={onKeyDown}
+            // Radix's `DropdownMenuTrigger` calls `preventDefault()` on
+            // `pointerdown` to suppress the trigger's own focus-on-open
+            // behaviour, but on an `<input>` that ALSO suppresses the
+            // browser's default mousedown→focus chain. Without
+            // restoring it explicitly, the first click opens the
+            // dropdown but keyboard input falls through to whatever
+            // had focus before (commonly the editor). User's handler
+            // runs first via `composeEventHandlers`, so focusing here
+            // does not race Radix.
+            onPointerDown={(e) => e.currentTarget.focus()}
+            className="h-7 w-8 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+          />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {FONT_SIZE_PRESETS.map((s) => (
-            <DropdownMenuItem key={s} onClick={() => commit(s)}>
-              {s}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+        <button
+          type="button"
+          aria-label="Increase font size"
+          disabled={disabled}
+          onClick={() => step(1)}
+          className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
+        >
+          <IconPlus size={12} />
+        </button>
+      </div>
+      <DropdownMenuContent
+        align="center"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {FONT_SIZE_PRESETS.map((s) => (
+          <DropdownMenuItem key={s} onClick={() => commit(s)}>
+            {s}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
