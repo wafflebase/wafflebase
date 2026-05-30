@@ -501,6 +501,7 @@ export class TextEditor {
     // Guard: if the cursor references a block that no longer exists
     // (e.g. deleted by a remote collaborator), reset to the first block.
     if (!this.doc.findBlock(this.cursor.position.blockId)) {
+      this.pending?.clear();
       const blocks = this.doc.getContextBlocks();
       if (blocks.length > 0) {
         this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
@@ -1798,6 +1799,7 @@ export class TextEditor {
   private handleTab(shift: boolean): void {
     // Table cell Tab/Shift+Tab navigation
     if (this.isInCell(this.cursor.position.blockId)) {
+      this.pending?.clear();
       if (shift) {
         this.moveToPrevCell();
       } else {

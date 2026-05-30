@@ -516,6 +516,7 @@ export function initialize(
    */
   const validateCursorPosition = (): void => {
     if (doc.findBlock(cursor.position.blockId)) return;
+    pending.clear();
     const firstBlock = doc.getContextBlocks()[0] ?? doc.document.blocks[0];
     if (firstBlock) {
       cursor.moveTo({ blockId: firstBlock.id, offset: 0 });
@@ -1649,6 +1650,7 @@ export function initialize(
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+      pending.clear();
       selection.setRange(null);
       selectedImage = { blockId: hit.blockId, offset: hit.offset };
       cursor.moveTo({ blockId: hit.blockId, offset: hit.offset });
@@ -2633,6 +2635,7 @@ export function initialize(
     focus: () => textEditor?.focus(),
     validateCursorPosition,
     resetAfterDocumentReplace: () => {
+      pending.clear();
       doc.refresh();
       textEditor?.setEditContext('body');
       layoutCache = undefined;
