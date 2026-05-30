@@ -34,7 +34,7 @@ Design doc: `docs/design/docs/docs-pending-inline-style.md`.
 - Create: `packages/docs/src/view/pending-style.ts`
 - Test: `packages/docs/test/view/pending-style.test.ts`
 
-- [ ] **Step 1.1: Write the failing controller tests**
+- [x] **Step 1.1: Write the failing controller tests**
 
 Create `packages/docs/test/view/pending-style.test.ts`:
 
@@ -146,12 +146,12 @@ describe('PendingStyle', () => {
 });
 ```
 
-- [ ] **Step 1.2: Run the tests and confirm they fail**
+- [x] **Step 1.2: Run the tests and confirm they fail**
 
 Run: `pnpm --filter @wafflebase/docs test pending-style`
 Expected: FAIL with `Cannot find module '../../src/view/pending-style.js'` (or similar resolution error).
 
-- [ ] **Step 1.3: Implement the controller**
+- [x] **Step 1.3: Implement the controller**
 
 Create `packages/docs/src/view/pending-style.ts`:
 
@@ -210,12 +210,12 @@ export function createPendingStyle(doc: Doc): PendingStyle {
 }
 ```
 
-- [ ] **Step 1.4: Run the tests and confirm they pass**
+- [x] **Step 1.4: Run the tests and confirm they pass**
 
 Run: `pnpm --filter @wafflebase/docs test pending-style`
 Expected: PASS — 10 tests green.
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add packages/docs/src/view/pending-style.ts packages/docs/test/view/pending-style.test.ts
@@ -240,7 +240,7 @@ EOF
 
 This task adds wiring only; behaviour changes are exercised in Task 4.
 
-- [ ] **Step 2.1: Construct the controller**
+- [x] **Step 2.1: Construct the controller**
 
 Near the top of `createDocEditor`, after `doc` is in scope and before
 `createTextEditor(...)` is called, add the controller:
@@ -251,7 +251,7 @@ import { createPendingStyle } from './pending-style.js';
 const pending = createPendingStyle(doc);
 ```
 
-- [ ] **Step 2.2: Branch `applyStyleImpl` for collapsed selections**
+- [x] **Step 2.2: Branch `applyStyleImpl` for collapsed selections**
 
 Locate `applyStyleImpl` (current head at `editor.ts:1661`). Replace its
 body's leading guard so collapsed selections record pending instead of
@@ -276,7 +276,7 @@ Extract the existing `getSelectionStyle` body into a private
 `getSelectionStyleImpl()` (no behavior change) so it can be reused
 above without re-entering pending merging.
 
-- [ ] **Step 2.3: Merge pending into `getSelectionStyle`**
+- [x] **Step 2.3: Merge pending into `getSelectionStyle`**
 
 ```ts
 return {
@@ -292,7 +292,7 @@ return {
 };
 ```
 
-- [ ] **Step 2.4: Route `clearInlineFormatting` through pending when collapsed**
+- [x] **Step 2.4: Route `clearInlineFormatting` through pending when collapsed**
 
 ```ts
 clearInlineFormatting: () => {
@@ -305,7 +305,7 @@ clearInlineFormatting: () => {
 },
 ```
 
-- [ ] **Step 2.5: Clear pending on blur, undo, redo, and image insert**
+- [x] **Step 2.5: Clear pending on blur, undo, redo, and image insert**
 
 In `handleBlur` (around `editor.ts:1646`):
 
@@ -325,7 +325,7 @@ add `pending.clear()` immediately before the existing `docStore.undo()` /
 In the inline-image insert handler (the function backing
 `insertImageInline` on the returned API), add `pending.clear()` at the top.
 
-- [ ] **Step 2.6: Pass the controller into `createTextEditor`**
+- [x] **Step 2.6: Pass the controller into `createTextEditor`**
 
 `createTextEditor(...)` is invoked from `editor.ts`. Add `pending` to its
 options object:
@@ -339,7 +339,7 @@ const textEditor = createTextEditor({
 
 (`createTextEditor` will read this in Task 3.)
 
-- [ ] **Step 2.7: Type-check**
+- [x] **Step 2.7: Type-check**
 
 Run: `pnpm --filter @wafflebase/docs typecheck` (or `pnpm verify:fast`)
 Expected: no new TypeScript errors. The `pending` option will be marked
@@ -347,7 +347,7 @@ unused inside `createTextEditor` until Task 3 — that is fine; if the
 docs package treats unused params as errors, mark the param optional
 and prefixed with `_` in Task 2 and remove the prefix in Task 3.
 
-- [ ] **Step 2.8: Commit**
+- [x] **Step 2.8: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts
@@ -371,7 +371,7 @@ EOF
 **Files:**
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 3.1: Accept the controller via options**
+- [x] **Step 3.1: Accept the controller via options**
 
 In the `TextEditor` class options interface and constructor (top of the
 file), accept and store the controller:
@@ -394,7 +394,7 @@ export class TextEditor {
 }
 ```
 
-- [ ] **Step 3.2: Consume after every `doc.insertText`**
+- [x] **Step 3.2: Consume after every `doc.insertText`**
 
 For each `this.doc.insertText(pos, data)` call, immediately follow it with
 a consume. Concrete call sites (line numbers as of the snapshot in the
@@ -421,7 +421,7 @@ Sites to update:
    `pending.clear()` (anchor mismatch behaviour) without an explicit
    consume call. Leave as-is — the natural mismatch path handles them.
 
-- [ ] **Step 3.3: Rewind before IME delete cycles**
+- [x] **Step 3.3: Rewind before IME delete cycles**
 
 For each `this.doc.deleteText(pos, n)` call that is part of an IME or
 Hangul composing cycle (the delete-then-reinsert pattern), add a
@@ -445,7 +445,7 @@ backspace handlers, `deleteSelection`, word-boundary deletes (the
 non-IME `this.doc.deleteText` calls in the 1525 / 1577 / 1599 / 1621 /
 1644 / 2383 / 2388 / 2675 / 2693 region).
 
-- [ ] **Step 3.4: Rebind after `splitBlock`**
+- [x] **Step 3.4: Rebind after `splitBlock`**
 
 For each `this.doc.splitBlock(...)` call (search `text-editor.ts` —
 ~four sites including Enter, list-prefix-trigger, and the `/` handler),
@@ -456,7 +456,7 @@ const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
 this.pending.rebindAnchor(newBlockId);
 ```
 
-- [ ] **Step 3.5: Clear pending on non-typing caret moves**
+- [x] **Step 3.5: Clear pending on non-typing caret moves**
 
 Add `this.pending.clear()` at the start of:
 
@@ -470,12 +470,12 @@ Add `this.pending.clear()` at the start of:
 Copy and cut clipboard handlers should also call `this.pending.clear()`
 at the top.
 
-- [ ] **Step 3.6: Type-check and run all existing tests**
+- [x] **Step 3.6: Type-check and run all existing tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: existing tests still green. No new tests added in this step.
 
-- [ ] **Step 3.7: Commit**
+- [x] **Step 3.7: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -503,7 +503,7 @@ minimal wrapper that mimics the text-editor's insertText flow. The goal
 is to assert end-to-end style application without booting the full
 Canvas editor.
 
-- [ ] **Step 4.1: Write integration tests**
+- [x] **Step 4.1: Write integration tests**
 
 Create `packages/docs/test/view/pending-style-integration.test.ts`:
 
@@ -613,17 +613,17 @@ describe('pending inline style — editor-level scenarios', () => {
 });
 ```
 
-- [ ] **Step 4.2: Run integration tests**
+- [x] **Step 4.2: Run integration tests**
 
 Run: `pnpm --filter @wafflebase/docs test pending-style-integration`
 Expected: PASS — 6 tests green.
 
-- [ ] **Step 4.3: Run the full docs package suite**
+- [x] **Step 4.3: Run the full docs package suite**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: all previously green tests remain green.
 
-- [ ] **Step 4.4: Commit**
+- [x] **Step 4.4: Commit**
 
 ```bash
 git add packages/docs/test/view/pending-style-integration.test.ts
@@ -640,7 +640,7 @@ EOF
 
 ## Task 5: Verify, manual smoke, archive
 
-- [ ] **Step 5.1: Repo-level verification**
+- [x] **Step 5.1: Repo-level verification**
 
 Run: `pnpm verify:fast`
 Expected: lint clean + all unit tests green across the monorepo.
@@ -666,7 +666,7 @@ Confirm in `localhost:5173`:
 Capture findings (pass/fail per item) in
 `docs/tasks/active/20260530-docs-pending-inline-style-lessons.md`.
 
-- [ ] **Step 5.3: Self code-review**
+- [x] **Step 5.3: Self code-review**
 
 Dispatch `superpowers:requesting-code-review` (or `/code-review`) over
 the full branch diff. Apply blocking findings as additional commits.
