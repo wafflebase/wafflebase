@@ -1,9 +1,10 @@
+import type { BlockMarker } from '@wafflebase/docs';
 import type { Master, MasterBackground } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { parseBlipFill, type ImageParseContext } from './image';
-import { attr, child, descendant, parseXml } from './xml';
+import { attr, attrInt, child, descendant, parseXml } from './xml';
 
 /**
  * OOXML `<p:clrMap>` attributes — translation table from logical
@@ -27,10 +28,29 @@ const CLR_MAP_KEYS = [
  * will land alongside Task 3 text parsing — the first consumer is the
  * docs-style block emitter, not the master importer itself.
  */
+/**
+ * Default `BlockMarker` per OOXML txStyles slot (`title` / `body` / `other`)
+ * and outline level (0–8 ⇆ `<a:lvl1pPr>`–`<a:lvl9pPr>`). Slides paragraphs
+ * inherit these axes when their own `<a:pPr>` doesn't carry a matching
+ * `<a:buFont>`, `<a:buSzPts>`, or `<a:buClr>`. PowerPoint authors the
+ * bullet typeface (e.g. `Arial`) exclusively here for many decks — the
+ * paragraph only inlines per-slide overrides like `buSzPts` / `buClr`.
+ */
+export type TxStylesSlot = 'title' | 'body' | 'other';
+export type TxStylesMarkers = Map<TxStylesSlot, Map<number, BlockMarker>>;
+
 export interface ImportedMaster {
   master: Master;
   /** Translation table from the master's `<p:clrMap>` for slide-level color resolution. */
   clrMap: ClrMap;
+  /**
+   * Default bullet marker per `<p:txStyles>` slot × outline level.
+   * Empty when the master omits `<p:txStyles>` (rare). Consumers index
+   * with the resolved txStyles slot for a placeholder type and the
+   * paragraph's level, then merge into the paragraph's own `BlockMarker`
+   * for any axis the paragraph didn't override.
+   */
+  txStylesMarkers: TxStylesMarkers;
 }
 
 export async function parseMaster(
@@ -44,6 +64,9 @@ export async function parseMaster(
   const cSld = sldMaster ? child(sldMaster, 'cSld') : undefined;
   const bg = cSld ? child(cSld, 'bg') : undefined;
   const clrMap = sldMaster ? parseClrMap(sldMaster) : new Map<string, string>();
+  const txStylesMarkers = sldMaster
+    ? parseTxStylesMarkers(sldMaster, clrMap)
+    : (new Map() as TxStylesMarkers);
 
   // Master `<p:bg>` is parsed without `clrMap` — backgrounds almost
   // always use direct scheme slot names (`lt1` / `dk1`) rather than the
@@ -64,7 +87,91 @@ export async function parseMaster(
       placeholderStyles: clone(DEFAULT_MASTER.placeholderStyles),
     },
     clrMap,
+    txStylesMarkers,
   };
+}
+
+/**
+ * Parse `<p:txStyles>` into a slot × level → `BlockMarker` map.
+ *
+ * OOXML structure:
+ *   <p:txStyles>
+ *     <p:titleStyle> <a:lvl1pPr>…</a:lvl1pPr> … </p:titleStyle>
+ *     <p:bodyStyle>  <a:lvl1pPr>…</a:lvl1pPr> … </p:bodyStyle>
+ *     <p:otherStyle> <a:lvl1pPr>…</a:lvl1pPr> … </p:otherStyle>
+ *   </p:txStyles>
+ *
+ * Per level we record only the three marker-relevant children
+ * (`<a:buFont typeface=…>`, `<a:buSzPts val=…>`, `<a:buClr>…</a:buClr>`)
+ * so the slide parser can fill in axes the per-paragraph `<a:pPr>` left
+ * blank. We deliberately *don't* infer marker style from `<a:defRPr>` —
+ * the OOXML spec treats run defaults and bullet defaults as independent,
+ * and conflating them in the importer would mis-render decks whose
+ * marker style legitimately diverges from the run style.
+ *
+ * `<a:buNone/>` at the level marks "no list" and is left to the
+ * paragraph's own bullet decision to honour; we simply don't emit a
+ * marker for that level so the merge step is a no-op.
+ */
+function parseTxStylesMarkers(
+  sldMaster: Element,
+  clrMap: ClrMap,
+): TxStylesMarkers {
+  const out: TxStylesMarkers = new Map();
+  const txStyles = child(sldMaster, 'txStyles');
+  if (!txStyles) return out;
+
+  const slotMap: Array<[string, TxStylesSlot]> = [
+    ['titleStyle', 'title'],
+    ['bodyStyle', 'body'],
+    ['otherStyle', 'other'],
+  ];
+
+  for (const [tagName, slot] of slotMap) {
+    const styleEl = child(txStyles, tagName);
+    if (!styleEl) continue;
+    const levelMap = new Map<number, BlockMarker>();
+    for (let i = 0; i < styleEl.childNodes.length; i++) {
+      const n = styleEl.childNodes[i];
+      if (n.nodeType !== 1) continue;
+      const lvlEl = n as Element;
+      const m = /^lvl([1-9])pPr$/.exec(lvlEl.localName);
+      if (!m) continue;
+      const level = Number(m[1]) - 1; // lvl1pPr → 0
+      const marker = extractMarkerFromLevelPPr(lvlEl, clrMap);
+      if (marker) levelMap.set(level, marker);
+    }
+    if (levelMap.size > 0) out.set(slot, levelMap);
+  }
+
+  return out;
+}
+
+function extractMarkerFromLevelPPr(
+  lvlPPr: Element,
+  clrMap: ClrMap,
+): BlockMarker | undefined {
+  let marker: BlockMarker | undefined;
+
+  const buFont = child(lvlPPr, 'buFont');
+  if (buFont) {
+    const typeface = attr(buFont, 'typeface');
+    if (typeface) marker = { ...(marker ?? {}), fontFamily: typeface };
+  }
+
+  const buSzPts = child(lvlPPr, 'buSzPts');
+  if (buSzPts) {
+    const v = attrInt(buSzPts, 'val');
+    if (v != null && v > 0) marker = { ...(marker ?? {}), fontSize: v / 100 };
+  }
+
+  const buClr = child(lvlPPr, 'buClr');
+  if (buClr) {
+    const color = parseColorFromContainer(buClr, clrMap);
+    if (color) marker = { ...(marker ?? {}), color };
+  }
+
+  return marker;
 }
 
 /**

@@ -189,6 +189,61 @@ describe('parseTextBody — paragraphs', () => {
     expect(blocks[0].marker?.color).toEqual({ kind: 'role', role: 'accent1' });
   });
 
+  it('inherits master <p:txStyles> marker axes the paragraph leaves blank', () => {
+    // Mirrors the real-world "Yorkie 캐즘" deck: the paragraph carries
+    // only `<a:buSzPts>` / `<a:buChar>`, while `<a:buFont>` lives in the
+    // master's `<p:bodyStyle>`. The merged marker should pick up Arial
+    // from the master while keeping the paragraph's 18 pt size.
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>April, 2019: </a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const markerDefaults = new Map([
+      [0, { fontFamily: 'Arial', color: { kind: 'srgb' as const, value: '#000000' } }],
+    ]);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      markerDefaults,
+    });
+    expect(blocks[0].marker).toEqual({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: { kind: 'srgb', value: '#000000' },
+    });
+  });
+
+  it('paragraph axis overrides the master default when both are present', () => {
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buClr><a:srgbClr val="FF9900"/></a:buClr>
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>Oct, 2022: Yorkie, 캐즘 뛰어넘기</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const markerDefaults = new Map([
+      [0, { fontFamily: 'Arial', color: { kind: 'srgb' as const, value: '#000000' } }],
+    ]);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      markerDefaults,
+    });
+    expect(blocks[0].marker).toEqual({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: { kind: 'srgb', value: '#FF9900' },
+    });
+  });
+
   it('preserves empty paragraphs with placeholder inline so layout never NaNs', () => {
     const t = txBody(`<a:txBody><a:bodyPr/><a:p/></a:txBody>`);
     const blocks = parseTextBody(t, { report: new ImportReport() });

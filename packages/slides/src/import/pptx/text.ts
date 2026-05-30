@@ -25,6 +25,16 @@ export interface TextParseContext {
   defaultFontSize?: number;
   /** Master-level `<p:clrMap>` translation table for `<a:schemeClr>` lookups. */
   clrMap?: ClrMap;
+  /**
+   * Default `BlockMarker` per outline level (0–8), derived from the
+   * master's `<p:txStyles>` slot that matches the host shape's
+   * placeholder type. PowerPoint authors marker typeface (e.g. `Arial`)
+   * exclusively here for many decks — the paragraph only inlines
+   * per-slide overrides like `<a:buSzPts>` / `<a:buClr>`. When a
+   * paragraph leaves a marker axis blank, the parser fills it from
+   * this map before attaching the marker to the block.
+   */
+  markerDefaults?: Map<number, BlockMarker>;
 }
 
 /**
@@ -202,9 +212,33 @@ function parseParagraphProperties(
   // run font size) is not yet supported — none of the benchmark decks
   // emit it. The marker only matters for list items, so callers gate
   // attaching it to the block on `list !== undefined`.
-  const marker = parseBulletStyle(pPr, ctx);
+  //
+  // Inheritance: PPTX paragraphs commonly omit one or more bullet axes
+  // (e.g. `<a:buFont>` lives only in the master's `<p:txStyles>` while
+  // the paragraph inlines just `<a:buSzPts>`/`<a:buClr>` overrides).
+  // Merge the master defaults for this level *under* the paragraph's
+  // own values so the paragraph wins per-axis when it sets one.
+  const paragraphMarker = parseBulletStyle(pPr, ctx);
+  const levelDefault = ctx.markerDefaults?.get(lvl);
+  const marker = mergeMarkers(levelDefault, paragraphMarker);
 
   return { style, list, marker };
+}
+
+function mergeMarkers(
+  base: BlockMarker | undefined,
+  overrides: BlockMarker | undefined,
+): BlockMarker | undefined {
+  if (!base) return overrides;
+  if (!overrides) return base;
+  const out: BlockMarker = {};
+  const fontFamily = overrides.fontFamily ?? base.fontFamily;
+  const fontSize = overrides.fontSize ?? base.fontSize;
+  const color = overrides.color ?? base.color;
+  if (fontFamily !== undefined) out.fontFamily = fontFamily;
+  if (fontSize !== undefined) out.fontSize = fontSize;
+  if (color !== undefined) out.color = color;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function parseBulletStyle(

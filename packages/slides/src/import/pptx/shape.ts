@@ -18,6 +18,7 @@ import type {
   Endpoint,
 } from '../../model/connector';
 import { parseColorFromContainer, type ClrMap } from './color';
+import type { TxStylesMarkers, TxStylesSlot } from './master';
 import type { EmuScale } from './geometry';
 import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
 import {
@@ -65,6 +66,16 @@ export interface SlideParseContext {
    * the master's translation table.
    */
   clrMap: ClrMap;
+  /**
+   * Master-level `<p:txStyles>` bullet defaults per slot × level.
+   * `buildTextElement` looks up the slot from the host shape's
+   * `<p:ph type>` and forwards the level→marker map to the text parser
+   * so paragraphs can inherit `buFont`/`buSzPts`/`buClr` that aren't
+   * inlined on the slide itself. Optional so existing test harnesses
+   * that exercise `parseSpTree` directly can omit it without rewriting
+   * every fixture; missing entry is equivalent to "no master defaults".
+   */
+  txStylesMarkers?: TxStylesMarkers;
 }
 
 /**
@@ -545,6 +556,9 @@ function buildTextElement(
     ? PLACEHOLDER_DEFAULT_FONT_SIZE[placeholderRef.type]
     : undefined;
   const defaultFontSize = layoutSize ?? fallbackSize;
+  const markerDefaults = ctx.txStylesMarkers?.get(
+    placeholderTypeToTxStylesSlot(placeholderRef?.type),
+  );
   const verticalAnchor = detectVerticalAnchor(txBody);
   return {
     id,
@@ -559,9 +573,26 @@ function buildTextElement(
         report: ctx.report,
         defaultFontSize,
         clrMap: ctx.clrMap,
+        markerDefaults,
       }),
     },
   };
+}
+
+/**
+ * Map a Waffle `PlaceholderType` to the OOXML `<p:txStyles>` slot whose
+ * level table holds its bullet defaults. PowerPoint uses three buckets
+ * — title-style for titles, body-style for the outline/body group, and
+ * other-style as the catch-all — so non-placeholder text boxes inherit
+ * via the body bucket (matches PowerPoint's "default text" behaviour).
+ */
+function placeholderTypeToTxStylesSlot(
+  type: PlaceholderType | undefined,
+): TxStylesSlot {
+  if (type === 'title') return 'title';
+  if (type === 'big-number' || type === 'caption') return 'other';
+  // body, subtitle, and plain text boxes (no placeholder) → body slot.
+  return 'body';
 }
 
 function buildShapeElement(

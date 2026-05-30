@@ -5,6 +5,7 @@ import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
 import { parseBlipFill, type ImageParseContext } from './image';
+import type { TxStylesMarkers } from './master';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
 import { parseSpTree, type SlideParseContext } from './shape';
@@ -34,6 +35,14 @@ export interface ParseSlideOptions {
   report: ImportReport;
   /** Master-level color map; identity for decks without `<p:clrMap>`. */
   clrMap: ClrMap;
+  /**
+   * Master-level `<p:txStyles>` defaults for bullet markers per slot × level.
+   * Optional so test harnesses that exercise `parseSlide` directly can
+   * skip wiring up the txStyles map; missing entry is equivalent to "no
+   * master defaults" and the importer falls back to the paragraph's own
+   * `<a:buFont>`/`<a:buSzPts>`/`<a:buClr>` (which can also be absent).
+   */
+  txStylesMarkers?: TxStylesMarkers;
 }
 
 export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undefined> {
@@ -79,6 +88,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     idMap: new Map(),
     placeholderSizes,
     clrMap: opts.clrMap,
+    txStylesMarkers: opts.txStylesMarkers,
   };
   const elements = spTree ? await parseSpTree(spTree, ctx) : [];
 
