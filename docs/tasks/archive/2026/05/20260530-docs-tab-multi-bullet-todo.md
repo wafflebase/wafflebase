@@ -22,20 +22,20 @@ fix `handleTab` to iterate the selection the same way.
 
 ## Plan
 
-- [ ] Add a vitest case under `packages/docs/test/view/` that:
+- [x] Add a vitest case under `packages/docs/test/view/` that:
       - mounts the editor with two `list-item` blocks (both `listLevel: 0`)
       - sets selection spanning both blocks via `_setSelectionForTest`
       - dispatches a `Tab` keydown on the editor's hidden textarea
       - asserts BOTH blocks have `listLevel === 1`
       - also covers Shift+Tab on blocks at `listLevel: 1` → both go to 0
-- [ ] Update `handleTab` to iterate `forEachBlockInSelection`, applying
+- [x] Update `handleTab` to iterate `forEachBlockInSelection`, applying
       the same min/max clamp (0..8) per list-item block. Preserve:
       - the table-cell early return (cell navigation behavior)
       - the "cursor block must be `list-item`" gate (so Tab doesn't
         hijack plain-paragraph contexts where it inserts indent)
-- [ ] `pnpm verify:fast` green
-- [ ] Self review the diff
-- [ ] Commit on `main` per workflow (or short-lived branch + PR)
+- [x] `pnpm verify:fast` green
+- [x] Self review the diff
+- [x] Commit on `main` per workflow (or short-lived branch + PR)
 
 ## Out of Scope
 
