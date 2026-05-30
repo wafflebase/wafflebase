@@ -48,6 +48,27 @@ export interface Block {
   listKind?: 'ordered' | 'unordered';
   listLevel?: number;
   tableData?: TableData;
+  /**
+   * Optional marker style overrides for list-item blocks. Set by callers
+   * that carry an authored marker font/size/color independent of the
+   * paragraph's first inline — e.g. the PPTX importer reading the
+   * paragraph-level `<a:buFont>`, `<a:buSzPts>`, `<a:buClr>` properties
+   * which PowerPoint applies to the bullet glyph regardless of run font.
+   * When omitted, `renderListMarker` falls back to `inlines[0].style`.
+   */
+  marker?: BlockMarker;
+}
+
+/**
+ * Optional bullet/number marker style for `list-item` blocks. Each field
+ * is independent: a partially-populated marker (e.g. color only) still
+ * inherits the other axes from the first inline at render time.
+ */
+export interface BlockMarker {
+  fontFamily?: string;
+  /** Marker glyph size in points (not pixels). */
+  fontSize?: number;
+  color?: StoredColor;
 }
 
 /**

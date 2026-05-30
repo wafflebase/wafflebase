@@ -1,4 +1,4 @@
-import type { Block, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
+import type { Block, BlockMarker, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { containsHangul, parsePrimaryTypeface } from './font';
@@ -103,7 +103,7 @@ function parseParagraph(
   ctx: TextParseContext,
 ): Block {
   const pPr = child(p, 'pPr');
-  const { style, list } = parseParagraphProperties(pPr);
+  const { style, list, marker } = parseParagraphProperties(pPr, ctx);
 
   const inlines: Inline[] = [];
   for (let i = 0; i < p.childNodes.length; i++) {
@@ -134,6 +134,12 @@ function parseParagraph(
     block.listKind = list.kind;
     block.listLevel = list.level;
   }
+  // Marker style is only meaningful on list-items. Persist it only when
+  // the paragraph is a list so non-list blocks don't carry a dead field
+  // through Yorkie/snapshots.
+  if (list && marker) {
+    block.marker = marker;
+  }
   return block;
 }
 
@@ -143,12 +149,16 @@ interface ListInfo {
   level: number;
 }
 
-function parseParagraphProperties(pPr: Element | undefined): {
+function parseParagraphProperties(
+  pPr: Element | undefined,
+  ctx: TextParseContext,
+): {
   style: BlockStyle;
   list: ListInfo | undefined;
+  marker: BlockMarker | undefined;
 } {
   const style: BlockStyle = { ...DEFAULT_BLOCK_STYLE };
-  if (!pPr) return { style, list: undefined };
+  if (!pPr) return { style, list: undefined, marker: undefined };
 
   const algn = attr(pPr, 'algn');
   if (algn === 'ctr') style.alignment = 'center';
@@ -185,7 +195,44 @@ function parseParagraphProperties(pPr: Element | undefined): {
   else if (child(pPr, 'buChar')) list = { kind: 'unordered', level: lvl };
   // `<a:buNone/>` and absence both mean "no list" — leave list undefined.
 
-  return { style, list };
+  // Paragraph-level bullet style. PowerPoint applies these to the marker
+  // glyph independent of the run's font / size / color, so the marker
+  // stays consistent even when the first run is wrapped in a different
+  // font (e.g. Korean-Hangul fallback). `<a:buSzPct>` (percentage of the
+  // run font size) is not yet supported — none of the benchmark decks
+  // emit it. The marker only matters for list items, so callers gate
+  // attaching it to the block on `list !== undefined`.
+  const marker = parseBulletStyle(pPr, ctx);
+
+  return { style, list, marker };
+}
+
+function parseBulletStyle(
+  pPr: Element,
+  ctx: TextParseContext,
+): BlockMarker | undefined {
+  let marker: BlockMarker | undefined;
+
+  const buFont = child(pPr, 'buFont');
+  if (buFont) {
+    const typeface = attr(buFont, 'typeface');
+    if (typeface) marker = { ...(marker ?? {}), fontFamily: typeface };
+  }
+
+  const buSzPts = child(pPr, 'buSzPts');
+  if (buSzPts) {
+    // `val` is in hundredths of a point per OOXML.
+    const v = attrInt(buSzPts, 'val');
+    if (v != null && v > 0) marker = { ...(marker ?? {}), fontSize: v / 100 };
+  }
+
+  const buClr = child(pPr, 'buClr');
+  if (buClr) {
+    const color = parseColorFromContainer(buClr, ctx.clrMap);
+    if (color) marker = { ...(marker ?? {}), color };
+  }
+
+  return marker;
 }
 
 function parseRun(

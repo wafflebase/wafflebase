@@ -454,10 +454,18 @@ export function renderListMarker(
   theme: DocTheme = DefaultTheme,
   resolveColor: ColorResolver = defaultColorResolver,
 ): void {
-  const fontSize = block.inlines[0]?.style.fontSize ?? theme.defaultFontSize;
+  // `block.marker` carries authored marker style (PPTX `<a:buFont>` /
+  // `<a:buSzPts>` / `<a:buClr>`) when available. Otherwise fall back to
+  // the first inline's style — keeps existing DocCanvas behaviour for
+  // docs and DOCX-imported decks that don't set `marker`.
+  const m = block.marker;
+  const firstInline = block.inlines[0]?.style;
+  const fontSize = m?.fontSize ?? firstInline?.fontSize ?? theme.defaultFontSize;
+  const fontFamily = m?.fontFamily ?? firstInline?.fontFamily;
+  const colorSource = m?.color !== undefined ? m.color : firstInline?.color;
   const fontSizePx = ptToPx(fontSize);
   const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
-  ctx.font = buildFont(fontSize, block.inlines[0]?.style.fontFamily, false, false);
-  ctx.fillStyle = resolveColor(block.inlines[0]?.style.color) ?? theme.defaultColor;
+  ctx.font = buildFont(fontSize, fontFamily, false, false);
+  ctx.fillStyle = resolveColor(colorSource) ?? theme.defaultColor;
   ctx.fillText(markerText, markerX, baselineY);
 }
