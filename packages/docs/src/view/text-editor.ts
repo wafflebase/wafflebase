@@ -2497,9 +2497,6 @@ export class TextEditor {
   }
 
   private clearFormatting(): void {
-    if (!this.selection.hasSelection() || !this.selection.range) return;
-    this.saveSnapshot();
-    const range = this.selection.range;
     const clearStyle: Partial<InlineStyle> = {
       bold: undefined,
       italic: undefined,
@@ -2509,6 +2506,16 @@ export class TextEditor {
       subscript: undefined,
       href: undefined,
     };
+
+    if (!this.selection.hasSelection() || !this.selection.range) {
+      // Collapsed caret — pending the cleared style so the next typed
+      // run is plain.
+      this.pending?.set(clearStyle, this.cursor.position);
+      this.requestRender();
+      return;
+    }
+    this.saveSnapshot();
+    const range = this.selection.range;
 
     this.doc.applyInlineStyle(range, clearStyle);
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
@@ -2526,18 +2533,32 @@ export class TextEditor {
   }
 
   private toggleStyle(style: Partial<InlineStyle>): void {
-    if (!this.selection.hasSelection() || !this.selection.range) return;
-    const range = this.selection.range;
-    // Read current style at cursor to toggle (flip boolean properties)
-    const current = this.getStyleAtCursor();
+    // Resolve the visual style at the caret — caret's inline style with
+    // any pending-style overrides layered on so re-toggling reads the
+    // currently *displayed* state (toolbar buttons + pending) and not
+    // the stale doc-level style underneath.
+    const base = this.getStyleAtCursor();
+    const visual = this.pending?.has()
+      ? { ...base, ...this.pending.get()! }
+      : base;
     const resolved: Partial<InlineStyle> = {};
     for (const key of Object.keys(style) as (keyof InlineStyle)[]) {
       if (typeof style[key] === 'boolean') {
-        (resolved as Record<string, unknown>)[key] = !current[key];
+        (resolved as Record<string, unknown>)[key] = !visual[key];
       } else {
         (resolved as Record<string, unknown>)[key] = style[key];
       }
     }
+
+    if (!this.selection.hasSelection() || !this.selection.range) {
+      // Collapsed caret — record the toggle in pending so the next
+      // typed character picks it up. Mirrors the toolbar's collapsed
+      // path through editor.applyStyle.
+      this.pending?.set({ ...visual, ...resolved }, this.cursor.position);
+      this.requestRender();
+      return;
+    }
+    const range = this.selection.range;
     // Route to cell-range method if selection spans multiple cells
     if (range.tableCellRange) {
       this.applyStyleToCellRange(range.tableCellRange, resolved);

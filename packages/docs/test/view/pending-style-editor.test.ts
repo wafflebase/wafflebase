@@ -114,6 +114,65 @@ describe('docs editor — pending inline style wiring', () => {
     editor.dispose();
   });
 
+  function dispatchKey(key: string, opts: { meta?: boolean; shift?: boolean } = {}) {
+    const textarea = container.querySelector('textarea');
+    if (!textarea) throw new Error('textarea not mounted');
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        metaKey: opts.meta ?? false,
+        ctrlKey: opts.meta ?? false,
+        shiftKey: opts.shift ?? false,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  it('Cmd+B on collapsed caret records pending bold (keyboard shortcut path)', () => {
+    const { editor } = mount();
+
+    expect(editor.getSelectionStyle().bold).toBeFalsy();
+    dispatchKey('b', { meta: true });
+    expect(editor.getSelectionStyle().bold).toBe(true);
+
+    editor.dispose();
+  });
+
+  it('Cmd+B twice on collapsed caret toggles pending off', () => {
+    const { editor } = mount();
+
+    dispatchKey('b', { meta: true });
+    expect(editor.getSelectionStyle().bold).toBe(true);
+    dispatchKey('b', { meta: true });
+    expect(editor.getSelectionStyle().bold).toBeFalsy();
+
+    editor.dispose();
+  });
+
+  it('Cmd+B then Cmd+I on collapsed caret accumulates both pending styles', () => {
+    const { editor } = mount();
+
+    dispatchKey('b', { meta: true });
+    dispatchKey('i', { meta: true });
+    const style = editor.getSelectionStyle();
+    expect(style.bold).toBe(true);
+    expect(style.italic).toBe(true);
+
+    editor.dispose();
+  });
+
+  it('Cmd+\\ on collapsed caret records cleared pending style', () => {
+    const { editor } = mount();
+
+    dispatchKey('b', { meta: true });
+    expect(editor.getSelectionStyle().bold).toBe(true);
+    dispatchKey('\\', { meta: true });
+    expect(editor.getSelectionStyle().bold).toBeFalsy();
+
+    editor.dispose();
+  });
+
   it('resetAfterDocumentReplace clears pending', () => {
     const { editor, store } = mount();
 
