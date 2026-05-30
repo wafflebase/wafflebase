@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 226
+Total archived tasks: 227
 
-## 2026/05 (81 tasks)
+## 2026/05 (82 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | design docs cleanup (2026-05-30) | [20260530-design-docs-cleanup-todo.md](./2026/05/20260530-design-docs-cleanup-todo.md) | [20260530-design-docs-cleanup-lessons.md](./2026/05/20260530-design-docs-cleanup-lessons.md) |
+| docs toolbar groups (2026-05-30) | [20260530-docs-toolbar-groups-todo.md](./2026/05/20260530-docs-toolbar-groups-todo.md) | [20260530-docs-toolbar-groups-lessons.md](./2026/05/20260530-docs-toolbar-groups-lessons.md) |
 | docs font controls (2026-05-29) | [20260529-docs-font-controls-todo.md](./2026/05/20260529-docs-font-controls-todo.md) | [20260529-docs-font-controls-lessons.md](./2026/05/20260529-docs-font-controls-lessons.md) |
 | slides format options panel (2026-05-29) | [20260529-slides-format-options-panel-todo.md](./2026/05/20260529-slides-format-options-panel-todo.md) | [20260529-slides-format-options-panel-lessons.md](./2026/05/20260529-slides-format-options-panel-lessons.md) |
 | slides pptx text vertical anchor (2026-05-29) | [20260529-slides-pptx-text-vertical-anchor-todo.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-todo.md) | [20260529-slides-pptx-text-vertical-anchor-lessons.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-lessons.md) |

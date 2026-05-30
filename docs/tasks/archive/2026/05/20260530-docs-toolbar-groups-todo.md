@@ -142,9 +142,11 @@ call sites (4 files) get their imports updated to the new path.
       Text / Fill color with `var(--foreground)` / `var(--background)`
       fallbacks
 - [x] `pnpm verify:fast` green
-- [ ] Self code-review via `superpowers:requesting-code-review`
-- [ ] Open PR; address review; merge
-- [ ] Capture lessons; archive
+- [x] Self code-review via `superpowers:requesting-code-review`
+      (findings addressed in commit `46f5225f`)
+- [x] Open PR — [#313](https://github.com/wafflebase/wafflebase/pull/313)
+- [x] Capture lessons in `20260530-docs-toolbar-groups-lessons.md`
+- [x] Archive via `pnpm tasks:archive`
 
 ## Risks
 
