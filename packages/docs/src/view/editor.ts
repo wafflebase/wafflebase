@@ -18,6 +18,7 @@ import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
+import { createPendingStyle } from './pending-style.js';
 import { resolveNestedTableLayout } from './table-layout.js';
 import {
   collectImageRects,
@@ -473,6 +474,7 @@ export function initialize(
   }
 
   const doc = new Doc(docStore);
+  const pending = createPendingStyle(doc);
 
   // Create canvas (viewport-sized) and a spacer div for scroll height
   const canvas = document.createElement('canvas');
@@ -531,8 +533,36 @@ export function initialize(
    * their selection-derived state. No-op when there is no real
    * selection.
    */
+  /**
+   * Read the inline style at the current caret without pending merging.
+   * Used by both the public getSelectionStyle (which layers pending on
+   * top) and applyStyleImpl (which seeds the pending merge base).
+   */
+  function getSelectionStyleImpl(): Partial<InlineStyle> {
+    const block = layout.blockParentMap.has(cursor.position.blockId)
+      ? doc.getBlock(cursor.position.blockId)
+      : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
+    if (!block) return {};
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (cursor.position.offset <= inlineEnd) {
+        return { ...inline.style };
+      }
+      pos = inlineEnd;
+    }
+    const last = block.inlines[block.inlines.length - 1];
+    return last ? { ...last.style } : {};
+  }
+
   function applyStyleImpl(style: Partial<InlineStyle>): void {
-    if (!(selection.hasSelection() && selection.range)) return;
+    if (!(selection.hasSelection() && selection.range)) {
+      // Collapsed caret — record the style for the next typed run.
+      pending.set({ ...getSelectionStyleImpl(), ...style }, cursor.position);
+      render();
+      notifyStyleApplied();
+      return;
+    }
     docStore.snapshot();
     const range = selection.range;
 
@@ -1256,6 +1286,7 @@ export function initialize(
   // Wire up text editor
   const undoFn = () => {
     if (docStore.canUndo()) {
+      pending.clear();
       docStore.undo();
       doc.refresh();
       textEditor?.setEditContext('body');
@@ -1280,6 +1311,7 @@ export function initialize(
   };
   const redoFn = () => {
     if (docStore.canRedo()) {
+      pending.clear();
       docStore.redo();
       doc.refresh();
       textEditor?.setEditContext('body');
@@ -1381,6 +1413,7 @@ export function initialize(
     // querySelector lookup, but explicit — multiple TextEditor instances
     // on the same page (e.g., slides text-boxes) no longer collide.
     textEditor.setCursorTarget(canvas);
+    textEditor.setPendingStyle(pending);
 
     textEditor.onDragGuideline = (pos) => {
       dragGuideline = pos;
@@ -1767,6 +1800,7 @@ export function initialize(
   };
   const handleBlur = () => {
     focused = false;
+    pending.clear();
     cursor.stopBlink();
     render();
   };
@@ -1780,23 +1814,11 @@ export function initialize(
     getDoc: () => doc,
     getStore: () => docStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
-      // Resolve the block — either a cell block (via blockParentMap) or a top-level block
-      const block = layout.blockParentMap.has(cursor.position.blockId)
-        ? doc.getBlock(cursor.position.blockId)
-        : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
-      if (!block) return {};
-
-      let pos = 0;
-      for (const inline of block.inlines) {
-        const inlineEnd = pos + inline.text.length;
-        if (cursor.position.offset <= inlineEnd) {
-          return { ...inline.style };
-        }
-        pos = inlineEnd;
+      const base = getSelectionStyleImpl();
+      if (pending.has() && !selection.hasSelection()) {
+        return { ...base, ...pending.get()! };
       }
-      // Fallback: return style of last inline
-      const last = block.inlines[block.inlines.length - 1];
-      return last ? { ...last.style } : {};
+      return base;
     },
     getRangeStyleSummary: () => {
       type Summary = ReturnType<EditorAPI['getRangeStyleSummary']>;
@@ -2511,6 +2533,7 @@ export function initialize(
         ...(opts?.originalWidth !== undefined ? { originalWidth: opts.originalWidth } : {}),
         ...(opts?.originalHeight !== undefined ? { originalHeight: opts.originalHeight } : {}),
       };
+      pending.clear();
       docStore.snapshot();
       // `insertImageInline` routes through the block-helpers path for both
       // top-level blocks and cells, so it works inside tables without

@@ -15,6 +15,7 @@ import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word
 import { findVisualLine } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+import type { PendingStyle } from './pending-style.js';
 
 /**
  * Composition (IME) state tracker.
@@ -115,6 +116,12 @@ export class TextEditor {
   private invalidateLayout: () => void;
   private getHeaderLayout: () => DocumentLayout | null;
   private getFooterLayout: () => DocumentLayout | null;
+  /**
+   * Optional controller for pending inline style (collapsed-caret toggle).
+   * Set via setPendingStyle from the host editor; null in standalone
+   * contexts (slides text boxes) where pending behavior is not wired.
+   */
+  private pending: PendingStyle | null = null;
 
   /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
   onLinkRequest?: () => void;
@@ -209,6 +216,60 @@ export class TextEditor {
    */
   setCursorTarget(el: HTMLElement | null): void {
     this.cursorTarget = el;
+  }
+
+  /**
+   * Wire in the pending-style controller. When set, the editor will
+   * apply a recorded pending inline style to text inserted at the
+   * matching anchor and clear it on non-typing caret moves.
+   */
+  setPendingStyle(pending: PendingStyle): void {
+    this.pending = pending;
+  }
+
+  /**
+   * Wrap `doc.insertText` with pending-style consume. After every
+   * insert, if a pending style is anchored at the insertion point,
+   * apply it to the just-inserted range and advance the anchor.
+   * Anchor-mismatch inserts clear the pending state automatically.
+   */
+  private docInsertText(pos: DocPosition, data: string): void {
+    const before = pos.offset;
+    const blockId = pos.blockId;
+    this.doc.insertText(pos, data);
+    this.pending?.consumeForInsert(blockId, before, before + data.length);
+  }
+
+  /**
+   * Wrap `doc.deleteText`. By default clears pending — backspace,
+   * word-delete, and selection-delete are non-typing edits that
+   * should drop the pending state. IME composing cycles pass
+   * `{ keepPending: true }` so the anchor is rewound to track the
+   * delete-then-reinsert pattern instead.
+   */
+  private docDeleteText(
+    pos: DocPosition,
+    n: number,
+    opts?: { keepPending?: boolean },
+  ): void {
+    if (opts?.keepPending) {
+      this.pending?.rewindAnchor(pos.blockId, n);
+    } else {
+      this.pending?.clear();
+    }
+    this.doc.deleteText(pos, n);
+  }
+
+  /**
+   * Wrap `doc.splitBlock`. Pending state is preserved across Enter
+   * splits — the anchor is rebound to the new block at offset 0 so
+   * the first character typed in the new block still picks up the
+   * pending style.
+   */
+  private docSplitBlock(blockId: string, offset: number): string {
+    const newBlockId = this.doc.splitBlock(blockId, offset);
+    this.pending?.rebindAnchor(newBlockId);
+    return newBlockId;
   }
 
   private setCanvasCursor(cursor: string): void {
@@ -318,10 +379,10 @@ export class TextEditor {
     const { startPosition, currentLength } = this.composition;
 
     if (currentLength > 0) {
-      this.doc.deleteText(startPosition, currentLength);
+      this.docDeleteText(startPosition, currentLength, { keepPending: true });
     }
     if (finalText.length > 0) {
-      this.doc.insertText(startPosition, finalText);
+      this.docInsertText(startPosition, finalText);
     }
     const endPos: DocPosition = {
       blockId: startPosition.blockId,
@@ -367,10 +428,10 @@ export class TextEditor {
       const { startPosition, currentLength } = this.composition;
 
       if (currentLength > 0) {
-        this.doc.deleteText(startPosition, currentLength);
+        this.docDeleteText(startPosition, currentLength, { keepPending: true });
       }
       if (newText.length > 0) {
-        this.doc.insertText(startPosition, newText);
+        this.docInsertText(startPosition, newText);
       }
 
       this.composition.currentLength = newText.length;
@@ -403,7 +464,7 @@ export class TextEditor {
     this.deleteSelection();
     const blockId = this.cursor.position.blockId;
 
-    this.doc.insertText(this.cursor.position, data);
+    this.docInsertText(this.cursor.position, data);
     const newPos = {
       blockId: this.cursor.position.blockId,
       offset: this.cursor.position.offset + data.length,
@@ -749,6 +810,7 @@ export class TextEditor {
   };
 
   private handleCopy = (e: ClipboardEvent): void => {
+    this.pending?.clear();
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
 
@@ -768,6 +830,7 @@ export class TextEditor {
   };
 
   private handleCut = (e: ClipboardEvent): void => {
+    this.pending?.clear();
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
 
@@ -793,6 +856,7 @@ export class TextEditor {
   };
 
   private handlePaste = (e: ClipboardEvent): void => {
+    this.pending?.clear();
     e.preventDefault();
 
     // Image file paste — takes priority over any text payload. Many
@@ -973,6 +1037,7 @@ export class TextEditor {
   }
 
   private handleMouseDown = (e: MouseEvent): void => {
+    this.pending?.clear();
     if (e.target === this.textarea) return;
 
     // Ignore clicks on non-canvas UI elements (context menu buttons,
@@ -1522,7 +1587,7 @@ export class TextEditor {
     if (bsCellInfo) {
       const pos = this.cursor.position;
       if (pos.offset > 0) {
-        this.doc.deleteText({ blockId: pos.blockId, offset: pos.offset - 1 }, 1);
+        this.docDeleteText({ blockId: pos.blockId, offset: pos.offset - 1 }, 1);
         this.cursor.moveTo({
           blockId: pos.blockId,
           offset: pos.offset - 1,
@@ -1574,7 +1639,7 @@ export class TextEditor {
       const pos = this.cursor.position;
       const blockLen = getBlockTextLength(this.doc.getBlock(pos.blockId));
       if (pos.offset < blockLen) {
-        this.doc.deleteText(pos, 1);
+        this.docDeleteText(pos, 1);
       } else {
         // At end of block: merge with next block in cell if exists
         const tableBlock = this.doc.getBlock(delCellInfo.tableBlockId);
@@ -1596,7 +1661,7 @@ export class TextEditor {
     const block = this.doc.getBlock(this.cursor.position.blockId);
     const len = getBlockTextLength(block);
     if (this.cursor.position.offset < len) {
-      this.doc.deleteText(this.cursor.position, 1);
+      this.docDeleteText(this.cursor.position, 1);
       this.markDirty(this.cursor.position.blockId);
     } else {
       // At end of block — merge with next (structural change)
@@ -1618,7 +1683,7 @@ export class TextEditor {
       const text = getBlockText(this.doc.getBlock(pos.blockId));
       const boundary = findPrevWordBoundary(text, pos.offset);
       const count = pos.offset - boundary;
-      this.doc.deleteText({ blockId: pos.blockId, offset: boundary }, count);
+      this.docDeleteText({ blockId: pos.blockId, offset: boundary }, count);
       this.cursor.moveTo({ blockId: pos.blockId, offset: boundary });
       this.markDirty(pos.blockId);
     } else {
@@ -1641,7 +1706,7 @@ export class TextEditor {
       const text = getBlockText(block);
       const boundary = findNextWordBoundary(text, pos.offset);
       const count = boundary - pos.offset;
-      this.doc.deleteText(pos, count);
+      this.docDeleteText(pos, count);
       this.markDirty(pos.blockId);
     } else {
       // At end of block — merge with next (same as normal delete)
@@ -1661,7 +1726,7 @@ export class TextEditor {
       this.saveSnapshot();
       this.deleteSelection();
       const pos = this.cursor.position;
-      const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+      const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
       this.cursor.moveTo({
         blockId: newBlockId,
         offset: 0,
@@ -1681,9 +1746,9 @@ export class TextEditor {
     const enterPos = this.cursor.position;
     const enterBlock = this.doc.getBlock(enterPos.blockId);
     if (enterBlock && enterBlock.type === 'paragraph' && getBlockText(enterBlock) === '---') {
-      this.doc.deleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
+      this.docDeleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
       this.doc.setBlockType(enterPos.blockId, 'horizontal-rule');
-      const newId = this.doc.splitBlock(enterPos.blockId, 0);
+      const newId = this.docSplitBlock(enterPos.blockId, 0);
       this.cursor.moveTo({ blockId: newId, offset: 0 });
       this.selection.setRange(null);
       this.requestRender();
@@ -1693,7 +1758,7 @@ export class TextEditor {
     // URL auto-detection before splitting the block on Enter
     const pos = this.cursor.position;
     this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
-    const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+    const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
 
     if (newBlockId === pos.blockId) {
       // Block was converted in-place (e.g., empty list → paragraph)
@@ -1716,7 +1781,7 @@ export class TextEditor {
 
     const pos = this.cursor.position;
     // Split at cursor position first
-    const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+    const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
 
     // Insert a page-break block between the two halves
     const blocks = this.doc.document.blocks;
@@ -1918,7 +1983,7 @@ export class TextEditor {
     const headingMatch = text.match(/^(#{1,6}) $/);
     if (headingMatch) {
       const level = headingMatch[1].length as HeadingLevel;
-      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.docDeleteText({ blockId, offset: 0 }, text.length);
       this.doc.setBlockType(blockId, 'heading', { headingLevel: level });
       this.cursor.moveTo({ blockId, offset: 0 });
       this.invalidateLayout();
@@ -1927,7 +1992,7 @@ export class TextEditor {
 
     // Unordered list: "- " or "* "
     if (text === '- ' || text === '* ') {
-      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.docDeleteText({ blockId, offset: 0 }, text.length);
       this.doc.setBlockType(blockId, 'list-item', { listKind: 'unordered', listLevel: 0 });
       this.cursor.moveTo({ blockId, offset: 0 });
       this.invalidateLayout();
@@ -1936,7 +2001,7 @@ export class TextEditor {
 
     // Ordered list: "1. "
     if (text === '1. ') {
-      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.docDeleteText({ blockId, offset: 0 }, text.length);
       this.doc.setBlockType(blockId, 'list-item', { listKind: 'ordered', listLevel: 0 });
       this.cursor.moveTo({ blockId, offset: 0 });
       this.invalidateLayout();
@@ -1971,6 +2036,7 @@ export class TextEditor {
     shiftKey: boolean,
     wordMod = false,
   ): void {
+    this.pending?.clear();
     try {
       this.handleArrowInner(direction, shiftKey, wordMod);
     } catch {
@@ -2329,6 +2395,7 @@ export class TextEditor {
   }
 
   private handleHome(shiftKey: boolean): void {
+    this.pending?.clear();
     const newPos = this.getVisualLineStart(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
@@ -2341,6 +2408,7 @@ export class TextEditor {
   }
 
   private handleEnd(shiftKey: boolean): void {
+    this.pending?.clear();
     const newPos = this.getVisualLineEnd(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
@@ -2353,6 +2421,7 @@ export class TextEditor {
   }
 
   private handleDocStart(shiftKey: boolean): void {
+    this.pending?.clear();
     const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const newPos: DocPosition = { blockId: blocks[0].id, offset: 0 };
@@ -2367,6 +2436,7 @@ export class TextEditor {
   }
 
   private handleDocEnd(shiftKey: boolean): void {
+    this.pending?.clear();
     const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const lastBlock = blocks[blocks.length - 1];
@@ -2388,12 +2458,12 @@ export class TextEditor {
     const lineStart = this.getVisualLineStart(pos);
     if (lineStart.offset < pos.offset) {
       const count = pos.offset - lineStart.offset;
-      this.doc.deleteText(lineStart, count);
+      this.docDeleteText(lineStart, count);
       this.cursor.moveTo(lineStart);
       this.markDirty(pos.blockId);
     } else if (pos.offset > 0) {
       // Cursor is at visual line start but not block start — delete to block start
-      this.doc.deleteText({ blockId: pos.blockId, offset: 0 }, pos.offset);
+      this.docDeleteText({ blockId: pos.blockId, offset: 0 }, pos.offset);
       this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
       this.markDirty(pos.blockId);
     } else {
@@ -2680,7 +2750,7 @@ export class TextEditor {
         const start = Math.min(anchor.offset, focus.offset);
         const end = Math.max(anchor.offset, focus.offset);
         if (start !== end) {
-          this.doc.deleteText({ blockId: anchor.blockId, offset: start }, end - start);
+          this.docDeleteText({ blockId: anchor.blockId, offset: start }, end - start);
           this.markDirty(anchor.blockId);
         }
       } else {
@@ -2698,11 +2768,11 @@ export class TextEditor {
         const firstBlock = this.doc.getBlock(startPos.blockId);
         const firstLen = getBlockTextLength(firstBlock);
         if (startPos.offset < firstLen) {
-          this.doc.deleteText(startPos, firstLen - startPos.offset);
+          this.docDeleteText(startPos, firstLen - startPos.offset);
         }
         // Delete from beginning of last block to end offset
         if (endPos.offset > 0) {
-          this.doc.deleteText({ blockId: endPos.blockId, offset: 0 }, endPos.offset);
+          this.docDeleteText({ blockId: endPos.blockId, offset: 0 }, endPos.offset);
         }
         // Remove middle blocks (reverse order)
         for (let i = endIdx - 1; i > startIdx; i--) {
@@ -2789,7 +2859,7 @@ export class TextEditor {
 
       if (startIdx === endIdx) {
         // Same block within cell
-        this.doc.deleteText(start, end.offset - start.offset);
+        this.docDeleteText(start, end.offset - start.offset);
         this.markDirty(startCellInfo.tableBlockId);
       } else {
         this.invalidateLayout();
@@ -2798,11 +2868,11 @@ export class TextEditor {
         const firstBlock = cell.blocks[startIdx];
         const firstLen = getBlockTextLength(firstBlock);
         if (start.offset < firstLen) {
-          this.doc.deleteText(start, firstLen - start.offset);
+          this.docDeleteText(start, firstLen - start.offset);
         }
         // Delete from beginning of last block to end offset
         if (end.offset > 0) {
-          this.doc.deleteText({ blockId: end.blockId, offset: 0 }, end.offset);
+          this.docDeleteText({ blockId: end.blockId, offset: 0 }, end.offset);
         }
         // Remove middle blocks (reverse order)
         for (let i = endIdx - 1; i > startIdx; i--) {
@@ -2829,7 +2899,7 @@ export class TextEditor {
 
     if (startBlockIdx === endBlockIdx) {
       // Same block — mark dirty for incremental layout
-      this.doc.deleteText(start, end.offset - start.offset);
+      this.docDeleteText(start, end.offset - start.offset);
       this.markDirty(start.blockId);
     } else {
       // Multi-block structural change — force full layout recompute
@@ -2863,12 +2933,12 @@ export class TextEditor {
       // Delete from start to end of first block
       const firstLen = getBlockTextLength(firstBlock);
       if (start.offset < firstLen) {
-        this.doc.deleteText(start, firstLen - start.offset);
+        this.docDeleteText(start, firstLen - start.offset);
       }
 
       // Delete from beginning to end position in last block
       if (end.offset > 0) {
-        this.doc.deleteText({ blockId: end.blockId, offset: 0 }, end.offset);
+        this.docDeleteText({ blockId: end.blockId, offset: 0 }, end.offset);
       }
 
       // Remove middle blocks
@@ -3028,7 +3098,7 @@ export class TextEditor {
     const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type === 'horizontal-rule' || block.type === 'page-break') {
       this.invalidateLayout();
-      const newId = this.doc.splitBlock(this.cursor.position.blockId, 0);
+      const newId = this.docSplitBlock(this.cursor.position.blockId, 0);
       this.cursor.moveTo({ blockId: newId, offset: 0 });
     }
   }
@@ -3040,14 +3110,14 @@ export class TextEditor {
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) {
         this.invalidateLayout();
-        const newBlockId = this.doc.splitBlock(
+        const newBlockId = this.docSplitBlock(
           this.cursor.position.blockId,
           this.cursor.position.offset,
         );
         this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
       }
       if (lines[i].length > 0) {
-        this.doc.insertText(this.cursor.position, lines[i]);
+        this.docInsertText(this.cursor.position, lines[i]);
         const newPos = {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + lines[i].length,
@@ -3099,7 +3169,7 @@ export class TextEditor {
       this.invalidateLayout();
 
       // Split at cursor
-      const tailBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+      const tailBlockId = this.docSplitBlock(pos.blockId, pos.offset);
 
       // Append first pasted block's inlines to the head block, preserving block metadata
       const headBlock = this.doc.getBlock(pos.blockId);
@@ -4369,15 +4439,15 @@ export class TextEditor {
   private applyHangulResult(result: HangulResult): void {
     if (result.commit) {
       if (this.hangulComposingLength > 0) {
-        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
-        this.doc.insertText(this.hangulStartPos, result.commit);
+        this.docDeleteText(this.hangulStartPos, this.hangulComposingLength, { keepPending: true });
+        this.docInsertText(this.hangulStartPos, result.commit);
         this.hangulStartPos = {
           blockId: this.hangulStartPos.blockId,
           offset: this.hangulStartPos.offset + result.commit.length,
         };
       } else {
         this.deleteSelection();
-        this.doc.insertText(this.cursor.position, result.commit);
+        this.docInsertText(this.cursor.position, result.commit);
         this.hangulStartPos = {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + result.commit.length,
@@ -4393,9 +4463,9 @@ export class TextEditor {
         this.hangulStartPos = { ...this.cursor.position };
       }
       if (this.hangulComposingLength > 0) {
-        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+        this.docDeleteText(this.hangulStartPos, this.hangulComposingLength, { keepPending: true });
       }
-      this.doc.insertText(this.hangulStartPos, result.composing);
+      this.docInsertText(this.hangulStartPos, result.composing);
       this.hangulComposingLength = result.composing.length;
     } else {
       this.hangulComposingLength = 0;
