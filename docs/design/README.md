@@ -45,6 +45,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-ruler.md](docs/docs-ruler.md)                                              | Docs ruler design                                                                                 |
 | [docs-comments.md](docs/docs-comments.md)                                        | Docs comments — text-range threads, CRDT-stable posRange anchors, orphan preservation, shared frontend module |
 | [docs-font-controls.md](docs/docs-font-controls.md)                              | Docs font controls — curated family picker (14 fonts), Google-Docs-style size input, line spacing, clear formatting, shared text-formatting components |
+| [docs-pending-inline-style.md](docs/docs-pending-inline-style.md)                | Pending inline style at a collapsed caret — stored marks for toolbar toggles, IME-aware, view-local            |
 
 ## Slides
 
