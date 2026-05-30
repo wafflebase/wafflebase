@@ -2,9 +2,10 @@
  * Shared font-size picker. Stateless — the caller owns the current size
  * and reacts to `onChange`. The component combines:
  *   - a `−` button that decrements by 1pt,
- *   - a numeric input that commits on Enter / blur,
- *   - a `+` button that increments by 1pt,
- *   - a chevron-trigger preset dropdown.
+ *   - a numeric input that doubles as the preset-dropdown trigger
+ *     (clicking the input opens the dropdown AND focuses the input so
+ *     the user can either pick a preset or start typing),
+ *   - a `+` button that increments by 1pt.
  *
  * Commit policy: `onChange` fires only on Enter, blur, ± click, or preset
  * pick — never on every keystroke. Typed values that clamp to the current
@@ -121,6 +122,16 @@ export function FontSizePicker({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={tryCommitDraft}
             onKeyDown={onKeyDown}
+            // Radix's `DropdownMenuTrigger` calls `preventDefault()` on
+            // `pointerdown` to suppress the trigger's own focus-on-open
+            // behaviour, but on an `<input>` that ALSO suppresses the
+            // browser's default mousedown→focus chain. Without
+            // restoring it explicitly, the first click opens the
+            // dropdown but keyboard input falls through to whatever
+            // had focus before (commonly the editor). User's handler
+            // runs first via `composeEventHandlers`, so focusing here
+            // does not race Radix.
+            onPointerDown={(e) => e.currentTarget.focus()}
             className="h-7 w-8 bg-transparent text-center text-xs outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
           />
         </DropdownMenuTrigger>

@@ -12,7 +12,6 @@ import { resolveColor, resolveFont } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,7 +21,7 @@ import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
-import { TextSizeStepper } from '@/components/text-formatting';
+import { FontSizePicker } from '@/components/text-formatting';
 
 export interface TextElementControlsProps {
   editor: SlidesEditor | null;
@@ -30,8 +29,6 @@ export interface TextElementControlsProps {
   theme?: Theme | null;
   ids: readonly string[];
 }
-
-const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 24, 32, 48, 64, 96] as const;
 
 /**
  * Box-level controls for text element selection (State 2c).
@@ -198,35 +195,10 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Font size */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Font size"
-                disabled={!store}
-                className={buttonClass}
-              >
-                Size
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Font size</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start">
-          {FONT_SIZES.map((s) => (
-            <DropdownMenuItem key={s} onClick={() => onFontSize(s)}>
-              {s}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <TextSizeStepper
-        currentSize={firstRunFontSize(firstElement)}
-        onPick={(size) => onFontSize(size)}
+      {/* Font size — input + ± steppers + click-to-open preset list */}
+      <FontSizePicker
+        value={firstRunFontSize(firstElement)}
+        onChange={(size) => onFontSize(size)}
         disabled={!store || !slideId}
       />
     </>
