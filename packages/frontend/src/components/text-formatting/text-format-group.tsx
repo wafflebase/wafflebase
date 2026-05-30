@@ -24,11 +24,12 @@ import {
   IconStrikethrough,
   IconTypography,
   IconHighlight,
-  IconLink,
   IconClearFormatting,
 } from "@tabler/icons-react";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
+import { ColorSwatchButton } from "@/components/color-swatch-button";
+import { InsertLinkButton } from "./insert-link-button";
 import { modKey } from "./platform";
 
 interface TextFormatGroupProps {
@@ -41,12 +42,36 @@ interface TextFormatGroupProps {
    * is the primary trio there; strike is rarely a first-class need).
    */
   showStrikethrough?: boolean;
+  /**
+   * Whether to render the Insert link button. Defaults to `true` so the
+   * slides text-edit toolbar (a single Format cluster) keeps it. The
+   * Docs toolbar opts out by passing `false` and places its own
+   * `InsertLinkButton` in the Insert group beside Image/Table.
+   */
+  showLink?: boolean;
+  /**
+   * CSS color string used by the Text color swatch when the current
+   * selection has no explicit `color`. Lets docs preview the rendered
+   * default (e.g. `var(--wb-ink)` which flips between light and dark
+   * themes). Undefined keeps the outlined "no value" slot — appropriate
+   * for slides text-boxes where the rendered default comes from the
+   * theme, not from a stable CSS variable.
+   */
+  defaultTextColor?: string;
+  /**
+   * CSS color string used by the Highlight swatch when no background
+   * color is set. See `defaultTextColor`.
+   */
+  defaultHighlightColor?: string;
 }
 
 export function TextFormatGroup({
   editor,
   disabled = false,
   showStrikethrough = true,
+  showLink = true,
+  defaultTextColor,
+  defaultHighlightColor,
 }: TextFormatGroupProps) {
   const selectionStyle = editor?.getSelectionStyle();
 
@@ -186,14 +211,13 @@ export function TextFormatGroup({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Text color"
+              <ColorSwatchButton
+                icon={<IconTypography size={14} />}
+                color={selectionStyle?.color || defaultTextColor}
+                label="Text color"
                 disabled={isDisabled}
                 data-text-edit-keepalive
-              >
-                <IconTypography size={16} />
-              </button>
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Text color</TooltipContent>
@@ -216,14 +240,13 @@ export function TextFormatGroup({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Highlight color"
+              <ColorSwatchButton
+                icon={<IconHighlight size={14} />}
+                color={selectionStyle?.backgroundColor || defaultHighlightColor}
+                label="Highlight color"
                 disabled={isDisabled}
                 data-text-edit-keepalive
-              >
-                <IconHighlight size={16} />
-              </button>
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Highlight color</TooltipContent>
@@ -242,20 +265,9 @@ export function TextFormatGroup({
       </DropdownMenu>
 
       {/* Link */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleInsertLink}
-            aria-label="Insert link"
-            disabled={isDisabled}
-          >
-            <IconLink size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
-      </Tooltip>
+      {showLink && (
+        <InsertLinkButton onClick={handleInsertLink} disabled={isDisabled} />
+      )}
 
       {/* Clear formatting */}
       <Tooltip>

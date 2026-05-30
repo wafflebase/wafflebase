@@ -25,7 +25,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
-import { ColorSwatchButton } from "./color-swatch-button";
+import { ColorSwatchButton } from "@/components/color-swatch-button";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup

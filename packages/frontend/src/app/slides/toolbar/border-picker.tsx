@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemedColorPicker } from '../themed-color-picker';
-import { ColorSwatchButton } from './color-swatch-button';
+import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
 
 export interface BorderPickerProps {

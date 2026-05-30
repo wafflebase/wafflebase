@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
+import { ColorSwatchButton } from "@/components/color-swatch-button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   IconBold,
@@ -501,13 +502,11 @@ export function FormattingToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Text color">
-                <IconTypography size={16} />
-                <span
-                  className="absolute mt-5 h-0.5 w-3.5 rounded"
-                  style={{ backgroundColor: style?.tc || "#000000" }}
-                />
-              </button>
+              <ColorSwatchButton
+                icon={<IconTypography size={14} />}
+                color={style?.tc || "var(--foreground)"}
+                label="Text color"
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Text color</TooltipContent>
@@ -524,16 +523,11 @@ export function FormattingToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Fill color">
-                <IconDropletHalf2Filled size={16} />
-                <span
-                  className="absolute mt-5 h-0.5 w-3.5 rounded"
-                  style={{
-                    backgroundColor: style?.bg || "transparent",
-                    border: style?.bg ? "none" : "1px solid #ccc",
-                  }}
-                />
-              </button>
+              <ColorSwatchButton
+                icon={<IconDropletHalf2Filled size={14} />}
+                color={style?.bg || "var(--background)"}
+                label="Fill color"
+              />
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Fill color</TooltipContent>

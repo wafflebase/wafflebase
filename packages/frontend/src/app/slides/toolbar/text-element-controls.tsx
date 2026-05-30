@@ -21,7 +21,7 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
-import { ColorSwatchButton } from './color-swatch-button';
+import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { TextSizeStepper } from '@/components/text-formatting';
 
 export interface TextElementControlsProps {
