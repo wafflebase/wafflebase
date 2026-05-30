@@ -1743,17 +1743,25 @@ export class TextEditor {
       return;
     }
 
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (block.type !== 'list-item') return;
+    // Gate on the focus block: Tab is the list-level shortcut, not the
+    // general indent (Cmd+] / handleIndent is). When focus lands on a
+    // plain paragraph, no-op even if the selection extends into bullets
+    // behind it — keeps Tab quiet in non-list contexts.
+    const cursorBlock = this.doc.getBlock(this.cursor.position.blockId);
+    if (cursorBlock.type !== 'list-item') return;
 
     this.saveSnapshot();
-    const currentLevel = block.listLevel ?? 0;
-    const newLevel = shift ? Math.max(0, currentLevel - 1) : Math.min(8, currentLevel + 1);
-    if (newLevel === currentLevel) return;
-
-    this.doc.setBlockType(block.id, 'list-item', {
-      listKind: block.listKind,
-      listLevel: newLevel,
+    this.forEachBlockInSelection((b) => {
+      if (b.type !== 'list-item') return;
+      const currentLevel = b.listLevel ?? 0;
+      const newLevel = shift
+        ? Math.max(0, currentLevel - 1)
+        : Math.min(8, currentLevel + 1);
+      if (newLevel === currentLevel) return;
+      this.doc.setBlockType(b.id, 'list-item', {
+        listKind: b.listKind,
+        listLevel: newLevel,
+      });
     });
     this.invalidateLayout();
     this.requestRender();
