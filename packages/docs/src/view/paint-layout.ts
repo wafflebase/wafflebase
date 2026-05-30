@@ -29,9 +29,12 @@ export interface PaintLayoutOpts {
    * Optional text caret in layout-local coordinates (i.e. relative to
    * the layout origin passed via `originX/originY`). When provided and
    * `visible` the caret is drawn after the run-content pass so it sits
-   * on top of the painted text.
+   * on top of the painted text. `color` overrides
+   * `theme.cursorColor` for this caret only — callers use it to track
+   * the resolved text color at the cursor position (so a red run shows
+   * a red caret, a light run on a dark slide stays visible).
    */
-  cursor?: { x: number; y: number; height: number; visible: boolean };
+  cursor?: { x: number; y: number; height: number; visible: boolean; color?: string };
 
   /**
    * Optional selection rectangles in layout-local coordinates. Painted
@@ -133,7 +136,7 @@ export function paintLayout(
 
   // 4. Cursor caret — drawn last so it sits on top of every run.
   if (opts.cursor?.visible) {
-    ctx.fillStyle = theme.cursorColor;
+    ctx.fillStyle = opts.cursor.color ?? theme.cursorColor;
     ctx.fillRect(
       originX + opts.cursor.x,
       originY + opts.cursor.y,

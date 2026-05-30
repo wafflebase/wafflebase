@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { computeLayout } from '../../src/view/layout.js';
 import { paintLayout } from '../../src/view/paint-layout.js';
+import { Theme } from '../../src/view/theme.js';
 import { DEFAULT_BLOCK_STYLE, type Block } from '../../src/model/types.js';
 import type { ColorResolver } from '../../src/model/color.js';
 import { StubMeasurer } from './_stub-measurer.js';
@@ -67,6 +68,53 @@ describe('paintLayout colorResolver', () => {
     const { layout } = computeLayout(blocks, measurer, 200);
     paintLayout(ctx, layout, 0, 0, { colorResolver: resolver });
     expect(fillStyles).toContain('#ff9900');
+  });
+
+  it('paints the cursor caret in the supplied cursor.color (overrides theme cursor)', () => {
+    // Distinct text and caret colors so the caret assertion cannot
+    // accidentally pass on the text-paint fillStyle.
+    const blocks: Block[] = [
+      {
+        id: 'b1',
+        type: 'paragraph',
+        inlines: [{ text: 'Hi', style: { color: '#ff0000' } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+    ];
+    const { ctx, fillStyles } = makeFakeCtx();
+    const measurer = new StubMeasurer();
+    const { layout } = computeLayout(blocks, measurer, 200);
+    paintLayout(ctx, layout, 0, 0, {
+      cursor: { x: 10, y: 0, height: 16, visible: true, color: '#00ff00' },
+    });
+    // Cursor is the LAST paint pass in paintLayout (see paint-layout.ts
+    // step 4), so the caret fillStyle is the final entry.
+    expect(fillStyles[fillStyles.length - 1]).toBe('#00ff00');
+    // Sanity: the distinct text color reached fillStyle too.
+    expect(fillStyles).toContain('#ff0000');
+  });
+
+  it('falls back to theme cursorColor when cursor.color is omitted', () => {
+    // Text color picked to differ from Theme.cursorColor so the caret
+    // assertion cannot match a stray text-paint fillStyle.
+    const blocks: Block[] = [
+      {
+        id: 'b1',
+        type: 'paragraph',
+        inlines: [{ text: 'Hi', style: { color: '#ff00ff' } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      },
+    ];
+    const { ctx, fillStyles } = makeFakeCtx();
+    const measurer = new StubMeasurer();
+    const { layout } = computeLayout(blocks, measurer, 200);
+    paintLayout(ctx, layout, 0, 0, {
+      cursor: { x: 10, y: 0, height: 16, visible: true },
+    });
+    // Cursor is the last paint pass → the final fillStyle entry must be
+    // the theme fallback exactly.
+    expect(fillStyles[fillStyles.length - 1]).toBe(Theme.cursorColor);
+    expect(Theme.cursorColor).not.toBe('#ff00ff');
   });
 
   it('falls back to theme defaultColor when the resolver returns undefined', () => {

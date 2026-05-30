@@ -45,3 +45,36 @@ export function storedColorsEqual(
 export function wrapLegacyColor(c: string | StoredColor): StoredColor {
   return c;
 }
+
+/**
+ * Resolve the visible text color at a character offset inside a single
+ * block. Finds the inline whose span covers `offset` (with the standard
+ * "cursor at the seam between two inlines belongs to the leading
+ * inline" rule used by `getStyleAtCursor` / `getSelectionStyle`), runs
+ * its `style.color` through `colorResolver`, and falls back when the
+ * inline has no color or the resolver returns `undefined`.
+ *
+ * The caret painter consumes this so the cursor tracks the text color
+ * it would assume on the next keystroke — important in slides on dark
+ * themes, where the docs `Theme.cursorColor` (light/dark mode of the
+ * docs package) does not know about deck-theme backgrounds and would
+ * otherwise paint a dark caret on a dark slide.
+ */
+export function resolveColorAtPosition(
+  block: { inlines: ReadonlyArray<{ text: string; style: { color?: StoredColor } }> } | undefined,
+  offset: number,
+  colorResolver: ColorResolver,
+  fallback: string,
+): string {
+  if (!block || block.inlines.length === 0) return fallback;
+  let pos = 0;
+  for (const inline of block.inlines) {
+    const inlineEnd = pos + inline.text.length;
+    if (offset <= inlineEnd) {
+      return colorResolver(inline.style.color) ?? fallback;
+    }
+    pos = inlineEnd;
+  }
+  const last = block.inlines[block.inlines.length - 1];
+  return colorResolver(last.style.color) ?? fallback;
+}

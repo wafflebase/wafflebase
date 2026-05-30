@@ -15,7 +15,8 @@ import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { findMarkerAt, type CommentMarker, type HighlightRect } from './comment-markers.js';
 import { Ruler, RULER_SIZE } from './ruler/index.js';
 import { computeScaleFactor } from './scale.js';
-import { setThemeMode, type ThemeMode } from './theme.js';
+import { Theme, setThemeMode, type ThemeMode } from './theme.js';
+import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
@@ -888,9 +889,24 @@ export function initialize(
     lastLogicalCanvasWidth = logicalCanvasWidth;
 
     // Hide cursor when in cell-range selection mode
-    const cursorPixel = selection.range?.tableCellRange
+    const cursorPixelRaw = selection.range?.tableCellRange
       ? undefined
       : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
+    // Caret color tracks the resolved text color at the cursor position
+    // so it stays readable when the user picks a non-default color.
+    // findBlock walks body / header / footer / cell blocks so this works
+    // regardless of editCtx.
+    const cursorPixel = cursorPixelRaw
+      ? {
+          ...cursorPixelRaw,
+          color: resolveColorAtPosition(
+            doc.findBlock(cursor.position.blockId),
+            cursor.position.offset,
+            defaultColorResolver,
+            Theme.cursorColor,
+          ),
+        }
+      : undefined;
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
@@ -1041,17 +1057,28 @@ export function initialize(
     const editCtx = textEditor?.getEditContext() ?? 'body';
 
     // Compute header/footer cursor and selection
-    let hfCursorHeader: { x: number; y: number; height: number; visible: boolean } | undefined;
-    let hfCursorFooter: { x: number; y: number; height: number; visible: boolean } | undefined;
+    let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
+    let hfCursorFooter: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
 
     if (editCtx === 'header' && headerLayout && doc.document.header) {
       const hfPage = textEditor?.getHFActivePageIndex() ?? 0;
-      hfCursorHeader = computeHFCursorPixel(
+      const hfPixel = computeHFCursorPixel(
         cursor.position, headerLayout, doc.document.header, 'header',
         paginatedLayout, measurer, logicalCanvasWidth,
         hfPage, cursor.isVisible(),
       );
+      if (hfPixel) {
+        hfCursorHeader = {
+          ...hfPixel,
+          color: resolveColorAtPosition(
+            doc.findBlock(cursor.position.blockId),
+            cursor.position.offset,
+            defaultColorResolver,
+            Theme.cursorColor,
+          ),
+        };
+      }
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, headerLayout, doc.document.header, 'header',
@@ -1061,11 +1088,22 @@ export function initialize(
     }
     if (editCtx === 'footer' && footerLayout && doc.document.footer) {
       const hfPageF = textEditor?.getHFActivePageIndex() ?? 0;
-      hfCursorFooter = computeHFCursorPixel(
+      const hfPixel = computeHFCursorPixel(
         cursor.position, footerLayout, doc.document.footer, 'footer',
         paginatedLayout, measurer, logicalCanvasWidth,
         hfPageF, cursor.isVisible(),
       );
+      if (hfPixel) {
+        hfCursorFooter = {
+          ...hfPixel,
+          color: resolveColorAtPosition(
+            doc.findBlock(cursor.position.blockId),
+            cursor.position.offset,
+            defaultColorResolver,
+            Theme.cursorColor,
+          ),
+        };
+      }
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, footerLayout, doc.document.footer, 'footer',
