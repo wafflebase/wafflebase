@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, NumNode, BoolNode } from './formula';
+import { EvalNode, ErrNode, NumNode, BoolNode, numNode } from './formula';
 import { Grid } from '../model/core/types';
 import { toStr, firstCellValue } from './functions-helpers';
 import { NumberArgs, BoolArgs } from './arguments';
@@ -87,7 +87,7 @@ export function addFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v + nb.v };
+  return numNode(na.v + nb.v);
 }
 
 export function minusFunc(
@@ -102,7 +102,7 @@ export function minusFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v - nb.v };
+  return numNode(na.v - nb.v);
 }
 
 export function multiplyFunc(
@@ -117,7 +117,7 @@ export function multiplyFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: na.v * nb.v };
+  return numNode(na.v * nb.v);
 }
 
 export function divideFunc(
@@ -133,7 +133,7 @@ export function divideFunc(
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
   if (nb.v === 0) return ErrNode.DIV0;
-  return { t: 'num', v: na.v / nb.v };
+  return numNode(na.v / nb.v);
 }
 
 export function powFunc(
@@ -148,7 +148,7 @@ export function powFunc(
   if (na.t === 'err') return na;
   const nb = NumberArgs.map(b, grid);
   if (nb.t === 'err') return nb;
-  return { t: 'num', v: Math.pow(na.v, nb.v) };
+  return numNode(Math.pow(na.v, nb.v));
 }
 
 // ─── Unary ───────────────────────────────────────────────────────────────────
