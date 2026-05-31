@@ -77,8 +77,8 @@ import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor'
 import { getActiveTheme } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
 import {
+  buildElementWorldLookup,
   findElementPath,
-  flattenElements,
   worldTightFrame,
 } from '../../model/group';
 
@@ -2487,13 +2487,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // rotated shapes/groups snap against their visible bbox.
     const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedIds);
 
-    // Lookup map for resolving connector endpoints to world coords —
-    // needed when a ghost connector's attached endpoint targets a
-    // dragged shape (the ghost line must follow the ghost shape's
-    // connection site, not snap back to the original).
-    const slideLookup = new Map<string, Element>(
-      flattenElements(startSlide.elements).map((e) => [e.id, e] as const),
-    );
+    // Needed when a ghost connector's attached endpoint targets a
+    // dragged shape: the ghost line must follow the ghost shape's
+    // connection site, not snap back to the original.
+    const slideLookup = buildElementWorldLookup(startSlide.elements);
 
     let liveDx = 0;
     let liveDy = 0;
@@ -2812,14 +2809,9 @@ class SlidesEditorImpl implements SlidesEditor {
     // once at mousedown — the opposite endpoint stays fixed for the
     // duration of this drag, so we don't need to re-resolve per move.
     const otherEndpoint = side === 'start' ? startConnector.end : startConnector.start;
-    // Use flattenElements so endpoints attached to shapes nested inside
-    // groups resolve correctly — a flat root scan would miss them and
-    // resolveEndpoint would return its {0,0} sentinel, snapping the
-    // Shift constraint to the slide origin instead of the real anchor.
-    // Mirrors the move-drag lookup above.
     const otherWorld = resolveEndpoint(
       otherEndpoint,
-      new Map(flattenElements(startSlide.elements).map((e) => [e.id, e] as const)),
+      buildElementWorldLookup(startSlide.elements),
     );
 
     const recompute = (cur: { x: number; y: number }) => {

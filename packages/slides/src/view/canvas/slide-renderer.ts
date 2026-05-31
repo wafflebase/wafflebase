@@ -1,7 +1,7 @@
 import type { Element } from '../../model/element';
 import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
-import { flattenElements } from '../../model/group';
+import { buildElementWorldLookup } from '../../model/group';
 import { resolveColor } from '../../model/theme';
 import { drawElement } from './element-renderer';
 import { drawImage } from './image-renderer';
@@ -151,16 +151,9 @@ export function drawSlide(
     drawImage(ctx, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT }, bgImage, onAssetLoad);
   }
 
-  // Iterate elements in array order = z-order, last is front.
-  // Element lookup is consumed by the connector renderer to resolve
-  // attached endpoints. Built once per slide-render so each connector
-  // doesn't rebuild it.
-  // flattenElements walks the tree DFS so elements nested inside groups
-  // are included — a connector whose endpoint targets a shape inside a
-  // group can still resolve the attachment point correctly.
-  const elementsLookup = new Map<string, Element>(
-    flattenElements(slide.elements).map((e) => [e.id, e] as const),
-  );
+  // Iterate elements in array order = z-order, last is front. Built
+  // once per slide-render so each connector doesn't rebuild it.
+  const elementsLookup = buildElementWorldLookup(slide.elements);
   for (const element of slide.elements) {
     drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
   }

@@ -173,6 +173,36 @@ This is called every render frame for any attached endpoint. No cache,
 no stale coordinates, no CRDT divergence risk. The cost is negligible
 (few attached endpoints per slide).
 
+`siteWorldPos` reads `el.frame.x/y/w/h/rotation` as **world** (slide-
+logical) coordinates. Group children, however, store their frames in
+group-local space (see `slides-group.md`) — so the lookup map handed
+to `resolveEndpoint` must lift those local frames into world coords or
+endpoints attached to grouped elements snap to the local offset
+interpreted as world (typically near the slide origin).
+
+For this, `buildElementWorldLookup(slide.elements)` in
+`packages/slides/src/model/group.ts` walks the element tree DFS,
+composes the chain of ancestor `groupToTransform`s via
+`composeGroupMatrix`, and emits each leaf with its frame rewritten
+through `applyGroupTransform`. Top-level elements pass through
+unchanged. Free connector-endpoint coords on nested connectors are
+lifted via `applyGroupTransformToPoint`. All callsites that build an
+`id → Element` map for `resolveEndpoint` / `computeConnectorFrame`
+use this helper:
+
+| Callsite | Purpose |
+| --- | --- |
+| `slide-renderer.ts` (paint pass) | resolve attached endpoints while rendering |
+| `editor.ts` (drag-move ghost) | snap ghost lines onto the dragging shape's site |
+| `editor.ts` (endpoint-drag Shift constraint) | resolve the fixed-other-end pin |
+| `overlay.ts` (selection handles) | place endpoint handles over the connector |
+| `MemSlidesStore.elementsLookup` | shared between batched connector reflows and detach-on-delete |
+
+`flattenElements` is kept for callers that only need tree iteration
+(e.g. iterating connectors to find ones that depend on a moved
+element); resolver paths must always go through
+`buildElementWorldLookup`.
+
 ### 3. Routing
 
 Three pure functions, no side effects, fully unit-testable:

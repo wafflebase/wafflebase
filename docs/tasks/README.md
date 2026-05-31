@@ -36,7 +36,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 229
+- Archived task count: 230
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: cursor follows text color (2026-05-30)
