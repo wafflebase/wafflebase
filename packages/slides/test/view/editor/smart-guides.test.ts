@@ -189,6 +189,42 @@ describe('matchSize', () => {
     expect(out.y).toBe(492); // 500 + (92 - 100).
   });
 
+  it('compensates both axes for nw handle', () => {
+    // Handle nw: both bbox.x and bbox.y are moving edges. When w/h
+    // shrink, x and y both move so the SE corner stays put.
+    const other: Frame = { x: 0, y: 0, w: 100, h: 100, rotation: 0 };
+    const bbox = { x: 500, y: 500, w: 105, h: 107 };
+    const out = matchSize(bbox, 'nw' as ResizeHandle, [other]);
+    expect(out.w).toBe(100);
+    expect(out.h).toBe(100);
+    expect(out.x).toBe(505); // 500 + (105 - 100)
+    expect(out.y).toBe(507); // 500 + (107 - 100)
+  });
+
+  it('compensates y only for ne handle (top-right corner)', () => {
+    // Handle ne: top edge moves (y compensates), right edge moves
+    // (x fixed). Only y origin shifts when h changes.
+    const other: Frame = { x: 0, y: 0, w: 100, h: 100, rotation: 0 };
+    const bbox = { x: 500, y: 500, w: 105, h: 107 };
+    const out = matchSize(bbox, 'ne' as ResizeHandle, [other]);
+    expect(out.w).toBe(100);
+    expect(out.h).toBe(100);
+    expect(out.x).toBe(500); // x fixed (right edge moved)
+    expect(out.y).toBe(507); // 500 + (107 - 100)
+  });
+
+  it('compensates x only for sw handle (bottom-left corner)', () => {
+    // Handle sw: left edge moves (x compensates), bottom edge moves
+    // (y fixed). Only x origin shifts when w changes.
+    const other: Frame = { x: 0, y: 0, w: 100, h: 100, rotation: 0 };
+    const bbox = { x: 500, y: 500, w: 105, h: 107 };
+    const out = matchSize(bbox, 'sw' as ResizeHandle, [other]);
+    expect(out.w).toBe(100);
+    expect(out.h).toBe(100);
+    expect(out.x).toBe(505); // 500 + (105 - 100)
+    expect(out.y).toBe(500); // y fixed (bottom edge moved)
+  });
+
   it('matches both axes independently for a corner handle (se)', () => {
     const otherTall: Frame = { x: 0, y: 0, w: 100, h: 200, rotation: 0 };
     const otherWide: Frame = { x: 0, y: 0, w: 300, h: 100, rotation: 0 };
