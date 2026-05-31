@@ -53,7 +53,8 @@ export function resolveEndpointWithDir(
       const site = sites[ep.siteIndex] ?? sites[0];
       return siteWorldPos(target, site);
     }
-    return { x: 0, y: 0, angle: other ? Math.atan2(other.y, other.x) : 0 };
+    // Attached-to-deleted: fall back to the origin and aim at `other`.
+    return { x: 0, y: 0, angle: other ? Math.atan2(other.y - 0, other.x - 0) : 0 };
   }
   const x = ep.x;
   const y = ep.y;

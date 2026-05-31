@@ -43,6 +43,9 @@ const ELBOW_LOOP_MARGIN = 24;
 
 function toCardinal(angle: number): Cardinal {
   const norm = ((angle % TWO_PI) + TWO_PI) % TWO_PI;
+  // Boundaries (exact π/4, 3π/4, 5π/4, 7π/4) bias clockwise — e.g. π/4
+  // snaps to South, not East. A snap function has to pick a side at the
+  // boundary; the bias is arbitrary but consistent.
   if (norm < QUARTER_PI || norm >= 7 * QUARTER_PI) {
     return { axis: 'h', sign: 1 }; // East
   }

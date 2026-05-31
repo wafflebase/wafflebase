@@ -52,6 +52,10 @@ to a follow-up PR (still requires its own overlay surface).
       clears.
 - [x] `MemSlidesStore` implements both with batch/undo guards and
       validation that the target is a connector.
+- [x] `YorkieSlidesStore` (frontend) implements both — mirrors the
+      Mem impl but reads/writes through the Yorkie proxy and
+      recomputes the cached `frame` via `slideElementsLookup` (caught
+      by code review — `verify:fast` doesn't run frontend `tsc`).
 
 ## Insertion + toolbar
 
@@ -78,12 +82,13 @@ to a follow-up PR (still requires its own overlay surface).
 
 - [x] `connection-sites/overrides.ts` — diamond / parallelogram /
       trapezoid (4-sided shapes following OOXML `[T, L, B, R]`
-      convention, rect-remap-compatible); pentagon / hexagon /
-      octagon (≥5 sites → OOXML idx ≥ 4 bypasses rect remap);
-      star4..star10 vertex anchors.
-- [x] Triangle / rtTriangle deliberately excluded — 3-site OOXML
-      `cxnLst` would be scrambled by the importer's 4-site rect
-      remap. Future: per-shape ooxml→waffle index table.
+      convention, fully rect-remap-compatible at every idx).
+- [x] Pentagon / hexagon / octagon / star4..star10 deliberately
+      held back — code review surfaced that the rect remap still
+      applies to idx 0..3 even for shapes with idx≥4 cxnLst entries,
+      so PPTX-imported n-gon connectors targeting site 1 or 3 would
+      land on the wrong vertex. Adds back together with triangle /
+      rtTriangle once the per-shape `ooxml→waffle` index table lands.
 - [x] `getConnectionSites(el)` consults `CONNECTION_SITES` and falls
       back to `fourCardinal()` for other shapes / non-shape elements.
 
@@ -113,9 +118,18 @@ to a follow-up PR (still requires its own overlay surface).
 - `elbow-bend-drag.ts` — yellow-diamond drag handle UI for adjusting
   `elbowBend` interactively. The data + routing engine already
   support it; only the overlay + interaction handler remain.
-- Per-shape connection sites for triangle / rtTriangle / 3-sided
-  OOXML cxnLst shapes (needs per-shape ooxml→waffle index table).
+- Per-shape connection sites for triangle / rtTriangle / n-gons /
+  stars — needs a per-shape ooxml→waffle index table at PPTX import
+  time (the rect remap `[0,3,2,1]` scrambles idx 0..3 for non-rect
+  cxnLst orderings).
 - Inspector-panel arrowhead picker (open variants, sm/md/lg sizes).
+- Frontend `tsc` script + wiring into `verify:fast` — currently
+  blocked by pre-existing type errors in `formatting-toolbar`,
+  `font-size-picker`, `text-format-group`, `user-presence`, and a
+  few Yorkie-proxy-typed paths in `yorkie-slides-store.ts`. Once
+  those are cleaned up, add `pnpm --filter @wafflebase/frontend
+  exec tsc -p tsconfig.app.json --noEmit` to the gate so future
+  `SlidesStore` extensions can't land with only one impl updated.
 
 ## Verification
 

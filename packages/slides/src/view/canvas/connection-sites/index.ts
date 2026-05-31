@@ -5,10 +5,13 @@ import { CONNECTION_SITES } from './overrides';
 
 /**
  * Connection sites for an element. Shapes with a `ShapeKind` entry in
- * `CONNECTION_SITES` (triangle / diamond / parallelogram / trapezoid /
- * regular n-gons / stars …) use the override list; everything else falls
- * back to the default 4-cardinal midpoints. Connectors and non-shape
- * elements (text / image / table / chart) always get the cardinal set.
+ * `CONNECTION_SITES` (diamond / parallelogram / trapezoid today) use
+ * the override list; everything else falls back to the default
+ * 4-cardinal midpoints. Connectors and non-shape elements (text /
+ * image / table / chart) always get the cardinal set. See
+ * `overrides.ts` for the scope rationale and the held-back shape list
+ * (triangle / rtTriangle / n-gons), which need a per-shape
+ * `cxnLst → waffle` index table before they can ship.
  */
 export function getConnectionSites(el: Element): readonly ConnectionSite[] {
   if (el.type === 'shape') {

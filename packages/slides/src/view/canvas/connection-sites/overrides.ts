@@ -9,27 +9,32 @@ import type { ShapeKind } from '../../../model/element';
 
 /**
  * Per-`ShapeKind` connection-site overrides. Shapes whose default
- * 4-cardinal midpoints are clearly wrong (vertex-anchored geometry,
- * skewed quadrilaterals, regular n-gons) declare their own anchor list
- * here so attached connectors land on the visually-correct point.
- * Shapes not in the map fall back to `fourCardinal()`.
+ * 4-cardinal midpoints are wrong for their geometry (4-sided shapes
+ * with vertex-anchored cxnLst or skewed quadrilaterals) declare their
+ * own anchor list here. Shapes not in the map fall back to
+ * `fourCardinal()`.
  *
- * Overrides are gated to shapes whose OOXML `cxnLst` ordering is
- * compatible with the importer's rect-family `[T,L,B,R] → [N,E,S,W]`
- * index remap (`OOXML_TO_WAFFLE_RECT_SITE_INDEX` in
- * `import/pptx/shape.ts`):
+ * Scope is intentionally narrow. Overrides ship only for shapes whose
+ * OOXML `cxnLst` ordering matches the importer's rect-family
+ * `[T,L,B,R] → [N,E,S,W]` index remap
+ * (`OOXML_TO_WAFFLE_RECT_SITE_INDEX` in `import/pptx/shape.ts`):
  *
- * - 4-sided shapes whose OOXML cxnLst follows the rect convention
- *   ([T, L, B, R]) — diamond, parallelogram, trapezoid, star4.
- * - 5+ sided shapes where OOXML `idx >= 4` bypasses the remap entirely
- *   (`?? idx`) — pentagon, hexagon, octagon, star5/6/7/8/10.
+ * - 4-sided shapes following the rect `[T, L, B, R]` cxnLst convention
+ *   — diamond, parallelogram, trapezoid. Native authoring AND PPTX
+ *   import both land on the correct anchor.
  *
- * Triangle / rtTriangle (3-site OOXML cxnLst) are intentionally absent
- * — the rect remap would scramble their indices. Adding them needs a
- * per-shape ooxml→waffle index table.
+ * Held back pending a per-shape `cxnLst → waffle` index table:
+ *
+ * - Triangle / rtTriangle (3-site OOXML cxnLst) — the rect remap
+ *   would scramble idx 1 / 2 onto the wrong vertex.
+ * - n-gons (pentagon / hexagon / octagon / star4..star10) — vertex
+ *   ordering is clockwise-from-apex, not `[T, L, B, R]`. Idx 0..3 in
+ *   PPTX cxnLst would still pass through the rect remap and land on
+ *   the wrong vertex. Native-authored connectors would work, but a
+ *   round-tripped PPTX file targeting an n-gon's idx 1 or 3 site
+ *   would render at the wrong tip. The follow-up adds per-shape
+ *   remap tables for these.
  */
-
-const TOP_VERTEX: ConnectionSite = { x: 0.5, y: 0, angle: DIR_N };
 
 /** 4-vertex diamond, ordered [N, E, S, W] for rect-remap compatibility. */
 const DIAMOND_SITES: readonly ConnectionSite[] = Object.freeze([
@@ -64,43 +69,6 @@ const TRAPEZOID_SITES: readonly ConnectionSite[] = Object.freeze([
   { x: 0,   y: 0.5, angle: DIR_W },
 ]);
 
-/**
- * Regular polygon outer-vertex helper — apex-up, evenly spaced around
- * centre. Index 0 = top vertex; subsequent indices step clockwise.
- */
-function regularPolygonVertices(n: number): ConnectionSite[] {
-  const sites: ConnectionSite[] = [];
-  for (let i = 0; i < n; i++) {
-    const theta = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    const x = 0.5 + 0.5 * Math.cos(theta);
-    const y = 0.5 + 0.5 * Math.sin(theta);
-    sites.push({ x, y, angle: theta });
-  }
-  return sites;
-}
-
-const PENTAGON_SITES = Object.freeze(regularPolygonVertices(5));
-const HEXAGON_SITES = Object.freeze(regularPolygonVertices(6));
-const OCTAGON_SITES = Object.freeze(regularPolygonVertices(8));
-
-/**
- * N-pointed star outer-tip anchors. PowerPoint also exposes inner
- * vertices for stars; we ship the outer ring only, which covers the
- * "connect to a star tip" case.
- */
-function starOuterTips(n: number): readonly ConnectionSite[] {
-  return Object.freeze(regularPolygonVertices(n));
-}
-
-const STAR_SITES: Partial<Record<ShapeKind, readonly ConnectionSite[]>> = {
-  star4: starOuterTips(4),
-  star5: starOuterTips(5),
-  star6: starOuterTips(6),
-  star7: starOuterTips(7),
-  star8: starOuterTips(8),
-  star10: starOuterTips(10),
-};
-
 export const CONNECTION_SITES: ReadonlyMap<
   ShapeKind,
   readonly ConnectionSite[]
@@ -109,13 +77,7 @@ export const CONNECTION_SITES: ReadonlyMap<
     diamond: DIAMOND_SITES,
     parallelogram: PARALLELOGRAM_SITES,
     trapezoid: TRAPEZOID_SITES,
-    pentagon: PENTAGON_SITES,
-    hexagon: HEXAGON_SITES,
-    octagon: OCTAGON_SITES,
-    ...STAR_SITES,
   } satisfies Partial<Record<ShapeKind, readonly ConnectionSite[]>>) as Array<
     [ShapeKind, readonly ConnectionSite[]]
   >,
 );
-
-export { TOP_VERTEX };

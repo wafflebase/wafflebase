@@ -81,3 +81,52 @@ cxnLst length ≠ 4 OR whose ordering deviates from `[T, L, B, R]`,
 either (a) add a per-shape `cxnLst → waffle` index table at import
 time, or (b) hold the override back until that table exists. Don't
 silently rely on the rect-family map for non-rect shapes.
+
+The first review pass missed that n-gons (pentagon/hexagon/etc.)
+ALSO hit the rect remap for idx 0..3 — only idx ≥ 4 bypasses it.
+"5+ sided shapes skip the remap" was the wrong mental model.
+
+## `SlidesStore` is implemented twice — extending the interface needs both
+
+Adding a method to `SlidesStore` requires updating BOTH `MemSlidesStore`
+(package-local, tested in `packages/slides`) AND
+`YorkieSlidesStore` (`packages/frontend/src/app/slides/`). The latter
+is the production store; `MemSlidesStore` is only used in tests.
+
+**Why:** `verify:fast` runs slides tests against `MemSlidesStore` and
+frontend `vitest`, but does NOT run frontend `tsc`. So a slides
+interface extension can land green with the production store missing
+the method — the user clicks the new action in production and gets
+`TypeError: store.updateConnectorRouting is not a function`. Caught
+in code review here; would have been an unhandled exception at the
+right-click handler in production.
+
+**How to apply:** Every change to `packages/slides/src/store/store.ts`
+needs a paired diff hunk in
+`packages/frontend/src/app/slides/yorkie-slides-store.ts`. Until
+`verify:fast` runs frontend `tsc`, do it manually as part of the
+change checklist — and consider extracting a shared
+`SlidesStoreInterface.test.ts` (passes both impls through the same
+contract) so an interface drift fails a test, not just `tsc`.
+
+## `verify:fast` doesn't run frontend `tsc` — a lane gap
+
+The frontend package has no `typecheck` script and `verify:fast`
+doesn't invoke `tsc -p tsconfig.app.json` on it. The build (`vite
+build`) does its own emit-time check, but `verify:fast` skips builds
+to stay fast. Net effect: type-system regressions on the frontend
+side land green.
+
+**Why:** there are pre-existing type errors in `formatting-toolbar`,
+`font-size-picker`, `text-format-group`, `user-presence`, and a few
+proxy-typed Yorkie paths in `yorkie-slides-store.ts`. Adding a strict
+typecheck script and wiring it into `verify:fast` would block on
+those first. The right move is a follow-up: clean up the pre-existing
+errors, add the typecheck script, then wire into the gate.
+
+**How to apply:** until the lane gap closes, any extension to a
+shared interface (`SlidesStore`, `DocsStore`, `Store`) needs the
+implementer to manually run
+`pnpm --filter @wafflebase/frontend exec tsc -p tsconfig.app.json
+--noEmit` and confirm the implementing class still satisfies the
+interface.

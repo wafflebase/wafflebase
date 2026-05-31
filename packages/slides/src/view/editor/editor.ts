@@ -1691,7 +1691,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // unambiguous; the radio reflects the current routing.
     const connectorItems: ContextMenuItem[] = [];
     if (selectedIds.length === 1 && slide) {
-      const el = slide.elements.find((e) => e.id === selectedIds[0]);
+      // Walk the element tree so the right-click menu still surfaces
+      // text/connector items when the selection is a drilled-in group
+      // child (whose id isn't in `slide.elements` directly).
+      const el = findElement(slide.elements, selectedIds[0]);
       if (el?.type === 'text') {
         const current = el.data.verticalAnchor ?? 'top';
         const elementId = el.id;

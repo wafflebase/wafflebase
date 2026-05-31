@@ -183,6 +183,34 @@ describe('routeElbow', () => {
     expect(path.points[2]).toEqual({ x: 100, y: loopY });
   });
 
+  it('parallel-same (N + N) — vertical C past the further-north endpoint', () => {
+    // Both exits north (negative y) → C-shape loops above min(a.y, b.y).
+    // Locks down the ac.sign === -1 branch (the S+S case only covered +1).
+    const path = routeElbow(
+      { x: 0, y: 80 }, DIR_N,
+      { x: 100, y: 0 }, DIR_N,
+    );
+    expect(path.points).toHaveLength(4);
+    expect(path.points[0]).toEqual({ x: 0, y: 80 });
+    expect(path.points[3]).toEqual({ x: 100, y: 0 });
+    const loopY = path.points[1].y;
+    expect(loopY).toBeLessThan(0); // north of min(80, 0) = 0
+    expect(path.points[1]).toEqual({ x: 0, y: loopY });
+    expect(path.points[2]).toEqual({ x: 100, y: loopY });
+  });
+
+  it('parallel-same (W + W) — horizontal C past the further-west endpoint', () => {
+    const path = routeElbow(
+      { x: 80, y: 0 }, DIR_W,
+      { x: 0, y: 60 }, DIR_W,
+    );
+    expect(path.points).toHaveLength(4);
+    const loopX = path.points[1].x;
+    expect(loopX).toBeLessThan(0); // west of min(80, 0) = 0
+    expect(path.points[1]).toEqual({ x: loopX, y: 0 });
+    expect(path.points[2]).toEqual({ x: loopX, y: 60 });
+  });
+
   it('honours the bend parameter on the parallel-opposite Z case', () => {
     // Default bend = 0.5 → mid x = 100. bend = 0.25 → mid x = 50.
     const path = routeElbow(

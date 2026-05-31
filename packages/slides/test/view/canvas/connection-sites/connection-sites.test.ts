@@ -125,17 +125,17 @@ describe('getConnectionSites overrides', () => {
     expect(sites[3]).toMatchObject({ x: 0, y: 0.5 });
   });
 
-  it('pentagon override gives 5 vertex anchors apex-up', () => {
+  it('pentagon (n-gon) still falls back to cardinal — overrides held back', () => {
+    // Pentagon / hexagon / octagon / star_n overrides are deferred until
+    // a per-shape cxnLst→waffle index table exists. Until then the
+    // default 4-cardinal keeps PPTX round-trip correct for idx 1/3.
     const el: Element = {
       id: 'p',
       type: 'shape',
       frame: rectFrame,
       data: { kind: 'pentagon' },
     };
-    const sites = getConnectionSites(el);
-    expect(sites).toHaveLength(5);
-    expect(sites[0].x).toBeCloseTo(0.5);
-    expect(sites[0].y).toBeCloseTo(0); // apex up
+    expect(getConnectionSites(el)).toEqual(fourCardinal());
   });
 
   it('non-shape elements always use cardinal', () => {
