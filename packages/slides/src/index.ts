@@ -69,6 +69,7 @@ export {
   applyGroupTransform,
   applyInverseMatrix,
   applyInversePoint,
+  buildElementWorldLookup,
   composeAncestorTransform,
   composeGroupMatrix,
   findElementPath,

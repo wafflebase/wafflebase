@@ -1,5 +1,8 @@
 import type { Element, Frame, GroupElement } from './element';
-import { applyGroupTransform as applyMatrix } from '../import/pptx/group';
+import {
+  applyGroupTransform as applyMatrix,
+  applyGroupTransformToPoint,
+} from '../import/pptx/group';
 import type { GroupTransform } from '../import/pptx/group';
 import { boundingBox } from './frame';
 
@@ -365,10 +368,11 @@ export function worldTightFrame(group: GroupElement): {
 
 /**
  * DFS walk of an element tree that returns a flat list containing every
- * element at every depth. Used by `slide-renderer.ts` to build an
- * `elementsLookup` that includes elements nested inside groups, so that
- * connector endpoints referencing elements inside groups can resolve
- * correctly.
+ * element at every depth. Used internally by `buildElementWorldLookup`
+ * and by store-level connector bookkeeping that only needs the tree
+ * topology — callers that resolve connector endpoints (via
+ * `resolveEndpoint` / `siteWorldPos`) must use `buildElementWorldLookup`
+ * instead, since this helper preserves group-local frames as-is.
  */
 export function flattenElements(elements: Element[]): Element[] {
   const result: Element[] = [];
@@ -379,4 +383,83 @@ export function flattenElements(elements: Element[]): Element[] {
     }
   }
   return result;
+}
+
+/**
+ * Build an `id → Element` lookup where every element is returned with
+ * its **world** frame — group transforms composed up the ancestor
+ * chain. `siteWorldPos` reads `frame.x/y/w/h/rotation` as world
+ * coords, so handing it a group-local frame makes connectors that
+ * attach to elements inside a group land at the wrong position (see
+ * the slide-24 PPTX bug where a connector targeting a `<p:pic>`
+ * nested in a `<p:grpSp>` rendered near the slide origin).
+ *
+ * Top-level elements pass through by reference. Anything below a
+ * group is shallow-cloned with `applyMatrix` (free connector endpoints
+ * via `applyGroupTransformToPoint`). The return type is `ReadonlyMap`
+ * — treat the values as read-only since some entries alias the live
+ * document.
+ */
+export function buildElementWorldLookup(
+  elements: readonly Element[],
+): ReadonlyMap<string, Element> {
+  const out = new Map<string, Element>();
+  walkWorld(elements, 0, IDENTITY_GROUP_TRANSFORM, out);
+  return out;
+}
+
+function walkWorld(
+  elements: readonly Element[],
+  depth: number,
+  accum: GroupTransform,
+  out: Map<string, Element>,
+): void {
+  for (const el of elements) {
+    if (el.type === 'group') {
+      // Recurse first so children pick up the composed transform.
+      // `groupToTransform` reads `el.frame` as a transform local to its
+      // parent space; composing with `accum` (which maps that parent
+      // space to world) yields the correct world transform for
+      // children, regardless of how deeply nested.
+      const next = composeGroupMatrix(accum, groupToTransform(el));
+      walkWorld(el.data.children, depth + 1, next, out);
+      // Then lift the group's own frame into world. At depth 0 the
+      // frame is already in world space.
+      out.set(el.id, depth === 0 ? el : { ...el, frame: applyMatrix(el.frame, accum) });
+      continue;
+    }
+    if (depth === 0) {
+      out.set(el.id, el);
+      continue;
+    }
+    if (el.type === 'connector') {
+      // Connector children can be produced by PPTX import (`<p:cxnSp>`
+      // inside `<p:grpSp>`); the editor-side `group()` op forbids
+      // them. Lift `free` endpoints so cross-group resolution sees a
+      // consistent space; the renderer's separate v2 TODO around
+      // painting nested connectors is tracked in `element-renderer.ts`.
+      const start =
+        el.start.kind === 'free'
+          ? {
+              kind: 'free' as const,
+              ...applyGroupTransformToPoint(el.start.x, el.start.y, accum),
+            }
+          : el.start;
+      const end =
+        el.end.kind === 'free'
+          ? {
+              kind: 'free' as const,
+              ...applyGroupTransformToPoint(el.end.x, el.end.y, accum),
+            }
+          : el.end;
+      out.set(el.id, {
+        ...el,
+        frame: applyMatrix(el.frame, accum),
+        start,
+        end,
+      });
+      continue;
+    }
+    out.set(el.id, { ...el, frame: applyMatrix(el.frame, accum) });
+  }
 }

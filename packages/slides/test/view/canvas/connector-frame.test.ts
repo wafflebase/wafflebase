@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectorElement } from '../../../src/model/connector';
-import type { Element } from '../../../src/model/element';
+import type { Element, GroupElement, ShapeElement } from '../../../src/model/element';
+import { buildElementWorldLookup } from '../../../src/model/group';
 import { computeConnectorFrame } from '../../../src/view/canvas/connector-frame';
 
 const baseConnector = (
@@ -62,5 +63,147 @@ describe('computeConnectorFrame', () => {
     expect(f.y).toBeCloseTo(-1);
     expect(f.w).toBeCloseTo(52);
     expect(f.h).toBeCloseTo(52);
+  });
+
+  it('attached to shape nested in a group: resolves through group transform', () => {
+    // Reproduces the slide-24 PPTX bug: a top-level connector targets a
+    // shape inside a <p:grpSp>. Group children store their frames in
+    // group-local coords, so the lookup MUST hand the connector a
+    // world-frame view of the nested target — otherwise siteWorldPos
+    // would treat the local (10, 5) offset as world coordinates.
+    const child: ShapeElement = {
+      id: 'child',
+      type: 'shape',
+      // group-local frame inside the group's (0..refSize.w × 0..refSize.h) space
+      frame: { x: 10, y: 5, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const group: GroupElement = {
+      id: 'g',
+      type: 'group',
+      frame: { x: 500, y: 300, w: 200, h: 200, rotation: 0 },
+      data: { children: [child], refSize: { w: 200, h: 200 } },
+    };
+    const c = baseConnector(
+      { kind: 'free', x: 0, y: 0 },
+      { kind: 'attached', elementId: 'child', siteIndex: 1 }, // E of child
+    );
+    const lookup = buildElementWorldLookup([group]);
+    const f = computeConnectorFrame(c, lookup);
+    // child's world frame: (500+10, 300+5, 100, 100) → east site (610, 355).
+    // bbox of (0,0)-(610,355) ± stroke half-width (= 1).
+    expect(f.x).toBeCloseTo(-1);
+    expect(f.y).toBeCloseTo(-1);
+    expect(f.w).toBeCloseTo(612);
+    expect(f.h).toBeCloseTo(357);
+  });
+});
+
+describe('buildElementWorldLookup', () => {
+  it('top-level elements pass through with their own frames', () => {
+    const a: Element = {
+      id: 'a',
+      type: 'shape',
+      frame: { x: 10, y: 20, w: 30, h: 40, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const lookup = buildElementWorldLookup([a]);
+    expect(lookup.get('a')?.frame).toEqual(a.frame);
+  });
+
+  it('group children come back with composed world frames', () => {
+    const child: ShapeElement = {
+      id: 'child',
+      type: 'shape',
+      frame: { x: 10, y: 5, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const group: GroupElement = {
+      id: 'g',
+      type: 'group',
+      frame: { x: 500, y: 300, w: 200, h: 200, rotation: 0 },
+      data: { children: [child], refSize: { w: 200, h: 200 } },
+    };
+    const lookup = buildElementWorldLookup([group]);
+    const w = lookup.get('child')?.frame;
+    expect(w?.x).toBeCloseTo(510);
+    expect(w?.y).toBeCloseTo(305);
+    expect(w?.w).toBeCloseTo(100);
+    expect(w?.h).toBeCloseTo(100);
+  });
+
+  it('nested groups compose transforms', () => {
+    const leaf: ShapeElement = {
+      id: 'leaf',
+      type: 'shape',
+      frame: { x: 1, y: 2, w: 10, h: 10, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const inner: GroupElement = {
+      id: 'inner',
+      type: 'group',
+      frame: { x: 100, y: 200, w: 50, h: 50, rotation: 0 },
+      data: { children: [leaf], refSize: { w: 50, h: 50 } },
+    };
+    const outer: GroupElement = {
+      id: 'outer',
+      type: 'group',
+      frame: { x: 1000, y: 2000, w: 300, h: 300, rotation: 0 },
+      data: { children: [inner], refSize: { w: 300, h: 300 } },
+    };
+    const lookup = buildElementWorldLookup([outer]);
+    const w = lookup.get('leaf')?.frame;
+    // outer translates (100,200)→(1100,2200); leaf adds (1,2) → (1101, 2202).
+    expect(w?.x).toBeCloseTo(1101);
+    expect(w?.y).toBeCloseTo(2202);
+  });
+
+  it('nested groups themselves are lifted to world frames', () => {
+    // Guards against the case where a connector attaches to a nested
+    // GROUP element (rare but possible — `siteIndex` works on any
+    // element). The inner group's stored frame is in the OUTER group's
+    // local space; the lookup must lift it through the outer transform
+    // or `siteWorldPos` reads the local offset as world.
+    const inner: GroupElement = {
+      id: 'inner',
+      type: 'group',
+      frame: { x: 100, y: 200, w: 50, h: 50, rotation: 0 },
+      data: { children: [], refSize: { w: 50, h: 50 } },
+    };
+    const outer: GroupElement = {
+      id: 'outer',
+      type: 'group',
+      frame: { x: 1000, y: 2000, w: 300, h: 300, rotation: 0 },
+      data: { children: [inner], refSize: { w: 300, h: 300 } },
+    };
+    const lookup = buildElementWorldLookup([outer]);
+    expect(lookup.get('inner')?.frame.x).toBeCloseTo(1100);
+    expect(lookup.get('inner')?.frame.y).toBeCloseTo(2200);
+    // Outer (top-level) keeps its already-world frame untouched.
+    expect(lookup.get('outer')?.frame).toEqual(outer.frame);
+  });
+
+  it('group scaling propagates to children', () => {
+    const child: ShapeElement = {
+      id: 'child',
+      type: 'shape',
+      frame: { x: 10, y: 10, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    // frame.w / refSize.w = 200/100 = 2× horizontal scale.
+    const group: GroupElement = {
+      id: 'g',
+      type: 'group',
+      frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+      data: { children: [child], refSize: { w: 100, h: 100 } },
+    };
+    const lookup = buildElementWorldLookup([group]);
+    const w = lookup.get('child')?.frame;
+    // Centre scales 2× horizontally: child local centre (35, 35) →
+    // world centre (70, 35); width 50 → 100, height 50 → 50.
+    expect(w?.x).toBeCloseTo(20);
+    expect(w?.y).toBeCloseTo(10);
+    expect(w?.w).toBeCloseTo(100);
+    expect(w?.h).toBeCloseTo(50);
   });
 });

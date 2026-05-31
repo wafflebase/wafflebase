@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 229
+Total archived tasks: 230
 
-## 2026/05 (84 tasks)
+## 2026/05 (85 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | slides body click deselect (2026-05-31) | [20260531-slides-body-click-deselect-todo.md](./2026/05/20260531-slides-body-click-deselect-todo.md) | [20260531-slides-body-click-deselect-lessons.md](./2026/05/20260531-slides-body-click-deselect-lessons.md) |
+| slides group nested connector (2026-05-31) | [20260531-slides-group-nested-connector-todo.md](./2026/05/20260531-slides-group-nested-connector-todo.md) | [20260531-slides-group-nested-connector-lessons.md](./2026/05/20260531-slides-group-nested-connector-lessons.md) |
 | design docs cleanup (2026-05-30) | [20260530-design-docs-cleanup-todo.md](./2026/05/20260530-design-docs-cleanup-todo.md) | [20260530-design-docs-cleanup-lessons.md](./2026/05/20260530-design-docs-cleanup-lessons.md) |
 | docs tab multi bullet (2026-05-30) | [20260530-docs-tab-multi-bullet-todo.md](./2026/05/20260530-docs-tab-multi-bullet-todo.md) | [20260530-docs-tab-multi-bullet-lessons.md](./2026/05/20260530-docs-tab-multi-bullet-lessons.md) |
 | docs toolbar groups (2026-05-30) | [20260530-docs-toolbar-groups-todo.md](./2026/05/20260530-docs-toolbar-groups-todo.md) | [20260530-docs-toolbar-groups-lessons.md](./2026/05/20260530-docs-toolbar-groups-lessons.md) |

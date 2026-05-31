@@ -7,6 +7,7 @@ import {
   siteWorldPos,
 } from '../canvas/connection-sites';
 import { resolveEndpoint } from '../canvas/connector-frame';
+import { buildElementWorldLookup } from '../../model/group';
 import type { SnapGuide } from './snap';
 import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
 import {
@@ -272,9 +273,7 @@ function renderConnectorEndpointHandles(
   options: OverlayOptions,
 ): void {
   const { scale, allElements } = options;
-  const map = new Map<string, Element>(
-    (allElements ?? []).map((e) => [e.id, e]),
-  );
+  const map = buildElementWorldLookup(allElements ?? []);
   const a = resolveEndpoint(connector.start, map);
   const b = resolveEndpoint(connector.end, map);
   overlay.appendChild(

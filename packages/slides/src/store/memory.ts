@@ -28,6 +28,7 @@ import {
   applyGroupTransform,
   applyInverseMatrix,
   applyInversePoint,
+  buildElementWorldLookup,
   composeAncestorTransform,
   findElementPath,
   flattenElements,
@@ -1026,17 +1027,11 @@ export class MemSlidesStore implements SlidesStore {
     }
   }
 
-  /**
-   * Read-only id → Element map for the given slide. Walks the full
-   * element tree (including elements nested inside groups) so that
-   * connector frame helpers can resolve attached endpoints regardless
-   * of group depth.
-   */
+  /** Read-only id → Element map (with world frames) for the given slide. */
   private elementsLookup(slideId: string): ReadonlyMap<string, Element> {
     const i = this.doc.slides.findIndex((s) => s.id === slideId);
     if (i === -1) return new Map();
-    const slide = this.doc.slides[i];
-    return new Map(flattenElements(slide.elements).map((e) => [e.id, e] as const));
+    return buildElementWorldLookup(this.doc.slides[i].elements);
   }
 
   /**
@@ -1048,7 +1043,7 @@ export class MemSlidesStore implements SlidesStore {
    */
   private detachConnectorsTargeting(slide: Slide, targetId: string): void {
     const allElements = flattenElements(slide.elements);
-    const lookup = new Map(allElements.map((e) => [e.id, e] as const));
+    const lookup = buildElementWorldLookup(slide.elements);
     for (const el of allElements) {
       if (el.type !== 'connector') continue;
       let mutated = false;
