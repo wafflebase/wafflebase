@@ -234,6 +234,105 @@ export function smartGuides(
     }
   }
 
+  // Equal-distance — collect known gaps, then test each non-dragged
+  // neighbour on the same row/col against every known gap.
+  type KnownGap = {
+    axis: 'x' | 'y';
+    gap: number;
+    left: Frame; right: Frame;  // for X; reused names for Y (top/bottom)
+  };
+  const knownGapsX: KnownGap[] = [];
+  const knownGapsY: KnownGap[] = [];
+  for (let i = 0; i < others.length; i++) {
+    for (let j = 0; j < others.length; j++) {
+      if (i === j) continue;
+      const a = others[i];
+      const b = others[j];
+      if (overlapsRow(d, a) && overlapsRow(d, b) && a.x + a.w < b.x) {
+        knownGapsX.push({ axis: 'x', gap: b.x - (a.x + a.w), left: a, right: b });
+      }
+      if (overlapsCol(d, a) && overlapsCol(d, b) && a.y + a.h < b.y) {
+        knownGapsY.push({ axis: 'y', gap: b.y - (a.y + a.h), left: a, right: b });
+      }
+    }
+  }
+  // For each neighbour on the same row, try to match each known gap.
+  for (const c of others) {
+    if (!overlapsRow(d, c)) continue;
+    for (const kg of knownGapsX) {
+      // Skip when the neighbour IS one of the gap's endpoints.
+      if (c === kg.left || c === kg.right) continue;
+      if (c.x + c.w <= d.leftPx) {
+        // C is on the left of dragged → gap(C, dragged) = drag.left - C.right.
+        const target = c.x + c.w + kg.gap;
+        const adjust = target - d.leftPx;
+        tryX({
+          adjust,
+          guide: {
+            kind: 'equal-distance',
+            axis: 'x',
+            spans: [
+              { from: kg.left.x + kg.left.w, to: kg.right.x, perpendicular: kg.left.y + kg.left.h / 2 },
+              { from: c.x + c.w, to: d.leftPx + adjust,      perpendicular: d.centerYPx },
+            ],
+          },
+        });
+      }
+      if (c.x >= d.rightPx) {
+        // C is on the right → gap(dragged, C) = C.left - drag.right.
+        const target = c.x - kg.gap;
+        const adjust = target - d.rightPx;
+        tryX({
+          adjust,
+          guide: {
+            kind: 'equal-distance',
+            axis: 'x',
+            spans: [
+              { from: kg.left.x + kg.left.w, to: kg.right.x, perpendicular: kg.left.y + kg.left.h / 2 },
+              { from: d.rightPx + adjust, to: c.x,           perpendicular: d.centerYPx },
+            ],
+          },
+        });
+      }
+    }
+  }
+  for (const c of others) {
+    if (!overlapsCol(d, c)) continue;
+    for (const kg of knownGapsY) {
+      if (c === kg.left || c === kg.right) continue;
+      if (c.y + c.h <= d.topPx) {
+        const target = c.y + c.h + kg.gap;
+        const adjust = target - d.topPx;
+        tryY({
+          adjust,
+          guide: {
+            kind: 'equal-distance',
+            axis: 'y',
+            spans: [
+              { from: kg.left.y + kg.left.h, to: kg.right.y, perpendicular: kg.left.x + kg.left.w / 2 },
+              { from: c.y + c.h, to: d.topPx + adjust,       perpendicular: d.centerXPx },
+            ],
+          },
+        });
+      }
+      if (c.y >= d.bottomPx) {
+        const target = c.y - kg.gap;
+        const adjust = target - d.bottomPx;
+        tryY({
+          adjust,
+          guide: {
+            kind: 'equal-distance',
+            axis: 'y',
+            spans: [
+              { from: kg.left.y + kg.left.h, to: kg.right.y, perpendicular: kg.left.x + kg.left.w / 2 },
+              { from: d.bottomPx + adjust, to: c.y,          perpendicular: d.centerXPx },
+            ],
+          },
+        });
+      }
+    }
+  }
+
   const guides: SmartGuide[] = [];
   if (bestX) guides.push((bestX as Cand).guide);
   if (bestY) guides.push((bestY as Cand).guide);

@@ -111,3 +111,42 @@ describe('smartGuides — equal-spacing (dragged on an end)', () => {
     expect(out.guides).toEqual([]);
   });
 });
+
+describe('smartGuides — equal-distance (pair matches known gap)', () => {
+  // Known pair A--B on the same row at y=100; gap = 80.
+  const A: Frame = { x: 0,   y: 100, w: 100, h: 100, rotation: 0 };
+  const B: Frame = { x: 180, y: 100, w: 100, h: 100, rotation: 0 };
+  // Neighbour C in the same row, off to the right.
+  const C: Frame = { x: 500, y: 100, w: 100, h: 100, rotation: 0 };
+
+  it('snaps dragged so gap(C, dragged) == gap(A, B)', () => {
+    // gap(A, B) = 80. dragged needs left = C.right + 80 = 680.
+    // Place dragged at left=683 -> adjust = -3.
+    const bbox = { x: 683, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [A, B, C]);
+    expect(out.dx).toBe(-3);
+    expect(out.guides[0].kind).toBe('equal-distance');
+  });
+
+  it('snaps dragged on the left of C using the same known gap', () => {
+    // dragged.right = C.left - 80 = 420. dragged.x = 370 if w=50.
+    // Place dragged at x=372 -> adjust = -2.
+    const bbox = { x: 372, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [A, B, C]);
+    expect(out.dx).toBe(-2);
+    expect(out.guides[0].kind).toBe('equal-distance');
+  });
+
+  it('uses smallest |adjust| when only equal-spacing qualifies', () => {
+    // With dragged at x=103 (w=50), only the a-dragged-b middle trio
+    // qualifies — no equal-distance candidate is within threshold.
+    // gapL = 103-50 = 53, gapR = 200-153 = 47, adjust = (47-53)/2 = -3.
+    const a: Frame = { x: 0,   y: 100, w: 50, h: 50, rotation: 0 };
+    const b: Frame = { x: 200, y: 100, w: 50, h: 50, rotation: 0 };
+    const c: Frame = { x: 400, y: 100, w: 50, h: 50, rotation: 0 };
+    const bbox = { x: 103, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [a, b, c]);
+    expect(out.guides[0].kind).toBe('equal-spacing');
+    expect(out.dx).toBe(-3);
+  });
+});
