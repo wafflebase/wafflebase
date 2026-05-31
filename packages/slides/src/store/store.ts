@@ -172,6 +172,18 @@ export interface SlidesStore {
     elementId: string,
     fn: (blocks: Block[]) => Block[] | void,
   ): void;
+  /**
+   * Mutate the optional inline text body of a shape element
+   * (`data.text.blocks`). Implementations seed an empty body when
+   * `data.text` is absent and drop the field again on commit if the
+   * resulting blocks carry no visible characters, so freshly-inserted
+   * shapes never accumulate empty `<p:txBody>` cruft.
+   */
+  withShapeText(
+    slideId: string,
+    elementId: string,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

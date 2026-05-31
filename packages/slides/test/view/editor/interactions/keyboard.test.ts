@@ -398,10 +398,9 @@ describe('keyboard — F2 / Enter enters text edit', () => {
     expect(editor.getEditingElementId()).toBe(textId);
   });
 
-  it('does not enter edit mode for non-text elements', () => {
+  it('Enter on a selected shape enters edit mode (PowerPoint / Google Slides parity)', () => {
     const { editor: e, store, mountedSpy } = fixtureWithTextElement();
     editor = e;
-    // The non-text element from makeFixture style — add a shape and select it instead.
     let shapeId = '';
     store.batch(() => {
       shapeId = store.addElement(store.read().slides[0].id, {
@@ -412,6 +411,86 @@ describe('keyboard — F2 / Enter enters text edit', () => {
     });
     editor.setSelection([shapeId]);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mountedSpy).toHaveBeenCalledTimes(1);
+    expect(editor.getEditingElementId()).toBe(shapeId);
+  });
+
+  it('does not enter edit mode for non-text, non-shape elements (image)', () => {
+    const { editor: e, store, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    let imageId = '';
+    store.batch(() => {
+      imageId = store.addElement(store.read().slides[0].id, {
+        type: 'image',
+        frame: { x: 300, y: 100, w: 100, h: 60, rotation: 0 },
+        data: { src: 'about:blank' },
+      });
+    });
+    editor.setSelection([imageId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mountedSpy).not.toHaveBeenCalled();
+    expect(editor.getEditingElementId()).toBe(null);
+  });
+
+  it('type-to-edit: printable key on a selected text element enters edit mode', () => {
+    const { editor: e, textId, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    editor.setSelection([textId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+    expect(mountedSpy).toHaveBeenCalledTimes(1);
+    expect(editor.getEditingElementId()).toBe(textId);
+  });
+
+  it('type-to-edit: printable key on a selected shape enters edit mode', () => {
+    const { editor: e, store, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(store.read().slides[0].id, {
+        type: 'shape',
+        frame: { x: 300, y: 100, w: 100, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor.setSelection([shapeId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    expect(mountedSpy).toHaveBeenCalledTimes(1);
+    expect(editor.getEditingElementId()).toBe(shapeId);
+  });
+
+  it('type-to-edit: arrow keys do NOT enter edit mode (printable gate)', () => {
+    const { editor: e, textId, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    editor.setSelection([textId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(mountedSpy).not.toHaveBeenCalled();
+    expect(editor.getEditingElementId()).toBe(null);
+  });
+
+  it('type-to-edit: Cmd+S does NOT enter edit mode (modifier gate)', () => {
+    const { editor: e, textId, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    editor.setSelection([textId]);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }),
+    );
+    expect(mountedSpy).not.toHaveBeenCalled();
+    expect(editor.getEditingElementId()).toBe(null);
+  });
+
+  it('type-to-edit: does not fire on non-text, non-shape selection', () => {
+    const { editor: e, store, mountedSpy } = fixtureWithTextElement();
+    editor = e;
+    let imageId = '';
+    store.batch(() => {
+      imageId = store.addElement(store.read().slides[0].id, {
+        type: 'image',
+        frame: { x: 300, y: 100, w: 100, h: 60, rotation: 0 },
+        data: { src: 'about:blank' },
+      });
+    });
+    editor.setSelection([imageId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
     expect(mountedSpy).not.toHaveBeenCalled();
     expect(editor.getEditingElementId()).toBe(null);
   });

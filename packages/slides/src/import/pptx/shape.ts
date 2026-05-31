@@ -6,6 +6,7 @@ import type {
   PlaceholderType,
   ShapeElement,
   ShapeStroke,
+  TextBody,
   TextElement,
 } from '../../model/element';
 import { generateId } from '../../model/element';
@@ -423,22 +424,25 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
     // contributes whatever geometry / text it has rather than vanishing.
   }
 
-  // Shape with `prstGeom` — emit the shape, then layer a coincident
-  // TextElement on top when the shape also carries visible text (the
-  // "labelled rect / callout" pattern, ubiquitous in PowerPoint).
+  // Shape with `prstGeom` — emit a single ShapeElement. If the OOXML
+  // `<p:sp>` carries a non-empty `<p:txBody>`, fold it into
+  // `data.text` so the shape owns its inline text directly (matches
+  // PowerPoint / Google Slides where every autoshape is a text
+  // container). The renderer paints `data.text` on top of the shape's
+  // fill/stroke; the editor's double-click / type-to-edit paths route
+  // through `withShapeText`. Pre-shape-text-body imports used a paired
+  // (`ShapeElement`, `TextElement`) layered form; the new form is one
+  // element. Placeholder-bound shapes still propagate `placeholderRef`
+  // — it lives on the element itself, not on the text body, so the
+  // layout-slot identity transfers naturally to the shape.
   const prstGeom = spPr ? child(spPr, 'prstGeom') : undefined;
   if (prstGeom) {
     const shape = buildShapeElement(elementId, frame, sp, prstGeom, ctx);
-    if (!hasText) return [shape];
-    const text = buildTextElement(
-      generateId(),
-      frame,
-      txBody!,
-      ctx,
-      placeholderRef,
-      layoutSizeKey,
-    );
-    return [shape, text];
+    if (hasText) {
+      shape.data.text = buildTextBody(txBody!, ctx, placeholderRef, layoutSizeKey);
+    }
+    if (placeholderRef) shape.placeholderRef = placeholderRef;
+    return [shape];
   }
 
   // No prstGeom but has text — treat as plain text box.
@@ -548,6 +552,28 @@ function buildTextElement(
   placeholderRef: PlaceholderRef | undefined,
   layoutSizeKey: string | undefined,
 ): TextElement {
+  return {
+    id,
+    type: 'text',
+    frame,
+    ...(placeholderRef ? { placeholderRef } : {}),
+    data: buildTextBody(txBody, ctx, placeholderRef, layoutSizeKey),
+  };
+}
+
+/**
+ * Parse a `<p:txBody>` (the OOXML element that PPTX uses for both
+ * stand-alone text boxes and the text inside shapes) into a `TextBody`.
+ * Shared between `buildTextElement` (text-only `<p:sp>`) and the
+ * prstGeom branch of `parseSp` (shape `<p:sp>` whose `<p:txBody>` now
+ * folds into `ShapeElement.data.text`).
+ */
+function buildTextBody(
+  txBody: Element,
+  ctx: SlideParseContext,
+  placeholderRef: PlaceholderRef | undefined,
+  layoutSizeKey: string | undefined,
+): TextBody {
   // Inheritance order: layout placeholder default (parsed from the
   // imported deck) → hardcoded per-type fallback for placeholders we
   // recognise → leave undefined (docs renderer default).
@@ -561,21 +587,15 @@ function buildTextElement(
   );
   const verticalAnchor = detectVerticalAnchor(txBody);
   return {
-    id,
-    type: 'text',
-    frame,
-    ...(placeholderRef ? { placeholderRef } : {}),
-    data: {
-      autofit: detectAutofitMode(txBody),
-      ...(verticalAnchor !== undefined ? { verticalAnchor } : {}),
-      blocks: parseTextBody(txBody, {
-        rels: ctx.rels,
-        report: ctx.report,
-        defaultFontSize,
-        clrMap: ctx.clrMap,
-        markerDefaults,
-      }),
-    },
+    autofit: detectAutofitMode(txBody),
+    ...(verticalAnchor !== undefined ? { verticalAnchor } : {}),
+    blocks: parseTextBody(txBody, {
+      rels: ctx.rels,
+      report: ctx.report,
+      defaultFontSize,
+      clrMap: ctx.clrMap,
+      markerDefaults,
+    }),
   };
 }
 

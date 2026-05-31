@@ -471,10 +471,10 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       },
     },
 
-    // F2 / Enter — enter text-edit mode on the selected text element.
-    // Only fires when:
+    // F2 / Enter — enter text-edit mode on the selected text element
+    // or shape. Only fires when:
     //   - exactly one element is selected,
-    //   - that element is type 'text',
+    //   - that element accepts text (type 'text' or 'shape'),
     //   - the focused target isn't an editable input (so Enter still
     //     submits dialogs and the text-box editor's own Enter keeps
     //     inserting newlines).
@@ -491,7 +491,41 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const selected = ctx.selection.get();
         if (selected.length !== 1) return;
         const element = slide.elements.find((el) => el.id === selected[0]);
-        if (!element || element.type !== 'text') return;
+        if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+          return;
+        }
+        e.preventDefault();
+        ctx.enterEditMode(slide.id, element.id);
+      },
+    },
+
+    // Type-to-edit — printable keystroke on a single selected text or
+    // shape element enters text-edit mode. Mirrors PowerPoint / Google
+    // Slides where typing a character starts editing inside the shape.
+    //
+    // v1 caveat: the keystroke itself is consumed (preventDefault) so
+    // it doesn't navigate or activate a shortcut, but it is NOT yet
+    // inserted into the freshly-mounted text-box — the user has to type
+    // the first character again. Forwarding the initial character into
+    // the docs editor requires plumbing an `initialText` through
+    // `mountSlidesTextBox` and is logged as a follow-up. Without this
+    // rule the keystroke would fall through to the host (and on most
+    // surfaces do nothing useful) which is the bigger UX bug.
+    {
+      match: (e) =>
+        isPrintableKey(e) &&
+        !isModPressed(e) &&
+        !e.altKey &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        const selected = ctx.selection.get();
+        if (selected.length !== 1) return;
+        const element = slide.elements.find((el) => el.id === selected[0]);
+        if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+          return;
+        }
         e.preventDefault();
         ctx.enterEditMode(slide.id, element.id);
       },
@@ -653,6 +687,20 @@ function tryDeserialize(json: string): ElementInit[] | null {
 
 function keyEquals(eventKey: string, target: string): boolean {
   return eventKey.toLowerCase() === target.toLowerCase();
+}
+
+/**
+ * True when the keyboard event represents a single printable character
+ * — what the user thinks of as "typing". Used by the type-to-edit rule
+ * to distinguish a real keystroke ("h") from a navigation/function key
+ * ("ArrowLeft", "F1", "Tab", "Escape"). Modifier-only events
+ * (`'Shift'`) have `key.length > 1` so they fall through.
+ *
+ * The caller must additionally gate on `!isModPressed(e) && !e.altKey`
+ * so Cmd/Ctrl/Alt shortcuts aren't routed into edit mode.
+ */
+function isPrintableKey(e: KeyboardEvent): boolean {
+  return e.key.length === 1;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

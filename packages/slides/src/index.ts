@@ -58,10 +58,11 @@ export type {
   ShapeKind,
   ShapeStroke,
   Stroke,
+  TextBody,
   TextElement,
   VerticalAnchorMode,
 } from './model/element';
-export { generateId } from './model/element';
+export { generateId, isBlocksEmpty, isElementEmpty } from './model/element';
 
 export type { GroupTransform } from './model/group';
 export {

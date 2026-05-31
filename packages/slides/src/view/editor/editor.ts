@@ -1,11 +1,16 @@
 import type {
+  AutofitMode,
   Element,
   Frame,
   ShapeKind,
   Stroke,
   ShapeElement,
   TextElement,
+  VerticalAnchorMode,
 } from '../../model/element';
+import type { Block } from '@wafflebase/docs';
+import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
+import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
 import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
@@ -774,16 +779,29 @@ class SlidesEditorImpl implements SlidesEditor {
       this.paintRuler();
       return;
     }
-    // Hide the element currently in edit mode from the slide canvas —
-    // the text-box editor's own canvas is layered on top of the same
-    // frame, so leaving the element in the slide pass would double-paint
-    // the text (one copy from `drawText`, one from the editor's
-    // `paintLayout`).
+    // Hide the element-currently-in-edit's text from the slide canvas
+    // so the text-box editor's own canvas doesn't double-paint it (one
+    // copy from `drawText`, one from the editor's `paintLayout`).
+    //
+    // For TextElement the whole element is text, so we filter it out.
+    // For ShapeElement the fill/stroke are still part of the slide and
+    // must keep painting underneath the editor — only the `data.text`
+    // body gets stripped. Cloning is structural-only (no deep block
+    // copy) so this stays cheap on every frame.
     if (this.editingElementId !== null) {
       const editingId = this.editingElementId;
       const visible = {
         ...slide,
-        elements: slide.elements.filter((e) => e.id !== editingId),
+        elements: slide.elements
+          .map((e) => {
+            if (e.id !== editingId) return e;
+            if (e.type === 'shape') {
+              const { text: _omit, ...rest } = e.data;
+              return { ...e, data: rest } as typeof e;
+            }
+            return null;
+          })
+          .filter((e): e is Element => e !== null),
       };
       this.renderer.forceRender(visible, doc);
       this.paintRuler();
@@ -1918,10 +1936,11 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onDoubleClick(e: MouseEvent): void {
-    // Double-click on a text element enters edit mode. For grouped
-    // elements, drill in one level first so the user can descend into
-    // groups the same way Google Slides does. Clicks on non-text
-    // non-group elements at the leaf level are ignored.
+    // Double-click enters text-edit on text elements and on shapes
+    // (matches PowerPoint / Google Slides where every autoshape is a
+    // text container). For grouped elements, drill in one level first
+    // so the user descends into groups the same way Google Slides does.
+    // Clicks on other element kinds at the leaf level are ignored.
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -1940,14 +1959,14 @@ class SlidesEditorImpl implements SlidesEditor {
     this.selection.doubleClick(hitResult);
     this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
 
-    // After drill-in, check if the newly-selected element is a text box.
+    // After drill-in, check if the newly-selected element accepts text.
     // Use the leaf-most element id from the hit (which is what
     // Selection.doubleClick ultimately lands on at the deepest available
     // scope level).
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return;
     const el = findElement(slide.elements, selectedIds[0]);
-    if (!el || el.type !== 'text') return;
+    if (!el || (el.type !== 'text' && el.type !== 'shape')) return;
     e.preventDefault();
     e.stopPropagation();
     this.enterEditMode(slide.id, el.id);
@@ -1967,11 +1986,21 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = doc.slides.find((s) => s.id === slideId);
     if (!slide) return;
     const element = slide.elements.find((e) => e.id === elementId);
-    if (!element || element.type !== 'text') return;
+    if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+      return;
+    }
+
+    // Build a small descriptor that papers over the difference between
+    // editing a TextElement (text in `data.blocks`, frame auto-grows to
+    // fit content) and a ShapeElement (text in `data.text.blocks`,
+    // frame is user-sized and does NOT auto-grow into the text). All
+    // the wiring below works off `target` so the two kinds stay aligned.
+    const target = buildEditTarget(element);
 
     // Frame height at entry; the committed fit only writes when the
-    // content height differs from this. Reset the per-edit tracker so a
-    // stale height from a previous edit can't leak into this commit.
+    // content height differs from this (text-element only; shapes skip
+    // the post-commit frame fit). Reset the per-edit tracker so a stale
+    // height from a previous edit can't leak into this commit.
     const enterFrameH = element.frame.h;
     this.lastEditingContentHeight = null;
 
@@ -1986,7 +2015,6 @@ class SlidesEditorImpl implements SlidesEditor {
       this.lastHoverCursor = '';
     }
 
-    const blocks = element.data.blocks;
     // Escape sets `cancelled` first, THEN the docs editor routes the
     // blur cascade through the onCommit branch below. The flag tells
     // onCommit to skip the store write so the user's in-flight edits
@@ -1996,38 +2024,53 @@ class SlidesEditorImpl implements SlidesEditor {
     let cancelled = false;
     const tb = this.mountTextBox({
       overlay: this.options.overlay,
-      frame: element.frame,
+      // Shapes inset the editing frame by the same padding the renderer
+      // applies (`SHAPE_TEXT_PADDING`) so the caret + glyphs in the
+      // editor sit where the committed paint will land. Text elements
+      // pass the full element frame as today.
+      frame: target.editFrame,
       scale: this.scale(),
-      blocks,
+      blocks: target.blocks,
       // Drives editor autofit: 'shrink' scales fonts to fit the fixed box,
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
       // wrapper gates onContentHeightChange so shrink/none never auto-grow.
-      autofit: element.data.autofit,
+      autofit: target.autofit,
+      // Shapes keep the editor canvas at the inner-frame height so the
+      // middle vertical anchor in the editor agrees with the renderer's
+      // middle anchor inside the original frame. Without this the docs
+      // editor would shrink the canvas to text height and anchor at
+      // originY=0, producing a visible jump between edit and committed
+      // positions. Text elements keep the default auto-grow behavior.
+      growMode: target.kind === 'shape' ? 'never' : 'auto',
       // Mirror the slide canvas offset so in-place editing keeps the
       // caret and text glyphs aligned with the committed render.
-      verticalAnchor: element.data.verticalAnchor,
+      verticalAnchor: target.verticalAnchor,
       colorResolver: makeColorResolver(getActiveTheme(doc)),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {
         this.lastEditingContentHeight = h;
       },
       onCommit: (next) => {
-        // Persist via withTextElement and exit edit mode. We snapshot
-        // the slide id at enter-time because the user could have
-        // switched slides during editing — withTextElement only
-        // resolves on the slide we actually edited.
+        // Persist via the kind-appropriate bridge and exit edit mode.
+        // We snapshot the slide id at enter-time because the user could
+        // have switched slides during editing.
         if (!cancelled) {
           try {
             this.options.store.batch(() => {
-              this.options.store.withTextElement(slideId, elementId, () => next);
-              // Fit the frame height to the content in the SAME batch as
-              // the text write — one undo entry, no per-keystroke churn.
-              const h = this.lastEditingContentHeight;
-              if (h !== null) {
-                const targetH = Math.max(MIN_TEXT_BOX_H, h);
-                if (targetH !== enterFrameH) {
-                  this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
+              if (target.kind === 'text') {
+                this.options.store.withTextElement(slideId, elementId, () => next);
+                // Fit the frame height to the content in the SAME batch
+                // as the text write — one undo entry, no per-keystroke
+                // churn. Shapes keep their authored frame; skip the fit.
+                const h = this.lastEditingContentHeight;
+                if (h !== null) {
+                  const targetH = Math.max(MIN_TEXT_BOX_H, h);
+                  if (targetH !== enterFrameH) {
+                    this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
+                  }
                 }
+              } else {
+                this.options.store.withShapeText(slideId, elementId, () => next);
               }
             });
           } catch {
@@ -3452,6 +3495,76 @@ function findElement(elements: readonly Element[], id: string): Element | undefi
   }
   return undefined;
 }
+
+/**
+ * Resolved inputs for a single text-edit session. Both TextElement and
+ * ShapeElement-with-text take the same docs text-box mount path; this
+ * descriptor papers over their per-kind differences:
+ *
+ * - **TextElement** — blocks live at `data.blocks`; the editor frame
+ *   is the element frame; `autofit`/`verticalAnchor` come straight off
+ *   `data`; on commit the frame may auto-grow to fit content.
+ * - **ShapeElement** — blocks live at `data.text?.blocks` (seeded to
+ *   one empty paragraph on first entry); the editor frame is the
+ *   element frame inset by `SHAPE_TEXT_PADDING` so editing aligns
+ *   pixel-for-pixel with the committed paint; `autofit` defaults to
+ *   `'none'` (the shape frame is user-sized and does NOT auto-grow);
+ *   `verticalAnchor` defaults to `'middle'` to match PowerPoint /
+ *   Google Slides behavior.
+ */
+type EditTarget = {
+  kind: 'text' | 'shape';
+  blocks: Block[];
+  autofit?: AutofitMode;
+  verticalAnchor?: VerticalAnchorMode;
+  editFrame: Frame;
+};
+
+function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
+  if (element.type === 'text') {
+    return {
+      kind: 'text',
+      blocks: element.data.blocks,
+      autofit: element.data.autofit,
+      verticalAnchor: element.data.verticalAnchor,
+      editFrame: element.frame,
+    };
+  }
+  const body = element.data.text;
+  const innerFrame: Frame = {
+    x: element.frame.x + SHAPE_TEXT_PADDING.x,
+    y: element.frame.y + SHAPE_TEXT_PADDING.y,
+    w: Math.max(0, element.frame.w - 2 * SHAPE_TEXT_PADDING.x),
+    h: Math.max(0, element.frame.h - 2 * SHAPE_TEXT_PADDING.y),
+    rotation: element.frame.rotation,
+  };
+  return {
+    kind: 'shape',
+    blocks: body?.blocks ?? [emptyShapeTextBlock()],
+    autofit: body?.autofit ?? 'none',
+    verticalAnchor: body?.verticalAnchor ?? 'middle',
+    editFrame: innerFrame,
+  };
+}
+
+/**
+ * Seed block for a shape whose `data.text` is absent at edit-entry.
+ * Mirrors the seed `buildInsertElement` writes for a fresh text element
+ * — fully-populated `style` so `computeLayout` reads non-undefined
+ * `marginTop` / `marginBottom`, and an inline bound to the deck's
+ * `text` color role so newly-typed runs inherit the theme (matches
+ * `interactions/insert.ts`'s text-element seed exactly).
+ */
+function emptyShapeTextBlock(): Block {
+  return {
+    id: 'placeholder',
+    type: 'paragraph',
+    inlines: [{ text: '', style: { color: SHAPE_TEXT_SEED_COLOR } }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  } as Block;
+}
+
+const SHAPE_TEXT_SEED_COLOR = { kind: 'role' as const, role: 'text' as const };
 
 /**
  * Given a hit result and the current selection scope, return the element id

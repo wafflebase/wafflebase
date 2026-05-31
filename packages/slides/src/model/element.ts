@@ -136,33 +136,42 @@ export type ElementBase = {
   placeholderRef?: PlaceholderRef;
 };
 
+/**
+ * Shared shape of a text body — the inline content plus the OOXML
+ * `<a:bodyPr>`-equivalent props that govern its layout. Used as
+ * `TextElement.data` (via intersection) and as `ShapeElement.data.text`
+ * for shapes that carry inline text. Mirrors OOXML `<a:txBody>`.
+ */
+export type TextBody = {
+  /** Domain-level read view; the Yorkie store backs this with a Tree. */
+  blocks: Block[];
+  /**
+   * Autofit behavior. **Absent ⇒ `'grow'`** (the pre-autofit auto-grow
+   * default established by the `slides-textbox-autogrow` feature) so
+   * existing decks keep growing. Set `'none'` explicitly to disable
+   * auto-grow; `'shrink'` to scale fonts to a fixed box. See
+   * `docs/design/slides/slides-text-autofit.md`.
+   */
+  autofit?: AutofitMode;
+  /**
+   * Vertical position of the laid-out content inside the text frame.
+   * Mirrors OOXML `<a:bodyPr anchor>`:
+   * - `'top'` ↔ `anchor="t"` (and absent — preserves pre-feature behavior)
+   * - `'middle'` ↔ `anchor="ctr"`
+   * - `'bottom'` ↔ `anchor="b"`
+   *
+   * Imported from PPTX; the renderer translates the paint origin by
+   * `(frame.h − layout.totalHeight) * factor` so content sits at the
+   * top / middle / bottom of the frame.
+   */
+  verticalAnchor?: VerticalAnchorMode;
+};
+
 export type TextElement = ElementBase & {
   type: 'text';
-  data: {
-    /** Domain-level read view; the Yorkie store backs this with a Tree. */
-    blocks: Block[];
+  data: TextBody & {
     stroke?: Stroke;
     fill?: ThemeColor;
-    /**
-     * Autofit behavior. **Absent ⇒ `'grow'`** (the pre-autofit auto-grow
-     * default established by the `slides-textbox-autogrow` feature) so
-     * existing decks keep growing. Set `'none'` explicitly to disable
-     * auto-grow; `'shrink'` to scale fonts to a fixed box. See
-     * `docs/design/slides/slides-text-autofit.md`.
-     */
-    autofit?: AutofitMode;
-    /**
-     * Vertical position of the laid-out content inside the text frame.
-     * Mirrors OOXML `<a:bodyPr anchor>`:
-     * - `'top'` ↔ `anchor="t"` (and absent — preserves pre-feature behavior)
-     * - `'middle'` ↔ `anchor="ctr"`
-     * - `'bottom'` ↔ `anchor="b"`
-     *
-     * Imported from PPTX; the renderer translates the paint origin by
-     * `(frame.h − layout.totalHeight) * factor` so content sits at the
-     * top / middle / bottom of the frame.
-     */
-    verticalAnchor?: VerticalAnchorMode;
   };
 };
 
@@ -196,6 +205,14 @@ export type ShapeElement = ElementBase & {
     adjustments?: number[];
     fill?: ThemeColor;
     stroke?: Stroke;
+    /**
+     * Inline text body painted on top of the shape's fill/stroke.
+     * Absent on freshly-inserted shapes; lazily initialised when the
+     * user enters text-edit (double-click, Enter, or type-to-edit) and
+     * dropped again on commit when the body ends up empty. Mirrors
+     * OOXML `<p:sp>/<p:txBody>` for PPTX round-trip.
+     */
+    text?: TextBody;
   };
 };
 
@@ -245,7 +262,20 @@ export function generateId(): string {
 
 export function isElementEmpty(el: Element): boolean {
   if (el.type !== 'text') return false;
-  return el.data.blocks.every((b) =>
-    b.inlines.every((inline) => inline.text === ''),
+  return isBlocksEmpty(el.data.blocks);
+}
+
+/**
+ * True iff a `Block[]` carries no visible characters — either zero
+ * blocks or every inline is the empty string. Shared between the
+ * text renderer (placeholder ghost-text branch), the shape renderer
+ * (skip text paint when shape's body is empty), and the store
+ * (`withShapeText` drops `data.text` again when an edit leaves the
+ * body empty so OOXML round-trips don't carry empty `<p:txBody>`).
+ */
+export function isBlocksEmpty(blocks: Block[]): boolean {
+  return (
+    blocks.length === 0 ||
+    blocks.every((b) => b.inlines.every((inline) => inline.text === ''))
   );
 }

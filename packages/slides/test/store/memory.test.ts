@@ -306,6 +306,100 @@ describe('MemSlidesStore — text bridges', () => {
     });
   });
 
+  it('withShapeText seeds an empty body on first call and persists the return value', () => {
+    const store = new MemSlidesStore();
+    let id = '';
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      id = store.addElement(slideId, shapeInit());
+      store.withShapeText(slideId, id, (blocks) => {
+        // First entry: no prior text, so seeded with [].
+        expect(blocks).toEqual([]);
+        return [paragraph('Hello')];
+      });
+    });
+    const e = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Block[] } };
+    };
+    expect(e.data.text?.blocks[0].inlines[0].text).toBe('Hello');
+  });
+
+  it('withShapeText preserves prior blocks on subsequent calls', () => {
+    const store = new MemSlidesStore();
+    let id = '';
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      id = store.addElement(slideId, shapeInit());
+      store.withShapeText(slideId, id, () => [paragraph('first')]);
+    });
+    store.batch(() => {
+      store.withShapeText(slideId, id, (blocks) => {
+        expect(blocks[0].inlines[0].text).toBe('first');
+        return [paragraph('second')];
+      });
+    });
+    const e = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Block[] } };
+    };
+    expect(e.data.text?.blocks[0].inlines[0].text).toBe('second');
+  });
+
+  it('withShapeText preserves an empty body after the user clears typed text', () => {
+    // Concurrency contract: once `data.text` exists, withShapeText only
+    // writes the `blocks` field — it never deletes `data.text`. A peer
+    // typing into the same shape during a blur must not have its content
+    // wiped by the wholesale-field delete that an earlier draft did.
+    // The renderer's `isBlocksEmpty` short-circuit means an empty body
+    // is visually invisible, so persisting it is harmless.
+    const store = new MemSlidesStore();
+    let id = '';
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      id = store.addElement(slideId, shapeInit());
+      store.withShapeText(slideId, id, () => [paragraph('typed')]);
+    });
+    store.batch(() => {
+      store.withShapeText(slideId, id, () => [paragraph('')]);
+    });
+    const e = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Block[] } };
+    };
+    expect(e.data.text).toBeDefined();
+    expect(e.data.text!.blocks[0].inlines[0].text).toBe('');
+  });
+
+  it('withShapeText is a no-op when entered with no body and exited with no body', () => {
+    // Click-into-shape-then-blur (no typing) must not materialise an
+    // empty `data.text` on a shape that previously had none — keeps
+    // freshly-inserted shapes clean.
+    const store = new MemSlidesStore();
+    let id = '';
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      id = store.addElement(slideId, shapeInit());
+      store.withShapeText(slideId, id, () => [paragraph('')]);
+    });
+    const e = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Block[] } };
+    };
+    expect(e.data.text).toBeUndefined();
+  });
+
+  it('withShapeText throws on a non-shape element', () => {
+    const store = new MemSlidesStore();
+    store.batch(() => {
+      const slide = store.addSlide('blank');
+      const id = store.addElement(slide, textInit(0));
+      expect(() => store.withShapeText(slide, id, () => undefined)).toThrow(
+        /not a shape element/,
+      );
+    });
+  });
+
   it('withNotes round-trips the speaker notes', () => {
     const store = new MemSlidesStore();
     store.batch(() => {
