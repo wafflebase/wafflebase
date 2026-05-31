@@ -4,7 +4,11 @@ import type {
   GuideAxis,
   SlidesDocument,
 } from '../model/presentation';
-import type { ArrowheadStyle, Endpoint } from '../model/connector';
+import type {
+  ArrowheadStyle,
+  ConnectorRouting,
+  Endpoint,
+} from '../model/connector';
 import type { ElementInit, Frame } from '../model/element';
 import type { Theme } from '../model/theme';
 
@@ -150,6 +154,28 @@ export interface SlidesStore {
     slideId: string,
     elementId: string,
     stroke: import('../model/element').Stroke | undefined,
+  ): void;
+
+  /**
+   * Switch the routing topology of an existing connector (straight /
+   * elbow / curved). Clears any persisted `elbowBend` on the way out of
+   * elbow routing so a future return to elbow starts from the default
+   * mid-cross position.
+   */
+  updateConnectorRouting(
+    slideId: string,
+    elementId: string,
+    routing: ConnectorRouting,
+  ): void;
+
+  /**
+   * Persist a user-dragged elbow bend ratio (in [0, 1]). Pass `undefined`
+   * to clear it and fall back to the default cross-leg position.
+   */
+  updateConnectorElbowBend(
+    slideId: string,
+    elementId: string,
+    bend: number | undefined,
   ): void;
 
   // --- guides (presentation-wide) ---

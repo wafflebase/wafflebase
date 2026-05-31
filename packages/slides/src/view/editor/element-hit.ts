@@ -4,7 +4,8 @@ import { containsPoint, toLocal } from '../../model/frame';
 import { PATH_BUILDERS } from '../canvas/shapes';
 import { isActionButton } from '../canvas/shapes/action-buttons';
 import { EVENODD_KINDS, OPEN_PATH_KINDS } from '../canvas/shape-renderer';
-import { resolveEndpoint } from '../canvas/connector-frame';
+import { buildConnectorPath } from '../canvas/connector-frame';
+import { type BezierPath, isBezierPath } from '../canvas/routing';
 
 /** Default click tolerance, in slide-logical pixels. */
 export const DEFAULT_HIT_TOLERANCE = 6;
@@ -178,11 +179,43 @@ function hitConnector(
   const tol = opts.tolerance ?? DEFAULT_HIT_TOLERANCE;
   const half = (el.stroke?.width ?? 1) / 2;
   const limit = half + tol;
-  const a = resolveEndpoint(el.start, elements);
-  const b = resolveEndpoint(el.end, elements);
-  // PR1 supports straight routing only — single segment. Elbow/curved
-  // routings extend this to a polyline / sampled bezier (see task doc).
-  return distanceToSegment(px, py, a.x, a.y, b.x, b.y) <= limit;
+  const path = buildConnectorPath(el, elements);
+  if (isBezierPath(path)) {
+    return bezierMinDistance(path, px, py) <= limit;
+  }
+  const pts = path.points;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (a.x === b.x && a.y === b.y) continue;
+    if (distanceToSegment(px, py, a.x, a.y, b.x, b.y) <= limit) return true;
+  }
+  return false;
+}
+
+/** Min distance from (px, py) to a cubic bezier, sampled as 32 chord segments. */
+function bezierMinDistance(b: BezierPath, px: number, py: number): number {
+  const STEPS = 32;
+  let prev = b.p0;
+  let min = Infinity;
+  for (let i = 1; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const u = 1 - t;
+    const x =
+      u * u * u * b.p0.x +
+      3 * u * u * t * b.c1.x +
+      3 * u * t * t * b.c2.x +
+      t * t * t * b.p1.x;
+    const y =
+      u * u * u * b.p0.y +
+      3 * u * u * t * b.c1.y +
+      3 * u * t * t * b.c2.y +
+      t * t * t * b.p1.y;
+    const d = distanceToSegment(px, py, prev.x, prev.y, x, y);
+    if (d < min) min = d;
+    prev = { x, y };
+  }
+  return min;
 }
 
 function distanceToSegment(

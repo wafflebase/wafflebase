@@ -99,6 +99,65 @@ describe('computeConnectorFrame', () => {
   });
 });
 
+describe('computeConnectorFrame — non-straight routings', () => {
+  it('curved: bbox extends beyond the endpoints when control points pull out', () => {
+    // Free endpoints with curved routing: free-endpoint exit direction is
+    // atan2(other - self), so the chord and the curve are collinear and the
+    // bbox stays at the chord. We instead use an attached endpoint whose
+    // outward angle pulls the curve outside the chord.
+    const target: Element = {
+      id: 't1',
+      type: 'shape',
+      // Square at origin; East site = (100, 50) facing east.
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const c: ConnectorElement = {
+      ...baseConnector(
+        { kind: 'attached', elementId: 't1', siteIndex: 1 }, // E of target
+        { kind: 'free', x: 100, y: 250 },
+      ),
+      routing: 'curved',
+    };
+    const lookup = new Map<string, Element>([['t1', target]]);
+    const f = computeConnectorFrame(c, lookup);
+    // Chord from (100, 50) to (100, 250) is vertical. The east exit at
+    // (100, 50) bends the bezier eastward of x = 100 before turning back,
+    // so maxX must extend past 100.
+    expect(f.x + f.w).toBeGreaterThan(100 + 1); // > endpoint x + pad
+  });
+
+  it('elbow: bbox covers the polyline including the corner', () => {
+    const target: Element = {
+      id: 't1',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    const c: ConnectorElement = {
+      ...baseConnector(
+        { kind: 'attached', elementId: 't1', siteIndex: 1 }, // E (angle 0)
+        { kind: 'free', x: 100, y: 250 },
+      ),
+      routing: 'elbow',
+    };
+    // E + free-pointing-south is perpendicular → L through (100, 50);
+    // free endpoint exit ≈ S because other endpoint is south of free pos
+    // (actually the free endpoint is south, exit points back at a → N).
+    // Let's verify by tightening the case manually:
+    // a = (100, 50) angle 0 (east). b = (100, 250) free; other = (100,50),
+    // so b's angle = atan2(50-250, 100-100) = atan2(-200, 0) = -π/2 (north).
+    // E + N: perpendicular → corner = (b.x, a.y) = (100, 50).
+    // Polyline: (100, 50) → (100, 50) → (100, 250). Bbox = x:[100,100],
+    // y:[50,250], plus 1px pad each side.
+    const lookup = new Map<string, Element>([['t1', target]]);
+    const f = computeConnectorFrame(c, lookup);
+    expect(f.x).toBeCloseTo(99);
+    expect(f.y).toBeCloseTo(49);
+    expect(f.h).toBeCloseTo(202);
+  });
+});
+
 describe('buildElementWorldLookup', () => {
   it('top-level elements pass through with their own frames', () => {
     const a: Element = {

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { fourCardinal } from '../../../../src/view/canvas/connection-sites/defaults';
-import { siteWorldPos } from '../../../../src/view/canvas/connection-sites/index';
+import {
+  getConnectionSites,
+  siteWorldPos,
+} from '../../../../src/view/canvas/connection-sites/index';
+import type { Element } from '../../../../src/model/element';
 
 describe('fourCardinal', () => {
   it('returns 4 sites in N, E, S, W order', () => {
@@ -81,6 +85,74 @@ describe('siteWorldPos', () => {
     // angle 0 → flipH → π → flipV → -π (≡ π).
     expect(Math.abs(Math.abs(e.angle) - Math.PI)).toBeLessThan(1e-9);
   });
+
+  it.skip('placeholder', () => {});
+});
+
+describe('getConnectionSites overrides', () => {
+  const rectFrame = { x: 0, y: 0, w: 100, h: 100, rotation: 0 };
+
+  it('rect uses the 4-cardinal default', () => {
+    const el: Element = { id: 'r', type: 'shape', frame: rectFrame, data: { kind: 'rect' } };
+    expect(getConnectionSites(el)).toEqual(fourCardinal());
+  });
+
+  it('diamond override anchors all 4 vertices (not edge midpoints)', () => {
+    const el: Element = { id: 'd', type: 'shape', frame: rectFrame, data: { kind: 'diamond' } };
+    const sites = getConnectionSites(el);
+    expect(sites).toHaveLength(4);
+    // For diamond, edge midpoints are inset toward centre. We expect the
+    // four vertices in N/E/S/W order — same coords as cardinal but the
+    // semantic anchor is "vertex" not "edge midpoint".
+    expect(sites[0]).toMatchObject({ x: 0.5, y: 0 });
+    expect(sites[1]).toMatchObject({ x: 1,   y: 0.5 });
+    expect(sites[2]).toMatchObject({ x: 0.5, y: 1 });
+    expect(sites[3]).toMatchObject({ x: 0,   y: 0.5 });
+  });
+
+  it('parallelogram override skews top/bottom anchors with the 25% adj', () => {
+    const el: Element = {
+      id: 'p',
+      type: 'shape',
+      frame: rectFrame,
+      data: { kind: 'parallelogram' },
+    };
+    const sites = getConnectionSites(el);
+    expect(sites[0].x).toBeCloseTo(0.625); // top edge mid, shifted right
+    expect(sites[2].x).toBeCloseTo(0.375); // bottom edge mid, shifted left
+    // Sides stay at x=0 / x=1, midpoint y=0.5.
+    expect(sites[1]).toMatchObject({ x: 1, y: 0.5 });
+    expect(sites[3]).toMatchObject({ x: 0, y: 0.5 });
+  });
+
+  it('pentagon override gives 5 vertex anchors apex-up', () => {
+    const el: Element = {
+      id: 'p',
+      type: 'shape',
+      frame: rectFrame,
+      data: { kind: 'pentagon' },
+    };
+    const sites = getConnectionSites(el);
+    expect(sites).toHaveLength(5);
+    expect(sites[0].x).toBeCloseTo(0.5);
+    expect(sites[0].y).toBeCloseTo(0); // apex up
+  });
+
+  it('non-shape elements always use cardinal', () => {
+    const text: Element = {
+      id: 't',
+      type: 'text',
+      frame: rectFrame,
+      data: { kind: 'plain', blocks: [] } as never,
+    };
+    expect(getConnectionSites(text)).toEqual(fourCardinal());
+  });
+
+  it.skip('paint-order placeholder', () => {});
+});
+
+describe('siteWorldPos — paint-order interactions (continued)', () => {
+  const frame = { x: 100, y: 200, w: 200, h: 100, rotation: 0 };
 
   it('with flipH and rotation: applies flip first, then rotation (matches paint order)', () => {
     // Paint order in element-renderer.ts: translate(centre) → rotate →
