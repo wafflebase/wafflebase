@@ -280,7 +280,7 @@ dashed outline — regression protection only.
 
 | Risk | Mitigation |
 |---|---|
-| Snap "fights" the user near multiple candidates within 8 px | Strict priority order (edge > equal-spacing > equal-distance) and smallest-`|adjust|` tie-break keep behavior deterministic |
+| Snap "fights" the user near multiple candidates within 8 px | `snap.ts` resolves edge / centre / user-guide first; inside `smart-guides`, the smallest absolute `adjust` wins (per axis), so behaviour stays deterministic |
 | Overlay noise during free movement | Guides only render on the frames they actually snap, and disappear instantly when out of band |
 | O(N²) on dense slides | `overlapX`/`overlapY` pre-filter prunes 90% of pairs; viewport culling triggers at N > 30 |
 | Inconsistency vs distribute action in `align.ts` | Both compute "equal gaps" the same way (`(last - first - Σw) / (n - 1)`); same fixtures can verify both |
