@@ -189,11 +189,16 @@ if handle includes 'n': y += (oldH - newH)
 
 Within the residual 8 px band after `snap.ts`:
 
-```
-edge / slide-center / guide   (already resolved by snap.ts)
-  > equal-spacing             (3+ elements, strong visual)
-  > equal-distance            (pair pattern, weaker)
-```
+- Edge / slide-center / user-guide already resolved by `snap.ts` win
+  first — `smart-guides` only refines what `snapDelta` did not snap.
+- Inside `smart-guides`, **the smallest `|adjust|` wins** across both
+  equal-spacing and equal-distance candidates, independently per axis.
+  We do not rank kinds against each other. Initial design ranked
+  equal-spacing > equal-distance, but real test setups produced
+  unintended ties where a perfectly-precise equal-distance match
+  (≈1 px) lost to a coarser equal-spacing match (~7 px) because a
+  third element coincidentally formed a middle trio. Smallest-adjust
+  is also closer to PowerPoint's observable behaviour.
 
 `equal-size` lives in the resize path and does not compete with
 positional snaps.

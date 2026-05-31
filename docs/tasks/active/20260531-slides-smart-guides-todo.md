@@ -596,20 +596,17 @@ describe('smartGuides — equal-distance (pair matches known gap)', () => {
     expect(out.guides[0].kind).toBe('equal-distance');
   });
 
-  it('prefers equal-spacing over equal-distance when both fire within threshold', () => {
-    // Set up a row where both patterns qualify; equal-spacing should
-    // win (priority > equal-distance) regardless of |adjust|.
-    // Trio A — dragged — B with adjust +5; pair (A,B) known gap so
-    // equal-distance vs C with adjust +1.
-    // We just assert the chosen guide kind is 'equal-spacing'.
+  it('uses smallest |adjust| when only equal-spacing qualifies', () => {
+    // With dragged at x=103 (w=50), only the a-dragged-b middle trio
+    // qualifies — no equal-distance candidate is within threshold.
+    // gapL = 103-50 = 53, gapR = 200-153 = 47, adjust = (47-53)/2 = -3.
     const a: Frame = { x: 0,   y: 100, w: 50, h: 50, rotation: 0 };
     const b: Frame = { x: 200, y: 100, w: 50, h: 50, rotation: 0 };
     const c: Frame = { x: 400, y: 100, w: 50, h: 50, rotation: 0 };
-    // dragged between a and b: at x=120 the gaps are 70 and 30 -> need +20 to balance, outside band.
-    // Re-position: at x=100 gaps are 50 and 50 -> trio adjust 0 (auto-snap, included). Pick adjust +3 by placing at x=103.
     const bbox = { x: 103, y: 100, w: 50, h: 50 };
     const out = smartGuides(bbox, 0, 0, [a, b, c]);
     expect(out.guides[0].kind).toBe('equal-spacing');
+    expect(out.dx).toBe(-3);
   });
 });
 ```
@@ -619,43 +616,11 @@ describe('smartGuides — equal-distance (pair matches known gap)', () => {
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL on the first 2 cases (third may pass trivially).
 
-- [ ] **Step 3: Implement equal-distance + priority tier**
+- [ ] **Step 3: Add the equal-distance detection pass**
 
-Refactor the candidate logic inside `smartGuides` so equal-spacing and equal-distance compete in priority tiers. Replace the `tryX` / `tryY` helpers and the trailing `guides` assembly:
+Keep the existing `tryX` / `tryY` helpers from Task 2 — they already pick the smallest-`|adjust|` winner per axis, which is exactly the rule we want. Equal-distance reuses them: no `priority` field, no separate selector. The design doc's "Priority" section explains why we don't rank kinds against each other (a precise equal-distance match losing to a coarser equal-spacing one is worse than the occasional kind swap on coincidental setups).
 
-```typescript
-  type Cand = {
-    adjust: number;
-    priority: number;  // 0 = equal-spacing, 1 = equal-distance.
-    guide: SmartGuide;
-  };
-
-  let bestX: Cand | null = null;
-  let bestY: Cand | null = null;
-  const consider = (
-    slot: 'x' | 'y',
-    c: Cand,
-  ) => {
-    if (Math.abs(c.adjust) > THRESHOLD) return;
-    const cur = slot === 'x' ? bestX : bestY;
-    if (!cur) {
-      if (slot === 'x') bestX = c; else bestY = c;
-      return;
-    }
-    if (c.priority < cur.priority) {
-      if (slot === 'x') bestX = c; else bestY = c;
-      return;
-    }
-    if (c.priority === cur.priority && Math.abs(c.adjust) < Math.abs(cur.adjust)) {
-      if (slot === 'x') bestX = c; else bestY = c;
-    }
-  };
-  // Replace every existing `tryX({ adjust, guide })` call with
-  // `consider('x', { adjust, priority: 0, guide })` (priority 0 for
-  // equal-spacing) and same for `tryY`.
-```
-
-Then append the equal-distance pass after both equal-spacing loops:
+Append the equal-distance pass after both equal-spacing loops:
 
 ```typescript
   // Equal-distance — collect known gaps, then test each non-dragged
@@ -690,9 +655,8 @@ Then append the equal-distance pass after both equal-spacing loops:
         // C is on the left of dragged → gap(C, dragged) = drag.left - C.right.
         const target = c.x + c.w + kg.gap;
         const adjust = target - d.leftPx;
-        consider('x', {
+        tryX({
           adjust,
-          priority: 1,
           guide: {
             kind: 'equal-distance',
             axis: 'x',
@@ -707,9 +671,8 @@ Then append the equal-distance pass after both equal-spacing loops:
         // C is on the right → gap(dragged, C) = C.left - drag.right.
         const target = c.x - kg.gap;
         const adjust = target - d.rightPx;
-        consider('x', {
+        tryX({
           adjust,
-          priority: 1,
           guide: {
             kind: 'equal-distance',
             axis: 'x',
@@ -729,9 +692,8 @@ Then append the equal-distance pass after both equal-spacing loops:
       if (c.y + c.h <= d.topPx) {
         const target = c.y + c.h + kg.gap;
         const adjust = target - d.topPx;
-        consider('y', {
+        tryY({
           adjust,
-          priority: 1,
           guide: {
             kind: 'equal-distance',
             axis: 'y',
@@ -745,9 +707,8 @@ Then append the equal-distance pass after both equal-spacing loops:
       if (c.y >= d.bottomPx) {
         const target = c.y - kg.gap;
         const adjust = target - d.bottomPx;
-        consider('y', {
+        tryY({
           adjust,
-          priority: 1,
           guide: {
             kind: 'equal-distance',
             axis: 'y',
@@ -779,9 +740,10 @@ Detect equal-distance pairs in slides smart-guides
 
 When the dragged element sits to the side of a neighbour and the
 resulting gap matches a gap already formed by two other elements,
-snap the dragged element to that distance. Equal-spacing keeps
-priority over equal-distance per the design — strong 3-element
-pattern beats the weaker pair pattern when both fire in the band.
+snap the dragged element to that distance. Reuses the existing
+tryX/tryY selectors — smallest |adjust| wins regardless of kind,
+so a precise distance match isn't unseated by a coarser spacing one
+in coincidental setups.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF

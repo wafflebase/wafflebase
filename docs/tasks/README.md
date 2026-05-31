@@ -19,7 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | slides shape inline text (2026-05-31) | [20260531-slides-shape-inline-text-todo.md](./active/20260531-slides-shape-inline-text-todo.md) | [20260531-slides-shape-inline-text-lessons.md](./active/20260531-slides-shape-inline-text-lessons.md) |
-| slides smart guides (2026-05-31) | [20260531-slides-smart-guides-todo.md](./active/20260531-slides-smart-guides-todo.md) | - |
+| slides smart guides (2026-05-31) | [20260531-slides-smart-guides-todo.md](./active/20260531-slides-smart-guides-todo.md) | [20260531-slides-smart-guides-lessons.md](./active/20260531-slides-smart-guides-lessons.md) |
 | cursor follows text color (2026-05-30) | [20260530-cursor-follows-text-color-todo.md](./active/20260530-cursor-follows-text-color-todo.md) | [20260530-cursor-follows-text-color-lessons.md](./active/20260530-cursor-follows-text-color-lessons.md) |
 | docs pending inline style (2026-05-30) | [20260530-docs-pending-inline-style-todo.md](./active/20260530-docs-pending-inline-style-todo.md) | [20260530-docs-pending-inline-style-lessons.md](./active/20260530-docs-pending-inline-style-lessons.md) |
 | pptx paragraph bullet style (2026-05-30) | [20260530-pptx-paragraph-bullet-style-todo.md](./active/20260530-pptx-paragraph-bullet-style-todo.md) | - |
