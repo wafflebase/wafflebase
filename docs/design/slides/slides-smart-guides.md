@@ -43,8 +43,6 @@ see *why* the snap fired.
 - Rotation-aware matching. Rotated elements still contribute their AABB
   the same way `snap-candidates.ts` already exposes them — we do not add
   rotation-pair alignment.
-- Distance labels (the small "10 px" text Google Slides sometimes shows).
-  PowerPoint omits these and the arrows already convey the relation.
 - Tween/fade animation on guide appearance/disappearance — show on match,
   hide instantly on move-away or `mouseup`.
 - Persisted user toggle. v1 ships always-on; a Preferences toggle can be
@@ -218,6 +216,11 @@ placement). Color shared with the existing `#e11d48` guide red.
   obvious at both ends
 - Equal-size: 1 px dashed-border DIV (`border: 1px dashed #e11d48`)
   wrapping every entry in `matchedFrames`. No label
+- Equal-spacing / equal-distance arrows also render a small numeric
+  distance label (rounded px, no unit) at each shaft's midpoint —
+  white pill with the same red border, positioned perpendicular to the
+  shaft so it doesn't overlap the line. Equal-size outlines remain
+  unlabeled (the matched outline IS the label).
 
 Guides disappear on the first frame they no longer match, or on
 `mouseup`. No fade (`renderOverlay` already clears `innerHTML` per

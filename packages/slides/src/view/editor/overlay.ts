@@ -528,6 +528,7 @@ function makeSmartGuideArrows(
       out.push(shaft);
       out.push(arrowhead('left',  left,  span.perpendicular * options.scale));
       out.push(arrowhead('right', right, span.perpendicular * options.scale));
+      out.push(makeSmartGuideLabel(span, 'x', options));
     } else {
       const shaft = document.createElement('div');
       shaft.className = 'wfb-slides-smart-arrow';
@@ -543,9 +544,49 @@ function makeSmartGuideArrows(
       out.push(shaft);
       out.push(arrowhead('up',   span.perpendicular * options.scale, top));
       out.push(arrowhead('down', span.perpendicular * options.scale, bottom));
+      out.push(makeSmartGuideLabel(span, 'y', options));
     }
   }
   return out;
+}
+
+/**
+ * Numeric distance label rendered at the midpoint of a smart-guide
+ * arrow shaft. Shows the rounded pixel distance with no unit
+ * (matches PowerPoint).  Small white pill with a thin red border so
+ * it stays readable over dark slide content.
+ */
+function makeSmartGuideLabel(
+  span: Span,
+  axis: 'x' | 'y',
+  options: OverlayOptions,
+): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'wfb-slides-smart-label';
+  el.style.position = 'absolute';
+  el.style.pointerEvents = 'none';
+  el.style.background = '#fff';
+  el.style.color = SMART_GUIDE_COLOR;
+  el.style.border = `1px solid ${SMART_GUIDE_COLOR}`;
+  el.style.padding = '0 4px';
+  el.style.borderRadius = '2px';
+  el.style.font = '11px / 1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  el.style.whiteSpace = 'nowrap';
+  el.style.transform = 'translate(-50%, -50%)';
+  const distance = Math.round(Math.abs(span.to - span.from));
+  el.textContent = String(distance);
+  const mid = ((span.from + span.to) / 2) * options.scale;
+  const perpPx = span.perpendicular * options.scale;
+  if (axis === 'x') {
+    // Arrow is horizontal; label sits centered ABOVE the shaft.
+    el.style.left = `${mid}px`;
+    el.style.top = `${perpPx - 10}px`;
+  } else {
+    // Arrow is vertical; label sits centered to the RIGHT of the shaft.
+    el.style.left = `${perpPx + 10}px`;
+    el.style.top = `${mid}px`;
+  }
+  return el;
 }
 
 /** 4 px CSS-border triangle pointing toward the named direction. */
