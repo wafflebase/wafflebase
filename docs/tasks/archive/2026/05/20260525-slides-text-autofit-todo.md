@@ -54,7 +54,7 @@ Design doc: `docs/design/slides/slides-text-autofit.md`.
 **Files:**
 - Modify: `packages/slides/src/model/element.ts:103` (near `PlaceholderType`) and `:122-130` (`TextElement`)
 
-- [ ] **Step 1: Add the type and field**
+- [x] **Step 1: Add the type and field**
 
 In `packages/slides/src/model/element.ts`, add after the `PlaceholderRef` type (around line 114):
 
@@ -90,12 +90,12 @@ export type TextElement = ElementBase & {
 };
 ```
 
-- [ ] **Step 2: Verify the package typechecks**
+- [x] **Step 2: Verify the package typechecks**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit`
 Expected: PASS (no errors).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts
@@ -110,7 +110,7 @@ git commit -m "Add AutofitMode type and TextElement.data.autofit field"
 - Create: `packages/slides/src/model/autofit.ts`
 - Test: `packages/slides/test/model/autofit.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/slides/test/model/autofit.test.ts`:
 
@@ -198,12 +198,12 @@ describe('computeAutofitHeight', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/model/autofit.test.ts`
 Expected: FAIL — `Cannot find module '../../src/model/autofit'`.
 
-- [ ] **Step 3: Implement the engine**
+- [x] **Step 3: Implement the engine**
 
 Create `packages/slides/src/model/autofit.ts`:
 
@@ -285,12 +285,12 @@ export function computeAutofitScale(
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/model/autofit.test.ts`
 Expected: PASS (all cases).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/model/autofit.ts packages/slides/test/model/autofit.test.ts
@@ -305,7 +305,7 @@ git commit -m "Add slides text autofit engine (scale/height helpers)"
 - Modify: `packages/slides/src/view/canvas/text-renderer.ts:80-116`
 - Test: covered by Task 2 (the engine) + the full suite; `drawText` is canvas-bound so wiring is verified by typecheck + suite + manual smoke.
 
-- [ ] **Step 1: Wire the shrink path into `drawText`**
+- [x] **Step 1: Wire the shrink path into `drawText`**
 
 In `text-renderer.ts`, add the import:
 
@@ -337,12 +337,12 @@ Replace the layout block at the end of `drawText` (currently lines 109-115):
 
 (`grow` and `none` fall through unchanged: `grow` relies on `frame.h` already equaling content height, written on commit in Task 6.)
 
-- [ ] **Step 2: Verify typecheck and full slides suite**
+- [x] **Step 2: Verify typecheck and full slides suite**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit && pnpm test`
 Expected: PASS. (`pnpm test` runs the slides/sheets vitest suites.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/text-renderer.ts
@@ -358,7 +358,7 @@ git commit -m "Apply shrink autofit scale in slides text renderer"
 - Modify: `packages/slides/src/model/layout.ts:32-37`
 - Test: `packages/slides/test/model/layout.test.ts` (extend) and an `insert` default test
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `packages/slides/test/model/layout.test.ts` (inside an existing or new `describe`):
 
@@ -394,12 +394,12 @@ describe('buildInsertElement text default', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/model/layout.test.ts test/view/insert-defaults.test.ts`
 Expected: FAIL — `autofit` is `undefined`.
 
-- [ ] **Step 3: Add the defaults**
+- [x] **Step 3: Add the defaults**
 
 In `insert.ts`, inside the `kind === 'text'` branch (line 301), add `autofit: 'grow'` to `data`:
 
@@ -421,12 +421,12 @@ In `layout.ts`, in `textPlaceholder` (line 35), add `autofit: 'shrink'`:
     data: { autofit: 'shrink', blocks: emptyBlocks() },
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/model/layout.test.ts test/view/insert-defaults.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/insert.ts packages/slides/src/model/layout.ts packages/slides/test/model/layout.test.ts packages/slides/test/view/insert-defaults.test.ts
@@ -441,7 +441,7 @@ git commit -m "Seed slides autofit defaults: placeholder shrink, text box grow"
 - Modify: `packages/docs/src/view/text-box-editor.ts:41-115` (options), `:272-284` (recomputeLayout)
 - Test: `packages/docs/test/view/text-box-editor.test.ts` (create or extend)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create/extend `packages/docs/test/view/text-box-editor.test.ts`. (jsdom has no Canvas 2D context, so `recomputeLayout` runs via `computeLayout` which only needs the measurer; the render path early-returns on a null ctx. We assert the hooks fire.)
 
@@ -477,12 +477,12 @@ describe('initializeTextBox autofit hooks', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest run test/view/text-box-editor.test.ts`
 Expected: FAIL — options not accepted / hooks never invoked.
 
-- [ ] **Step 3: Add the options and wire them**
+- [x] **Step 3: Add the options and wire them**
 
 In `text-box-editor.ts`, extend `TextBoxEditorOptions` (after `onLinkRequest?`, around line 115):
 
@@ -531,12 +531,12 @@ Replace `recomputeLayout` (lines 272-284):
   };
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest run test/view/text-box-editor.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Rebuild docs (slides consumes dist) and commit**
+- [x] **Step 5: Rebuild docs (slides consumes dist) and commit**
 
 ```bash
 pnpm --filter @wafflebase/docs build
@@ -553,7 +553,7 @@ git commit -m "Add autofit hooks to docs initializeTextBox"
 - Modify: `packages/slides/src/view/editor/editor.ts:1599-1625`
 - Test: typecheck + full suite + manual smoke (canvas-bound live behavior is not unit-testable in jsdom).
 
-- [ ] **Step 1: Pass the autofit mode into the wrapper and wire both hooks**
+- [x] **Step 1: Pass the autofit mode into the wrapper and wire both hooks**
 
 In `text-box-editor.ts`, add `autofit` to `MountSlidesTextBoxOptions`:
 
@@ -614,7 +614,7 @@ In `mountSlidesTextBox`, destructure `autofit` from opts and pass the hooks into
 
 > Ordering note: docs fires `onContentHeight` inside `recomputeLayout`, which runs at the start of `renderNow` *before* `clearRect`/paint, so the canvas is resized before docs paints into it — no extra render nudge needed.
 
-- [ ] **Step 2: Pass `autofit` through from the editor and write grow height on commit**
+- [x] **Step 2: Pass `autofit` through from the editor and write grow height on commit**
 
 In `editor.ts` `enterEditMode` (line 1599), pass `autofit: element.data.autofit` into `mountTextBox`. Then in the `onCommit` handler (lines 1605-1621), after the blocks write, set the grow height:
 
@@ -652,12 +652,12 @@ Add a private field or module-scope measurer for `autofitMeasurer` in `editor.ts
 
 …and reference it as `this.autofitMeasurer` in the `onCommit` call above. Verify `mountTextBox` (the editor's wrapper-invoking method) forwards the new `autofit` option through to `mountSlidesTextBox`; extend its option object if it whitelists fields.
 
-- [ ] **Step 3: Verify typecheck + full suite**
+- [x] **Step 3: Verify typecheck + full suite**
 
 Run: `pnpm --filter @wafflebase/slides exec tsc --noEmit && pnpm test`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/text-box-editor.ts packages/slides/src/view/editor/editor.ts
@@ -673,7 +673,7 @@ git commit -m "Wire slides text editor autofit: live shrink, live grow, grow com
 - Modify: `packages/slides/src/import/pptx/shape.ts:548-561` (set `data.autofit`)
 - Test: `packages/slides/test/import/autofit.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/slides/test/import/autofit.test.ts`:
 
@@ -705,12 +705,12 @@ describe('detectAutofitMode', () => {
 
 > Use whatever XML parser the existing import tests use; check a sibling test in `packages/slides/test/import/` and match its `txBody`/`child` construction helpers if they differ from `@xmldom/xmldom`.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/import/autofit.test.ts`
 Expected: FAIL — `detectAutofitMode` not exported.
 
-- [ ] **Step 3: Implement `detectAutofitMode` and wire it**
+- [x] **Step 3: Implement `detectAutofitMode` and wire it**
 
 In `text.ts`, add the helper (it reuses the existing `child` import) and export it:
 
@@ -748,12 +748,12 @@ In `shape.ts` `buildTextElement` (line 553), set `autofit`:
 
 Add the import to `shape.ts`: `import { parseTextBody, detectAutofitMode } from './text';` (extend the existing `parseTextBody` import).
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/import/autofit.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/import/pptx/text.ts packages/slides/src/import/pptx/shape.ts packages/slides/test/import/autofit.test.ts
@@ -766,24 +766,24 @@ git commit -m "Map PPTX bodyPr autofit child to TextElement.autofit on import"
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Run the fast gate**
+- [x] **Step 1: Run the fast gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + unit).
 
-- [ ] **Step 2: Run builds**
+- [x] **Step 2: Run builds**
 
 Run: `pnpm verify:self`
 Expected: PASS (verify:fast + all package builds).
 
-- [ ] **Step 3: Manual smoke in dev**
+- [x] **Step 3: Manual smoke in dev**
 
 Run: `pnpm dev`, then in the slides editor:
 - Insert a text box, type past the bottom edge → box height grows live; click out → box stays grown (grow).
 - Add a layout with a body placeholder, type a long paragraph → font shrinks to fit; the editing surface matches the committed canvas with no jump on commit (shrink).
 - Import a PPTX with an autofit body placeholder → renders unchanged; editing it re-engages shrink.
 
-- [ ] **Step 4: Capture lessons + finalize**
+- [x] **Step 4: Capture lessons + finalize**
 
 Record anything non-obvious in `docs/tasks/active/20260525-slides-text-autofit-lessons.md`, then proceed to the project PR workflow (self-review via code-review skill, rebase on `origin/main`, open PR).
 

@@ -46,7 +46,7 @@ Design doc: `docs/design/slides/slides-shift-modifiers.md`.
 - Create: `packages/slides/src/view/editor/interactions/constraints.ts`
 - Test: `packages/slides/test/view/editor/interactions/constraints.test.ts`
 
-- [ ] **Step 1: Write failing tests for `constrainToSquare`**
+- [x] **Step 1: Write failing tests for `constrainToSquare`**
 
 Create `packages/slides/test/view/editor/interactions/constraints.test.ts`:
 
@@ -98,12 +98,12 @@ describe('constrainToSquare', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: FAIL with "Cannot find module .../constraints".
 
-- [ ] **Step 3: Implement `constrainToSquare`**
+- [x] **Step 3: Implement `constrainToSquare`**
 
 Create `packages/slides/src/view/editor/interactions/constraints.ts`:
 
@@ -142,12 +142,12 @@ export function constrainToSquare(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: PASS (9 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/constraints.ts \
@@ -172,7 +172,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/interactions/constraints.ts`
 - Modify: `packages/slides/test/view/editor/interactions/constraints.test.ts`
 
-- [ ] **Step 1: Add failing tests for `snapEndpointAngle`**
+- [x] **Step 1: Add failing tests for `snapEndpointAngle`**
 
 Append to `constraints.test.ts`:
 
@@ -265,12 +265,12 @@ describe('snapEndpointAngle', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: FAIL with "snapEndpointAngle is not a function" (or import error).
 
-- [ ] **Step 3: Implement `snapEndpointAngle`**
+- [x] **Step 3: Implement `snapEndpointAngle`**
 
 Append to `constraints.ts`:
 
@@ -300,12 +300,12 @@ export function snapEndpointAngle(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: PASS (all `constrainToSquare` tests still green + new `snapEndpointAngle` block).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/constraints.ts \
@@ -331,7 +331,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/interactions/constraints.ts`
 - Modify: `packages/slides/test/view/editor/interactions/constraints.test.ts`
 
-- [ ] **Step 1: Add failing tests for `lockAxis`**
+- [x] **Step 1: Add failing tests for `lockAxis`**
 
 Append to `constraints.test.ts`:
 
@@ -371,12 +371,12 @@ describe('lockAxis', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: FAIL with import error for `lockAxis`.
 
-- [ ] **Step 3: Implement `lockAxis`**
+- [x] **Step 3: Implement `lockAxis`**
 
 Append to `constraints.ts`:
 
@@ -399,12 +399,12 @@ export function lockAxis(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test constraints.test`
 Expected: PASS (all three function blocks green).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/constraints.ts \
@@ -430,7 +430,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/editor.ts:1934-1939` (shape insert `onMove`)
 - Modify: `packages/slides/test/view/editor/interactions/insert.test.ts`
 
-- [ ] **Step 1: Add failing integration test for shape draw + Shift**
+- [x] **Step 1: Add failing integration test for shape draw + Shift**
 
 Open `packages/slides/test/view/editor/interactions/insert.test.ts`. Look for an existing test that exercises drag-to-insert a shape (search for `buildInsertElement` or `Rectangle`). Add a sibling test that exercises the editor's `onMove` with `shiftKey: true`. If the file currently only unit-tests `buildInsertElement` (no editor harness), instead add this engine-level test that proves the call-site contract — what the editor passes to `buildInsertElement`:
 
@@ -462,12 +462,12 @@ describe('shape insert + Shift produces a 1:1 frame', () => {
 
 If `buildInsertElement` is not the correct shape-kind identifier (e.g. uses `'rect'` instead of `'rectangle'`), match the value used elsewhere in `insert.test.ts`.
 
-- [ ] **Step 2: Run test to verify it passes already (helper is pure)**
+- [x] **Step 2: Run test to verify it passes already (helper is pure)**
 
 Run: `pnpm --filter @wafflebase/slides test insert.test`
 Expected: PASS. This test proves the contract that the editor's call site (next step) will honor; it doesn't need an editor mock because it tests `constrainToSquare` composed with `buildInsertElement`.
 
-- [ ] **Step 3: Modify shape insert `onMove` in editor.ts**
+- [x] **Step 3: Modify shape insert `onMove` in editor.ts**
 
 Open `packages/slides/src/view/editor/editor.ts` and find the shape insert `onMove` (around line 1934, inside `startInsert` after the `if (isConnectorInsertKind(kind))` branch). Current code:
 
@@ -500,17 +500,17 @@ import { constrainToSquare } from './interactions/constraints';
 
 The commit on `onUp` at line ~1952 already reads from the loop-local `endPoint` variable, so the Shift-snapped endpoint is what gets persisted — no further changes needed.
 
-- [ ] **Step 4: Run the full slides test suite to confirm no regression**
+- [x] **Step 4: Run the full slides test suite to confirm no regression**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS. The integration test from Step 1 already passes; this confirms nothing else broke.
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS (no TS errors).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -537,7 +537,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/editor.ts:2009-2018` (connector insert `onMove`)
 - Modify: `packages/slides/test/view/editor/interactions/insert-connector.test.ts`
 
-- [ ] **Step 1: Add failing integration test for connector draw + Shift**
+- [x] **Step 1: Add failing integration test for connector draw + Shift**
 
 Open `packages/slides/test/view/editor/interactions/insert-connector.test.ts`. Follow the existing test style. Add:
 
@@ -571,12 +571,12 @@ describe('connector insert + Shift snaps endpoint to 15°', () => {
 
 If `buildConnectorInit`'s first argument expects a `ConnectorInsertVariant` other than `'line'`, use whatever literal `insert-connector.test.ts` already uses.
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test insert-connector.test`
 Expected: PASS (pure helper composition).
 
-- [ ] **Step 3: Modify connector insert `onMove` in editor.ts**
+- [x] **Step 3: Modify connector insert `onMove` in editor.ts**
 
 Find `startConnectorInsert`'s `onMove` (around line 2009). Current:
 
@@ -613,17 +613,17 @@ import { constrainToSquare, snapEndpointAngle } from './interactions/constraints
 
 `buildConnectorInit` already runs the connection-site test against `endPoint`. With Shift held, the snapped coordinate is what it sees: if it lands inside a site radius the endpoint attaches, otherwise free. No extra branching needed.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -650,7 +650,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/editor.ts` — `startEndpointDrag` (`onMove` at ~2492, recompute / commit unchanged)
 - Modify: `packages/slides/test/view/editor/interactions/connector-endpoint-drag.test.ts`
 
-- [ ] **Step 1: Add failing integration test for endpoint drag + Shift**
+- [x] **Step 1: Add failing integration test for endpoint drag + Shift**
 
 Open `packages/slides/test/view/editor/interactions/connector-endpoint-drag.test.ts`. Follow existing style — if it exercises `dragEndpoint` directly, add a sibling test that proves the editor's Shift transform: snap is applied **at the call site** (editor.ts) before `dragEndpoint` runs, so the test exercises the composition:
 
@@ -679,12 +679,12 @@ describe('endpoint drag + Shift snaps relative to the opposite endpoint', () => 
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test connector-endpoint-drag.test`
 Expected: PASS (pure helper).
 
-- [ ] **Step 3: Modify endpoint-drag `onMove` in editor.ts**
+- [x] **Step 3: Modify endpoint-drag `onMove` in editor.ts**
 
 In `startEndpointDrag` (find it via `grep -n "startEndpointDrag\|endpointDragging = true" packages/slides/src/view/editor/editor.ts`), at the top of the handler add an "other endpoint world position" capture. Look for the existing variable declarations around line 2438–2446:
 
@@ -754,17 +754,17 @@ const onMove = (ev: MouseEvent) => {
 
 The commit on `onUp` (~line 2530) uses `liveCursor`, which `recompute(cur)` already stores from the snapped `cur` — commit picks up the snap automatically.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -791,7 +791,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/editor.ts` — move-drag `onMove` (around line 2180)
 - Modify: `packages/slides/test/view/editor/interactions/drag.test.ts`
 
-- [ ] **Step 1: Add failing integration test for move + Shift**
+- [x] **Step 1: Add failing integration test for move + Shift**
 
 Open `packages/slides/test/view/editor/interactions/drag.test.ts`. Add:
 
@@ -819,18 +819,18 @@ describe('move drag + Shift locks to dominant axis', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test drag.test`
 Expected: PASS (pure helper).
 
-- [ ] **Step 3: Locate the move-drag `onMove`**
+- [x] **Step 3: Locate the move-drag `onMove`**
 
 Run: `grep -n "liveDx\|liveDy" packages/slides/src/view/editor/editor.ts | head`
 
 Find the `onMove` handler that computes `liveDx` and `liveDy` from `(cur.x - start.x, cur.y - start.y)` — it is the same handler that calls `this.paintMoveGhost(ghosts, handleElements, guides);` at ~line 2218.
 
-- [ ] **Step 4: Modify move-drag `onMove`**
+- [x] **Step 4: Modify move-drag `onMove`**
 
 Inside that `onMove`, locate the lines that compute the delta from the cursor — they look roughly like:
 
@@ -865,17 +865,17 @@ import {
 } from './interactions/constraints';
 ```
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -902,7 +902,7 @@ EOF
 - Modify: `docs/design/slides/slides-keyboard-shortcuts.md`
 - Modify: `packages/slides/src/view/editor/shortcuts-catalog.ts`
 
-- [ ] **Step 1: Add "Shift modifiers during drag" section to slides-keyboard-shortcuts.md**
+- [x] **Step 1: Add "Shift modifiers during drag" section to slides-keyboard-shortcuts.md**
 
 Open `docs/design/slides/slides-keyboard-shortcuts.md`. After the existing shortcut table (after the Scope section, before Architecture), insert:
 
@@ -930,7 +930,7 @@ site radius. Release Shift to attach.
 Full design: [slides-shift-modifiers.md](./slides-shift-modifiers.md).
 ```
 
-- [ ] **Step 2: Add drag-modifier entries to the in-app help catalog**
+- [x] **Step 2: Add drag-modifier entries to the in-app help catalog**
 
 Open `packages/slides/src/view/editor/shortcuts-catalog.ts`. Inspect the existing categories and entry shape (likely an array of `{ category, keys, description }` objects). Add a new category section, e.g.:
 
@@ -962,17 +962,17 @@ Open `packages/slides/src/view/editor/shortcuts-catalog.ts`. Inspect the existin
 
 If the file has a typed schema, follow the existing field names exactly (open the file, copy the pattern from a current entry).
 
-- [ ] **Step 3: Run the suite + typecheck once more**
+- [x] **Step 3: Run the suite + typecheck once more**
 
 Run: `pnpm --filter @wafflebase/slides test && pnpm --filter @wafflebase/slides build`
 Expected: PASS / SUCCESS.
 
-- [ ] **Step 4: Run repo-wide pre-commit gate**
+- [x] **Step 4: Run repo-wide pre-commit gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + unit tests across all packages).
 
-- [ ] **Step 5: Manual smoke (browser) — `pnpm dev`**
+- [x] **Step 5: Manual smoke (browser) — `pnpm dev`**
 
 In one terminal: `docker compose up -d`
 In another: `pnpm dev`
@@ -987,7 +987,7 @@ Verify:
 - Regression check: corner resize + Shift still keeps aspect ratio; rotate handle + Shift still snaps 15°.
 - Help modal (`Cmd/Ctrl + /`) shows the four new "Drag modifiers" entries.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/design/slides/slides-keyboard-shortcuts.md \
@@ -1010,19 +1010,19 @@ EOF
 
 ## Task 9: Branch wrap-up
 
-- [ ] **Step 1: Self-review the full branch diff against the design doc**
+- [x] **Step 1: Self-review the full branch diff against the design doc**
 
 Run: `git diff main...HEAD --stat` and skim. Confirm each of the four new behaviors has a call site + integration test, the three pure helpers have unit coverage, and the design doc's "Out of Scope" items (Alt center-resize, Ctrl duplicate-drag, rotated-frame local-axis lock) were **not** touched.
 
-- [ ] **Step 2: Dispatch code review**
+- [x] **Step 2: Dispatch code review**
 
 Use the project workflow's review skill (`/code-review` or `superpowers:requesting-code-review`) on the branch diff before opening the PR. Address any blocking findings; record non-blocking ones in `*-lessons.md`.
 
-- [ ] **Step 3: Capture lessons**
+- [x] **Step 3: Capture lessons**
 
 Create `docs/tasks/active/20260528-slides-shift-modifiers-lessons.md` with any non-obvious gotchas found during implementation (e.g. if `shortcuts-catalog.ts` schema differed from this plan's assumption, if connection-site precedence needed extra branching in practice, if `dragEndpoint`'s flow assumed something subtly different).
 
-- [ ] **Step 4: Archive and open PR**
+- [x] **Step 4: Archive and open PR**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index

@@ -6,22 +6,30 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 230
+Total archived tasks: 241
 
-## 2026/05 (85 tasks)
+## 2026/05 (96 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | slides body click deselect (2026-05-31) | [20260531-slides-body-click-deselect-todo.md](./2026/05/20260531-slides-body-click-deselect-todo.md) | [20260531-slides-body-click-deselect-lessons.md](./2026/05/20260531-slides-body-click-deselect-lessons.md) |
 | slides group nested connector (2026-05-31) | [20260531-slides-group-nested-connector-todo.md](./2026/05/20260531-slides-group-nested-connector-todo.md) | [20260531-slides-group-nested-connector-lessons.md](./2026/05/20260531-slides-group-nested-connector-lessons.md) |
+| slides shape inline text (2026-05-31) | [20260531-slides-shape-inline-text-todo.md](./2026/05/20260531-slides-shape-inline-text-todo.md) | [20260531-slides-shape-inline-text-lessons.md](./2026/05/20260531-slides-shape-inline-text-lessons.md) |
+| slides smart guides (2026-05-31) | [20260531-slides-smart-guides-todo.md](./2026/05/20260531-slides-smart-guides-todo.md) | [20260531-slides-smart-guides-lessons.md](./2026/05/20260531-slides-smart-guides-lessons.md) |
+| cursor follows text color (2026-05-30) | [20260530-cursor-follows-text-color-todo.md](./2026/05/20260530-cursor-follows-text-color-todo.md) | [20260530-cursor-follows-text-color-lessons.md](./2026/05/20260530-cursor-follows-text-color-lessons.md) |
 | design docs cleanup (2026-05-30) | [20260530-design-docs-cleanup-todo.md](./2026/05/20260530-design-docs-cleanup-todo.md) | [20260530-design-docs-cleanup-lessons.md](./2026/05/20260530-design-docs-cleanup-lessons.md) |
+| docs pending inline style (2026-05-30) | [20260530-docs-pending-inline-style-todo.md](./2026/05/20260530-docs-pending-inline-style-todo.md) | [20260530-docs-pending-inline-style-lessons.md](./2026/05/20260530-docs-pending-inline-style-lessons.md) |
 | docs tab multi bullet (2026-05-30) | [20260530-docs-tab-multi-bullet-todo.md](./2026/05/20260530-docs-tab-multi-bullet-todo.md) | [20260530-docs-tab-multi-bullet-lessons.md](./2026/05/20260530-docs-tab-multi-bullet-lessons.md) |
 | docs toolbar groups (2026-05-30) | [20260530-docs-toolbar-groups-todo.md](./2026/05/20260530-docs-toolbar-groups-todo.md) | [20260530-docs-toolbar-groups-lessons.md](./2026/05/20260530-docs-toolbar-groups-lessons.md) |
+| pptx paragraph bullet style (2026-05-30) | [20260530-pptx-paragraph-bullet-style-todo.md](./2026/05/20260530-pptx-paragraph-bullet-style-todo.md) | - |
 | docs font controls (2026-05-29) | [20260529-docs-font-controls-todo.md](./2026/05/20260529-docs-font-controls-todo.md) | [20260529-docs-font-controls-lessons.md](./2026/05/20260529-docs-font-controls-lessons.md) |
 | slides format options panel (2026-05-29) | [20260529-slides-format-options-panel-todo.md](./2026/05/20260529-slides-format-options-panel-todo.md) | [20260529-slides-format-options-panel-lessons.md](./2026/05/20260529-slides-format-options-panel-lessons.md) |
 | slides pptx text vertical anchor (2026-05-29) | [20260529-slides-pptx-text-vertical-anchor-todo.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-todo.md) | [20260529-slides-pptx-text-vertical-anchor-lessons.md](./2026/05/20260529-slides-pptx-text-vertical-anchor-lessons.md) |
 | slides text vertical align menu (2026-05-29) | [20260529-slides-text-vertical-align-menu-todo.md](./2026/05/20260529-slides-text-vertical-align-menu-todo.md) | [20260529-slides-text-vertical-align-menu-lessons.md](./2026/05/20260529-slides-text-vertical-align-menu-lessons.md) |
 | slides toolbar tier1 (2026-05-29) | [20260529-slides-toolbar-tier1-todo.md](./2026/05/20260529-slides-toolbar-tier1-todo.md) | [20260529-slides-toolbar-tier1-lessons.md](./2026/05/20260529-slides-toolbar-tier1-lessons.md) |
+| slides shift modifiers (2026-05-28) | [20260528-slides-shift-modifiers-todo.md](./2026/05/20260528-slides-shift-modifiers-todo.md) | [20260528-slides-shift-modifiers-lessons.md](./2026/05/20260528-slides-shift-modifiers-lessons.md) |
+| docs unlink href (2026-05-26) | [20260526-docs-unlink-href-todo.md](./2026/05/20260526-docs-unlink-href-todo.md) | [20260526-docs-unlink-href-lessons.md](./2026/05/20260526-docs-unlink-href-lessons.md) |
+| slides group selection ui (2026-05-26) | [20260526-slides-group-selection-ui-todo.md](./2026/05/20260526-slides-group-selection-ui-todo.md) | [20260526-slides-group-selection-ui-lessons.md](./2026/05/20260526-slides-group-selection-ui-lessons.md) |
 | slides toolbar add slide focus (2026-05-26) | [20260526-slides-toolbar-add-slide-focus-todo.md](./2026/05/20260526-slides-toolbar-add-slide-focus-todo.md) | [20260526-slides-toolbar-add-slide-focus-lessons.md](./2026/05/20260526-slides-toolbar-add-slide-focus-lessons.md) |
 | ci tokens build (2026-05-25) | [20260525-ci-tokens-build-todo.md](./2026/05/20260525-ci-tokens-build-todo.md) | - |
 | dependabot alerts (2026-05-25) | [20260525-dependabot-alerts-todo.md](./2026/05/20260525-dependabot-alerts-todo.md) | [20260525-dependabot-alerts-lessons.md](./2026/05/20260525-dependabot-alerts-lessons.md) |
@@ -29,8 +37,10 @@ Total archived tasks: 230
 | import progress toast (2026-05-25) | [20260525-import-progress-toast-todo.md](./2026/05/20260525-import-progress-toast-todo.md) | [20260525-import-progress-toast-lessons.md](./2026/05/20260525-import-progress-toast-lessons.md) |
 | pptx blipfill fillrect crop (2026-05-25) | [20260525-pptx-blipfill-fillrect-crop-todo.md](./2026/05/20260525-pptx-blipfill-fillrect-crop-todo.md) | - |
 | release v0.4.2 (2026-05-25) | [20260525-release-v0.4.2-todo.md](./2026/05/20260525-release-v0.4.2-todo.md) | - |
+| slides text autofit (2026-05-25) | [20260525-slides-text-autofit-todo.md](./2026/05/20260525-slides-text-autofit-todo.md) | [20260525-slides-text-autofit-lessons.md](./2026/05/20260525-slides-text-autofit-lessons.md) |
 | slides textbox autogrow (2026-05-25) | [20260525-slides-textbox-autogrow-todo.md](./2026/05/20260525-slides-textbox-autogrow-todo.md) | [20260525-slides-textbox-autogrow-lessons.md](./2026/05/20260525-slides-textbox-autogrow-lessons.md) |
 | slides textbox edit theme color (2026-05-25) | [20260525-slides-textbox-edit-theme-color-todo.md](./2026/05/20260525-slides-textbox-edit-theme-color-todo.md) | [20260525-slides-textbox-edit-theme-color-lessons.md](./2026/05/20260525-slides-textbox-edit-theme-color-lessons.md) |
+| slides textbox toolbar focus (2026-05-25) | [20260525-slides-textbox-toolbar-focus-todo.md](./2026/05/20260525-slides-textbox-toolbar-focus-todo.md) | [20260525-slides-textbox-toolbar-focus-lessons.md](./2026/05/20260525-slides-textbox-toolbar-focus-lessons.md) |
 | backend hardening quickwins (2026-05-24) | [20260524-backend-hardening-quickwins-todo.md](./2026/05/20260524-backend-hardening-quickwins-todo.md) | [20260524-backend-hardening-quickwins-lessons.md](./2026/05/20260524-backend-hardening-quickwins-lessons.md) |
 | build dependency order (2026-05-24) | [20260524-build-dependency-order-todo.md](./2026/05/20260524-build-dependency-order-todo.md) | - |
 | frontend vitest migration (2026-05-24) | [20260524-frontend-vitest-migration-todo.md](./2026/05/20260524-frontend-vitest-migration-todo.md) | [20260524-frontend-vitest-migration-lessons.md](./2026/05/20260524-frontend-vitest-migration-lessons.md) |
@@ -42,6 +52,7 @@ Total archived tasks: 230
 | slides homepage docs (2026-05-21) | [20260521-slides-homepage-docs-todo.md](./2026/05/20260521-slides-homepage-docs-todo.md) | - |
 | slides thumbnail async bg (2026-05-21) | [20260521-slides-thumbnail-async-bg-todo.md](./2026/05/20260521-slides-thumbnail-async-bg-todo.md) | - |
 | slides group handle bbox (2026-05-20) | [20260520-slides-group-handle-bbox-todo.md](./2026/05/20260520-slides-group-handle-bbox-todo.md) | [20260520-slides-group-handle-bbox-lessons.md](./2026/05/20260520-slides-group-handle-bbox-lessons.md) |
+| docs local caret anchoring (2026-05-19) | [20260519-docs-local-caret-anchoring-todo.md](./2026/05/20260519-docs-local-caret-anchoring-todo.md) | [20260519-docs-local-caret-anchoring-lessons.md](./2026/05/20260519-docs-local-caret-anchoring-lessons.md) |
 | slides drag connector crash (2026-05-19) | [20260519-slides-drag-connector-crash-todo.md](./2026/05/20260519-slides-drag-connector-crash-todo.md) | [20260519-slides-drag-connector-crash-lessons.md](./2026/05/20260519-slides-drag-connector-crash-lessons.md) |
 | slides mobile shell (2026-05-19) | [20260519-slides-mobile-shell-todo.md](./2026/05/20260519-slides-mobile-shell-todo.md) | - |
 | slides mobile toolbar morph (2026-05-19) | [20260519-slides-mobile-toolbar-morph-todo.md](./2026/05/20260519-slides-mobile-toolbar-morph-todo.md) | - |
