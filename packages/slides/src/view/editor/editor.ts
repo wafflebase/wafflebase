@@ -2561,7 +2561,16 @@ class SlidesEditorImpl implements SlidesEditor {
       const final = ev.shiftKey ? lockAxis(smart.dx, smart.dy) : smart;
       const dx = final.dx;
       const dy = final.dy;
-      const guides: (SnapGuide | SmartGuide)[] = [...snapped.guides, ...smart.guides];
+      const guides: (SnapGuide | SmartGuide)[] = [
+        ...snapped.guides,
+        ...smart.guides,
+      ].filter((g) => {
+        if (!ev.shiftKey) return true;
+        // After lockAxis, one of dx/dy is zero. Drop guides on that axis.
+        if (dx !== 0 && dy === 0) return g.axis === 'x';
+        if (dy !== 0 && dx === 0) return g.axis === 'y';
+        return true;
+      });
       liveDx = dx;
       liveDy = dy;
 

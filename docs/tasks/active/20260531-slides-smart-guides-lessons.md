@@ -42,6 +42,10 @@ These were in the design doc but deliberately not implemented:
 - `void f` in `smart-guides.test.ts` to silence the unused-helper warning. Either start using `f` in tests or drop both the helper and the void.
 - The Y-axis end-trio loop in `smart-guides.ts` lacks the "Case 1 / Case 2" header comments the X-axis loop has. Add for symmetry if touching this region.
 
+## Reversed during PR review
+
+- The earlier choice to let smart-guide arrows show on Shift-locked axes was reverted on CodeRabbit's nudge — showing guides for movement that won't commit is confusing, not informative. Added a `.filter()` in the drag `onMove` handler that drops guides whose axis is zeroed-out by `lockAxis`. The `equal-size` kind is excluded from this path (resize only), so no special-casing needed.
+
 ## Subagent-driven development notes
 
 - 8 implementer dispatches + 8 reviewer dispatches over Tasks 1–8 (plus the priority-fix amendment + the corner-handle test addition). Haiku for skeleton/reviews, Sonnet for the multi-loop detection tasks. Roughly 2× wall-clock time vs inline, but main context stayed clean and each commit had verifiable test output.
