@@ -341,9 +341,12 @@ function buildShimPaginatedLayout(
  * - `'middle'` ⇒ `(frameH − contentH) / 2`.
  * - `'bottom'` ⇒ `frameH − contentH`.
  *
- * Clamped to ≥ 0 — when content overflows the frame (autofit='none' or
- * a sufficiently small frame in 'shrink' mode), painting starts at the
- * top so visible text isn't clipped above the frame entirely.
+ * On overflow (`contentH > frameH`) the middle/bottom offsets go
+ * negative, painting some text above the frame top — matching
+ * PowerPoint / Google Slides where the anchor relationship is
+ * preserved on overflow. `'shrink'` autofit (when set) shrinks the
+ * type before this offset is computed, so authors who want the
+ * overflow to stay inside the frame opt into that mode.
  *
  * Mirrors `computeVerticalOriginY` in slides' `text-renderer.ts` so
  * both the committed canvas and the in-place editor apply an identical
@@ -355,8 +358,8 @@ function computeVerticalOriginY(
   frameH: number,
   contentH: number,
 ): number {
-  if (anchor === 'middle') return Math.max(0, (frameH - contentH) / 2);
-  if (anchor === 'bottom') return Math.max(0, frameH - contentH);
+  if (anchor === 'middle') return (frameH - contentH) / 2;
+  if (anchor === 'bottom') return frameH - contentH;
   return 0;
 }
 

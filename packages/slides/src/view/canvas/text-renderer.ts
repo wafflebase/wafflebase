@@ -203,17 +203,21 @@ export function paintTextBody(
  * - `'middle'` ⇒ `(frameH − contentH) / 2`.
  * - `'bottom'` ⇒ `frameH − contentH`.
  *
- * Clamped to ≥ 0 — when content overflows the frame (autofit='none' or
- * a sufficiently small frame in 'shrink' mode), painting starts at the
- * top so visible text isn't clipped above the frame entirely.
+ * On overflow (`contentH > frameH`) the middle/bottom offsets go
+ * negative, painting some text above the frame top. This matches
+ * PowerPoint and Google Slides — middle stays centered on the frame
+ * (text extends both above and below), bottom stays anchored to the
+ * frame bottom (text extends above). Authors who need the overflow to
+ * stay inside the frame should opt into `<a:normAutofit>` (`autofit:
+ * 'shrink'`), which shrinks the type before anchor offset is computed.
  */
 function computeVerticalOriginY(
   anchor: VerticalAnchorMode | undefined,
   frameH: number,
   contentH: number,
 ): number {
-  if (anchor === 'middle') return Math.max(0, (frameH - contentH) / 2);
-  if (anchor === 'bottom') return Math.max(0, frameH - contentH);
+  if (anchor === 'middle') return (frameH - contentH) / 2;
+  if (anchor === 'bottom') return frameH - contentH;
   return 0;
 }
 

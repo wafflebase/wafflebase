@@ -633,10 +633,13 @@ describe('initializeTextBox — verticalAnchor', () => {
   });
 
   /**
-   * When content is taller than the frame, originY clamps to 0, and text
-   * paints at the top regardless of the anchor value.
+   * On overflow the anchor relationship is preserved (PowerPoint /
+   * Google Slides parity) — bottom anchor keeps the last line at the
+   * frame bottom, so the first line baseline lands above the frame
+   * top (negative origin). Previously the editor clamped originY to 0
+   * which broke parity with the canvas renderer and the source apps.
    */
-  it('clamps originY to 0 when content overflows the frame', async () => {
+  it('preserves the bottom anchor when content overflows the frame', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const canvas = document.createElement('canvas');
@@ -656,11 +659,9 @@ describe('initializeTextBox — verticalAnchor', () => {
     await new Promise<void>((r) => queueMicrotask(r));
     const calls = currentSpy.fillText.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    // With clamp, the first visible line's baseline should be close to
-    // the top of the frame (< 40px even with the clamped-to-0 offset).
+    // Bottom anchor on overflow → first line baseline is well above 0.
     const firstY = calls[0][2] as number;
-    expect(firstY).toBeGreaterThanOrEqual(0);
-    expect(firstY).toBeLessThan(40);
+    expect(firstY).toBeLessThan(0);
     api.detach();
   });
 
