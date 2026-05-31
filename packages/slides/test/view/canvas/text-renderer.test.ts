@@ -130,15 +130,36 @@ describe('drawText', () => {
     expect(firstY).toBeLessThan(130);
   });
 
-  it('falls back to top-anchored when content is taller than the frame', () => {
+  it('preserves the bottom anchor when content overflows the frame', () => {
     const ctx = createCtxSpy();
     // 30 paragraphs of default-size text is comfortably > 40 px tall.
     const blocks = Array.from({ length: 30 }, (_, i) => paragraph(`line ${i}`));
     const d: TextElement['data'] = { blocks, verticalAnchor: 'bottom' };
     drawText(asCtx(ctx), { w: 400, h: 40 }, d, THEME);
-    // Clamping kicks in: originY would be negative without Math.max, so
-    // firstY must be >= 0. Also confirm we're still near the top (no offset
-    // applied), not somewhere mid-frame.
+    // Bottom anchor pins the LAST line baseline to the frame bottom, so
+    // the FIRST line baseline lands well above the frame top (negative).
+    // PowerPoint/Google Slides behavior — without this we'd lose visual
+    // parity on PPTX import (e.g. slide 22 of `Yorkie, 캐즘 뛰어넘기.pptx`).
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeLessThan(0);
+  });
+
+  it('preserves the middle anchor when content overflows the frame', () => {
+    const ctx = createCtxSpy();
+    const blocks = Array.from({ length: 30 }, (_, i) => paragraph(`line ${i}`));
+    const d: TextElement['data'] = { blocks, verticalAnchor: 'middle' };
+    drawText(asCtx(ctx), { w: 400, h: 40 }, d, THEME);
+    // Middle anchor on overflow → first-line baseline is well above the
+    // frame top (text extends symmetrically above and below the frame).
+    const firstY = ctx.fillText.mock.calls[0][2] as number;
+    expect(firstY).toBeLessThan(0);
+  });
+
+  it('still paints at the top when top-anchored content overflows', () => {
+    const ctx = createCtxSpy();
+    const blocks = Array.from({ length: 30 }, (_, i) => paragraph(`line ${i}`));
+    const d: TextElement['data'] = { blocks, verticalAnchor: 'top' };
+    drawText(asCtx(ctx), { w: 400, h: 40 }, d, THEME);
     const firstY = ctx.fillText.mock.calls[0][2] as number;
     expect(firstY).toBeGreaterThanOrEqual(0);
     expect(firstY).toBeLessThan(20);
