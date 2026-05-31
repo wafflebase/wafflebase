@@ -361,6 +361,10 @@ export function matchSize(
   handle: ResizeHandle,
   others: readonly Frame[],
 ): { x: number; y: number; w: number; h: number; guides: SmartGuide[] } {
+  // `matched` collects every peer that shares the WINNING target
+  // dimension. If a closer peer arrives later, the previous matched
+  // set is intentionally dropped — peers that no longer share the
+  // winning target shouldn't appear in the dashed-outline overlay.
   let bestW: { target: number; matched: Frame[] } | null = null;
   let bestH: { target: number; matched: Frame[] } | null = null;
   for (const o of others) {

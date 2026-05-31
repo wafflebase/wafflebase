@@ -3410,6 +3410,9 @@ class SlidesEditorImpl implements SlidesEditor {
       });
       this.renderer.markDirty();
       this.render();
+      // Clear lingering equal-size dashed outlines from the last
+      // paintLiveScoped guides arg. Mirrors the move-drag onUp at ~line 2568.
+      this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
