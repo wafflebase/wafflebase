@@ -66,6 +66,14 @@ function overlapsCol(d: Drag, o: Frame): boolean {
   return d.rightPx > o.x && d.leftPx < o.x + o.w;
 }
 
+function framesOverlapY(a: Frame, b: Frame): boolean {
+  return a.y + a.h > b.y && a.y < b.y + b.h;
+}
+
+function framesOverlapX(a: Frame, b: Frame): boolean {
+  return a.x + a.w > b.x && a.x < b.x + b.w;
+}
+
 export function smartGuides(
   bbox: { x: number; y: number; w: number; h: number },
   dx: number,
@@ -99,6 +107,7 @@ export function smartGuides(
       if (i === j) continue;
       const b = others[j];
       if (!overlapsRow(d, b)) continue;
+      if (!framesOverlapY(a, b)) continue;     // A and B must overlap each other
       if (a.x + a.w > d.leftPx) continue;     // A must be fully left
       if (b.x < d.rightPx) continue;          // B must be fully right
       const gapL = d.leftPx - (a.x + a.w);
@@ -125,6 +134,7 @@ export function smartGuides(
       if (i === j) continue;
       const b = others[j];
       if (!overlapsCol(d, b)) continue;
+      if (!framesOverlapX(a, b)) continue;     // A and B must overlap each other
       if (a.y + a.h > d.topPx) continue;
       if (b.y < d.bottomPx) continue;
       const gapT = d.topPx - (a.y + a.h);
@@ -155,6 +165,7 @@ export function smartGuides(
       if (i === j) continue;
       const b = others[j];
       if (!overlapsRow(d, b)) continue;
+      if (!framesOverlapY(a, b)) continue;  // A and B must overlap each other
       if (a.x + a.w >= b.x) continue;  // need A strictly left of B
       const innerGap = b.x - (a.x + a.w);
       // Case 1: dragged on the right of B.
@@ -200,6 +211,7 @@ export function smartGuides(
       if (i === j) continue;
       const b = others[j];
       if (!overlapsCol(d, b)) continue;
+      if (!framesOverlapX(a, b)) continue;  // A and B must overlap each other
       if (a.y + a.h >= b.y) continue;
       const innerGap = b.y - (a.y + a.h);
       if (d.topPx >= b.y + b.h) {
@@ -249,10 +261,10 @@ export function smartGuides(
       if (i === j) continue;
       const a = others[i];
       const b = others[j];
-      if (overlapsRow(d, a) && overlapsRow(d, b) && a.x + a.w < b.x) {
+      if (overlapsRow(d, a) && overlapsRow(d, b) && framesOverlapY(a, b) && a.x + a.w < b.x) {
         knownGapsX.push({ axis: 'x', gap: b.x - (a.x + a.w), left: a, right: b });
       }
-      if (overlapsCol(d, a) && overlapsCol(d, b) && a.y + a.h < b.y) {
+      if (overlapsCol(d, a) && overlapsCol(d, b) && framesOverlapX(a, b) && a.y + a.h < b.y) {
         knownGapsY.push({ axis: 'y', gap: b.y - (a.y + a.h), left: a, right: b });
       }
     }

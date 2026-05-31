@@ -78,6 +78,18 @@ describe('smartGuides — equal-spacing (dragged in middle)', () => {
     const out = smartGuides(bbox, 98, 0, [A, B, C]);
     expect(out.dx).toBe(100); // wins by +2 over +5.
   });
+
+  it('does not fire when the two outer frames do not overlap each other (staircase)', () => {
+    // a, dragged, b all overlap each other vertically pairwise, but
+    // a (y=0..100) and b (y=200..300) never overlap directly.
+    const a: Frame = { x: 0,   y: 0,   w: 100, h: 100, rotation: 0 };
+    const b: Frame = { x: 600, y: 200, w: 100, h: 100, rotation: 0 };
+    // dragged spans y=80..180, overlapping both a's bottom and b's top.
+    const bbox = { x: 200, y: 80, w: 100, h: 100 };
+    const out = smartGuides(bbox, 98, 0, [a, b]);
+    expect(out.dx).toBe(98);
+    expect(out.guides).toEqual([]);
+  });
 });
 
 describe('smartGuides — equal-spacing (dragged on an end)', () => {
