@@ -90,6 +90,37 @@ describe('smartGuides — equal-spacing (dragged in middle)', () => {
     expect(out.dx).toBe(98);
     expect(out.guides).toEqual([]);
   });
+
+  it('renders X-axis spans at the FINAL Y centre when both axes snap', () => {
+    // X-axis equal-spacing middle trio: A (x=0..100, y=298..398) and
+    // B (x=600..700, y=298..398) bracket the dragged on the left/right.
+    // Y-axis equal-spacing middle trio: top (x=298..398, y=0..100) and
+    // bot (x=298..398, y=600..700) bracket the dragged above/below.
+    // All frames share the same row/column band as the dragged bbox so
+    // overlapsRow / overlapsCol both pass.
+    // With dragged at x=298, y=298 (w=h=100):
+    //   X: gapL = 298-100 = 198, gapR = 600-398 = 202 → adjust = +2 → snapped x=300.
+    //   Y: gapT = 298-100 = 198, gapB = 600-398 = 202 → adjust = +2 → snapped y=300.
+    // Final centre after both snaps: (300+50, 300+50) = (350, 350).
+    const A: Frame   = { x: 0,   y: 298, w: 100, h: 100, rotation: 0 };
+    const B: Frame   = { x: 600, y: 298, w: 100, h: 100, rotation: 0 };
+    const top: Frame = { x: 298, y: 0,   w: 100, h: 100, rotation: 0 };
+    const bot: Frame = { x: 298, y: 600, w: 100, h: 100, rotation: 0 };
+    const bbox = { x: 298, y: 298, w: 100, h: 100 };
+    const out = smartGuides(bbox, 0, 0, [A, B, top, bot]);
+    expect(out.dx).toBe(2);
+    expect(out.dy).toBe(2);
+    const xGuide = out.guides.find((g) => g.kind === 'equal-spacing' && g.axis === 'x');
+    const yGuide = out.guides.find((g) => g.kind === 'equal-spacing' && g.axis === 'y');
+    if (xGuide && xGuide.kind === 'equal-spacing') {
+      // X arrows draw at the FINAL Y centre (350), not the pre-adjust Y centre (348).
+      expect(xGuide.spans[0].perpendicular).toBe(350);
+    }
+    if (yGuide && yGuide.kind === 'equal-spacing') {
+      // Y arrows draw at the FINAL X centre (350).
+      expect(yGuide.spans[0].perpendicular).toBe(350);
+    }
+  });
 });
 
 describe('smartGuides — equal-spacing (dragged on an end)', () => {

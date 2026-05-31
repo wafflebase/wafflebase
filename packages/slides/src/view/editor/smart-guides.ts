@@ -84,7 +84,7 @@ export function smartGuides(
 
   type Cand = {
     adjust: number;
-    guide: SmartGuide;
+    buildGuide: (drag: Drag) => SmartGuide;
   };
 
   let bestX: Cand | null = null;
@@ -115,14 +115,14 @@ export function smartGuides(
       const adjust = (gapR - gapL) / 2;
       tryX({
         adjust,
-        guide: {
+        buildGuide: (drag) => ({
           kind: 'equal-spacing',
           axis: 'x',
           spans: [
-            { from: a.x + a.w, to: d.leftPx + adjust, perpendicular: d.centerYPx },
-            { from: d.rightPx + adjust, to: b.x,      perpendicular: d.centerYPx },
+            { from: a.x + a.w, to: drag.leftPx,  perpendicular: drag.centerYPx },
+            { from: drag.rightPx, to: b.x,        perpendicular: drag.centerYPx },
           ],
-        },
+        }),
       });
     }
   }
@@ -142,14 +142,14 @@ export function smartGuides(
       const adjust = (gapB - gapT) / 2;
       tryY({
         adjust,
-        guide: {
+        buildGuide: (drag) => ({
           kind: 'equal-spacing',
           axis: 'y',
           spans: [
-            { from: a.y + a.h, to: d.topPx + adjust, perpendicular: d.centerXPx },
-            { from: d.bottomPx + adjust, to: b.y,    perpendicular: d.centerXPx },
+            { from: a.y + a.h, to: drag.topPx,    perpendicular: drag.centerXPx },
+            { from: drag.bottomPx, to: b.y,        perpendicular: drag.centerXPx },
           ],
-        },
+        }),
       });
     }
   }
@@ -174,14 +174,14 @@ export function smartGuides(
         const adjust = innerGap - outerGap;
         tryX({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-spacing',
             axis: 'x',
             spans: [
-              { from: a.x + a.w, to: b.x,             perpendicular: d.centerYPx },
-              { from: b.x + b.w, to: d.leftPx + adjust, perpendicular: d.centerYPx },
+              { from: a.x + a.w, to: b.x,          perpendicular: drag.centerYPx },
+              { from: b.x + b.w, to: drag.leftPx,  perpendicular: drag.centerYPx },
             ],
-          },
+          }),
         });
       }
       // Case 2: dragged on the left of A.
@@ -190,14 +190,14 @@ export function smartGuides(
         const adjust = -(innerGap - outerGap);
         tryX({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-spacing',
             axis: 'x',
             spans: [
-              { from: d.rightPx + adjust, to: a.x, perpendicular: d.centerYPx },
-              { from: a.x + a.w, to: b.x,          perpendicular: d.centerYPx },
+              { from: drag.rightPx, to: a.x,  perpendicular: drag.centerYPx },
+              { from: a.x + a.w, to: b.x,     perpendicular: drag.centerYPx },
             ],
-          },
+          }),
         });
       }
     }
@@ -219,14 +219,14 @@ export function smartGuides(
         const adjust = innerGap - outerGap;
         tryY({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-spacing',
             axis: 'y',
             spans: [
-              { from: a.y + a.h, to: b.y,              perpendicular: d.centerXPx },
-              { from: b.y + b.h, to: d.topPx + adjust,  perpendicular: d.centerXPx },
+              { from: a.y + a.h, to: b.y,          perpendicular: drag.centerXPx },
+              { from: b.y + b.h, to: drag.topPx,   perpendicular: drag.centerXPx },
             ],
-          },
+          }),
         });
       }
       if (d.bottomPx <= a.y) {
@@ -234,14 +234,14 @@ export function smartGuides(
         const adjust = -(innerGap - outerGap);
         tryY({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-spacing',
             axis: 'y',
             spans: [
-              { from: d.bottomPx + adjust, to: a.y, perpendicular: d.centerXPx },
-              { from: a.y + a.h, to: b.y,           perpendicular: d.centerXPx },
+              { from: drag.bottomPx, to: a.y,  perpendicular: drag.centerXPx },
+              { from: a.y + a.h, to: b.y,      perpendicular: drag.centerXPx },
             ],
-          },
+          }),
         });
       }
     }
@@ -281,14 +281,14 @@ export function smartGuides(
         const adjust = target - d.leftPx;
         tryX({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-distance',
             axis: 'x',
             spans: [
               { from: kg.left.x + kg.left.w, to: kg.right.x, perpendicular: kg.left.y + kg.left.h / 2 },
-              { from: c.x + c.w, to: d.leftPx + adjust,      perpendicular: d.centerYPx },
+              { from: c.x + c.w, to: drag.leftPx,            perpendicular: drag.centerYPx },
             ],
-          },
+          }),
         });
       }
       if (c.x >= d.rightPx) {
@@ -297,14 +297,14 @@ export function smartGuides(
         const adjust = target - d.rightPx;
         tryX({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-distance',
             axis: 'x',
             spans: [
               { from: kg.left.x + kg.left.w, to: kg.right.x, perpendicular: kg.left.y + kg.left.h / 2 },
-              { from: d.rightPx + adjust, to: c.x,           perpendicular: d.centerYPx },
+              { from: drag.rightPx, to: c.x,                  perpendicular: drag.centerYPx },
             ],
-          },
+          }),
         });
       }
     }
@@ -318,14 +318,14 @@ export function smartGuides(
         const adjust = target - d.topPx;
         tryY({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-distance',
             axis: 'y',
             spans: [
               { from: kg.left.y + kg.left.h, to: kg.right.y, perpendicular: kg.left.x + kg.left.w / 2 },
-              { from: c.y + c.h, to: d.topPx + adjust,       perpendicular: d.centerXPx },
+              { from: c.y + c.h, to: drag.topPx,             perpendicular: drag.centerXPx },
             ],
-          },
+          }),
         });
       }
       if (c.y >= d.bottomPx) {
@@ -333,25 +333,28 @@ export function smartGuides(
         const adjust = target - d.bottomPx;
         tryY({
           adjust,
-          guide: {
+          buildGuide: (drag) => ({
             kind: 'equal-distance',
             axis: 'y',
             spans: [
               { from: kg.left.y + kg.left.h, to: kg.right.y, perpendicular: kg.left.x + kg.left.w / 2 },
-              { from: d.bottomPx + adjust, to: c.y,          perpendicular: d.centerXPx },
+              { from: drag.bottomPx, to: c.y,                 perpendicular: drag.centerXPx },
             ],
-          },
+          }),
         });
       }
     }
   }
 
+  const adjustX = bestX ? (bestX as Cand).adjust : 0;
+  const adjustY = bestY ? (bestY as Cand).adjust : 0;
+  const finalDrag = makeDrag(bbox, dx + adjustX, dy + adjustY);
   const guides: SmartGuide[] = [];
-  if (bestX) guides.push((bestX as Cand).guide);
-  if (bestY) guides.push((bestY as Cand).guide);
+  if (bestX) guides.push((bestX as Cand).buildGuide(finalDrag));
+  if (bestY) guides.push((bestY as Cand).buildGuide(finalDrag));
   return {
-    dx: dx + (bestX ? (bestX as Cand).adjust : 0),
-    dy: dy + (bestY ? (bestY as Cand).adjust : 0),
+    dx: dx + adjustX,
+    dy: dy + adjustY,
     guides,
   };
 }
