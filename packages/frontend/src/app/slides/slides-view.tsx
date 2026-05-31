@@ -519,6 +519,7 @@ export function SlidesView({
       hRulerCanvas,
       vRulerCanvas,
       rulerCorner,
+      bodyHost: scrollHost,
       onShowShortcutsHelp: () => setHelpOpen(true),
       onStartPresentation: (from) => onStartPresentationRef.current?.(from),
       onToast: (msg) => onToastRef.current(msg),

@@ -2625,3 +2625,80 @@ describe('elementContextItems — text vertical align', () => {
     expect(store.canRedo()).toBe(redoBefore);
   });
 });
+
+describe('Editor — bodyHost click deselect', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  function makeBodyFixture() {
+    const { canvas, overlay, store } = makeFixture();
+    const bodyHost = document.createElement('div');
+    document.body.appendChild(bodyHost);
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return { canvas, overlay, store, bodyHost, elementId };
+  }
+
+  it('pointerdown directly on bodyHost clears the selection', () => {
+    const { canvas, overlay, store, bodyHost, elementId } = makeBodyFixture();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, bodyHost,
+    });
+    editor.setSelection([elementId]);
+    expect(editor.getSelection()).toEqual([elementId]);
+
+    bodyHost.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 5, clientY: 5, pointerType: 'mouse', bubbles: true,
+    }));
+
+    expect(editor.getSelection()).toEqual([]);
+  });
+
+  it('pointerdown on a bodyHost child does NOT clear the selection', () => {
+    const { canvas, overlay, store, bodyHost, elementId } = makeBodyFixture();
+    // Simulate a child element inside bodyHost (e.g., the canvas wrap).
+    // Children own their own pointer handlers — the body handler must
+    // strictly check `e.target === bodyHost` to avoid stealing those.
+    const child = document.createElement('div');
+    bodyHost.appendChild(child);
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, bodyHost,
+    });
+    editor.setSelection([elementId]);
+
+    child.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 5, clientY: 5, pointerType: 'mouse', bubbles: true,
+    }));
+
+    expect(editor.getSelection()).toEqual([elementId]);
+  });
+
+  it('bodyHost pointerdown is inert during insert mode', () => {
+    const { canvas, overlay, store, bodyHost, elementId } = makeBodyFixture();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1, bodyHost,
+    });
+    editor.setSelection([elementId]);
+    editor.setInsertMode('rect');
+
+    bodyHost.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 5, clientY: 5, pointerType: 'mouse', bubbles: true,
+    }));
+
+    expect(editor.getSelection()).toEqual([elementId]);
+  });
+});
