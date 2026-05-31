@@ -76,6 +76,7 @@ import {
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
+import { smartGuides, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
@@ -2552,14 +2553,15 @@ class SlidesEditorImpl implements SlidesEditor {
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
         this.options.store.read().guides,
       );
-      // Re-lock after snap: snapDelta evaluates X and Y independently,
-      // so a sibling edge within the snap threshold of the locked-zero
-      // axis would otherwise un-zero it and let Shift-drag drift off
-      // axis. The lock has the final say.
-      const final = ev.shiftKey ? lockAxis(snapped.dx, snapped.dy) : snapped;
+      const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
+      // Re-lock after snap + smart-guides: both evaluations run independently
+      // on X and Y, so a sibling edge within the snap/align threshold of the
+      // locked-zero axis would otherwise un-zero it and let Shift-drag drift
+      // off axis. The lock has the final say.
+      const final = ev.shiftKey ? lockAxis(smart.dx, smart.dy) : smart;
       const dx = final.dx;
       const dy = final.dy;
-      const guides = snapped.guides;
+      const guides: (SnapGuide | SmartGuide)[] = [...snapped.guides, ...smart.guides];
       liveDx = dx;
       liveDy = dy;
 
@@ -2735,7 +2737,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private paintMoveGhost(
     ghosts: readonly Element[],
     selectedOriginals: readonly Element[],
-    guides: readonly SnapGuide[] = [],
+    guides: readonly (SnapGuide | SmartGuide)[] = [],
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
