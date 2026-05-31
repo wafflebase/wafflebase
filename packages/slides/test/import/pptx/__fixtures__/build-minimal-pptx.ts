@@ -9,14 +9,15 @@ import JSZip from 'jszip';
  * importer to read.
  */
 export async function buildMinimalPptx(
-  opts: { imageCount?: number } = {},
+  opts: { imageCount?: number; sldSz?: { cx: number; cy: number } } = {},
 ): Promise<ArrayBuffer> {
   const imageCount = opts.imageCount ?? 0;
+  const sldSz = opts.sldSz ?? { cx: 12_192_000, cy: 6_858_000 };
   const zip = new JSZip();
 
   zip.file('[Content_Types].xml', CONTENT_TYPES);
   zip.file('_rels/.rels', ROOT_RELS);
-  zip.file('ppt/presentation.xml', PRESENTATION);
+  zip.file('ppt/presentation.xml', buildPresentation(sldSz));
   zip.file('ppt/_rels/presentation.xml.rels', PRESENTATION_RELS);
   zip.file('ppt/theme/theme1.xml', THEME);
   zip.file('ppt/slideMasters/slideMaster1.xml', SLIDE_MASTER);
@@ -91,13 +92,15 @@ const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
 </Relationships>`;
 
-const PRESENTATION = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+function buildPresentation(sldSz: { cx: number; cy: number }): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
   <p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>
-  <p:sldSz cx="12192000" cy="6858000"/>
+  <p:sldSz cx="${sldSz.cx}" cy="${sldSz.cy}"/>
   <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>`;
+}
 
 const PRESENTATION_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">

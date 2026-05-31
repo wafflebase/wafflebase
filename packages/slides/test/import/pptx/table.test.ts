@@ -104,6 +104,61 @@ describe('parseTable', () => {
     expect(texts[0].frame.h).toBeCloseTo((1_000_000 - 150_000) * SCALE.sy, 6);
   });
 
+  it('skips border shapes when every side has `<a:alpha val="0"/>` (PowerPoint invisible-border idiom)', () => {
+    const invisibleBorder = `<a:lnL w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnL>
+      <a:lnR w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnR>
+      <a:lnT w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnT>
+      <a:lnB w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnB>`;
+    const xml = `<p:graphicFrame>
+      <p:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/></p:xfrm>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+        <a:tbl>
+          <a:tblGrid><a:gridCol w="1000000"/></a:tblGrid>
+          <a:tr h="1000000">
+            <a:tc>
+              <a:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>
+              <a:tcPr>${invisibleBorder}</a:tcPr>
+            </a:tc>
+          </a:tr>
+        </a:tbl>
+      </a:graphicData></a:graphic>
+    </p:graphicFrame>`;
+    const report = new ImportReport();
+    const out = parseTable(frame(xml), ctx(report));
+    const borders = out.filter((e) => e.type === 'shape');
+    expect(borders).toHaveLength(0);
+    expect(report.tableBordersApproximated).toBe(0);
+  });
+
+  it('falls through alpha=0 sides to a visible side', () => {
+    // Three sides invisible, one visible. The visible side wins and
+    // `buildCellBorder` emits one stroke shape for the cell.
+    const xml = `<p:graphicFrame>
+      <p:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/></p:xfrm>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+        <a:tbl>
+          <a:tblGrid><a:gridCol w="1000000"/></a:tblGrid>
+          <a:tr h="1000000">
+            <a:tc>
+              <a:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>
+              <a:tcPr>
+                <a:lnL w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnL>
+                <a:lnR w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnR>
+                <a:lnT w="9525"><a:solidFill><a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr></a:solidFill></a:lnT>
+                <a:lnB w="9525"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:lnB>
+              </a:tcPr>
+            </a:tc>
+          </a:tr>
+        </a:tbl>
+      </a:graphicData></a:graphic>
+    </p:graphicFrame>`;
+    const report = new ImportReport();
+    const out = parseTable(frame(xml), ctx(report));
+    const borders = out.filter((e) => e.type === 'shape');
+    expect(borders).toHaveLength(1);
+    expect(report.tableBordersApproximated).toBe(1);
+  });
+
   it('counts merges via gridSpan/rowSpan/vMerge', () => {
     const xml = `<p:graphicFrame>
       <p:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="2000000"/></p:xfrm>

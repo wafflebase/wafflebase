@@ -19,6 +19,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | release v0.4.3 (2026-05-31) | [20260531-release-v0.4.3-todo.md](./active/20260531-release-v0.4.3-todo.md) | - |
+| slides deck dpi font scale (2026-05-31) | [20260531-slides-deck-dpi-font-scale-todo.md](./active/20260531-slides-deck-dpi-font-scale-todo.md) | - |
+| slides flip keep text readable (2026-05-31) | [20260531-slides-flip-keep-text-readable-todo.md](./active/20260531-slides-flip-keep-text-readable-todo.md) | - |
+| slides theme color alpha (2026-05-31) | [20260531-slides-theme-color-alpha-todo.md](./active/20260531-slides-theme-color-alpha-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |

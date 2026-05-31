@@ -63,6 +63,61 @@ describe('parseColorElement', () => {
     expect(parseColorElement(colorEl(`<a:schemeClr val="phClr"/>`))).toBeUndefined();
   });
 
+  it('captures `<a:alpha>` on srgbClr as a normalized 0..1 value', () => {
+    expect(
+      parseColorElement(
+        colorEl(`<a:srgbClr val="9E9E9E"><a:alpha val="0"/></a:srgbClr>`),
+      ),
+    ).toEqual({ kind: 'srgb', value: '#9E9E9E', alpha: 0 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr>`),
+      ),
+    ).toEqual({ kind: 'srgb', value: '#FF0000', alpha: 0.5 });
+  });
+
+  it('captures `<a:alpha>` on schemeClr alongside tint/shade', () => {
+    expect(
+      parseColorElement(
+        colorEl(
+          `<a:schemeClr val="accent3"><a:tint val="50000"/><a:alpha val="25000"/></a:schemeClr>`,
+        ),
+      ),
+    ).toEqual({ kind: 'role', role: 'accent3', tint: 50000, alpha: 0.25 });
+  });
+
+  it('captures `<a:alpha>` on sysClr (resolved via lastClr) and prstClr', () => {
+    expect(
+      parseColorElement(
+        colorEl(
+          `<a:sysClr val="windowText" lastClr="2B2B2B"><a:alpha val="0"/></a:sysClr>`,
+        ),
+      ),
+    ).toEqual({ kind: 'srgb', value: '#2B2B2B', alpha: 0 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:prstClr val="red"><a:alpha val="80000"/></a:prstClr>`),
+      ),
+    ).toEqual({ kind: 'srgb', value: '#FF0000', alpha: 0.8 });
+  });
+
+  it('omits the alpha key entirely when no `<a:alpha>` is present', () => {
+    expect(
+      parseColorElement(colorEl(`<a:srgbClr val="123456"/>`)),
+    ).toEqual({ kind: 'srgb', value: '#123456' });
+  });
+
+  it('omits the alpha key when other modifiers are present but `<a:alpha>` is not', () => {
+    // Regression guard: an earlier draft spread `alpha: undefined` into
+    // the result, which broke `toEqual` shape checks and serialized as
+    // `null` through some JSON pipelines.
+    const out = parseColorElement(
+      colorEl(`<a:schemeClr val="accent3"><a:tint val="50000"/></a:schemeClr>`),
+    );
+    expect(out).toEqual({ kind: 'role', role: 'accent3', tint: 50000 });
+    expect(Object.prototype.hasOwnProperty.call(out, 'alpha')).toBe(false);
+  });
+
   it('routes schemeClr through clrMap (benchmark bg2/tx2 swap)', () => {
     const clrMap = new Map<string, string>([['bg2', 'dk2'], ['tx2', 'lt2']]);
     // With the swap, slide-level `bg2` resolves to dk2 = textSecondary.

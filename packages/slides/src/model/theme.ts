@@ -28,20 +28,40 @@ export type Theme = {
 export type ColorRole = keyof ColorScheme;
 export type FontRole = keyof FontScheme;
 
+/**
+ * Optional `alpha` modifier on a color. Range: `0..1`, with
+ * `undefined` ⇒ fully opaque (preserves the pre-alpha behavior — every
+ * stored color without this field renders as it did before alpha
+ * support landed). Values are clamped to `[0, 1]` at resolve time so
+ * out-of-range data from buggy producers can't produce nonsense CSS.
+ *
+ * OOXML's `<a:alpha val>` is in thousandths (`0..100000`); the
+ * importer normalizes to this `0..1` range so the renderer can use the
+ * value directly as a CSS alpha multiplier.
+ */
 export type ThemeColor =
-  | { kind: 'role'; role: ColorRole; tint?: number; shade?: number }
-  | { kind: 'srgb'; value: string };
+  | { kind: 'role'; role: ColorRole; tint?: number; shade?: number; alpha?: number }
+  | { kind: 'srgb'; value: string; alpha?: number };
 
 export type ThemeFont =
   | { kind: 'role'; role: FontRole }
   | { kind: 'family'; family: string };
 
 export function resolveColor(color: ThemeColor, theme: Theme): string {
-  if (color.kind === 'srgb') return color.value;
-  const base = theme.colors[color.role];
-  if (color.tint != null) return tintColor(base, color.tint);
-  if (color.shade != null) return shadeColor(base, color.shade);
-  return base;
+  let hex: string;
+  if (color.kind === 'srgb') {
+    hex = color.value;
+  } else {
+    const base = theme.colors[color.role];
+    if (color.tint != null) hex = tintColor(base, color.tint);
+    else if (color.shade != null) hex = shadeColor(base, color.shade);
+    else hex = base;
+  }
+  // Fast path: no alpha or fully opaque ⇒ return the hex verbatim so
+  // existing callers (color pickers, CSS values, etc.) keep seeing the
+  // same string they did before alpha support landed.
+  if (color.alpha == null || color.alpha >= 1) return hex;
+  return hexToRgba(hex, color.alpha);
 }
 
 export function resolveFont(font: ThemeFont, theme: Theme): string {
@@ -80,4 +100,10 @@ function tintColor(hex: string, ratio: number): string {
 function shadeColor(hex: string, ratio: number): string {
   const [r, g, b] = parseHex(hex);
   return toHex(r * (1 - ratio), g * (1 - ratio), b * (1 - ratio));
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const [r, g, b] = parseHex(hex);
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }

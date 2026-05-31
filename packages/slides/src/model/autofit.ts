@@ -11,11 +11,21 @@ const SHRINK_FLOOR = 0.1;
 const SEARCH_STEPS = 8;
 
 /**
- * Multiply every inline font size and block vertical margin by `scale`.
- * Pure: returns new objects but preserves block/inline identity (id,
- * type, text, ordering, counts) so a `Cursor`/`Selection` keyed by
- * (blockId, offset) stays valid against the scaled layout. `lineHeight`
- * is a ratio and is intentionally left unscaled.
+ * Multiply every inline font size, block vertical margin, AND horizontal
+ * indent by `scale`. Pure: returns new objects but preserves block/inline
+ * identity (id, type, text, ordering, counts) so a `Cursor`/`Selection`
+ * keyed by (blockId, offset) stays valid against the scaled layout.
+ * `lineHeight` is a ratio and is intentionally left unscaled.
+ *
+ * Horizontal fields (`marginLeft`, `textIndent`) ride along so the
+ * bullet → text hang indent stays proportional to font size in both
+ * directions:
+ * - Shrink: at a 0.7 font scale, the bullet sits closer to the body
+ *   text instead of carrying a body-sized gap into the shrunken layout.
+ * - Deck-DPI (slides `deckFontScale`): at a 2× scale, the imported
+ *   PPTX hang indent (e.g. 36 px from a `-342900` EMU `<a:indent>`)
+ *   doubles to 72 px so the bullet → text gap matches PowerPoint at
+ *   the deck's actual physical resolution.
  */
 export function scaleBlocks(blocks: Block[], scale: number): Block[] {
   if (scale === 1) return blocks;
@@ -25,6 +35,8 @@ export function scaleBlocks(blocks: Block[], scale: number): Block[] {
       ...b.style,
       marginTop: b.style.marginTop * scale,
       marginBottom: b.style.marginBottom * scale,
+      marginLeft: b.style.marginLeft * scale,
+      textIndent: b.style.textIndent * scale,
     },
     inlines: b.inlines.map((inl) => ({
       ...inl,

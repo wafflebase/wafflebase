@@ -1,11 +1,12 @@
 import type { SlidesDocument, Layout, Slide } from '../../model/presentation';
+import { SLIDE_WIDTH } from '../../model/presentation';
 import type { Master } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { BUILT_IN_THEMES } from '../../themes';
 import type { Theme } from '../../model/theme';
 import type { ClrMap } from './color';
-import { emuScale, DEFAULT_WIDESCREEN_EMU } from './geometry';
+import { emuScale, DEFAULT_WIDESCREEN_EMU, EMU_PER_INCH } from './geometry';
 import { parseSlide, type LayoutPathToInfo } from './slide';
 import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
@@ -14,6 +15,9 @@ import { parseTheme } from './theme';
 import { parseMaster, type TxStylesMarkers } from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
+
+/** Points per inch — the typographic constant `pt = 1/72 in`. */
+const POINTS_PER_INCH = 72;
 import type { ImageParseContext } from './image';
 import { EXT_TO_MIME } from './image';
 
@@ -160,11 +164,22 @@ export async function importPptx(
     if (slide) slides.push(slide);
   }
 
+  // px-per-pt for the deck's physical size. The 1920-px canvas
+  // represents the source deck's full width; convert that width into
+  // inches via EMU, then pts via 72 pts/in. A 13.333-inch widescreen
+  // lands on `2`; a 10-inch deck (Google Slides' historical default)
+  // on `≈2.667`. The renderer reads this off `meta` so committed text
+  // and in-place editing pick up the same scale.
+  const slideWidthInches = slideSizeEmu.cx / EMU_PER_INCH;
+  const pxPerPt =
+    slideWidthInches > 0 ? SLIDE_WIDTH / (slideWidthInches * POINTS_PER_INCH) : undefined;
+
   const document: SlidesDocument = {
     meta: {
       title: 'Imported deck',
       themeId: importedTheme?.id ?? 'default-light',
       masterId: masterAndLayouts.master?.id ?? 'default',
+      ...(pxPerPt != null ? { pxPerPt } : {}),
     },
     themes,
     masters,

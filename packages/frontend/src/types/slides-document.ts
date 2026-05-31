@@ -33,7 +33,22 @@ import type {
  * lives in Task 3 (yorkie-slides-store).
  */
 export interface YorkieSlidesRoot {
-  meta: { title: string; themeId?: string; masterId?: string };
+  meta: {
+    title: string;
+    themeId?: string;
+    masterId?: string;
+    /** Format-options display unit; matches `Meta.unit` in @wafflebase/slides. */
+    unit?: 'in' | 'cm';
+    /**
+     * Canvas pixels per typographic point for the deck. Set by the PPTX
+     * importer from `<p:sldSz>` so the slides renderer can apply
+     * `deckFontScale(meta)` and paint text at the proportion
+     * PowerPoint / Google Slides expect for the source deck size.
+     * Absent on pre-v0.4.4 documents — the renderer falls back to the
+     * docs default (96 DPI), preserving prior visuals.
+     */
+    pxPerPt?: number;
+  };
   slides: YorkieSlide[];
   layouts: YorkieLayout[];
   themes?: Theme[];

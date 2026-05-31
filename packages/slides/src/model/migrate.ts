@@ -19,6 +19,17 @@ export function migrateDocument(input: unknown): SlidesDocument {
   if (raw?.meta?.unit === 'in' || raw?.meta?.unit === 'cm') {
     meta.unit = raw.meta.unit;
   }
+  // Preserve the deck-DPI font scale. PPTX-imported decks set this
+  // from `<p:sldSz>`; without the migrate-time copy the field is
+  // dropped on every Yorkie read and the renderer falls back to the
+  // 96-DPI docs default — which is exactly the original bug.
+  if (
+    typeof raw?.meta?.pxPerPt === 'number' &&
+    Number.isFinite(raw.meta.pxPerPt) &&
+    raw.meta.pxPerPt > 0
+  ) {
+    meta.pxPerPt = raw.meta.pxPerPt;
+  }
   const themes = Array.isArray(raw?.themes) && raw.themes.length > 0
     ? raw.themes
     : [defaultLight];

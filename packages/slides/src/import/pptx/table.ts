@@ -162,6 +162,13 @@ function buildCellBorder(
     if (!solid) continue;
     const color = parseColorFromContainer(solid, ctx.clrMap);
     if (!color) continue;
+    // `<a:alpha val="0"/>` on a border color means the side is
+    // intentionally invisible (PowerPoint writers use this to draw an
+    // unstyled-looking table without dropping the four `<a:lnX>`
+    // elements). Treat it as no color so we don't emit an invisible
+    // stroke shape — keep scanning the remaining sides in case one
+    // carries a real visible color.
+    if (color.alpha === 0) continue;
     // Scale EMU stroke width with the deck so cell borders stay
     // proportional to the rendered cell rect.
     const wEmu = attrInt(ln, 'w');

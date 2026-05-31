@@ -78,6 +78,30 @@ describe('migrateDocument', () => {
     expect(shape.data.fill).toEqual({ kind: 'srgb', value: '#abcdef' });
   });
 
+  it('preserves `meta.pxPerPt` so the deck-DPI font scale survives reads', () => {
+    const legacy = {
+      meta: { title: 'Imported', pxPerPt: 2.6667 },
+      slides: [],
+      layouts: [],
+    } as any;
+    expect(migrateDocument(legacy).meta.pxPerPt).toBeCloseTo(2.6667, 4);
+  });
+
+  it('drops a non-finite or non-positive `meta.pxPerPt` (defensive)', () => {
+    const bad = {
+      meta: { title: 't', pxPerPt: 0 },
+      slides: [],
+      layouts: [],
+    } as any;
+    expect(migrateDocument(bad).meta.pxPerPt).toBeUndefined();
+    const nanned = {
+      meta: { title: 't', pxPerPt: NaN },
+      slides: [],
+      layouts: [],
+    } as any;
+    expect(migrateDocument(nanned).meta.pxPerPt).toBeUndefined();
+  });
+
   it('is idempotent — running twice produces the same result', () => {
     const legacy = {
       meta: { title: 'Old' },

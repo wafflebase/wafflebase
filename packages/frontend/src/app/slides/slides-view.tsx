@@ -170,11 +170,12 @@ export function SlidesView({
       if (pending) {
         try {
           doc.update((r) => {
-            r.meta = {
-              title: pending.meta.title,
-              themeId: pending.meta.themeId,
-              masterId: pending.meta.masterId,
-            };
+            // Carry every optional field forward — `unit` (Format
+            // options unit), `pxPerPt` (deck-DPI font scale set by the
+            // PPTX importer from `<p:sldSz>`), and anything Meta gains
+            // later. Listing them by name dropped silently before; copy
+            // the imported meta wholesale instead.
+            r.meta = { ...pending.meta };
             r.themes = pending.themes;
             r.masters = pending.masters;
             r.layouts = pending.layouts as unknown as YorkieSlidesRoot["layouts"];

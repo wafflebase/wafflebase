@@ -53,7 +53,41 @@ export type Meta = {
    * what the panel's numeric inputs show. Absent ⇒ 'in'.
    */
   unit?: 'in' | 'cm';
+  /**
+   * Canvas pixels per typographic point for this deck. Slides text
+   * painters multiply font sizes (and vertical margins) by
+   * `pxPerPt / DOCS_PX_PER_PT` before handing them to the shared docs
+   * renderer so 52 pt visually occupies the proportion PowerPoint
+   * / Google Slides expect for the deck's physical size.
+   *
+   * Set by the PPTX importer from `<p:sldSz>`: a 10-inch-wide deck
+   * mapped to our 1920-px canvas runs at `1920 / (10 × 72) = 2.667`
+   * px/pt; a 13.333-inch widescreen runs at `2`. Absent ⇒ falls back
+   * to `DOCS_PX_PER_PT` (the docs canvas's implicit 96 DPI). Absent
+   * is what every in-app authored deck records today; keeping the
+   * fallback means none of them visually shift after this lands.
+   */
+  pxPerPt?: number;
 };
+
+/**
+ * docs `paintLayout` uses `pt × 96/72` to convert points to px. Slides
+ * pre-scales blocks against this baseline so the docs API stays put
+ * while the deck rendering picks up the right physical-pt feel.
+ */
+export const DOCS_PX_PER_PT = 96 / 72;
+
+/**
+ * Multiplier slides text painters apply to font sizes / margins before
+ * calling into docs. Equals `1` when `pxPerPt` is absent so existing
+ * decks render exactly as they used to.
+ */
+export function deckFontScale(meta: Pick<Meta, 'pxPerPt'>): number {
+  if (meta.pxPerPt == null || !Number.isFinite(meta.pxPerPt) || meta.pxPerPt <= 0) {
+    return 1;
+  }
+  return meta.pxPerPt / DOCS_PX_PER_PT;
+}
 
 export type GuideAxis = 'x' | 'y';
 

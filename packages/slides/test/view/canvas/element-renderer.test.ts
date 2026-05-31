@@ -166,3 +166,158 @@ describe('drawElement — frame transform', () => {
     expect(calledBack).toBe(false);
   });
 });
+
+describe('drawElement — counter-flip for text', () => {
+  const block = (text: string) => ({
+    id: 'b1', type: 'paragraph',
+    inlines: [{ text, style: {} }],
+    style: {},
+  });
+
+  const shapeWithText = (
+    x: number,
+    y: number,
+    flip: { flipH?: boolean; flipV?: boolean } = {},
+  ): Element => ({
+    id: 'shape-with-text',
+    type: 'shape',
+    frame: {
+      x, y, w: 100, h: 60, rotation: 0,
+      ...(flip.flipH ? { flipH: true } : {}),
+      ...(flip.flipV ? { flipV: true } : {}),
+    },
+    data: {
+      kind: 'rect',
+      fill: { kind: 'srgb', value: '#abc' },
+      text: { blocks: [block('Hello')] as never },
+    },
+  });
+
+  const textElement = (
+    x: number,
+    y: number,
+    flip: { flipH?: boolean; flipV?: boolean } = {},
+  ): Element => ({
+    id: 'text-el',
+    type: 'text',
+    frame: {
+      x, y, w: 200, h: 80, rotation: 0,
+      ...(flip.flipH ? { flipH: true } : {}),
+      ...(flip.flipV ? { flipV: true } : {}),
+    },
+    data: { blocks: [block('hi')] as never },
+  });
+
+  it('flipped shape with inline text — counter-flip wraps the text paint', () => {
+    const ctx = createCtxSpy();
+    drawElement(asCtx(ctx), shapeWithText(10, 20, { flipH: true }), DOC, THEME, () => undefined);
+    // First scale: own flip in the base transform (mirrors geometry).
+    // Second scale: counter-flip wrapper around paintShapeText so glyphs
+    // read upright. Both around the same centre.
+    const scaleCalls = ctx.scale.mock.calls.filter(
+      ([sx, sy]) => sx === -1 || sy === -1,
+    );
+    expect(scaleCalls).toHaveLength(2);
+    expect(scaleCalls[0]).toEqual([-1, 1]);
+    expect(scaleCalls[1]).toEqual([-1, 1]);
+    // Text was still painted ("Hello").
+    expect(ctx.fillText).toHaveBeenCalled();
+  });
+
+  it('flipped text element — counter-flip wraps drawText', () => {
+    const ctx = createCtxSpy();
+    drawElement(asCtx(ctx), textElement(10, 20, { flipV: true }), DOC, THEME, () => undefined);
+    const flipCalls = ctx.scale.mock.calls.filter(
+      ([sx, sy]) => sx === -1 || sy === -1,
+    );
+    // Own flipV in base transform + counter-flipV around drawText.
+    expect(flipCalls).toHaveLength(2);
+    expect(flipCalls[0]).toEqual([1, -1]);
+    expect(flipCalls[1]).toEqual([1, -1]);
+    expect(ctx.fillText).toHaveBeenCalled();
+  });
+
+  it('non-flipped shape with text — no counter-flip applied', () => {
+    const ctx = createCtxSpy();
+    drawElement(asCtx(ctx), shapeWithText(10, 20), DOC, THEME, () => undefined);
+    // No flip ops at all — neither own nor counter.
+    const flipCalls = ctx.scale.mock.calls.filter(
+      ([sx, sy]) => sx === -1 || sy === -1,
+    );
+    expect(flipCalls).toHaveLength(0);
+    // Text still paints normally.
+    expect(ctx.fillText).toHaveBeenCalled();
+  });
+
+  it('deck.meta.pxPerPt drives a larger font box (10" deck ≈ 2× docs default)', () => {
+    // For a 10" deck pxPerPt ≈ 2.667 (= 1920 / (10 × 72)). deckFontScale =
+    // pxPerPt / (96/72) = 2 → blocks fed to docs have 2× larger fontSize.
+    // The resulting `ctx.font` (built by docs from the scaled pt) should
+    // be ~2× the unscaled-deck font size. Track `font` writes via a
+    // Proxy since the plain ctx-spy stores the property without history.
+    const fontSizeForRender = (doc: SlidesDocument): number => {
+      const spy = createCtxSpy();
+      const fontWrites: string[] = [];
+      const ctx = new Proxy(spy as object, {
+        set(target, prop, value): boolean {
+          if (prop === 'font') fontWrites.push(value as string);
+          (target as Record<string | symbol, unknown>)[prop] = value;
+          return true;
+        },
+      }) as unknown as CanvasRenderingContext2D;
+      const el: Element = {
+        id: 'e-text',
+        type: 'text',
+        frame: { x: 0, y: 0, w: 400, h: 200, rotation: 0 },
+        data: {
+          blocks: [{
+            id: 'b1', type: 'paragraph',
+            inlines: [{ text: 'hello', style: { fontSize: 52 } }],
+            style: {},
+          }] as never,
+        },
+      };
+      drawElement(ctx, el, doc, THEME, () => undefined);
+      // Grab the largest font px value written; docs paintLayout writes
+      // the run's font right before `fillText`, and any smaller writes
+      // (e.g. for selection highlights) shouldn't dominate the answer.
+      const sizes = fontWrites
+        .map((f) => Number(f.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 0))
+        .filter((n) => n > 0);
+      return sizes.length > 0 ? Math.max(...sizes) : 0;
+    };
+
+    const baseline = fontSizeForRender({ ...DOC, meta: { ...DOC.meta } });
+    const scaled = fontSizeForRender({
+      ...DOC,
+      meta: { ...DOC.meta, pxPerPt: 2.6667 },
+    });
+    expect(baseline).toBeGreaterThan(0);
+    expect(scaled / baseline).toBeCloseTo(2, 1);
+  });
+
+  it('text child inside a flipH group — counter-flip uses accumulated flip', () => {
+    const ctx = createCtxSpy();
+    const group: Element = {
+      id: 'g1',
+      type: 'group',
+      frame: { x: 0, y: 0, w: 400, h: 200, rotation: 0, flipH: true },
+      data: {
+        refSize: { w: 400, h: 200 },
+        // Child has NO own flip; the counter-flip must still trigger
+        // because the group flips its descendants.
+        children: [textElement(50, 30)],
+      },
+    };
+    drawElement(asCtx(ctx), group, DOC, THEME, () => undefined);
+    const flipCalls = ctx.scale.mock.calls.filter(
+      ([sx, sy]) => sx === -1 || sy === -1,
+    );
+    // 1 from group's own flip in its base transform; 1 from counter-flip
+    // around the child's drawText (own flipH=false XOR parent flipH=true).
+    expect(flipCalls).toHaveLength(2);
+    expect(flipCalls[0]).toEqual([-1, 1]); // group base
+    expect(flipCalls[1]).toEqual([-1, 1]); // counter-flip around text
+    expect(ctx.fillText).toHaveBeenCalled();
+  });
+});

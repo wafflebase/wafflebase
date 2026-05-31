@@ -110,6 +110,13 @@ export interface MountSlidesTextBoxOptions {
    * strings), which renders dark-theme text as black.
    */
   colorResolver?: ColorResolver;
+  /**
+   * Deck-level pre-scale (from `deckFontScale(meta)`). Composed into
+   * `transformLayoutBlocks` so the in-place editor renders text at the
+   * same px size as the committed slide canvas. Absent / `1` ⇒ docs
+   * default 96-DPI conversion only.
+   */
+  fontScale?: number;
 }
 
 export interface SlidesTextBoxEditor {
@@ -173,6 +180,12 @@ export interface SlidesTextBoxEditor {
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
   const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode } = opts;
+  // Deck-level font pre-scale (from `deckFontScale(meta)`). Composed
+  // ahead of shrink-autofit so the editor reads the same effective
+  // font size the committed canvas paints. Defaults to `1` so existing
+  // call sites that don't pass this opt keep the prior behavior.
+  const fontScale = opts.fontScale ?? 1;
+  const needsDeckScale = fontScale !== 1;
 
   // Two related but separate flags:
   // - allowEditorGrow: the editing canvas grows to fit content while the
@@ -299,21 +312,34 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
           if (isGrow) onContentHeightChange?.(targetH);
         }
       : undefined,
-    // Shrink: scale fonts down so content fits the fixed box, live as the
-    // user types. The same scale is applied in the committed renderer
-    // (text-renderer.ts) so the editing surface stays pixel-identical.
-    transformLayoutBlocks: isShrink
-      ? (bs): Block[] => {
-          try {
-            const s = computeAutofitScale(bs, autofitMeasurer, frame.w, frame.h, 0);
-            return s === 1 ? bs : scaleBlocks(bs, s);
-          } catch {
-            // Measurement unavailable (e.g. a canvas-less headless env);
-            // fall back to unscaled blocks rather than failing the mount.
-            return bs;
+    // Layout-block transform chain:
+    //   1. Pre-scale by the deck's `fontScale` so 52 pt occupies the
+    //      same px proportion as the committed canvas (PPTX decks at
+    //      non-default physical sizes).
+    //   2. Then, for `shrink` autofit, scale fonts further to fit the
+    //      fixed box. Same composition runs in `paintTextBody`, keeping
+    //      the editing surface pixel-identical to the committed paint.
+    transformLayoutBlocks:
+      needsDeckScale || isShrink
+        ? (bs): Block[] => {
+            const deckScaled = needsDeckScale ? scaleBlocks(bs, fontScale) : bs;
+            if (!isShrink) return deckScaled;
+            try {
+              const s = computeAutofitScale(
+                deckScaled,
+                autofitMeasurer,
+                frame.w,
+                frame.h,
+                0,
+              );
+              return s === 1 ? deckScaled : scaleBlocks(deckScaled, s);
+            } catch {
+              // Measurement unavailable (e.g. a canvas-less headless env);
+              // fall back to deck-scaled blocks rather than failing the mount.
+              return deckScaled;
+            }
           }
-        }
-      : undefined,
+        : undefined,
     colorResolver,
     verticalAnchor,
   });
