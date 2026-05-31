@@ -60,6 +60,53 @@ describe('parseMaster', () => {
     expect(master.placeholderStyles.body.fontSize).toBe(18);
   });
 
+  it('parses <p:txStyles> marker defaults per slot × level', async () => {
+    const xml = `<?xml version="1.0"?>
+<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:bg><p:bgPr><a:solidFill><a:schemeClr val="bg1"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld>
+  <p:txStyles>
+    <p:titleStyle>
+      <a:lvl1pPr>
+        <a:buFont typeface="Calibri"/>
+        <a:buClr><a:srgbClr val="000000"/></a:buClr>
+        <a:defRPr sz="4400"/>
+      </a:lvl1pPr>
+    </p:titleStyle>
+    <p:bodyStyle>
+      <a:lvl1pPr>
+        <a:buFont typeface="Arial"/>
+        <a:buClr><a:srgbClr val="000000"/></a:buClr>
+        <a:defRPr sz="1400"/>
+      </a:lvl1pPr>
+      <a:lvl2pPr>
+        <a:buFont typeface="Arial"/>
+        <a:buSzPts val="1400"/>
+      </a:lvl2pPr>
+    </p:bodyStyle>
+  </p:txStyles>
+</p:sldMaster>`;
+    const { txStylesMarkers } = await parseMaster(xml, 'm', 't', stubImageCtx());
+    const title = txStylesMarkers.get('title');
+    const body = txStylesMarkers.get('body');
+    expect(title?.get(0)).toEqual({
+      fontFamily: 'Calibri',
+      color: { kind: 'srgb', value: '#000000' },
+    });
+    expect(body?.get(0)).toEqual({
+      fontFamily: 'Arial',
+      color: { kind: 'srgb', value: '#000000' },
+    });
+    expect(body?.get(1)).toEqual({ fontFamily: 'Arial', fontSize: 14 });
+    // Slots without <p:*Style> stay absent (sparse map).
+    expect(txStylesMarkers.has('other')).toBe(false);
+  });
+
+  it('returns an empty marker map when <p:txStyles> is omitted', async () => {
+    const { txStylesMarkers } = await parseMaster(MIN_MASTER, 'm', 't', stubImageCtx());
+    expect(txStylesMarkers.size).toBe(0);
+  });
+
   it('populates background.image from a master-level blipFill', async () => {
     const xml = `<?xml version="1.0"?>
 <p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"

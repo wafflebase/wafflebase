@@ -48,6 +48,36 @@ export interface Block {
   listKind?: 'ordered' | 'unordered';
   listLevel?: number;
   tableData?: TableData;
+  /**
+   * Optional marker style overrides for list-item blocks. Set by callers
+   * that carry an authored marker font/size/color independent of the
+   * paragraph's first inline — e.g. the PPTX importer reading the
+   * paragraph-level `<a:buFont>`, `<a:buSzPts>`, `<a:buClr>` properties
+   * which PowerPoint applies to the bullet glyph regardless of run font.
+   * When omitted, `renderListMarker` falls back to `inlines[0].style`.
+   *
+   * Persistence: today only the slides path (which stores text-element
+   * blocks as plain JSON via `YorkieSlidesStore`) round-trips this
+   * field. `YorkieDocStore` (docs collaborative editor) does **not**
+   * serialize `marker` through its Yorkie Tree node attributes — there
+   * is no docs UX yet that authors marker style, so the gap is latent.
+   * Wire it up alongside the first docs feature that needs authored
+   * markers (or alongside a DOCX-import round-trip into the docs
+   * editor).
+   */
+  marker?: BlockMarker;
+}
+
+/**
+ * Optional bullet/number marker style for `list-item` blocks. Each field
+ * is independent: a partially-populated marker (e.g. color only) still
+ * inherits the other axes from the first inline at render time.
+ */
+export interface BlockMarker {
+  fontFamily?: string;
+  /** Marker glyph size in points (not pixels). */
+  fontSize?: number;
+  color?: StoredColor;
 }
 
 /**

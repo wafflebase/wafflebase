@@ -129,6 +129,160 @@ describe('parseTextBody — paragraphs', () => {
     expect(blocks[2].type).toBe('paragraph');
   });
 
+  it('reads <a:buFont>/<a:buSzPts>/<a:buClr> into block.marker for list-items', () => {
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buClr><a:srgbClr val="FF9900"/></a:buClr>
+          <a:buFont typeface="Arial"/>
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>Oct, 2022: Yorkie, 캐즘 뛰어넘기</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].type).toBe('list-item');
+    expect(blocks[0].marker).toEqual({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: { kind: 'srgb', value: '#FF9900' },
+    });
+  });
+
+  it('does NOT attach marker to non-list paragraphs', () => {
+    // PPTX paragraphs can carry bullet style attributes alongside `<a:buNone/>`
+    // (e.g. layout-inherited defaults). The marker is meaningless for
+    // non-list paragraphs and would just bloat persisted documents.
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr>
+          <a:buFont typeface="Arial"/>
+          <a:buSzPts val="1800"/>
+          <a:buNone/>
+        </a:pPr>
+        <a:r><a:t>plain</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[0].marker).toBeUndefined();
+  });
+
+  it('resolves <a:buClr><a:schemeClr> through the clrMap', () => {
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buClr><a:schemeClr val="accent1"/></a:buClr>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>x</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    expect(blocks[0].marker?.color).toEqual({ kind: 'role', role: 'accent1' });
+  });
+
+  it('inherits master <p:txStyles> marker axes the paragraph leaves blank', () => {
+    // Mirrors the real-world "Yorkie 캐즘" deck: the paragraph carries
+    // only `<a:buSzPts>` / `<a:buChar>`, while `<a:buFont>` lives in the
+    // master's `<p:bodyStyle>`. The merged marker should pick up Arial
+    // from the master while keeping the paragraph's 18 pt size.
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>April, 2019: </a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const markerDefaults = new Map([
+      [0, { fontFamily: 'Arial', color: { kind: 'srgb' as const, value: '#000000' } }],
+    ]);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      markerDefaults,
+    });
+    expect(blocks[0].marker).toEqual({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: { kind: 'srgb', value: '#000000' },
+    });
+  });
+
+  it('does not return the shared markerDefaults reference (no mutation leak)', () => {
+    // Regression: `mergeMarkers` previously returned its `base` argument
+    // unchanged when no paragraph overrides existed, so two paragraphs
+    // resolving to the same master default would share the same
+    // `Block.marker` object. A downstream mutation (e.g. clearFormatting
+    // or theme remap) on one paragraph would silently corrupt every
+    // other list item that inherits the same level default.
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>April</a:t></a:r>
+      </a:p>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>May</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const sharedDefault = { fontFamily: 'Arial' };
+    const markerDefaults = new Map([[0, sharedDefault]]);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      markerDefaults,
+    });
+    expect(blocks[0].marker).not.toBe(sharedDefault);
+    expect(blocks[1].marker).not.toBe(sharedDefault);
+    expect(blocks[0].marker).not.toBe(blocks[1].marker);
+    // Mutating block 0's marker must not bleed into the default or block 1.
+    blocks[0].marker!.fontFamily = 'Mutated';
+    expect(sharedDefault.fontFamily).toBe('Arial');
+    expect(blocks[1].marker?.fontFamily).toBe('Arial');
+  });
+
+  it('paragraph axis overrides the master default when both are present', () => {
+    const t = txBody(`<a:txBody>
+      <a:bodyPr/>
+      <a:p>
+        <a:pPr lvl="0">
+          <a:buClr><a:srgbClr val="FF9900"/></a:buClr>
+          <a:buSzPts val="1800"/>
+          <a:buChar char="●"/>
+        </a:pPr>
+        <a:r><a:t>Oct, 2022: Yorkie, 캐즘 뛰어넘기</a:t></a:r>
+      </a:p>
+    </a:txBody>`);
+    const markerDefaults = new Map([
+      [0, { fontFamily: 'Arial', color: { kind: 'srgb' as const, value: '#000000' } }],
+    ]);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      markerDefaults,
+    });
+    expect(blocks[0].marker).toEqual({
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: { kind: 'srgb', value: '#FF9900' },
+    });
+  });
+
   it('preserves empty paragraphs with placeholder inline so layout never NaNs', () => {
     const t = txBody(`<a:txBody><a:bodyPr/><a:p/></a:txBody>`);
     const blocks = parseTextBody(t, { report: new ImportReport() });

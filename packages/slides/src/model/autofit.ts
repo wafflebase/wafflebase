@@ -33,6 +33,15 @@ export function scaleBlocks(blocks: Block[], scale: number): Block[] {
         fontSize: (inl.style.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11) * scale,
       },
     })),
+    // Scale the marker font size in lockstep with inline runs so the
+    // bullet glyph stays proportional to the body text after shrink.
+    // Without this, an authored `marker.fontSize` (from PPTX
+    // `<a:buSzPts>`) would stay at 18pt while inlines drop to 12pt,
+    // leaving an oversized marker beside shrunken text. `marker.color`
+    // and `marker.fontFamily` are not size-dependent and pass through.
+    ...(b.marker?.fontSize != null
+      ? { marker: { ...b.marker, fontSize: b.marker.fontSize * scale } }
+      : {}),
   }));
 }
 

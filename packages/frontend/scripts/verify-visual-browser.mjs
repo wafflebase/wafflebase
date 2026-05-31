@@ -208,20 +208,35 @@ async function captureScreenshots(playwright) {
           content:
             "*,*::before,*::after{animation:none!important;transition:none!important;}",
         });
-        await page.evaluate(async () => {
+        // The slides ThemedFontPicker (and any preview that hosts named
+        // families) injects the Google Fonts CSS link from a child mount
+        // effect. networkidle + a bare fonts.ready can race the
+        // post-mount link injection — fonts.load() called before the link
+        // is in the DOM falls back to the system family and never re-resolves,
+        // leaving the screenshot half on the swap and half on the fallback.
+        // The race used to manifest only on `mobile.dark`; bundle-hash
+        // perturbations (e.g. an added type export) can flip the timing on
+        // `desktop` too.
+        //
+        // Sequence to defeat it:
+        //   1. First pass: `fonts.load()` whatever the page already knows
+        //      about, plus `fonts.ready` to drain the in-flight queue.
+        //   2. Wait for another networkidle so any link injected after
+        //      mount has time to fetch (`page.waitForLoadState` is keyed
+        //      to the *current* idle, not the initial one).
+        //   3. Second pass: `fonts.check()` polled until every family is
+        //      live. `fonts.check()` returns true only when the face is
+        //      ready for synchronous rendering — strictly stronger than
+        //      `fonts.ready`, which can resolve before late-mounted families
+        //      register at all.
+        const VISUAL_FONT_FAMILIES = [
+          "Noto Sans KR",
+          "Noto Serif KR",
+          "Nanum Gothic",
+          "Roboto",
+        ];
+        await page.evaluate(async (families) => {
           if (!document.fonts) return;
-          // The slides ThemedFontPicker previews each system family in its
-          // own face by injecting the Google Fonts CSS link from a child
-          // effect. networkidle + a bare fonts.ready can race the
-          // post-mount link injection on certain viewports (mobile.dark in
-          // particular), causing one of two stable renders. Force-load each
-          // web family explicitly so the screenshot is taken post-swap.
-          const families = [
-            "Noto Sans KR",
-            "Noto Serif KR",
-            "Nanum Gothic",
-            "Roboto",
-          ];
           await Promise.all(
             families.flatMap((family) => [
               document.fonts.load(`400 12px "${family}"`),
@@ -229,7 +244,28 @@ async function captureScreenshots(playwright) {
             ]),
           );
           await document.fonts.ready;
-        });
+        }, VISUAL_FONT_FAMILIES);
+        await page.waitForLoadState("networkidle");
+        await page.evaluate(async (families) => {
+          if (!document.fonts) return;
+          await Promise.all(
+            families.flatMap((family) => [
+              document.fonts.load(`400 12px "${family}"`),
+              document.fonts.load(`700 12px "${family}"`),
+            ]),
+          );
+          await document.fonts.ready;
+        }, VISUAL_FONT_FAMILIES);
+        await page.waitForFunction(
+          (families) =>
+            families.every(
+              (family) =>
+                document.fonts.check(`400 12px "${family}"`) &&
+                document.fonts.check(`700 12px "${family}"`),
+            ),
+          VISUAL_FONT_FAMILIES,
+          { timeout: 10000 },
+        );
 
         const root = page.locator("[data-testid='visual-harness-root']");
         await root.waitFor({ state: "visible" });

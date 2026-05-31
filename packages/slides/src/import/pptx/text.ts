@@ -1,4 +1,4 @@
-import type { Block, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
+import type { Block, BlockMarker, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { containsHangul, parsePrimaryTypeface } from './font';
@@ -25,6 +25,16 @@ export interface TextParseContext {
   defaultFontSize?: number;
   /** Master-level `<p:clrMap>` translation table for `<a:schemeClr>` lookups. */
   clrMap?: ClrMap;
+  /**
+   * Default `BlockMarker` per outline level (0–8), derived from the
+   * master's `<p:txStyles>` slot that matches the host shape's
+   * placeholder type. PowerPoint authors marker typeface (e.g. `Arial`)
+   * exclusively here for many decks — the paragraph only inlines
+   * per-slide overrides like `<a:buSzPts>` / `<a:buClr>`. When a
+   * paragraph leaves a marker axis blank, the parser fills it from
+   * this map before attaching the marker to the block.
+   */
+  markerDefaults?: Map<number, BlockMarker>;
 }
 
 /**
@@ -103,7 +113,7 @@ function parseParagraph(
   ctx: TextParseContext,
 ): Block {
   const pPr = child(p, 'pPr');
-  const { style, list } = parseParagraphProperties(pPr);
+  const { style, list, marker } = parseParagraphProperties(pPr, ctx);
 
   const inlines: Inline[] = [];
   for (let i = 0; i < p.childNodes.length; i++) {
@@ -134,6 +144,12 @@ function parseParagraph(
     block.listKind = list.kind;
     block.listLevel = list.level;
   }
+  // Marker style is only meaningful on list-items. Persist it only when
+  // the paragraph is a list so non-list blocks don't carry a dead field
+  // through Yorkie/snapshots.
+  if (list && marker) {
+    block.marker = marker;
+  }
   return block;
 }
 
@@ -143,12 +159,16 @@ interface ListInfo {
   level: number;
 }
 
-function parseParagraphProperties(pPr: Element | undefined): {
+function parseParagraphProperties(
+  pPr: Element | undefined,
+  ctx: TextParseContext,
+): {
   style: BlockStyle;
   list: ListInfo | undefined;
+  marker: BlockMarker | undefined;
 } {
   const style: BlockStyle = { ...DEFAULT_BLOCK_STYLE };
-  if (!pPr) return { style, list: undefined };
+  if (!pPr) return { style, list: undefined, marker: undefined };
 
   const algn = attr(pPr, 'algn');
   if (algn === 'ctr') style.alignment = 'center';
@@ -185,7 +205,78 @@ function parseParagraphProperties(pPr: Element | undefined): {
   else if (child(pPr, 'buChar')) list = { kind: 'unordered', level: lvl };
   // `<a:buNone/>` and absence both mean "no list" — leave list undefined.
 
-  return { style, list };
+  // Paragraph-level bullet style. PowerPoint applies these to the marker
+  // glyph independent of the run's font / size / color, so the marker
+  // stays consistent even when the first run is wrapped in a different
+  // font (e.g. Korean-Hangul fallback). `<a:buSzPct>` (percentage of the
+  // run font size) is not yet supported — none of the benchmark decks
+  // emit it. The marker only matters for list items, so callers gate
+  // attaching it to the block on `list !== undefined`.
+  //
+  // Inheritance: PPTX paragraphs commonly omit one or more bullet axes
+  // (e.g. `<a:buFont>` lives only in the master's `<p:txStyles>` while
+  // the paragraph inlines just `<a:buSzPts>`/`<a:buClr>` overrides).
+  // Merge the master defaults for this level *under* the paragraph's
+  // own values so the paragraph wins per-axis when it sets one.
+  const paragraphMarker = parseBulletStyle(pPr, ctx);
+  const levelDefault = ctx.markerDefaults?.get(lvl);
+  const marker = mergeMarkers(levelDefault, paragraphMarker);
+
+  return { style, list, marker };
+}
+
+function mergeMarkers(
+  base: BlockMarker | undefined,
+  overrides: BlockMarker | undefined,
+): BlockMarker | undefined {
+  // Always return a fresh shallow-cloned object even in the single-input
+  // path. `base` is the master-level `markerDefaults` map entry shared
+  // across every paragraph that resolves to the same slot × level, so
+  // handing the reference back to the caller would let a downstream
+  // mutation on `block.marker` (clearFormatting, theme remap, …) leak
+  // back into the master and silently corrupt every other list-item
+  // that uses that default. The alloc cost is one small object per
+  // list paragraph — negligible against the layout / paint work that
+  // follows.
+  if (!base && !overrides) return undefined;
+  if (!base) return { ...overrides! };
+  if (!overrides) return { ...base };
+  const out: BlockMarker = {};
+  const fontFamily = overrides.fontFamily ?? base.fontFamily;
+  const fontSize = overrides.fontSize ?? base.fontSize;
+  const color = overrides.color ?? base.color;
+  if (fontFamily !== undefined) out.fontFamily = fontFamily;
+  if (fontSize !== undefined) out.fontSize = fontSize;
+  if (color !== undefined) out.color = color;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseBulletStyle(
+  pPr: Element,
+  ctx: TextParseContext,
+): BlockMarker | undefined {
+  let marker: BlockMarker | undefined;
+
+  const buFont = child(pPr, 'buFont');
+  if (buFont) {
+    const typeface = attr(buFont, 'typeface');
+    if (typeface) marker = { ...(marker ?? {}), fontFamily: typeface };
+  }
+
+  const buSzPts = child(pPr, 'buSzPts');
+  if (buSzPts) {
+    // `val` is in hundredths of a point per OOXML.
+    const v = attrInt(buSzPts, 'val');
+    if (v != null && v > 0) marker = { ...(marker ?? {}), fontSize: v / 100 };
+  }
+
+  const buClr = child(pPr, 'buClr');
+  if (buClr) {
+    const color = parseColorFromContainer(buClr, ctx.clrMap);
+    if (color) marker = { ...(marker ?? {}), color };
+  }
+
+  return marker;
 }
 
 function parseRun(

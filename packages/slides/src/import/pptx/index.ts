@@ -11,7 +11,7 @@ import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
 import { parseRels, resolveRelsTarget } from './rels';
 import { parseTheme } from './theme';
-import { parseMaster } from './master';
+import { parseMaster, type TxStylesMarkers } from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
 import type { ImageParseContext } from './image';
@@ -127,6 +127,7 @@ export async function importPptx(
         layouts: [] as Layout[],
         layoutMap: new Map() as LayoutPathToInfo,
         clrMap: new Map() as ClrMap,
+        txStylesMarkers: new Map() as TxStylesMarkers,
       };
 
   const themes: Theme[] = importedTheme
@@ -154,6 +155,7 @@ export async function importPptx(
       scale,
       report,
       clrMap: masterAndLayouts.clrMap,
+      txStylesMarkers: masterAndLayouts.txStylesMarkers,
     });
     if (slide) slides.push(slide);
   }
@@ -237,11 +239,18 @@ async function loadMasterAndLayouts(
   layouts: Layout[];
   layoutMap: LayoutPathToInfo;
   clrMap: ClrMap;
+  txStylesMarkers: TxStylesMarkers;
 }> {
   const masterPath = resolveRelsTarget(ownerPart, masterTarget);
   const masterXml = await archive.readText(masterPath);
   if (!masterXml) {
-    return { master: undefined, layouts: [], layoutMap: new Map(), clrMap: new Map() };
+    return {
+      master: undefined,
+      layouts: [],
+      layoutMap: new Map(),
+      clrMap: new Map(),
+      txStylesMarkers: new Map(),
+    };
   }
 
   // Each master's rels file lists the slideLayouts it owns. We import
@@ -260,7 +269,7 @@ async function loadMasterAndLayouts(
     scale,
     report,
   };
-  const { master, clrMap } = await parseMaster(
+  const { master, clrMap, txStylesMarkers } = await parseMaster(
     masterXml,
     `imported-${masterPath}`,
     themeId,
@@ -282,7 +291,7 @@ async function loadMasterAndLayouts(
     });
   }
 
-  return { master, layouts, layoutMap, clrMap };
+  return { master, layouts, layoutMap, clrMap, txStylesMarkers };
 }
 
 /** `ppt/slideMasters/slideMaster1.xml` → `ppt/slideMasters/_rels/slideMaster1.xml.rels`. */

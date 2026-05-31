@@ -6,6 +6,7 @@ export type {
   HeadingLevel,
   Inline,
   BlockStyle,
+  BlockMarker,
   InlineStyle,
   ImageData,
   DocPosition,
