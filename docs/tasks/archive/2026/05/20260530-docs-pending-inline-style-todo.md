@@ -645,7 +645,7 @@ EOF
 Run: `pnpm verify:fast`
 Expected: lint clean + all unit tests green across the monorepo.
 
-- [ ] **Step 5.2: Manual smoke (browser)**
+- [x] **Step 5.2: Manual smoke (browser)**
 
 Start: `pnpm dev`
 
@@ -676,7 +676,7 @@ Capture findings (pass/fail per item) in
 Dispatch `superpowers:requesting-code-review` (or `/code-review`) over
 the full branch diff. Apply blocking findings as additional commits.
 
-- [ ] **Step 5.4: Archive task files**
+- [x] **Step 5.4: Archive task files**
 
 Once everything is green and reviewed:
 
@@ -684,7 +684,7 @@ Once everything is green and reviewed:
 pnpm tasks:archive && pnpm tasks:index
 ```
 
-- [ ] **Step 5.5: Final push and PR**
+- [x] **Step 5.5: Final push and PR**
 
 Push the branch and open a PR titled "Docs: pending inline style at
 collapsed caret" with body = Summary (one paragraph) + Test plan

@@ -43,7 +43,7 @@ Design doc: [docs/design/slides/slides-smart-guides.md](../../design/slides/slid
 - Create: `packages/slides/src/view/editor/smart-guides.ts`
 - Create: `packages/slides/test/view/editor/smart-guides.test.ts`
 
-- [ ] **Step 1: Write failing skeleton test**
+- [x] **Step 1: Write failing skeleton test**
 
 Create `packages/slides/test/view/editor/smart-guides.test.ts`:
 
@@ -67,12 +67,12 @@ describe('smartGuides (skeleton)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm it fails**
+- [x] **Step 2: Run to confirm it fails**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL — `Cannot find module '.../smart-guides'`.
 
-- [ ] **Step 3: Create the module skeleton**
+- [x] **Step 3: Create the module skeleton**
 
 Create `packages/slides/src/view/editor/smart-guides.ts`:
 
@@ -130,12 +130,12 @@ export function smartGuides(
 }
 ```
 
-- [ ] **Step 4: Run to confirm green**
+- [x] **Step 4: Run to confirm green**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: PASS (1 test).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/smart-guides.ts \
@@ -161,7 +161,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/smart-guides.ts`
 - Modify: `packages/slides/test/view/editor/smart-guides.test.ts`
 
-- [ ] **Step 1: Add failing tests for middle-trio equal-spacing**
+- [x] **Step 1: Add failing tests for middle-trio equal-spacing**
 
 Append to `smart-guides.test.ts`:
 
@@ -229,12 +229,12 @@ describe('smartGuides — equal-spacing (dragged in middle)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm they fail**
+- [x] **Step 2: Run to confirm they fail**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL on the 5 new tests.
 
-- [ ] **Step 3: Implement middle-trio detection**
+- [x] **Step 3: Implement middle-trio detection**
 
 Replace the body of `smartGuides` in `smart-guides.ts`:
 
@@ -358,12 +358,12 @@ export function smartGuides(
 }
 ```
 
-- [ ] **Step 4: Run to confirm green**
+- [x] **Step 4: Run to confirm green**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: PASS (skeleton + 5 new tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/smart-guides.ts \
@@ -389,7 +389,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/smart-guides.ts`
 - Modify: `packages/slides/test/view/editor/smart-guides.test.ts`
 
-- [ ] **Step 1: Add failing tests for end-trio**
+- [x] **Step 1: Add failing tests for end-trio**
 
 Append to `smart-guides.test.ts`:
 
@@ -428,12 +428,12 @@ describe('smartGuides — equal-spacing (dragged on an end)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL on the 2 positive cases (the perpendicular-miss case already passes).
 
-- [ ] **Step 3: Extend `smartGuides` with end-trio detection**
+- [x] **Step 3: Extend `smartGuides` with end-trio detection**
 
 Inside `smartGuides`, immediately after the existing middle-trio X loop, add an end-trio loop:
 
@@ -535,12 +535,12 @@ For completeness, add the Y-axis end-trio loop:
   }
 ```
 
-- [ ] **Step 4: Run to confirm green**
+- [x] **Step 4: Run to confirm green**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: PASS (skeleton + middle + end).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/smart-guides.ts \
@@ -566,7 +566,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/smart-guides.ts`
 - Modify: `packages/slides/test/view/editor/smart-guides.test.ts`
 
-- [ ] **Step 1: Add failing tests for equal-distance**
+- [x] **Step 1: Add failing tests for equal-distance**
 
 Append to `smart-guides.test.ts`:
 
@@ -611,12 +611,12 @@ describe('smartGuides — equal-distance (pair matches known gap)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL on the first 2 cases (third may pass trivially).
 
-- [ ] **Step 3: Add the equal-distance detection pass**
+- [x] **Step 3: Add the equal-distance detection pass**
 
 Keep the existing `tryX` / `tryY` helpers from Task 2 — they already pick the smallest-`|adjust|` winner per axis, which is exactly the rule we want. Equal-distance reuses them: no `priority` field, no separate selector. The design doc's "Priority" section explains why we don't rank kinds against each other (a precise equal-distance match losing to a coarser equal-spacing one is worse than the occasional kind swap on coincidental setups).
 
@@ -725,12 +725,12 @@ Append the equal-distance pass after both equal-spacing loops:
 
 (Renaming `KnownGap.left/right` to `left/right` on the Y axis is intentional — they semantically mean "first endpoint" and "second endpoint" along the axis; clarity over field naming was not worth a duplicate type.)
 
-- [ ] **Step 4: Run to confirm green**
+- [x] **Step 4: Run to confirm green**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: PASS — all spacing + distance tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/smart-guides.ts \
@@ -758,7 +758,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/smart-guides.ts`
 - Modify: `packages/slides/test/view/editor/smart-guides.test.ts`
 
-- [ ] **Step 1: Add failing tests for `matchSize`**
+- [x] **Step 1: Add failing tests for `matchSize`**
 
 Append to `smart-guides.test.ts`:
 
@@ -832,12 +832,12 @@ describe('matchSize', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: FAIL with `matchSize is not exported`.
 
-- [ ] **Step 3: Implement `matchSize`**
+- [x] **Step 3: Implement `matchSize`**
 
 Append to `smart-guides.ts`:
 
@@ -904,12 +904,12 @@ export function matchSize(
 }
 ```
 
-- [ ] **Step 4: Run to confirm green**
+- [x] **Step 4: Run to confirm green**
 
 Run: `pnpm --filter @wafflebase/slides test smart-guides.test`
 Expected: PASS — all spacing + distance + size tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/smart-guides.ts \
@@ -935,11 +935,11 @@ EOF
 **Files:**
 - Modify: `packages/slides/src/view/editor/overlay.ts`
 
-- [ ] **Step 1: Read the existing overlay structure**
+- [x] **Step 1: Read the existing overlay structure**
 
 Open `packages/slides/src/view/editor/overlay.ts`. Locate the existing `makeGuide` function (around line 474) and the place where it is called from `renderOverlay` (around lines 122-126 — `if (options.guides) { for (const g of options.guides) { ... overlay.appendChild(makeGuide(g, options)); } }`). The smart-guide rendering will sit in the same loop, dispatched by `g.kind`.
 
-- [ ] **Step 2: Widen `OverlayOptions.guides` type**
+- [x] **Step 2: Widen `OverlayOptions.guides` type**
 
 Find the `OverlayOptions` interface (the `guides:` field at ~line 34) and import `SmartGuide`:
 
@@ -954,7 +954,7 @@ Then change the field declaration:
 guides?: readonly (SnapGuide | SmartGuide)[];
 ```
 
-- [ ] **Step 3: Dispatch on guide kind inside `renderOverlay`**
+- [x] **Step 3: Dispatch on guide kind inside `renderOverlay`**
 
 Locate the loop that calls `makeGuide`:
 
@@ -984,7 +984,7 @@ if (options.guides) {
 
 Note: existing `SnapGuide` has `kind` values `'slide-center' | 'guide' | 'edge'` so the else-branch catches them. Make sure the existing `if (options.guides) { for (const g of options.guides) { ... } }` at line ~247 (separate block for rotated single-element drag) gets the same treatment.
 
-- [ ] **Step 4: Add the two new helpers**
+- [x] **Step 4: Add the two new helpers**
 
 Add directly below `makeGuide`:
 
@@ -1113,17 +1113,17 @@ function makeSmartGuideOutlines(
 
 Also add the `Frame` import at the top of `overlay.ts` if not present (search for `import type { Frame }` first).
 
-- [ ] **Step 5: Run the slides suite to confirm no regression**
+- [x] **Step 5: Run the slides suite to confirm no regression**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — no existing overlay/snap tests should break (the dispatch is additive).
 
-- [ ] **Step 6: Run typecheck**
+- [x] **Step 6: Run typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/overlay.ts
@@ -1148,7 +1148,7 @@ EOF
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts` (move-drag `onMove` at lines 2450-2473)
 
-- [ ] **Step 1: Add the import**
+- [x] **Step 1: Add the import**
 
 Near the existing snap imports (lines 73-74), add:
 
@@ -1156,7 +1156,7 @@ Near the existing snap imports (lines 73-74), add:
 import { smartGuides, type SmartGuide } from './smart-guides';
 ```
 
-- [ ] **Step 2: Compose `smartGuides` after `snapDelta`**
+- [x] **Step 2: Compose `smartGuides` after `snapDelta`**
 
 In the move-drag `onMove` body (~line 2450), the current sequence is:
 
@@ -1195,17 +1195,17 @@ const guides: (SnapGuide | SmartGuide)[] = [...snapped.guides, ...smart.guides];
 
 Note: when Shift is held the axis-lock runs after smart-guides too, mirroring the existing post-snap re-lock at line 2468. Smart-guide arrows for a locked-out axis would be re-zeroed by `lockAxis`, but the *guide objects* still flow into the overlay — that is intentional, since the user still sees why nothing happened (a tiny edge case worth keeping consistent).
 
-- [ ] **Step 3: Run the slides suite**
+- [x] **Step 3: Run the slides suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS (no test currently asserts the exact `guides` shape at the drag-handler level; smart-guides unit tests have already verified detection).
 
-- [ ] **Step 4: Run typecheck**
+- [x] **Step 4: Run typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -1230,7 +1230,7 @@ EOF
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts` (`startResize` at line 3265, `onMove` at 3293-3300)
 
-- [ ] **Step 1: Add the import**
+- [x] **Step 1: Add the import**
 
 Extend the smart-guides import:
 
@@ -1240,7 +1240,7 @@ import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 
 Add a candidate-collection import if not already present (`collectSnapCandidates` is already imported at line 74).
 
-- [ ] **Step 2: Collect candidates once at resize start**
+- [x] **Step 2: Collect candidates once at resize start**
 
 Inside `startResize`, after the `start = this.clientToLogical(...)` line (~3290), add:
 
@@ -1254,7 +1254,7 @@ const otherFrames = collectSnapCandidates(
 
 (`collectSnapCandidates` expects a `ReadonlySet<string>` for the exclude set, matching the move-drag usage at line 2437.)
 
-- [ ] **Step 3: Run `matchSize` inside the resize `onMove`**
+- [x] **Step 3: Run `matchSize` inside the resize `onMove`**
 
 Current `onMove`:
 
@@ -1291,17 +1291,17 @@ const onMove = (ev: MouseEvent) => {
 };
 ```
 
-- [ ] **Step 4: Run the slides suite**
+- [x] **Step 4: Run the slides suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 Run: `pnpm --filter @wafflebase/slides build`
 Expected: SUCCESS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -1322,12 +1322,12 @@ EOF
 
 ## Task 9: Repo-wide gate + manual smoke + branch wrap-up
 
-- [ ] **Step 1: Run the project pre-commit gate**
+- [x] **Step 1: Run the project pre-commit gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + unit tests across all packages).
 
-- [ ] **Step 2: Manual smoke in `pnpm dev`**
+- [x] **Step 2: Manual smoke in `pnpm dev`**
 
 In one terminal: `docker compose up -d`
 In another: `pnpm dev`
@@ -1342,20 +1342,20 @@ Verify all four behaviours:
 - Drag with Shift held (axis-lock) — smart guides may still appear on the locked axis; on the locked-out axis the delta stays zero (existing behaviour).
 - Stop drag (mouseup) — all smart-guide overlays disappear immediately.
 
-- [ ] **Step 3: Self-review the branch diff**
+- [x] **Step 3: Self-review the branch diff**
 
 Run: `git diff main...HEAD --stat`
 Skim. Confirm: one new module + one new test file in `smart-guides.*`, additive changes only in `overlay.ts` and `editor.ts` (no removed lines outside the two replaced blocks).
 
-- [ ] **Step 4: Dispatch code review**
+- [x] **Step 4: Dispatch code review**
 
 Use the project workflow's review skill (`/code-review` or `superpowers:requesting-code-review`) on the branch diff before opening the PR. Address blocking findings; record non-blocking ones in `*-lessons.md`.
 
-- [ ] **Step 5: Capture lessons**
+- [x] **Step 5: Capture lessons**
 
 Create `docs/tasks/active/20260531-slides-smart-guides-lessons.md` with any non-obvious gotchas surfaced during implementation (e.g. if the equal-distance `c === kg.left` reference equality failed because the candidate array contains structural duplicates; if arrowhead positioning needed sub-pixel tweaks; if `paintLiveScoped(guides)` was already called with stale guides from a prior batch).
 
-- [ ] **Step 6: Archive and open PR**
+- [x] **Step 6: Archive and open PR**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index

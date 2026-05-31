@@ -41,7 +41,7 @@ undefined-clearing key, not just `href`.
 - [x] Regression test: apply href then clear it, verify removed from the Tree (fresh store re-read)
 - [x] `pnpm verify:fast` green
 - [x] Self code review over branch diff
-- [ ] Open PR
+- [x] Open PR
 
 ## Review
 

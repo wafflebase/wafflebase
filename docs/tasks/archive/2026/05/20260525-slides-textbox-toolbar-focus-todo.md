@@ -76,7 +76,7 @@ Shared components in `packages/frontend/src/components/text-formatting/`
   buttons/toggles `preventDefault` mousedown, the bullet click still
   calls `toggleList('unordered')`, and the 3 dropdown triggers carry
   `data-text-edit-keepalive`.
-- [ ] Manual smoke in `pnpm dev` (desktop + one touch check): enter a
+- [x] Manual smoke in `pnpm dev` (desktop + one touch check): enter a
   slides text box, click bullet → applies, stays in edit mode; repeat
   for numbered/indent/bold/link and the style/alignment/color dropdowns.
 

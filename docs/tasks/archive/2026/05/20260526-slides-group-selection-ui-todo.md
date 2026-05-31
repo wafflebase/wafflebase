@@ -29,7 +29,7 @@
 - Modify: `packages/slides/src/view/editor/frame-space.ts`
 - Test: `packages/slides/test/view/editor/frame-space.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/slides/test/view/editor/frame-space.test.ts`. The `shape`, `group`, and `slide` helpers already exist at the top of the file — reuse them. Add `groupOverlayFrames` to the existing import from `frame-space`.
 
@@ -118,12 +118,12 @@ describe('groupOverlayFrames', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm slides test test/view/editor/frame-space.test.ts`
 Expected: FAIL — `groupOverlayFrames is not a function` / import has no such export.
 
-- [ ] **Step 3: Implement `groupOverlayFrames`**
+- [x] **Step 3: Implement `groupOverlayFrames`**
 
 In `packages/slides/src/view/editor/frame-space.ts`, extend the `model/group` import to add `applyGroupTransform` and `worldTightFrame`:
 
@@ -196,12 +196,12 @@ export function groupOverlayFrames(
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm slides test test/view/editor/frame-space.test.ts`
 Expected: PASS — all `groupOverlayFrames` tests green, existing tests still green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/frame-space.ts packages/slides/test/view/editor/frame-space.test.ts
@@ -216,7 +216,7 @@ git commit -m "Add groupOverlayFrames for group selection overlay" -m "Pure help
 - Modify: `packages/slides/src/view/editor/overlay.ts`
 - Test: `packages/slides/test/view/editor/overlay.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append this describe block to `packages/slides/test/view/editor/overlay.test.ts` (the `makeOverlay`, `shape`, `SLIDE_W`, `SLIDE_H`, `HOST_SCALE` helpers already exist at the top):
 
@@ -329,12 +329,12 @@ describe('renderOverlay — group member outlines + context box', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm slides test test/view/editor/overlay.test.ts`
 Expected: FAIL — no `.wfb-slides-member-outline` / `.wfb-slides-context-box` nodes are rendered (counts are 0 where >0 expected); `OverlayOptions` has no `memberOutlines` / `contextBox` (TypeScript error on the test object literals).
 
-- [ ] **Step 3: Add the options, the helper, and the render calls**
+- [x] **Step 3: Add the options, the helper, and the render calls**
 
 In `packages/slides/src/view/editor/overlay.ts`, add two fields to the `OverlayOptions` interface (place them after the existing `allElements?` field, before `connectorAffordance?`):
 
@@ -415,12 +415,12 @@ connector-selection branch:
   }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm slides test test/view/editor/overlay.test.ts`
 Expected: PASS — new group describe block green, all pre-existing overlay tests still green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/overlay.ts packages/slides/test/view/editor/overlay.test.ts
@@ -435,7 +435,7 @@ git commit -m "Render group member outlines and drill-in context box" -m "render
 - Modify: `packages/slides/src/view/editor/editor.ts`
 - Test: `packages/slides/test/view/editor/editor.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append this describe block to `packages/slides/test/view/editor/editor.test.ts`. It defines its own `addShape` helper so it is self-contained:
 
@@ -517,12 +517,12 @@ describe('repaintOverlay — group selection visuals', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm slides test test/view/editor/editor.test.ts`
 Expected: FAIL — `.wfb-slides-member-outline` count is 0 (expected 2) because `repaintOverlay` does not yet pass `memberOutlines`.
 
-- [ ] **Step 3: Wire `groupOverlayFrames` into `repaintOverlay`**
+- [x] **Step 3: Wire `groupOverlayFrames` into `repaintOverlay`**
 
 In `packages/slides/src/view/editor/editor.ts`, extend the `frame-space` import:
 
@@ -550,12 +550,12 @@ Then add the two fields to that same `renderOverlay` options object
       contextBox,
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm slides test test/view/editor/editor.test.ts`
 Expected: PASS — both new tests green, all pre-existing editor tests still green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/test/view/editor/editor.test.ts
@@ -569,12 +569,12 @@ git commit -m "Feed group overlay frames into repaintOverlay" -m "repaintOverlay
 **Files:**
 - Modify: `docs/tasks/active/20260526-slides-group-selection-ui-lessons.md`
 
-- [ ] **Step 1: Run the fast verification gate**
+- [x] **Step 1: Run the fast verification gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS — lint + typecheck + all unit tests across packages green.
 
-- [ ] **Step 2: Manual smoke in the running app**
+- [x] **Step 2: Manual smoke in the running app**
 
 With `pnpm dev` running, open a presentation, draw two shapes, group them (`Cmd/Ctrl+Alt+G`), and confirm:
 - Selecting the group shows the solid box + handles **plus a faint dashed outline on each member**.
@@ -583,13 +583,13 @@ With `pnpm dev` running, open a presentation, draw two shapes, group them (`Cmd/
 - A single ungrouped shape looks exactly as before (no outlines).
 - Korean IME still composes correctly when editing a grouped text box (regression guard from slides-group.md).
 
-- [ ] **Step 3: Update the visual baseline (optional, requires Docker)**
+- [x] **Step 3: Update the visual baseline (optional, requires Docker)**
 
 If the group scenario in the browser suite changed visibly:
 Run: `pnpm verify:browser:docker`
 Regenerate and review the group-selected + drilled-in baselines in a single commit with a clear note.
 
-- [ ] **Step 4: Capture lessons + archive**
+- [x] **Step 4: Capture lessons + archive**
 
 Write findings into `docs/tasks/active/20260526-slides-group-selection-ui-lessons.md`, then:
 
