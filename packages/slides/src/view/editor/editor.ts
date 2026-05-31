@@ -101,7 +101,11 @@ import {
  * `startInsert` branches on the `'connector:'` prefix to route into the
  * connector drag flow.
  */
-export type ConnectorInsertKind = 'connector:line' | 'connector:arrow';
+export type ConnectorInsertKind =
+  | 'connector:line'
+  | 'connector:arrow'
+  | 'connector:elbow'
+  | 'connector:curved';
 
 export type InsertKind = ShapeKind | 'text' | ConnectorInsertKind;
 
@@ -116,12 +120,27 @@ const MIN_TEXT_BOX_H = 24;
 function isConnectorInsertKind(
   kind: InsertKind | null,
 ): kind is ConnectorInsertKind {
-  return kind === 'connector:line' || kind === 'connector:arrow';
+  return (
+    kind === 'connector:line' ||
+    kind === 'connector:arrow' ||
+    kind === 'connector:elbow' ||
+    kind === 'connector:curved'
+  );
 }
 
 /** Map a connector insert-mode key to its `ConnectorInsertVariant`. */
 function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
-  return kind === 'connector:arrow' ? 'arrow' : 'line';
+  switch (kind) {
+    case 'connector:arrow':
+      return 'arrow';
+    case 'connector:elbow':
+      return 'elbow';
+    case 'connector:curved':
+      return 'curved';
+    case 'connector:line':
+    default:
+      return 'line';
+  }
 }
 
 /**
@@ -1667,8 +1686,15 @@ class SlidesEditorImpl implements SlidesEditor {
     // Skip for multi-selection or non-text elements so the action's
     // target is unambiguous.
     const textAlignItems: ContextMenuItem[] = [];
+    // Routing radio group for connector selections (Straight / Elbow /
+    // Curved). Single-selection only so the action's target is
+    // unambiguous; the radio reflects the current routing.
+    const connectorItems: ContextMenuItem[] = [];
     if (selectedIds.length === 1 && slide) {
-      const el = slide.elements.find((e) => e.id === selectedIds[0]);
+      // Walk the element tree so the right-click menu still surfaces
+      // text/connector items when the selection is a drilled-in group
+      // child (whose id isn't in `slide.elements` directly).
+      const el = findElement(slide.elements, selectedIds[0]);
       if (el?.type === 'text') {
         const current = el.data.verticalAnchor ?? 'top';
         const elementId = el.id;
@@ -1682,6 +1708,20 @@ class SlidesEditorImpl implements SlidesEditor {
           { label: 'Align text top',    selected: current === 'top',    run: () => writeAnchor('top') },
           { label: 'Align text middle', selected: current === 'middle', run: () => writeAnchor('middle') },
           { label: 'Align text bottom', selected: current === 'bottom', run: () => writeAnchor('bottom') },
+        );
+      } else if (el?.type === 'connector') {
+        const current = el.routing;
+        const elementId = el.id;
+        const store = this.options.store;
+        const writeRouting = (r: typeof current): void => {
+          if (r === current) return;
+          store.batch(() => store.updateConnectorRouting(slideId, elementId, r));
+        };
+        connectorItems.push(
+          { label: '---', run: () => undefined },
+          { label: 'Straight', selected: current === 'straight', run: () => writeRouting('straight') },
+          { label: 'Elbow',    selected: current === 'elbow',    run: () => writeRouting('elbow') },
+          { label: 'Curved',   selected: current === 'curved',   run: () => writeRouting('curved') },
         );
       }
     }
@@ -1697,6 +1737,7 @@ class SlidesEditorImpl implements SlidesEditor {
       groupItem,
       ungroupItem,
       ...textAlignItems,
+      ...connectorItems,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },

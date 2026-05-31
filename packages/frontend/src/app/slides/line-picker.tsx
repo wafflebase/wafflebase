@@ -14,11 +14,11 @@ import {
 import { LINE_PICKER_ENTRIES } from "./line-picker-helpers";
 
 /**
- * Paint a tiny connector preview onto a 24×24 canvas: a thin diagonal
- * stroke for `'connector:line'`, plus a filled arrowhead at the far
- * endpoint for `'connector:arrow'`. Mirrors the geometry the editor
- * eventually commits to the slide so the picker preview matches the
- * dropped element.
+ * Paint a tiny connector preview onto a 24×24 canvas. The line shape
+ * mirrors the routing the editor commits — diagonal for line/arrow,
+ * L-shape for elbow, cubic bezier for curved — so the picker preview
+ * matches the dropped element. Arrow / Elbow / Curved entries finish
+ * with a filled arrowhead aligned to the path's local tangent.
  */
 function drawConnectorIcon(
   ctx: CanvasRenderingContext2D,
@@ -30,35 +30,54 @@ function drawConnectorIcon(
   const y0 = size.h - padding;
   const x1 = size.w - padding;
   const y1 = padding;
+
+  // Path shape per kind, plus the tangent at the end point used to
+  // align the arrowhead (when one is drawn).
+  let endTangent: { dx: number; dy: number };
   ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y1);
-  ctx.stroke();
-  if (kind === "connector:arrow") {
-    // Tiny arrowhead at the (x1, y1) end. Direction vector is normalised
-    // along the diagonal so the head sits flush on the line endpoint.
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const len = Math.max(1, Math.hypot(dx, dy));
-    const ux = dx / len;
-    const uy = dy / len;
-    // Perpendicular for the wing offset.
-    const px = -uy;
-    const py = ux;
-    const headLen = 6;
-    const headHalf = 3;
-    const baseX = x1 - ux * headLen;
-    const baseY = y1 - uy * headLen;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(baseX + px * headHalf, baseY + py * headHalf);
-    ctx.lineTo(baseX - px * headHalf, baseY - py * headHalf);
-    ctx.closePath();
-    // Fill the arrowhead so the picker preview matches the runtime
-    // arrowhead-renderer (filled triangle), not a thin outlined wedge.
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.fill();
+  if (kind === "connector:elbow") {
+    // L-shape: down-right corner at (x1, y0).
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y0);
+    ctx.lineTo(x1, y1);
+    endTangent = { dx: 0, dy: y1 - y0 };
+  } else if (kind === "connector:curved") {
+    // Cubic bezier whose tangents at the endpoints are horizontal-ish at
+    // (x0, y0) and vertical-ish at (x1, y1), producing a visible curve.
+    const c1x = x0 + (x1 - x0) * 0.6;
+    const c1y = y0;
+    const c2x = x1;
+    const c2y = y0 + (y1 - y0) * 0.4;
+    ctx.moveTo(x0, y0);
+    ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x1, y1);
+    endTangent = { dx: x1 - c2x, dy: y1 - c2y };
+  } else {
+    // Straight diagonal (line + arrow share this geometry).
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    endTangent = { dx: x1 - x0, dy: y1 - y0 };
   }
+  ctx.stroke();
+
+  // Line has no arrowhead; arrow / elbow / curved all do.
+  if (kind === "connector:line") return;
+
+  const len = Math.max(1, Math.hypot(endTangent.dx, endTangent.dy));
+  const ux = endTangent.dx / len;
+  const uy = endTangent.dy / len;
+  const px = -uy;
+  const py = ux;
+  const headLen = 6;
+  const headHalf = 3;
+  const baseX = x1 - ux * headLen;
+  const baseY = y1 - uy * headLen;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(baseX + px * headHalf, baseY + py * headHalf);
+  ctx.lineTo(baseX - px * headHalf, baseY - py * headHalf);
+  ctx.closePath();
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.fill();
 }
 
 interface IconButtonProps {
@@ -103,7 +122,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
       className="flex h-8 items-center gap-2 rounded px-2 text-foreground hover:bg-accent data-[active=true]:bg-accent"
     >
       <canvas ref={ref} className="size-6 shrink-0" />
-      <span className="text-sm">{label}</span>
+      <span className="text-sm whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -172,7 +191,7 @@ export function LinePicker({
       <DropdownMenuContent
         align="start"
         sideOffset={6}
-        className="z-50 w-[160px] p-1"
+        className="z-50 w-[200px] p-1"
       >
         <div className="flex flex-col gap-0.5">
           {LINE_PICKER_ENTRIES.map((entry) => (

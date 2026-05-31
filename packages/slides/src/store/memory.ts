@@ -7,7 +7,11 @@ import type {
   SlidesDocument,
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
-import type { ArrowheadStyle, Endpoint } from '../model/connector';
+import type {
+  ArrowheadStyle,
+  ConnectorRouting,
+  Endpoint,
+} from '../model/connector';
 import type { Stroke } from '../model/element';
 import type { Element, ElementInit, Frame, GroupElement } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
@@ -493,6 +497,41 @@ export class MemSlidesStore implements SlidesStore {
     } else {
       e.stroke = clone(stroke);
     }
+  }
+
+  updateConnectorRouting(
+    slideId: string, elementId: string, routing: ConnectorRouting,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    if (e.routing === routing) return;
+    e.routing = routing;
+    // A persisted bend is only meaningful for elbow routing; drop it on
+    // the way out so a future return to elbow starts from the default.
+    if (routing !== 'elbow') delete e.elbowBend;
+    e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
+  }
+
+  updateConnectorElbowBend(
+    slideId: string, elementId: string, bend: number | undefined,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    if (bend === undefined) {
+      delete e.elbowBend;
+    } else {
+      // Round to 0.01 so the CRDT payload stays tidy under drag updates.
+      e.elbowBend = Math.round(bend * 100) / 100;
+    }
+    e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
   }
 
   reorderElement(

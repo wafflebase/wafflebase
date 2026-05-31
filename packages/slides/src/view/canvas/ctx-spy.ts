@@ -32,6 +32,7 @@ export interface CtxSpy {
   closePath: ReturnType<typeof vi.fn>;
   moveTo: ReturnType<typeof vi.fn>;
   lineTo: ReturnType<typeof vi.fn>;
+  bezierCurveTo: ReturnType<typeof vi.fn>;
   arc: ReturnType<typeof vi.fn>;
   ellipse: ReturnType<typeof vi.fn>;
   rect: ReturnType<typeof vi.fn>;
@@ -77,6 +78,7 @@ export function createCtxSpy(): CtxSpy {
     closePath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
     arc: vi.fn(),
     ellipse: vi.fn(),
     rect: vi.fn(),

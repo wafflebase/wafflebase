@@ -8,13 +8,15 @@ import {
 import { computeConnectorFrame } from '../../canvas/connector-frame';
 
 /**
- * Connector-insert variants exposed to the editor. PR1 ships only two:
- *   - `'line'`  — straight line, no arrowheads.
- *   - `'arrow'` — straight line, triangle arrowhead at `end`.
- * The variant maps directly to the toolbar `'connector:line'` /
- * `'connector:arrow'` insert-mode keys.
+ * Connector-insert variants exposed to the editor:
+ *   - `'line'`   — straight line, no arrowheads.
+ *   - `'arrow'`  — straight line, triangle arrowhead at `end`.
+ *   - `'elbow'`  — Manhattan-routed elbow with an end arrowhead.
+ *   - `'curved'` — cubic-bezier connector with an end arrowhead.
+ * Maps directly to the toolbar `'connector:line'` / `'connector:arrow'`
+ * / `'connector:elbow'` / `'connector:curved'` insert-mode keys.
  */
-export type ConnectorInsertVariant = 'line' | 'arrow';
+export type ConnectorInsertVariant = 'line' | 'arrow' | 'elbow' | 'curved';
 
 /**
  * Distance (in screen pixels, DPR-corrected at draw time) within which
@@ -127,14 +129,19 @@ export function buildConnectorInit(
   const startEp = snappedEndpoint(start, elements, zoom);
   const endEp = snappedEndpoint(end, elements, zoom);
 
+  // Line is the only variant without an end arrowhead — Arrow / Elbow /
+  // Curved all get an end arrowhead by default (matches Google Slides).
   const arrowheads: ConnectorElement['arrowheads'] =
-    variant === 'arrow'
-      ? { end: { kind: 'triangle', size: 'md' } }
-      : {};
+    variant === 'line'
+      ? {}
+      : { end: { kind: 'triangle', size: 'md' } };
+
+  const routing: ConnectorElement['routing'] =
+    variant === 'elbow' ? 'elbow' : variant === 'curved' ? 'curved' : 'straight';
 
   const init: Omit<ConnectorElement, 'id'> = {
     type: 'connector',
-    routing: 'straight',
+    routing,
     start: startEp,
     end: endEp,
     arrowheads,

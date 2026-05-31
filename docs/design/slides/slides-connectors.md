@@ -478,13 +478,24 @@ Three PRs sized for independent review and verification:
 
 **PR2 — Elbow + Curved Routing**
   (`feat/slides-connectors-elbow-curved`)
-- `routeElbow` and `routeCurved` in `routing.ts`.
-- `elbow-bend-drag.ts` + `updateConnectorElbowBend` store method.
-- Elbow + Curved tools in toolbar.
-- Right-click menu: routing change.
-- Per-`ShapeKind` overrides for the high-impact shapes
-  (`triangle` / `diamond` / `parallelogram` / `trapezoid` /
-  pentagon / hexagon / octagon / star outer vertices).
+- `routeElbow` and `routeCurved` in `routing.ts`. ✅ Shipped.
+- `updateConnectorElbowBend` store method + `bend` parameter in
+  `routeElbow`. ✅ Shipped (yellow-diamond drag UI deferred).
+- Elbow + Curved tools in toolbar. ✅ Shipped (`connector:elbow` /
+  `connector:curved` insert kinds; LinePicker entries; canvas icons
+  for L-shape + bezier preview).
+- Right-click menu: routing change. ✅ Shipped (Straight / Elbow /
+  Curved radio when selection is a single connector).
+- Per-`ShapeKind` overrides for the high-impact shapes. ✅ Mostly
+  shipped: `diamond` / `parallelogram` / `trapezoid` / `pentagon` /
+  `hexagon` / `octagon` / `star4..star10`. `triangle` / `rtTriangle`
+  excluded — 3-site OOXML cxnLst doesn't match the importer's 4-site
+  rect remap; needs a per-shape ooxml→waffle index table first.
+
+> Status (2026-06-01): see `docs/tasks/active/20260601-slides-
+> connector-elbow-curved-routing-todo.md`. The yellow-diamond bend
+> drag interaction (overlay + handler) is the only meaningful PR2
+> item still TODO; data/store/routing already support it.
 
 **PR3 — Polish + Coverage** (`feat/slides-connectors-polish`)
 - Per-`ShapeKind` overrides for the remaining shapes (callouts, block

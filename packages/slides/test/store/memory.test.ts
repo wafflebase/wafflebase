@@ -763,6 +763,46 @@ describe('MemSlidesStore — connector methods', () => {
     // not (200, 100), so the bbox must differ.
     expect(f2).not.toEqual(f1);
   });
+
+  it('updateConnectorRouting switches the routing field', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'curved'));
+    const c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    expect(c?.type).toBe('connector');
+    if (c?.type === 'connector') expect(c.routing).toBe('curved');
+  });
+
+  it('updateConnectorRouting clears elbowBend when leaving elbow routing', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'elbow'));
+    store.batch(() => store.updateConnectorElbowBend(slideId, connectorId, 0.3));
+    let c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.elbowBend).toBe(0.3);
+
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'curved'));
+    c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.elbowBend).toBeUndefined();
+  });
+
+  it('updateConnectorElbowBend rounds to 0.01 and clears on undefined', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorElbowBend(slideId, connectorId, 0.123456));
+    let c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.elbowBend).toBe(0.12);
+    store.batch(() => store.updateConnectorElbowBend(slideId, connectorId, undefined));
+    c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.elbowBend).toBeUndefined();
+  });
 });
 
 describe('MemSlidesStore — batch / undo / redo', () => {

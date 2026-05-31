@@ -11,20 +11,31 @@ import {
  * activeKind type guard — is extracted into `line-picker-helpers.ts`
  * and asserted here without rendering React.
  *
- * The picker contract: exactly two entries (Line + Arrow) in Google
- * Slides order, plus an `isLinePickerKind` guard the toolbar uses to
- * split the editor's `InsertKind` between `<ShapePicker />` and
- * `<LinePicker />` activeKind props. Lines were extracted from the
- * shape picker because line insertion is endpoint-anchored
- * (snap-to-shape), fundamentally different UX from shape
- * drag-to-size — so the affordance gets its own dropdown.
+ * The picker contract: the four connector tools (Line, Arrow, Elbow
+ * connector, Curved connector) in Google Slides order, plus an
+ * `isLinePickerKind` guard the toolbar uses to split the editor's
+ * `InsertKind` between `<ShapePicker />` and `<LinePicker />`
+ * activeKind props. Lines were extracted from the shape picker
+ * because line insertion is endpoint-anchored (snap-to-shape),
+ * fundamentally different UX from shape drag-to-size — so the
+ * affordance gets its own dropdown.
  */
 
 describe("line-picker entries", () => {
-  it("exposes exactly Line and Arrow in Google Slides order", () => {
-    expect(LINE_PICKER_ENTRIES.length).toBe(2);
-    expect(LINE_PICKER_ENTRIES.map((e) => e.kind)).toEqual(["connector:line", "connector:arrow"]);
-    expect(LINE_PICKER_ENTRIES.map((e) => e.label)).toEqual(["Line", "Arrow"]);
+  it("exposes the four connector tools in Google Slides order", () => {
+    expect(LINE_PICKER_ENTRIES.length).toBe(4);
+    expect(LINE_PICKER_ENTRIES.map((e) => e.kind)).toEqual([
+      "connector:line",
+      "connector:arrow",
+      "connector:elbow",
+      "connector:curved",
+    ]);
+    expect(LINE_PICKER_ENTRIES.map((e) => e.label)).toEqual([
+      "Line",
+      "Arrow",
+      "Elbow connector",
+      "Curved connector",
+    ]);
   });
 
   it("each entry has a non-empty kind and label", () => {
@@ -46,6 +57,8 @@ describe("isLinePickerKind", () => {
   it("returns true for connector kinds", () => {
     expect(isLinePickerKind("connector:line")).toBe(true);
     expect(isLinePickerKind("connector:arrow")).toBe(true);
+    expect(isLinePickerKind("connector:elbow")).toBe(true);
+    expect(isLinePickerKind("connector:curved")).toBe(true);
   });
 
   it("returns false for shape kinds, text, and null", () => {

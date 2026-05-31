@@ -19,11 +19,13 @@ export type LinePickerEntry = {
  * so the affordance gets its own affordance.
  *
  * Mirrors Google Slides' top-level "Line" tool. Ordering matches GS:
- * Line first (plain segment), Arrow second (segment + head).
+ * Line, Arrow, Elbow connector, Curved connector.
  */
 export const LINE_PICKER_ENTRIES: readonly LinePickerEntry[] = [
   { kind: "connector:line", label: "Line" },
   { kind: "connector:arrow", label: "Arrow" },
+  { kind: "connector:elbow", label: "Elbow connector" },
+  { kind: "connector:curved", label: "Curved connector" },
 ];
 
 /**
@@ -33,5 +35,10 @@ export const LINE_PICKER_ENTRIES: readonly LinePickerEntry[] = [
  * is the union `InsertKind = ShapeKind | 'text' | ConnectorInsertKind`).
  */
 export function isLinePickerKind(kind: unknown): kind is ConnectorInsertKind {
-  return kind === "connector:line" || kind === "connector:arrow";
+  return (
+    kind === "connector:line" ||
+    kind === "connector:arrow" ||
+    kind === "connector:elbow" ||
+    kind === "connector:curved"
+  );
 }

@@ -1,12 +1,23 @@
 import type { Element, Frame } from '../../../model/element';
 import type { ConnectionSite } from '../../../model/connection-site';
 import { fourCardinal } from './defaults';
+import { CONNECTION_SITES } from './overrides';
 
 /**
- * Connection sites for an element. PR1 always returns the 4-cardinal
- * default; PR2 introduces per-ShapeKind overrides.
+ * Connection sites for an element. Shapes with a `ShapeKind` entry in
+ * `CONNECTION_SITES` (diamond / parallelogram / trapezoid today) use
+ * the override list; everything else falls back to the default
+ * 4-cardinal midpoints. Connectors and non-shape elements (text /
+ * image / table / chart) always get the cardinal set. See
+ * `overrides.ts` for the scope rationale and the held-back shape list
+ * (triangle / rtTriangle / n-gons), which need a per-shape
+ * `cxnLst → waffle` index table before they can ship.
  */
-export function getConnectionSites(_el: Element): readonly ConnectionSite[] {
+export function getConnectionSites(el: Element): readonly ConnectionSite[] {
+  if (el.type === 'shape') {
+    const override = CONNECTION_SITES.get(el.data.kind);
+    if (override) return override;
+  }
   return fourCardinal();
 }
 
