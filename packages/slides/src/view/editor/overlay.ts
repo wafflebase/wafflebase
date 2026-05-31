@@ -9,6 +9,7 @@ import {
 import { resolveEndpoint } from '../canvas/connector-frame';
 import { buildElementWorldLookup } from '../../model/group';
 import type { SnapGuide } from './snap';
+import type { SmartGuide, Span } from './smart-guides';
 import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
 import {
   adjustmentLocalToWorld,
@@ -32,7 +33,7 @@ export interface OverlayOptions {
   /** Logical slide height — used to span full-slide guide lines. */
   slideHeight: number;
   /** Snap guides to render under the selection handles. Empty/omitted = none. */
-  guides?: readonly SnapGuide[];
+  guides?: readonly (SnapGuide | SmartGuide)[];
   /**
    * Presentation-wide alignment guides (the ruler's persistent guides).
    * Rendered as 1-px magenta lines spanning the slide canvas, beneath
@@ -247,11 +248,17 @@ export function renderOverlay(
   // single rotated element being dragged also gets visible guides.
   if (options.guides && options.guides.length > 0) {
     for (const g of options.guides) {
-      // Snaps to a presentation guide are visualised by emphasising
-      // the permanent guide above (thicker + darker), so don't lay an
-      // additional snap-guide line on top.
-      if (g.kind === 'guide') continue;
-      overlay.appendChild(makeGuide(g, options));
+      if (g.kind === 'equal-spacing' || g.kind === 'equal-distance') {
+        for (const node of makeSmartGuideArrows(g, options)) overlay.appendChild(node);
+      } else if (g.kind === 'equal-size') {
+        for (const node of makeSmartGuideOutlines(g, options)) overlay.appendChild(node);
+      } else {
+        // Snaps to a presentation guide are visualised by emphasising
+        // the permanent guide above (thicker + darker), so don't lay an
+        // additional snap-guide line on top.
+        if (g.kind === 'guide') continue;
+        overlay.appendChild(makeGuide(g, options));
+      }
     }
   }
 }
@@ -489,6 +496,126 @@ function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
     el.style.height = '1px';
   }
   return el;
+}
+
+const SMART_GUIDE_COLOR = '#e11d48';
+
+/**
+ * Render an equal-spacing or equal-distance guide as a pair of
+ * 1 px double-headed arrows. Each `Span` describes one arrow shaft
+ * along the matched axis at `perpendicular`. Arrowheads are 4 px CSS
+ * border triangles. Drawn in HTML/CSS to match the existing
+ * `makeGuide` / `makePermanentGuide` style.
+ */
+function makeSmartGuideArrows(
+  guide: { axis: 'x' | 'y'; spans: readonly Span[] },
+  options: OverlayOptions,
+): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const span of guide.spans) {
+    if (guide.axis === 'x') {
+      const shaft = document.createElement('div');
+      shaft.className = 'wfb-slides-smart-arrow';
+      shaft.style.position = 'absolute';
+      shaft.style.background = SMART_GUIDE_COLOR;
+      shaft.style.pointerEvents = 'none';
+      const left  = Math.min(span.from, span.to) * options.scale;
+      const right = Math.max(span.from, span.to) * options.scale;
+      shaft.style.left = `${left}px`;
+      shaft.style.top = `${span.perpendicular * options.scale - 0.5}px`;
+      shaft.style.width = `${right - left}px`;
+      shaft.style.height = `1px`;
+      out.push(shaft);
+      out.push(arrowhead('left',  left,  span.perpendicular * options.scale));
+      out.push(arrowhead('right', right, span.perpendicular * options.scale));
+    } else {
+      const shaft = document.createElement('div');
+      shaft.className = 'wfb-slides-smart-arrow';
+      shaft.style.position = 'absolute';
+      shaft.style.background = SMART_GUIDE_COLOR;
+      shaft.style.pointerEvents = 'none';
+      const top    = Math.min(span.from, span.to) * options.scale;
+      const bottom = Math.max(span.from, span.to) * options.scale;
+      shaft.style.left = `${span.perpendicular * options.scale - 0.5}px`;
+      shaft.style.top = `${top}px`;
+      shaft.style.width = `1px`;
+      shaft.style.height = `${bottom - top}px`;
+      out.push(shaft);
+      out.push(arrowhead('up',   span.perpendicular * options.scale, top));
+      out.push(arrowhead('down', span.perpendicular * options.scale, bottom));
+    }
+  }
+  return out;
+}
+
+/** 4 px CSS-border triangle pointing toward the named direction. */
+function arrowhead(
+  dir: 'left' | 'right' | 'up' | 'down',
+  cx: number,
+  cy: number,
+): HTMLDivElement {
+  const h = document.createElement('div');
+  h.style.position = 'absolute';
+  h.style.pointerEvents = 'none';
+  h.style.width = '0';
+  h.style.height = '0';
+  switch (dir) {
+    case 'left':
+      h.style.left = `${cx}px`;
+      h.style.top = `${cy - 4}px`;
+      h.style.borderTop = '4px solid transparent';
+      h.style.borderBottom = '4px solid transparent';
+      h.style.borderRight = `4px solid ${SMART_GUIDE_COLOR}`;
+      break;
+    case 'right':
+      h.style.left = `${cx - 4}px`;
+      h.style.top = `${cy - 4}px`;
+      h.style.borderTop = '4px solid transparent';
+      h.style.borderBottom = '4px solid transparent';
+      h.style.borderLeft = `4px solid ${SMART_GUIDE_COLOR}`;
+      break;
+    case 'up':
+      h.style.left = `${cx - 4}px`;
+      h.style.top = `${cy}px`;
+      h.style.borderLeft = '4px solid transparent';
+      h.style.borderRight = '4px solid transparent';
+      h.style.borderBottom = `4px solid ${SMART_GUIDE_COLOR}`;
+      break;
+    case 'down':
+      h.style.left = `${cx - 4}px`;
+      h.style.top = `${cy - 4}px`;
+      h.style.borderLeft = '4px solid transparent';
+      h.style.borderRight = '4px solid transparent';
+      h.style.borderTop = `4px solid ${SMART_GUIDE_COLOR}`;
+      break;
+  }
+  return h;
+}
+
+/**
+ * Render an equal-size guide as a 1 px dashed outline around every
+ * matched peer frame. No fill, no label — the outline groups the
+ * peers visually so the user sees what "same width/height as" means.
+ */
+function makeSmartGuideOutlines(
+  guide: { matchedFrames: readonly Frame[] },
+  options: OverlayOptions,
+): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const f of guide.matchedFrames) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-smart-size';
+    el.style.position = 'absolute';
+    el.style.left = `${f.x * options.scale}px`;
+    el.style.top = `${f.y * options.scale}px`;
+    el.style.width = `${f.w * options.scale}px`;
+    el.style.height = `${f.h * options.scale}px`;
+    el.style.border = `1px dashed ${SMART_GUIDE_COLOR}`;
+    el.style.boxSizing = 'border-box';
+    el.style.pointerEvents = 'none';
+    out.push(el);
+  }
+  return out;
 }
 
 /**
