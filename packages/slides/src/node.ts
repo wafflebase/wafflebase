@@ -58,9 +58,10 @@ export type {
   ShapeKind,
   ShapeStroke,
   Stroke,
+  TextBody,
   TextElement,
 } from './model/element';
-export { generateId } from './model/element';
+export { generateId, isBlocksEmpty, isElementEmpty } from './model/element';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';

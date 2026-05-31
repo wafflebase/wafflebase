@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shape inline text (2026-05-31) | [20260531-slides-shape-inline-text-todo.md](./active/20260531-slides-shape-inline-text-todo.md) | [20260531-slides-shape-inline-text-lessons.md](./active/20260531-slides-shape-inline-text-lessons.md) |
 | cursor follows text color (2026-05-30) | [20260530-cursor-follows-text-color-todo.md](./active/20260530-cursor-follows-text-color-todo.md) | [20260530-cursor-follows-text-color-lessons.md](./active/20260530-cursor-follows-text-color-lessons.md) |
 | docs pending inline style (2026-05-30) | [20260530-docs-pending-inline-style-todo.md](./active/20260530-docs-pending-inline-style-todo.md) | [20260530-docs-pending-inline-style-lessons.md](./active/20260530-docs-pending-inline-style-lessons.md) |
 | pptx paragraph bullet style (2026-05-30) | [20260530-pptx-paragraph-bullet-style-todo.md](./active/20260530-pptx-paragraph-bullet-style-todo.md) | - |
@@ -39,4 +40,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 230
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: cursor follows text color (2026-05-30)
+Latest active task: slides shape inline text (2026-05-31)

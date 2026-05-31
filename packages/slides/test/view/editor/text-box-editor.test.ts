@@ -211,7 +211,55 @@ describe('slides text-box editor wiring', () => {
     expect(mountCount).toBe(1);
   });
 
-  it('double-click on a non-text element does not enter edit mode', () => {
+  it('double-click on a shape enters text-edit mode (PowerPoint / Google Slides parity)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 150, 150);
+    expect(editor.getEditingElementId()).toBe(shapeId);
+    expect(current()).not.toBeNull();
+  });
+
+  it('shape edit-mode commits typed text into ShapeElement.data.text via withShapeText', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 150, 150);
+    expect(editor.getEditingElementId()).toBe(shapeId);
+    current()!.fireCommit([paragraph('typed in shape')]);
+    const el = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Block[] } };
+    };
+    expect(el.data.text?.blocks[0].inlines[0].text).toBe('typed in shape');
+  });
+
+  it('shape edit mounts the text-box on the inner (padded) frame', () => {
     const { canvas, overlay, store } = makeFixture();
     const slideId = store.read().slides[0].id;
     store.batch(() => {
@@ -219,6 +267,64 @@ describe('slides text-box editor wiring', () => {
         type: 'shape',
         frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
         data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 150, 150);
+    const opts = current()!.opts;
+    // SHAPE_TEXT_PADDING = { x: 14.4, y: 7.2 } — inner frame = element
+    // frame inset by that on each side.
+    expect(opts.frame.x).toBeCloseTo(100 + 14.4, 5);
+    expect(opts.frame.y).toBeCloseTo(100 + 7.2, 5);
+    expect(opts.frame.w).toBeCloseTo(200 - 2 * 14.4, 5);
+    expect(opts.frame.h).toBeCloseTo(100 - 2 * 7.2, 5);
+    // Shapes default to middle anchor + 'none' autofit (PowerPoint /
+    // Google Slides parity).
+    expect(opts.verticalAnchor).toBe('middle');
+    expect(opts.autofit).toBe('none');
+  });
+
+  it('shape edit on a fresh shape that commits empty does not materialise data.text', () => {
+    // Click-in-then-blur path: shape has no prior text body, user
+    // doesn't type, editor exits. Store's withShapeText short-circuits
+    // so the shape stays clean (no empty `<p:txBody>` cruft).
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    let shapeId = '';
+    store.batch(() => {
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 150, 150);
+    current()!.fireCommit([paragraph('')]);
+    const el = store.read().slides[0].elements.find((e) => e.id === shapeId) as {
+      data: { text?: unknown };
+    };
+    expect(el.data.text).toBeUndefined();
+  });
+
+  it('double-click on a non-text non-shape element does not enter edit mode', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    store.batch(() => {
+      store.addElement(slideId, {
+        type: 'image',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { src: 'about:blank' },
       });
     });
     const { mount, current } = makeMockMount();

@@ -33,6 +33,7 @@ import {
   defaultLight,
   generateId,
   getLayout,
+  isBlocksEmpty,
   groupToTransform,
   migrateDocument,
   normalizeToGroupLocal,
@@ -1527,6 +1528,69 @@ export class YorkieSlidesStore implements SlidesStore {
         ...eAny.data,
         blocks: clone(next ?? blocks),
       };
+    });
+  }
+
+  withShapeText(
+    slideId: string,
+    elementId: string,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'shape') {
+        throw new Error(`Element ${elementId} is not a shape element`);
+      }
+      const eAny = e as { data: Record<string, unknown> };
+      // Detect prior `text` presence via `yorkieToPlain` rather than the
+      // `'text' in eAny.data` operator — the Yorkie proxy doesn't honor
+      // `in` for fields added by prior batches, so the `in` check
+      // false-negatives across batch boundaries and skips writes.
+      const priorTextPlain = yorkieToPlain<{
+        blocks?: Block[];
+        autofit?: unknown;
+        verticalAnchor?: unknown;
+      }>(eAny.data.text);
+      const hadTextField = priorTextPlain !== undefined;
+      const priorText = priorTextPlain ?? {};
+      const priorBlocks = priorText.blocks ?? [];
+      const returned = fn(priorBlocks);
+      const nextBlocks = returned !== undefined ? clone(returned) : priorBlocks;
+      // Concurrency-safety: we only ever WRITE the `data.text` field
+      // — we never DELETE it. Deleting a whole field is a
+      // wholesale-LWW op that can race against a concurrent peer's
+      // typing in a way that wipes their content; writing
+      // `{ ...text, blocks: [] }` is a per-field LWW op symmetric
+      // with what `withTextElement.blocks` already does.
+      //
+      // The one shortcut: if the shape entered the edit with no body
+      // (`data.text` absent) and exits with no body, skip the write
+      // so we don't materialise an empty body on shapes the user
+      // never typed into. Existing bodies the user cleared retain an
+      // empty body (visually invisible — the renderer short-circuits
+      // via `isBlocksEmpty`).
+      if (isBlocksEmpty(nextBlocks) && !hadTextField) return;
+      // Write strategy: for the FIRST write (no prior `text` field),
+      // create the whole `text` object via assignment to `eAny.data.text`.
+      // For SUBSEQUENT writes, mutate only the `blocks` sub-field of the
+      // existing Yorkie subtree — re-assigning the whole `text` object on
+      // top of an existing Yorkie subtree leaves the prior subtree's
+      // state visible to readers (Yorkie's wholesale-replace semantic
+      // for nested objects is opaque); but per-key assignment on a
+      // CRDT-backed object propagates as expected.
+      const existingText = eAny.data.text as
+        | { blocks?: unknown; autofit?: unknown; verticalAnchor?: unknown }
+        | undefined;
+      if (existingText !== undefined) {
+        existingText.blocks = clone(nextBlocks);
+      } else {
+        eAny.data.text = clone({ ...priorText, blocks: nextBlocks });
+      }
     });
   }
 

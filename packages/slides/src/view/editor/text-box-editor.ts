@@ -79,6 +79,23 @@ export interface MountSlidesTextBoxOptions {
    */
   autofit?: AutofitMode;
   /**
+   * Override `autofit`'s default canvas-grow behavior. The docs
+   * text-box normally grows its canvas to fit content for both `'grow'`
+   * and `'none'` autofit so live typing isn't clipped (`'shrink'`
+   * scales fonts instead). For shape inline text that growth breaks
+   * vertical-anchor alignment: the editor canvas shrinks to text height
+   * and anchors at originY=0, while the renderer keeps the original
+   * inner-frame height and anchors text in the middle — producing a
+   * visible "jump" between editing and committed positions.
+   *
+   * Set `'never'` to force the editor canvas to stay at the mount-time
+   * `frame.h`. Text overflows during typing identically to how it
+   * overflows after commit, and the middle/bottom anchors keep their
+   * intended position. Use for shape text editing; leave undefined for
+   * text elements (preserves the prior auto-grow behavior).
+   */
+  growMode?: 'auto' | 'never';
+  /**
    * Vertical anchor of the text element. Forwarded to the docs text-box
    * editor so the in-place editor positions text at the same y as the
    * committed slide canvas. Mirrors OOXML `<a:bodyPr anchor>`. Absent ⇒
@@ -155,18 +172,24 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode } = opts;
 
   // Two related but separate flags:
   // - allowEditorGrow: the editing canvas grows to fit content while the
   //   user types. 'grow' and 'none' both opt in; only 'shrink' keeps the
-  //   editing surface fixed (it scales fonts instead).
+  //   editing surface fixed (it scales fonts instead). A `growMode:
+  //   'never'` opt-in forces this off — used for shape inline text where
+  //   the canvas must stay at the mount-time height so vertical-anchor
+  //   math agrees with the post-commit renderer (otherwise the editor
+  //   shrinks the canvas to text height + originY=0 and the renderer
+  //   anchors text in the middle of the unchanged inner frame, producing
+  //   a visible "jump" between edit and committed positions).
   // - isGrow: the grown height is committed back to frame.h on exit. Only
   //   true autofit-grow does this; 'none' shows overflow live but keeps
   //   the saved box, so post-commit the slide renderer paints the overflow
   //   below the frame just as it did before the edit.
-  const allowEditorGrow = autofit !== 'shrink';
-  const isGrow = autofit !== 'shrink' && autofit !== 'none';
+  const allowEditorGrow = growMode === 'never' ? false : autofit !== 'shrink';
+  const isGrow = autofit !== 'shrink' && autofit !== 'none' && growMode !== 'never';
   const isShrink = autofit === 'shrink';
 
   // Container positioned over the element frame in host-pixel space.

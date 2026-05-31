@@ -344,3 +344,107 @@ describe('YorkieSlidesStore — group / ungroup', () => {
     expect(updated.frame.x).toBe(99);
   });
 });
+
+describe('YorkieSlidesStore — withShapeText', () => {
+  // Inline test helpers — the docs Block schema is straightforward and
+  // a one-line constructor is cheaper than importing a fixture util.
+  type TestBlock = {
+    id: string;
+    type: 'paragraph';
+    inlines: Array<{ text: string; style: Record<string, never> }>;
+    style: Record<string, never>;
+  };
+  const paragraph = (text: string, id = 'p1'): TestBlock => ({
+    id,
+    type: 'paragraph',
+    inlines: [{ text, style: {} }],
+    style: {},
+  });
+
+  function addShape(
+    store: YorkieSlidesStore,
+  ): { slideId: string; shapeId: string } {
+    let slideId = '';
+    let shapeId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      shapeId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#abc' } },
+      });
+    });
+    return { slideId, shapeId };
+  }
+
+  it('writes data.text on a shape that had none and round-trips through read()', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const { slideId, shapeId } = addShape(store);
+    store.batch(() => {
+      store.withShapeText(slideId, shapeId, (blocks) => {
+        // First entry: shape has no prior body, so the callback receives [].
+        expect(blocks).toEqual([]);
+        return [paragraph('Hello') as never];
+      });
+    });
+    const el = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Array<{ inlines: Array<{ text: string }> }> } };
+    };
+    expect(el.data.text?.blocks[0].inlines[0].text).toBe('Hello');
+  });
+
+  it('preserves an empty body after the user clears prior text (no destructive delete)', () => {
+    // Concurrency contract: once data.text exists, withShapeText only
+    // writes the `blocks` field — it never deletes data.text. A peer
+    // typing into the same shape during a blur must not have its
+    // content wiped by a wholesale-field delete.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const { slideId, shapeId } = addShape(store);
+    store.batch(() => {
+      store.withShapeText(slideId, shapeId, () => [paragraph('typed') as never]);
+    });
+    store.batch(() => {
+      store.withShapeText(slideId, shapeId, () => [paragraph('') as never]);
+    });
+    const el = store.read().slides[0].elements[0] as {
+      data: { text?: { blocks: Array<{ inlines: Array<{ text: string }> }> } };
+    };
+    expect(el.data.text).toBeDefined();
+    expect(el.data.text!.blocks[0].inlines[0].text).toBe('');
+  });
+
+  it('is a no-op when entered without and exited without data.text (click-in-then-blur)', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const { slideId, shapeId } = addShape(store);
+    store.batch(() => {
+      store.withShapeText(slideId, shapeId, () => [paragraph('') as never]);
+    });
+    const el = store.read().slides[0].elements[0] as {
+      data: { text?: unknown };
+    };
+    expect(el.data.text).toBeUndefined();
+  });
+
+  it('throws on a non-shape element', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    let textId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 40, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    expect(() =>
+      store.batch(() =>
+        store.withShapeText(slideId, textId, () => undefined),
+      ),
+    ).toThrow(/not a shape element/);
+  });
+});

@@ -10,7 +10,7 @@ import type { Block } from '@wafflebase/docs';
 import type { ArrowheadStyle, Endpoint } from '../model/connector';
 import type { Stroke } from '../model/element';
 import type { Element, ElementInit, Frame, GroupElement } from '../model/element';
-import { generateId } from '../model/element';
+import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
@@ -888,6 +888,41 @@ export class MemSlidesStore implements SlidesStore {
     if (next !== undefined) {
       e.data.blocks = clone(next);
     }
+  }
+
+  withShapeText(
+    slideId: string, elementId: string,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'shape') {
+      throw new Error(`Element ${elementId} is not a shape element`);
+    }
+    // Seed an empty body on first entry so `fn` always receives the
+    // canonical mutable handle.
+    const prior = e.data.text?.blocks ?? [];
+    const returned = fn(prior);
+    const next = returned !== undefined ? clone(returned) : prior;
+    // Concurrency-safety contract (mirrors `withTextElement.blocks`):
+    // we only ever write the `data.text.blocks` field — we do NOT
+    // delete the whole `data.text` field on empty commits. A blur on
+    // an empty body must not race against a peer's typing in a way
+    // that wipes their text wholesale (deleting `data.text` is a
+    // wholesale-field LWW op; writing `{ ...text, blocks: [] }` is a
+    // per-field LWW op symmetric with what `withTextElement` does).
+    //
+    // The one shortcut: if the shape entered the edit with no body and
+    // exits with no body (click-in-and-out without typing), we skip
+    // the write entirely so we don't materialise an empty body on
+    // shapes the user never typed into. Existing bodies that the user
+    // cleared retain an empty body (visually invisible — the renderer
+    // short-circuits via `isBlocksEmpty`).
+    if (isBlocksEmpty(next) && isBlocksEmpty(prior) && e.data.text === undefined) {
+      return;
+    }
+    e.data.text = { ...e.data.text, blocks: next };
   }
 
   withNotes(

@@ -5,8 +5,25 @@ import { resolveStrokeColor } from './render-context';
 import { PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
+import { paintTextBody } from './text-renderer';
 
 export type { FrameSize } from './shapes/builder';
+
+/**
+ * Insets (in deck-canvas px at the default 1920×1080 size) applied when
+ * painting a shape's `data.text`. Mirrors PowerPoint's default
+ * `<a:bodyPr lIns="91440" tIns="45720">` — 0.1" / 0.05" — converted at
+ * the deck scale (91440 EMU × 1920 / 12192000 EMU = 14.4 px;
+ * 45720 EMU × 1920 / 12192000 EMU = 7.2 px). These match what an
+ * unmodified shape in PowerPoint / Google Slides shows so inserted
+ * shapes look right out of the box.
+ *
+ * Exported so the editor's `enterEditMode` can inset the in-place
+ * text-box editing frame by the same amount — the user's caret and
+ * glyphs while editing land where the committed paint will, without
+ * a visible "shift" on commit.
+ */
+export const SHAPE_TEXT_PADDING = { x: 14.4, y: 7.2 } as const;
 
 const placeholderWarned = new Set<string>();
 
@@ -54,7 +71,9 @@ export function drawShape(
   theme: Theme,
 ): void {
   if (isActionButton(data.kind)) {
-    return drawActionButton(ctx, size, data, theme);
+    drawActionButton(ctx, size, data, theme);
+    paintShapeText(ctx, size, data, theme);
+    return;
   }
 
   const builder = PATH_BUILDERS.get(data.kind);
@@ -83,6 +102,7 @@ export function drawShape(
     ctx.lineJoin = 'round';
     ctx.stroke(path);
   }
+  paintShapeText(ctx, size, data, theme);
 }
 
 function drawPlaceholderRect(
@@ -100,4 +120,24 @@ function drawPlaceholderRect(
     ctx.lineWidth = data.stroke.width;
     ctx.strokeRect(0, 0, w, h);
   }
+  paintShapeText(ctx, { w, h }, data, theme);
+}
+
+/**
+ * Paint a shape's optional inline text body on top of its fill/stroke,
+ * using PowerPoint-default insets and a `'middle'` vertical anchor
+ * default (matches what PowerPoint / Google Slides do when a shape is
+ * created and the user types into it without changing alignment).
+ */
+function paintShapeText(
+  ctx: CanvasRenderingContext2D,
+  size: FrameSize,
+  data: ShapeElement['data'],
+  theme: Theme,
+): void {
+  if (!data.text) return;
+  paintTextBody(ctx, size, data.text, theme, {
+    padding: SHAPE_TEXT_PADDING,
+    defaultVerticalAnchor: 'middle',
+  });
 }

@@ -48,8 +48,6 @@ task docs under `docs/tasks/`.
 - **Connector behaviour.** `line` and `arrow` are free-floating;
   elbow / curved connectors that snap between two source elements
   are a separate workstream.
-- **Shape-internal text.** Text inside a shape continues to be a
-  separate `TextElement` overlapping the shape, as today.
 - **Path-precise hit-testing.** Selection still uses the rotated
   frame AABB. Click-through-the-hole-of-donut behaviour using
   `ctx.isPointInPath(path, x, y)` is a follow-up.
@@ -95,6 +93,11 @@ export type ShapeElement = ElementBase & {
     adjustments?: number[];
     fill?: ThemeColor;
     stroke?: ShapeStroke;
+    /**
+     * Optional inline text body painted on top of the fill/stroke.
+     * Absent on freshly-inserted shapes. See `Shape text body` below.
+     */
+    text?: TextBody;
   };
 };
 ```
@@ -120,6 +123,83 @@ The full OOXML catalog has ~187 `prstGeom` presets. The remaining
 it lands, `ShapeKind` will gain a `'preset'` variant with
 `data.presetName: string`. We don't reserve the slot up front
 because an unused field would expose noise in the live schema.
+
+### Shape text body
+
+Shapes can carry inline text directly via `data.text`, painted on
+top of the fill/stroke. Matches PowerPoint and Google Slides where
+every autoshape is a text container (double-click / Enter / type-
+to-edit all enter text editing inside the shape).
+
+```ts
+// packages/slides/src/model/element.ts
+export type TextBody = {
+  blocks: Block[];
+  autofit?: AutofitMode;
+  verticalAnchor?: VerticalAnchorMode;
+};
+```
+
+The same `TextBody` shape backs `TextElement.data` (via intersection
+with `{ fill?, stroke? }`) so the docs text-box editor, the canvas
+text renderer, and the autofit / vertical-anchor wiring all reuse
+one structural type across both element kinds.
+
+**Render order.** `shape-renderer.ts:drawShape` paints fill → stroke
+→ `paintTextBody(ctx, size, data.text, theme, {padding, defaultVerticalAnchor})`
+in that order, where `paintTextBody` is exported from
+`text-renderer.ts` and shared with `drawText`. Shape callers pass
+`SHAPE_TEXT_PADDING = { x: 14.4, y: 7.2 }` (PowerPoint's default
+`<a:bodyPr lIns="91440" tIns="45720">` converted at the deck scale)
+and `defaultVerticalAnchor: 'middle'`.
+
+**Editor entry.** Double-click and the type-to-edit / F2 / Enter
+keyboard rules accept `el.type === 'shape'` in addition to
+`'text'`. `enterEditMode` builds an `EditTarget` descriptor that
+papers over the per-kind differences:
+
+| | TextElement | ShapeElement |
+| --- | --- | --- |
+| blocks | `data.blocks` | `data.text?.blocks ?? [seed]` |
+| edit frame | `element.frame` | element frame inset by `SHAPE_TEXT_PADDING` |
+| autofit default | `'grow'` (frame tracks content) | `'none'` (frame is user-sized) |
+| verticalAnchor default | `'top'` | `'middle'` |
+| commit bridge | `store.withTextElement` | `store.withShapeText` |
+| post-commit frame fit | yes (auto-grow) | no |
+
+**Store API.** `SlidesStore.withShapeText(slideId, elementId, cb)`
+mirrors `withTextElement` but reads/writes `data.text.blocks`. It
+seeds an empty body on first entry and drops `data.text` again on
+commit when the body ends up empty so freshly-inserted shapes never
+accumulate empty `<p:txBody>` cruft on round-trips.
+
+**PPTX mapping.** OOXML `<p:sp>` always pairs `<p:spPr>` (shape
+props) with `<p:txBody>`; the importer folds `<p:txBody>` directly
+into `ShapeElement.data.text`. Stand-alone text boxes (`txBox`
+preset, no `prstGeom`) keep producing a `TextElement` — `txBox` is
+OOXML's text-box-only preset and has no shape geometry. Pre-feature
+imports of labelled shapes layered (`ShapeElement` + paired
+`TextElement`); the new form is one element.
+
+**v1 limitations.**
+- *Type-to-edit first character.* The keystroke is consumed
+  (`preventDefault`) and enters edit mode, but the first character is
+  not yet inserted into the freshly-mounted text-box — the user has
+  to type it again. Forwarding the initial character requires threading
+  an `initialText` through `mountSlidesTextBox` into the docs editor;
+  deferred as a follow-up.
+- *Two import formats coexist in Yorkie storage.* Pre-feature decks
+  imported a labelled shape as two layered elements (`ShapeElement`
+  with no text + paired `TextElement` overlay); those documents keep
+  rendering in the layered form indefinitely (no migration). Decks
+  imported after this feature use the folded form (one `ShapeElement`
+  with `data.text`). Visually the two differ only in the default
+  inset and anchor — the folded form picks up the PowerPoint default
+  inset (`SHAPE_TEXT_PADDING`) and `'middle'` anchor; the layered form
+  uses whatever the paired TextElement was positioned at. Both render
+  fine; future contributors editing this branch should be aware that
+  the `parseSp` prstGeom branch and the legacy reader paths can both
+  appear in a single workspace.
 
 ### Renderer architecture
 

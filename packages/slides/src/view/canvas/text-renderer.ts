@@ -8,11 +8,16 @@ import {
   type StoredColor,
 } from '@wafflebase/docs';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
-import type { TextElement, VerticalAnchorMode } from '../../model/element';
+import {
+  isBlocksEmpty,
+  type TextBody,
+  type TextElement,
+  type VerticalAnchorMode,
+} from '../../model/element';
 import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
 import { resolveColor, resolveFont } from '../../model/theme';
-import type { FrameSize } from './shape-renderer';
+import type { FrameSize } from './shapes/builder';
 
 /**
  * Module-scope measurer reused across every text-element render. Owning
@@ -91,11 +96,7 @@ export function drawText(
   // a placeholder seeded by `buildInsertElement` typically has one
   // block with one inline whose `text === ''`, so the cheaper-to-detect
   // `data.blocks.length === 0` case alone is not sufficient.
-  const allEmpty =
-    data.blocks.length === 0 ||
-    data.blocks.every((b) => b.inlines.every((inl) => inl.text === ''));
-
-  if (allEmpty) {
+  if (isTextBodyEmpty(data)) {
     if (options?.placeholderHint) {
       // Hint always paints at the top of the frame regardless of
       // data.verticalAnchor — placeholder ghost text is not anchor-aware
@@ -110,28 +111,70 @@ export function drawText(
     }
     return;
   }
-  const normalized: Block[] = data.blocks.map((b) => ({
+  paintTextBody(ctx, size, data, theme);
+}
+
+/**
+ * True iff a `TextBody` carries no visible characters. Thin wrapper
+ * over the model-level `isBlocksEmpty`; kept as a named view-layer
+ * symbol because the placeholder-hint branch reads more naturally as
+ * "the text body is empty" than "its blocks are empty".
+ */
+export function isTextBodyEmpty(body: TextBody): boolean {
+  return isBlocksEmpty(body.blocks);
+}
+
+/**
+ * Paint a non-empty `TextBody` into the given frame. Shared between
+ * `drawText` (text elements) and `drawShape` (shapes that carry inline
+ * text via `data.text`). Layout + paint go through
+ * `@wafflebase/docs.paintLayout` so all surfaces produce pixel-identical
+ * output.
+ *
+ * Callers can supply optional `padding` (insets the layout width and
+ * paint origin) and a `defaultVerticalAnchor` (used when the body
+ * doesn't set its own anchor). Shape callers typically pass
+ * `defaultVerticalAnchor: 'middle'` and a small padding to mirror
+ * PowerPoint / Google Slides defaults; text-element callers pass
+ * neither (anchor defaults to `'top'`, padding `0`).
+ *
+ * Skips painting when the body is empty.
+ */
+export function paintTextBody(
+  ctx: CanvasRenderingContext2D,
+  size: FrameSize,
+  body: TextBody,
+  theme: Theme,
+  opts: {
+    padding?: { x: number; y: number };
+    defaultVerticalAnchor?: VerticalAnchorMode;
+  } = {},
+): void {
+  if (isTextBodyEmpty(body)) return;
+  const padX = opts.padding?.x ?? 0;
+  const padY = opts.padding?.y ?? 0;
+  const innerW = Math.max(0, size.w - 2 * padX);
+  const innerH = Math.max(0, size.h - 2 * padY);
+  const normalized: Block[] = body.blocks.map((b) => ({
     ...b,
     style: normalizeBlockStyle(b.style),
   }));
   const colorResolver = makeColorResolver(theme);
 
-  // Shrink autofit: scale fonts down so content fits the fixed box. The
+  // Shrink autofit: scale fonts down so content fits the inner box. The
   // same scale is applied in the in-place editor (text-box-editor.ts) so
   // the committed canvas and editing surface stay pixel-identical.
   let toLayout = normalized;
-  if (data.autofit === 'shrink') {
-    // padding=0 here so the shrink scale targets the full frame height.
-    // computeVerticalOriginY below also compares against size.h, so the
-    // scaled totalHeight will fit and originY stays non-negative. If a
-    // future caller changes the padding arg, mirror it in originY.
-    const scale = computeAutofitScale(normalized, measurer, size.w, size.h, 0);
+  if (body.autofit === 'shrink') {
+    const scale = computeAutofitScale(normalized, measurer, innerW, innerH, 0);
     if (scale !== 1) toLayout = scaleBlocks(normalized, scale);
   }
 
-  const { layout } = computeLayout(toLayout, measurer, size.w);
-  const originY = computeVerticalOriginY(data.verticalAnchor, size.h, layout.totalHeight);
-  paintLayout(ctx, layout, 0, originY, { colorResolver });
+  const { layout } = computeLayout(toLayout, measurer, innerW);
+  const anchor = body.verticalAnchor ?? opts.defaultVerticalAnchor ?? 'top';
+  const originY =
+    padY + computeVerticalOriginY(anchor, innerH, layout.totalHeight);
+  paintLayout(ctx, layout, padX, originY, { colorResolver });
 }
 
 /**
