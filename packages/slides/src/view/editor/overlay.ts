@@ -553,8 +553,9 @@ function makeSmartGuideArrows(
 /**
  * Numeric distance label rendered at the midpoint of a smart-guide
  * arrow shaft. Shows the rounded pixel distance with no unit
- * (matches PowerPoint).  Small white pill with a thin red border so
- * it stays readable over dark slide content.
+ * (matches PowerPoint). Styled with the slides editor's rotation-angle
+ * tooltip — dark translucent pill with white text — for a unified visual
+ * language across overlay annotations.
  */
 function makeSmartGuideLabel(
   span: Span,
@@ -564,13 +565,14 @@ function makeSmartGuideLabel(
   const el = document.createElement('div');
   el.className = 'wfb-slides-smart-label';
   el.style.position = 'absolute';
+  el.style.padding = '2px 6px';
+  el.style.fontSize = '11px';
+  el.style.lineHeight = '14px';
+  el.style.fontFamily = 'system-ui, sans-serif';
+  el.style.color = '#fff';
+  el.style.background = 'rgba(0, 0, 0, 0.75)';
+  el.style.borderRadius = '3px';
   el.style.pointerEvents = 'none';
-  el.style.background = '#fff';
-  el.style.color = SMART_GUIDE_COLOR;
-  el.style.border = `1px solid ${SMART_GUIDE_COLOR}`;
-  el.style.padding = '0 4px';
-  el.style.borderRadius = '2px';
-  el.style.font = '11px / 1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   el.style.whiteSpace = 'nowrap';
   el.style.transform = 'translate(-50%, -50%)';
   const distance = Math.round(Math.abs(span.to - span.from));
