@@ -78,3 +78,36 @@ describe('smartGuides — equal-spacing (dragged in middle)', () => {
     expect(out.dx).toBe(100); // wins by +2 over +5.
   });
 });
+
+describe('smartGuides — equal-spacing (dragged on an end)', () => {
+  // Same-row pair (A, B) gap = 100. dragged on the right of B.
+  const A: Frame = { x: 0,   y: 100, w: 100, h: 100, rotation: 0 };
+  const B: Frame = { x: 200, y: 100, w: 100, h: 100, rotation: 0 };
+
+  it('snaps a right-end dragged element to make gap(B, dragged) == gap(A, B)', () => {
+    // dragged at x=395 (gap 95). Adjust to +5 to land at x=400 (gap 100).
+    const bbox = { x: 395, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [A, B]);
+    expect(out.dx).toBe(5);
+    expect(out.guides[0].kind).toBe('equal-spacing');
+  });
+
+  it('snaps a left-end dragged element to make gap(dragged, A) == gap(A, B)', () => {
+    // gap(A,B) = 100. dragged on left at x=-205 (right edge -155, gap 155 to A.left=0... wait).
+    // dragged is 50 wide. To leave gap(dragged.right, A.left) = 100, dragged.right = -100,
+    // dragged.x = -150. If dragged at x=-148, adjust = -2.
+    const bbox = { x: -148, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [A, B]);
+    expect(out.dx).toBe(-2);
+    expect(out.guides[0].kind).toBe('equal-spacing');
+  });
+
+  it('does not consider end-trios when the pair does not share a row with dragged', () => {
+    const Afar: Frame = { x: 0,   y: 700, w: 100, h: 100, rotation: 0 };
+    const Bfar: Frame = { x: 200, y: 700, w: 100, h: 100, rotation: 0 };
+    const bbox = { x: 395, y: 100, w: 50, h: 50 };
+    const out = smartGuides(bbox, 0, 0, [Afar, Bfar]);
+    expect(out.dx).toBe(0);
+    expect(out.guides).toEqual([]);
+  });
+});

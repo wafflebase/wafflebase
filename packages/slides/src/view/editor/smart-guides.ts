@@ -143,6 +143,97 @@ export function smartGuides(
     }
   }
 
+  // Equal-spacing — dragged at an END. Pair (A, B) with A.right < B.left
+  // already same-row. Two cases:
+  //   1) dragged.left ≥ B.right → make gap(B, dragged) == gap(A, B)
+  //   2) dragged.right ≤ A.left → make gap(dragged, A) == gap(A, B)
+  for (let i = 0; i < others.length; i++) {
+    const a = others[i];
+    if (!overlapsRow(d, a)) continue;
+    for (let j = 0; j < others.length; j++) {
+      if (i === j) continue;
+      const b = others[j];
+      if (!overlapsRow(d, b)) continue;
+      if (a.x + a.w >= b.x) continue;  // need A strictly left of B
+      const innerGap = b.x - (a.x + a.w);
+      // Case 1: dragged on the right of B.
+      if (d.leftPx >= b.x + b.w) {
+        const outerGap = d.leftPx - (b.x + b.w);
+        const adjust = innerGap - outerGap;
+        tryX({
+          adjust,
+          guide: {
+            kind: 'equal-spacing',
+            axis: 'x',
+            spans: [
+              { from: a.x + a.w, to: b.x,             perpendicular: d.centerYPx },
+              { from: b.x + b.w, to: d.leftPx + adjust, perpendicular: d.centerYPx },
+            ],
+          },
+        });
+      }
+      // Case 2: dragged on the left of A.
+      if (d.rightPx <= a.x) {
+        const outerGap = a.x - d.rightPx;
+        const adjust = -(innerGap - outerGap);
+        tryX({
+          adjust,
+          guide: {
+            kind: 'equal-spacing',
+            axis: 'x',
+            spans: [
+              { from: d.rightPx + adjust, to: a.x, perpendicular: d.centerYPx },
+              { from: a.x + a.w, to: b.x,          perpendicular: d.centerYPx },
+            ],
+          },
+        });
+      }
+    }
+  }
+
+  // Equal-spacing — dragged at an END (Y axis). Pair (A, B) with A.bottom < B.top.
+  for (let i = 0; i < others.length; i++) {
+    const a = others[i];
+    if (!overlapsCol(d, a)) continue;
+    for (let j = 0; j < others.length; j++) {
+      if (i === j) continue;
+      const b = others[j];
+      if (!overlapsCol(d, b)) continue;
+      if (a.y + a.h >= b.y) continue;
+      const innerGap = b.y - (a.y + a.h);
+      if (d.topPx >= b.y + b.h) {
+        const outerGap = d.topPx - (b.y + b.h);
+        const adjust = innerGap - outerGap;
+        tryY({
+          adjust,
+          guide: {
+            kind: 'equal-spacing',
+            axis: 'y',
+            spans: [
+              { from: a.y + a.h, to: b.y,              perpendicular: d.centerXPx },
+              { from: b.y + b.h, to: d.topPx + adjust,  perpendicular: d.centerXPx },
+            ],
+          },
+        });
+      }
+      if (d.bottomPx <= a.y) {
+        const outerGap = a.y - d.bottomPx;
+        const adjust = -(innerGap - outerGap);
+        tryY({
+          adjust,
+          guide: {
+            kind: 'equal-spacing',
+            axis: 'y',
+            spans: [
+              { from: d.bottomPx + adjust, to: a.y, perpendicular: d.centerXPx },
+              { from: a.y + a.h, to: b.y,           perpendicular: d.centerXPx },
+            ],
+          },
+        });
+      }
+    }
+  }
+
   const guides: SmartGuide[] = [];
   if (bestX) guides.push((bestX as Cand).guide);
   if (bestY) guides.push((bestY as Cand).guide);
