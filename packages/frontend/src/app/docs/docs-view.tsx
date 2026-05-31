@@ -362,6 +362,10 @@ export function DocsView({
       if (resolvedLocalCursor.compositionStart && editor.isComposing()) {
         editor.updateCompositionStartPosition(resolvedLocalCursor.compositionStart);
       }
+      store.publishResolvedLocalCursor({
+        cursor: resolvedLocalCursor.cursor,
+        selection: resolvedLocalCursor.selection,
+      });
       editor.validateCursorPosition();
       editor.render();
     };

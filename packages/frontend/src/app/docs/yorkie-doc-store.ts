@@ -1028,6 +1028,12 @@ export class YorkieDocStore implements DocStore {
     return { blockId: anchor.blockId, offset: 0 };
   }
 
+  /**
+   * Pure read: resolve the locally anchored caret / selection /
+   * composition-start back to {@link DocPosition}. Does not touch
+   * presence. Call {@link publishResolvedLocalCursor} after pushing the
+   * resolved values into the editor when the broadcast is desired.
+   */
   resolveAnchoredLocalCursor(): {
     cursor: DocPosition | null;
     selection: DocRange | null;
@@ -1046,17 +1052,26 @@ export class YorkieDocStore implements DocStore {
     const compositionStart = this.compositionStartAnchor
       ? this.resolveAnchoredDocPosition(this.compositionStartAnchor)
       : null;
-
-    if (cursor || selection) {
-      this.doc.update((_, p) => {
-        p.set({
-          activeCursorPos: cursor ?? undefined,
-          activeSelection: selection ?? undefined,
-        } as Partial<DocsPresence>);
-      });
-    }
-
     return { cursor, selection, compositionStart };
+  }
+
+  /**
+   * Broadcast a previously resolved caret / selection to peers via
+   * Yorkie presence. Split out from {@link resolveAnchoredLocalCursor}
+   * so the resolve path stays a pure read and callers opt into the
+   * side effect explicitly.
+   */
+  publishResolvedLocalCursor(resolved: {
+    cursor: DocPosition | null;
+    selection: DocRange | null;
+  }): void {
+    if (!resolved.cursor && !resolved.selection) return;
+    this.doc.update((_, p) => {
+      p.set({
+        activeCursorPos: resolved.cursor ?? undefined,
+        activeSelection: resolved.selection ?? undefined,
+      } as Partial<DocsPresence>);
+    });
   }
 
   /**
