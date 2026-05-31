@@ -15,12 +15,12 @@ respect to selection.
 
 ## Plan
 
-- [ ] Extend `SlidesEditorOptions` with optional `bodyHost?: HTMLElement`.
-- [ ] In `attachInteractions`, bind `pointerdown` on `bodyHost` and
+- [x] Extend `SlidesEditorOptions` with optional `bodyHost?: HTMLElement`.
+- [x] In `attachInteractions`, bind `pointerdown` on `bodyHost` and
       fire `onBodyPointerDown` only when `e.target === bodyHost`
       (i.e., the click landed on the empty area, not on a child like
       the canvas wrap or the rulers).
-- [ ] `onBodyPointerDown` behavior:
+- [x] `onBodyPointerDown` behavior:
   - During paint/insert mode → no-op (user is in a different gesture
     domain; missing the canvas shouldn't clear or insert).
   - While text editing → commit + exit (mirrors clicking outside the
@@ -28,10 +28,18 @@ respect to selection.
   - Otherwise → `selection.click(null, {})` with `refitPoppedScope` so
     drilled-in groups pop on body click, matching the empty-canvas
     branch of `onPointerDown`.
-- [ ] Pass `scrollHost` as `bodyHost` in `slides-view.tsx`.
-- [ ] Unit test: dispatch `pointerdown` with `target === bodyHost`
+- [x] Pass `scrollHost` as `bodyHost` in `slides-view.tsx`.
+- [x] Unit test: dispatch `pointerdown` with `target === bodyHost`
       clears selection; dispatch with a child target does not.
-- [ ] `pnpm verify:fast` green.
+- [x] `pnpm verify:fast` green.
+
+## Review
+
+Landed in commit `3b009e84`, PR
+[#319](https://github.com/wafflebase/wafflebase/pull/319). All plan items
+ticked; 3 new unit tests pass; pre-push `verify:self` green; manual
+smoke in `pnpm dev` confirmed (shape deselects on gray-area click; ruler
+drag-out and canvas lasso/hit-test unaffected).
 
 ## Notes
 

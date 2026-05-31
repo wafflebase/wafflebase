@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides body click deselect (2026-05-31) | [20260531-slides-body-click-deselect-todo.md](./active/20260531-slides-body-click-deselect-todo.md) | - |
 | cursor follows text color (2026-05-30) | [20260530-cursor-follows-text-color-todo.md](./active/20260530-cursor-follows-text-color-todo.md) | [20260530-cursor-follows-text-color-lessons.md](./active/20260530-cursor-follows-text-color-lessons.md) |
 | docs pending inline style (2026-05-30) | [20260530-docs-pending-inline-style-todo.md](./active/20260530-docs-pending-inline-style-todo.md) | [20260530-docs-pending-inline-style-lessons.md](./active/20260530-docs-pending-inline-style-lessons.md) |
 | pptx paragraph bullet style (2026-05-30) | [20260530-pptx-paragraph-bullet-style-todo.md](./active/20260530-pptx-paragraph-bullet-style-todo.md) | - |
@@ -37,7 +36,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 228
+- Archived task count: 229
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides body click deselect (2026-05-31)
+Latest active task: cursor follows text color (2026-05-30)
