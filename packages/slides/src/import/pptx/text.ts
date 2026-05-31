@@ -229,8 +229,18 @@ function mergeMarkers(
   base: BlockMarker | undefined,
   overrides: BlockMarker | undefined,
 ): BlockMarker | undefined {
-  if (!base) return overrides;
-  if (!overrides) return base;
+  // Always return a fresh shallow-cloned object even in the single-input
+  // path. `base` is the master-level `markerDefaults` map entry shared
+  // across every paragraph that resolves to the same slot × level, so
+  // handing the reference back to the caller would let a downstream
+  // mutation on `block.marker` (clearFormatting, theme remap, …) leak
+  // back into the master and silently corrupt every other list-item
+  // that uses that default. The alloc cost is one small object per
+  // list paragraph — negligible against the layout / paint work that
+  // follows.
+  if (!base && !overrides) return undefined;
+  if (!base) return { ...overrides! };
+  if (!overrides) return { ...base };
   const out: BlockMarker = {};
   const fontFamily = overrides.fontFamily ?? base.fontFamily;
   const fontSize = overrides.fontSize ?? base.fontSize;
