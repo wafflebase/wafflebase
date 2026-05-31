@@ -2,13 +2,55 @@ import type { Element } from '../../model/element';
 import type { PlaceholderStyle } from '../../model/master';
 import { placeholderHintFor } from '../../model/placeholder-hints';
 import type { SlidesDocument } from '../../model/presentation';
+import { deckFontScale } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
 import { drawConnector } from './connector-renderer';
-import { drawShape } from './shape-renderer';
+import { drawShape, paintShapeText } from './shape-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
 
 const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
+
+/**
+ * Accumulated flip from ancestor groups + this element. Threaded
+ * through `drawElement` recursion so a text leaf inside a flipped
+ * group can counter-flip against the total accumulated flip, not just
+ * its own.
+ */
+type FlipState = { h: boolean; v: boolean };
+const NO_FLIP: FlipState = { h: false, v: false };
+
+/**
+ * Paint a child callback inside a centred counter-flip transform so
+ * its content is NOT mirrored even when the surrounding context has
+ * accumulated `flipH` / `flipV`. Used for text (inline shape text +
+ * standalone text elements): PowerPoint / Google Slides keep text
+ * glyphs readable when a shape is flipped — only the geometry mirrors.
+ *
+ * Centred flip is its own inverse, so applying the same operation
+ * around the same centre cancels the accumulated flip without
+ * disturbing the surrounding rotation or scale.
+ */
+function withCounterFlip(
+  ctx: CanvasRenderingContext2D,
+  size: { w: number; h: number },
+  flip: FlipState,
+  paint: () => void,
+): void {
+  if (!flip.h && !flip.v) {
+    paint();
+    return;
+  }
+  ctx.save();
+  try {
+    ctx.translate(size.w / 2, size.h / 2);
+    ctx.scale(flip.h ? -1 : 1, flip.v ? -1 : 1);
+    ctx.translate(-size.w / 2, -size.h / 2);
+    paint();
+  } finally {
+    ctx.restore();
+  }
+}
 
 /**
  * Draw an element in world coordinates. Sets up the frame transform
@@ -32,6 +74,7 @@ export function drawElement(
   theme: Theme,
   onAssetLoad: () => void,
   elementsLookup: ReadonlyMap<string, Element> = EMPTY_LOOKUP,
+  parentFlip: FlipState = NO_FLIP,
 ): void {
   // Connectors paint directly in world coordinates and need a lookup map
   // to resolve attached endpoints — skip the per-element frame transform.
@@ -41,13 +84,23 @@ export function drawElement(
   }
 
   const { frame } = element;
+  // Accumulated flip = ancestor flip XOR own flip. Threaded to children
+  // (groups) so a nested text leaf un-flips against the total flip, and
+  // used here to wrap text painting in a counter-flip even at the top
+  // level (no parent, parentFlip = NO_FLIP).
+  const ownFlipH = !!frame.flipH;
+  const ownFlipV = !!frame.flipV;
+  const totalFlip: FlipState = {
+    h: parentFlip.h !== ownFlipH,
+    v: parentFlip.v !== ownFlipV,
+  };
   ctx.save();
   // try/finally so the ctx state is always restored, even if a
   // per-type painter throws. Without this, a single corrupted element
   // (e.g. malformed image data) leaks the rotate / translate transform
   // into every subsequent element on the slide.
   try {
-    const flipped = frame.flipH || frame.flipV;
+    const flipped = ownFlipH || ownFlipV;
 
     // For groups, children are stored in the group's local reference space
     // (0..refSize.w × 0..refSize.h). We must scale that space to match the
@@ -94,12 +147,24 @@ export function drawElement(
       // In v1, group() never includes connectors as children (Task 11
       // invariant), so this is safe. A TODO remains for v2+ support.
       for (const child of element.data.children) {
-        drawElement(ctx, child, doc, theme, onAssetLoad, elementsLookup);
+        drawElement(ctx, child, doc, theme, onAssetLoad, elementsLookup, totalFlip);
       }
     } else {
+      // Resolved per-deck so PPTX decks authored at a non-default
+      // physical size render text at the proportion their source
+      // expects. Decks without `meta.pxPerPt` (everything in-app
+      // authored before this change) keep `1` here — no regression.
+      const fontScale = deckFontScale(doc.meta);
       switch (element.type) {
         case 'shape':
+          // Geometry paints under the accumulated flip transform — fills,
+          // strokes, and path outlines are supposed to mirror. Text inside
+          // the shape is then painted under a centred counter-flip so
+          // glyphs stay readable (PowerPoint / Google Slides behavior).
           drawShape(ctx, size, element.data, theme);
+          withCounterFlip(ctx, size, totalFlip, () => {
+            paintShapeText(ctx, size, element.data, theme, fontScale);
+          });
           break;
         case 'text': {
           // Only ref-bearing elements get a ghost hint — user-added text
@@ -124,10 +189,20 @@ export function drawElement(
               };
             }
           }
-          drawText(ctx, size, element.data, theme, { placeholderHint });
+          // Text glyphs are never mirrored; counter-flip the accumulated
+          // flip so the box position still mirrors (via the surrounding
+          // transform) but the text inside reads left-to-right.
+          withCounterFlip(ctx, size, totalFlip, () => {
+            drawText(ctx, size, element.data, theme, {
+              placeholderHint,
+              fontScale,
+            });
+          });
           break;
         }
         case 'image':
+          // Images intentionally mirror with flipH/flipV — the user is
+          // flipping a picture, so no counter-flip is applied.
           drawImage(ctx, size, element.data, onAssetLoad);
           break;
       }

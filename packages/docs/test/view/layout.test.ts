@@ -226,3 +226,97 @@ describe('computeListCounters', () => {
     expect(counters.get(blocks[4].id)).toBe('a.'); // reset back to 'a' after level 0 appeared
   });
 });
+
+describe('soft line break (`\\n`) layout', () => {
+  // Build a paragraph from inlines so multi-inline tests can interleave
+  // `\n`-only inlines (matching what the PPTX importer emits for `<a:br/>`).
+  const para = (inlines: Array<{ text: string; style?: Record<string, unknown> }>) => {
+    const block = createBlock('paragraph');
+    block.inlines = inlines.map((inl) => ({ text: inl.text, style: inl.style ?? {} }));
+    return block;
+  };
+
+  it('flushes a line at a single `\\n` inside one inline', () => {
+    const block = para([{ text: 'abc\ndef' }]);
+    const { layout } = computeLayout([block], stubMeasurer(), 1000);
+    const lines = layout.blocks[0].lines;
+    expect(lines).toHaveLength(2);
+    // Line 1: "abc" + zero-width \n run.
+    expect(lines[0].runs.map((r) => r.text)).toEqual(['abc', '\n']);
+    expect(lines[0].runs[1].width).toBe(0);
+    // Line 2: "def".
+    expect(lines[1].runs.map((r) => r.text)).toEqual(['def']);
+  });
+
+  it('produces an empty visual line between two consecutive `\\n`s — slide 5 case', () => {
+    // Mirrors PPTX `<a:r>Tier 3</a:r><a:br/><a:br/><a:r>원본 ...</a:r>`.
+    const block = para([
+      { text: 'Tier 3' },
+      { text: '\n' },
+      { text: '\n' },
+      { text: '원본' },
+    ]);
+    const { layout } = computeLayout([block], stubMeasurer(), 1000);
+    const lines = layout.blocks[0].lines;
+    expect(lines).toHaveLength(3);
+    // Line 1: "Tier " + "3" + \n (splitWords keeps the trailing space with "Tier").
+    expect(lines[0].runs.map((r) => r.text).join('')).toBe('Tier 3\n');
+    // Line 2: pure empty visual line — only the `\n` run sits on it.
+    expect(lines[1].runs.map((r) => r.text)).toEqual(['\n']);
+    expect(lines[1].width).toBe(0);
+    // Line 3: "원본".
+    expect(lines[2].runs.map((r) => r.text)).toEqual(['원본']);
+  });
+
+  it('adds a trailing empty line when the block ends with `\\n`', () => {
+    const block = para([{ text: 'abc\n' }]);
+    const { layout } = computeLayout([block], stubMeasurer(), 1000);
+    const lines = layout.blocks[0].lines;
+    // Two lines: "abc\n" and an empty trailing line for the cursor to sit on.
+    expect(lines).toHaveLength(2);
+    expect(lines[0].runs.map((r) => r.text)).toEqual(['abc', '\n']);
+    expect(lines[1].runs).toHaveLength(0);
+  });
+
+  it('keeps cursor offsets continuous across a soft break', () => {
+    // The `\n` run carries charStart/charEnd so a click at end-of-line 1
+    // (or arrow-up from line 2 → line 1) resolves to an inline offset.
+    const block = para([{ text: 'abc\ndef' }]);
+    const { layout } = computeLayout([block], stubMeasurer(), 1000);
+    const line1 = layout.blocks[0].lines[0];
+    const brRun = line1.runs[1];
+    expect(brRun.text).toBe('\n');
+    expect(brRun.inlineIndex).toBe(0);
+    expect(brRun.charStart).toBe(3); // right after "abc"
+    expect(brRun.charEnd).toBe(4);
+    // Next line picks up exactly where the `\n` left off in the same inline.
+    const nextRun = layout.blocks[0].lines[1].runs[0];
+    expect(nextRun.inlineIndex).toBe(0);
+    expect(nextRun.charStart).toBe(4);
+  });
+
+  it('drops the first-line `textIndent` after a soft break', () => {
+    // Mirrors the bullet hang-indent layout: textIndent applies to the
+    // first line only. The wrapped line that follows a `\n` must start
+    // at `marginLeft`, not `marginLeft + textIndent`.
+    const block = para([{ text: 'a\nb' }]);
+    block.style = { ...block.style, marginLeft: 40, textIndent: -20 };
+    const { layout } = computeLayout([block], stubMeasurer(), 1000);
+    const lines = layout.blocks[0].lines;
+    // Line 1: first run starts at marginLeft + textIndent (= 20).
+    expect(lines[0].runs[0].x).toBe(20);
+    // Line 2: first run starts at marginLeft (40), no textIndent.
+    expect(lines[1].runs[0].x).toBe(40);
+  });
+
+  it('composes with word-wrap — `\\n` flushes regardless of line width', () => {
+    // 8 px/char × "aaaa" = 32 px fits in 100 px. The `\n` forces a wrap
+    // even though "aaaa" alone would have stayed on the same visual line.
+    const block = para([{ text: 'aaaa\nbbbb' }]);
+    const { layout } = computeLayout([block], stubMeasurer(), 100);
+    const lines = layout.blocks[0].lines;
+    expect(lines).toHaveLength(2);
+    expect(lines[0].runs[0].text).toBe('aaaa');
+    expect(lines[1].runs[0].text).toBe('bbbb');
+  });
+});

@@ -70,6 +70,27 @@ describe('scaleBlocks', () => {
     expect(source[0].marker?.fontSize).toBe(18);
   });
 
+  it('scales horizontal indent so the bullet hang stays proportional to font size', () => {
+    // A PPTX list item with `marL=48 textIndent=-36` (the post-9525-EMU
+    // values for `<a:pPr marL="457200" indent="-342900"/>`).
+    const source: Block[] = [{
+      id: 'b-indent',
+      type: 'list-item',
+      inlines: [{ text: 'x', style: { fontSize: 18 } }],
+      style: { ...DEFAULT_BLOCK_STYLE, marginLeft: 48, textIndent: -36 },
+      listKind: 'unordered',
+      listLevel: 0,
+    }];
+    const [b] = scaleBlocks(source, 2);
+    // Both horizontal fields ride the scale so the bullet→text gap (= -textIndent)
+    // grows in lockstep with the body font size.
+    expect(b.style.marginLeft).toBe(96);
+    expect(b.style.textIndent).toBe(-72);
+    // Source must not be mutated.
+    expect(source[0].style.marginLeft).toBe(48);
+    expect(source[0].style.textIndent).toBe(-36);
+  });
+
   it('preserves marker objects without fontSize untouched', () => {
     const source: Block[] = [{
       id: 'b-color-only',

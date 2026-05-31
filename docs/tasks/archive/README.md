@@ -6,16 +6,25 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 241
+Total archived tasks: 245
 
-## 2026/05 (96 tasks)
+## 2026/06 (1 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| docs soft line break (2026-06-01) | [20260601-docs-soft-line-break-todo.md](./2026/06/20260601-docs-soft-line-break-todo.md) | [20260601-docs-soft-line-break-lessons.md](./2026/06/20260601-docs-soft-line-break-lessons.md) |
+
+## 2026/05 (99 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | slides body click deselect (2026-05-31) | [20260531-slides-body-click-deselect-todo.md](./2026/05/20260531-slides-body-click-deselect-todo.md) | [20260531-slides-body-click-deselect-lessons.md](./2026/05/20260531-slides-body-click-deselect-lessons.md) |
+| slides deck dpi font scale (2026-05-31) | [20260531-slides-deck-dpi-font-scale-todo.md](./2026/05/20260531-slides-deck-dpi-font-scale-todo.md) | [20260531-slides-deck-dpi-font-scale-lessons.md](./2026/05/20260531-slides-deck-dpi-font-scale-lessons.md) |
+| slides flip keep text readable (2026-05-31) | [20260531-slides-flip-keep-text-readable-todo.md](./2026/05/20260531-slides-flip-keep-text-readable-todo.md) | [20260531-slides-flip-keep-text-readable-lessons.md](./2026/05/20260531-slides-flip-keep-text-readable-lessons.md) |
 | slides group nested connector (2026-05-31) | [20260531-slides-group-nested-connector-todo.md](./2026/05/20260531-slides-group-nested-connector-todo.md) | [20260531-slides-group-nested-connector-lessons.md](./2026/05/20260531-slides-group-nested-connector-lessons.md) |
 | slides shape inline text (2026-05-31) | [20260531-slides-shape-inline-text-todo.md](./2026/05/20260531-slides-shape-inline-text-todo.md) | [20260531-slides-shape-inline-text-lessons.md](./2026/05/20260531-slides-shape-inline-text-lessons.md) |
 | slides smart guides (2026-05-31) | [20260531-slides-smart-guides-todo.md](./2026/05/20260531-slides-smart-guides-todo.md) | [20260531-slides-smart-guides-lessons.md](./2026/05/20260531-slides-smart-guides-lessons.md) |
+| slides theme color alpha (2026-05-31) | [20260531-slides-theme-color-alpha-todo.md](./2026/05/20260531-slides-theme-color-alpha-todo.md) | [20260531-slides-theme-color-alpha-lessons.md](./2026/05/20260531-slides-theme-color-alpha-lessons.md) |
 | cursor follows text color (2026-05-30) | [20260530-cursor-follows-text-color-todo.md](./2026/05/20260530-cursor-follows-text-color-todo.md) | [20260530-cursor-follows-text-color-lessons.md](./2026/05/20260530-cursor-follows-text-color-lessons.md) |
 | design docs cleanup (2026-05-30) | [20260530-design-docs-cleanup-todo.md](./2026/05/20260530-design-docs-cleanup-todo.md) | [20260530-design-docs-cleanup-lessons.md](./2026/05/20260530-design-docs-cleanup-lessons.md) |
 | docs pending inline style (2026-05-30) | [20260530-docs-pending-inline-style-todo.md](./2026/05/20260530-docs-pending-inline-style-todo.md) | [20260530-docs-pending-inline-style-lessons.md](./2026/05/20260530-docs-pending-inline-style-lessons.md) |

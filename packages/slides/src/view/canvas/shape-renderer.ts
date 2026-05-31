@@ -57,8 +57,13 @@ export const OPEN_PATH_KINDS: ReadonlySet<ShapeKind> = new Set([
 ]);
 
 /**
- * Draw a shape into element-local coordinates (top-left at 0,0). The
- * caller is responsible for the frame transform (translate + rotate).
+ * Draw a shape's geometry (fill + stroke / action-button body) into
+ * element-local coordinates (top-left at 0,0). The caller is
+ * responsible for the frame transform (translate + rotate + flip) AND
+ * for calling `paintShapeText` separately — text painting is split out
+ * so the caller can wrap it in a counter-flip transform to keep glyphs
+ * readable when the shape is flipped (PowerPoint / Google Slides
+ * behavior).
  *
  * Action buttons are special-cased (body + glyph). All other kinds
  * resolve through PATH_BUILDERS; unknown kinds fall back to a
@@ -72,7 +77,6 @@ export function drawShape(
 ): void {
   if (isActionButton(data.kind)) {
     drawActionButton(ctx, size, data, theme);
-    paintShapeText(ctx, size, data, theme);
     return;
   }
 
@@ -102,7 +106,6 @@ export function drawShape(
     ctx.lineJoin = 'round';
     ctx.stroke(path);
   }
-  paintShapeText(ctx, size, data, theme);
 }
 
 function drawPlaceholderRect(
@@ -120,7 +123,6 @@ function drawPlaceholderRect(
     ctx.lineWidth = data.stroke.width;
     ctx.strokeRect(0, 0, w, h);
   }
-  paintShapeText(ctx, { w, h }, data, theme);
 }
 
 /**
@@ -128,16 +130,22 @@ function drawPlaceholderRect(
  * using PowerPoint-default insets and a `'middle'` vertical anchor
  * default (matches what PowerPoint / Google Slides do when a shape is
  * created and the user types into it without changing alignment).
+ *
+ * No-op when `data.text` is absent. Exported so `element-renderer` can
+ * orchestrate the geometry → text paint sequence and wrap text in a
+ * counter-flip transform.
  */
-function paintShapeText(
+export function paintShapeText(
   ctx: CanvasRenderingContext2D,
   size: FrameSize,
   data: ShapeElement['data'],
   theme: Theme,
+  fontScale?: number,
 ): void {
   if (!data.text) return;
   paintTextBody(ctx, size, data.text, theme, {
     padding: SHAPE_TEXT_PADDING,
     defaultVerticalAnchor: 'middle',
+    fontScale,
   });
 }

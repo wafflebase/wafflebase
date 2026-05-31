@@ -403,6 +403,10 @@ export function renderTableContent(
           const runX = cellX + padding + run.x;
           const runLineY = lineAbsoluteY;
 
+          // Soft line break run (`\n`): emitted by `layoutBlock` to keep
+          // cursor / selection offsets continuous, but it has no glyphs
+          // to paint. Same skip as in `renderRun` for the body path.
+          if (run.text === '\n') continue;
           // Image inlines carry the Object Replacement Character (￼) in
           // `run.text`; drawing them via fillText would paint that glyph
           // instead of the picture. Mirror the image path used for body

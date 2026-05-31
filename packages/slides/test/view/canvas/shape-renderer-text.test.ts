@@ -8,7 +8,9 @@ import '../../../src/view/canvas/test-canvas-env';
 
 // Import the renderer *after* the canvas shim is installed so the docs
 // measurer can lazily acquire its fake ctx on first text layout.
-const { drawShape } = await import('../../../src/view/canvas/shape-renderer');
+const { drawShape, paintShapeText } = await import(
+  '../../../src/view/canvas/shape-renderer'
+);
 
 const THEME: Theme = {
   id: 't',
@@ -44,7 +46,7 @@ function paragraph(text: string): Block {
 
 const shape = (data: ShapeElement['data']): ShapeElement['data'] => data;
 
-describe('drawShape — inline text', () => {
+describe('paintShapeText — inline text', () => {
   beforeAll(() => {
     expect(
       typeof (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas,
@@ -53,13 +55,18 @@ describe('drawShape — inline text', () => {
 
   it('skips text paint when data.text is absent', () => {
     const ctx = createCtxSpy();
-    drawShape(asCtx(ctx), size, shape({ kind: 'rect', fill: srgb('#abc') }), THEME);
+    paintShapeText(
+      asCtx(ctx),
+      size,
+      shape({ kind: 'rect', fill: srgb('#abc') }),
+      THEME,
+    );
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
 
   it('skips text paint when data.text has no visible characters', () => {
     const ctx = createCtxSpy();
-    drawShape(
+    paintShapeText(
       asCtx(ctx),
       size,
       shape({
@@ -72,18 +79,15 @@ describe('drawShape — inline text', () => {
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
 
-  it('paints the inline text on top of the shape fill', () => {
+  it('paints the inline text on top of the shape fill (called after drawShape)', () => {
     const ctx = createCtxSpy();
-    drawShape(
-      asCtx(ctx),
-      size,
-      shape({
-        kind: 'rect',
-        fill: srgb('#abc'),
-        text: { blocks: [paragraph('Hello')] },
-      }),
-      THEME,
-    );
+    const data = shape({
+      kind: 'rect',
+      fill: srgb('#abc'),
+      text: { blocks: [paragraph('Hello')] },
+    });
+    drawShape(asCtx(ctx), size, data, THEME);
+    paintShapeText(asCtx(ctx), size, data, THEME);
     // Fill happens first; the text runs follow.
     expect(ctx.fill).toHaveBeenCalledTimes(1);
     expect(ctx.fillText).toHaveBeenCalled();
@@ -93,23 +97,20 @@ describe('drawShape — inline text', () => {
 
   it('paints text on top of the placeholder-rect fallback for unknown shape kinds', () => {
     const ctx = createCtxSpy();
-    drawShape(
-      asCtx(ctx),
-      size,
-      shape({
-        kind: '__test_unknown__' as never,
-        fill: srgb('#abc'),
-        text: { blocks: [paragraph('X')] },
-      }),
-      THEME,
-    );
+    const data = shape({
+      kind: '__test_unknown__' as never,
+      fill: srgb('#abc'),
+      text: { blocks: [paragraph('X')] },
+    });
+    drawShape(asCtx(ctx), size, data, THEME);
+    paintShapeText(asCtx(ctx), size, data, THEME);
     expect(ctx.fillRect).toHaveBeenCalledTimes(1); // placeholder fill
     expect(ctx.fillText).toHaveBeenCalled();
   });
 
   it('applies the PowerPoint-default 14.4 / 7.2 px insets to the text origin', () => {
     const ctx = createCtxSpy();
-    drawShape(
+    paintShapeText(
       asCtx(ctx),
       size,
       shape({

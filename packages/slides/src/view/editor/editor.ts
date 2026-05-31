@@ -15,7 +15,12 @@ import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '../../model/presentation';
+import {
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  deckFontScale,
+  type Slide,
+} from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
 import { resolveEndpoint } from '../canvas/connector-frame';
@@ -2047,6 +2052,11 @@ class SlidesEditorImpl implements SlidesEditor {
       // caret and text glyphs aligned with the committed render.
       verticalAnchor: target.verticalAnchor,
       colorResolver: makeColorResolver(getActiveTheme(doc)),
+      // Deck-level font pre-scale (from `deckFontScale(meta)`). Composed
+      // into the in-place editor's `transformLayoutBlocks` so the
+      // editing canvas paints at the same px size the committed slide
+      // renderer does. Decks without `meta.pxPerPt` get `1`.
+      fontScale: deckFontScale(doc.meta),
       onLinkRequest: this.options.onLinkRequest,
       onContentHeightChange: (h: number): void => {
         this.lastEditingContentHeight = h;

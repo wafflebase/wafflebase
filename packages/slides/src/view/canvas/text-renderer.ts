@@ -90,6 +90,11 @@ export function drawText(
   theme: Theme,
   options?: {
     placeholderHint?: { text: string; style: PlaceholderStyle };
+    /**
+     * Multiplier applied to font sizes / margins before handing blocks
+     * to docs. Comes from the deck's `pxPerPt`; absent ⇒ no scaling.
+     */
+    fontScale?: number;
   },
 ): void {
   // "All inlines empty" mirrors `isElementEmpty` for text elements:
@@ -107,11 +112,12 @@ export function drawText(
         options.placeholderHint.text,
         theme,
         options.placeholderHint.style,
+        options.fontScale,
       );
     }
     return;
   }
-  paintTextBody(ctx, size, data, theme);
+  paintTextBody(ctx, size, data, theme, { fontScale: options?.fontScale });
 }
 
 /**
@@ -148,6 +154,13 @@ export function paintTextBody(
   opts: {
     padding?: { x: number; y: number };
     defaultVerticalAnchor?: VerticalAnchorMode;
+    /**
+     * Deck-level pre-scale (from `deckFontScale(meta)`). PPTX decks
+     * authored at a non-default physical size set this so 52 pt still
+     * occupies the proportion PowerPoint expects on a 1920-px canvas.
+     * Absent / `1` ⇒ docs default 96-DPI conversion only.
+     */
+    fontScale?: number;
   } = {},
 ): void {
   if (isTextBodyEmpty(body)) return;
@@ -161,13 +174,18 @@ export function paintTextBody(
   }));
   const colorResolver = makeColorResolver(theme);
 
-  // Shrink autofit: scale fonts down so content fits the inner box. The
-  // same scale is applied in the in-place editor (text-box-editor.ts) so
-  // the committed canvas and editing surface stay pixel-identical.
-  let toLayout = normalized;
+  // Apply the deck-level pre-scale first so all downstream measurements
+  // (wrap width fit, shrink-autofit, vertical-anchor offset) operate on
+  // already-DPI-corrected blocks. Shrink runs on top of the pre-scaled
+  // blocks; the editor wires the same composition through
+  // `transformLayoutBlocks` so committed canvas and in-place edit stay
+  // pixel-identical.
+  const fontScale = opts.fontScale ?? 1;
+  let toLayout =
+    fontScale !== 1 ? scaleBlocks(normalized, fontScale) : normalized;
   if (body.autofit === 'shrink') {
-    const scale = computeAutofitScale(normalized, measurer, innerW, innerH, 0);
-    if (scale !== 1) toLayout = scaleBlocks(normalized, scale);
+    const scale = computeAutofitScale(toLayout, measurer, innerW, innerH, 0);
+    if (scale !== 1) toLayout = scaleBlocks(toLayout, scale);
   }
 
   const { layout } = computeLayout(toLayout, measurer, innerW);
@@ -216,12 +234,17 @@ function drawHint(
   hint: string,
   theme: Theme,
   style: PlaceholderStyle,
+  fontScale: number = 1,
 ): void {
   ctx.save();
   const color = resolveColor({ kind: 'role', role: style.colorRole }, theme);
   const family = resolveFont({ kind: 'role', role: style.fontRole }, theme);
   ctx.fillStyle = withAlpha(color, 0.4);
-  ctx.font = `${style.fontSize}px ${family}`;
+  // `style.fontSize` is already in px here (placeholder styles use px,
+  // not pt — they predate the docs-shared text path). Multiply by the
+  // deck-level fontScale so the ghost hint visually matches the
+  // committed text inside this placeholder once the user types.
+  ctx.font = `${style.fontSize * fontScale}px ${family}`;
   ctx.textBaseline = 'top';
   ctx.textAlign = style.align;
   const padding = 8;

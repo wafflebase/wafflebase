@@ -121,6 +121,15 @@ export function parseColorElement(
   }
 }
 
+/** Read `<a:alpha val>` (OOXML thousandths) and normalize to `0..1`. */
+function readAlpha(el: Element): number | undefined {
+  const aEl = children(el, 'alpha')[0];
+  if (!aEl) return undefined;
+  const v = attrInt(aEl, 'val');
+  if (v == null) return undefined;
+  return Math.max(0, Math.min(1, v / 100000));
+}
+
 /**
  * Resolve a `<a:srgbClr val>` child on a container element to a plain
  * hex string. Used by `theme.ts` to populate the 12 ColorScheme slots,
@@ -146,15 +155,29 @@ export function parseHexInContainer(container: Element): string | undefined {
 }
 
 function applyModifiers(base: ThemeColor, el: Element): ThemeColor {
-  if (base.kind !== 'role') return base;
+  // Alpha applies to every color kind (an OOXML producer can attach
+  // `<a:alpha>` to srgb / scheme / sys / prst alike). Tint and shade
+  // are role-only — they recolor a theme slot, which makes no sense
+  // for a literal sRGB value.
+  const alpha = readAlpha(el);
+  if (base.kind !== 'role') {
+    return alpha != null ? { ...base, alpha } : base;
+  }
   let tint: number | undefined;
   let shade: number | undefined;
   const tEl = children(el, 'tint')[0];
   if (tEl) tint = attrInt(tEl, 'val');
   const sEl = children(el, 'shade')[0];
   if (sEl) shade = attrInt(sEl, 'val');
-  if (tint == null && shade == null) return base;
-  return { ...base, tint, shade };
+  if (tint == null && shade == null && alpha == null) return base;
+  // Spread only the modifiers that were actually present; an
+  // `alpha: undefined` key would break `toEqual` shape checks (and
+  // serializes as `null` through some JSON pipelines).
+  const out = { ...base };
+  if (tint != null) out.tint = tint;
+  if (shade != null) out.shade = shade;
+  if (alpha != null) out.alpha = alpha;
+  return out;
 }
 
 function normalizeHex(hex: string): string {

@@ -49,6 +49,40 @@ describe('resolveColor', () => {
     const out = resolveColor({ kind: 'role', role: 'accent1', shade: 0.5 }, THEME);
     expect(out.toUpperCase()).toBe('#804C00');
   });
+
+  it('emits rgba() for alpha=0 (fully transparent)', () => {
+    const out = resolveColor({ kind: 'srgb', value: '#9E9E9E', alpha: 0 }, THEME);
+    expect(out).toBe('rgba(158, 158, 158, 0)');
+  });
+
+  it('emits rgba() for partial alpha on an sRGB color', () => {
+    const out = resolveColor({ kind: 'srgb', value: '#FF0000', alpha: 0.5 }, THEME);
+    expect(out).toBe('rgba(255, 0, 0, 0.5)');
+  });
+
+  it('emits rgba() for partial alpha on a role color', () => {
+    const out = resolveColor({ kind: 'role', role: 'accent1', alpha: 0.25 }, THEME);
+    // accent1 = #FF9900 → rgb(255, 153, 0)
+    expect(out).toBe('rgba(255, 153, 0, 0.25)');
+  });
+
+  it('skips rgba() when alpha is undefined (regression guard)', () => {
+    expect(resolveColor({ kind: 'srgb', value: '#abcdef' }, THEME)).toBe('#abcdef');
+  });
+
+  it('skips rgba() when alpha is >= 1 (fully opaque)', () => {
+    expect(resolveColor({ kind: 'srgb', value: '#abcdef', alpha: 1 }, THEME)).toBe('#abcdef');
+  });
+
+  it('clamps out-of-range alpha to [0, 1]', () => {
+    expect(
+      resolveColor({ kind: 'srgb', value: '#000000', alpha: -0.5 }, THEME),
+    ).toBe('rgba(0, 0, 0, 0)');
+    // alpha > 1 takes the fully-opaque fast path (hex).
+    expect(
+      resolveColor({ kind: 'srgb', value: '#000000', alpha: 2 }, THEME),
+    ).toBe('#000000');
+  });
 });
 
 describe('resolveFont', () => {
