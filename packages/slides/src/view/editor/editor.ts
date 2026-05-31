@@ -76,6 +76,7 @@ import {
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
+import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
@@ -2552,14 +2553,24 @@ class SlidesEditorImpl implements SlidesEditor {
         { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
         this.options.store.read().guides,
       );
-      // Re-lock after snap: snapDelta evaluates X and Y independently,
-      // so a sibling edge within the snap threshold of the locked-zero
-      // axis would otherwise un-zero it and let Shift-drag drift off
-      // axis. The lock has the final say.
-      const final = ev.shiftKey ? lockAxis(snapped.dx, snapped.dy) : snapped;
+      const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
+      // Re-lock after snap + smart-guides: both evaluations run independently
+      // on X and Y, so a sibling edge within the snap/align threshold of the
+      // locked-zero axis would otherwise un-zero it and let Shift-drag drift
+      // off axis. The lock has the final say.
+      const final = ev.shiftKey ? lockAxis(smart.dx, smart.dy) : smart;
       const dx = final.dx;
       const dy = final.dy;
-      const guides = snapped.guides;
+      const guides: (SnapGuide | SmartGuide)[] = [
+        ...snapped.guides,
+        ...smart.guides,
+      ].filter((g) => {
+        if (!ev.shiftKey) return true;
+        // After lockAxis, one of dx/dy is zero. Drop guides on that axis.
+        if (dx !== 0 && dy === 0) return g.axis === 'x';
+        if (dy !== 0 && dx === 0) return g.axis === 'y';
+        return true;
+      });
       liveDx = dx;
       liveDy = dy;
 
@@ -2684,7 +2695,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private paintLiveScoped(
     worldFrames: Map<string, Frame>,
     scope: readonly string[],
-    guides: readonly SnapGuide[] = [],
+    guides: readonly (SnapGuide | SmartGuide)[] = [],
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
@@ -2735,7 +2746,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private paintMoveGhost(
     ghosts: readonly Element[],
     selectedOriginals: readonly Element[],
-    guides: readonly SnapGuide[] = [],
+    guides: readonly (SnapGuide | SmartGuide)[] = [],
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
@@ -3375,14 +3386,28 @@ class SlidesEditorImpl implements SlidesEditor {
     const startWorldFrame = toWorldFrame(startEl.frame, scope, startSlide);
     const start = this.clientToLogical(clientX, clientY);
     const live = { worldFrame: startWorldFrame };
+    const otherFrames = collectSnapCandidates(
+      startSlide,
+      [...scope],
+      new Set([elementId]),
+    );
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      live.worldFrame = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
+      // Skip equal-size snap while Shift is held — Shift means "preserve
+      // aspect", which would fight with snapping to a peer's exact w/h.
+      const matched = ev.shiftKey
+        ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h, guides: [] as SmartGuide[] }
+        : matchSize({ x: raw.x, y: raw.y, w: raw.w, h: raw.h }, handle, otherFrames);
+      live.worldFrame = {
+        ...raw,
+        x: matched.x, y: matched.y, w: matched.w, h: matched.h,
+      };
       const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
-      this.paintLiveScoped(livMap, scope);
+      this.paintLiveScoped(livMap, scope, matched.guides);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
@@ -3394,6 +3419,9 @@ class SlidesEditorImpl implements SlidesEditor {
       });
       this.renderer.markDirty();
       this.render();
+      // Clear lingering equal-size dashed outlines from the last
+      // paintLiveScoped guides arg. Mirrors the move-drag onUp at ~line 2568.
+      this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
