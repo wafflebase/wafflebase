@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Frame } from '../../../src/model/element';
-import { smartGuides } from '../../../src/view/editor/smart-guides';
+import { smartGuides, matchSize } from '../../../src/view/editor/smart-guides';
+import type { ResizeHandle } from '../../../src/view/editor/interactions/resize';
 
 const f = (x: number, y: number, w: number, h: number): Frame => ({
   x, y, w, h, rotation: 0,
@@ -148,5 +149,70 @@ describe('smartGuides — equal-distance (pair matches known gap)', () => {
     const out = smartGuides(bbox, 0, 0, [a, b, c]);
     expect(out.guides[0].kind).toBe('equal-spacing');
     expect(out.dx).toBe(-3);
+  });
+});
+
+describe('matchSize', () => {
+  const other100: Frame = { x: 0, y: 0, w: 100, h: 100, rotation: 0 };
+
+  it('snaps w to a peer width when |delta| <= 8 (handle e, x stays fixed)', () => {
+    const bbox = { x: 500, y: 500, w: 103, h: 60 };
+    const out = matchSize(bbox, 'e' as ResizeHandle, [other100]);
+    expect(out.x).toBe(500);
+    expect(out.w).toBe(100);
+    expect(out.h).toBe(60);
+    expect(out.guides).toHaveLength(1);
+    expect(out.guides[0].kind).toBe('equal-size');
+  });
+
+  it('snaps h to a peer height when |delta| <= 8 (handle s, y fixed)', () => {
+    const bbox = { x: 500, y: 500, w: 60, h: 95 };
+    const out = matchSize(bbox, 's' as ResizeHandle, [other100]);
+    expect(out.h).toBe(100);
+    expect(out.y).toBe(500);
+    expect(out.guides[0].axis).toBe('y');
+  });
+
+  it('compensates origin for w-side handles', () => {
+    // Handle w: bbox.x is the moving edge. When w shrinks, x moves
+    // right by (oldW - newW) so the right edge stays put.
+    const bbox = { x: 500, y: 500, w: 105, h: 60 };
+    const out = matchSize(bbox, 'w' as ResizeHandle, [other100]);
+    expect(out.w).toBe(100);
+    expect(out.x).toBe(505); // 500 + (105 - 100).
+  });
+
+  it('compensates origin for n-side handles', () => {
+    const bbox = { x: 500, y: 500, w: 60, h: 92 };
+    const out = matchSize(bbox, 'n' as ResizeHandle, [other100]);
+    expect(out.h).toBe(100);
+    expect(out.y).toBe(492); // 500 + (92 - 100).
+  });
+
+  it('matches both axes independently for a corner handle (se)', () => {
+    const otherTall: Frame = { x: 0, y: 0, w: 100, h: 200, rotation: 0 };
+    const otherWide: Frame = { x: 0, y: 0, w: 300, h: 100, rotation: 0 };
+    const bbox = { x: 0, y: 0, w: 297, h: 203 };
+    const out = matchSize(bbox, 'se' as ResizeHandle, [otherTall, otherWide]);
+    expect(out.w).toBe(300);
+    expect(out.h).toBe(200);
+  });
+
+  it('collects every peer that shares the matched dimension', () => {
+    const otherA: Frame = { x: 0,   y: 0,   w: 100, h: 80, rotation: 0 };
+    const otherB: Frame = { x: 500, y: 500, w: 100, h: 60, rotation: 0 };
+    const bbox = { x: 0, y: 0, w: 102, h: 200 };
+    const out = matchSize(bbox, 'e' as ResizeHandle, [otherA, otherB]);
+    expect(out.w).toBe(100);
+    expect(out.guides[0].kind).toBe('equal-size');
+    if (out.guides[0].kind === 'equal-size') {
+      expect(out.guides[0].matchedFrames).toHaveLength(2);
+    }
+  });
+
+  it('returns the bbox unchanged when no peer is within 8 px', () => {
+    const bbox = { x: 0, y: 0, w: 200, h: 200 };
+    const out = matchSize(bbox, 'se' as ResizeHandle, [other100]);
+    expect(out).toEqual({ x: 0, y: 0, w: 200, h: 200, guides: [] });
   });
 });

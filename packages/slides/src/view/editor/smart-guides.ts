@@ -1,4 +1,5 @@
 import type { Frame } from '../../model/element';
+import type { ResizeHandle } from './interactions/resize';
 
 /**
  * One side of an arrow span used by the smart-guide overlay. `from` /
@@ -341,4 +342,63 @@ export function smartGuides(
     dy: dy + (bestY ? (bestY as Cand).adjust : 0),
     guides,
   };
+}
+
+/**
+ * Refine a resize bbox so its width/height snap to a peer's when
+ * within the same 8 px band the rest of the editor uses. Axes are
+ * independent — `w` may match peer A while `h` matches peer B.
+ *
+ * `handle` controls origin compensation: w/nw/sw handles move the
+ * left edge, so when `w` shrinks `x` slides right to keep the
+ * opposite edge anchored. Same for n/ne/nw on the top edge.
+ *
+ * `matchedFrames` is the FULL set of peers that share the chosen
+ * dimension — the overlay highlights all of them.
+ */
+export function matchSize(
+  bbox: { x: number; y: number; w: number; h: number },
+  handle: ResizeHandle,
+  others: readonly Frame[],
+): { x: number; y: number; w: number; h: number; guides: SmartGuide[] } {
+  let bestW: { target: number; matched: Frame[] } | null = null;
+  let bestH: { target: number; matched: Frame[] } | null = null;
+  for (const o of others) {
+    const dW = o.w - bbox.w;
+    if (Math.abs(dW) <= THRESHOLD) {
+      if (!bestW || Math.abs(dW) < Math.abs(bestW.target - bbox.w)) {
+        bestW = { target: o.w, matched: [o] };
+      } else if (bestW && bestW.target === o.w) {
+        bestW.matched.push(o);
+      }
+    }
+    const dH = o.h - bbox.h;
+    if (Math.abs(dH) <= THRESHOLD) {
+      if (!bestH || Math.abs(dH) < Math.abs(bestH.target - bbox.h)) {
+        bestH = { target: o.h, matched: [o] };
+      } else if (bestH && bestH.target === o.h) {
+        bestH.matched.push(o);
+      }
+    }
+  }
+
+  let { x, y, w, h } = bbox;
+  const guides: SmartGuide[] = [];
+  if (bestW) {
+    const oldW = w;
+    w = bestW.target;
+    if (handle === 'w' || handle === 'nw' || handle === 'sw') {
+      x += oldW - w;
+    }
+    guides.push({ kind: 'equal-size', axis: 'x', matchedFrames: bestW.matched });
+  }
+  if (bestH) {
+    const oldH = h;
+    h = bestH.target;
+    if (handle === 'n' || handle === 'nw' || handle === 'ne') {
+      y += oldH - h;
+    }
+    guides.push({ kind: 'equal-size', axis: 'y', matchedFrames: bestH.matched });
+  }
+  return { x, y, w, h, guides };
 }
