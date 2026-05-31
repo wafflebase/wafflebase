@@ -193,6 +193,17 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
   hRulerCanvas?: HTMLCanvasElement;
   vRulerCanvas?: HTMLCanvasElement;
   rulerCorner?: HTMLElement;
+  /**
+   * Optional ruler-bracketed editor body (the gray area surrounding
+   * the slide canvas). When supplied, a `pointerdown` whose target is
+   * the host itself — i.e., the click landed on the empty area, not on
+   * a child like the canvas wrap or the rulers — clears the selection
+   * and pops any drilled-in group scope, matching Google Slides'
+   * "click outside the slide to deselect" behavior. Omit on shells
+   * that don't expose a comparable body region (e.g., the mobile
+   * mount).
+   */
+  bodyHost?: HTMLElement;
 }
 
 export interface SlidesEditor {
@@ -1493,6 +1504,17 @@ class SlidesEditorImpl implements SlidesEditor {
         startRulerDragOut(this.guideDragHost(), 'y', e as PointerEvent);
       });
     }
+
+    // Body-area click: pointerdowns on the gray space surrounding the
+    // slide canvas (between the rulers and the slide) deselect any
+    // selected elements. Strict `target === bodyHost` check so children
+    // — the canvas wrap, the rulers, the corner — keep their own
+    // handlers (canvas owns lasso / drag, rulers own guide drag-out).
+    if (this.options.bodyHost !== undefined) {
+      this.on(this.options.bodyHost, 'pointerdown', (e) =>
+        this.onBodyPointerDown(e as PointerEvent),
+      );
+    }
   }
 
   /**
@@ -1864,6 +1886,35 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     this.startLasso(e.clientX, e.clientY);
+  }
+
+  private onBodyPointerDown(e: PointerEvent): void {
+    // Only the empty body itself — clicks that bubble up from a child
+    // (canvas wrap, rulers, corner) are owned by those elements'
+    // dedicated handlers.
+    if (e.target !== this.options.bodyHost) return;
+
+    // Inert during paint / insert modes: missing the slide canvas
+    // shouldn't apply a paint or place a shape, and silently
+    // deselecting under the user's gesture would feel surprising.
+    if (this.paintSnapshot !== null) return;
+    if (this.insertKind !== null) return;
+
+    // Mirror the canvas branch: clicking outside an open text-box
+    // commits and exits edit mode. No deselect — the user's intent is
+    // just to leave the textbox.
+    if (this.editingElementId !== null) {
+      this.exitEditMode('commit');
+      return;
+    }
+
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const beforeScope = this.selection.getScope();
+    // `selection.click(null, {})` clears ids + pops scope in one notify,
+    // matching the empty-canvas branch above.
+    this.selection.click(null, {});
+    this.refitPoppedScope(beforeScope, this.selection.getScope(), slide.id);
   }
 
   private onDoubleClick(e: MouseEvent): void {
