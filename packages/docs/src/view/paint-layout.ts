@@ -341,6 +341,13 @@ export function renderRun(
   lineHeight: number,
   opts: RenderRunOpts = {},
 ): void {
+  // Soft line break (`\n`) runs are emitted by `layoutBlock` to keep
+  // cursor / selection offsets continuous across a forced wrap, but
+  // they have no glyphs to draw — skipping here avoids the fallback
+  // tofu box that `fillText('\n')` produces on some fonts. Background
+  // / underline / strike all sit on a zero-width run, so there's
+  // nothing visible to paint either.
+  if (run.text === '\n') return;
   const theme = opts.theme ?? DefaultTheme;
   const skipBackground = opts.skipBackground === true;
   const resolveColor = opts.colorResolver ?? defaultColorResolver;

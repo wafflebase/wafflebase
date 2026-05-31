@@ -193,6 +193,16 @@ interface MeasuredSegment {
    * intrinsic pixel width (pre-scale); rendering may scale down to fit.
    */
   image?: { width: number; height: number };
+  /**
+   * Soft line break (`\n` in inline text). Word-processor "Shift+Enter":
+   * forces a line wrap inside the current block without splitting the
+   * paragraph. The segment's `text` is `'\n'`, `width` is `0`, and
+   * `layoutBlock` appends a zero-width run for it (so cursor offsets stay
+   * valid) and then flushes the line. The PPTX importer translates
+   * `<a:br/>` to a `\n` inline; this flag is also a natural fit for a
+   * future Shift+Enter editor binding.
+   */
+  softBreak?: true;
 }
 
 /**
@@ -353,7 +363,38 @@ export function layoutBlock(
     effectiveWidth = maxWidth - marginLeft;
   };
 
+  // Tracks whether the most recent segment was a soft line break. A
+  // trailing `\n` should produce an empty visual line after the
+  // content so the cursor can sit on it (PowerPoint's Shift+Enter
+  // behavior). Without this, a block of just `"abc\n"` would render
+  // as one line and lose the empty trailing line.
+  let lastWasSoftBreak = false;
+
   for (const seg of segments) {
+    // Soft line break (`\n`): append a zero-width run for the `\n` so
+    // cursor / selection offsets remain valid (a click at end-of-line
+    // hits the `\n` run instead of falling off the end), then flush the
+    // line. Two consecutive `\n`s therefore produce one fully empty
+    // visual line between content lines — exactly PowerPoint's
+    // `<a:br/><a:br/>` rendering. `flushLine` already resets
+    // `lineStartX`/`effectiveWidth` to drop `textIndent`, which is
+    // first-line only.
+    if (seg.softBreak) {
+      currentRuns.push({
+        inline: inlines[seg.inlineIndex],
+        text: '\n',
+        x: lineStartX + lineWidth,
+        width: 0,
+        inlineIndex: seg.inlineIndex,
+        charStart: seg.charStart,
+        charEnd: seg.charEnd,
+        charOffsets: [0],
+      });
+      flushLine();
+      lastWasSoftBreak = true;
+      continue;
+    }
+    lastWasSoftBreak = false;
     // Image segments are unbreakable. Scale down to fit the effective line
     // width if necessary, then emit a single run carrying the image height.
     if (seg.image) {
@@ -444,7 +485,10 @@ export function layoutBlock(
     lineWidth += seg.width;
   }
 
-  // Flush remaining runs
+  // Flush remaining runs, OR an empty trailing line when the block
+  // ended on a soft break (`\n`). The trailing empty line carries the
+  // cursor / selection position users expect after pressing
+  // Shift+Enter at the end of a block.
   if (currentRuns.length > 0) {
     lines.push({
       runs: currentRuns,
@@ -452,6 +496,8 @@ export function layoutBlock(
       height: 0,
       width: lineWidth,
     });
+  } else if (lastWasSoftBreak) {
+    lines.push({ runs: [], y: 0, height: 0, width: 0 });
   }
 
   return lines;
@@ -520,20 +566,38 @@ function measureSegments(
     }
 
     // Split on word boundaries (keep spaces attached to preceding word)
+    // and on `\n` (each newline becomes its own zero-width word).
     const words = splitWords(inline.text);
     let charPos = 0;
 
     for (const word of words) {
-      const width = cachedMeasureText(measurer, word, font);
-      segments.push({
-        text: word,
-        style: inline.style,
-        width,
-        inlineIndex: i,
-        charStart: charPos,
-        charEnd: charPos + word.length,
-        font,
-      });
+      if (word === '\n') {
+        // Soft line break — see `MeasuredSegment.softBreak`. Width is 0
+        // so the line metrics ignore it; `layoutBlock` recognises the
+        // flag and flushes the current line after appending a 0-width
+        // run carrying the `\n` for cursor / offset continuity.
+        segments.push({
+          text: '\n',
+          style: inline.style,
+          width: 0,
+          inlineIndex: i,
+          charStart: charPos,
+          charEnd: charPos + 1,
+          font,
+          softBreak: true,
+        });
+      } else {
+        const width = cachedMeasureText(measurer, word, font);
+        segments.push({
+          text: word,
+          style: inline.style,
+          width,
+          inlineIndex: i,
+          charStart: charPos,
+          charEnd: charPos + word.length,
+          font,
+        });
+      }
       charPos += word.length;
     }
   }
@@ -543,6 +607,12 @@ function measureSegments(
 
 /**
  * Split text into words, keeping trailing spaces with the word.
+ *
+ * `\n` is also a split boundary AND is emitted as its own one-character
+ * "word" so `measureSegments` can tag it as a soft line break. Anything
+ * accumulated before the `\n` flushes first; anything after starts a new
+ * word. Multiple consecutive `\n` therefore produce one `\n` word each,
+ * which `layoutBlock` translates into one flushed line per break.
  */
 function splitWords(text: string): string[] {
   if (text.length === 0) return [];
@@ -551,9 +621,30 @@ function splitWords(text: string): string[] {
   let current = '';
 
   for (let i = 0; i < text.length; i++) {
-    current += text[i];
-    // Break after space if the next char is not a space
-    if (text[i] === ' ' && i + 1 < text.length && text[i + 1] !== ' ') {
+    const ch = text[i];
+    if (ch === '\n') {
+      // Flush whatever we accumulated before the break, then emit the
+      // `\n` as its own word. Doing this first ensures a leading or
+      // mid-line `\n` is always a distinct word even when the prior
+      // characters didn't trigger the space-split rule below.
+      if (current.length > 0) {
+        words.push(current);
+        current = '';
+      }
+      words.push('\n');
+      continue;
+    }
+    current += ch;
+    // Break after space if the next char is neither space nor newline.
+    // (Treating `\n` here would attach the trailing space to the prior
+    // word AND a `\n` word — we want the space to stick to the word and
+    // the `\n` to remain a standalone segment.)
+    if (
+      ch === ' '
+      && i + 1 < text.length
+      && text[i + 1] !== ' '
+      && text[i + 1] !== '\n'
+    ) {
       words.push(current);
       current = '';
     }
