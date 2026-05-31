@@ -353,10 +353,29 @@ export function DocsView({
     // refresh() updates the Doc's cached document from the store, then
     // render() repaints the canvas with the latest content.
     store.onRemoteChange = () => {
+      const resolvedLocalCursor = store.resolveAnchoredLocalCursor();
       editor.getDoc().refresh();
+      editor.restoreLocalCursor(
+        resolvedLocalCursor.cursor,
+        resolvedLocalCursor.selection,
+      );
+      if (resolvedLocalCursor.compositionStart && editor.isComposing()) {
+        editor.updateCompositionStartPosition(resolvedLocalCursor.compositionStart);
+      }
+      store.publishResolvedLocalCursor({
+        cursor: resolvedLocalCursor.cursor,
+        selection: resolvedLocalCursor.selection,
+      });
       editor.validateCursorPosition();
       editor.render();
     };
+
+    editor.onCompositionStart((startPos) => {
+      store.setCompositionStart(startPos);
+    });
+    editor.onCompositionEnd(() => {
+      store.setCompositionStart(null);
+    });
 
     const unsubPresence = doc.subscribe("others", () => {
       handlePresenceChange();
