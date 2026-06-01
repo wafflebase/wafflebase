@@ -292,3 +292,101 @@ jobs:
               comment_id: existing.id,
               body: updated,
             });
+
+  verify-e2e:
+    runs-on: ubuntu-latest
+    needs: verify-self
+    env:
+      DATABASE_URL: postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
+      DATASOURCE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      RUN_DB_INTEGRATION_TESTS: "true"
+      RUN_YORKIE_INTEGRATION_TESTS: "true"
+      YORKIE_RPC_ADDR: http://localhost:8080
+      WAFFLEBASE_E2E_AUTH: "1"
+      JWT_SECRET: ci-e2e-jwt-secret
+      FRONTEND_URL: http://localhost:5173
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wafflebase
+          POSTGRES_PASSWORD: wafflebase
+          POSTGRES_DB: wafflebase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wafflebase -d wafflebase"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "pnpm"
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        # Same rebuild step as verify-integration: tokens/docs/slides/sheets
+        # are imported by backend + frontend at runtime via their dist/.
+        run: |
+          pnpm tokens build
+          pnpm --filter @wafflebase/docs build
+          pnpm slides build
+          pnpm sheets build
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @wafflebase/frontend exec playwright install chromium --with-deps
+
+      - name: Start Yorkie server
+        run: |
+          docker run -d --name yorkie \
+            -p 8080:8080 -p 8081:8081 \
+            yorkieteam/yorkie:latest server --pprof-enabled
+
+      - name: Wait for Yorkie to accept connections on :8080
+        run: |
+          for i in $(seq 1 30); do
+            if nc -z localhost 8080; then
+              echo "Yorkie is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Yorkie did not become reachable on :8080" >&2
+          docker logs yorkie || true
+          exit 1
+
+      - name: Apply database migrations
+        run: pnpm --filter @wafflebase/backend exec prisma migrate deploy
+
+      - name: Verify E2E Lane
+        id: e2e
+        run: pnpm verify:e2e:standalone
+
+      - name: Upload Playwright report
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/frontend/playwright-report
+          retention-days: 14
+
+      - name: Upload Playwright traces
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: packages/frontend/test-results
+          retention-days: 14
+
+      - name: Yorkie logs on failure
+        if: failure()
+        run: docker logs yorkie
