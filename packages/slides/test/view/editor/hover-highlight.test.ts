@@ -192,4 +192,98 @@ describe('hover highlight state', () => {
     editor.enterTextEditing(textId);
     expect(editor.getHoverHighlightId()).toBeNull();
   });
+
+  it("uses 'text' when pointer is inside the text region", () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+    editor.setSelection([elementId]);
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 100, clientY: 50, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getLastHoverCursor()).toBe('text');
+  });
+
+  it("uses 'move' when pointer is on the selected element's border padding", () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+    editor.setSelection([elementId]);
+
+    // Point at (150, 104): inside frame [100, 100, 300, 200], but outside text region [106, 106, 288, 188]
+    // (y=104 is between 100 and 106, so outside the text region)
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 104, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getLastHoverCursor()).toBe('move');
+  });
+
+  it("stays 'move' for shapes without a textBody", () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([elementId]);
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 100, clientY: 50, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getLastHoverCursor()).toBe('move');
+  });
 });

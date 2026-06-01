@@ -84,7 +84,7 @@ import { snapDelta, type SnapGuide } from './snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
-import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
+import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
 import { makeColorResolver } from '../canvas/text-renderer';
 import {
@@ -455,6 +455,11 @@ export interface SlidesEditor {
    * Exposed for tests and future overlay rendering.
    */
   getHoverHighlightId(): string | null;
+
+  /**
+   * Get the last computed hover cursor. Exposed for tests.
+   */
+  getLastHoverCursor(): string;
 
   detach(): void;
 }
@@ -1172,6 +1177,13 @@ class SlidesEditorImpl implements SlidesEditor {
 
   getHoverHighlightId(): string | null {
     return this.hoverHighlightId;
+  }
+
+  /**
+   * Get the last computed hover cursor. Exposed for tests.
+   */
+  getLastHoverCursor(): string {
+    return this.lastHoverCursor;
   }
 
   /**
@@ -2307,10 +2319,26 @@ class SlidesEditorImpl implements SlidesEditor {
     this.setHoverHighlight(null);
   }
 
-  private computeSelectedHoverCursor(_clientX: number, _clientY: number): string {
-    // Default for body of any selected element.
-    return 'move';
-    // Task A3 will replace this with text-region-aware logic.
+  private computeSelectedHoverCursor(clientX: number, clientY: number): string {
+    const slide = this.currentSlide();
+    if (!slide) return 'move';
+    const selectedIds = this.selection.get();
+    // Region-aware cursor only applies to a single selection. Multi-select
+    // stays 'move' because there is no unambiguous element to enter.
+    if (selectedIds.length !== 1) return 'move';
+    const scope = this.selection.getScope();
+    const el = findElement(slide.elements, selectedIds[0]);
+    if (!el) return 'move';
+    const worldFrame = toWorldFrame(el.frame, scope, slide);
+    const region = getTextRegionRect(el, worldFrame);
+    if (!region) return 'move';
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const inRegion =
+      x >= region.x &&
+      x <= region.x + region.w &&
+      y >= region.y &&
+      y <= region.y + region.h;
+    return inRegion ? 'text' : 'move';
   }
 
   private isPointerOverSelected(clientX: number, clientY: number): boolean {
