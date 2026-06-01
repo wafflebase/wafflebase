@@ -31,9 +31,15 @@ const placeholderWarned = new Set<string>();
  * Shape kinds whose path geometry depends on the `evenodd` fill rule.
  * The dispatcher passes `'evenodd'` to `ctx.fill(path, ...)` for these
  * kinds so concentric counter-clockwise sub-paths punch holes (donut)
- * rather than filling the whole interior.
+ * rather than filling the whole interior. `noSmoking` also relies on
+ * even-odd because its inner holes are C-shaped sub-paths whose CCW
+ * winding would otherwise need real winding-rule support to register
+ * as holes in the JSDOM test shim.
  */
-export const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
+export const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set([
+  'donut',
+  'noSmoking',
+]);
 
 /**
  * Shape kinds whose `PathBuilder` returns an open (un-`closePath`'d)
