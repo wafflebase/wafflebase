@@ -66,12 +66,12 @@ describe('TestAuthController', () => {
     expect(res.cookie).toHaveBeenCalledWith(
       'wafflebase_session',
       expect.any(String),
-      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', secure: false }),
     );
     expect(res.cookie).toHaveBeenCalledWith(
       'wafflebase_refresh',
       expect.any(String),
-      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', secure: false }),
     );
     expect(res.json).toHaveBeenCalledWith({ ok: true, userId: 42 });
   });

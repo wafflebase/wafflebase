@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   HttpCode,
+  InternalServerErrorException,
   Post,
   Res,
 } from '@nestjs/common';
@@ -32,13 +33,13 @@ export class TestAuthController {
     });
 
     if (!user) {
-      throw new Error('Failed to create test user');
+      throw new InternalServerErrorException('Failed to create test user');
     }
 
     const tokens = this.authService.createTokens(user);
     const baseCookieOptions: CookieOptions = {
       httpOnly: true,
-      secure: false,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
     };
 
