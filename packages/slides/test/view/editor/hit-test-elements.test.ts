@@ -109,6 +109,72 @@ describe('hitTestSlide', () => {
     expect(r?.elementId).toBe('child');
     expect(r?.ancestorPath).toEqual(['g', 'child']);
   });
+
+  // Regression: PPTX-imported placeholder shapes often carry text via
+  // `<p:sp>/<p:txBody>` with no fill and no stroke — the renderer paints
+  // the text on top of the (empty) shape body, so users expect to click
+  // on the text area to select. Pre-fix, `hitShape` rejected any
+  // `!hasFill && !hasStroke` shape outright, making these "text-only
+  // shapes" unclickable.
+  it('hits a text-only shape (no fill, no stroke, has data.text)', () => {
+    const textOnly: ShapeElement = {
+      id: 'titleish',
+      type: 'shape',
+      frame: { x: 10, y: 10, w: 200, h: 60, rotation: 0 },
+      data: {
+        kind: 'rect',
+        text: {
+          blocks: [{
+            id: 'b1', type: 'paragraph',
+            inlines: [{ text: 'Hello', style: {} }],
+            style: {},
+          }] as never,
+        },
+      },
+    };
+    const r = hitTestSlide(slide([textOnly]), 110, 40, hitOpts);
+    expect(r?.elementId).toBe('titleish');
+  });
+
+  it('does not hit an empty shape (no fill, no stroke, no text)', () => {
+    const empty: ShapeElement = {
+      id: 'invisible',
+      type: 'shape',
+      frame: { x: 10, y: 10, w: 200, h: 60, rotation: 0 },
+      data: { kind: 'rect' },
+    };
+    expect(hitTestSlide(slide([empty]), 110, 40, hitOpts)).toBeNull();
+  });
+
+  // Regression guard for the `hasText` gate's interaction with
+  // OPEN_PATH_KINDS. `isPointInPath` auto-closes an open polyline
+  // (leftBracket / rightBracket / leftBrace / rightBrace) with a
+  // straight line, yielding a C/U-shaped interior the path was never
+  // meant to enclose. Without the OPEN_PATH guard, a text-bearing
+  // bracket would falsely register hits across that closed C, which
+  // is exactly the failure mode `OPEN_PATH_KINDS` exists to prevent
+  // for fills (see PR #266, `5b6197ef`). A click well inside the
+  // open mouth — far from any visible stroke — must NOT hit.
+  it('does not hit OPEN_PATH_KINDS interior even when shape has text', () => {
+    const bracket: ShapeElement = {
+      id: 'bracketText',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 400, h: 200, rotation: 0 },
+      data: {
+        kind: 'leftBracket',
+        text: {
+          blocks: [{
+            id: 'b1', type: 'paragraph',
+            inlines: [{ text: 'Hi', style: {} }],
+            style: {},
+          }] as never,
+        },
+      },
+    };
+    // Far right of the bracket's open mouth, well clear of the spine
+    // on the left edge and of the short top/bottom serifs.
+    expect(hitTestSlide(slide([bracket]), 350, 100, hitOpts)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

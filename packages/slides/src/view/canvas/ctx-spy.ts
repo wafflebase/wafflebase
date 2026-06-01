@@ -1,4 +1,12 @@
-import { vi } from 'vitest';
+import { vi, type Mock } from 'vitest';
+
+// In vitest 4 the default `vi.fn()` return type widened to
+// `Mock<Procedure | Constructable>`, which TypeScript can no longer
+// invoke without an explicit signature (the constructor overload
+// makes the call form ambiguous). Pin every spy slot to a callable
+// signature so tests can do `ctx.fillRect(...)` directly.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SpyFn = Mock<(...args: any[]) => any>;
 
 /**
  * Test-only spy that mimics the slice of `CanvasRenderingContext2D`
@@ -20,37 +28,37 @@ export interface CtxSpy {
   globalAlpha: number;
 
   // transforms
-  save: ReturnType<typeof vi.fn>;
-  restore: ReturnType<typeof vi.fn>;
-  translate: ReturnType<typeof vi.fn>;
-  rotate: ReturnType<typeof vi.fn>;
-  scale: ReturnType<typeof vi.fn>;
-  setTransform: ReturnType<typeof vi.fn>;
+  save: SpyFn;
+  restore: SpyFn;
+  translate: SpyFn;
+  rotate: SpyFn;
+  scale: SpyFn;
+  setTransform: SpyFn;
 
   // paths
-  beginPath: ReturnType<typeof vi.fn>;
-  closePath: ReturnType<typeof vi.fn>;
-  moveTo: ReturnType<typeof vi.fn>;
-  lineTo: ReturnType<typeof vi.fn>;
-  bezierCurveTo: ReturnType<typeof vi.fn>;
-  arc: ReturnType<typeof vi.fn>;
-  ellipse: ReturnType<typeof vi.fn>;
-  rect: ReturnType<typeof vi.fn>;
+  beginPath: SpyFn;
+  closePath: SpyFn;
+  moveTo: SpyFn;
+  lineTo: SpyFn;
+  bezierCurveTo: SpyFn;
+  arc: SpyFn;
+  ellipse: SpyFn;
+  rect: SpyFn;
 
   // fill / stroke / clear
-  fillRect: ReturnType<typeof vi.fn>;
-  strokeRect: ReturnType<typeof vi.fn>;
-  clearRect: ReturnType<typeof vi.fn>;
-  fill: ReturnType<typeof vi.fn>;
-  stroke: ReturnType<typeof vi.fn>;
-  setLineDash: ReturnType<typeof vi.fn>;
+  fillRect: SpyFn;
+  strokeRect: SpyFn;
+  clearRect: SpyFn;
+  fill: SpyFn;
+  stroke: SpyFn;
+  setLineDash: SpyFn;
 
   // text
-  fillText: ReturnType<typeof vi.fn>;
-  measureText: ReturnType<typeof vi.fn>;
+  fillText: SpyFn;
+  measureText: SpyFn;
 
   // images
-  drawImage: ReturnType<typeof vi.fn>;
+  drawImage: SpyFn;
 }
 
 /**
@@ -91,7 +99,7 @@ export function createCtxSpy(): CtxSpy {
     setLineDash: vi.fn(),
 
     fillText: vi.fn(),
-    measureText: vi.fn(() => ({ width: 0 })) as ReturnType<typeof vi.fn>,
+    measureText: vi.fn(() => ({ width: 0 })) as unknown as SpyFn,
 
     drawImage: vi.fn(),
   };
