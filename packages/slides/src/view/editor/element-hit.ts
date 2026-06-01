@@ -53,15 +53,19 @@ const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
  *
  * - text / image / action-button shapes → bbox (`containsPoint`).
  * - shape with a registered path builder:
- *   - filled (and not `OPEN_PATH_KINDS`) → `isPointInPath` against the
- *     local `Path2D`, with rotation + `flipH/flipV` inverted.
+ *   - filled OR text-bearing, and not `OPEN_PATH_KINDS` → `isPointInPath`
+ *     against the local `Path2D`, with rotation + `flipH/flipV`
+ *     inverted. Inline `data.text` painted over the body counts as
+ *     visible interior, so PPTX placeholder rects (no fill / no
+ *     stroke, text only) stay clickable on their bbox.
  *   - then a stroke band fallback (`isPointInStroke` with
  *     `lineWidth = stroke.width + 2*tolerance`) so clicks on or near
  *     the visible outline still hit. Catches the AA fringe + round-
  *     join extension on filled shapes (heart, smileyFace, …) and is
  *     the primary test for stroke-only shapes (brackets/braces,
- *     unfilled outlines).
- *   - no fill and no stroke → invisible, no hit.
+ *     unfilled outlines) — including `OPEN_PATH_KINDS` shapes that
+ *     carry text but skipped the interior test above.
+ *   - no fill, no stroke, and no `data.text` → invisible, no hit.
  * - connector → distance from `(px, py)` to the routed polyline must
  *   be `≤ stroke.width / 2 + tolerance`.
  */
@@ -110,16 +114,32 @@ function hitShape(
   const ly = frame.flipV ? frame.h - local.y : local.y;
   const path = builder({ w: frame.w, h: frame.h }, el.data.adjustments);
 
-  // Visibility gate: the renderer paints `fill` (unless OPEN_PATH) and
-  // `stroke` independently. A shape with neither is invisible and
-  // therefore not clickable, even though its bbox/frame exists.
+  // Visibility gate: the renderer paints `fill` (unless OPEN_PATH),
+  // `stroke`, and `data.text` (for shapes that carry inline text)
+  // independently. A shape with none of these is invisible and not
+  // clickable. `hasText` participates in the gate because PPTX
+  // placeholder shapes routinely arrive as `kind:'rect'` with `data.text`
+  // and no fill/stroke — the renderer paints their text on top of an
+  // empty body, so the user-visible click target IS the bbox interior.
   const hasFill =
     el.data.fill !== undefined && !OPEN_PATH_KINDS.has(el.data.kind);
   const hasStroke = el.data.stroke !== undefined;
-  if (!hasFill && !hasStroke) return false;
+  const hasText = el.data.text !== undefined;
+  if (!hasFill && !hasStroke && !hasText) return false;
 
-  // 1) Filled body → `isPointInPath` against the path's interior.
-  if (hasFill) {
+  // 1) Filled body → `isPointInPath` against the path's interior. Text
+  //    occupies the same body region (painted over the fill), so a
+  //    text-only shape uses the same interior test. OPEN_PATH_KINDS
+  //    are excluded here for the same reason `hasFill` excludes them:
+  //    `isPointInPath` auto-closes an open path with a straight line,
+  //    producing a misleading C/U-shaped hit region (e.g. an open
+  //    `leftBracket` reads as a C-rect). Bracket / brace shapes with
+  //    text fall through to the stroke-band test below so only clicks
+  //    on / near the visible outline register.
+  if (
+    (hasFill || hasText) &&
+    !OPEN_PATH_KINDS.has(el.data.kind)
+  ) {
     const fillRule: CanvasFillRule = EVENODD_KINDS.has(el.data.kind)
       ? 'evenodd'
       : 'nonzero';

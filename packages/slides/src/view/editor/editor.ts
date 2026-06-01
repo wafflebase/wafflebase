@@ -1210,7 +1210,7 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     const { x, y } = this.clientToLogical(clientX, clientY);
-    const hit = hitTestSlide(slide, x, y, this.hitOptions());
+    const hit = this.hitTestAt(slide, x, y);
     if (hit === null) {
       // Empty canvas: just exit paint mode.
       this.cancelFormatPaint();
@@ -1631,7 +1631,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
+    const hitResult = this.hitTestAt(slide, x, y);
     if (hitResult === null) {
       // Guide hit takes precedence over the empty-canvas menu when the
       // user right-clicks directly on / near an alignment guide. Same
@@ -1900,7 +1900,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // Hit-test against an element first. Use the depth-aware hitTestSlide
     // (which descends into groups) and route through Selection.click so the
     // drill-in state machine picks the right element at the current scope.
-    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
+    const hitResult = this.hitTestAt(slide, x, y);
     if (hitResult === null) {
       // No element under the pointer — check for an alignment guide
       // within the 4-px hit zone. Elements take precedence (guides are
@@ -1991,7 +1991,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
-    const hitResult = hitTestSlide(slide, x, y, this.hitOptions());
+    const hitResult = this.hitTestAt(slide, x, y);
     if (hitResult === null) return;
     // The text-box editor's container lives inside the overlay, so a
     // dblclick *inside* the active editor bubbles up here. Re-entering
@@ -2839,6 +2839,31 @@ class SlidesEditorImpl implements SlidesEditor {
       ctx: this.hitCtx,
       tolerance: this.hitTolerance / this.scale(),
     };
+  }
+
+  /**
+   * Run `hitTestSlide` with the shared `hitCtx`'s transform pinned to
+   * identity. `SlideRenderer` paints with `scale((hostWidth /
+   * SLIDE_WIDTH) * dpr)` and leaves that transform applied; `Path2D`
+   * isPointInPath / isPointInStroke calls then interpret the path
+   * commands through the active transform but receive the query (lx,
+   * ly) in canvas-pixel space, so an interior click misses every
+   * shape. Save / setTransform(identity) / restore around the
+   * hit-test makes the path live in the same logical space as (lx,
+   * ly) without disturbing the renderer's post-paint state.
+   */
+  private hitTestAt(slide: Slide, x: number, y: number) {
+    const ctx = this.hitCtx as Partial<CanvasRenderingContext2D>;
+    const hasSave = typeof ctx.save === 'function';
+    if (hasSave) ctx.save!();
+    try {
+      if (typeof ctx.setTransform === 'function') {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      return hitTestSlide(slide, x, y, this.hitOptions());
+    } finally {
+      if (hasSave) ctx.restore!();
+    }
   }
 
   private handleAtClient(clientX: number, clientY: number): HandleKind | null {
