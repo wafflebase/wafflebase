@@ -448,6 +448,14 @@ export interface SlidesEditor {
    */
   onPaintFormatChange(cb: () => void): () => void;
 
+  /**
+   * Id of the unselected element currently painted with an idle hover
+   * outline, or `null` when no element is hovered / the hovered element
+   * is already selected / a drag/insert/edit interaction is live.
+   * Exposed for tests and future overlay rendering.
+   */
+  getHoverHighlightId(): string | null;
+
   detach(): void;
 }
 
@@ -477,6 +485,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * preview is shown.
    */
   private hoverPreview: { kind: ShapeKind; x: number; y: number } | null = null;
+  /**
+   * Id of the element currently painted with an idle hover outline.
+   * Distinct from `hoverPreview` (insert-mode shape ghost). Null when
+   * no element is hovered, when the hover target is part of the active
+   * selection, or when any drag/insert/edit interaction is live.
+   */
+  private hoverHighlightId: string | null = null;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
   private hoverRenderRaf: number | null = null;
   /** Suppress hover ghost during an active drag-to-size insert. */
@@ -1155,6 +1170,10 @@ class SlidesEditorImpl implements SlidesEditor {
     for (const cb of this.paintFormatListeners) cb();
   }
 
+  getHoverHighlightId(): string | null {
+    return this.hoverHighlightId;
+  }
+
   /**
    * Read `fill` + `stroke` off the single selected element. Returns
    * null when zero or multiple elements are selected, or when the
@@ -1337,6 +1356,9 @@ class SlidesEditorImpl implements SlidesEditor {
   setInsertMode(kind: InsertKind | null): void {
     if (this.insertKind === kind) return;
     this.insertKind = kind;
+    // Entering insert mode clears any idle hover highlight so the next
+    // pointermove that re-evaluates the highlight lands on a clean slate.
+    if (kind !== null) this.clearHoverHighlight();
     // Crosshair cursor signals to the user that the next click will
     // place a shape (or text box). Mirrors GS / PPT. We set it on
     // both the canvas (where the click lands) and the overlay (which
@@ -2055,8 +2077,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // the editor (toolbar etc.) reflects the active target.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
-    // Drop any stale hover-move cursor; once text-edit owns the box,
-    // the next pointermove path early-returns without touching cursor.
+    // Drop any idle hover highlight and stale hover cursor; once
+    // text-edit owns the box, pointermove early-returns without
+    // re-evaluating either.
+    this.clearHoverHighlight();
     if (this.lastHoverCursor !== '') {
       this.options.canvas.style.cursor = '';
       this.lastHoverCursor = '';
@@ -2230,23 +2254,63 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private onSelectionHoverMove(e: PointerEvent): void {
     if (e.pointerType !== undefined && e.pointerType !== 'mouse') return;
-    if (this.insertKind !== null) return;
-    if (this.editingElementId !== null) return;
-    if (this.handleAtClient(e.clientX, e.clientY) !== null) return;
+    if (this.insertKind !== null) {
+      this.clearHoverHighlight();
+      return;
+    }
+    if (this.editingElementId !== null) {
+      this.clearHoverHighlight();
+      return;
+    }
+    if (this.handleAtClient(e.clientX, e.clientY) !== null) {
+      this.clearHoverHighlight();
+      return;
+    }
 
+    const slide = this.currentSlide();
     let desired = '';
+    let nextHighlightId: string | null = null;
+
     if (this.isPointerOverSelected(e.clientX, e.clientY)) {
-      desired = 'move';
+      desired = this.computeSelectedHoverCursor(e.clientX, e.clientY);
     } else {
       const { x, y } = this.clientToLogical(e.clientX, e.clientY);
       const guide = hitTestGuide(this.options.store.read().guides, { x, y });
       if (guide !== null) {
         desired = guide.axis === 'x' ? 'col-resize' : 'row-resize';
+      } else if (slide) {
+        // Idle hover: highlight the topmost unselected hit element in
+        // the current selection scope.
+        const hit = hitTestSlide(slide, x, y, this.hitOptions());
+        if (hit !== null) {
+          const scopeId = pickScopeId(hit, this.selection.getScope());
+          if (scopeId !== null && !this.selection.get().includes(scopeId)) {
+            nextHighlightId = scopeId;
+          }
+        }
       }
     }
+
+    this.setHoverHighlight(nextHighlightId);
     if (this.lastHoverCursor === desired) return;
     this.lastHoverCursor = desired;
     this.options.canvas.style.cursor = desired;
+  }
+
+  private setHoverHighlight(next: string | null): void {
+    if (this.hoverHighlightId === next) return;
+    this.hoverHighlightId = next;
+    this.repaintOverlay();
+  }
+
+  private clearHoverHighlight(): void {
+    this.setHoverHighlight(null);
+  }
+
+  private computeSelectedHoverCursor(_clientX: number, _clientY: number): string {
+    // Default for body of any selected element.
+    return 'move';
+    // Task A3 will replace this with text-region-aware logic.
   }
 
   private isPointerOverSelected(clientX: number, clientY: number): boolean {
@@ -2270,6 +2334,8 @@ class SlidesEditorImpl implements SlidesEditor {
 
   /** Cursor left the canvas — drop the ghost and repaint cleanly. */
   private onInsertHoverLeave(): void {
+    // Drop the idle hover highlight when the cursor exits the canvas.
+    this.clearHoverHighlight();
     // Drop the connector affordance dots when the cursor exits the
     // canvas. Repaint runs unconditionally below if either the shape
     // ghost or the connector cursor was active.
