@@ -717,6 +717,20 @@ class SlidesEditorImpl implements SlidesEditor {
       allSelectedIds,
       scope,
     );
+    // Hover highlight: resolve the hovered element's world frame for the
+    // overlay. Only paint when the hovered element is not already selected
+    // (selected elements show handles, not a hover outline). The
+    // `hoverHighlightId` is already scoped to the current drill-in level
+    // via `pickScopeId`, so no extra scope filter is needed.
+    const hoverId = this.hoverHighlightId;
+    const hoverHighlightFrame: { id: string; frame: Frame } | null = (() => {
+      if (!hoverId) return null;
+      if (allSelectedIds.includes(hoverId)) return null;
+      const el = findElement(slide.elements, hoverId);
+      if (!el) return null;
+      const worldFrame = toWorldFrame(el.frame, scope, slide);
+      return { id: hoverId, frame: worldFrame };
+    })();
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -731,6 +745,7 @@ class SlidesEditorImpl implements SlidesEditor {
       pendingGuide: this.pendingGuide,
       memberOutlines,
       contextBox,
+      hoverHighlightFrame,
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
