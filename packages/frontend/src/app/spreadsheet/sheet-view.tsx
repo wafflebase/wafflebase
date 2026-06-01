@@ -20,6 +20,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1306,23 +1307,97 @@ export function SheetView({
     }
   })();
 
-  // Compute the pixel position for the comment popover, anchored below/right of the cell
-  const commentPopoverPosition = (() => {
-    if (!commentPopoverOpen || !activeCellForComment) return null;
+  // Comment popover placement — see docs/design/sheets/comments.md §6.5.
+  // Preference order: right of cell → left of cell → stacked below/above.
+  // Side modes keep the popover top-aligned with the cell, flipping up if
+  // the bottom would overflow. Stacked mode clamps horizontally. In every
+  // mode the active cell stays uncovered.
+  const commentPopoverWrapperRef = useRef<HTMLDivElement>(null);
+  const [commentPopoverPos, setCommentPopoverPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+
+  // Reset position whenever the popover closes so the next open re-measures
+  // before paint (avoids flashing at the previous cell's coords).
+  useEffect(() => {
+    if (!commentPopoverOpen) setCommentPopoverPos(null);
+  }, [commentPopoverOpen]);
+
+  useLayoutEffect(() => {
+    if (!commentPopoverOpen || !activeCellForComment) return;
+    const wrapper = commentPopoverWrapperRef.current;
     const sheet = sheetRef.current;
-    if (!sheet) return null;
+    if (!wrapper || !sheet) return;
+    const parent = wrapper.parentElement;
+    if (!parent) return;
+
+    let cellRect;
+    let viewport;
     try {
-      const viewport = sheet.getGridViewportRect();
-      const cellRect = sheet.getCellRect(activeCellForComment);
-      const MARGIN = 4;
-      return {
-        left: viewport.left + cellRect.left + cellRect.width + MARGIN,
-        top: viewport.top + cellRect.top,
-      };
+      viewport = sheet.getGridViewportRect();
+      cellRect = sheet.getCellRect(activeCellForComment);
     } catch {
-      return null;
+      return;
     }
-  })();
+
+    const popoverRect = wrapper.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    const popoverW = popoverRect.width;
+    const popoverH = popoverRect.height;
+    // Bail out if the wrapper hasn't rendered its child yet (first paint
+    // before CommentPopover mounts); we'll re-run once it has dimensions.
+    if (popoverW === 0 || popoverH === 0) return;
+
+    const GAP = 4;
+    const PAD = 8;
+    const parentW = parentRect.width;
+    const parentH = parentRect.height;
+
+    const cellLeft = viewport.left + cellRect.left;
+    const cellTop = viewport.top + cellRect.top;
+    const cellRight = cellLeft + cellRect.width;
+    const cellBottom = cellTop + cellRect.height;
+
+    const fitsRight = cellRight + GAP + popoverW <= parentW - PAD;
+    const fitsLeft = cellLeft - GAP - popoverW >= PAD;
+
+    let left: number;
+    let stacked = false;
+    if (fitsRight) {
+      left = cellRight + GAP;
+    } else if (fitsLeft) {
+      left = cellLeft - GAP - popoverW;
+    } else {
+      stacked = true;
+      left = Math.max(PAD, Math.min(parentW - PAD - popoverW, cellLeft));
+    }
+
+    let top: number;
+    if (!stacked) {
+      // Top-aligned with cell, flip up if bottom overflows.
+      if (cellTop + popoverH <= parentH - PAD) {
+        top = Math.max(PAD, cellTop);
+      } else {
+        top = Math.max(PAD, cellBottom - popoverH);
+      }
+    } else if (cellBottom + GAP + popoverH <= parentH - PAD) {
+      top = cellBottom + GAP;
+    } else if (cellTop - GAP - popoverH >= PAD) {
+      top = cellTop - GAP - popoverH;
+    } else {
+      top = Math.max(PAD, parentH - PAD - popoverH);
+    }
+
+    setCommentPopoverPos((prev) =>
+      prev && prev.left === left && prev.top === top ? prev : { left, top },
+    );
+  }, [
+    commentPopoverOpen,
+    activeCellForComment,
+    activeCellThreads.length,
+    sheetRenderVersion,
+  ]);
 
   if (loading) {
     return <Loader />;
@@ -1480,12 +1555,14 @@ export function SheetView({
             onValueChange={handleMobileEditValueChange}
           />
         )}
-        {commentPopoverOpen && commentPopoverPosition && (
+        {commentPopoverOpen && activeCellForComment && (
           <div
+            ref={commentPopoverWrapperRef}
             className="absolute z-30"
             style={{
-              left: commentPopoverPosition.left,
-              top: commentPopoverPosition.top,
+              left: commentPopoverPos?.left ?? 0,
+              top: commentPopoverPos?.top ?? 0,
+              visibility: commentPopoverPos ? "visible" : "hidden",
             }}
           >
             <CommentPopover

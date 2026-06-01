@@ -328,6 +328,36 @@ conditional-format indicators. Filter: `tabId === currentTab && !resolved`.
 - Composer is disabled. Click → toast "Sign in to leave a comment."
 - Resolve / reopen / edit / delete buttons are hidden.
 
+#### 6.5 Popover placement
+
+The popover is 320 px wide and a variable height (grows with thread count
+and composer state). Placement preserves two invariants:
+
+1. **The popover stays fully inside the grid panel** — never clipped by the
+   right or bottom edge of the spreadsheet container.
+2. **The active cell stays visible** — the popover never sits on top of
+   the cell it anchors to.
+
+Placement order:
+
+| Order | Placement              | Accepted when                                                         |
+| ----- | ---------------------- | --------------------------------------------------------------------- |
+| 1     | Right of cell, top-aligned    | `cellRight + GAP + popoverW ≤ parentW − PAD`                   |
+| 2     | Left of cell, top-aligned     | `cellLeft − GAP − popoverW ≥ PAD`                              |
+| 3     | Below cell, horizontally clamped | Neither side fits (cell wider than half the panel); flip above if no room below |
+
+Within order 1 / 2 (the **side** modes), the popover is top-aligned with
+the cell row; if the popover height overflows the bottom edge, it flips
+to `cellBottom − popoverH` (Google Sheets parity).
+
+Constants: `GAP = 4 px` between cell and popover, `PAD = 8 px` viewport
+inset. Placement is computed in a `useLayoutEffect` that measures the
+rendered popover height; until measured, the wrapper renders with
+`visibility: hidden` to avoid a first-paint flash. The same pattern is
+used in `DocsCommentPopover.tsx`, but with a simpler clamp — docs has no
+"avoid the cell" constraint because the marker is much smaller than the
+popover.
+
 ### 7. Testing Strategy
 
 #### 7.1 Unit (sheets package, Vitest)
