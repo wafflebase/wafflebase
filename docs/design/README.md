@@ -70,6 +70,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-toolbar-tier1.md](slides/slides-toolbar-tier1.md)                             | Five universal toolbar controls — Format painter, Zoom dropdown (+Cmd+/-), Layout split-button, Clear formatting, Font size A↑/A↓ steppers; additive on top of the morphing-toolbar shell                  |
 | [slides-format-options-panel.md](slides/slides-format-options-panel.md)               | Right-side Format options panel v1 — Size & Position (W/H/X/Y/Rotation, in/cm toggle), Text fitting, Image opacity, Alt text; shares right slot with ThemePanel; single `Meta.unit` field added            |
 | [slides-smart-guides.md](slides/slides-smart-guides.md)                               | Smart guides v1 — equal-spacing trios + equal-distance pairs during drag + equal-size during resize, PowerPoint-style red arrow / dashed outline overlays, reuses snap-candidates pipeline                  |
+| [slides-hover-and-text-edit-entry.md](slides/slides-hover-and-text-edit-entry.md)     | Hover preview + text-edit entry parity with Google Slides — idle hover outline, text-region I-beam, Enter/F2 entry, empty-placeholder 1-click, slow double-click, printable-char typing; 3-phase rollout (P0/P1/P2) |
 
 ## Common
 

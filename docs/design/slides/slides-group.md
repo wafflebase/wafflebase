@@ -280,6 +280,13 @@ X" without knowing the drilled-in depth.
 - `Cmd/Ctrl + Shift + Alt + G` — ungroup
 - `Esc` — pop scope one level
 
+**Hover behavior during drill-in.**
+
+While drilled into a group, the idle hover outline paints only on
+elements inside that scope. Hovering outside the drilled-in subtree
+shows no outline so it does not compete with the dashed context box;
+clicking outside still exits the scope as before.
+
 ### 5. Rendering & Hit-Test
 
 **Recursive paint.** `slide-renderer.ts` switches from

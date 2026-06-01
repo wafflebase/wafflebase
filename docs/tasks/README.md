@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | slides connector elbow curved routing (2026-06-01) | [20260601-slides-connector-elbow-curved-routing-todo.md](./active/20260601-slides-connector-elbow-curved-routing-todo.md) | [20260601-slides-connector-elbow-curved-routing-lessons.md](./active/20260601-slides-connector-elbow-curved-routing-lessons.md) |
+| slides hover text edit entry (2026-06-01) | [20260601-slides-hover-text-edit-entry-todo.md](./active/20260601-slides-hover-text-edit-entry-todo.md) | [20260601-slides-hover-text-edit-entry-lessons.md](./active/20260601-slides-hover-text-edit-entry-lessons.md) |
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./active/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./active/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./active/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 | release v0.4.3 (2026-05-31) | [20260531-release-v0.4.3-todo.md](./active/20260531-release-v0.4.3-todo.md) | - |

@@ -93,6 +93,15 @@ export interface OverlayOptions {
    * box, fonts scale). Omit to suppress the toggle entirely.
    */
   onAutofitToggle?: (elementId: string, nextMode: AutofitMode) => void;
+  /**
+   * When present, paint a faint blue outline around the hovered element
+   * (idle hover feedback). The frame is already resolved to world
+   * (slide-root) coordinates by the caller (editor's `repaintOverlay`),
+   * including the drill-in scope check — `null` or absent suppresses the
+   * outline. `id` is used for the `data-slides-hover-highlight` test
+   * harness attribute.
+   */
+  hoverHighlightFrame?: { id: string; frame: Frame } | null;
 }
 
 /**
@@ -175,20 +184,13 @@ export function renderOverlay(
     overlay.appendChild(preview);
   }
 
-  // Connector affordance (Task 13): blue dots over the nearest shape's
-  // connection sites. Rendered first so the selection handles paint on
-  // top, but since the affordance only fires while a connector drag is
-  // live (no selection handles visible during insert; only endpoint
-  // handles during endpoint drag) there's never meaningful overlap.
-  // `pointer-events: none` on each dot keeps them out of the drag.
-  renderConnectionPointsOverlay(overlay, options);
-
-  if (selectedElements.length === 0) return;
-
   // Context box (drill-in) + member outlines (group selected). Painted
-  // before the selection handles below so the handles stay on top. The
+  // before the hover outline / handles below so those stay on top. The
   // two are mutually exclusive per element (see groupOverlayFrames), so
-  // a single faint-dashed style reads correctly in both roles.
+  // a single faint-dashed style reads correctly in both roles. Both
+  // options are only populated when a group selection is active, so the
+  // blocks are no-ops in the no-selection case and safe to paint before
+  // the early return.
   if (options.contextBox) {
     appendOutline(
       overlay,
@@ -202,6 +204,33 @@ export function renderOverlay(
       appendOutline(overlay, frame, options.scale, 'wfb-slides-member-outline');
     }
   }
+
+  // Hover highlight: faint blue outline on the unselected element under
+  // the cursor (idle hover feedback). Painted above member outlines and
+  // below connection-site dots + selection handles. Suppression during
+  // drag/edit/insert/handle hover is owned by `clearHoverHighlight()`
+  // upstream, so by the time the overlay re-renders the frame is null
+  // whenever it would compete with an active affordance.
+  if (options.hoverHighlightFrame) {
+    overlay.appendChild(
+      makeHoverHighlight(
+        options.hoverHighlightFrame.id,
+        options.hoverHighlightFrame.frame,
+        options.scale,
+      ),
+    );
+  }
+
+  // Connector affordance (Task 13): blue dots over the nearest shape's
+  // connection sites. Painted above the hover outline so the dots win
+  // visually during a connector draw. The affordance only fires while
+  // a connector drag is live (and `clearHoverHighlight()` runs at
+  // `onPointerDown`), so in practice the two never paint simultaneously
+  // anyway. `pointer-events: none` on each dot keeps them out of the
+  // drag.
+  renderConnectionPointsOverlay(overlay, options);
+
+  if (selectedElements.length === 0) return;
 
   // Connectors get a custom selection treatment: exactly two endpoint
   // handles (start + end) at the resolved endpoint world positions, no
@@ -425,6 +454,34 @@ function renderRotatedHandles(
   const rotateScreenX = topCenter.x * scale + sin * ROTATE_HANDLE_OFFSET;
   const rotateScreenY = topCenter.y * scale - cos * ROTATE_HANDLE_OFFSET;
   overlay.appendChild(makeHandle('rotate', rotateScreenX, rotateScreenY));
+}
+
+/**
+ * Build a 1 px semi-transparent blue outline div around a hovered
+ * element. The div is axis-aligned and CSS-rotated to track the
+ * element's stored rotation (same technique as `appendOutline` and
+ * `renderRotatedHandles`). Rotation convention: `Frame.rotation` is
+ * in radians, as used everywhere else in the overlay.
+ *
+ * `data-slides-hover-highlight` carries the element id for the
+ * browser-test harness (Task A6).
+ */
+function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.left = `${frame.x * scale}px`;
+  div.style.top = `${frame.y * scale}px`;
+  div.style.width = `${frame.w * scale}px`;
+  div.style.height = `${frame.h * scale}px`;
+  div.style.border = '1px solid rgba(26, 115, 232, 0.5)';
+  div.style.boxSizing = 'border-box';
+  div.style.pointerEvents = 'none';
+  if (frame.rotation !== 0) {
+    div.style.transformOrigin = 'center';
+    div.style.transform = `rotate(${frame.rotation}rad)`;
+  }
+  div.dataset.slidesHoverHighlight = id;
+  return div;
 }
 
 // Faint dash of the selection accent #3a7 (= #33aa77 = rgb 51,170,119).

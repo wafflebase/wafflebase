@@ -32,8 +32,50 @@ import {
   type HeadingLevel,
   type ColorResolver,
 } from '@wafflebase/docs';
-import type { AutofitMode, Frame, VerticalAnchorMode } from '../../model/element';
+import type { AutofitMode, Element, Frame, VerticalAnchorMode } from '../../model/element';
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
+
+/**
+ * Logical-px inset applied to a text-capable element's frame when
+ * computing the cursor "text region" for hover feedback. Purely a
+ * cursor affordance — does NOT influence where the contenteditable
+ * mounts (the box still uses the full frame).
+ */
+export const HOVER_TEXT_REGION_INSET_PX = 6;
+
+/**
+ * Compute the text-region rectangle for a text-capable element. Returns
+ * the frame inset by HOVER_TEXT_REGION_INSET_PX on every side, or null
+ * if the element does not have a text body.
+ *
+ * Used by cursor hover feedback to distinguish between the "text region"
+ * and the border padding of a selected text-capable element.
+ */
+export function getTextRegionRect(
+  element: Element,
+  frame: Frame,
+): { x: number; y: number; w: number; h: number } | null {
+  let hasTextBody = false;
+  if (element.type === 'text') {
+    hasTextBody = true;
+  } else if (element.type === 'shape') {
+    const text = (element.data as { text?: unknown }).text;
+    hasTextBody =
+      text !== undefined &&
+      Array.isArray((text as { blocks?: unknown }).blocks) &&
+      (text as { blocks: unknown[] }).blocks.length > 0;
+  }
+  if (!hasTextBody) return null;
+  const w = Math.max(0, frame.w - 2 * HOVER_TEXT_REGION_INSET_PX);
+  const h = Math.max(0, frame.h - 2 * HOVER_TEXT_REGION_INSET_PX);
+  if (w === 0 || h === 0) return null;
+  return {
+    x: frame.x + HOVER_TEXT_REGION_INSET_PX,
+    y: frame.y + HOVER_TEXT_REGION_INSET_PX,
+    w,
+    h,
+  };
+}
 
 /**
  * Measurer for the live "shrink" scale computation. Module-scope so its
