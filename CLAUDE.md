@@ -23,6 +23,8 @@ pnpm verify:fast                    # Lint + unit tests (pre-commit gate)
 pnpm verify:self                    # verify:fast + all builds
 pnpm verify:full                    # verify:self + integration (DB required)
 pnpm verify:browser:docker          # Visual + interaction tests in Docker
+pnpm verify:e2e                     # Playwright behavioral e2e (needs backend with WAFFLEBASE_E2E_AUTH=1)
+pnpm verify:e2e:standalone          # One-shot: boots backend + frontend + runs e2e
 pnpm test                           # Sheets package tests only (Vitest)
 pnpm sheets build:formula           # IMPORTANT: regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
