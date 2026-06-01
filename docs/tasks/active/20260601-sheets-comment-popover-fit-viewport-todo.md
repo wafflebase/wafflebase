@@ -61,6 +61,25 @@ popover.
 - The popover's outside-click handler lives inside `CommentPopover`
   and uses its own ref. Adding a wrapper ref for measurement does
   not affect dismiss logic.
-- Out of scope: cross-tab cases (panel resize during open), keyboard
-  scroll causing the cell to move during open. Both already invalidate
-  the popover via `commentPopoverOpen=false` on selection change.
+
+## Known limitations (out of scope, pre-existing)
+
+The previous IIFE-based placement had the same gaps; this PR does
+not widen them. Follow-ups when the harness for sheets-comments
+visual smoke lands:
+
+- **Grid scroll while popover is open** — `useLayoutEffect` deps
+  do not include canvas scroll. Cell drifts away from popover.
+  Fix: subscribe to the sheet's render / scroll signal and bump a
+  re-measure counter.
+- **Parent resize while popover is open** — toggling the side
+  Comments panel or splitter drag shrinks `parentW` without
+  retriggering placement. Fix: `ResizeObserver` on the parent.
+- **Composer growth during reply typing** — textarea expansion is
+  not in the dep array; tall replies in flip-up mode can overflow.
+  Fix: `ResizeObserver` on the wrapper.
+- **Cell scrolled out of viewport before open** — `getCellRect`
+  returns negative coords; placement clamps to top-left PAD and
+  the user sees an unanchored popover. Fix: scroll the active cell
+  into view before opening (already done on selection change but
+  not on direct `setCommentPopoverOpen(true)` paths).
