@@ -9,6 +9,9 @@ import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
 import { GitHubStrategy } from './github.strategy';
 import { JwtStrategy } from './jwt.strategy';
+import { TestAuthController } from './test-auth.controller';
+
+const TEST_AUTH_ENABLED = process.env.WAFFLEBASE_E2E_AUTH === '1';
 
 @Module({
   imports: [
@@ -26,7 +29,16 @@ import { JwtStrategy } from './jwt.strategy';
     }),
     UserModule,
   ],
-  controllers: [AuthController],
+  controllers: [
+    AuthController,
+    ...(TEST_AUTH_ENABLED ? [TestAuthController] : []),
+  ],
   providers: [AuthService, CliAuthStore, GitHubAuthGuard, JwtStrategy, GitHubStrategy],
 })
-export class AuthModule {}
+export class AuthModule {
+  constructor() {
+    if (TEST_AUTH_ENABLED) {
+      console.warn('[test-auth] DEV-ONLY ROUTES ENABLED (WAFFLEBASE_E2E_AUTH=1)');
+    }
+  }
+}
