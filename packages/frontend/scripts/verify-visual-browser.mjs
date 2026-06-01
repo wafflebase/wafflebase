@@ -1,3 +1,7 @@
+// LEGACY VERIFIER — visual baseline only.
+// Do NOT add new scenarios here. New e2e tests go in
+// `packages/frontend/tests/e2e/` (Playwright Test).
+// See docs/design/e2e-testing.md.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

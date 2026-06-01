@@ -181,6 +181,7 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:visual` | Playwright screenshot baseline (desktop+mobile) |
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
+| `pnpm verify:e2e`            | Behavioral end-to-end (real backend + frontend, Playwright Test) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
 | `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
 
