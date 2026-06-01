@@ -286,4 +286,70 @@ describe('hover highlight state', () => {
     }));
     expect(editor.getLastHoverCursor()).toBe('move');
   });
+
+  describe('hover suppression during interactions', () => {
+    it('clears hoverHighlightId at the start of a drag', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const overlay = document.createElement('div');
+      overlay.style.position = 'absolute';
+      document.body.appendChild(canvas);
+      document.body.appendChild(overlay);
+      const store = new MemSlidesStore();
+      store.batch(() => store.addSlide('blank'));
+      let elementId = '';
+      store.batch(() => {
+        const sid = store.read().slides[0].id;
+        elementId = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+        });
+      });
+      editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+      // Hover over the element.
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: 50, clientY: 50, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBe(elementId);
+
+      // Pointer down should clear the highlight.
+      canvas.dispatchEvent(new PointerEvent('pointerdown', {
+        clientX: 50, clientY: 50, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBeNull();
+    });
+
+    it('does not set hoverHighlightId while an insert mode is armed', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const overlay = document.createElement('div');
+      overlay.style.position = 'absolute';
+      document.body.appendChild(canvas);
+      document.body.appendChild(overlay);
+      const store = new MemSlidesStore();
+      store.batch(() => store.addSlide('blank'));
+      store.batch(() => {
+        const sid = store.read().slides[0].id;
+        store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+        });
+      });
+      editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+      // Arm insert mode for shape.
+      editor.setInsertMode('rect');
+
+      // Pointer move should NOT set hover highlight.
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: 50, clientY: 50, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBeNull();
+    });
+  });
 });

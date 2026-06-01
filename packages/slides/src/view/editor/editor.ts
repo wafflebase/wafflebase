@@ -1897,6 +1897,10 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onPointerDown(e: MouseEvent): void {
+    // Clear any pending hover highlight when the user starts interacting.
+    // This suppresses the outline during drag/resize/connector operations.
+    this.clearHoverHighlight();
+
     // Format painter: the very first branch so a paint-mode click
     // can never accidentally trigger select / drag / lasso / insert.
     // Paint mode is suppressed while a text box is open — the user
