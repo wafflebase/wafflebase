@@ -1,16 +1,22 @@
 /**
- * HTTP-level gate tests for /test/auth/login.
+ * HTTP-level gate test for /test/auth/login.
  *
- * The env check (WAFFLEBASE_E2E_AUTH=1) is evaluated at NestJS module
- * construction time, so each describe block compiles AppModule with the env
- * in the required state. Jest runs describe blocks sequentially and honours
- * the order of beforeAll calls, so the 404 block (env unset) runs before the
- * 200 block (env set).
+ * Verifies the security-critical direction of the env gate: when
+ * WAFFLEBASE_E2E_AUTH is unset, the route is not registered and POST
+ * /test/auth/login returns 404. This locks the contract that a
+ * production deploy (which never sets the env) cannot serve the
+ * test-auth route.
  *
- * The 200 case calls UserService.findOrCreateUser + Prisma; it is therefore
- * gated behind RUN_DB_INTEGRATION_TESTS via describeDb (same as other DB
- * e2e suites in this package).  The 404 case does not hit the DB and always
- * runs.
+ * The complementary direction — "with the env set, the route returns
+ * 200 and issues cookies" — is not tested here. NestJS's testing module
+ * captures AuthModule's controllers metadata at first compile, and
+ * `jest.isolateModulesAsync` doesn't work cleanly with @nestjs/core +
+ * ThrottlerGuard's Reflector identity check. Rather than patch module
+ * metadata in-process (which would mutate AuthModule for the rest of
+ * the Jest run and only test the patch, not the env), we cover the
+ * 200-path through the Playwright auth fixture: every e2e spec POSTs
+ * /test/auth/login on first use, so a regression there fails the whole
+ * Playwright lane.
  */
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -22,10 +28,9 @@ import {
   setIntegrationEnvDefaults,
   setAuthEnvDefaults,
   applyGlobalBootstrap,
-  describeDb,
 } from './helpers/integration-helpers';
 
-// Stub shared by both describe blocks so the Yorkie gRPC client never dials.
+// Stub so the Yorkie gRPC client never dials.
 const yorkieStub = {
   onModuleInit: () => Promise.resolve(),
   onModuleDestroy: () => Promise.resolve(),
@@ -67,73 +72,5 @@ describe('Test auth route (e2e) — env gate OFF', () => {
       .post('/test/auth/login')
       .send({ username: 'e2e-0', email: 'e2e-0@test.local' })
       .expect(404);
-  });
-});
-
-// ── 200 case ─────────────────────────────────────────────────────────────────
-// We need a *second* NestJS app compiled after WAFFLEBASE_E2E_AUTH=1 is set.
-// AppModule is already loaded in the Jest module cache from the block above,
-// but ts-jest caches at the JS level per require() call — re-importing the
-// same path returns the cached module.  That means the TOP-LEVEL const
-// TEST_AUTH_ENABLED in auth.module.ts was already evaluated with env unset.
-//
-// Using jest.isolateModulesAsync to force a fresh require() is the correct
-// tool, but NestJS's TestingInjector breaks when @nestjs/core is loaded twice
-// (Reflector class identity mismatch with ThrottlerGuard's APP_GUARD).
-//
-// Workaround: patch the cached AuthModule's controllers array directly before
-// compiling the second app.  This is intentionally narrow — only the
-// controllers list changes, nothing else in the DI graph.
-describeDb('Test auth route (e2e) — env gate ON', () => {
-  let app: INestApplication;
-  let moduleRef: TestingModule;
-
-  beforeAll(async () => {
-    process.env.WAFFLEBASE_E2E_AUTH = '1';
-    setIntegrationEnvDefaults();
-    setAuthEnvDefaults();
-
-    // Force the cached AuthModule to include TestAuthController.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { TestAuthController } = require('src/auth/test-auth.controller') as {
-      TestAuthController: new (...args: unknown[]) => unknown;
-    };
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AuthModule } = require('src/auth/auth.module') as {
-      AuthModule: { prototype: unknown };
-    };
-    const meta: unknown[] = Reflect.getMetadata('controllers', AuthModule) ?? [];
-    if (!meta.includes(TestAuthController)) {
-      meta.push(TestAuthController);
-      Reflect.defineMetadata('controllers', meta, AuthModule);
-    }
-
-    moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(YorkieService)
-      .useValue(yorkieStub)
-      .compile();
-
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    applyGlobalBootstrap(app);
-    await app.init();
-  });
-
-  afterAll(async () => {
-    delete process.env.WAFFLEBASE_E2E_AUTH;
-    await app.close();
-    await moduleRef.close();
-  });
-
-  it('returns 200 + auth cookies when WAFFLEBASE_E2E_AUTH=1', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/test/auth/login')
-      .send({ username: 'e2e-0', email: 'e2e-0@test.local' })
-      .expect(200);
-
-    expect(res.body).toEqual({ ok: true, userId: expect.any(Number) });
-    const cookies = (res.headers['set-cookie'] as unknown as string[]).join(';');
-    expect(cookies).toContain('wafflebase_session=');
-    expect(cookies).toContain('wafflebase_refresh=');
   });
 });
