@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 246
+Total archived tasks: 247
 
-## 2026/06 (2 tasks)
+## 2026/06 (3 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | docs soft line break (2026-06-01) | [20260601-docs-soft-line-break-todo.md](./2026/06/20260601-docs-soft-line-break-todo.md) | [20260601-docs-soft-line-break-lessons.md](./2026/06/20260601-docs-soft-line-break-lessons.md) |
 | sheets comment popover fit viewport (2026-06-01) | [20260601-sheets-comment-popover-fit-viewport-todo.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-todo.md) | [20260601-sheets-comment-popover-fit-viewport-lessons.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-lessons.md) |
+| sheets mod enter newline (2026-06-01) | [20260601-sheets-mod-enter-newline-todo.md](./2026/06/20260601-sheets-mod-enter-newline-todo.md) | [20260601-sheets-mod-enter-newline-lessons.md](./2026/06/20260601-sheets-mod-enter-newline-lessons.md) |
 
 ## 2026/05 (99 tasks)
 

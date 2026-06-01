@@ -428,6 +428,13 @@ focused editor and promotes the primed editor into visible editing mode.
 While composition is active, keyup-driven formula-bar/autocomplete sync is
 skipped to avoid interrupting IME state.
 
+In-cell newline accepts both `Alt+Enter` (Excel/Sheets cross-platform) and
+`Cmd+Enter` / `Ctrl+Enter`. The mod-key alternative exists so macOS Korean-
+IME users can insert a newline without `Option`, which the system reserves
+for Hangul→Hanja conversion. The mod-key binding is scoped to the in-grid
+`CellInput`; the single-line formula bar treats `Cmd+Enter` as commit so a
+stray newline cannot be injected into a `nowrap` container.
+
 **GridContainer** — Wraps a scrollable `<div>` with a dummy sized child. When
 the logical grid size exceeds `MAX_SCROLL_SIZE` (10M px), scroll positions are
 linearly remapped. All downstream code works in logical coordinates.

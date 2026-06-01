@@ -3789,7 +3789,11 @@ export class Worksheet {
 
     const handled = await runKeyRules(e, [
       {
-        match: (event) => matchesKeyCombo(event, { key: 'Enter', alt: true }),
+        // Mod+Enter is a cellInput-only alternative because macOS Korean IME reserves Option for Hanja.
+        match: (event) =>
+          matchesKeyCombo(event, { key: 'Enter', alt: true }) ||
+          (source === 'cellInput' &&
+            matchesKeyCombo(event, { key: 'Enter', mod: true, shift: false })),
         run: (event) => {
           event.preventDefault();
           document.execCommand('insertLineBreak');

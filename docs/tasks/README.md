@@ -30,7 +30,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 246
+- Archived task count: 247
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: slides connector elbow curved routing (2026-06-01)
