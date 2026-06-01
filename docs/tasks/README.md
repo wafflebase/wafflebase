@@ -18,6 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheets comment popover fit viewport (2026-06-01) | [20260601-sheets-comment-popover-fit-viewport-todo.md](./active/20260601-sheets-comment-popover-fit-viewport-todo.md) | [20260601-sheets-comment-popover-fit-viewport-lessons.md](./active/20260601-sheets-comment-popover-fit-viewport-lessons.md) |
+| slides connector elbow curved routing (2026-06-01) | [20260601-slides-connector-elbow-curved-routing-todo.md](./active/20260601-slides-connector-elbow-curved-routing-todo.md) | [20260601-slides-connector-elbow-curved-routing-lessons.md](./active/20260601-slides-connector-elbow-curved-routing-lessons.md) |
+| slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./active/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 | release v0.4.3 (2026-05-31) | [20260531-release-v0.4.3-todo.md](./active/20260531-release-v0.4.3-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
@@ -31,4 +34,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 245
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.4.3 (2026-05-31)
+Latest active task: sheets comment popover fit viewport (2026-06-01)
