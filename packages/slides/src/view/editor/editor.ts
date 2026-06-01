@@ -497,6 +497,15 @@ class SlidesEditorImpl implements SlidesEditor {
    * selection, or when any drag/insert/edit interaction is live.
    */
   private hoverHighlightId: string | null = null;
+  /**
+   * True between `onPointerDown` and the matching `pointerup` /
+   * `pointercancel`, regardless of which drag flavour ran (move, lasso,
+   * resize, rotate, insert, connector endpoint). Read by
+   * `onSelectionHoverMove` to skip re-picking a hover target while a
+   * gesture is live — the canvas pointermove listener keeps firing
+   * during document-level drags.
+   */
+  private pointerInteractionActive = false;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
   private hoverRenderRaf: number | null = null;
   /** Suppress hover ghost during an active drag-to-size insert. */
@@ -1901,6 +1910,23 @@ class SlidesEditorImpl implements SlidesEditor {
     // This suppresses the outline during drag/resize/connector operations.
     this.clearHoverHighlight();
 
+    // Keep hover suppressed for the lifetime of the gesture. The canvas
+    // `pointermove` listener (`onSelectionHoverMove`) keeps firing during
+    // lasso/move/resize/rotate drags — those install document-level
+    // listeners but don't otherwise stop the canvas listener from
+    // re-running hit-test and re-assigning `hoverHighlightId`. The
+    // capture-phase pointerup/cancel handler below flips the flag back
+    // off before any of the per-drag onUp handlers run, so resuming hover
+    // on the very next pointermove after release feels instant.
+    this.pointerInteractionActive = true;
+    const onAnyUp = (): void => {
+      this.pointerInteractionActive = false;
+      document.removeEventListener('pointerup', onAnyUp, true);
+      document.removeEventListener('pointercancel', onAnyUp, true);
+    };
+    document.addEventListener('pointerup', onAnyUp, true);
+    document.addEventListener('pointercancel', onAnyUp, true);
+
     // Format painter: the very first branch so a paint-mode click
     // can never accidentally trigger select / drag / lasso / insert.
     // Paint mode is suppressed while a text box is open — the user
@@ -2285,6 +2311,12 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private onSelectionHoverMove(e: PointerEvent): void {
     if (e.pointerType !== undefined && e.pointerType !== 'mouse') return;
+    // A pointer-down gesture is active (lasso / move / resize / rotate /
+    // connector / insert). `onPointerDown` cleared the hover; we keep it
+    // clear here so the canvas-level pointermove that fires alongside
+    // each document-level drag listener does not re-pick a hover target
+    // mid-gesture.
+    if (this.pointerInteractionActive) return;
     if (this.insertKind !== null) {
       this.clearHoverHighlight();
       return;

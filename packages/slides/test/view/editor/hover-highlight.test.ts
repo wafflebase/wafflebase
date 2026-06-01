@@ -322,6 +322,46 @@ describe('hover highlight state', () => {
       expect(editor.getHoverHighlightId()).toBeNull();
     });
 
+    it('keeps hoverHighlightId null during a lasso drag passing over an unselected element', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const overlay = document.createElement('div');
+      overlay.style.position = 'absolute';
+      document.body.appendChild(canvas);
+      document.body.appendChild(overlay);
+      const store = new MemSlidesStore();
+      store.batch(() => store.addSlide('blank'));
+      store.batch(() => {
+        const sid = store.read().slides[0].id;
+        store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 200, y: 200, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+        });
+      });
+      editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+      // Start a lasso by pressing on empty canvas.
+      canvas.dispatchEvent(new PointerEvent('pointerdown', {
+        clientX: 10, clientY: 10, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBeNull();
+
+      // Drag across an unselected element — canvas pointermove fires
+      // alongside the document-level lasso listener. Hover must stay null.
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: 250, clientY: 250, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBeNull();
+
+      // And again at a different point inside the same element — still null.
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: 220, clientY: 220, pointerType: 'mouse', bubbles: true,
+      }));
+      expect(editor.getHoverHighlightId()).toBeNull();
+    });
+
     it('does not set hoverHighlightId while an insert mode is armed', () => {
       const canvas = document.createElement('canvas');
       canvas.width = 1920;

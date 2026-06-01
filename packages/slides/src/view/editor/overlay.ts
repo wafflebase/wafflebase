@@ -184,33 +184,13 @@ export function renderOverlay(
     overlay.appendChild(preview);
   }
 
-  // Connector affordance (Task 13): blue dots over the nearest shape's
-  // connection sites. Rendered first so the selection handles paint on
-  // top, but since the affordance only fires while a connector drag is
-  // live (no selection handles visible during insert; only endpoint
-  // handles during endpoint drag) there's never meaningful overlap.
-  // `pointer-events: none` on each dot keeps them out of the drag.
-  renderConnectionPointsOverlay(overlay, options);
-
-  if (selectedElements.length === 0) {
-    // Nothing selected — paint hover highlight (if any) and exit.
-    // The highlight must still show when the canvas has no selection.
-    if (options.hoverHighlightFrame) {
-      overlay.appendChild(
-        makeHoverHighlight(
-          options.hoverHighlightFrame.id,
-          options.hoverHighlightFrame.frame,
-          options.scale,
-        ),
-      );
-    }
-    return;
-  }
-
   // Context box (drill-in) + member outlines (group selected). Painted
-  // before the selection handles below so the handles stay on top. The
+  // before the hover outline / handles below so those stay on top. The
   // two are mutually exclusive per element (see groupOverlayFrames), so
-  // a single faint-dashed style reads correctly in both roles.
+  // a single faint-dashed style reads correctly in both roles. Both
+  // options are only populated when a group selection is active, so the
+  // blocks are no-ops in the no-selection case and safe to paint before
+  // the early return.
   if (options.contextBox) {
     appendOutline(
       overlay,
@@ -225,10 +205,12 @@ export function renderOverlay(
     }
   }
 
-  // Hover highlight: faint blue outline on the unselected element under the
-  // cursor (idle hover feedback). Painted after context box / member outlines
-  // so it sits visually above them, and before selection handles so handles
-  // remain on top. pointer-events: none keeps it non-interactive.
+  // Hover highlight: faint blue outline on the unselected element under
+  // the cursor (idle hover feedback). Painted above member outlines and
+  // below connection-site dots + selection handles. Suppression during
+  // drag/edit/insert/handle hover is owned by `clearHoverHighlight()`
+  // upstream, so by the time the overlay re-renders the frame is null
+  // whenever it would compete with an active affordance.
   if (options.hoverHighlightFrame) {
     overlay.appendChild(
       makeHoverHighlight(
@@ -238,6 +220,17 @@ export function renderOverlay(
       ),
     );
   }
+
+  // Connector affordance (Task 13): blue dots over the nearest shape's
+  // connection sites. Painted above the hover outline so the dots win
+  // visually during a connector draw. The affordance only fires while
+  // a connector drag is live (and `clearHoverHighlight()` runs at
+  // `onPointerDown`), so in practice the two never paint simultaneously
+  // anyway. `pointer-events: none` on each dot keeps them out of the
+  // drag.
+  renderConnectionPointsOverlay(overlay, options);
+
+  if (selectedElements.length === 0) return;
 
   // Connectors get a custom selection treatment: exactly two endpoint
   // handles (start + end) at the resolved endpoint world positions, no
