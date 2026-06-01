@@ -17,8 +17,11 @@ do not intercept `Cmd`/`Ctrl`.
 
 - Add `Mod+Enter` (Cmd on macOS, Ctrl on Windows/Linux) as a second
   in-cell newline shortcut alongside the existing `Alt+Enter`.
-- Apply to both the in-grid cell input and the formula bar input
-  (`handleEditorKeydown` already dispatches both).
+- Scope the binding to the in-grid `CellInput` only. `handleEditorKeydown`
+  dispatches both `CellInput` and `FormulaBar` through a `source`
+  parameter; the formula bar is single-line `whiteSpace: nowrap`, so
+  `Cmd+Enter` there keeps the existing commit-and-move-down semantics
+  rather than injecting an invisible `<br>`.
 - Keep `Shift+Mod+Enter` on the existing "finish editing & move up"
   path so the legacy navigation behavior is unchanged.
 
