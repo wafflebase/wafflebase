@@ -600,7 +600,24 @@ git commit -m "Slides: suppress hover outline during drag/resize/connector"
 
 ---
 
-### Task A6: Browser harness scenario
+### Task A6: Browser harness scenario — DEFERRED to follow-up PR
+
+**Status:** deferred. The interaction harness at
+`packages/frontend/src/app/harness/interaction/page.tsx` is sheets-only
+(loads `@wafflebase/sheets`, exposes a sheet-cell-focused bridge). Adding
+a slides interaction harness — slides bridge methods, scenario
+registration in `scripts/verify-interaction-browser.mjs`, fixture loader —
+is itself a scaffolding effort out of P0 scope. The unit suite in
+`packages/slides/test/view/editor/hover-highlight.test.ts` (9 tests
+covering state transitions, cursor regions, and suppression) carries P0
+verification, plus a manual smoke in `pnpm dev` before merge.
+
+The original task text is preserved below for the follow-up PR once the
+slides interaction harness lands.
+
+---
+
+### Task A6 (original, deferred)
 
 **Files:**
 - Find: existing slides browser tests via `find packages -path '*harness*' -name '*.spec.ts' | grep -i slide`. The exploration report did not surface a directory dedicated to slides browser tests — if none exists, place this under `packages/frontend/src/app/harness/slides/` matching the location of any other slides harness fixtures. Confirm with `pnpm verify:browser:docker --list` (or equivalent) before writing.
