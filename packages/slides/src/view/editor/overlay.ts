@@ -192,24 +192,20 @@ export function renderOverlay(
   // `pointer-events: none` on each dot keeps them out of the drag.
   renderConnectionPointsOverlay(overlay, options);
 
-  // Hover highlight: faint blue outline on the unselected element under the
-  // cursor (idle hover feedback). Painted before `selectedElements.length === 0`
-  // guard so it also shows when nothing is selected. Z-order: above
-  // permanent guides and connector affordance (painted just before), above
-  // context box / member outlines (painted just after), and below selection
-  // handles (painted at the bottom of this function). We always paint it
-  // here regardless of whether there is a selection.
-  if (options.hoverHighlightFrame) {
-    overlay.appendChild(
-      makeHoverHighlight(
-        options.hoverHighlightFrame.id,
-        options.hoverHighlightFrame.frame,
-        options.scale,
-      ),
-    );
+  if (selectedElements.length === 0) {
+    // Nothing selected — paint hover highlight (if any) and exit.
+    // The highlight must still show when the canvas has no selection.
+    if (options.hoverHighlightFrame) {
+      overlay.appendChild(
+        makeHoverHighlight(
+          options.hoverHighlightFrame.id,
+          options.hoverHighlightFrame.frame,
+          options.scale,
+        ),
+      );
+    }
+    return;
   }
-
-  if (selectedElements.length === 0) return;
 
   // Context box (drill-in) + member outlines (group selected). Painted
   // before the selection handles below so the handles stay on top. The
@@ -227,6 +223,20 @@ export function renderOverlay(
     for (const frame of options.memberOutlines) {
       appendOutline(overlay, frame, options.scale, 'wfb-slides-member-outline');
     }
+  }
+
+  // Hover highlight: faint blue outline on the unselected element under the
+  // cursor (idle hover feedback). Painted after context box / member outlines
+  // so it sits visually above them, and before selection handles so handles
+  // remain on top. pointer-events: none keeps it non-interactive.
+  if (options.hoverHighlightFrame) {
+    overlay.appendChild(
+      makeHoverHighlight(
+        options.hoverHighlightFrame.id,
+        options.hoverHighlightFrame.frame,
+        options.scale,
+      ),
+    );
   }
 
   // Connectors get a custom selection treatment: exactly two endpoint
