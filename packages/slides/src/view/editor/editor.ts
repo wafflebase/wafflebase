@@ -55,6 +55,7 @@ import {
 } from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
+import { isEmptyPlaceholder } from './interactions/select';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
 import {
@@ -2006,6 +2007,23 @@ class SlidesEditorImpl implements SlidesEditor {
       this.selection.click(hitResult, mods);
       const afterScope = this.selection.getScope();
       this.refitPoppedScope(beforeScope, afterScope, slide.id);
+
+      // P1.4: empty-placeholder 1-click entry. A fresh non-shift click on
+      // a `text` element acting as an empty layout placeholder (ghost hint
+      // visible) selects AND enters text-edit in the same gesture, so a
+      // brand-new "Title + Body" slide is typeable in one click per region.
+      // Non-placeholders and non-empty placeholders fall through to the
+      // regular `startDrag` arming. See
+      // docs/design/slides/slides-hover-and-text-edit-entry.md § P1.4.
+      if (!mods.shift && this.selection.get().length === 1) {
+        const selectedId = this.selection.get()[0];
+        const el = findElement(slide.elements, selectedId);
+        if (isEmptyPlaceholder(el ?? null)) {
+          this.enterEditMode(slide.id, selectedId);
+          return;
+        }
+      }
+
       // Begin drag on the (possibly newly-)selected elements unless the
       // element was just removed by shift-toggle.
       if (this.selection.get().length > 0) {
