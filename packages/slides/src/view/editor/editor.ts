@@ -2018,7 +2018,7 @@ class SlidesEditorImpl implements SlidesEditor {
       if (!mods.shift && this.selection.get().length === 1) {
         const selectedId = this.selection.get()[0];
         const el = findElement(slide.elements, selectedId);
-        if (isEmptyPlaceholder(el ?? null)) {
+        if (isEmptyPlaceholder(el)) {
           this.enterEditMode(slide.id, selectedId);
           return;
         }

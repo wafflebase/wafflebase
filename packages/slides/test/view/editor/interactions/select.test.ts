@@ -254,6 +254,26 @@ describe('isEmptyPlaceholder', () => {
     expect(isEmptyPlaceholder(el)).toBe(false);
   });
 
+  it('true for a placeholder whose multiple blocks all have empty inlines', () => {
+    // Mirrors the renderer's `isBlocksEmpty` gate: every inline across
+    // every block must be the empty string. The predicate intentionally
+    // stays this broad so it never says "empty" when the user sees text,
+    // or "non-empty" when they see a ghost hint.
+    const el = {
+      id: 'e', type: 'text' as const, frame, placeholderRef,
+      data: { blocks: [blankBlock, blankBlock] },
+    };
+    expect(isEmptyPlaceholder(el)).toBe(true);
+  });
+
+  it('false when any inline in any block carries text', () => {
+    const el = {
+      id: 'e', type: 'text' as const, frame, placeholderRef,
+      data: { blocks: [blankBlock, filledBlock] },
+    };
+    expect(isEmptyPlaceholder(el)).toBe(false);
+  });
+
   it('false for a text element WITHOUT placeholderRef even when empty', () => {
     const el = {
       id: 'e', type: 'text' as const, frame,

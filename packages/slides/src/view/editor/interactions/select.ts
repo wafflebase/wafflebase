@@ -62,11 +62,19 @@ function toggleId(ids: readonly string[], id: string): string[] {
 
 /**
  * A text element acting as an empty layout placeholder — i.e. one
- * currently rendered with a ghost hint from `placeholderHintFor(ref.type)`.
- * Mirrors the renderer's own gate (`element.placeholderRef && isTextBodyEmpty(data)`)
- * so the 1-click text-edit entry only fires on elements the user sees as
- * a ghost placeholder. User-authored text boxes (no `placeholderRef`)
- * deliberately stay select-only even when empty.
+ * currently rendered with a ghost hint by `text-renderer.ts`. The
+ * renderer paints the hint when (a) `placeholderRef` is set AND
+ * (b) `isTextBodyEmpty(data)` returns true. This predicate combines
+ * both conditions so the 1-click text-edit entry fires exactly on
+ * elements the user sees as a ghost placeholder.
+ *
+ * "Empty" here mirrors the renderer's `isBlocksEmpty`: zero blocks, or
+ * every block's inlines are the empty string — regardless of block
+ * type or count. This is intentionally broader than the spec's literal
+ * "zero blocks, or a single empty paragraph block" wording so the
+ * predicate stays in lockstep with the rendered ghost hint.
+ * User-authored text boxes (no `placeholderRef`) deliberately stay
+ * select-only even when empty.
  *
  * See `docs/design/slides/slides-hover-and-text-edit-entry.md` § P1.4.
  */

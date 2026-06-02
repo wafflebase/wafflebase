@@ -62,6 +62,14 @@ function setup() {
   return { canvas, overlay, store };
 }
 
+function emptyBlock(): Block {
+  return {
+    id: 'b1', type: 'paragraph',
+    inlines: [{ text: '', style: {} }],
+    style: {},
+  } as Block;
+}
+
 function filledBlock(text: string): Block {
   return {
     id: 'b1', type: 'paragraph',
@@ -164,7 +172,7 @@ describe('empty-placeholder 1-click entry', () => {
       elId = store.addElement(sid, {
         type: 'text',
         frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
-        data: { blocks: [filledBlock('')] },
+        data: { blocks: [emptyBlock()] },
       });
     });
 
