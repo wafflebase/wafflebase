@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../../src/store/memory';
@@ -104,7 +104,11 @@ function findPlaceholderId(store: MemSlidesStore, slideId: string, type: string)
 describe('empty-placeholder 1-click entry', () => {
   let editor: SlidesEditor | null = null;
 
-  beforeEach(() => {
+  // Detach in `afterEach` so the final test's editor doesn't leave its
+  // document-level pointerup/pointercancel capture listeners attached
+  // — `beforeEach` would only clean up *before* the next test, leaving
+  // the last instance dangling.
+  afterEach(() => {
     if (editor) { editor.detach(); editor = null; }
   });
 
@@ -211,6 +215,38 @@ describe('empty-placeholder 1-click entry', () => {
 
     expect(editor.getEditingElementId()).toBeNull();
     expect(editor.getSelection()).toEqual([titleId]);
+  });
+
+  it('enters edit when clicking an empty placeholder while a different element is selected', () => {
+    // Core "one click per region" flow: title → body. After typing the
+    // title and committing, the user clicks the still-empty body
+    // placeholder; the click is a *fresh* selection (replacing the
+    // current title selection), so it must both replace selection AND
+    // enter edit on the body in one gesture.
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => { sid = store.addSlide('title-body'); });
+    const titleId = findPlaceholderId(store, sid, 'title');
+    const bodyId = findPlaceholderId(store, sid, 'body');
+    const body = store.read().slides
+      .find((s) => s.id === sid)!.elements.find((e) => e.id === bodyId)!;
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+
+    editor.setSelection([titleId]);
+
+    click(
+      canvas,
+      body.frame.x + body.frame.w / 2,
+      body.frame.y + body.frame.h / 2,
+    );
+
+    expect(editor.getEditingElementId()).toBe(bodyId);
+    expect(editor.getSelection()).toEqual([bodyId]);
   });
 
   it('does NOT re-enter edit when clicking an already-selected empty placeholder', () => {
