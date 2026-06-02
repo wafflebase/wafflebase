@@ -49,6 +49,28 @@ describe('YorkieSlidesStore — slide ops', () => {
     expect(slide.elements.length).toBe(2);
   });
 
+  it('seeded title-body placeholders read with an empty body', () => {
+    // Phase B (P1.4) gates 1-click text-edit entry on the empty-
+    // placeholder predicate, which delegates to `isElementEmpty` →
+    // `isBlocksEmpty`. The dev bug "click just selects, never enters
+    // edit" would surface here if the Yorkie read path subtly
+    // diverged from `MemSlidesStore` (e.g. a non-empty inline survived
+    // through `yorkieToPlain`).
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let id = '';
+    store.batch(() => { id = store.addSlide('title-body'); });
+    const slide = store.read().slides.find((s) => s.id === id)!;
+    for (const el of slide.elements) {
+      if (el.type !== 'text' || !el.placeholderRef) continue;
+      const label = `placeholderRef.type=${el.placeholderRef.type}`;
+      const allInlinesEmpty = el.data.blocks.every(
+        (b) => b.inlines.every((inline) => inline.text === ''),
+      );
+      expect(allInlinesEmpty, `${label}: inlines empty`).toBe(true);
+    }
+  });
+
   it('removeSlide drops the slide', () => {
     const doc = makeDoc();
     const store = new YorkieSlidesStore(doc);
