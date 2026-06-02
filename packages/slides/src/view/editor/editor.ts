@@ -2018,6 +2018,16 @@ class SlidesEditorImpl implements SlidesEditor {
       if (!mods.shift && this.selection.get().length === 1) {
         const selectedId = this.selection.get()[0];
         const el = findElement(slide.elements, selectedId);
+        // TEMP DEBUG: remove before merge — diagnosing why dev doesn't auto-enter
+        // eslint-disable-next-line no-console
+        console.log('[phase-b]', {
+          selectedId,
+          elType: el?.type,
+          hasPlaceholderRef: el?.placeholderRef != null,
+          placeholderType: el?.placeholderRef?.type,
+          isEmpty: el?.type === 'text' ? el.data.blocks.every((b) => b.inlines.every((i) => i.text === '')) : null,
+          predicate: isEmptyPlaceholder(el),
+        });
         if (isEmptyPlaceholder(el)) {
           this.enterEditMode(slide.id, selectedId);
           return;
