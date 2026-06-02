@@ -467,6 +467,7 @@ the project's shared menu primitive (`docs/design/context-menu.md`):
 | Enter text edit | dblclick on text element | mount contenteditable overlay, run `withTextElement`; exit on blur or Esc |
 | Hover (idle) | pointer over unselected element | overlay paints `1px rgba(26,115,232,0.5)` outline; see [slides-hover-and-text-edit-entry.md](slides-hover-and-text-edit-entry.md) |
 | Cursor over selected text region | pointer inside `getTextRegionRect(element)` | cursor `text`; outside region but inside bbox stays `move` |
+| Click empty layout placeholder | first non-shift click on a `text` element with `placeholderRef` and empty body | selects AND `enterEditMode(...)`; see [slides-hover-and-text-edit-entry.md § P1.4](slides-hover-and-text-edit-entry.md) |
 | Add shape/text/image | toolbar then click/drag canvas | create element, `addElement` |
 | Add slide | "+" button or Enter on thumbnail | `addSlide(currentLayoutId, currentIndex + 1)` |
 | Duplicate slide | Cmd/Ctrl+D | `duplicateSlide(currentSlideId)` |
