@@ -83,20 +83,14 @@ process.on('SIGTERM', () => {
     WAFFLEBASE_E2E_AUTH: '1',
   });
 
-  // Force vite to bind to 127.0.0.1 explicitly. Vite v6 defaults to
-  // `localhost`, which on Ubuntu CI can resolve to ::1 only — orchestrator
-  // probes IPv4 (`net.connect(5173, '127.0.0.1')`), so the port never opens
-  // from its point of view and waitForPort times out at 60s. `--host
-  // 127.0.0.1` makes the bind explicit and matches the probe.
-  console.log('[verify:e2e:standalone] starting frontend dev server on 127.0.0.1');
-  startChild('pnpm', [
-    '--filter',
-    '@wafflebase/frontend',
-    'dev',
-    '--',
-    '--host',
-    '127.0.0.1',
-  ]);
+  // dev:e2e runs `vite --host 127.0.0.1`. Vite v6 defaults to binding
+  // `localhost`, which on Ubuntu CI can resolve to ::1 only —
+  // orchestrator probes IPv4 (`net.connect(5173, '127.0.0.1')`), so
+  // the port never opens from its point of view and waitForPort times
+  // out at 60s. Using a dedicated script avoids pnpm `--`-arg passing
+  // ambiguity.
+  console.log('[verify:e2e:standalone] starting frontend dev server (dev:e2e, 127.0.0.1)');
+  startChild('pnpm', ['--filter', '@wafflebase/frontend', 'dev:e2e']);
 
   try {
     await Promise.all([waitForPort(BACKEND_PORT), waitForPort(FRONTEND_PORT)]);

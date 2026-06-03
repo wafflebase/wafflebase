@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
+    "dev:e2e": "vite --host 127.0.0.1",
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
