@@ -768,13 +768,11 @@ EOF
 
 ---
 
-## Phase B — P1.4: Empty-placeholder 1-click entry (next PR, planned in detail before starting)
+## Phase B — P1.4: Empty-placeholder 1-click entry
 
 **Scope:** When the user clicks an empty placeholder text element (carries `placeholderRef`, has no real content), the first click both selects AND enters text-edit. Non-placeholder text boxes keep select-only behavior.
 
-**Key files:** `packages/slides/src/view/editor/interactions/select.ts`, `editor.ts:onPointerDown` (around 1844), test extension in `test/view/editor/interactions/select.test.ts`.
-
-**Tasks (to be expanded):** isEmptyPlaceholder predicate → wire into pointer-up branch → unit test → browser harness scenario → manual smoke → PR.
+**Detailed plan:** [`20260602-slides-hover-text-edit-phase-b-todo.md`](./20260602-slides-hover-text-edit-phase-b-todo.md).
 
 ---
 
