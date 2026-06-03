@@ -9,7 +9,7 @@ import type {
   VerticalAnchorMode,
 } from '../../model/element';
 import type { Block } from '@wafflebase/docs';
-import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
+import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
 import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
@@ -235,6 +235,16 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * mount).
    */
   bodyHost?: HTMLElement;
+  /**
+   * Fired after the editor has invalidated the shared `cachedMeasureText`
+   * cache in response to a `document.fonts` `loadingdone` event and
+   * marked the main canvas dirty. The host wires this to any
+   * sibling renderers it owns — most importantly the thumbnail panel,
+   * whose own `SlideRenderer` instances drew with the pre-load
+   * fallback widths and would otherwise stay stale. No-op when omitted
+   * (headless tests, mounts without a thumbnail strip).
+   */
+  onFontsLoaded?: () => void;
 }
 
 export interface SlidesEditor {
@@ -665,6 +675,28 @@ class SlidesEditorImpl implements SlidesEditor {
     // working so the host shell can drive navigation.
     if (!options.readOnly) {
       this.attachInteractions();
+    }
+    // Repaint with fresh width metrics when web fonts (Noto Sans KR
+    // unicode-range subsets etc.) finish loading. The slides text
+    // renderer's `CanvasTextMeasurer` is module-scoped, and
+    // `cachedMeasureText` memoises `(font, text) → width` without a
+    // load-state key. Without this listener, the layout computed during
+    // the initial paint — when CJK subsets are still unloaded — pins
+    // each run's `x` against the fallback font's wider advance widths;
+    // `fillText` later draws with the loaded Noto Sans KR glyphs (≈ 25 px
+    // narrower at 138.67 px for "캐즘 "), leaving a visible gap before
+    // the next run. Re-entering edit mode masks the bug because
+    // `initializeTextBox` allocates a fresh measurer per mount.
+    //
+    // We attach to read-only mounts too — share-link viewers see the
+    // same gap. SSR / Node test envs lack `document.fonts`; bail.
+    if (typeof document !== 'undefined' && document.fonts) {
+      this.on(document.fonts, 'loadingdone', () => {
+        clearMeasureCache();
+        this.renderer.markDirty();
+        this.render();
+        options.onFontsLoaded?.();
+      });
     }
   }
 
