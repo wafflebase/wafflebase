@@ -84,6 +84,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
 | [rest-api.md](rest-api.md)                             | REST API v1 — workspace-scoped API keys, `/api/v1/` documents/tabs/cells/content endpoints, Yorkie service, CLI auth endpoints |
 | [cli.md](cli.md)                                       | `wafflebase` CLI — OAuth login + API keys, ctx switching, docs/sheets/api-keys namespaces, content/export/import, agent integration |
+| [e2e-testing.md](e2e-testing.md)                       | E2E behavioral testing — @playwright/test, test-auth bypass, fixtures, POC, lane + CI integration  |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |

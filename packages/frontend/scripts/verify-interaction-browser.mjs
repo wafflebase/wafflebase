@@ -1,3 +1,7 @@
+// LEGACY VERIFIER — interaction regression only (cell input / formula /
+// scroll). Do NOT add new scenarios here. New e2e tests go in
+// `packages/frontend/tests/e2e/` (Playwright Test).
+// See docs/design/e2e-testing.md.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";

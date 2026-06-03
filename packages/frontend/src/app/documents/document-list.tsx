@@ -534,6 +534,7 @@ export function DocumentList({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
+                  data-testid="document-row"
                   data-state={row.getIsSelected() && "selected"}
                   className="cursor-pointer hover:bg-muted"
                   onClick={(e: MouseEvent<HTMLElement>) => {

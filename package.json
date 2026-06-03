@@ -14,6 +14,8 @@
     "verify:frontend:interaction": "pnpm frontend test:interaction",
     "verify:browser:docker": "pnpm frontend test:browser:docker",
     "verify:browser:docker:update": "pnpm frontend test:visual:browser:docker:update",
+    "verify:e2e": "pnpm --filter @wafflebase/frontend e2e",
+    "verify:e2e:standalone": "node ./scripts/run-e2e-standalone.mjs",
     "verify:entropy": "node ./scripts/verify-entropy.mjs",
     "verify:self": "node ./scripts/verify-self.mjs",
     "verify:ci": "node ./scripts/verify-ci.mjs",
