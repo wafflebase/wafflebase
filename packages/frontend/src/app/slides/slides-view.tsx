@@ -509,6 +509,13 @@ export function SlidesView({
     if (!readOnlyMount && store.read().slides.length === 0) {
       store.batch(() => store.addSlide("blank"));
     }
+    // Late-bound thumbnail handle. `mountThumbnailPanel` runs further
+    // down (after the editor and the resize/notes wiring), but the
+    // editor's `onFontsLoaded` callback fires from a document.fonts
+    // event that can land at any later tick. Capturing a `let` lets
+    // that closure read whichever value the assignment below has
+    // installed by the time the event arrives.
+    let thumbHandle: ThumbnailPanelHandle | null = null;
     const editor = initializeEditor({
       canvas,
       overlay,
@@ -524,6 +531,10 @@ export function SlidesView({
       onShowShortcutsHelp: () => setHelpOpen(true),
       onStartPresentation: (from) => onStartPresentationRef.current?.(from),
       onToast: (msg) => onToastRef.current(msg),
+      // The editor clears the shared cachedMeasureText and repaints the
+      // main canvas; we also repaint already-painted thumbnails so
+      // their pre-font-load fallback widths stop showing through.
+      onFontsLoaded: () => thumbHandle?.refreshContent(),
       // onLinkRequest is still intentionally unwired — the link popover
       // needs a richer TextBoxEditorAPI (insertLink / getLinkAtCursor)
       // before it can drive the docs text-box. Cmd+K no-ops at the
@@ -745,7 +756,7 @@ export function SlidesView({
     document.addEventListener("mousemove", onDocMouseMove);
     document.addEventListener("mouseup", onDocMouseUp);
 
-    const thumbHandle: ThumbnailPanelHandle = mountThumbnailPanel(
+    thumbHandle = mountThumbnailPanel(
       thumbsHost,
       store,
       editor,
@@ -774,7 +785,7 @@ export function SlidesView({
     const offChange = store.onChange(() => {
       editor.markDirty();
       editor.render();
-      thumbHandle.refreshContent();
+      thumbHandle?.refreshContent();
     });
 
     // Local presence: broadcast active slide + selection. Yorkie's
@@ -804,7 +815,7 @@ export function SlidesView({
       const n = store.getSlideCount();
       if (n !== lastSlideCount) {
         lastSlideCount = n;
-        thumbHandle.refresh();
+        thumbHandle?.refresh();
       }
       raf = requestAnimationFrame(tick);
     };
@@ -825,7 +836,7 @@ export function SlidesView({
       offSelection();
       offSlide();
       offChange();
-      thumbHandle.dispose();
+      thumbHandle?.dispose();
       editor.detach();
       store.dispose();
       editorRef.current = null;
