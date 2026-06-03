@@ -13,8 +13,8 @@ Introduce `@playwright/test` as a first-class end-to-end testing system that
 targets real application routes (login → dashboard → editor) and runs against
 a full local stack (Postgres + Yorkie + backend + frontend). The new system
 coexists with the existing visual-regression baselines
-(`scripts/verify-visual-browser.mjs`) and interaction-regression scripts
-(`scripts/verify-interaction-browser.mjs`), and is intended to be the default
+(`packages/frontend/scripts/verify-visual-browser.mjs`) and interaction-regression scripts
+(`packages/frontend/scripts/verify-interaction-browser.mjs`), and is intended to be the default
 home for **new** behavioral e2e tests — particularly those that an AI agent
 exercises via the Puppeteer MCP during a smoke step and then wants to codify
 as a permanent regression.
@@ -31,12 +31,12 @@ smoke checks rarely become permanent tests.
 
 - A single, well-known place (`packages/frontend/tests/e2e/`) where any new
   behavioral e2e test lives.
-- A copy-paste template (`__template__.spec.ts`) that an agent can fill in
+- A copy-paste template (`packages/frontend/tests/e2e/__template__.spec.ts`) that an agent can fill in
   during a "promote my smoke check" step.
 - Test-only auth bypass that lets specs reach authenticated routes in under
   one second per worker, without touching GitHub OAuth.
 - Standard Playwright fixtures (`auth`, `freshDoc`) discoverable through a
-  single `fixtures/index.ts` re-export.
+  single `packages/frontend/tests/e2e/fixtures/index.ts` re-export.
 - A `verify:e2e` lane wired into `harness.config.json` and CI, with
   failure-only HTML report + trace artifacts retained for 14 days.
 - A first proof-of-concept scenario shipped together with the infrastructure
@@ -93,7 +93,7 @@ Rationale:
 
 - One canonical home (`tests/e2e/`) so the answer to "where does a new e2e
   test go?" is fixed.
-- `fixtures/index.ts` exposes an extended `test` plus `expect`. Every spec
+- `packages/frontend/tests/e2e/fixtures/index.ts` exposes an extended `test` plus `expect`. Every spec
   imports from the same path, which makes the pattern easy for an agent to
   reproduce.
 - Legacy scripts continue to power `verify:browser:docker` so visual
@@ -129,7 +129,7 @@ Guard rails:
   any production Dockerfile or deploy manifest. README + design doc both
   state this explicitly.
 
-The Playwright auth fixture (`tests/e2e/fixtures/auth.ts`) uses a
+The Playwright auth fixture (`packages/frontend/tests/e2e/fixtures/auth.ts`) uses a
 per-worker `storageState` cache. On first use per worker it POSTs to
 `/test/auth/login` with `username = "e2e-${workerIndex}"`, persists the
 resulting cookies to `playwright/.auth/worker-${workerIndex}.json`, and
@@ -240,7 +240,7 @@ multi-spec leakage starts to matter.
 
 - `packages/frontend/tests/e2e/README.md` (≤50 lines): how to run, how to
   add, how to debug. Linked from `CLAUDE.md` Commands section.
-- `__template__.spec.ts`: a minimal Arrange/Act/Assert spec stub with TODO
+- `packages/frontend/tests/e2e/__template__.spec.ts`: a minimal Arrange/Act/Assert spec stub with TODO
   markers. Copy-paste is the intended workflow.
 - `docs/design/e2e-testing.md` (this document): why the system exists, the
   conventions, the boundaries.
@@ -264,7 +264,7 @@ Updates to existing docs in the first PR:
 | jsdom-compatible unit / component | `tests/*.test.ts(x)` (vitest, existing) |
 
 Rule of thumb: if the test is not a pixel comparison, it belongs in the
-new system. Adding new scenarios to `verify-interaction-browser.mjs` is
+new system. Adding new scenarios to `packages/frontend/scripts/verify-interaction-browser.mjs` is
 disallowed after PR 1; the old verifier is read-only until it is removed.
 
 ### Migration roadmap
@@ -274,7 +274,7 @@ disallowed after PR 1; the old verifier is read-only until it is removed.
 | **PR 1** (this spec) | Infra + auth fixture + Docker/CI + POC + template + docs |
 | PR 2…N | New behavioral specs, 1–3 per PR |
 | PR M | Port the three existing interaction scenarios (cell / formula / scroll) |
-| PR M+1 | Delete `scripts/verify-interaction-browser.mjs`; remove the interaction step from `verify:browser:docker` |
+| PR M+1 | Delete `packages/frontend/scripts/verify-interaction-browser.mjs`; remove the interaction step from `verify:browser:docker` |
 | (Deferred) | Visual regression migration to `toHaveScreenshot()` — see Non-Goals |
 
 ### Risks and Mitigation
@@ -306,7 +306,7 @@ verifier) and is acceptable to keep if the cost of migration outweighs
 the benefit; the decision is revisited, not forgotten.
 
 **Auth fixture stuck on first failure.** A bad cookie cached in
-`playwright/.auth/worker-N.json` would poison every subsequent run.
+`playwright/.auth/worker-<N>.json` would poison every subsequent run.
 Mitigated by deleting the auth cache on Playwright `globalSetup` (fresh
 storage state each run, then reused within the run).
 
