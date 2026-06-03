@@ -2030,6 +2030,26 @@ class SlidesEditorImpl implements SlidesEditor {
         });
         if (isEmptyPlaceholder(el)) {
           this.enterEditMode(slide.id, selectedId);
+          // TEMP DEBUG: capture state immediately after enterEditMode,
+          // and queue a microtask check for whether something exited
+          // edit between now and the next event-loop tick.
+          // eslint-disable-next-line no-console
+          console.log('[phase-b post-enter]', {
+            editingElementId: this.editingElementId,
+            hasTextBox: this.editingTextBox != null,
+          });
+          queueMicrotask(() => {
+            // eslint-disable-next-line no-console
+            console.log('[phase-b microtask]', {
+              editingElementId: this.editingElementId,
+            });
+          });
+          setTimeout(() => {
+            // eslint-disable-next-line no-console
+            console.log('[phase-b 0ms]', {
+              editingElementId: this.editingElementId,
+            });
+          }, 0);
           return;
         }
       }
