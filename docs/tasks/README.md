@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides grouped text edit entry (2026-06-03) | [20260603-slides-grouped-text-edit-entry-todo.md](./active/20260603-slides-grouped-text-edit-entry-todo.md) | [20260603-slides-grouped-text-edit-entry-lessons.md](./active/20260603-slides-grouped-text-edit-entry-lessons.md) |
 | slides font load repaint (2026-06-03) | [20260603-slides-font-load-repaint-todo.md](./active/20260603-slides-font-load-repaint-todo.md) | [20260603-slides-font-load-repaint-lessons.md](./active/20260603-slides-font-load-repaint-lessons.md) |
 | no smoking union outline (2026-06-01) | [20260601-no-smoking-union-outline-todo.md](./active/20260601-no-smoking-union-outline-todo.md) | [20260601-no-smoking-union-outline-lessons.md](./active/20260601-no-smoking-union-outline-lessons.md) |
 | slides connector elbow curved routing (2026-06-01) | [20260601-slides-connector-elbow-curved-routing-todo.md](./active/20260601-slides-connector-elbow-curved-routing-todo.md) | [20260601-slides-connector-elbow-curved-routing-lessons.md](./active/20260601-slides-connector-elbow-curved-routing-lessons.md) |

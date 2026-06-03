@@ -888,22 +888,14 @@ class SlidesEditorImpl implements SlidesEditor {
     // For TextElement the whole element is text, so we filter it out.
     // For ShapeElement the fill/stroke are still part of the slide and
     // must keep painting underneath the editor — only the `data.text`
-    // body gets stripped. Cloning is structural-only (no deep block
-    // copy) so this stays cheap on every frame.
+    // body gets stripped. The walker is recursive so the mask hits
+    // elements nested inside groups too; cloning is structural-only
+    // (no deep block copy) so this stays cheap on every frame.
     if (this.editingElementId !== null) {
       const editingId = this.editingElementId;
       const visible = {
         ...slide,
-        elements: slide.elements
-          .map((e) => {
-            if (e.id !== editingId) return e;
-            if (e.type === 'shape') {
-              const { text: _omit, ...rest } = e.data;
-              return { ...e, data: rest } as typeof e;
-            }
-            return null;
-          })
-          .filter((e): e is Element => e !== null),
+        elements: maskEditingElement(slide.elements, editingId),
       };
       this.renderer.forceRender(visible, doc);
       this.paintRuler();
@@ -2169,23 +2161,44 @@ class SlidesEditorImpl implements SlidesEditor {
     const doc = this.options.store.read();
     const slide = doc.slides.find((s) => s.id === slideId);
     if (!slide) return;
-    const element = slide.elements.find((e) => e.id === elementId);
-    if (!element || (element.type !== 'text' && element.type !== 'shape')) {
+    // Resolve the element anywhere in the slide tree (including inside
+    // groups) — `Array.prototype.find` would only see top-level
+    // elements, so grouped text/shape would silently fail to enter
+    // edit mode.
+    const localElement = findElement(slide.elements, elementId);
+    if (
+      !localElement ||
+      (localElement.type !== 'text' && localElement.type !== 'shape')
+    ) {
       return;
     }
+
+    // The overlay text-box mounts in WORLD coords (`frame.x * scale`,
+    // CSS rotate around centre). For grouped elements the stored
+    // `frame` is group-local; compose the ancestor transforms via
+    // `buildElementWorldLookup` so the editor lines up with where the
+    // slide canvas paints the element. For top-level elements the
+    // world lookup returns the live element by reference, so this is
+    // a no-op.
+    const worldLookup = buildElementWorldLookup(slide.elements);
+    const worldElement = worldLookup.get(elementId) as
+      | TextElement
+      | ShapeElement;
 
     // Build a small descriptor that papers over the difference between
     // editing a TextElement (text in `data.blocks`, frame auto-grows to
     // fit content) and a ShapeElement (text in `data.text.blocks`,
     // frame is user-sized and does NOT auto-grow into the text). All
     // the wiring below works off `target` so the two kinds stay aligned.
-    const target = buildEditTarget(element);
+    const target = buildEditTarget(worldElement);
 
     // Frame height at entry; the committed fit only writes when the
     // content height differs from this (text-element only; shapes skip
-    // the post-commit frame fit). Reset the per-edit tracker so a stale
-    // height from a previous edit can't leak into this commit.
-    const enterFrameH = element.frame.h;
+    // the post-commit frame fit). Read from the LOCAL element because
+    // `store.updateElementFrame` writes the height back in local space.
+    // Reset the per-edit tracker so a stale height from a previous
+    // edit can't leak into this commit.
+    const enterFrameH = localElement.frame.h;
     this.lastEditingContentHeight = null;
 
     // Make sure the selection is on the editing element so the rest of
@@ -3272,7 +3285,13 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return;
     const elementId = selectedIds[0];
-    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    // World lookup so grouped shapes resolve and the world↔local
+    // conversion below operates on the world frame the canvas paints
+    // (pointer logical coords are world coords). The render-side
+    // `paintLiveAdjustments` recurses into groups to write the live
+    // preview, and the store commit goes through `updateElementData`
+    // which is already group-aware.
+    const startEl = buildElementWorldLookup(startSlide.elements).get(elementId);
     if (!startEl || startEl.type !== 'shape') return;
 
     const handles = ADJUSTMENT_HANDLES.get(startEl.data.kind);
@@ -3339,20 +3358,28 @@ class SlidesEditorImpl implements SlidesEditor {
   private paintLiveAdjustments(elementId: string, adjustments: number[]): void {
     // Render a synthetic slide where the target shape's data has the live
     // adjustments applied. Mirrors paintLive but overrides element data
-    // instead of frame, using the same forceRender pattern.
+    // instead of frame, using the same forceRender pattern. The walker
+    // recurses into groups so adjustments on grouped shapes preview
+    // correctly.
     const slide = this.currentSlide();
     if (!slide) return;
     const synthetic = {
       ...slide,
-      elements: slide.elements.map((el) => {
-        if (el.id !== elementId || el.type !== 'shape') return el;
-        return { ...el, data: { ...el.data, adjustments } };
-      }),
+      elements: replaceShapeAdjustments(
+        slide.elements,
+        elementId,
+        adjustments,
+      ),
     };
     this.renderer.forceRender(synthetic, this.options.store.read());
     // Repaint overlay so adjustment handles follow the live shape.
-    const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, {
+    // `buildElementWorldLookup` resolves the live element (with the new
+    // adjustments) AND composes ancestor group transforms into its
+    // frame — both required so the yellow diamond tracks the shape
+    // inside a group.
+    const liveEl = buildElementWorldLookup(synthetic.elements).get(elementId);
+    if (!liveEl) return;
+    renderOverlay(this.options.overlay, [liveEl], {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
@@ -3801,6 +3828,79 @@ function findElement(elements: readonly Element[], id: string): Element | undefi
     }
   }
   return undefined;
+}
+
+/**
+ * Rebuild a slide's element tree with the target shape's
+ * `data.adjustments` overridden. Used by the adjustment-drag live
+ * preview so a grouped shape's renderer sees the in-flight values
+ * without mutating the store. Non-matching elements are aliased.
+ */
+function replaceShapeAdjustments(
+  elements: readonly Element[],
+  targetId: string,
+  adjustments: number[],
+): Element[] {
+  const out: Element[] = [];
+  for (const el of elements) {
+    if (el.id === targetId && el.type === 'shape') {
+      out.push({ ...el, data: { ...el.data, adjustments } });
+      continue;
+    }
+    if (el.type === 'group') {
+      out.push({
+        ...el,
+        data: {
+          ...el.data,
+          children: replaceShapeAdjustments(
+            el.data.children,
+            targetId,
+            adjustments,
+          ),
+        },
+      });
+      continue;
+    }
+    out.push(el);
+  }
+  return out;
+}
+
+/**
+ * Rebuild a slide's element tree with the in-edit element masked: a
+ * text element is dropped entirely, a shape element keeps its
+ * fill/stroke but has `data.text` stripped so the renderer doesn't
+ * paint the body that the in-place text-box editor now owns. Groups
+ * are walked recursively so the mask applies regardless of nesting
+ * depth. Shallow clones only; block arrays are aliased.
+ */
+function maskEditingElement(
+  elements: readonly Element[],
+  editingId: string,
+): Element[] {
+  const out: Element[] = [];
+  for (const el of elements) {
+    if (el.id === editingId) {
+      if (el.type === 'shape') {
+        const { text: _omit, ...rest } = el.data;
+        out.push({ ...el, data: rest } as typeof el);
+      }
+      // TextElement → drop entirely; the overlay editor owns it now.
+      continue;
+    }
+    if (el.type === 'group') {
+      out.push({
+        ...el,
+        data: {
+          ...el.data,
+          children: maskEditingElement(el.data.children, editingId),
+        },
+      });
+      continue;
+    }
+    out.push(el);
+  }
+  return out;
 }
 
 /**
