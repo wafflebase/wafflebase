@@ -1,11 +1,20 @@
 import { test, expect } from '../../fixtures';
 
 test.describe('Dashboard: create presentation', () => {
-  test('creates a new presentation and lists it on the dashboard', async ({ page }) => {
-    await page.goto('/');
+  test('creates a new presentation and lists it on the dashboard', async ({
+    page,
+    workspaceSlug,
+  }) => {
+    // Skip HomeOrRedirect → Navigate → PrivateRoute → Layout chain by
+    // navigating directly to the workspace dashboard. The slug is
+    // deterministic per worker (UserService.findOrCreateUser auto-creates
+    // a `${username}-s-workspace` workspace on first login).
+    const dashboardPath = `/w/${workspaceSlug}`;
 
-    // Wait for the documents page filter to be ready as a precondition
-    // (the page has no h1; the filter input is the most reliable visible marker).
+    await page.goto(dashboardPath);
+
+    // The filter input is the dashboard's most reliable visible marker:
+    // it has no h1 heading, and document rows are absent for fresh users.
     await expect(page.getByPlaceholder(/filter by title/i)).toBeVisible();
 
     const docsBefore = await page.getByTestId('document-row').count();
@@ -18,7 +27,7 @@ test.describe('Dashboard: create presentation', () => {
     await expect(page.getByTestId('slides-editor')).toBeVisible();
 
     // Back on the dashboard, the row count went up by exactly one.
-    await page.goto('/');
+    await page.goto(dashboardPath);
     await expect(page.getByPlaceholder(/filter by title/i)).toBeVisible();
     const docsAfter = await page.getByTestId('document-row').count();
     expect(docsAfter).toBe(docsBefore + 1);
