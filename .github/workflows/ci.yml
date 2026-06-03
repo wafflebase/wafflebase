@@ -305,6 +305,13 @@ jobs:
       WAFFLEBASE_E2E_AUTH: "1"
       JWT_SECRET: ci-e2e-jwt-secret
       FRONTEND_URL: http://localhost:5173
+      # GitHub OAuth strategy is instantiated at boot and demands
+      # clientID/clientSecret even when /auth/github is never hit
+      # during e2e. Stub values keep AppModule wiring happy; the
+      # test-auth bypass (WAFFLEBASE_E2E_AUTH=1) is what specs use.
+      GITHUB_CLIENT_ID: ci-e2e-stub
+      GITHUB_CLIENT_SECRET: ci-e2e-stub
+      GITHUB_CALLBACK_URL: http://localhost:3000/auth/github/callback
     services:
       postgres:
         image: postgres:16
