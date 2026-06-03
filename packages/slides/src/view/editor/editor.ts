@@ -2199,6 +2199,23 @@ class SlidesEditorImpl implements SlidesEditor {
     // Reset the per-edit tracker so a stale height from a previous
     // edit can't leak into this commit.
     const enterFrameH = localElement.frame.h;
+    // The autofit-grow commit path reads the editor's reported content
+    // height (in world / canvas-logical coords) and writes it straight
+    // into `frame.h` (LOCAL). For top-level elements local === world;
+    // for groups with rotation 0 + unit scale, w/h/rotation still
+    // match between local and world. When they DIVERGE (rotated or
+    // scaled ancestor group), the world-h cannot be stored as local-h
+    // without dividing by the cumulative scaleY — out of scope here.
+    // Skip the fit in those cases so we never corrupt the stored
+    // height; rotated/scaled groups simply don't autofit-grow on
+    // commit. Falls through cleanly for normal (top-level / scale-1)
+    // elements.
+    const localFrame = localElement.frame;
+    const worldFrame = worldElement.frame;
+    const ancestorHasTransform =
+      worldFrame.w !== localFrame.w ||
+      worldFrame.h !== localFrame.h ||
+      worldFrame.rotation !== localFrame.rotation;
     this.lastEditingContentHeight = null;
 
     // Make sure the selection is on the editing element so the rest of
@@ -2266,8 +2283,13 @@ class SlidesEditorImpl implements SlidesEditor {
                 // Fit the frame height to the content in the SAME batch
                 // as the text write — one undo entry, no per-keystroke
                 // churn. Shapes keep their authored frame; skip the fit.
+                // Also skip when the element sits inside a rotated /
+                // non-unit-scale group: the reported height is in world
+                // coords, and writing it into the local `frame.h`
+                // without composing the inverse ancestor transform
+                // would silently corrupt the stored height.
                 const h = this.lastEditingContentHeight;
-                if (h !== null) {
+                if (h !== null && !ancestorHasTransform) {
                   const targetH = Math.max(MIN_TEXT_BOX_H, h);
                   if (targetH !== enterFrameH) {
                     this.options.store.updateElementFrame(slideId, elementId, { h: targetH });

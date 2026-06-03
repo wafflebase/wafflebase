@@ -116,8 +116,17 @@ exact same shape and the diff sits in the same handful of lines.
   groups the height would need to be divided by the cumulative
   scaleY before being stored. The slide-22 deck (and every group on
   it) has rotation 0 and refSize === frame, so the scope-1 case
-  covers the reported bug. Scaled-group autofit becomes a follow-up
-  if a real deck triggers it.
+  covers the reported bug. To keep the silent-miswrite hole closed
+  in the meantime, `enterEditMode` detects ancestor transform
+  (world frame w/h/rotation diverging from local) and skips the
+  post-commit autofit-grow write in that case. Scaled-group autofit
+  becomes a follow-up if a real deck triggers it.
+- Connector-endpoint drag on connectors nested inside groups.
+  `startConnectorEndpointDrag` (editor.ts:3135) has the same
+  flat-find pattern. PPTX import can produce connectors inside
+  groups (`<p:cxnSp>` inside `<p:grpSp>`); the editor-side
+  `group()` op currently forbids them, so the user-reachable
+  failure mode is import-only. Deferred to keep this PR scoped.
 - Docs/sheets: this is a slides-only path; no other package surfaces
   the same `slide.elements.find` pattern.
 
