@@ -4,6 +4,7 @@ const baseURL = process.env.WAFFLEBASE_E2E_BASE_URL ?? 'http://localhost:5173';
 
 export default defineConfig({
   testDir: 'tests/e2e/specs',
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

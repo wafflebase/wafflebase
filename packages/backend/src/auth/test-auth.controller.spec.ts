@@ -63,15 +63,18 @@ describe('TestAuthController', () => {
       email: 'e2e-0@test.local',
       photo: null,
     });
+    // Exact match (not objectContaining) so a future regression that adds
+    // an unintended attribute — e.g. `domain: 'evil.com'`, `secure: true`
+    // out of band, `sameSite: 'none'` — fails the test loudly.
     expect(res.cookie).toHaveBeenCalledWith(
       'wafflebase_session',
       expect.any(String),
-      expect.objectContaining({ httpOnly: true, sameSite: 'lax', secure: false }),
+      { httpOnly: true, sameSite: 'lax', secure: false },
     );
     expect(res.cookie).toHaveBeenCalledWith(
       'wafflebase_refresh',
       expect.any(String),
-      expect.objectContaining({ httpOnly: true, sameSite: 'lax', secure: false }),
+      { httpOnly: true, sameSite: 'lax', secure: false },
     );
     expect(res.json).toHaveBeenCalledWith({ ok: true, userId: 42 });
   });
