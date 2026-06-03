@@ -2018,38 +2018,16 @@ class SlidesEditorImpl implements SlidesEditor {
       if (!mods.shift && this.selection.get().length === 1) {
         const selectedId = this.selection.get()[0];
         const el = findElement(slide.elements, selectedId);
-        // TEMP DEBUG: remove before merge — diagnosing why dev doesn't auto-enter
-        // eslint-disable-next-line no-console
-        console.log('[phase-b]', {
-          selectedId,
-          elType: el?.type,
-          hasPlaceholderRef: el?.placeholderRef != null,
-          placeholderType: el?.placeholderRef?.type,
-          isEmpty: el?.type === 'text' ? el.data.blocks.every((b) => b.inlines.every((i) => i.text === '')) : null,
-          predicate: isEmptyPlaceholder(el),
-        });
         if (isEmptyPlaceholder(el)) {
+          // Match the dblclick path: stop the browser's default click /
+          // focus cascade so the freshly-mounted text-box's textarea
+          // keeps focus. Without preventDefault, the pointerup +
+          // synthetic click that follow this pointerdown re-focus the
+          // canvas (or body) and the textarea blurs → onCommit fires
+          // before the user types anything, dropping us back out of
+          // edit mode within ~1 ms. See onDoubleClick at line 2096.
+          e.preventDefault();
           this.enterEditMode(slide.id, selectedId);
-          // TEMP DEBUG: capture state immediately after enterEditMode,
-          // and queue a microtask check for whether something exited
-          // edit between now and the next event-loop tick.
-          // eslint-disable-next-line no-console
-          console.log('[phase-b post-enter]', {
-            editingElementId: this.editingElementId,
-            hasTextBox: this.editingTextBox != null,
-          });
-          queueMicrotask(() => {
-            // eslint-disable-next-line no-console
-            console.log('[phase-b microtask]', {
-              editingElementId: this.editingElementId,
-            });
-          });
-          setTimeout(() => {
-            // eslint-disable-next-line no-console
-            console.log('[phase-b 0ms]', {
-              editingElementId: this.editingElementId,
-            });
-          }, 0);
           return;
         }
       }

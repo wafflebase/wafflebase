@@ -112,6 +112,35 @@ describe('empty-placeholder 1-click entry', () => {
     if (editor) { editor.detach(); editor = null; }
   });
 
+  it('calls preventDefault on the pointerdown so the textarea keeps focus', () => {
+    // Real-browser regression: without preventDefault, the synthetic
+    // click that follows pointerup re-focuses the canvas / body and the
+    // just-mounted textarea blurs → onCommit → exitEditMode within
+    // ~1 ms, dropping the user back out of edit mode before they can
+    // type. The dblclick path already preventDefaults for the same
+    // reason. This test would have caught the dev-mode failure.
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => { sid = store.addSlide('title-body'); });
+    const titleId = findPlaceholderId(store, sid, 'title');
+    const title = store.read().slides
+      .find((s) => s.id === sid)!.elements.find((e) => e.id === titleId)!;
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+
+    const downEvent = new PointerEvent('pointerdown', {
+      clientX: title.frame.x + title.frame.w / 2,
+      clientY: title.frame.y + title.frame.h / 2,
+      pointerType: 'mouse', button: 0, bubbles: true, cancelable: true,
+    });
+    canvas.dispatchEvent(downEvent);
+    expect(downEvent.defaultPrevented).toBe(true);
+  });
+
   it('enters edit mode on first click into an empty Title placeholder', () => {
     const { canvas, overlay, store } = setup();
     let sid = '';
