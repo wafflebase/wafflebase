@@ -246,19 +246,25 @@ describe('empty-placeholder 1-click entry', () => {
     expect(editor.getSelection()).toEqual([titleId]);
   });
 
-  it('enters edit when clicking an empty placeholder while a different element is selected', () => {
-    // Core "one click per region" flow: title → body. After typing the
-    // title and committing, the user clicks the still-empty body
-    // placeholder; the click is a *fresh* selection (replacing the
-    // current title selection), so it must both replace selection AND
-    // enter edit on the body in one gesture.
+  it('one click per region: title click → commit → body click both auto-enter edit', () => {
+    // Drive the full real-user flow: click empty Title (enters edit),
+    // commit out, then click empty Body. Selection still holds the
+    // title id after commit (see `finishEditMode` — it only clears
+    // editing state, not selection), so the body click is a fresh
+    // *replacement* selection. Both clicks must auto-enter edit; the
+    // body click in particular has to work even though edit-then-
+    // commit just ran on a *different* element. A shortcut via
+    // `editor.setSelection([titleId])` would skip the commit lifecycle
+    // and miss any "lingering edit state blocks the next 1-click"
+    // regression.
     const { canvas, overlay, store } = setup();
     let sid = '';
     store.batch(() => { sid = store.addSlide('title-body'); });
     const titleId = findPlaceholderId(store, sid, 'title');
     const bodyId = findPlaceholderId(store, sid, 'body');
-    const body = store.read().slides
-      .find((s) => s.id === sid)!.elements.find((e) => e.id === bodyId)!;
+    const slide = store.read().slides.find((s) => s.id === sid)!;
+    const title = slide.elements.find((e) => e.id === titleId)!;
+    const body = slide.elements.find((e) => e.id === bodyId)!;
 
     editor = initialize({
       canvas, overlay, store,
@@ -266,14 +272,27 @@ describe('empty-placeholder 1-click entry', () => {
       mountTextBox: makeMockMount(),
     });
 
-    editor.setSelection([titleId]);
+    // 1. Click empty Title → 1-click entry should fire.
+    click(
+      canvas,
+      title.frame.x + title.frame.w / 2,
+      title.frame.y + title.frame.h / 2,
+    );
+    expect(editor.getEditingElementId()).toBe(titleId);
 
+    // 2. Commit out of edit (mirrors the user pressing Esc / clicking
+    //    away). Selection keeps titleId per `finishEditMode`.
+    editor.exitTextEditing();
+    expect(editor.getEditingElementId()).toBeNull();
+    expect(editor.getSelection()).toEqual([titleId]);
+
+    // 3. Click empty Body — fresh replacement selection; 1-click entry
+    //    must fire again.
     click(
       canvas,
       body.frame.x + body.frame.w / 2,
       body.frame.y + body.frame.h / 2,
     );
-
     expect(editor.getEditingElementId()).toBe(bodyId);
     expect(editor.getSelection()).toEqual([bodyId]);
   });
