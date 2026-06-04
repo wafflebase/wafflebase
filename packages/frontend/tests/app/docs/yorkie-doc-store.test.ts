@@ -365,6 +365,69 @@ describe('YorkieDocStore', () => {
       expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
+    // --- IME composition undo (issue #318) ---
+    //
+    // The fixed IME path keeps interim composing text out of the model and
+    // commits a composed syllable in a single `insertText` (one
+    // `doc.update()`), so one composed character is exactly one Yorkie undo
+    // unit. These guard that contract at the store level; the docs package
+    // covers the "interim text never reaches the model" half.
+    function blockText(id: string): string {
+      return store.getBlock(id)?.inlines.map((i) => i.text).join('') ?? '';
+    }
+
+    it('a single committed syllable adds exactly one undo unit', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      // What compositionend now does: commit the whole syllable at once.
+      store.insertText(block.id, 0, '가');
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+      expect(blockText(block.id)).toBe('가');
+    });
+
+    it('one undo removes a composed syllable cleanly (no toggle)', () => {
+      const block = makeBlock('가');
+      store.setDocument({ blocks: [block] });
+      store.insertText(block.id, 1, '나'); // commit a second syllable
+      expect(blockText(block.id)).toBe('가나');
+      store.undo();
+      // Gone in ONE undo — not toggled back on by a second undo unit.
+      expect(blockText(block.id)).toBe('가');
+    });
+
+    it('clamps an out-of-model cursor offset before publishing to presence', () => {
+      // During IME composition the caret can sit past the model length
+      // because the composing text is view-local. Presence must not publish
+      // that out-of-model offset to peers.
+      const block = makeBlock('가'); // model length 1
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 3 }, null);
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 1 });
+    });
+
+    it('leaves an in-range cursor offset untouched in presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 3 }, null);
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 3 });
+    });
+
+    it('contrast: the legacy interim-write churn produced many undo units', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      // The pre-fix per-compositionupdate pattern: each insert/delete was its
+      // own doc.update(), so one syllable stacked several reversible units at
+      // the same position — the reported on/off toggle.
+      store.insertText(block.id, 0, 'ㄱ');
+      store.deleteText(block.id, 0, 1);
+      store.insertText(block.id, 0, '가');
+      store.deleteText(block.id, 0, 1);
+      store.insertText(block.id, 0, '가');
+      expect(doc.getUndoStackForTest().length).toBeGreaterThan(before + 1);
+    });
+
     // Regression: ensureTree() in docs-view.tsx populates the Tree with an
     // initial block via doc.update() *before* YorkieDocStore is constructed.
     // When the doc already has blocks, editor.ts skips its setDocument
