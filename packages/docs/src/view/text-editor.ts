@@ -4,7 +4,7 @@ import { Doc, type EditContext } from '../model/document.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
-import type { DocumentLayout } from './layout.js';
+import type { ComposingContext, DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
 import { resolveInlineFont } from './layout.js';
@@ -71,7 +71,7 @@ export class TextEditor {
    * to the model). Called with `null` when composition ends or aborts.
    */
   onComposingContextChange:
-    | ((ctx: { blockId: string; offset: number; text: string } | null) => void)
+    | ((ctx: ComposingContext | null) => void)
     | null = null;
   /**
    * When true, all input events are ignored until the next microtask.
@@ -248,10 +248,7 @@ export class TextEditor {
     // position (the composing text isn't in the model, so the clamp lands it
     // before the preview); without this the caret would sit in front of the
     // injected composing run while the preview renders after it.
-    const caretPos: DocPosition = {
-      blockId: pos.blockId,
-      offset: pos.offset + this.composition.composingText.length,
-    };
+    const caretPos = this.composingEndPos(pos, this.composition.composingText);
     this.cursor.moveTo(caretPos, this.getWrapAffinity(caretPos));
     // Re-publish the view-local composing injection at the corrected
     // position so the preview does not render at the stale offset until the
@@ -265,6 +262,16 @@ export class TextEditor {
 
   isComposing(): boolean {
     return this.composition.active;
+  }
+
+  /**
+   * Position at the end of composing text that starts at `start` — i.e.
+   * where the caret sits while a composition of `text` is in progress (or
+   * just after it commits). Centralises the `start + length` offset math
+   * shared by the browser-IME and software-Hangul paths.
+   */
+  private composingEndPos(start: DocPosition, text: string): DocPosition {
+    return { blockId: start.blockId, offset: start.offset + text.length };
   }
 
   /**
@@ -462,10 +469,7 @@ export class TextEditor {
       // Commit the visible preview (no compositionend e.data is available
       // here) as a single insert → one undo unit.
       this.docInsertText(startPosition, composingText);
-      const endPos: DocPosition = {
-        blockId: startPosition.blockId,
-        offset: startPosition.offset + composingText.length,
-      };
+      const endPos = this.composingEndPos(startPosition, composingText);
       this.markDirty(startPosition.blockId);
       this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
     }
@@ -512,10 +516,7 @@ export class TextEditor {
     if (finalText.length > 0) {
       this.docInsertText(startPosition, finalText);
     }
-    const endPos: DocPosition = {
-      blockId: startPosition.blockId,
-      offset: startPosition.offset + finalText.length,
-    };
+    const endPos = this.composingEndPos(startPosition, finalText);
 
     // Clear the view-local composing state and its layout injection before
     // re-render so the block lays out from the now-committed model text.
@@ -565,10 +566,7 @@ export class TextEditor {
       const { startPosition } = this.composition;
 
       this.composition.composingText = newText;
-      const compPos: DocPosition = {
-        blockId: startPosition.blockId,
-        offset: startPosition.offset + newText.length,
-      };
+      const compPos = this.composingEndPos(startPosition, newText);
       this.markDirty(startPosition.blockId);
       this.emitComposingContext();
       this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));
@@ -4637,10 +4635,7 @@ export class TextEditor {
       this.hangulComposingText = '';
     }
 
-    const hangulPos: DocPosition = {
-      blockId: this.hangulStartPos.blockId,
-      offset: this.hangulStartPos.offset + this.hangulComposingText.length,
-    };
+    const hangulPos = this.composingEndPos(this.hangulStartPos, this.hangulComposingText);
     this.markDirty(this.hangulStartPos.blockId);
     this.emitComposingContext();
     this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));
