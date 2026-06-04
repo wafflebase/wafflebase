@@ -62,10 +62,14 @@ describe('docs editor — IME composition keeps interim text out of the model', 
   let editor: EditorAPI;
   let origGetContext: HTMLCanvasElement['getContext'];
   let origRAF: typeof window.requestAnimationFrame;
+  let origResizeObserver: unknown;
+  let origOffscreenCanvas: unknown;
 
   beforeEach(() => {
     origGetContext = HTMLCanvasElement.prototype.getContext;
     origRAF = window.requestAnimationFrame;
+    origResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    origOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
     installCanvasShim();
     window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
       queueMicrotask(() => cb(performance.now()));
@@ -83,6 +87,8 @@ describe('docs editor — IME composition keeps interim text out of the model', 
     document.body.removeChild(container);
     HTMLCanvasElement.prototype.getContext = origGetContext;
     window.requestAnimationFrame = origRAF;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = origResizeObserver;
+    (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = origOffscreenCanvas;
   });
 
   function textarea(): HTMLTextAreaElement {

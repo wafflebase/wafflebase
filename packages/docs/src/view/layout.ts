@@ -217,7 +217,7 @@ export function injectComposingInline(
       const before = inline.text.slice(0, localOffset);
       const after = inline.text.slice(localOffset);
       if (before.length > 0) result.push({ ...inline, text: before });
-      result.push({ text, style: { ...inline.style } });
+      result.push({ text, style: composingStyleFrom(inline.style) });
       if (after.length > 0) result.push({ ...inline, text: after });
       inserted = true;
     } else {
@@ -230,10 +230,22 @@ export function injectComposingInline(
     // Offset at/after the end, or an empty block: append, inheriting the
     // trailing inline's style when there is one.
     const style = inlines.length > 0 ? inlines[inlines.length - 1].style : {};
-    result.push({ text, style: { ...style } });
+    result.push({ text, style: composingStyleFrom(style) });
   }
 
   return result;
+}
+
+/**
+ * Inherit only the *visual* (text) style for a composing run. Structural
+ * metadata — `image` (Object Replacement placeholder) and `pageNumber` —
+ * must be dropped: otherwise composing right after an image inline would
+ * make `measureSegments` treat the typed preview as an image rather than
+ * text, breaking IME layout at image / page-number boundaries.
+ */
+function composingStyleFrom(style: InlineStyle): InlineStyle {
+  const { image: _image, pageNumber: _pageNumber, ...textStyle } = style;
+  return textStyle;
 }
 
 /**

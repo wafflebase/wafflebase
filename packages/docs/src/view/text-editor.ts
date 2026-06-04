@@ -473,6 +473,9 @@ export class TextEditor {
       this.markDirty(startPosition.blockId);
       this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
     }
+    // Drop the now-committed preedit from the hidden textarea so a later
+    // non-IME `input` (after refocus) doesn't re-read and reinsert it.
+    this.textarea.value = '';
     this.emitComposingContext();
     // Notify listeners that composition ended so the collaboration layer
     // clears its cached composition-start anchor (otherwise a blur-aborted

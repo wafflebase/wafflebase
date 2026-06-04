@@ -55,6 +55,27 @@ describe('injectComposingInline', () => {
     injectComposingInline(inlines, 2, 'X');
     expect(inlines).toEqual([{ text: 'ABCD', style: {} }]);
   });
+
+  it('drops structural metadata (image/pageNumber) so the composing run stays text', () => {
+    // Composing right after an inline image must not inherit `image`, or
+    // measureSegments would treat the preview as an image instead of text.
+    const inlines: Inline[] = [
+      { text: '￼', style: { image: { src: 'x', width: 10, height: 10 } } as Inline['style'] },
+    ];
+    const result = injectComposingInline(inlines, 1, '가');
+    const composing = result.find((i) => i.text === '가');
+    expect(composing?.style.image).toBeUndefined();
+    expect(composing?.style.pageNumber).toBeUndefined();
+  });
+
+  it('keeps visual style (bold) while dropping structural metadata', () => {
+    const inlines: Inline[] = [
+      { text: 'A', style: { bold: true, pageNumber: true } as Inline['style'] },
+    ];
+    const composing = injectComposingInline(inlines, 1, 'X').find((i) => i.text === 'X');
+    expect(composing?.style.bold).toBe(true);
+    expect(composing?.style.pageNumber).toBeUndefined();
+  });
 });
 
 describe('computeLayout with composingContext', () => {
