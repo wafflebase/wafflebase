@@ -176,6 +176,67 @@ export interface LayoutCache {
 }
 
 /**
+ * View-local IME composing text to splice into one block's layout.
+ *
+ * During IME composition the interim text is *not* written to the
+ * document model (so it produces no Yorkie undo unit — see
+ * `docs/design/docs/docs-ime-undo-history.md`). Instead it is injected
+ * here as a synthetic inline at `offset`, so wrapping / following-text
+ * reflow and caret placement stay correct while the model is untouched.
+ * It lives only inside the layout pass and is never persisted.
+ */
+export interface ComposingContext {
+  blockId: string;
+  /** Character offset within the block where composing text sits. */
+  offset: number;
+  /** The view-local composing string (empty string = nothing to inject). */
+  text: string;
+}
+
+/**
+ * Splice `text` into `inlines` at character `offset`, inheriting the
+ * style at the insertion point (left-biased at an inline boundary, the
+ * same rule newly typed text follows). Returns a new array; the inputs
+ * are not mutated. Used to render IME composing text view-locally.
+ */
+export function injectComposingInline(
+  inlines: Inline[],
+  offset: number,
+  text: string,
+): Inline[] {
+  if (text.length === 0) return inlines;
+
+  const result: Inline[] = [];
+  let pos = 0;
+  let inserted = false;
+
+  for (const inline of inlines) {
+    const len = inline.text.length;
+    if (!inserted && offset <= pos + len) {
+      const localOffset = offset - pos;
+      const before = inline.text.slice(0, localOffset);
+      const after = inline.text.slice(localOffset);
+      if (before.length > 0) result.push({ ...inline, text: before });
+      result.push({ text, style: { ...inline.style } });
+      if (after.length > 0) result.push({ ...inline, text: after });
+      inserted = true;
+    } else {
+      result.push(inline);
+    }
+    pos += len;
+  }
+
+  if (!inserted) {
+    // Offset at/after the end, or an empty block: append, inheriting the
+    // trailing inline's style when there is one.
+    const style = inlines.length > 0 ? inlines[inlines.length - 1].style : {};
+    result.push({ text, style: { ...style } });
+  }
+
+  return result;
+}
+
+/**
  * A segment of text with uniform style, ready for measurement.
  * Tracks which inline it came from and character offsets.
  */
@@ -218,6 +279,7 @@ export function computeLayout(
   contentWidth: number,
   dirtyBlockIds?: Set<string>,
   cache?: LayoutCache,
+  composingContext?: ComposingContext,
 ): { layout: DocumentLayout; cache: LayoutCache } {
   const availableWidth = contentWidth;
   const canUseCache = cache != null
@@ -248,7 +310,9 @@ export function computeLayout(
     let lines: LayoutLine[];
 
     if (block.type === 'table' && block.tableData) {
-      const tableLayout = computeTableLayout(block.tableData, block.id, measurer, availableWidth);
+      const tableLayout = computeTableLayout(
+        block.tableData, block.id, measurer, availableWidth, composingContext,
+      );
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
         blockParentMap.set(k, v);
@@ -275,7 +339,7 @@ export function computeLayout(
     } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(effectiveBlock, measurer, availableWidth);
+      lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext);
       assignLineHeights(lines, effectiveBlock);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
@@ -329,9 +393,15 @@ export function layoutBlock(
   block: Block,
   measurer: TextMeasurer,
   maxWidth: number,
+  composingContext?: ComposingContext,
 ): LayoutLine[] {
   // Resolve heading defaults into inlines before measurement
-  const inlines = resolveBlockInlines(block);
+  const resolved = resolveBlockInlines(block);
+  // Splice in view-local IME composing text for this block, if any, so it
+  // reflows like real text without being written to the document model.
+  const inlines = composingContext?.blockId === block.id
+    ? injectComposingInline(resolved, composingContext.offset, composingContext.text)
+    : resolved;
   // Measure all segments (word-level)
   const segments = measureSegments(inlines, measurer);
 
