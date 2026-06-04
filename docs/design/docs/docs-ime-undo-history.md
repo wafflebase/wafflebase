@@ -46,7 +46,7 @@ From the SDK source, after each `doc.update()` the change is executed, its
 `reverseOps` are collected, and **iff there is at least one reverse op, exactly
 one entry is pushed onto the undo stack**:
 
-```
+```ts
 // @yorkie-js/sdk 0.7.8, Document.update internals
 if (reverseOps.length) {
   this.internalHistory.pushUndo(reverseOps);   // one undo unit per doc.update()
@@ -158,14 +158,33 @@ Normative rules:
   one `doc.update()` → one undo unit. No interim delete needed (nothing was
   written to the model).
 
-Rendering the transient composing text:
+Rendering the transient composing text — **view-local layout injection**:
 
 - Today the composing glyph is visible only because interim text is written to
   the model and painted from it; there is **no existing transient text overlay**
-  for composition (image overlays exist in `doc-canvas.ts`, but not text). So this
-  change adds a small transient-render path: paint the composing string as a
-  view-local run at the caret position (reusing existing measure/paint), drawn
-  after the document content and cleared on `compositionend`.
+  for composition (image overlays exist in `doc-canvas.ts`, but not text).
+- Two techniques were considered: (A) paint the composing string as a run at the
+  caret position on the canvas, and (B) inject the composing text into the
+  layout as a view-local synthetic run. (A) is simpler but does **not reflow** —
+  mid-paragraph composition would overlap the following text. **(B) is chosen**
+  so wrapping and following-text-shift stay correct, matching the "no regression
+  to live composition rendering" goal.
+- Concretely: thread a `composingContext = { blockId, offset, text }`
+  through `computeLayout()` (`layout.ts:215`) into `layoutBlock()`
+  (`layout.ts:328`). The composing run inherits the inline style at the
+  insertion point in the layout (left-biased at a boundary, same as newly typed
+  text), so no `style` field is needed.
+  Right after `measureSegments()` and before the wrapping
+  loop, splice a **synthetic `MeasuredSegment`** at the composing offset. The
+  wrapping loop, alignment, line-height, and caret pixel resolution
+  (`resolvePositionPixel`, `peer-cursor.ts:97`) all treat it as an ordinary run,
+  so reflow and caret placement come for free. The synthetic run lives only
+  inside `layoutBlock()` scope — it is never written to `doc.document.blocks`.
+- The caret's block must be marked dirty on every composing keystroke (the
+  incremental layout cache keys off `blockId` only), and the injection is cleared
+  when composition ends or aborts (focus loss / Escape) so no ghost text remains.
+- Body, header, footer, and table-cell blocks all funnel through the same
+  `layoutBlock()`, so a single seam covers every region.
 
 `packages/docs/src/view/hangul.ts` (software Hangul assembly, used when the
 browser does not fire composition events): it already separates `commit` vs
@@ -224,9 +243,11 @@ drift-corrected position, not a stale absolute offset.
    Proposed: accept this (matches Google Docs / Notion). Confirm it is acceptable;
    if live composing visibility is required, the interim would have to be shared
    by some non-undo channel (e.g. presence), not the document model.
-3. **Transient render technique.** Paint the composing run on the canvas
-   (proposed, keeps a single rendering pipeline) vs. a positioned visible
-   `textarea` overlay. Confirm preference.
+3. **Transient render technique.** *Resolved: view-local layout injection.* The
+   composing text is spliced into `layoutBlock()` as a synthetic run rather than
+   painted at the caret or overlaid via a `textarea`, so it reflows correctly
+   (following text shifts, lines wrap) while never touching the document model.
+   See *Implementation shape → Rendering the transient composing text*.
 
 ## References
 
