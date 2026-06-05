@@ -7,7 +7,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, resolveInlineFont, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, resolveInlineFont, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -522,6 +522,11 @@ export function initialize(
   let footerLayout: DocumentLayout | null = null;
   let layoutCache: LayoutCache | undefined;
   let dirtyBlockIds: Set<string> | undefined;
+  // View-local IME composing text injected into the layout of the caret's
+  // block during composition (never written to the model). Pushed here by
+  // the TextEditor; consumed by recomputeLayout. See
+  // docs/design/docs/docs-ime-undo-history.md.
+  let composingContext: ComposingContext | null = null;
   let needsScrollIntoView = false;
   let focused = !readOnly;
 
@@ -738,6 +743,7 @@ export function initialize(
       contentWidth,
       dirtyBlockIds,
       layoutCache,
+      composingContext ?? undefined,
     );
     layout = result.layout;
     layoutCache = result.cache;
@@ -751,6 +757,9 @@ export function initialize(
         doc.document.header.blocks,
         measurer,
         contentWidth,
+        undefined,
+        undefined,
+        composingContext ?? undefined,
       ).layout;
     } else {
       headerLayout = null;
@@ -760,6 +769,9 @@ export function initialize(
         doc.document.footer.blocks,
         measurer,
         contentWidth,
+        undefined,
+        undefined,
+        composingContext ?? undefined,
       ).layout;
     } else {
       footerLayout = null;
@@ -1469,6 +1481,13 @@ export function initialize(
     textEditor.setCursorTarget(canvas);
     textEditor.setPendingStyle(pending);
 
+    // Receive view-local IME composing text so recomputeLayout injects it
+    // into the caret block's layout (never written to the model). The
+    // TextEditor marks the block dirty and requests a render on each change.
+    textEditor.onComposingContextChange = (ctx) => {
+      composingContext = ctx;
+    };
+
     textEditor.onDragGuideline = (pos) => {
       dragGuideline = pos;
       renderPaintOnly();
@@ -1855,6 +1874,10 @@ export function initialize(
   };
   const handleBlur = () => {
     focused = false;
+    // Finalize any in-progress IME composition so no view-local composing
+    // text is left injected in the layout (ghost text) when focus leaves
+    // mid-composition without a compositionend.
+    textEditor?.cancelComposition();
     pending.clear();
     cursor.stopBlink();
     render();

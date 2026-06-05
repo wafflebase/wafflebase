@@ -4,7 +4,7 @@ import { Doc, type EditContext } from '../model/document.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
-import type { DocumentLayout } from './layout.js';
+import type { ComposingContext, DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
 import { resolveInlineFont } from './layout.js';
@@ -29,8 +29,13 @@ interface CompositionState {
   active: boolean;
   /** Cursor position where composition started */
   startPosition: DocPosition;
-  /** Length of currently composed text inserted into the model */
-  currentLength: number;
+  /**
+   * The current view-local composing text. NOT written to the document
+   * model — it is injected into the layout for rendering only, so one
+   * composed character commits as a single undo unit. See
+   * docs/design/docs/docs-ime-undo-history.md.
+   */
+  composingText: string;
 }
 
 /**
@@ -58,8 +63,16 @@ export class TextEditor {
   private composition: CompositionState = {
     active: false,
     startPosition: { blockId: '', offset: 0 },
-    currentLength: 0,
+    composingText: '',
   };
+  /**
+   * Set by the editor to receive the view-local IME composing text so it
+   * can be injected into the layout of the caret's block (never written
+   * to the model). Called with `null` when composition ends or aborts.
+   */
+  onComposingContextChange:
+    | ((ctx: ComposingContext | null) => void)
+    | null = null;
   /**
    * When true, all input events are ignored until the next microtask.
    * Set after compositionend to prevent post-composition duplicate insertion.
@@ -74,7 +87,8 @@ export class TextEditor {
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
   private hangulAssembler = new HangulAssembler();
   private hangulStartPos: DocPosition = { blockId: '', offset: 0 };
-  private hangulComposingLength = 0;
+  /** View-local software-Hangul composing preview (not written to model). */
+  private hangulComposingText = '';
   private handleFocus: (() => void) | null = null;
   private handleBlur: (() => void) | null = null;
   /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
@@ -227,11 +241,37 @@ export class TextEditor {
    */
   setCompositionStartPosition(pos: DocPosition): void {
     if (!this.composition.active) return;
+    const prevBlockId = this.composition.startPosition.blockId;
     this.composition.startPosition = { ...pos };
+    // Move the caret back to the end of the composing text (start + length).
+    // A remote change first restores the local cursor to the *clamped* model
+    // position (the composing text isn't in the model, so the clamp lands it
+    // before the preview); without this the caret would sit in front of the
+    // injected composing run while the preview renders after it.
+    const caretPos = this.composingEndPos(pos, this.composition.composingText);
+    this.cursor.moveTo(caretPos, this.getWrapAffinity(caretPos));
+    // Re-publish the view-local composing injection at the corrected
+    // position so the preview does not render at the stale offset until the
+    // next input event. Mark both the old and new block dirty so the old
+    // block sheds its injection and the new one picks it up.
+    this.markDirty(prevBlockId);
+    this.markDirty(pos.blockId);
+    this.emitComposingContext();
+    this.requestRender();
   }
 
   isComposing(): boolean {
     return this.composition.active;
+  }
+
+  /**
+   * Position at the end of composing text that starts at `start` — i.e.
+   * where the caret sits while a composition of `text` is in progress (or
+   * just after it commits). Centralises the `start + length` offset math
+   * shared by the browser-IME and software-Hangul paths.
+   */
+  private composingEndPos(start: DocPosition, text: string): DocPosition {
+    return { blockId: start.blockId, offset: start.offset + text.length };
   }
 
   /**
@@ -383,17 +423,81 @@ export class TextEditor {
 
   // --- IME Composition handlers ---
 
+  /**
+   * Push the current view-local composing text (browser IME or software
+   * Hangul) to the editor so it can be injected into the layout. Emits
+   * `null` when there is nothing composing, clearing any injection.
+   */
+  private emitComposingContext(): void {
+    if (!this.onComposingContextChange) return;
+    if (this.composition.active && this.composition.composingText.length > 0) {
+      this.onComposingContextChange({
+        blockId: this.composition.startPosition.blockId,
+        offset: this.composition.startPosition.offset,
+        text: this.composition.composingText,
+      });
+    } else if (this.hangulComposingText.length > 0) {
+      this.onComposingContextChange({
+        blockId: this.hangulStartPos.blockId,
+        offset: this.hangulStartPos.offset,
+        text: this.hangulComposingText,
+      });
+    } else {
+      this.onComposingContextChange(null);
+    }
+  }
+
+  /**
+   * Abort any in-progress IME composition — used on blur, where a
+   * `compositionend` is not guaranteed to fire. Commits the currently
+   * visible composing text (so an in-progress character is not lost) and
+   * clears the view-local layout injection so no ghost text is left
+   * rendered. A no-op when nothing is composing; normally `compositionend`
+   * fires before blur and this finds nothing to do.
+   */
+  cancelComposition(): void {
+    // Software Hangul: flush commits the in-progress syllable and clears
+    // its view-local preview (and already emits + re-renders).
+    if (this.hangulAssembler.isComposing) {
+      this.flushHangul();
+    }
+    if (!this.composition.active) return;
+    const { startPosition, composingText } = this.composition;
+    this.composition.active = false;
+    this.composition.composingText = '';
+    if (composingText.length > 0) {
+      // Commit the visible preview (no compositionend e.data is available
+      // here) as a single insert → one undo unit.
+      this.docInsertText(startPosition, composingText);
+      const endPos = this.composingEndPos(startPosition, composingText);
+      this.markDirty(startPosition.blockId);
+      this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
+    }
+    // Drop the now-committed preedit from the hidden textarea so a later
+    // non-IME `input` (after refocus) doesn't re-read and reinsert it.
+    this.textarea.value = '';
+    this.emitComposingContext();
+    // Notify listeners that composition ended so the collaboration layer
+    // clears its cached composition-start anchor (otherwise a blur-aborted
+    // composition leaves a stale anchor behind).
+    for (const cb of this.compositionEndListeners) cb();
+    this.requestRender();
+  }
+
   private handleCompositionStart = (): void => {
     // Cancel any pending post-compositionend ignore — a new composition is
     // starting (e.g. syllable boundary in Korean: compositionend → compositionstart).
     this.ignoreInputUntilNextTick = false;
     this.saveSnapshot();
+    // A selection present at composition start is deleted here as its own
+    // edit (its own undo unit); the composed character commits as a second
+    // unit on compositionend. See docs-ime-undo-history.md Open Question #1.
     this.deleteSelection();
     const startPosition: DocPosition = { ...this.cursor.position };
     this.composition = {
       active: true,
       startPosition,
-      currentLength: 0,
+      composingText: '',
     };
     for (const cb of this.compositionStartListeners) cb({ ...startPosition });
   };
@@ -406,23 +510,26 @@ export class TextEditor {
     // the model during composition. This corrects any drift caused by
     // browser-specific textarea.value quirks (e.g. accumulation on iOS).
     const finalText = e.data || '';
-    const { startPosition, currentLength } = this.composition;
+    const { startPosition } = this.composition;
 
-    if (currentLength > 0) {
-      this.docDeleteText(startPosition, currentLength, { keepPending: true });
-    }
+    // Interim composing text was never written to the model (it was only
+    // injected into the layout for rendering), so there is nothing to
+    // delete first. Commit the final text in a single insert → exactly one
+    // doc.update() → one Yorkie undo unit. This is the issue #318 fix.
     if (finalText.length > 0) {
       this.docInsertText(startPosition, finalText);
     }
-    const endPos: DocPosition = {
-      blockId: startPosition.blockId,
-      offset: startPosition.offset + finalText.length,
-    };
+    const endPos = this.composingEndPos(startPosition, finalText);
+
+    // Clear the view-local composing state and its layout injection before
+    // re-render so the block lays out from the now-committed model text.
+    this.composition.active = false;
+    this.composition.composingText = '';
+    this.emitComposingContext();
+
     this.markDirty(startPosition.blockId);
     this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
 
-    this.composition.active = false;
-    this.composition.currentLength = 0;
     for (const cb of this.compositionEndListeners) cb();
     this.requestRender();
 
@@ -455,22 +562,16 @@ export class TextEditor {
     if (this.composition.active) {
       // Browser IME path: read textarea.value which contains the current
       // composing text as managed by the browser's native IME system.
+      // The interim text is kept view-local (injected into the layout for
+      // rendering) and is NOT written to the model, so it produces no undo
+      // units; only the final compositionend commit does. (issue #318)
       const newText = this.textarea.value;
-      const { startPosition, currentLength } = this.composition;
+      const { startPosition } = this.composition;
 
-      if (currentLength > 0) {
-        this.docDeleteText(startPosition, currentLength, { keepPending: true });
-      }
-      if (newText.length > 0) {
-        this.docInsertText(startPosition, newText);
-      }
-
-      this.composition.currentLength = newText.length;
-      const compPos: DocPosition = {
-        blockId: startPosition.blockId,
-        offset: startPosition.offset + newText.length,
-      };
+      this.composition.composingText = newText;
+      const compPos = this.composingEndPos(startPosition, newText);
       this.markDirty(startPosition.blockId);
+      this.emitComposingContext();
       this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));
       this.requestRender();
       return;
@@ -4504,8 +4605,10 @@ export class TextEditor {
 
   private applyHangulResult(result: HangulResult): void {
     if (result.commit) {
-      if (this.hangulComposingLength > 0) {
-        this.docDeleteText(this.hangulStartPos, this.hangulComposingLength, { keepPending: true });
+      // Commit the finished syllable to the model in a single insert → one
+      // undo unit. The interim `composing` preview was view-local (only
+      // injected into the layout), so there is nothing to delete first.
+      if (this.hangulComposingText !== '') {
         this.docInsertText(this.hangulStartPos, result.commit);
         this.hangulStartPos = {
           blockId: this.hangulStartPos.blockId,
@@ -4519,29 +4622,25 @@ export class TextEditor {
           offset: this.cursor.position.offset + result.commit.length,
         };
       }
-      this.hangulComposingLength = 0;
+      this.hangulComposingText = '';
     }
 
     if (result.composing) {
-      if (this.hangulComposingLength === 0 && !result.commit) {
+      if (this.hangulComposingText === '' && !result.commit) {
         this.saveSnapshot();
         this.deleteSelection();
         this.hangulStartPos = { ...this.cursor.position };
       }
-      if (this.hangulComposingLength > 0) {
-        this.docDeleteText(this.hangulStartPos, this.hangulComposingLength, { keepPending: true });
-      }
-      this.docInsertText(this.hangulStartPos, result.composing);
-      this.hangulComposingLength = result.composing.length;
+      // View-local preview: rendered via layout injection, never written
+      // to the model (so it produces no undo unit until commit).
+      this.hangulComposingText = result.composing;
     } else {
-      this.hangulComposingLength = 0;
+      this.hangulComposingText = '';
     }
 
-    const hangulPos: DocPosition = {
-      blockId: this.hangulStartPos.blockId,
-      offset: this.hangulStartPos.offset + this.hangulComposingLength,
-    };
+    const hangulPos = this.composingEndPos(this.hangulStartPos, this.hangulComposingText);
     this.markDirty(this.hangulStartPos.blockId);
+    this.emitComposingContext();
     this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));
     this.requestRender();
   }

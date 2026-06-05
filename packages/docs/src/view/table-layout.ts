@@ -1,6 +1,6 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
-import type { LayoutLine } from './layout.js';
+import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
 import { ptToPx, Theme } from './theme.js';
 import type { TextMeasurer } from './measurer.js';
@@ -39,6 +39,7 @@ function layoutCellBlocks(
   measurer: TextMeasurer,
   maxWidth: number,
   blockParentMap?: Map<string, BlockCellInfo>,
+  composingContext?: ComposingContext,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
@@ -60,6 +61,7 @@ function layoutCellBlocks(
         block.id,
         measurer,
         maxWidth,
+        composingContext,
       );
       if (blockParentMap) {
         for (const [k, v] of nestedLayout.blockParentMap) {
@@ -90,7 +92,7 @@ function layoutCellBlocks(
           },
         };
 
-    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth);
+    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth, composingContext);
     assignLineHeights(blockLines, effectiveBlock);
 
     const alignWidth = maxWidth - (effectiveBlock.style.marginLeft ?? 0);
@@ -124,6 +126,7 @@ export function computeTableLayout(
   tableBlockId: string,
   measurer: TextMeasurer,
   contentWidth: number,
+  composingContext?: ComposingContext,
 ): LayoutTable {
   const { rows, columnWidths } = tableData;
   const numCols = columnWidths.length;
@@ -165,7 +168,9 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], measurer, innerWidth, blockParentMap);
+      const { lines, blockBoundaries } = layoutCellBlocks(
+        cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext,
+      );
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
       cellRow.push({ lines, blockBoundaries, width: cellWidth, height: cellHeight, merged: false });

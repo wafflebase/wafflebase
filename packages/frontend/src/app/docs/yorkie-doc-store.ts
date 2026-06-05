@@ -863,6 +863,33 @@ export class YorkieDocStore implements DocStore {
     };
   }
 
+  /**
+   * Clamp a document position's offset to its block's model text length.
+   *
+   * The local caret can legitimately sit past the model length during IME
+   * composition, because the in-progress composing text is rendered
+   * view-locally (injected into the layout) but never written to the
+   * shared model. Peers do not have that text, so publishing the raw,
+   * out-of-model offset into presence would point their cursor overlay at
+   * a position that does not exist in the shared document. Clamp before
+   * publishing so presence always references a valid model position. The
+   * anchors already clamp via `anchorDocPosition`; this keeps the raw
+   * presence offset consistent with them. Best-effort: an unresolvable
+   * block id falls through unchanged.
+   */
+  private clampPosToModel(pos: DocPosition): DocPosition {
+    try {
+      const currentDoc = this.getDocument();
+      const { path, region } = this.resolveBlockTreePath(pos.blockId, currentDoc);
+      const block = this.getBlockByRegion(currentDoc, path, region);
+      if (!block) return pos;
+      const len = this.blockTextLength(block);
+      return { blockId: pos.blockId, offset: Math.max(0, Math.min(pos.offset, len)) };
+    } catch {
+      return pos;
+    }
+  }
+
   private topLevelRegionIndex(
     currentDoc: Document,
     region: DocRegion,
@@ -2629,12 +2656,23 @@ export class YorkieDocStore implements DocStore {
       };
     } | null,
   ): void {
-    this.localCursorAnchor = pos ? this.anchorDocPosition(pos, 'backward') : null;
-    this.localSelectionAnchor = this.anchorDocRange(selection ?? null);
+    // Clamp to the model before publishing so an out-of-model offset (e.g.
+    // the caret sitting after view-local IME composing text) never leaks
+    // into peer presence. See clampPosToModel.
+    const clampedPos = pos ? this.clampPosToModel(pos) : null;
+    const clampedSelection = selection
+      ? {
+          ...selection,
+          anchor: this.clampPosToModel(selection.anchor),
+          focus: this.clampPosToModel(selection.focus),
+        }
+      : selection;
+    this.localCursorAnchor = clampedPos ? this.anchorDocPosition(clampedPos, 'backward') : null;
+    this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
     this.doc.update((_, p) => {
       p.set({
-        activeCursorPos: pos ?? undefined,
-        activeSelection: selection ?? undefined,
+        activeCursorPos: clampedPos ?? undefined,
+        activeSelection: clampedSelection ?? undefined,
       });
     });
   }
