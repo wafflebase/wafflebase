@@ -2571,9 +2571,21 @@ class SlidesEditorImpl implements SlidesEditor {
 
   /**
    * Drives the P1.5 slow-double-click entry. Returns true when the
-   * pointer-up landed inside the selected element's text region AND the
-   * selection is a single text-capable element — in which case it enters
-   * edit mode and the caller should treat the pointer cycle as consumed.
+   * pointer-up landed inside the selected element's editable region AND
+   * the selection is a single text-capable element — in which case it
+   * enters edit mode and the caller should treat the pointer cycle as
+   * consumed.
+   *
+   * Editable region resolution:
+   * - Text elements use `getTextRegionRect` (frame inset by the same
+   *   visual padding the hover I-beam cursor uses).
+   * - Shapes WITH a text body: same.
+   * - Shapes WITHOUT a text body (freshly inserted, never edited): fall
+   *   back to the shape's `SHAPE_TEXT_PADDING`-inset frame. Otherwise
+   *   `getTextRegionRect` would return null and P1.5 would silently
+   *   no-op on shapes the user can clearly enter via dblclick — those
+   *   shapes are still editable; `buildEditTarget` seeds an empty
+   *   paragraph on first commit.
    */
   private tryEnterEditFromSlowDoubleClick(
     clientX: number,
@@ -2583,8 +2595,19 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!ctx) return false;
     const { slide, el, worldFrame, x, y } = ctx;
     if (el.type !== 'text' && el.type !== 'shape') return false;
-    const region = getTextRegionRect(el, worldFrame);
-    if (!region) return false;
+    let region = getTextRegionRect(el, worldFrame);
+    if (region === null && el.type === 'shape') {
+      // Mirror `buildEditTarget` (4154): the editable area for shape
+      // inline text is the world frame inset by `SHAPE_TEXT_PADDING`.
+      region = {
+        x: worldFrame.x + SHAPE_TEXT_PADDING.x,
+        y: worldFrame.y + SHAPE_TEXT_PADDING.y,
+        w: Math.max(0, worldFrame.w - 2 * SHAPE_TEXT_PADDING.x),
+        h: Math.max(0, worldFrame.h - 2 * SHAPE_TEXT_PADDING.y),
+      };
+    }
+    if (region === null) return false;
+    if (region.w === 0 || region.h === 0) return false;
     if (!isPointInRect(x, y, region)) return false;
     if (slide) this.enterEditMode(slide.id, el.id);
     return true;

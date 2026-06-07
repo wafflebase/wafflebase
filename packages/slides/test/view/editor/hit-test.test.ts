@@ -172,6 +172,24 @@ describe('edgeZoneAt — P2.7 edge-zone region detection', () => {
     const rotated = { ...frame, rotation: -EDGE_ZONE_MAX_ROTATION_RAD - 0.001 };
     expect(edgeZoneAt(101, 150, rotated)).toBeNull();
   });
+
+  it('both-axes-narrow frame returns single closest edge, not a corner', () => {
+    // 4×4 shape at (0, 0); every interior point is within threshold (4)
+    // of all four edges. The cascade default would return 'se' for the
+    // geometric center; the collapse picks the strictly-closest single
+    // edge instead so the cursor doesn't pretend to be a diagonal.
+    const tiny = { x: 0, y: 0, w: 4, h: 4, rotation: 0 };
+    // Centroid: equidistant from all 4 edges → first candidate in the
+    // sort wins (stable sort keeps insertion order). Acceptable because
+    // there is no single "right" answer; the test asserts we don't
+    // return a corner cursor.
+    const result = edgeZoneAt(2, 2, tiny);
+    expect(result).not.toBeNull();
+    expect(['n', 's', 'e', 'w']).toContain(result);
+    // Off-center pointer favours the closer pair of edges.
+    expect(edgeZoneAt(0.5, 2, tiny)).toBe('w');
+    expect(edgeZoneAt(2, 3.5, tiny)).toBe('s');
+  });
 });
 
 describe('edgeZoneCursor — direction → CSS cursor mapping', () => {

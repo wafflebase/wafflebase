@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Block } from '../../src/model/types.js';
 import { initializeTextBox } from '../../src/view/text-box-editor.js';
 
@@ -82,17 +82,16 @@ describe('text-box composing-context wiring', () => {
     api.detach();
   });
 
-  it('software Hangul: requestRender fires after each composing step', async () => {
+  it('software Hangul: requestAnimationFrame fires after each composing step', async () => {
     // The fix is the wiring `onComposingContextChange → composingContext +
     // layoutCache = undefined + requestRender()`. Without the requestRender
     // call, the canvas wouldn't repaint and the user would see nothing.
-    // Detect indirectly: the `onContentHeightChange` callback fires through
-    // renderNow → recomputeLayout. If composition triggers a render pass,
-    // this callback can be observed firing at least once after the jamo
-    // input (a single empty block injected with one jamo still renders the
-    // same total height, so we only check that the render path was driven,
-    // not the specific height delta).
-    let heightCalls = 0;
+    // We spy on `requestAnimationFrame` directly — `onContentHeightChange`
+    // would only fire when total height actually changes, so a single
+    // jamo on an empty block wouldn't reliably trip that signal even when
+    // the render path runs. Comparing rAF call counts before vs after the
+    // jamo input proves the composing-context wiring drove a new frame.
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame');
     const api = initializeTextBox({
       container,
       canvas,
@@ -100,17 +99,15 @@ describe('text-box composing-context wiring', () => {
       contentWidth: 400,
       contentHeight: 200,
       onCommit: () => {},
-      onContentHeightChange: () => { heightCalls++; },
     });
     await flushRaf();
     api.focus();
     await flushRaf();
-    const baseline = heightCalls;
+    const baseline = rafSpy.mock.calls.length;
     inputJamo('ㄱ');
     await flushRaf();
-    // Render pass ran (at minimum, the requestRender call queued a frame
-    // and the renderNow → recomputeLayout cycle invoked the callback).
-    expect(heightCalls).toBeGreaterThanOrEqual(baseline);
+    expect(rafSpy.mock.calls.length).toBeGreaterThan(baseline);
+    rafSpy.mockRestore();
     api.detach();
   });
 

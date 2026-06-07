@@ -95,9 +95,27 @@ export function edgeZoneAt(
   let nearRight = distRight <= threshold;
   let nearTop = distTop <= threshold;
   let nearBottom = distBottom <= threshold;
-  // Narrow-frame tiebreak: when both opposing edges are "near", pick
-  // the strictly closer one so we don't return a misleading 'nw' / 'sw'
-  // / 'ne' / 'se' for a click in the geometric middle of a thin shape.
+  // Both-axes-narrow tiebreak (frame.w < 2t AND frame.h < 2t): every
+  // point inside is "near" all four edges; picking a corner direction
+  // (e.g. 'se') from the cascade below would mislead the user about
+  // which axis they're actually closest to. Collapse to the single
+  // strictly-closest edge so the resize cursor matches the dominant
+  // direction. Single-axis-narrow case still falls through to the
+  // per-axis tiebreak below.
+  const narrowW = frame.w < 2 * threshold;
+  const narrowH = frame.h < 2 * threshold;
+  if (narrowW && narrowH) {
+    const candidates: Array<[ResizeHandle, number]> = [];
+    if (nearLeft) candidates.push(['w', distLeft]);
+    if (nearRight) candidates.push(['e', distRight]);
+    if (nearTop) candidates.push(['n', distTop]);
+    if (nearBottom) candidates.push(['s', distBottom]);
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a[1] - b[1]);
+    return candidates[0][0];
+  }
+  // Single-axis tiebreak: opposing edges along one axis both "near"
+  // collapses to the strictly closer one.
   if (nearLeft && nearRight) {
     if (distLeft < distRight) nearRight = false;
     else nearLeft = false;
