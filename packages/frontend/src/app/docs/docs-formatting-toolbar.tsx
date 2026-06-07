@@ -240,6 +240,11 @@ interface DocsFormattingToolbarProps {
 export function DocsFormattingToolbar({ editor, editContext = 'body', documentTitle }: DocsFormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [exporting, setExporting] = useState(false);
+  // Controlled open state for the header/footer slim color palettes — the
+  // swatches are plain <button>s, not DropdownMenuItem, so Radix can't
+  // auto-close them.
+  const [slimTextColorOpen, setSlimTextColorOpen] = useState(false);
+  const [slimHighlightOpen, setSlimHighlightOpen] = useState(false);
 
   const handleExportDocx = useCallback(async () => {
     if (!editor || exporting) return;
@@ -380,10 +385,12 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     const handleTextColor = (color: string) => {
       editor?.applyStyle({ color });
       editor?.focus();
+      setSlimTextColorOpen(false);
     };
     const handleHighlightColor = (backgroundColor: string) => {
       editor?.applyStyle({ backgroundColor });
       editor?.focus();
+      setSlimHighlightOpen(false);
     };
     const handleAlign = (alignment: "left" | "center" | "right" | "justify") => {
       editor?.applyBlockStyle({ alignment });
@@ -442,7 +449,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <TooltipContent>Underline ({modKey}+U)</TooltipContent>
         </Tooltip>
 
-        <DropdownMenu>
+        <DropdownMenu open={slimTextColorOpen} onOpenChange={setSlimTextColorOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -455,12 +462,15 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             </TooltipTrigger>
             <TooltipContent>Text color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent className="w-auto p-2">
+          <DropdownMenuContent
+            className="w-auto p-2"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
             <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu open={slimHighlightOpen} onOpenChange={setSlimHighlightOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -473,7 +483,10 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             </TooltipTrigger>
             <TooltipContent>Highlight color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent className="w-auto p-2">
+          <DropdownMenuContent
+            className="w-auto p-2"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
             <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>

@@ -128,10 +128,14 @@ export function RightGlobals({
   formatPanelOpen,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
   const onBackgroundChange = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId) return;
       store.batch(() => store.updateSlideBackground(slideId, { fill: color }));
+      setBackgroundOpen(false);
     },
     [store, slideId],
   );
@@ -155,7 +159,7 @@ export function RightGlobals({
       aria-label="Slide style"
     >
       {hasSlideStyleGroup && (
-        <DropdownMenu>
+        <DropdownMenu open={backgroundOpen} onOpenChange={setBackgroundOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>

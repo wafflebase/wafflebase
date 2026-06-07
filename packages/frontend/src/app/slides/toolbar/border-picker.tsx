@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Stroke, Theme, ThemeColor } from '@wafflebase/slides';
 import { resolveColor } from '@wafflebase/slides';
 import {
@@ -34,11 +35,17 @@ function resolvePickerColor(color: Stroke['color'] | undefined): ThemeColor | un
  * shape-controls (Task 8) and text-element-controls (Task 10).
  */
 export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerProps) {
+  // Controlled open state so the palette closes after a swatch click — the
+  // color swatches are plain <button>s, not DropdownMenuItem, so Radix can't
+  // auto-close them.
+  const [colorOpen, setColorOpen] = useState(false);
+
   const onColorChange = (color: ThemeColor) => {
     const next: Stroke = { ...(value ?? DEFAULT_STROKE), color };
     // Re-enable stroke if weight was 0 (user picking color implies they want a border).
     if (next.width === 0) next.width = 1;
     onChange(next);
+    setColorOpen(false);
   };
 
   const onWeightChange = (width: number) => {
@@ -64,7 +71,7 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
   return (
     <>
       {/* Border color */}
-      <DropdownMenu>
+      <DropdownMenu open={colorOpen} onOpenChange={setColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>

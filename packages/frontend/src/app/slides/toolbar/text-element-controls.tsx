@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type {
   SlidesEditor,
   SlidesStore,
@@ -55,6 +55,10 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
     (e) => e.id === firstId && e.type === 'text',
   ) as TextElement | undefined;
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [fillOpen, setFillOpen] = useState(false);
+
   const onBackgroundFill = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId || !slide) return;
@@ -66,6 +70,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           }
         }
       });
+      setFillOpen(false);
     },
     [store, slideId, slide, ids],
   );
@@ -137,7 +142,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   return (
     <>
       {/* Background fill — the text box itself, not text color */}
-      <DropdownMenu>
+      <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>

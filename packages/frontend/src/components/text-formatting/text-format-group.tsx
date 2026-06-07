@@ -4,7 +4,7 @@
  * the slides text-edit state toolbar.
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { TextFormattingEditor } from "./types";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -99,11 +99,17 @@ export function TextFormatGroup({
     editor.applyStyle({ strikethrough: !current.strikethrough });
   }, [editor]);
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [textColorOpen, setTextColorOpen] = useState(false);
+  const [highlightOpen, setHighlightOpen] = useState(false);
+
   const handleTextColor = useCallback(
     (color: string) => {
       if (!editor) return;
       editor.applyStyle({ color });
       editor.focus();
+      setTextColorOpen(false);
     },
     [editor]
   );
@@ -113,6 +119,7 @@ export function TextFormatGroup({
       if (!editor) return;
       editor.applyStyle({ backgroundColor });
       editor.focus();
+      setHighlightOpen(false);
     },
     [editor]
   );
@@ -207,7 +214,7 @@ export function TextFormatGroup({
       )}
 
       {/* Text color */}
-      <DropdownMenu>
+      <DropdownMenu open={textColorOpen} onOpenChange={setTextColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -236,7 +243,7 @@ export function TextFormatGroup({
       </DropdownMenu>
 
       {/* Highlight color */}
-      <DropdownMenu>
+      <DropdownMenu open={highlightOpen} onOpenChange={setHighlightOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>

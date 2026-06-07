@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type {
   ConnectorElement,
   ShapeElement,
@@ -49,6 +49,10 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
   const firstElement = slide?.elements.find((e) => e.id === firstId);
   const isShape = firstElement?.type === 'shape';
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [fillOpen, setFillOpen] = useState(false);
+
   const onFillChange = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId || !slide) return;
@@ -60,6 +64,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           }
         }
       });
+      setFillOpen(false);
     },
     [store, slideId, slide, ids],
   );
@@ -101,7 +106,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     <>
       {/* Fill: shapes only — connectors have no fill */}
       {isShape && (
-        <DropdownMenu>
+        <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
