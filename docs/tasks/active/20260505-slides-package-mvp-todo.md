@@ -66,12 +66,12 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 - [ ] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping, delegate font/embedding to docs
 - [ ] 5.7 `packages/cli/src/commands/slides.ts` — list/create/delete/content/export-pdf
 - [ ] 5.8 `packages/backend/test/slides-cli-roundtrip.e2e-spec.ts`
-- [ ] 5.9 `verify:browser:docker` adds slides scenario (thumbnails + present)
+- [x] 5.9 `verify:browser:docker` adds slides scenario (thumbnails + present)
 - [ ] 5.10 verify:full green
 
 ## Cross-Cutting
 
-- [ ] Update `docs/design/README.md` — Slides section (done in spec commit)
+- [x] Update `docs/design/README.md` — Slides section (done in spec commit)
 - [ ] Update `packages/frontend/README.md` for slides route
 - [x] Add `packages/slides/README.md`
 - [ ] Visual companion brainstorm session archived in `.superpowers/brainstorm/` (gitignored)

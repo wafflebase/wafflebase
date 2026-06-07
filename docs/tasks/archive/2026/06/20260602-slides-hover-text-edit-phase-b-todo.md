@@ -35,14 +35,14 @@
 - Modify: `packages/slides/src/view/editor/interactions/select.ts`
 - Modify: `packages/slides/test/view/editor/interactions/select.test.ts`
 
-- [ ] **Step 1: Cut feature branch**
+- [x] **Step 1: Cut feature branch**
 
 ```bash
 git fetch origin
 git checkout -b slides-hover-text-edit-phase-b origin/main
 ```
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 Append to `packages/slides/test/view/editor/interactions/select.test.ts` (after the existing `describe('selectAt')` block):
 
@@ -130,7 +130,7 @@ describe('isEmptyPlaceholder', () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to confirm they fail**
+- [x] **Step 3: Run tests to confirm they fail**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- interactions/select
@@ -138,7 +138,7 @@ pnpm --filter @wafflebase/slides test -- interactions/select
 
 Expected: each new `isEmptyPlaceholder` case fails with `isEmptyPlaceholder is not a function` or similar.
 
-- [ ] **Step 4: Implement the predicate**
+- [x] **Step 4: Implement the predicate**
 
 Append to `packages/slides/src/view/editor/interactions/select.ts`:
 
@@ -179,7 +179,7 @@ export function isEmptyPlaceholder(
 }
 ```
 
-- [ ] **Step 5: Run tests to confirm they pass**
+- [x] **Step 5: Run tests to confirm they pass**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- interactions/select
@@ -187,7 +187,7 @@ pnpm --filter @wafflebase/slides test -- interactions/select
 
 Expected: all 7 new cases green plus the existing `selectAt` suite still passing.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/select.ts \
@@ -203,7 +203,7 @@ git commit -m "Slides: pure isEmptyPlaceholder predicate"
 - Modify: `packages/slides/src/view/editor/editor.ts` (around lines 2005-2014, fresh-selection branch of `onPointerDown`)
 - Create: `packages/slides/test/view/editor/empty-placeholder-entry.test.ts`
 
-- [ ] **Step 1: Write failing integration test**
+- [x] **Step 1: Write failing integration test**
 
 Create `packages/slides/test/view/editor/empty-placeholder-entry.test.ts`. The setup mirrors `hover-highlight.test.ts`: jsdom canvas + overlay, `MemSlidesStore`, mock text-box mount injected via `editor.options` (the editor accepts a `mountTextBox` override the same way `hover-highlight.test.ts` does). Reuse the `makeMockMount` and `emptyBlock` helpers — duplicate them locally (only ~30 lines and keeps each spec self-contained).
 
@@ -443,7 +443,7 @@ describe('empty-placeholder 1-click entry', () => {
 
 > **Note on test getters/setters:** verified during plan-writing — `SlidesEditor` already exposes `getEditingElementId()` (editor.ts:276), `getSelection()` (editor.ts:250), and `setSelection(ids)` (editor.ts:251). The test code above uses `getEditingElementId` and `getSelection`. **The previous draft of this test used `getSelectedIds()` — that does NOT exist. Replace any such call with `getSelection()` before running.**
 
-- [ ] **Step 2: Run the new test to confirm it fails**
+- [x] **Step 2: Run the new test to confirm it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- empty-placeholder-entry
@@ -451,7 +451,7 @@ pnpm --filter @wafflebase/slides test -- empty-placeholder-entry
 
 Expected: 5 failing cases — `getEditingElementId()` returns null for the title click because the wiring doesn't exist yet.
 
-- [ ] **Step 3: Wire the predicate into `onPointerDown`**
+- [x] **Step 3: Wire the predicate into `onPointerDown`**
 
 In `packages/slides/src/view/editor/editor.ts`, around the fresh-selection branch (~lines 2005-2014, between `this.refitPoppedScope(...)` and the `if (this.selection.get().length > 0) { this.startDrag(...) }` block), add the 1-click entry route:
 
@@ -497,7 +497,7 @@ import {
 
 (If the existing import line differs — e.g. only `SelectAtOptions` is imported — extend it to include `isEmptyPlaceholder`. Do not add a second import line for the same module.)
 
-- [ ] **Step 4: Run the new test to confirm it passes**
+- [x] **Step 4: Run the new test to confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- empty-placeholder-entry
@@ -505,7 +505,7 @@ pnpm --filter @wafflebase/slides test -- empty-placeholder-entry
 
 Expected: 5 passing cases.
 
-- [ ] **Step 5: Run the full slides suite to check for regressions**
+- [x] **Step 5: Run the full slides suite to check for regressions**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -513,7 +513,7 @@ pnpm --filter @wafflebase/slides test
 
 Expected: all tests pass. Pay particular attention to existing `select`, `drag`, `editor`, and `selection-drillin` suites — any failures there mean the new branch interferes with a path it shouldn't.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -529,7 +529,7 @@ git commit -m "Slides: empty-placeholder 1-click enters text edit"
 - Modify: `docs/design/slides/slides.md` (Interactions table)
 - Modify: `docs/tasks/active/20260601-slides-hover-text-edit-entry-todo.md` (replace Phase B stub with pointer)
 
-- [ ] **Step 1: Append row to `slides.md` Interactions table**
+- [x] **Step 1: Append row to `slides.md` Interactions table**
 
 Locate the Interactions table (search for "Cursor over selected text region" — added in Phase A — and append after it):
 
@@ -537,7 +537,7 @@ Locate the Interactions table (search for "Cursor over selected text region" —
 | Click empty layout placeholder | first click on a `text` element with `placeholderRef` and empty body | selects AND `enterEditMode(...)`; see [slides-hover-and-text-edit-entry.md § P1.4](slides-hover-and-text-edit-entry.md) |
 ```
 
-- [ ] **Step 2: Point the umbrella todo at this plan**
+- [x] **Step 2: Point the umbrella todo at this plan**
 
 In `docs/tasks/active/20260601-slides-hover-text-edit-entry-todo.md`, replace the Phase B stub (the paragraph beginning "**Tasks (to be expanded):**" under "## Phase B — P1.4") with:
 
@@ -547,7 +547,7 @@ In `docs/tasks/active/20260601-slides-hover-text-edit-entry-todo.md`, replace th
 
 Leave the **Scope** and **Key files** lines as-is so the umbrella keeps its at-a-glance phase summary.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 pnpm verify:fast
@@ -555,7 +555,7 @@ pnpm verify:fast
 
 Expected: green (lint + unit). If a markdown linter complains about the new table row, match the column count of neighboring rows exactly.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/design/slides/slides.md \
@@ -567,7 +567,7 @@ git commit -m "Docs: link Phase B plan, document 1-click placeholder entry"
 
 ## Task B4: Phase B wrap-up — verify, smoke, review, PR
 
-- [ ] **Step 1: Rebase on latest `main`**
+- [x] **Step 1: Rebase on latest `main`**
 
 ```bash
 git fetch origin
@@ -576,7 +576,7 @@ git rebase origin/main
 
 Expected: clean rebase. If `editor.ts` has moved (the line numbers in this plan are pinned to PR #331's tip), re-locate the fresh-selection branch by searching for `this.refitPoppedScope(beforeScope, afterScope, slide.id);` — the insertion point is the next statement after that call.
 
-- [ ] **Step 2: Final verify**
+- [x] **Step 2: Final verify**
 
 ```bash
 pnpm verify:fast
@@ -584,7 +584,7 @@ pnpm verify:fast
 
 Expected: green.
 
-- [ ] **Step 3: Manual smoke in `pnpm dev`**
+- [x] **Step 3: Manual smoke in `pnpm dev`**
 
 ```bash
 pnpm dev
@@ -602,7 +602,7 @@ Open `/slides/<doc>` and confirm, in this order:
 
 > **If smoke step 7 feels wrong during dogfooding** — the fix is to defer the `enterEditMode` call to the no-drag `pointerup` path (the same path Phase C will hook for slow double-click). That widens the change in `editor.ts` (pointer-up classifier) but does not affect the predicate. Note in `*-lessons.md` if observed.
 
-- [ ] **Step 4: Self code-review**
+- [x] **Step 4: Self code-review**
 
 ```bash
 # Either:
@@ -612,11 +612,11 @@ Open `/slides/<doc>` and confirm, in this order:
 
 Invoke the `superpowers:requesting-code-review` skill over the branch diff (`git diff origin/main...HEAD`). Address blocking findings; note non-blocking ones in lessons.
 
-- [ ] **Step 5: Capture lessons**
+- [x] **Step 5: Capture lessons**
 
 Create `docs/tasks/active/20260602-slides-hover-text-edit-phase-b-lessons.md` with one section per surprise (predicate shape choices, test-getter additions, smoke step 7 outcome).
 
-- [ ] **Step 6: Open PR**
+- [x] **Step 6: Open PR**
 
 ```bash
 git push -u origin slides-hover-text-edit-phase-b
@@ -647,7 +647,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 7: After CI green + review approval**
+- [x] **Step 7: After CI green + review approval**
 
 Merge via the GitHub UI (squash-merge per project convention). Then in a fresh session:
 
@@ -673,15 +673,15 @@ pnpm tasks:index
 
 ## Self-review checklist
 
-- [ ] Every spec § P1.4 sentence has a corresponding task:
+- [x] Every spec § P1.4 sentence has a corresponding task:
   - "carries `placeholderRef` AND text body is empty" → Task B1 predicate
   - "click is a fresh selection (was not already selected)" → Task B2 wiring (only fires after `selection.click`, skipped when scope id already in selection)
   - "selection.replace([id]) then enterEditMode() in the same pointer-up handler" → Task B2 (the actual editor calls `selection.click` + `enterEditMode` in `onPointerDown`; the spec's phrasing is approximate — captured in Risks)
   - "non-empty placeholders and regular text boxes, behavior is unchanged" → Task B2 Step 5 regression sweep + Task B4 smoke steps 2, 4
   - "scope to placeholders to avoid surprising users who created an empty text box deliberately" → Task B1 predicate (`placeholderRef == null` returns false) + Task B4 smoke step 4
-- [ ] No placeholders / TODOs in any step.
-- [ ] Type names: `isEmptyPlaceholder`, `Element`, `Block` — all imported from existing modules, no new types invented.
-- [ ] Test naming consistent: `empty-placeholder-entry.test.ts` referenced in B2 Steps 1, 2, 5 and B4 Step 6 PR body.
-- [ ] Predicate name `isEmptyPlaceholder` consistent in B1 (definition), B2 (import + use), self-review.
-- [ ] Manual smoke checks (B4 Step 3) tied to user-visible behavior, not editor internals.
-- [ ] Branch name `slides-hover-text-edit-phase-b` consistent in B1 Step 1 (cut) and B4 Step 6 (push).
+- [x] No placeholders / TODOs in any step.
+- [x] Type names: `isEmptyPlaceholder`, `Element`, `Block` — all imported from existing modules, no new types invented.
+- [x] Test naming consistent: `empty-placeholder-entry.test.ts` referenced in B2 Steps 1, 2, 5 and B4 Step 6 PR body.
+- [x] Predicate name `isEmptyPlaceholder` consistent in B1 (definition), B2 (import + use), self-review.
+- [x] Manual smoke checks (B4 Step 3) tied to user-visible behavior, not editor internals.
+- [x] Branch name `slides-hover-text-edit-phase-b` consistent in B1 Step 1 (cut) and B4 Step 6 (push).

@@ -59,28 +59,28 @@ Measured evidence (captured `fillText` + `measureText` in a fresh page):
 
 ## Plan
 
-- [ ] Export `clearMeasureCache` through the `@wafflebase/docs` index
+- [x] Export `clearMeasureCache` through the `@wafflebase/docs` index
       (already exported from `view/layout.ts`; verify the re-export).
-- [ ] Add a `SlidesEditorOptions.onFontsLoaded?` hook so the React
+- [x] Add a `SlidesEditorOptions.onFontsLoaded?` hook so the React
       `SlidesView` (which owns both the editor and the thumbnail panel)
       can refresh thumbnails too.
-- [ ] In `SlidesEditorImpl` constructor, register a
+- [x] In `SlidesEditorImpl` constructor, register a
       `document.fonts.addEventListener('loadingdone', handler)` via the
       existing `this.on(...)` infrastructure so it gets torn down in
       `detach()`. Handler calls `clearMeasureCache()`,
       `this.renderer.markDirty()`, and `options.onFontsLoaded?.()`.
-- [ ] In `SlidesView`, wire `onFontsLoaded` to call
+- [x] In `SlidesView`, wire `onFontsLoaded` to call
       `panel.refreshContent()` so painted thumbnails repaint at the
       new widths.
-- [ ] Guard for SSR / Node test envs where `document` /
+- [x] Guard for SSR / Node test envs where `document` /
       `document.fonts` are absent — no-op the registration.
-- [ ] Vitest: in `packages/slides/test/view/editor/` (or a new file),
+- [x] Vitest: in `packages/slides/test/view/editor/` (or a new file),
       mount a `SlidesEditorImpl` against a stubbed `document.fonts`
       that exposes `addEventListener`/`removeEventListener`. Dispatch
       `loadingdone`; assert (a) `clearMeasureCache` was invoked
       (spyable via a re-export wrap), (b) `renderer.markDirty()` was
       invoked, (c) `detach()` removes the listener.
-- [ ] `pnpm verify:fast` green.
+- [x] `pnpm verify:fast` green.
 
 ## Out of scope (deliberate)
 

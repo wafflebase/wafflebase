@@ -61,58 +61,58 @@ Injection seam (from layout-engine exploration):
 ## Tasks
 
 ### 1. Design note + plan
-- [ ] Update `docs-ime-undo-history.md`: record approach B (layout injection) as
+- [x] Update `docs-ime-undo-history.md`: record approach B (layout injection) as
       the chosen transient-render technique; note reflow correctness; adjust
       Open Question #3 to "resolved: layout injection".
-- [ ] Fix CodeRabbit nit: add `ts` language tag to the fenced SDK snippet (`:49`).
+- [x] Fix CodeRabbit nit: add `ts` language tag to the fenced SDK snippet (`:49`).
 
 ### 2. Layout: view-local composing run injection
-- [ ] Add `ComposingContext` type and optional param to `computeLayout` +
+- [x] Add `ComposingContext` type and optional param to `computeLayout` +
       `layoutBlock`; splice synthetic segment after `measureSegments()`.
-- [ ] Ensure the synthetic run carries correct `charOffsets`/width and is marked
+- [x] Ensure the synthetic run carries correct `charOffsets`/width and is marked
       so it's never persisted (scope-local to layout only).
-- [ ] Thread `composingContext` from `editor.ts recomputeLayout()` (read from
+- [x] Thread `composingContext` from `editor.ts recomputeLayout()` (read from
       TextEditor composition state); mark caret block dirty each keystroke.
 
 ### 3. text-editor.ts: stop interim model writes
-- [ ] `CompositionState`: replace `currentLength` (model-written length) with
+- [x] `CompositionState`: replace `currentLength` (model-written length) with
       `composingText: string` (view-local).
-- [ ] `handleInput` while composing (`:455–476`): no `docDeleteText`/
+- [x] `handleInput` while composing (`:455–476`): no `docDeleteText`/
       `docInsertText`; just set `composingText`, move caret to start+len, request
       render.
-- [ ] `handleCompositionEnd` (`:401–416`): no interim delete; single
+- [x] `handleCompositionEnd` (`:401–416`): no interim delete; single
       `docInsertText(anchoredStart, e.data)` → one `doc.update()` → one undo unit.
       Keep `e.data` as source of truth (iOS drift).
-- [ ] `handleCompositionStart` (`:386`): keep `startPosition` capture + anchor
+- [x] `handleCompositionStart` (`:386`): keep `startPosition` capture + anchor
       bridge (PR #257). Selection-present → fold `deleteSelection()` + final
       insert into one undo unit (Open Question #1 proposed: one unit).
-- [ ] Software Hangul path `applyHangulResult` (`:4505`): route `composing` via
+- [x] Software Hangul path `applyHangulResult` (`:4505`): route `composing` via
       the view-local render, `commit` via single `docInsertText`.
-- [ ] Expose composing state to editor's layout (getter or callback) so
+- [x] Expose composing state to editor's layout (getter or callback) so
       `recomputeLayout` can build `composingContext`.
 
 ### 4. Pending inline-style anchor
-- [ ] Rebind pending-style anchor off the single final insert (interim
+- [x] Rebind pending-style anchor off the single final insert (interim
       delete/insert `keepPending`/`rewindAnchor` no longer fire). Verify
       `pending.consumeForInsert` still applies style to the committed char.
 
 ### 5. Tests
-- [ ] Unit (`yorkie-doc-store.test.ts`): one jamo and one composed syllable each
+- [x] Unit (`yorkie-doc-store.test.ts`): one jamo and one composed syllable each
       grow `getUndoStackForTest().length` by exactly 1; one undo empties, one
       redo restores.
-- [ ] Unit: pending inline-style survives IME composition.
-- [ ] Unit/layout: composing-run injection reflows following text (width grows,
+- [x] Unit: pending inline-style survives IME composition.
+- [x] Unit/layout: composing-run injection reflows following text (width grows,
       wrap happens) and caret sits at start+len.
-- [ ] Browser (`packages/docs/scripts/verify-ime-browser.mjs`): one Undo removes
+- [x] Browser (`packages/docs/scripts/verify-ime-browser.mjs`): one Undo removes
       a composed syllable in one step — single/multi-syllable, batchim, mixed
       EN/KR, compose-after-delete.
-- [ ] Table-cell composition undo.
+- [x] Table-cell composition undo.
 
 ### 6. Verify + ship
-- [ ] `pnpm verify:fast` green.
-- [ ] Self code-review over branch diff; manual smoke in `pnpm dev` (compose
+- [x] `pnpm verify:fast` green.
+- [x] Self code-review over branch diff; manual smoke in `pnpm dev` (compose
       mid-paragraph, header, table cell; Undo once).
-- [ ] Capture lessons; archive; PR body Summary + Test plan; address review.
+- [x] Capture lessons; archive; PR body Summary + Test plan; address review.
 
 ## Risks / watch-outs
 - Syllable boundary: Korean fires `compositionend`→`compositionstart` back to
