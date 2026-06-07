@@ -1,5 +1,9 @@
 import { useDocument, usePresences } from "@yorkie-js/react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -14,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useTheme } from "@/components/theme-provider";
+import { AvatarStack, AvatarStackUser } from "@/components/avatar-stack";
 
 interface UserPresenceProps {
   className?: string;
@@ -29,6 +34,11 @@ interface UserPresenceProps {
    */
   getJumpHint?: (clientID: string) => string | undefined;
 }
+
+type PresenceUser = AvatarStackUser & {
+  clientID: string;
+  isCurrentUser: boolean;
+};
 
 /**
  * Renders the UserPresence component.
@@ -47,35 +57,40 @@ export function UserPresence({
   const currentClientID = presences.find(
     (presence) => !otherClientIDs.has(presence.clientID),
   )?.clientID;
-  const users = presences
+  const users: PresenceUser[] = presences
     .map((presenceData) => {
       const username = ((presenceData.presence?.username as string) || "").trim();
       const photo = presenceData.presence?.photo as string | undefined;
       const isCurrentUser = presenceData.clientID === currentClientID;
 
       return {
+        key: presenceData.clientID,
         clientID: presenceData.clientID,
         username: username || "Anonymous",
         photo,
         isCurrentUser,
+        borderColor: isCurrentUser
+          ? undefined
+          : getPeerCursorColor(resolvedTheme, presenceData.clientID),
       };
     })
     .filter((user) => user.username.length > 0);
 
-  const visibleCount = 4;
-  const visibleUsers = users.slice(0, visibleCount);
-  const hiddenUsers = users.slice(visibleCount);
+  const MAX_VISIBLE = 4;
   const totalUsers = users.length;
 
   const resolveHint = (clientID: string, isCurrentUser: boolean) =>
     !isCurrentUser && getJumpHint ? getJumpHint(clientID) : undefined;
 
-  const renderAvatar = (user: (typeof users)[number]) => {
+  const renderAvatarTrigger = (
+    user: PresenceUser,
+    avatar: React.ReactNode,
+  ) => {
     const hint = resolveHint(user.clientID, user.isCurrentUser);
     const canJump = !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
 
     return (
-      <Tooltip key={user.clientID}>
+      <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
@@ -86,19 +101,7 @@ export function UserPresence({
             }}
             disabled={!canJump}
           >
-            <Avatar
-              className="h-8 w-8 border-2 bg-background"
-              style={{
-                borderColor: user.isCurrentUser
-                  ? undefined
-                  : getPeerCursorColor(resolvedTheme, user.clientID),
-              }}
-            >
-              {user.photo && <AvatarImage src={user.photo} alt={user.username} />}
-              <AvatarFallback className="text-xs">
-                {user.username.slice(0, 2).toUpperCase() || "??"}
-              </AvatarFallback>
-            </Avatar>
+            {avatar}
           </button>
         </TooltipTrigger>
         <TooltipContent>
@@ -115,70 +118,69 @@ export function UserPresence({
   return (
     <div className={`flex items-center gap-2 min-h-[2.5rem] ${className}`}>
       {totalUsers > 0 ? (
-        <>
-          <div className="flex items-center -space-x-2">
-            {visibleUsers.map(renderAvatar)}
-
-            {hiddenUsers.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
-                    aria-label={`${hiddenUsers.length} more users`}
-                  >
-                    +{hiddenUsers.length}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>More users</DropdownMenuLabel>
-                  {hiddenUsers.map((user) => {
-                    const hint = resolveHint(user.clientID, user.isCurrentUser);
-                    const canJump =
-                      !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
-                    return (
-                      <DropdownMenuItem
-                        key={user.clientID}
-                        className={canJump ? "cursor-pointer" : undefined}
-                        onSelect={() => {
-                          if (!canJump || !onSelectPeer) return;
-                          onSelectPeer(user.clientID);
-                        }}
+        <AvatarStack
+          users={users}
+          size={32}
+          maxVisible={MAX_VISIBLE}
+          renderAvatar={(user, avatar) =>
+            renderAvatarTrigger(user as PresenceUser, avatar)
+          }
+          renderOverflow={(overflow) => (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
+                  aria-label={`${overflow.length} more users`}
+                >
+                  +{overflow.length}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>More users</DropdownMenuLabel>
+                {overflow.map((overflowUser) => {
+                  const user = overflowUser as PresenceUser;
+                  const hint = resolveHint(user.clientID, user.isCurrentUser);
+                  const canJump =
+                    !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
+                  return (
+                    <DropdownMenuItem
+                      key={user.clientID}
+                      className={canJump ? "cursor-pointer" : undefined}
+                      onSelect={() => {
+                        if (!canJump || !onSelectPeer) return;
+                        onSelectPeer(user.clientID);
+                      }}
+                    >
+                      <Avatar
+                        className="h-6 w-6 border-2"
+                        style={{ borderColor: user.borderColor }}
                       >
-                        <Avatar
-                          className="h-6 w-6 border-2"
-                          style={{
-                            borderColor: user.isCurrentUser
-                              ? undefined
-                              : getPeerCursorColor(resolvedTheme, user.clientID),
-                          }}
-                        >
-                          {user.photo && (
-                            <AvatarImage src={user.photo} alt={user.username} />
-                          )}
-                          <AvatarFallback className="text-[10px]">
-                            {user.username.slice(0, 2).toUpperCase() || "??"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate">
-                            {user.username}
-                            {user.isCurrentUser ? " (You)" : ""}
+                        {user.photo && (
+                          <AvatarImage src={user.photo} alt={user.username} />
+                        )}
+                        <AvatarFallback className="text-[10px]">
+                          {user.username.slice(0, 2).toUpperCase() || "??"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate">
+                          {user.username}
+                          {user.isCurrentUser ? " (You)" : ""}
+                        </p>
+                        {hint && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {canJump ? `Jump: ${hint}` : hint}
                           </p>
-                          {hint && (
-                            <p className="truncate text-xs text-muted-foreground">
-                              {canJump ? `Jump: ${hint}` : hint}
-                            </p>
-                          )}
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        </>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        />
       ) : (
         <div className="w-32 opacity-0" />
       )}

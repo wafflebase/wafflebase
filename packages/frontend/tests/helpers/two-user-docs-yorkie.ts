@@ -31,7 +31,7 @@ function createClient(key: string): YorkieClient {
   return new Client({
     key,
     rpcAddr: process.env.YORKIE_RPC_ADDR ?? 'http://localhost:8080',
-    apiKey: process.env.YORKIE_API_KEY,
+    apiKey: process.env.YORKIE_PUBLIC_KEY,
     syncLoopDuration: 10,
     retrySyncLoopDelay: 10,
     reconnectStreamDelay: 10,

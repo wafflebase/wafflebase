@@ -20,6 +20,9 @@ export default function Page() {
   } = useQuery<Array<Document>>({
     queryKey: ["documents"],
     queryFn: fetchDocuments,
+    // Refresh "currently editing" indicators without forcing a manual reload.
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   if (isLoading) {

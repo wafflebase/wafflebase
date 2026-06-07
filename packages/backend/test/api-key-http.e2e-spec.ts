@@ -5,6 +5,7 @@ import * as request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
 import { YorkieService } from 'src/yorkie/yorkie.service';
+import { YorkieAdminService } from 'src/yorkie/yorkie-admin.service';
 import * as cookieParser from 'cookie-parser';
 import {
   applyGlobalBootstrap,
@@ -59,6 +60,8 @@ describeDb('API Key HTTP integration', () => {
     })
       .overrideProvider(YorkieService)
       .useValue(yorkieStub)
+      .overrideProvider(YorkieAdminService)
+      .useValue({ getEditors: async () => new Map() })
       .compile();
 
     app = moduleRef.createNestApplication();

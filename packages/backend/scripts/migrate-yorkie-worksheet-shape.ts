@@ -336,7 +336,7 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const prisma = new PrismaClient();
   const rpcAddr = process.env.YORKIE_RPC_ADDR ?? 'http://localhost:8080';
-  const apiKey = process.env.YORKIE_API_KEY;
+  const apiKey = process.env.YORKIE_PUBLIC_KEY;
   const client = new yorkie.Client({ rpcAddr, apiKey });
   const summary: MigrationSummary = {
     processed: 0,

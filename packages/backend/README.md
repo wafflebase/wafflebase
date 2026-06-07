@@ -33,6 +33,12 @@ PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
 BACKEND_JSON_BODY_LIMIT=25mb            # Optional, body-parser limit
+YORKIE_RPC_ADDR=http://localhost:8080   # Optional, Yorkie RPC/admin endpoint
+YORKIE_PUBLIC_KEY=                      # Optional, project public key (SDK)
+YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
+                                        # "currently editing" presence on
+                                        # the documents list. Omit and the
+                                        # list still works without avatars.
 ```
 
 ### Development

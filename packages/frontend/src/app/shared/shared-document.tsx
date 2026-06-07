@@ -319,7 +319,7 @@ function SharedDocumentInner({
   return (
     <YorkieProvider
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
-      apiKey={import.meta.env.VITE_YORKIE_API_KEY}
+      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{ userID: presence.username }}
     >
       {resolved.type === "doc" ? (

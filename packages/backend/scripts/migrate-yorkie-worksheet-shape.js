@@ -121,7 +121,7 @@ async function main() {
     const options = parseArgs(process.argv.slice(2));
     const prisma = new client_1.PrismaClient();
     const rpcAddr = process.env.YORKIE_RPC_ADDR ?? 'http://localhost:8080';
-    const apiKey = process.env.YORKIE_API_KEY;
+    const apiKey = process.env.YORKIE_PUBLIC_KEY;
     const client = new sdk_1.default.Client({ rpcAddr, apiKey });
     const summary = {
         processed: 0,

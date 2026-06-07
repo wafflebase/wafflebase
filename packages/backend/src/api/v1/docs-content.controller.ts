@@ -27,8 +27,10 @@ import type {
   SlidesDocument,
 } from '../../yorkie/yorkie.types';
 
-const DOC_KEY_PREFIX = 'doc-';
-const SLIDES_KEY_PREFIX = 'slides-';
+import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
+
+const DOC_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.doc;
+const SLIDES_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.slides;
 
 const TYPE_MISMATCH_BODY = {
   error: {

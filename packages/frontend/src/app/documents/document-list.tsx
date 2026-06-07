@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/table";
 
 import type { Document, DocumentType } from "@/types/documents";
+import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import {
   createDocument,
   deleteDocument,
@@ -136,6 +137,16 @@ export function DocumentList({
           </div>
         );
       },
+    },
+    {
+      id: "editors",
+      header: () => <div className="text-left">Editing</div>,
+      cell: ({ row }) => (
+        <div className="flex items-center">
+          <DocumentPresenceAvatars editors={row.original.editors} />
+        </div>
+      ),
+      enableSorting: false,
     },
     {
       accessorKey: "createdAt",
@@ -420,6 +431,10 @@ export function DocumentList({
   const table = useReactTable({
     data,
     columns,
+    // Stabilize row identity across the presence-driven 5 s poll so React
+    // reconciles rows by document id instead of array index — keeps any
+    // open dropdown / dialog rooted in the row from remounting.
+    getRowId: (row) => String(row.id),
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),

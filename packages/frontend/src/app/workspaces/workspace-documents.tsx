@@ -21,6 +21,9 @@ export default function WorkspaceDocuments() {
     queryKey: ["workspaces", workspaceId, "documents"],
     queryFn: () => fetchWorkspaceDocuments(workspaceId!),
     enabled: !!workspaceId,
+    // Refresh "currently editing" indicators without forcing a manual reload.
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   if (isLoading) {

@@ -24,7 +24,7 @@ Create a `.env` file (or set these in your shell):
 ```env
 VITE_FRONTEND_BASENAME=/          # Router base path
 VITE_BACKEND_API_URL=http://localhost:3000  # Backend API URL
-VITE_YORKIE_API_KEY=              # Yorkie server API key
+VITE_YORKIE_PUBLIC_KEY=           # Yorkie project public key
 ```
 
 ### Development
