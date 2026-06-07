@@ -32,7 +32,12 @@ import { createEmptyBlock, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
-import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
+import {
+  computeLayout,
+  type ComposingContext,
+  type DocumentLayout,
+  type LayoutCache,
+} from './layout.js';
 import type { LayoutPage, PaginatedLayout, PageLine } from './pagination.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
@@ -167,6 +172,16 @@ export interface TextBoxEditorAPI {
 
   /** Blur the hidden textarea. Triggers `onCommit` via the focusout path. */
   blur(): void;
+
+  /**
+   * Insert plain text at the current caret position. Used by slides
+   * type-to-edit entry to forward the printable key that triggered the
+   * edit; safer than poking the hidden textarea + dispatching synthetic
+   * `input` events because it does NOT route through the software-Hangul
+   * jamo assembler (which would start an unintended composition) and is
+   * not affected by future `inputType`-gating in `handleInput`.
+   */
+  insertText(text: string): void;
 
   /**
    * Tear down: remove the hidden textarea, drop event listeners, stop
@@ -392,6 +407,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
   let paginatedLayout: PaginatedLayout = buildShimPaginatedLayout(layout, contentWidth, contentHeight);
 
+  // View-local composing-text overlay (browser IME pre-edit OR software
+  // Hangul jamo before syllable commit) injected into the layout of the
+  // caret's block during composition. Never written to the model — flows
+  // through `computeLayout(..., composingContext)` exactly like the full
+  // docs editor at editor.ts:740. Pushed in by the TextEditor via
+  // `onComposingContextChange` below; consumed by `recomputeLayout`.
+  let composingContext: ComposingContext | null = null;
+
   const recomputeLayout = (): void => {
     const sourceBlocks = doc.document.blocks;
     const blocksForLayout = opts.transformLayoutBlocks
@@ -403,6 +426,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       contentWidth,
       undefined,
       layoutCache,
+      composingContext ?? undefined,
     );
     layout = result.layout;
     layoutCache = result.cache;
@@ -626,6 +650,18 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     textEditor.onLinkRequest = opts.onLinkRequest;
   }
 
+  // Wire the composing-text bridge. Without this, partial Hangul jamo and
+  // browser IME pre-edits commit silently — the user sees nothing in the
+  // box until the syllable completes. `layoutCache = undefined` forces the
+  // current block to re-layout with the new composing context; the next
+  // requestRender pass runs `recomputeLayout` and paints the preview.
+  // Mirrors the wiring at docs/src/view/editor.ts:1487.
+  textEditor.onComposingContextChange = (ctx) => {
+    composingContext = ctx;
+    layoutCache = undefined;
+    requestRender();
+  };
+
   // Track focus so the cursor only paints + blinks while the textarea
   // owns focus (the standard caret behaviour).
   let focused = false;
@@ -657,6 +693,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     if (!detached && !committedOnce) {
       committedOnce = true;
       try {
+        // Flush any in-progress IME pre-edit / software Hangul jamo into
+        // the doc before snapshotting blocks — otherwise the visible
+        // preview (which lives view-local) is dropped on blur and the
+        // committed snapshot is missing the user's last keystrokes.
+        // Mirrors the full editor's commit path (editor.ts:1880).
+        textEditor.cancelComposition();
         opts.onCommit?.(docStore.getDocument().blocks);
       } finally {
         // Reset so a re-focus cycle (without detach) re-arms commit.
@@ -734,6 +776,9 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     blur(): void {
       if (textarea) textarea.blur();
     },
+    insertText(text: string): void {
+      textEditor.insertText(text);
+    },
     detach(): void {
       if (detached) return;
       // Flush a final onCommit if the user was actively typing when
@@ -746,6 +791,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       if (focused && !committedOnce) {
         committedOnce = true;
         try {
+          // Flush any in-progress IME pre-edit / software Hangul jamo into
+          // the doc before snapshotting blocks. Without this, programmatic
+          // detach mid-composition (slide deleted by remote peer, route
+          // change, host shell unmount) drops the user's last keystrokes.
+          // Mirrors the handleBlur cancelComposition added in this PR.
+          textEditor.cancelComposition();
           opts.onCommit?.(docStore.getDocument().blocks);
         } catch (err) {
           console.error('[textBoxEditor] detach onCommit threw', err);

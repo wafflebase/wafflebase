@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { Element } from '../../../../src/model/element';
-import { translateElement } from '../../../../src/view/editor/interactions/drag';
+import {
+  isSlowDoubleClick,
+  SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
+  SLOW_DOUBLE_CLICK_MAX_DURATION_MS,
+  translateElement,
+} from '../../../../src/view/editor/interactions/drag';
 import { lockAxis } from '../../../../src/view/editor/interactions/constraints';
 import { snapDelta } from '../../../../src/view/editor/snap';
 
@@ -120,5 +125,34 @@ describe('move drag + Shift locks to dominant axis', () => {
     const final = lockAxis(snapped.dx, snapped.dy);
     expect(final.dy).toBe(0);
     expect(final.dx).toBe(snapped.dx);
+  });
+});
+
+describe('isSlowDoubleClick — P1.5 timing + distance gate', () => {
+  it('accepts a stationary pointer-up well within the window', () => {
+    expect(isSlowDoubleClick(100, 100, 0, 100, 100, 200)).toBe(true);
+  });
+
+  it('accepts a small jitter (< 3 px) within the time window', () => {
+    expect(isSlowDoubleClick(100, 100, 0, 102, 101, 300)).toBe(true);
+  });
+
+  it('rejects when the pointer moved past the distance threshold', () => {
+    const dx = SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX;
+    expect(isSlowDoubleClick(100, 100, 0, 100 + dx, 100, 100)).toBe(false);
+    expect(isSlowDoubleClick(100, 100, 0, 100, 100, 100)).toBe(true); // sanity
+  });
+
+  it('rejects when the gesture exceeded the time window', () => {
+    const t = SLOW_DOUBLE_CLICK_MAX_DURATION_MS;
+    expect(isSlowDoubleClick(100, 100, 0, 100, 100, t)).toBe(false);
+    expect(isSlowDoubleClick(100, 100, 0, 100, 100, t - 1)).toBe(true);
+  });
+
+  it('measures distance Euclidean, not Chebyshev', () => {
+    // (2, 2) → hypot ≈ 2.83 px, under the 3-px threshold.
+    expect(isSlowDoubleClick(100, 100, 0, 102, 102, 100)).toBe(true);
+    // (3, 3) → hypot ≈ 4.24 px, over the threshold.
+    expect(isSlowDoubleClick(100, 100, 0, 103, 103, 100)).toBe(false);
   });
 });

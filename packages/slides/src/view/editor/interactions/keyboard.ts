@@ -4,6 +4,20 @@ import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
 import { isModPressed, type KeyRule } from '../keymap';
 import { findElementPath } from '../../../model/group';
+
+/**
+ * Look up an element anywhere in `slide.elements` (including nested
+ * group children). The slide-wide rules (F2/Enter to enter edit,
+ * printable-key type-to-edit) need this so they fire on a drilled-in
+ * grouped element — `Array.prototype.find` would only see top-level
+ * elements and the rules would silently no-op against grouped text.
+ */
+function findElementInTree(
+  elements: readonly Element[], id: string,
+): Element | undefined {
+  const path = findElementPath(elements as Element[], id);
+  return path === null ? undefined : path[path.length - 1];
+}
 import { toWorldFrame, fromWorldFrame } from '../frame-space';
 import {
   MIME_TYPE,
@@ -18,8 +32,15 @@ export interface KeyboardContext {
   currentSlideId(): string | undefined;
   /** Switch to the given slide. Used by Page Up / Page Down and Cmd+M. */
   setCurrentSlide(id: string): void;
-  /** Enter text-edit mode on the given element. Used by F2 / Enter. */
-  enterEditMode(slideId: string, elementId: string): void;
+  /**
+   * Enter text-edit mode on the given element. Used by F2 / Enter and
+   * (with `initialText`) by the printable-key type-to-edit rule.
+   */
+  enterEditMode(
+    slideId: string,
+    elementId: string,
+    options?: { initialText?: string },
+  ): void;
   requestRender(): void;
   /** Optional callbacks wired by the host shell. No-op if absent. */
   onStartPresentation?: (from: 'current' | 'first') => void;
@@ -490,7 +511,7 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         if (!slide) return;
         const selected = ctx.selection.get();
         if (selected.length !== 1) return;
-        const element = slide.elements.find((el) => el.id === selected[0]);
+        const element = findElementInTree(slide.elements, selected[0]);
         if (!element || (element.type !== 'text' && element.type !== 'shape')) {
           return;
         }
@@ -502,15 +523,10 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     // Type-to-edit — printable keystroke on a single selected text or
     // shape element enters text-edit mode. Mirrors PowerPoint / Google
     // Slides where typing a character starts editing inside the shape.
-    //
-    // v1 caveat: the keystroke itself is consumed (preventDefault) so
-    // it doesn't navigate or activate a shortcut, but it is NOT yet
-    // inserted into the freshly-mounted text-box — the user has to type
-    // the first character again. Forwarding the initial character into
-    // the docs editor requires plumbing an `initialText` through
-    // `mountSlidesTextBox` and is logged as a follow-up. Without this
-    // rule the keystroke would fall through to the host (and on most
-    // surfaces do nothing useful) which is the bigger UX bug.
+    // The triggering character is forwarded into the freshly-mounted
+    // text-box via `enterEditMode({ initialText })` so the user does
+    // NOT have to type it again. See
+    // docs/design/slides/slides-hover-and-text-edit-entry.md § P2.6.
     {
       match: (e) =>
         isPrintableKey(e) &&
@@ -522,12 +538,12 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         if (!slide) return;
         const selected = ctx.selection.get();
         if (selected.length !== 1) return;
-        const element = slide.elements.find((el) => el.id === selected[0]);
+        const element = findElementInTree(slide.elements, selected[0]);
         if (!element || (element.type !== 'text' && element.type !== 'shape')) {
           return;
         }
         e.preventDefault();
-        ctx.enterEditMode(slide.id, element.id);
+        ctx.enterEditMode(slide.id, element.id, { initialText: e.key });
       },
     },
 

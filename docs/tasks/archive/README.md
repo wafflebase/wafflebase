@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 257
+Total archived tasks: 258
 
-## 2026/06 (12 tasks)
+## 2026/06 (13 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -22,6 +22,7 @@ Total archived tasks: 257
 | sheets comment popover fit viewport (2026-06-01) | [20260601-sheets-comment-popover-fit-viewport-todo.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-todo.md) | [20260601-sheets-comment-popover-fit-viewport-lessons.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-lessons.md) |
 | sheets mod enter newline (2026-06-01) | [20260601-sheets-mod-enter-newline-todo.md](./2026/06/20260601-sheets-mod-enter-newline-todo.md) | [20260601-sheets-mod-enter-newline-lessons.md](./2026/06/20260601-sheets-mod-enter-newline-lessons.md) |
 | slides connector elbow curved routing (2026-06-01) | [20260601-slides-connector-elbow-curved-routing-todo.md](./2026/06/20260601-slides-connector-elbow-curved-routing-todo.md) | [20260601-slides-connector-elbow-curved-routing-lessons.md](./2026/06/20260601-slides-connector-elbow-curved-routing-lessons.md) |
+| slides hover text edit entry (2026-06-01) | [20260601-slides-hover-text-edit-entry-todo.md](./2026/06/20260601-slides-hover-text-edit-entry-todo.md) | [20260601-slides-hover-text-edit-entry-lessons.md](./2026/06/20260601-slides-hover-text-edit-entry-lessons.md) |
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 

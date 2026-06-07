@@ -297,7 +297,7 @@ describe('empty-placeholder 1-click entry', () => {
     expect(editor.getSelection()).toEqual([bodyId]);
   });
 
-  it('does NOT re-enter edit when clicking an already-selected empty placeholder', () => {
+  it('does NOT enter edit on a single click after programmatic selection (P1.5 requires a real prior click)', () => {
     const { canvas, overlay, store } = setup();
     let sid = '';
     store.batch(() => { sid = store.addSlide('title-body'); });
@@ -311,9 +311,13 @@ describe('empty-placeholder 1-click entry', () => {
       mountTextBox: makeMockMount(),
     });
 
-    // Pre-select without going through the pointer path. This exercises
-    // the "already selected" short-circuit in `onPointerDown`: that
-    // branch routes to `startDrag` and must NOT auto-enter edit.
+    // Pre-select without going through the pointer path (collab presence
+    // restore, Tab navigation, programmatic setSelection). The next
+    // pointer-down lands the "already selected" short-circuit in
+    // `onPointerDown`, but P1.5 stays disarmed because there was no
+    // prior click on this element within the sequence window — only the
+    // SECOND click on a selected element enters edit. See
+    // docs/design/slides/slides-hover-and-text-edit-entry.md § P1.5.
     editor.setSelection([titleId]);
 
     click(
@@ -324,5 +328,74 @@ describe('empty-placeholder 1-click entry', () => {
 
     expect(editor.getEditingElementId()).toBeNull();
     expect(editor.getSelection()).toEqual([titleId]);
+  });
+
+  it('enters edit via P1.5 on the SECOND click on a selected text-capable element', () => {
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => { sid = store.addSlide('title-body'); });
+    const titleId = findPlaceholderId(store, sid, 'title');
+    const title = store.read().slides
+      .find((s) => s.id === sid)!.elements.find((e) => e.id === titleId)!;
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+
+    const cx = title.frame.x + title.frame.w / 2;
+    const cy = title.frame.y + title.frame.h / 2;
+
+    // First click: P1.4 fires because this is an empty placeholder and
+    // a fresh selection — the element wasn't selected before.
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBe(titleId);
+    // Commit out (mirrors clicking away then back).
+    editor.exitTextEditing();
+    expect(editor.getEditingElementId()).toBeNull();
+
+    // Second click on the same (still-selected) element within the
+    // sequence window → P1.5 enters edit.
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBe(titleId);
+  });
+
+  it('P1.5 enters edit on a shape WITHOUT any text body yet (matches dblclick parity)', () => {
+    // Regression: tryEnterEditFromSlowDoubleClick previously bailed via
+    // getTextRegionRect returning null for shapes whose `data.text` was
+    // never seeded — silently no-op on freshly-inserted shapes that
+    // dblclick can still enter. Fix falls back to the
+    // SHAPE_TEXT_PADDING-inset frame in that case.
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    let shapeId = '';
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 300, h: 200, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+
+    const cx = 250;
+    const cy = 200;
+
+    // First click selects (no edit — shape is not an empty placeholder).
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBeNull();
+    expect(editor.getSelection()).toEqual([shapeId]);
+
+    // Second click on the same selected shape within the sequence window
+    // → P1.5 must enter edit even though `data.text` is undefined.
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBe(shapeId);
   });
 });
