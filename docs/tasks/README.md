@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| ime undo history (2026-06-04) | [20260604-ime-undo-history-todo.md](./active/20260604-ime-undo-history-todo.md) | - |
 | slides font load repaint (2026-06-03) | [20260603-slides-font-load-repaint-todo.md](./active/20260603-slides-font-load-repaint-todo.md) | [20260603-slides-font-load-repaint-lessons.md](./active/20260603-slides-font-load-repaint-lessons.md) |
 | slides hover text edit phase b (2026-06-02) | [20260602-slides-hover-text-edit-phase-b-todo.md](./active/20260602-slides-hover-text-edit-phase-b-todo.md) | [20260602-slides-hover-text-edit-phase-b-lessons.md](./active/20260602-slides-hover-text-edit-phase-b-lessons.md) |
 | no smoking union outline (2026-06-01) | [20260601-no-smoking-union-outline-todo.md](./active/20260601-no-smoking-union-outline-todo.md) | [20260601-no-smoking-union-outline-lessons.md](./active/20260601-no-smoking-union-outline-lessons.md) |
@@ -34,7 +35,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 249
+- Archived task count: 250
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides font load repaint (2026-06-03)
+Latest active task: ime undo history (2026-06-04)

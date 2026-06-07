@@ -73,7 +73,7 @@ Affected dropdowns (9 sites total):
 - [x] `pnpm verify:fast` green (EXIT=0, 899 passed / 1 skipped).
 - [x] Manual smoke in `pnpm dev` for each region — confirmed by user.
 - [x] Lessons file written.
-- [ ] Archive + commit + push + PR — pending.
+- [x] Archive — done by this commit. Push + PR happens next.
 
 ## Non-goals
 
