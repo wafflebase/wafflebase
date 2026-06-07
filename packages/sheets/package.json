@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/sheets",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "license": "Apache-2.0",
   "description": "Frontend for Wafflebase",
   "type": "module",
