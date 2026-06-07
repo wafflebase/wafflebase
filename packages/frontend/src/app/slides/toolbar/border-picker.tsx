@@ -9,7 +9,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemedColorPicker } from '../themed-color-picker';
-import { releaseFocusToBody } from './release-focus';
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
 
@@ -40,12 +43,17 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
   // color swatches are plain <button>s, not DropdownMenuItem, so Radix can't
   // auto-close them.
   const [colorOpen, setColorOpen] = useState(false);
+  // Drop the trigger button's focus only when the user picked a swatch,
+  // so arrows can reach the slide canvas. Outside-click / Esc fall
+  // through.
+  const colorMenu = useMenuCloseHandlers(releaseFocusToBody);
 
   const onColorChange = (color: ThemeColor) => {
     const next: Stroke = { ...(value ?? DEFAULT_STROKE), color };
     // Re-enable stroke if weight was 0 (user picking color implies they want a border).
     if (next.width === 0) next.width = 1;
     onChange(next);
+    colorMenu.markSwatchClicked();
     setColorOpen(false);
   };
 
@@ -89,7 +97,7 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
         <DropdownMenuContent
           align="start"
           className="w-auto p-2"
-          onCloseAutoFocus={releaseFocusToBody}
+          onCloseAutoFocus={colorMenu.onCloseAutoFocus}
         >
           {theme && (
             <ThemedColorPicker

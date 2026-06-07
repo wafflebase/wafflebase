@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useState } from "react";
+import { useMenuCloseHandlers } from "@/components/menu-focus";
 import type { TextFormattingEditor } from "./types";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -104,35 +105,30 @@ export function TextFormatGroup({
   const [textColorOpen, setTextColorOpen] = useState(false);
   const [highlightOpen, setHighlightOpen] = useState(false);
 
+  // Refocus the editor caret only when the palette was closed by a swatch
+  // click. Outside-click / Esc fall through, so they don't steal focus
+  // from wherever the user actually clicked next.
+  const textColorMenu = useMenuCloseHandlers(() => editor?.focus());
+  const highlightMenu = useMenuCloseHandlers(() => editor?.focus());
+
   const handleTextColor = useCallback(
     (color: string) => {
       if (!editor) return;
       editor.applyStyle({ color });
+      textColorMenu.markSwatchClicked();
       setTextColorOpen(false);
     },
-    [editor]
+    [editor, textColorMenu]
   );
 
   const handleHighlightColor = useCallback(
     (backgroundColor: string) => {
       if (!editor) return;
       editor.applyStyle({ backgroundColor });
+      highlightMenu.markSwatchClicked();
       setHighlightOpen(false);
     },
-    [editor]
-  );
-
-  // Restore caret focus AFTER Radix's close completes. Calling
-  // `editor.focus()` inside the click handler is clobbered by Radix's
-  // unmount focus restoration — running it from `onCloseAutoFocus`
-  // (with preventDefault on Radix's own focus-to-trigger) is the
-  // reliable seam.
-  const restoreEditorFocus = useCallback(
-    (e: Event) => {
-      e.preventDefault();
-      editor?.focus();
-    },
-    [editor]
+    [editor, highlightMenu]
   );
 
   const handleInsertLink = useCallback(() => {
@@ -243,7 +239,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={restoreEditorFocus}
+          onCloseAutoFocus={textColorMenu.onCloseAutoFocus}
         >
           <ColorPickerGrid
             colors={TEXT_COLORS}
@@ -272,7 +268,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={restoreEditorFocus}
+          onCloseAutoFocus={highlightMenu.onCloseAutoFocus}
         >
           <ColorPickerGrid
             colors={BG_COLORS}

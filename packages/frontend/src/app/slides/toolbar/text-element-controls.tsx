@@ -20,7 +20,10 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
-import { releaseFocusToBody } from './release-focus';
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { FontSizePicker } from '@/components/text-formatting';
 
@@ -59,6 +62,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   // Controlled open state so the swatch click closes the palette — the
   // color swatches are plain <button>s, not DropdownMenuItem.
   const [fillOpen, setFillOpen] = useState(false);
+  const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
 
   const onBackgroundFill = useCallback(
     (color: ThemeColor) => {
@@ -71,9 +75,10 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           }
         }
       });
+      fillMenu.markSwatchClicked();
       setFillOpen(false);
     },
-    [store, slideId, slide, ids],
+    [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
@@ -160,7 +165,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         <DropdownMenuContent
           align="start"
           className="w-auto p-2"
-          onCloseAutoFocus={releaseFocusToBody}
+          onCloseAutoFocus={fillMenu.onCloseAutoFocus}
         >
           {theme && (
             <ThemedColorPicker

@@ -20,7 +20,10 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
-import { releaseFocusToBody } from './release-focus';
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 
 export interface ShapeControlsProps {
@@ -53,6 +56,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
   // Controlled open state so the swatch click closes the palette — the
   // color swatches are plain <button>s, not DropdownMenuItem.
   const [fillOpen, setFillOpen] = useState(false);
+  const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
 
   const onFillChange = useCallback(
     (color: ThemeColor) => {
@@ -65,9 +69,10 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           }
         }
       });
+      fillMenu.markSwatchClicked();
       setFillOpen(false);
     },
-    [store, slideId, slide, ids],
+    [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
@@ -124,7 +129,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           <DropdownMenuContent
             align="start"
             className="w-auto p-2"
-            onCloseAutoFocus={releaseFocusToBody}
+            onCloseAutoFocus={fillMenu.onCloseAutoFocus}
           >
             {theme && (
               <ThemedColorPicker

@@ -19,6 +19,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
+import { useMenuCloseHandlers } from "@/components/menu-focus";
 import {
   IconBold,
   IconItalic,
@@ -245,6 +246,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
   // auto-close them.
   const [slimTextColorOpen, setSlimTextColorOpen] = useState(false);
   const [slimHighlightOpen, setSlimHighlightOpen] = useState(false);
+  // Only refocus the editor when the palette was dismissed by a swatch
+  // click. Outside-click / Esc fall through to Radix's default so we
+  // don't yank focus from the user's actual click target.
+  const slimTextColorMenu = useMenuCloseHandlers(() => editor?.focus());
+  const slimHighlightMenu = useMenuCloseHandlers(() => editor?.focus());
 
   const handleExportDocx = useCallback(async () => {
     if (!editor || exporting) return;
@@ -384,17 +390,13 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     };
     const handleTextColor = (color: string) => {
       editor?.applyStyle({ color });
+      slimTextColorMenu.markSwatchClicked();
       setSlimTextColorOpen(false);
     };
     const handleHighlightColor = (backgroundColor: string) => {
       editor?.applyStyle({ backgroundColor });
+      slimHighlightMenu.markSwatchClicked();
       setSlimHighlightOpen(false);
-    };
-    // Restore caret focus AFTER Radix's close completes; same reasoning
-    // as text-format-group.tsx.
-    const restoreEditorFocus = (e: Event) => {
-      e.preventDefault();
-      editor?.focus();
     };
     const handleAlign = (alignment: "left" | "center" | "right" | "justify") => {
       editor?.applyBlockStyle({ alignment });
@@ -468,7 +470,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </Tooltip>
           <DropdownMenuContent
             className="w-auto p-2"
-            onCloseAutoFocus={restoreEditorFocus}
+            onCloseAutoFocus={slimTextColorMenu.onCloseAutoFocus}
           >
             <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
           </DropdownMenuContent>
@@ -489,7 +491,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </Tooltip>
           <DropdownMenuContent
             className="w-auto p-2"
-            onCloseAutoFocus={restoreEditorFocus}
+            onCloseAutoFocus={slimHighlightMenu.onCloseAutoFocus}
           >
             <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
           </DropdownMenuContent>
