@@ -1,27 +1,27 @@
-import { SHORTCUTS, formatCombo, type ShortcutCategory } from "@wafflebase/slides";
+import { SHORTCUTS, formatCombo, type ShortcutCategory } from "@wafflebase/sheets";
 import { ShortcutsHelpDialog } from "@/components/shortcuts-help-dialog";
 
-interface SlidesShortcutsHelpProps {
+interface SheetsShortcutsHelpProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 const CATEGORY_ORDER: ReadonlyArray<ShortcutCategory> = [
+  "Navigation",
   "Selection",
-  "Slide",
-  "Nudge",
-  "Drag",
+  "Editing",
   "Clipboard",
-  "Z-order",
   "Format",
-  "Present",
+  "Find",
+  "Comments",
+  "History",
   "Help",
 ];
 
-export function SlidesShortcutsHelp({
+export function SheetsShortcutsHelp({
   open,
   onOpenChange,
-}: SlidesShortcutsHelpProps) {
+}: SheetsShortcutsHelpProps) {
   return (
     <ShortcutsHelpDialog
       open={open}
