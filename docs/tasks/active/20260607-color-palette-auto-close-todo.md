@@ -4,8 +4,10 @@ Branch: `fix/color-palette-auto-close`
 
 ## Status
 
-Implementation done, `pnpm verify:fast` green, lessons captured. Ready to
-commit + PR.
+Done — smoke verified by user (Docs body / header / footer caret moves on
+arrow keys immediately after close; Slides selected element moves on
+arrows immediately after close). `pnpm verify:fast` green. Lessons
+captured. Ready to archive + PR.
 
 ## Problem
 
@@ -59,10 +61,19 @@ Affected dropdowns (9 sites total):
 - [x] Slides — controlled open on `text-element-controls`,
       `shape-controls`, `global-controls`, and `border-picker` color
       dropdowns.
+- [x] Focus-restoration follow-up: `editor.focus()` inside the click
+      handler was being clobbered by Radix's unmount focus dance. Moved
+      it into `onCloseAutoFocus` (with preventDefault) for docs body /
+      header / footer. For slides, added shared
+      `release-focus.ts` helper that `preventDefault`s and
+      `document.activeElement.blur()`s — needed because slides'
+      `isEditableTarget()` filters out `BUTTON` from its document-level
+      keydown handler, so the trigger button must lose focus for arrow
+      keys to reach the slide canvas.
 - [x] `pnpm verify:fast` green (EXIT=0, 899 passed / 1 skipped).
-- [ ] Manual smoke in `pnpm dev` for each region — pending.
-- [ ] Lessons file + archive + commit + push + PR — lessons done, rest
-      pending.
+- [x] Manual smoke in `pnpm dev` for each region — confirmed by user.
+- [x] Lessons file written.
+- [ ] Archive + commit + push + PR — pending.
 
 ## Non-goals
 

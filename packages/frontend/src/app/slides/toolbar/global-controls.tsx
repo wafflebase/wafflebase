@@ -25,6 +25,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
+import { releaseFocusToBody } from "./release-focus";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
 
 // ---------------------------------------------------------------------------
@@ -173,7 +174,11 @@ export function RightGlobals({
             </TooltipTrigger>
             <TooltipContent>Slide background</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-auto p-2">
+          <DropdownMenuContent
+            align="end"
+            className="w-auto p-2"
+            onCloseAutoFocus={releaseFocusToBody}
+          >
             {theme && (
               <ThemedColorPicker
                 value={undefined}

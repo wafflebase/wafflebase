@@ -108,7 +108,6 @@ export function TextFormatGroup({
     (color: string) => {
       if (!editor) return;
       editor.applyStyle({ color });
-      editor.focus();
       setTextColorOpen(false);
     },
     [editor]
@@ -118,8 +117,20 @@ export function TextFormatGroup({
     (backgroundColor: string) => {
       if (!editor) return;
       editor.applyStyle({ backgroundColor });
-      editor.focus();
       setHighlightOpen(false);
+    },
+    [editor]
+  );
+
+  // Restore caret focus AFTER Radix's close completes. Calling
+  // `editor.focus()` inside the click handler is clobbered by Radix's
+  // unmount focus restoration — running it from `onCloseAutoFocus`
+  // (with preventDefault on Radix's own focus-to-trigger) is the
+  // reliable seam.
+  const restoreEditorFocus = useCallback(
+    (e: Event) => {
+      e.preventDefault();
+      editor?.focus();
     },
     [editor]
   );
@@ -232,7 +243,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={restoreEditorFocus}
         >
           <ColorPickerGrid
             colors={TEXT_COLORS}
@@ -261,7 +272,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={restoreEditorFocus}
         >
           <ColorPickerGrid
             colors={BG_COLORS}

@@ -20,6 +20,7 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
+import { releaseFocusToBody } from './release-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { FontSizePicker } from '@/components/text-formatting';
 
@@ -156,7 +157,11 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           </TooltipTrigger>
           <TooltipContent>Text box background</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent align="start" className="w-auto p-2">
+        <DropdownMenuContent
+          align="start"
+          className="w-auto p-2"
+          onCloseAutoFocus={releaseFocusToBody}
+        >
           {theme && (
             <ThemedColorPicker
               value={firstElement?.data.fill}

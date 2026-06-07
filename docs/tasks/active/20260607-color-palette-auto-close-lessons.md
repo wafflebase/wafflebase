@@ -18,20 +18,46 @@ either:
    auto-close but inherits item styling/focus semantics; usually wrong for
    grid pickers because keyboard navigation is item-based, not 2D.
 
-### Watch for focus regressions when adding programmatic close
+### Focus restoration must run in `onCloseAutoFocus`, not in the click handler
 
-The Docs body / Slides text-edit overlay already set
-`onCloseAutoFocus={(e) => e.preventDefault()}` because they want focus to
-stay on the canvas caret (not jump to the trigger button) when the menu
-closes via outside-click. The Docs **header/footer slim toolbar** didn't —
-because the palette never used to close at all. Once we made it auto-close,
-the handler's `editor?.focus()` was instantly clobbered by Radix's default
-"focus the trigger" behavior. Fix: add the same `onCloseAutoFocus` prevent
-on the slim header/footer dropdowns.
+First attempt: call `editor.focus()` in the swatch click handler, then
+`setOpen(false)`, with `onCloseAutoFocus={(e) => e.preventDefault()}` so
+Radix doesn't refocus the trigger. That worked for outside-click closes
+historically, but **not** when the close is triggered programmatically
+from inside the click handler — Radix's `FocusScope` unmount-focus dance
+overrode the in-handler `editor.focus()` and ended up leaving focus on
+the trigger button anyway. Arrow keys then went nowhere (docs textarea
+needed focus, slides ignored `BUTTON` targets).
 
-Rule of thumb: whenever a handler ends with `editor?.focus()`, the parent
-dropdown that's about to close needs `onCloseAutoFocus={(e) =>
-e.preventDefault()}` — otherwise the close steals focus right back.
+Fix: move `editor?.focus()` **into** `onCloseAutoFocus`. preventDefault
+to stop Radix's own focus-to-trigger, then explicitly focus the editor.
+That seam runs after Radix has finished its own focus management, so
+nothing overrides it.
+
+### Slides editor filters out `BUTTON` targets at document-level
+
+`packages/slides/src/view/editor/interactions/keyboard.ts:isEditableTarget`
+returns true for any `tagName === 'BUTTON'` (and `role="menu"` / `dialog`
+/ etc.), to keep Tab inside dialogs and toolbar buttons from triggering
+slides shortcuts. The Radix dropdown trigger **is** a `<button>` — after
+the palette closes, focus lands on it, and the slides editor ignores
+arrow/Esc/Delete.
+
+Fix for slides: in `onCloseAutoFocus`, preventDefault Radix's behavior
+**and** explicitly `document.activeElement.blur()` so focus drops to
+`document.body`. Body is not a button, not in a menu role, so the
+slides editor's document-level keydown handler processes the keystroke
+normally. Extracted as `release-focus.ts` so all four slides color
+dropdowns share one helper.
+
+Sheets is unaffected because its analogous filter
+(`worksheet.ts:isExternalInput`) only checks `INPUT/TEXTAREA/SELECT/
+contentEditable`, not `BUTTON`. Arrow keys reach the grid even when
+focus is on a toolbar button.
+
+Rule of thumb: when adding programmatic close to a Radix menu, the close
+seam is `onCloseAutoFocus`, not the click handler. Put both
+preventDefault and the focus-restore call there.
 
 ### Testing a real-portal Radix menu under jsdom
 

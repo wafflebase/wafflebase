@@ -384,13 +384,17 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
     };
     const handleTextColor = (color: string) => {
       editor?.applyStyle({ color });
-      editor?.focus();
       setSlimTextColorOpen(false);
     };
     const handleHighlightColor = (backgroundColor: string) => {
       editor?.applyStyle({ backgroundColor });
-      editor?.focus();
       setSlimHighlightOpen(false);
+    };
+    // Restore caret focus AFTER Radix's close completes; same reasoning
+    // as text-format-group.tsx.
+    const restoreEditorFocus = (e: Event) => {
+      e.preventDefault();
+      editor?.focus();
     };
     const handleAlign = (alignment: "left" | "center" | "right" | "justify") => {
       editor?.applyBlockStyle({ alignment });
@@ -464,7 +468,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </Tooltip>
           <DropdownMenuContent
             className="w-auto p-2"
-            onCloseAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={restoreEditorFocus}
           >
             <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
           </DropdownMenuContent>
@@ -485,7 +489,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </Tooltip>
           <DropdownMenuContent
             className="w-auto p-2"
-            onCloseAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={restoreEditorFocus}
           >
             <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
           </DropdownMenuContent>

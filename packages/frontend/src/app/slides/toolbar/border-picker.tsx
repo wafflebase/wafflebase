@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemedColorPicker } from '../themed-color-picker';
+import { releaseFocusToBody } from './release-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { IconBorderStyle2, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
 
@@ -85,7 +86,11 @@ export function BorderPicker({ value, theme, onChange, disabled }: BorderPickerP
           </TooltipTrigger>
           <TooltipContent>Border color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent align="start" className="w-auto p-2">
+        <DropdownMenuContent
+          align="start"
+          className="w-auto p-2"
+          onCloseAutoFocus={releaseFocusToBody}
+        >
           {theme && (
             <ThemedColorPicker
               value={pickerColor}

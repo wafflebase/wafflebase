@@ -20,6 +20,7 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
+import { releaseFocusToBody } from './release-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 
 export interface ShapeControlsProps {
@@ -120,7 +121,11 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
             </TooltipTrigger>
             <TooltipContent>Fill color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="start" className="w-auto p-2">
+          <DropdownMenuContent
+            align="start"
+            className="w-auto p-2"
+            onCloseAutoFocus={releaseFocusToBody}
+          >
             {theme && (
               <ThemedColorPicker
                 value={
