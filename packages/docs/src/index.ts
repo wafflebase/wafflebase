@@ -142,6 +142,12 @@ export type {
 export { FindReplaceState } from './view/find-replace.js';
 export type { SearchMatch, SearchOptions } from './model/types.js';
 export type { CommentMarker, HighlightRect } from './view/comment-markers.js';
+export {
+  SHORTCUTS,
+  formatCombo,
+  type ShortcutEntry,
+  type ShortcutCategory,
+} from './view/shortcuts-catalog.js';
 export { findMarkerAt } from './view/comment-markers.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';

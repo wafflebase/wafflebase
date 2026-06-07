@@ -29,7 +29,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 259
+- Archived task count: 260
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: release v0.4.4 (2026-06-08)

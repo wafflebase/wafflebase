@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 259
+Total archived tasks: 260
 
-## 2026/06 (14 tasks)
+## 2026/06 (15 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| cmd slash shortcuts help (2026-06-07) | [20260607-cmd-slash-shortcuts-help-todo.md](./2026/06/20260607-cmd-slash-shortcuts-help-todo.md) | [20260607-cmd-slash-shortcuts-help-lessons.md](./2026/06/20260607-cmd-slash-shortcuts-help-lessons.md) |
 | color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |
 | document list presence (2026-06-07) | [20260607-document-list-presence-todo.md](./2026/06/20260607-document-list-presence-todo.md) | [20260607-document-list-presence-lessons.md](./2026/06/20260607-document-list-presence-lessons.md) |
 | ime undo history (2026-06-04) | [20260604-ime-undo-history-todo.md](./2026/06/20260604-ime-undo-history-todo.md) | - |

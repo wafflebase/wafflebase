@@ -353,3 +353,10 @@ export type {
   ImportedXlsxSheet,
   XlsxFileLike,
 };
+
+export {
+  SHORTCUTS,
+  formatCombo,
+  type ShortcutEntry,
+  type ShortcutCategory,
+} from './view/shortcuts-catalog';

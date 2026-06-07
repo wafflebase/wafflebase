@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
 import { copyThread } from "./yorkie-worksheet-comments";
+import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
 
 function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   if (!style) {
@@ -174,6 +175,7 @@ export function SheetView({
   const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
     useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileEditState, setMobileEditState] = useState<{
     cellRef: string;
@@ -796,6 +798,13 @@ export function SheetView({
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         setFindBarOpen(true);
+      }
+      // Open-only (Esc closes via Radix) matches the Slides binding;
+      // `e.repeat` is filtered so auto-repeat on a held chord doesn't
+      // flicker the dialog.
+      if ((e.metaKey || e.ctrlKey) && e.key === "/" && !e.repeat) {
+        e.preventDefault();
+        setShortcutsHelpOpen(true);
       }
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -1479,6 +1488,10 @@ export function SheetView({
             onClose={handleFindBarClose}
           />
         )}
+        <SheetsShortcutsHelp
+          open={shortcutsHelpOpen}
+          onOpenChange={setShortcutsHelpOpen}
+        />
         {paintFormatSourceIndicator}
         {root && hasCharts && (
           <Suspense fallback={null}>

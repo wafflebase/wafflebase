@@ -20,6 +20,7 @@ import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
+import { DocsShortcutsHelp } from "./docs-shortcuts-help";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
 import { DocsCommentContextMenu } from "./comments/DocsCommentContextMenu";
 import { DocsCommentPopover } from "./comments/DocsCommentPopover";
@@ -146,6 +147,7 @@ export function DocsView({
   const [didMount, setDidMount] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findBarShowReplace, setFindBarShowReplace] = useState(false);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [linkInputRequest, setLinkInputRequest] = useState<{
     initialUrl: string;
     position: { x: number; y: number; height: number };
@@ -512,6 +514,23 @@ export function DocsView({
     return () => window.removeEventListener("keydown", onKey);
   }, [comments]);
 
+  // Cmd/Ctrl+/ opens the shortcuts help modal. The docs text-editor
+  // doesn't bind "/" so the event bubbles to window unhindered. Open-only
+  // (Esc closes via Radix) matches the Slides binding for cross-app
+  // consistency; `e.repeat` is filtered so auto-repeat on a held chord
+  // doesn't flicker the dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setShortcutsHelpOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (loading) {
     return <Loader />;
   }
@@ -526,6 +545,10 @@ export function DocsView({
 
   return (
     <div ref={setContainerNode} className="relative flex-1 w-full min-h-0">
+      <DocsShortcutsHelp
+        open={shortcutsHelpOpen}
+        onOpenChange={setShortcutsHelpOpen}
+      />
       <DocsLinkPopover
         editor={mountedEditor}
         containerRef={containerRef}
