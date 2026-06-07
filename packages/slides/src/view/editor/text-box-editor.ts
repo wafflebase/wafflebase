@@ -159,6 +159,16 @@ export interface MountSlidesTextBoxOptions {
    * default 96-DPI conversion only.
    */
   fontScale?: number;
+  /**
+   * P2.6 — Optional text to insert at the caret on the first `focus()`
+   * call. Used by the type-to-edit keyboard rule so the printable key
+   * that triggered the entry actually lands in the freshly-mounted box
+   * (otherwise the user has to retype it). Inserted exactly once; later
+   * `focus()` calls are unaffected.
+   *
+   * See docs/design/slides/slides-hover-and-text-edit-entry.md § P2.6.
+   */
+  initialText?: string;
 }
 
 export interface SlidesTextBoxEditor {
@@ -221,7 +231,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode, initialText } = opts;
   // Deck-level font pre-scale (from `deckFontScale(meta)`). Composed
   // ahead of shrink-autofit so the editor reads the same effective
   // font size the committed canvas paints. Defaults to `1` so existing
@@ -289,6 +299,11 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
 
   let mounted = true;
   let committedAlready = false;
+  // P2.6 — `initialText` is forwarded into the docs editor exactly once,
+  // on the first `focus()` call after mount. Tracked here so re-focusing
+  // a long-lived edit session (e.g. focus toggling during a toolbar
+  // click) doesn't re-inject the same character.
+  let initialTextPending = initialText !== undefined && initialText !== '';
 
   const handleCommit = (next: Block[]): void => {
     if (committedAlready) return;
@@ -392,6 +407,28 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     },
     focus(): void {
       api.focus();
+      // P2.6 — Forward the printable key that triggered text-edit entry
+      // via the typed `api.insertText`, which routes through
+      // `TextEditor.docInsertText` at the current caret position. The
+      // flag is consumed BEFORE the call so a re-entrant focus()
+      // triggered by handleFocus/render side effects doesn't re-inject;
+      // it is restored if the call throws so a later `focus()` can retry.
+      // Was previously a textarea + synthetic `input` hack — brittle to
+      // future `inputType` gating, racy against the textarea lookup, and
+      // it routed a lone Hangul jamo through the software-Hangul
+      // assembler (starting an unintended composition). See findings #6,
+      // #7, #8 in the code-review report on this PR.
+      if (initialTextPending && initialText !== undefined && initialText !== '') {
+        initialTextPending = false;
+        try {
+          api.insertText(initialText);
+        } catch (err) {
+          // Restore the flag so a follow-up focus() can retry; surface the
+          // error for diagnosis rather than silently dropping the key.
+          initialTextPending = true;
+          throw err;
+        }
+      }
     },
     commit(): void {
       // Trigger commit via blur (the docs text-box wires onCommit to

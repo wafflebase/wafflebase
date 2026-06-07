@@ -34,13 +34,23 @@ import {
 } from './align';
 import { ADJUSTMENT_HANDLES, ADJUSTMENT_SPECS } from '../canvas/shapes';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
-import { handleHitTest, type HandleKind } from './hit-test';
+import {
+  edgeZoneAt,
+  edgeZoneCursor,
+  handleHitTest,
+  type HandleKind,
+} from './hit-test';
 import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
 import { dragEndpoint } from './interactions/connector-endpoint-drag';
-import { commitTranslate } from './interactions/drag';
+import {
+  commitTranslate,
+  isSlowDoubleClick,
+  SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
+  SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS,
+} from './interactions/drag';
 import {
   buildConnectorInit,
   finalizeInsert as finalizeConnectorInsert,
@@ -517,6 +527,20 @@ class SlidesEditorImpl implements SlidesEditor {
    * during document-level drags.
    */
   private pointerInteractionActive = false;
+  /**
+   * P1.5 — last element id whose pointer-down landed inside its bbox,
+   * and the timestamp of that pointer-down. Slow-double-click is only
+   * eligible when the CURRENT pointer-down lands on the SAME element
+   * within `SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS` of the previous one.
+   * Without this gate a single click on a programmatically pre-selected
+   * element (collab presence restore, keyboard navigation, etc.) would
+   * incorrectly enter edit mode on first contact — the design spec at
+   * docs/design/slides/slides-hover-and-text-edit-entry.md § P1.5
+   * requires a real prior click in the sequence, not just "selection
+   * includes this id".
+   */
+  private lastClickElementId: string | null = null;
+  private lastClickAt: number = 0;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
   private hoverRenderRaf: number | null = null;
   /** Suppress hover ghost during an active drag-to-size insert. */
@@ -656,8 +680,11 @@ class SlidesEditorImpl implements SlidesEditor {
       selection: this.selection,
       currentSlideId: () => this.getCurrentSlideId(),
       setCurrentSlide: (id: string) => this.setCurrentSlide(id),
-      enterEditMode: (slideId: string, elementId: string) =>
-        this.enterEditMode(slideId, elementId),
+      enterEditMode: (
+        slideId: string,
+        elementId: string,
+        options?: { initialText?: string },
+      ) => this.enterEditMode(slideId, elementId, options),
       requestRender: () => this.requestRender(),
       onStartPresentation: this.options.onStartPresentation,
       onShowShortcutsHelp: this.options.onShowShortcutsHelp,
@@ -2024,7 +2051,19 @@ class SlidesEditorImpl implements SlidesEditor {
       // selected so a subsequent drag moves them together).
       const scopeId = pickScopeId(hitResult, this.selection.getScope());
       if (!mods.shift && scopeId !== null && this.selection.has(scopeId)) {
-        this.startDrag(e.clientX, e.clientY);
+        // P1.5 eligibility: the spec requires a real PRIOR click on the
+        // same element within the sequence window — programmatic selection
+        // alone must not arm slow-double-click. We additionally suppress
+        // the synthetic click + focus cascade on the eligible path so the
+        // freshly-mounted textarea keeps focus on entry (same hazard the
+        // P1.4 branch below preventDefaults for).
+        const eligible =
+          this.lastClickElementId === scopeId &&
+          e.timeStamp - this.lastClickAt < SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS;
+        this.lastClickElementId = scopeId;
+        this.lastClickAt = e.timeStamp;
+        if (eligible) e.preventDefault();
+        this.startDrag(e.clientX, e.clientY, e.timeStamp, eligible);
         return;
       }
       const beforeScope = this.selection.getScope();
@@ -2051,15 +2090,27 @@ class SlidesEditorImpl implements SlidesEditor {
           // before the user types anything, dropping us back out of
           // edit mode within ~1 ms. See onDoubleClick at line 2096.
           e.preventDefault();
+          // Record the click so a subsequent click after exitTextEditing
+          // can be recognised as the "second" click of a P1.5 sequence.
+          this.lastClickElementId = selectedId;
+          this.lastClickAt = e.timeStamp;
           this.enterEditMode(slide.id, selectedId);
           return;
         }
       }
 
       // Begin drag on the (possibly newly-)selected elements unless the
-      // element was just removed by shift-toggle.
+      // element was just removed by shift-toggle. Not a slow-double-click
+      // candidate: the element was just selected by THIS click, so the
+      // release must stay a no-op (Google Slides parity). We still record
+      // the click so the NEXT pointer-down on the same element can become
+      // the "second click" of a P1.5 sequence.
       if (this.selection.get().length > 0) {
-        this.startDrag(e.clientX, e.clientY);
+        if (!mods.shift && scopeId !== null) {
+          this.lastClickElementId = scopeId;
+          this.lastClickAt = e.timeStamp;
+        }
+        this.startDrag(e.clientX, e.clientY, e.timeStamp, false);
       }
       return;
     }
@@ -2148,7 +2199,11 @@ class SlidesEditorImpl implements SlidesEditor {
     this.enterEditMode(slide.id, el.id);
   }
 
-  private enterEditMode(slideId: string, elementId: string): void {
+  private enterEditMode(
+    slideId: string,
+    elementId: string,
+    options?: { initialText?: string },
+  ): void {
     // If we're already editing some other text-box, commit it first so
     // the text in flight is not lost when focus moves.
     if (this.editingElementId !== null) {
@@ -2268,6 +2323,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // renderer does. Decks without `meta.pxPerPt` get `1`.
       fontScale: deckFontScale(doc.meta),
       onLinkRequest: this.options.onLinkRequest,
+      // P2.6 — forward the printable key that triggered text-edit entry
+      // so the wrapper can inject it on first focus(). Absent for every
+      // other entry path (dblclick, F2/Enter, click on empty placeholder).
+      initialText: options?.initialText,
       onContentHeightChange: (h: number): void => {
         this.lastEditingContentHeight = h;
       },
@@ -2427,7 +2486,22 @@ class SlidesEditorImpl implements SlidesEditor {
     let desired = '';
     let nextHighlightId: string | null = null;
 
-    if (this.isPointerOverSelected(e.clientX, e.clientY)) {
+    // P2.7 — edge-zone resize cursor wins over text-region / move /
+    // idle-hover when the pointer is within 4 px of the selected
+    // element's bbox edge (inside OR outside the bbox). The handle hit
+    // above already wins over this; non-rotated single-selection only.
+    // See docs/design/slides/slides-hover-and-text-edit-entry.md § P2.7.
+    //
+    // Cheap gate before the expensive resolve: the common idle case
+    // (no/multi selection) skips the findElement + toWorldFrame walk
+    // by failing this conjunct first. pointermove fires at 60–120 Hz
+    // so this matters on deeply-nested grouped slides.
+    const edgeCursor = this.selection.get().length === 1
+      ? this.computeEdgeZoneCursor(e.clientX, e.clientY)
+      : null;
+    if (edgeCursor !== null) {
+      desired = edgeCursor;
+    } else if (this.isPointerOverSelected(e.clientX, e.clientY)) {
       desired = this.computeSelectedHoverCursor(e.clientX, e.clientY);
     } else {
       const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -2463,26 +2537,93 @@ class SlidesEditorImpl implements SlidesEditor {
     this.setHoverHighlight(null);
   }
 
-  private computeSelectedHoverCursor(clientX: number, clientY: number): string {
+  /**
+   * Resolve the (slide, element, world-space frame, logical pointer
+   * coords) tuple for the single currently-selected element. Returns
+   * `null` whenever the caller's predicates wouldn't apply: no slide,
+   * not exactly one selected, or `findElement` came up empty. Centralised
+   * here so the P1.5 slow-double-click entry, the P2.7 edge-zone cursor,
+   * and the text-region hover cursor share one resolution path —
+   * keeping their geometric inputs in lockstep when the model changes
+   * (drilled-in scope transforms, grouped descendants, etc.).
+   */
+  private resolveSingleSelectedWorldContext(
+    clientX: number,
+    clientY: number,
+  ): {
+    slide: ReturnType<SlidesEditorImpl['currentSlide']>;
+    el: Element;
+    worldFrame: Frame;
+    x: number;
+    y: number;
+  } | null {
     const slide = this.currentSlide();
-    if (!slide) return 'move';
+    if (!slide) return null;
     const selectedIds = this.selection.get();
-    // Region-aware cursor only applies to a single selection. Multi-select
-    // stays 'move' because there is no unambiguous element to enter.
-    if (selectedIds.length !== 1) return 'move';
-    const scope = this.selection.getScope();
+    if (selectedIds.length !== 1) return null;
     const el = findElement(slide.elements, selectedIds[0]);
-    if (!el) return 'move';
+    if (!el) return null;
+    const scope = this.selection.getScope();
     const worldFrame = toWorldFrame(el.frame, scope, slide);
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    return { slide, el, worldFrame, x, y };
+  }
+
+  /**
+   * Drives the P1.5 slow-double-click entry. Returns true when the
+   * pointer-up landed inside the selected element's text region AND the
+   * selection is a single text-capable element — in which case it enters
+   * edit mode and the caller should treat the pointer cycle as consumed.
+   */
+  private tryEnterEditFromSlowDoubleClick(
+    clientX: number,
+    clientY: number,
+  ): boolean {
+    const ctx = this.resolveSingleSelectedWorldContext(clientX, clientY);
+    if (!ctx) return false;
+    const { slide, el, worldFrame, x, y } = ctx;
+    if (el.type !== 'text' && el.type !== 'shape') return false;
+    const region = getTextRegionRect(el, worldFrame);
+    if (!region) return false;
+    if (!isPointInRect(x, y, region)) return false;
+    if (slide) this.enterEditMode(slide.id, el.id);
+    return true;
+  }
+
+  /**
+   * P2.7 — resolve the resize cursor for the edge zone around the single
+   * selected element. Returns `null` when the gate fails (multi-select,
+   * rotated past the cap, or pointer outside the extended bbox) so the
+   * caller falls back to text-region / move / idle-hover handling.
+   * Caller is responsible for the cheap "is exactly one selected"
+   * pre-check (see `onSelectionHoverMove`) so the common idle/multi
+   * cases don't pay for `findElement` + `toWorldFrame`.
+   */
+  private computeEdgeZoneCursor(
+    clientX: number,
+    clientY: number,
+  ): string | null {
+    const ctx = this.resolveSingleSelectedWorldContext(clientX, clientY);
+    if (!ctx) return null;
+    const { el, worldFrame, x, y } = ctx;
+    // Connectors are line-like and have a derived bbox; edge-zone here
+    // would mislead because endpoints (not bbox edges) drive resize.
+    if (el.type === 'connector') return null;
+    const zone = edgeZoneAt(x, y, worldFrame);
+    if (zone === null) return null;
+    return edgeZoneCursor(zone);
+  }
+
+  private computeSelectedHoverCursor(clientX: number, clientY: number): string {
+    const ctx = this.resolveSingleSelectedWorldContext(clientX, clientY);
+    // Region-aware cursor only applies to a single selection. Multi-select
+    // (and missing slide) stay 'move' because there is no unambiguous
+    // element to enter.
+    if (!ctx) return 'move';
+    const { el, worldFrame, x, y } = ctx;
     const region = getTextRegionRect(el, worldFrame);
     if (!region) return 'move';
-    const { x, y } = this.clientToLogical(clientX, clientY);
-    const inRegion =
-      x >= region.x &&
-      x <= region.x + region.w &&
-      y >= region.y &&
-      y <= region.y + region.h;
-    return inRegion ? 'text' : 'move';
+    return isPointInRect(x, y, region) ? 'text' : 'move';
   }
 
   private isPointerOverSelected(clientX: number, clientY: number): boolean {
@@ -2792,7 +2933,12 @@ class SlidesEditorImpl implements SlidesEditor {
     document.addEventListener('pointerup', onUp);
   }
 
-  private startDrag(clientX: number, clientY: number): void {
+  private startDrag(
+    clientX: number,
+    clientY: number,
+    downTimeMs: number,
+    slowDoubleClickEligible: boolean,
+  ): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
     const scope = this.selection.getScope();
@@ -2827,8 +2973,19 @@ class SlidesEditorImpl implements SlidesEditor {
 
     let liveDx = 0;
     let liveDy = 0;
+    // Peak raw client-px distance reached during this gesture. Used to
+    // disqualify P1.5 entry when the user moved past the threshold even
+    // briefly and then returned to within 3 px of the start point (e.g.
+    // a deliberate drag-and-cancel, snap-back to original). Without this
+    // a "moved 30 px then back" gesture would be misclassified as a
+    // tight tap-and-release and silently enter edit mode.
+    let peakRawClientDist = 0;
 
     const onMove = (ev: MouseEvent) => {
+      const dxClient = ev.clientX - clientX;
+      const dyClient = ev.clientY - clientY;
+      const d = Math.hypot(dxClient, dyClient);
+      if (d > peakRawClientDist) peakRawClientDist = d;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
@@ -2920,9 +3077,38 @@ class SlidesEditorImpl implements SlidesEditor {
 
       this.paintMoveGhost(ghosts, handleElements, guides);
     };
-    const onUp = (_ev: MouseEvent) => {
+    const onUp = (ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // P1.5 slow double-click: a second pointer-down → up cycle on an
+      // already-selected single text-capable element, finishing inside
+      // its text region within the tight time + distance window, enters
+      // edit mode. Coexists with the browser `dblclick` route — both
+      // funnel through `enterEditMode`, and `onDoubleClick` early-returns
+      // when an edit session is already live. See
+      // docs/design/slides/slides-hover-and-text-edit-entry.md § P1.5.
+      //
+      // `peakRawClientDist` gate disqualifies a drag-and-cancel gesture
+      // (moved away then returned to within 3 px of start) — the spec
+      // is "tight click", not "ended close to start". Distance is in
+      // raw client px so the gesture feel is zoom-independent ("did the
+      // human finger move?" rather than "did the slide-space delta
+      // exceed N world px"); a 2 px twitch at 25 % zoom is the same
+      // human gesture as a 2 px twitch at 400 %.
+      if (
+        slowDoubleClickEligible &&
+        peakRawClientDist < SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX &&
+        isSlowDoubleClick(
+          clientX, clientY, downTimeMs,
+          ev.clientX, ev.clientY, ev.timeStamp,
+        ) &&
+        this.tryEnterEditFromSlowDoubleClick(ev.clientX, ev.clientY)
+      ) {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+        return;
+      }
       // Skip the batch when the pointer never moved past snap noise:
       // an empty `store.batch` still pushes an undo snapshot and clears
       // the redo stack. A pure click-without-drag must be a no-op
@@ -3850,6 +4036,22 @@ function findElement(elements: readonly Element[], id: string): Element | undefi
     }
   }
   return undefined;
+}
+
+/**
+ * Axis-aligned point-in-rect predicate. Edge-inclusive (`<=` on both
+ * sides) so a click landing exactly on the inset boundary still counts
+ * as "inside" — consistent with the rest of the editor's hit-test
+ * helpers and matches how `getTextRegionRect` paints the region.
+ */
+function isPointInRect(
+  px: number, py: number,
+  rect: { x: number; y: number; w: number; h: number },
+): boolean {
+  return (
+    px >= rect.x && px <= rect.x + rect.w &&
+    py >= rect.y && py <= rect.y + rect.h
+  );
 }
 
 /**

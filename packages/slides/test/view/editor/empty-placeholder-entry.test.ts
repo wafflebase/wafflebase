@@ -297,7 +297,7 @@ describe('empty-placeholder 1-click entry', () => {
     expect(editor.getSelection()).toEqual([bodyId]);
   });
 
-  it('does NOT re-enter edit when clicking an already-selected empty placeholder', () => {
+  it('does NOT enter edit on a single click after programmatic selection (P1.5 requires a real prior click)', () => {
     const { canvas, overlay, store } = setup();
     let sid = '';
     store.batch(() => { sid = store.addSlide('title-body'); });
@@ -311,9 +311,13 @@ describe('empty-placeholder 1-click entry', () => {
       mountTextBox: makeMockMount(),
     });
 
-    // Pre-select without going through the pointer path. This exercises
-    // the "already selected" short-circuit in `onPointerDown`: that
-    // branch routes to `startDrag` and must NOT auto-enter edit.
+    // Pre-select without going through the pointer path (collab presence
+    // restore, Tab navigation, programmatic setSelection). The next
+    // pointer-down lands the "already selected" short-circuit in
+    // `onPointerDown`, but P1.5 stays disarmed because there was no
+    // prior click on this element within the sequence window — only the
+    // SECOND click on a selected element enters edit. See
+    // docs/design/slides/slides-hover-and-text-edit-entry.md § P1.5.
     editor.setSelection([titleId]);
 
     click(
@@ -324,5 +328,36 @@ describe('empty-placeholder 1-click entry', () => {
 
     expect(editor.getEditingElementId()).toBeNull();
     expect(editor.getSelection()).toEqual([titleId]);
+  });
+
+  it('enters edit via P1.5 on the SECOND click on a selected text-capable element', () => {
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => { sid = store.addSlide('title-body'); });
+    const titleId = findPlaceholderId(store, sid, 'title');
+    const title = store.read().slides
+      .find((s) => s.id === sid)!.elements.find((e) => e.id === titleId)!;
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+
+    const cx = title.frame.x + title.frame.w / 2;
+    const cy = title.frame.y + title.frame.h / 2;
+
+    // First click: P1.4 fires because this is an empty placeholder and
+    // a fresh selection — the element wasn't selected before.
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBe(titleId);
+    // Commit out (mirrors clicking away then back).
+    editor.exitTextEditing();
+    expect(editor.getEditingElementId()).toBeNull();
+
+    // Second click on the same (still-selected) element within the
+    // sequence window → P1.5 enters edit.
+    click(canvas, cx, cy);
+    expect(editor.getEditingElementId()).toBe(titleId);
   });
 });

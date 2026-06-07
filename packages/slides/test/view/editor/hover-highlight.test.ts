@@ -251,12 +251,59 @@ describe('hover highlight state', () => {
     });
     editor.setSelection([elementId]);
 
-    // Point at (150, 104): inside frame [100, 100, 300, 200], but outside text region [106, 106, 288, 188]
-    // (y=104 is between 100 and 106, so outside the text region)
+    // Frame [100, 100, 200, 100], text region inset by 6 → [106, 106, 188, 88].
+    // EDGE_ZONE_THRESHOLD_PX = 4, so y in 100..104 falls inside the P2.7
+    // edge zone (ns-resize). Pick y=105 to sit in the 1-px "inner border"
+    // sliver: still outside the text region (y < 106), but past the edge
+    // zone (5 > 4) — exactly the case the 'move' cursor describes.
     canvas.dispatchEvent(new PointerEvent('pointermove', {
-      clientX: 150, clientY: 104, pointerType: 'mouse', bubbles: true,
+      clientX: 150, clientY: 105, pointerType: 'mouse', bubbles: true,
     }));
     expect(editor.getLastHoverCursor()).toBe('move');
+  });
+
+  it("uses an axis-aligned resize cursor in the 4-px edge zone (P2.7)", () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeMockMount(),
+    });
+    editor.setSelection([elementId]);
+
+    // (150, 102) — 2 px below the top edge of the frame, single edge
+    // zone (clear of every handle's 8-px hit region).
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 150, clientY: 102, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getLastHoverCursor()).toBe('ns-resize');
+
+    // (102, 150) — 2 px right of the left edge, mid-height → ew-resize.
+    // The left-mid handle sits around y=150 too, but the canvas test
+    // doubles as a regression on the wiring: at minimum the handle
+    // does NOT inject a spurious 'ns-resize' here. The pure edge-zone
+    // geometry is covered exhaustively in `hit-test.test.ts`.
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 102, clientY: 130, pointerType: 'mouse', bubbles: true,
+    }));
+    expect(editor.getLastHoverCursor()).toBe('ew-resize');
   });
 
   it("stays 'move' for shapes without a textBody", () => {

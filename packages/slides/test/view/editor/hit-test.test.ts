@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { handleHitTest } from '../../../src/view/editor/hit-test';
+import {
+  EDGE_ZONE_MAX_ROTATION_RAD,
+  EDGE_ZONE_THRESHOLD_PX,
+  edgeZoneAt,
+  edgeZoneCursor,
+  handleHitTest,
+} from '../../../src/view/editor/hit-test';
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -101,5 +107,88 @@ describe('handleHitTest', () => {
     expect(handleHitTest(overlay, 118, 118)).toBe('nw');
     // (124, 124) is closer to rotate center.
     expect(handleHitTest(overlay, 124, 124)).toBe('rotate');
+  });
+});
+
+describe('edgeZoneAt — P2.7 edge-zone region detection', () => {
+  const frame = { x: 100, y: 100, w: 200, h: 100, rotation: 0 };
+
+  it('returns null for a point well inside the frame (not near any edge)', () => {
+    expect(edgeZoneAt(200, 150, frame)).toBeNull();
+  });
+
+  it('returns null for a point well outside the extended bbox', () => {
+    expect(edgeZoneAt(0, 0, frame)).toBeNull();
+    expect(edgeZoneAt(500, 500, frame)).toBeNull();
+  });
+
+  it('detects each single-edge direction just inside the bbox', () => {
+    // Mid-edge, 1 px inside.
+    expect(edgeZoneAt(200, 101, frame)).toBe('n');
+    expect(edgeZoneAt(200, 199, frame)).toBe('s');
+    expect(edgeZoneAt(101, 150, frame)).toBe('w');
+    expect(edgeZoneAt(299, 150, frame)).toBe('e');
+  });
+
+  it('detects each single-edge direction just outside the bbox', () => {
+    // Mid-edge, 1 px outside.
+    expect(edgeZoneAt(200, 99, frame)).toBe('n');
+    expect(edgeZoneAt(200, 201, frame)).toBe('s');
+    expect(edgeZoneAt(99, 150, frame)).toBe('w');
+    expect(edgeZoneAt(301, 150, frame)).toBe('e');
+  });
+
+  it('detects each corner when within threshold of two perpendicular edges', () => {
+    expect(edgeZoneAt(101, 101, frame)).toBe('nw');
+    expect(edgeZoneAt(299, 101, frame)).toBe('ne');
+    expect(edgeZoneAt(101, 199, frame)).toBe('sw');
+    expect(edgeZoneAt(299, 199, frame)).toBe('se');
+    // Outside-corner cases too.
+    expect(edgeZoneAt(98, 98, frame)).toBe('nw');
+    expect(edgeZoneAt(302, 202, frame)).toBe('se');
+  });
+
+  it('returns null beyond the extended bbox by even 1 px', () => {
+    // EDGE_ZONE_THRESHOLD_PX = 4 — 5 px outside any edge fails.
+    const t = EDGE_ZONE_THRESHOLD_PX;
+    expect(edgeZoneAt(100 - t - 1, 150, frame)).toBeNull();
+    expect(edgeZoneAt(300 + t + 1, 150, frame)).toBeNull();
+    expect(edgeZoneAt(200, 100 - t - 1, frame)).toBeNull();
+    expect(edgeZoneAt(200, 200 + t + 1, frame)).toBeNull();
+  });
+
+  it('skips edge detection when rotation exceeds the cap', () => {
+    const rotated = { ...frame, rotation: EDGE_ZONE_MAX_ROTATION_RAD + 0.001 };
+    expect(edgeZoneAt(101, 150, rotated)).toBeNull();
+    expect(edgeZoneAt(200, 101, rotated)).toBeNull();
+  });
+
+  it('still detects at the rotation cap (small rotations stay readable)', () => {
+    const rotated = { ...frame, rotation: EDGE_ZONE_MAX_ROTATION_RAD };
+    expect(edgeZoneAt(101, 150, rotated)).toBe('w');
+  });
+
+  it('treats negative rotations symmetrically', () => {
+    const rotated = { ...frame, rotation: -EDGE_ZONE_MAX_ROTATION_RAD - 0.001 };
+    expect(edgeZoneAt(101, 150, rotated)).toBeNull();
+  });
+});
+
+describe('edgeZoneCursor — direction → CSS cursor mapping', () => {
+  it('maps NW/SE to nwse-resize', () => {
+    expect(edgeZoneCursor('nw')).toBe('nwse-resize');
+    expect(edgeZoneCursor('se')).toBe('nwse-resize');
+  });
+  it('maps NE/SW to nesw-resize', () => {
+    expect(edgeZoneCursor('ne')).toBe('nesw-resize');
+    expect(edgeZoneCursor('sw')).toBe('nesw-resize');
+  });
+  it('maps N/S to ns-resize', () => {
+    expect(edgeZoneCursor('n')).toBe('ns-resize');
+    expect(edgeZoneCursor('s')).toBe('ns-resize');
+  });
+  it('maps E/W to ew-resize', () => {
+    expect(edgeZoneCursor('e')).toBe('ew-resize');
+    expect(edgeZoneCursor('w')).toBe('ew-resize');
   });
 });

@@ -19,6 +19,7 @@ import {
   SHAPE_HOVER_RADIUS,
   SITE_SNAP_RADIUS,
 } from './interactions/insert-connector';
+import { RESIZE_HANDLE_CURSORS, type ResizeHandle } from './hit-test';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -762,14 +763,15 @@ function makePermanentGuide(
 const GUIDE_EXTEND_PX = 10_000;
 
 function handleCursor(kind: string): string {
-  switch (kind) {
-    case 'nw': case 'se': return 'nwse-resize';
-    case 'ne': case 'sw': return 'nesw-resize';
-    case 'n':  case 's':  return 'ns-resize';
-    case 'e':  case 'w':  return 'ew-resize';
-    case 'rotate':         return 'crosshair';
-    default:               return 'default';
+  // Resize cursors route through the single source of truth in
+  // `hit-test.ts` so the P2.7 edge-zone affordance and the 8-px handle
+  // DOM elements can never drift apart on a designer-driven cursor
+  // convention change. `rotate` and the fallback live here.
+  if (kind in RESIZE_HANDLE_CURSORS) {
+    return RESIZE_HANDLE_CURSORS[kind as ResizeHandle];
   }
+  if (kind === 'rotate') return 'crosshair';
+  return 'default';
 }
 
 const ADJUST_HANDLE_SIZE = 8; // px (post-scale, like resize handles)
