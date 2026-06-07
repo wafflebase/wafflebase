@@ -122,6 +122,10 @@ export function FormattingToolbar({
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
   const [hasFilter, setHasFilter] = useState(false);
+  // Controlled open state for color palettes — the swatches are plain
+  // <button>s (not DropdownMenuItem), so Radix can't auto-close them.
+  const [textColorOpen, setTextColorOpen] = useState(false);
+  const [bgColorOpen, setBgColorOpen] = useState(false);
   const usPreview: LocaleFormatPreview = useMemo(
     () => buildLocaleFormatPreview("en-US"),
     [],
@@ -174,23 +178,27 @@ export function FormattingToolbar({
   const handleTextColor = useCallback(
     (color: string) => {
       spreadsheet?.applyStyle({ tc: color });
+      setTextColorOpen(false);
     },
     [spreadsheet],
   );
 
   const handleResetTextColor = useCallback(() => {
     spreadsheet?.applyStyle({ tc: "" });
+    setTextColorOpen(false);
   }, [spreadsheet]);
 
   const handleBgColor = useCallback(
     (color: string) => {
       spreadsheet?.applyStyle({ bg: color });
+      setBgColorOpen(false);
     },
     [spreadsheet],
   );
 
   const handleResetBgColor = useCallback(() => {
     spreadsheet?.applyStyle({ bg: "" });
+    setBgColorOpen(false);
   }, [spreadsheet]);
 
   const handleUndo = useCallback(() => {
@@ -498,7 +506,7 @@ export function FormattingToolbar({
       )}
 
       {/* Text Color */}
-      <DropdownMenu>
+      <DropdownMenu open={textColorOpen} onOpenChange={setTextColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -519,7 +527,7 @@ export function FormattingToolbar({
       <ToolbarSeparator />
 
       {/* Background Color */}
-      <DropdownMenu>
+      <DropdownMenu open={bgColorOpen} onOpenChange={setBgColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>

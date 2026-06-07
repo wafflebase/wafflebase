@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type {
   ConnectorElement,
   ShapeElement,
@@ -20,6 +20,10 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 
 export interface ShapeControlsProps {
@@ -49,6 +53,11 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
   const firstElement = slide?.elements.find((e) => e.id === firstId);
   const isShape = firstElement?.type === 'shape';
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [fillOpen, setFillOpen] = useState(false);
+  const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
+
   const onFillChange = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId || !slide) return;
@@ -60,8 +69,10 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           }
         }
       });
+      fillMenu.markSwatchClicked();
+      setFillOpen(false);
     },
-    [store, slideId, slide, ids],
+    [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
@@ -101,7 +112,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     <>
       {/* Fill: shapes only — connectors have no fill */}
       {isShape && (
-        <DropdownMenu>
+        <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -115,7 +126,11 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
             </TooltipTrigger>
             <TooltipContent>Fill color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="start" className="w-auto p-2">
+          <DropdownMenuContent
+            align="start"
+            className="w-auto p-2"
+            onCloseAutoFocus={fillMenu.onCloseAutoFocus}
+          >
             {theme && (
               <ThemedColorPicker
                 value={

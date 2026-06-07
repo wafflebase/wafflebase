@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type {
   SlidesEditor,
   SlidesStore,
@@ -20,6 +20,10 @@ import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
 import { FontSizePicker } from '@/components/text-formatting';
 
@@ -55,6 +59,11 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
     (e) => e.id === firstId && e.type === 'text',
   ) as TextElement | undefined;
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [fillOpen, setFillOpen] = useState(false);
+  const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
+
   const onBackgroundFill = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId || !slide) return;
@@ -66,8 +75,10 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           }
         }
       });
+      fillMenu.markSwatchClicked();
+      setFillOpen(false);
     },
-    [store, slideId, slide, ids],
+    [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
@@ -137,7 +148,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   return (
     <>
       {/* Background fill — the text box itself, not text color */}
-      <DropdownMenu>
+      <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -151,7 +162,11 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           </TooltipTrigger>
           <TooltipContent>Text box background</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent align="start" className="w-auto p-2">
+        <DropdownMenuContent
+          align="start"
+          className="w-auto p-2"
+          onCloseAutoFocus={fillMenu.onCloseAutoFocus}
+        >
           {theme && (
             <ThemedColorPicker
               value={firstElement?.data.fill}

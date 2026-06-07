@@ -4,7 +4,8 @@
  * the slides text-edit state toolbar.
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { useMenuCloseHandlers } from "@/components/menu-focus";
 import type { TextFormattingEditor } from "./types";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -99,22 +100,35 @@ export function TextFormatGroup({
     editor.applyStyle({ strikethrough: !current.strikethrough });
   }, [editor]);
 
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [textColorOpen, setTextColorOpen] = useState(false);
+  const [highlightOpen, setHighlightOpen] = useState(false);
+
+  // Refocus the editor caret only when the palette was closed by a swatch
+  // click. Outside-click / Esc fall through, so they don't steal focus
+  // from wherever the user actually clicked next.
+  const textColorMenu = useMenuCloseHandlers(() => editor?.focus());
+  const highlightMenu = useMenuCloseHandlers(() => editor?.focus());
+
   const handleTextColor = useCallback(
     (color: string) => {
       if (!editor) return;
       editor.applyStyle({ color });
-      editor.focus();
+      textColorMenu.markSwatchClicked();
+      setTextColorOpen(false);
     },
-    [editor]
+    [editor, textColorMenu]
   );
 
   const handleHighlightColor = useCallback(
     (backgroundColor: string) => {
       if (!editor) return;
       editor.applyStyle({ backgroundColor });
-      editor.focus();
+      highlightMenu.markSwatchClicked();
+      setHighlightOpen(false);
     },
-    [editor]
+    [editor, highlightMenu]
   );
 
   const handleInsertLink = useCallback(() => {
@@ -207,7 +221,7 @@ export function TextFormatGroup({
       )}
 
       {/* Text color */}
-      <DropdownMenu>
+      <DropdownMenu open={textColorOpen} onOpenChange={setTextColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -225,7 +239,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={textColorMenu.onCloseAutoFocus}
         >
           <ColorPickerGrid
             colors={TEXT_COLORS}
@@ -236,7 +250,7 @@ export function TextFormatGroup({
       </DropdownMenu>
 
       {/* Highlight color */}
-      <DropdownMenu>
+      <DropdownMenu open={highlightOpen} onOpenChange={setHighlightOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -254,7 +268,7 @@ export function TextFormatGroup({
         <DropdownMenuContent
           className="w-auto p-2"
           data-text-edit-keepalive
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={highlightMenu.onCloseAutoFocus}
         >
           <ColorPickerGrid
             colors={BG_COLORS}

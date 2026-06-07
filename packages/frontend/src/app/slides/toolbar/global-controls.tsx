@@ -25,6 +25,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ThemedColorPicker } from "../themed-color-picker";
+import {
+  releaseFocusToBody,
+  useMenuCloseHandlers,
+} from "@/components/menu-focus";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
 
 // ---------------------------------------------------------------------------
@@ -128,12 +132,18 @@ export function RightGlobals({
   formatPanelOpen,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
+  // Controlled open state so the swatch click closes the palette — the
+  // color swatches are plain <button>s, not DropdownMenuItem.
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const backgroundMenu = useMenuCloseHandlers(releaseFocusToBody);
   const onBackgroundChange = useCallback(
     (color: ThemeColor) => {
       if (!store || !slideId) return;
       store.batch(() => store.updateSlideBackground(slideId, { fill: color }));
+      backgroundMenu.markSwatchClicked();
+      setBackgroundOpen(false);
     },
-    [store, slideId],
+    [store, slideId, backgroundMenu],
   );
 
   const hasSlideStyleGroup = !!store;
@@ -155,7 +165,7 @@ export function RightGlobals({
       aria-label="Slide style"
     >
       {hasSlideStyleGroup && (
-        <DropdownMenu>
+        <DropdownMenu open={backgroundOpen} onOpenChange={setBackgroundOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -169,7 +179,11 @@ export function RightGlobals({
             </TooltipTrigger>
             <TooltipContent>Slide background</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-auto p-2">
+          <DropdownMenuContent
+            align="end"
+            className="w-auto p-2"
+            onCloseAutoFocus={backgroundMenu.onCloseAutoFocus}
+          >
             {theme && (
               <ThemedColorPicker
                 value={undefined}

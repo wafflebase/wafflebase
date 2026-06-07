@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 249
+Total archived tasks: 250
 
-## 2026/06 (5 tasks)
+## 2026/06 (6 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |
 | slides grouped text edit entry (2026-06-03) | [20260603-slides-grouped-text-edit-entry-todo.md](./2026/06/20260603-slides-grouped-text-edit-entry-todo.md) | [20260603-slides-grouped-text-edit-entry-lessons.md](./2026/06/20260603-slides-grouped-text-edit-entry-lessons.md) |
 | docs soft line break (2026-06-01) | [20260601-docs-soft-line-break-todo.md](./2026/06/20260601-docs-soft-line-break-todo.md) | [20260601-docs-soft-line-break-lessons.md](./2026/06/20260601-docs-soft-line-break-lessons.md) |
 | sheets comment popover fit viewport (2026-06-01) | [20260601-sheets-comment-popover-fit-viewport-todo.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-todo.md) | [20260601-sheets-comment-popover-fit-viewport-lessons.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-lessons.md) |
