@@ -26,20 +26,20 @@ faithfully imported PPTX renders identically. Keep top unchanged.
 
 - [x] Create feature branch `slides-vertical-anchor-overflow-parity`
 - [x] Write this task doc
-- [ ] Update `computeVerticalOriginY` in `packages/slides/src/view/canvas/text-renderer.ts:210-218`
+- [x] Update `computeVerticalOriginY` in `packages/slides/src/view/canvas/text-renderer.ts:210-218`
       - `middle`: return `(frameH − contentH) / 2` (no clamp)
       - `bottom`: return `frameH − contentH` (no clamp)
       - `top` (and absent): return `0` (unchanged)
-- [ ] Update the doc comment (`:198-209`) to describe the new semantics
-- [ ] Rewrite the test "falls back to top-anchored when content is taller than the frame" → "keeps the anchor on overflow"
+- [x] Update the doc comment (`:198-209`) to describe the new semantics
+- [x] Rewrite the test "falls back to top-anchored when content is taller than the frame" → "keeps the anchor on overflow"
       - middle anchor + tall content → baseline near `−contentH/2`
       - bottom anchor + tall content → baseline near `frameH − contentH`
       - top anchor + tall content → baseline near `0` (unchanged)
-- [ ] Update `docs/design/slides/slides-themes-layouts-import.md:438` to note overflow now preserves anchor (PPT parity)
-- [ ] `pnpm verify:fast`
-- [ ] Self-review the full diff (`/code-review` skill)
-- [ ] Commit, push, open PR
-- [ ] Archive task (`pnpm tasks:archive && pnpm tasks:index`)
+- [x] Update `docs/design/slides/slides-themes-layouts-import.md:438` to note overflow now preserves anchor (PPT parity)
+- [x] `pnpm verify:fast`
+- [x] Self-review the full diff (`/code-review` skill)
+- [x] Commit, push, open PR
+- [x] Archive task (`pnpm tasks:archive && pnpm tasks:index`)
 
 ## Notes
 

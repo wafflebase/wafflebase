@@ -38,7 +38,7 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor
 
 ## Phase 5: Advanced Collaboration
 
-- [ ] 5.1 Comments — text anchors, threads, resolve / reopen
+- [x] 5.1 Comments — text anchors, threads, resolve / reopen
 - [ ] 5.2 Suggestion Mode — change tracking, accept / reject
 - [ ] 5.3 Version History — snapshot list, preview, restore
 
@@ -47,6 +47,6 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor
 - [ ] 6.1 Multi-Column Layout
 - [ ] 6.2 Footnotes / Endnotes
 - [ ] 6.3 Spell Check
-- [ ] 6.4 Print / PDF Export
+- [x] 6.4 Print / PDF Export
 - [ ] 6.5 Named Styles
 - [ ] 6.6 Full Keyboard Shortcuts mapping

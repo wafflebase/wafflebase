@@ -136,7 +136,7 @@ to a follow-up PR (still requires its own overlay surface).
 - [x] `pnpm --filter @wafflebase/slides test` — 1554 pass / 2 skip.
 - [x] `pnpm verify:fast` — frontend / backend / sheets / slides / cli
       / docs all green.
-- [ ] Manual: slide 24 of `Yorkie, 캐즘 뛰어넘기.pptx` renders the 4
+- [x] Manual: slide 24 of `Yorkie, 캐즘 뛰어넘기.pptx` renders the 4
       `curvedConnector2` connectors as curves after browser reload
       (no re-import — data was already stored with `routing:
       'curved'`); new Line ▾ dropdown lists Line / Arrow / Elbow

@@ -37,10 +37,10 @@ geometry is a follow-up refinement."* This task is that follow-up.
 
 ## Plan
 
-- [ ] Add a small inline `lineEllipse` helper (line ∩ axis-aligned
+- [x] Add a small inline `lineEllipse` helper (line ∩ axis-aligned
   ellipse, returns the two parametric `s` values) — local to the file,
   not exported.
-- [ ] Rewrite `buildNoSmoking` to:
+- [x] Rewrite `buildNoSmoking` to:
   - Compute slash direction `d = (w, h) / |(w, h)|` and perpendicular
     `n = (-dy, dx)`; band edges sit at `±n * t / 2`.
   - Trace the full outer ellipse as a single closed loop (CW).
@@ -50,7 +50,7 @@ geometry is a follow-up refinement."* This task is that follow-up.
   - Degenerate cases: when the band is wider than the inner ellipse
     along `n` (no `lineEllipse` roots), skip that hole; when `irx`/
     `iry` collapse to zero, skip both holes.
-- [ ] Extend `no-smoking.test.ts`:
+- [x] Extend `no-smoking.test.ts`:
   - A point inside the ring annulus is filled.
   - A point inside the slash band (and outside the ring) is filled.
   - A point in the NE inner hole (above-right of the slash, inside the
@@ -58,8 +58,8 @@ geometry is a follow-up refinement."* This task is that follow-up.
   - A point in the SW inner hole is **not** filled.
   - A point just past the outer ellipse along the slash diagonal is
     **not** filled (no slash overshoot).
-- [ ] `pnpm verify:fast` green.
-- [ ] Visual check in `pnpm dev`: insert noSmoking, confirm fill and
+- [x] `pnpm verify:fast` green.
+- [x] Visual check in `pnpm dev`: insert noSmoking, confirm fill and
   stroke both clean.
 
 ## Out of scope

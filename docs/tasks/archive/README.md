@@ -6,23 +6,30 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 250
+Total archived tasks: 257
 
-## 2026/06 (6 tasks)
+## 2026/06 (12 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |
+| ime undo history (2026-06-04) | [20260604-ime-undo-history-todo.md](./2026/06/20260604-ime-undo-history-todo.md) | - |
+| slides font load repaint (2026-06-03) | [20260603-slides-font-load-repaint-todo.md](./2026/06/20260603-slides-font-load-repaint-todo.md) | [20260603-slides-font-load-repaint-lessons.md](./2026/06/20260603-slides-font-load-repaint-lessons.md) |
 | slides grouped text edit entry (2026-06-03) | [20260603-slides-grouped-text-edit-entry-todo.md](./2026/06/20260603-slides-grouped-text-edit-entry-todo.md) | [20260603-slides-grouped-text-edit-entry-lessons.md](./2026/06/20260603-slides-grouped-text-edit-entry-lessons.md) |
+| slides hover text edit phase b (2026-06-02) | [20260602-slides-hover-text-edit-phase-b-todo.md](./2026/06/20260602-slides-hover-text-edit-phase-b-todo.md) | [20260602-slides-hover-text-edit-phase-b-lessons.md](./2026/06/20260602-slides-hover-text-edit-phase-b-lessons.md) |
 | docs soft line break (2026-06-01) | [20260601-docs-soft-line-break-todo.md](./2026/06/20260601-docs-soft-line-break-todo.md) | [20260601-docs-soft-line-break-lessons.md](./2026/06/20260601-docs-soft-line-break-lessons.md) |
+| no smoking union outline (2026-06-01) | [20260601-no-smoking-union-outline-todo.md](./2026/06/20260601-no-smoking-union-outline-todo.md) | [20260601-no-smoking-union-outline-lessons.md](./2026/06/20260601-no-smoking-union-outline-lessons.md) |
 | sheets comment popover fit viewport (2026-06-01) | [20260601-sheets-comment-popover-fit-viewport-todo.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-todo.md) | [20260601-sheets-comment-popover-fit-viewport-lessons.md](./2026/06/20260601-sheets-comment-popover-fit-viewport-lessons.md) |
 | sheets mod enter newline (2026-06-01) | [20260601-sheets-mod-enter-newline-todo.md](./2026/06/20260601-sheets-mod-enter-newline-todo.md) | [20260601-sheets-mod-enter-newline-lessons.md](./2026/06/20260601-sheets-mod-enter-newline-lessons.md) |
+| slides connector elbow curved routing (2026-06-01) | [20260601-slides-connector-elbow-curved-routing-todo.md](./2026/06/20260601-slides-connector-elbow-curved-routing-todo.md) | [20260601-slides-connector-elbow-curved-routing-lessons.md](./2026/06/20260601-slides-connector-elbow-curved-routing-lessons.md) |
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
+| slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (99 tasks)
+## 2026/05 (100 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.4.3 (2026-05-31) | [20260531-release-v0.4.3-todo.md](./2026/05/20260531-release-v0.4.3-todo.md) | - |
 | slides body click deselect (2026-05-31) | [20260531-slides-body-click-deselect-todo.md](./2026/05/20260531-slides-body-click-deselect-todo.md) | [20260531-slides-body-click-deselect-lessons.md](./2026/05/20260531-slides-body-click-deselect-lessons.md) |
 | slides deck dpi font scale (2026-05-31) | [20260531-slides-deck-dpi-font-scale-todo.md](./2026/05/20260531-slides-deck-dpi-font-scale-todo.md) | [20260531-slides-deck-dpi-font-scale-lessons.md](./2026/05/20260531-slides-deck-dpi-font-scale-lessons.md) |
 | slides flip keep text readable (2026-05-31) | [20260531-slides-flip-keep-text-readable-todo.md](./2026/05/20260531-slides-flip-keep-text-readable-todo.md) | [20260531-slides-flip-keep-text-readable-lessons.md](./2026/05/20260531-slides-flip-keep-text-readable-lessons.md) |
