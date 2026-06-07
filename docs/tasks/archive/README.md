@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 258
+Total archived tasks: 259
 
-## 2026/06 (13 tasks)
+## 2026/06 (14 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |
+| document list presence (2026-06-07) | [20260607-document-list-presence-todo.md](./2026/06/20260607-document-list-presence-todo.md) | [20260607-document-list-presence-lessons.md](./2026/06/20260607-document-list-presence-lessons.md) |
 | ime undo history (2026-06-04) | [20260604-ime-undo-history-todo.md](./2026/06/20260604-ime-undo-history-todo.md) | - |
 | slides font load repaint (2026-06-03) | [20260603-slides-font-load-repaint-todo.md](./2026/06/20260603-slides-font-load-repaint-todo.md) | [20260603-slides-font-load-repaint-lessons.md](./2026/06/20260603-slides-font-load-repaint-lessons.md) |
 | slides grouped text edit entry (2026-06-03) | [20260603-slides-grouped-text-edit-entry-todo.md](./2026/06/20260603-slides-grouped-text-edit-entry-todo.md) | [20260603-slides-grouped-text-edit-entry-lessons.md](./2026/06/20260603-slides-grouped-text-edit-entry-lessons.md) |

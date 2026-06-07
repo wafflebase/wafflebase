@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| document list presence (2026-06-07) | [20260607-document-list-presence-todo.md](./active/20260607-document-list-presence-todo.md) | [20260607-document-list-presence-lessons.md](./active/20260607-document-list-presence-lessons.md) |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
@@ -29,7 +28,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 258
+- Archived task count: 259
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: document list presence (2026-06-07)
+Latest active task: slides hover text edit browser smoke (2026-06-07)
