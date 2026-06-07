@@ -20,6 +20,15 @@ import {
   CreateDocumentInWorkspaceDto,
   UpdateDocumentDto,
 } from './document.dto';
+import {
+  PresenceUser,
+  YorkieAdminService,
+} from '../yorkie/yorkie-admin.service';
+import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
+
+type DocumentListItem = DocumentModel & {
+  editors?: PresenceUser[];
+};
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -27,7 +36,20 @@ export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
     private readonly workspaceService: WorkspaceService,
+    private readonly yorkieAdminService: YorkieAdminService,
   ) {}
+
+  private async attachEditors(
+    docs: DocumentModel[],
+  ): Promise<DocumentListItem[]> {
+    if (docs.length === 0) return [];
+    const keys = docs.map((d) => yorkieDocKey(d.type, d.id));
+    const editorsByKey = await this.yorkieAdminService.getEditors(keys);
+    return docs.map((d, i) => {
+      const editors = editorsByKey.get(keys[i]);
+      return editors ? { ...d, editors } : d;
+    });
+  }
 
   // --- Workspace-scoped endpoints ---
 
@@ -53,15 +75,16 @@ export class DocumentController {
   async findByWorkspace(
     @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
-  ): Promise<DocumentModel[]> {
+  ): Promise<DocumentListItem[]> {
     const userId = Number(req.user.id);
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
-    return this.documentService.documents({
+    const docs = await this.documentService.documents({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
     });
+    return this.attachEditors(docs);
   }
 
   // --- Legacy / backward-compatible endpoints ---
@@ -85,14 +108,15 @@ export class DocumentController {
   @Get('documents')
   async getDocuments(
     @Req() req: AuthenticatedRequest,
-  ): Promise<DocumentModel[]> {
+  ): Promise<DocumentListItem[]> {
     const userId = Number(req.user.id);
     const workspaces = await this.workspaceService.findAllByUser(userId);
     const workspaceIds = workspaces.map((w) => w.id);
-    return this.documentService.documents({
+    const docs = await this.documentService.documents({
       where: { workspaceId: { in: workspaceIds } },
       orderBy: { createdAt: 'desc' },
     });
+    return this.attachEditors(docs);
   }
 
   @Post('documents')

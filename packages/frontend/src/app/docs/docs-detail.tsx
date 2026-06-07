@@ -49,11 +49,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
       if (!peer?.presence?.activeCursorPos) return undefined;
       const username = peer.presence.username;
       if (typeof username !== "string" || !username) return "cursor";
-      try {
-        return decodeURIComponent(username);
-      } catch {
-        return username;
-      }
+      return username;
     },
     [doc],
   );
@@ -250,7 +246,7 @@ export function DocsDetail() {
       docKey={`doc-${id}`}
       initialRoot={initialDocsRoot()}
       initialPresence={{
-        username: encodeURIComponent(currentUser.username),
+        username: currentUser.username,
         email: currentUser.email,
         photo: currentUser.photo || "",
         activeCursorPos: undefined,

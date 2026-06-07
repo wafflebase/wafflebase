@@ -674,7 +674,7 @@ export function SlidesDetail() {
       docKey={`slides-${id}`}
       initialRoot={initialSlidesRoot()}
       initialPresence={{
-        username: encodeURIComponent(currentUser.username),
+        username: currentUser.username,
         email: currentUser.email,
         photo: currentUser.photo || "",
       }}

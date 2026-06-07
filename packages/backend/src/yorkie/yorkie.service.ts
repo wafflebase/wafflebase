@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import yorkie, { Document, SyncMode } from '@yorkie-js/sdk';
 import { SpreadsheetDocument } from './yorkie.types';
+import { YORKIE_DOC_KEY_PREFIXES } from './yorkie-doc-key';
 
 export interface WithDocumentOptions {
   syncMode?: 'readwrite' | 'readonly';
@@ -23,7 +24,7 @@ export class YorkieService {
     this.rpcAddr =
       this.configService.get<string>('YORKIE_RPC_ADDR') ??
       'http://localhost:8080';
-    this.apiKey = this.configService.get<string>('YORKIE_API_KEY');
+    this.apiKey = this.configService.get<string>('YORKIE_PUBLIC_KEY');
   }
 
   async withDocument<T, R extends Record<string, unknown> = SpreadsheetDocument>(
@@ -31,7 +32,7 @@ export class YorkieService {
     callback: (doc: Document<R>) => T | Promise<T>,
     options?: WithDocumentOptions,
   ): Promise<T> {
-    const prefix = options?.docKeyPrefix ?? 'sheet-';
+    const prefix = options?.docKeyPrefix ?? YORKIE_DOC_KEY_PREFIXES.sheet;
     const client = new yorkie.Client({
       rpcAddr: this.rpcAddr,
       apiKey: this.apiKey,

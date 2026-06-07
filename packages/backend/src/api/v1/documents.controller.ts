@@ -13,16 +13,28 @@ import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { AuthenticatedRequest } from '../../auth/auth.types';
+import { YorkieAdminService } from '../../yorkie/yorkie-admin.service';
+import { yorkieDocKey } from '../../yorkie/yorkie-doc-key';
 
 @Controller('api/v1/workspaces/:workspaceId/documents')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
 export class ApiV1DocumentsController {
-  constructor(private readonly documentService: DocumentService) {}
+  constructor(
+    private readonly documentService: DocumentService,
+    private readonly yorkieAdminService: YorkieAdminService,
+  ) {}
 
   @Get()
   async list(@Param('workspaceId') workspaceId: string) {
-    return this.documentService.documents({
+    const docs = await this.documentService.documents({
       where: { workspaceId },
+    });
+    if (docs.length === 0) return docs;
+    const keys = docs.map((d) => yorkieDocKey(d.type, d.id));
+    const editorsByKey = await this.yorkieAdminService.getEditors(keys);
+    return docs.map((d, i) => {
+      const editors = editorsByKey.get(keys[i]);
+      return editors ? { ...d, editors } : d;
     });
   }
 

@@ -202,14 +202,7 @@ export function DocsView({
     return presences
       .filter((p) => p.presence.activeCursorPos)
       .map((p) => {
-        let username = "Anonymous";
-        if (p.presence.username) {
-          try {
-            username = decodeURIComponent(p.presence.username);
-          } catch {
-            username = p.presence.username;
-          }
-        }
+        const username = p.presence.username || "Anonymous";
         const sel = p.presence.activeSelection;
         return {
           clientID: p.clientID,
