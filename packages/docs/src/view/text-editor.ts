@@ -448,6 +448,34 @@ export class TextEditor {
   }
 
   /**
+   * Programmatically insert plain text at the current caret position.
+   * Used by slides' type-to-edit entry to forward the printable key that
+   * triggered the edit into the freshly mounted text-box, replacing the
+   * earlier textarea + synthetic-input dispatch (which was brittle to
+   * future inputType gating and could erroneously route a lone Hangul
+   * jamo through the software composition assembler).
+   *
+   * Behaviour matches `handleInput`'s non-composition, non-jamo path:
+   * flushes any pending Hangul preview, snapshots for undo, deletes the
+   * current selection, inserts, advances the caret, marks the block dirty,
+   * and requests a render. Auto-link / markdown auto-convert are skipped
+   * because this path serves programmatic injection, not real typing.
+   */
+  insertText(text: string): void {
+    if (text === '') return;
+    this.flushHangul();
+    this.saveSnapshot();
+    this.deleteSelection();
+    const pos = this.cursor.position;
+    const blockId = pos.blockId;
+    this.docInsertText(pos, text);
+    const newPos = { blockId, offset: pos.offset + text.length };
+    this.markDirty(blockId);
+    this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    this.requestRender();
+  }
+
+  /**
    * Abort any in-progress IME composition — used on blur, where a
    * `compositionend` is not guaranteed to fire. Commits the currently
    * visible composing text (so an in-progress character is not lost) and
