@@ -77,7 +77,6 @@ export function UserPresence({
     .filter((user) => user.username.length > 0);
 
   const MAX_VISIBLE = 4;
-  const visibleUsers = users.slice(0, MAX_VISIBLE);
   const totalUsers = users.length;
 
   const resolveHint = (clientID: string, isCurrentUser: boolean) =>
@@ -120,7 +119,7 @@ export function UserPresence({
     <div className={`flex items-center gap-2 min-h-[2.5rem] ${className}`}>
       {totalUsers > 0 ? (
         <AvatarStack
-          users={visibleUsers}
+          users={users}
           size={32}
           maxVisible={MAX_VISIBLE}
           renderAvatar={(user, avatar) =>
