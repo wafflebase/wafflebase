@@ -14,16 +14,13 @@ and text-edit entry affordances to Google Slides parity.
 - [x] **Phase D — P2.6** First-printable-char forwarding into freshly mounted text-box — branch `slides-hover-followup-phases`
 - [x] **Phase E — P2.7** Edge-zone resize cursor for selected element — branch `slides-hover-followup-phases`
 
-## Open follow-ups (manual / browser)
+## Browser smoke spun out
 
-- [ ] **Phase C** Manual smoke against `dblclick` coexistence — confirm a
-      fast dblclick on a selected text-capable element still enters edit
-      exactly once (P1.5 fires on the up, `onDoubleClick` then no-ops via
-      the `editingElementId` guard).
-- [ ] **Phase D** Browser scenario: select shape, type "H", expect "H" in
-      the text-box. The Vitest jsdom suite at
-      `test/view/editor/text-box-initial-text.test.ts` covers the wiring;
-      browser test is the regression hedge across real Canvas + IME.
+Real-browser scenarios for Phases C (dblclick coexistence) and D
+(English / Korean type-to-edit) are tracked in
+[`20260607-slides-hover-text-edit-browser-smoke-todo.md`](20260607-slides-hover-text-edit-browser-smoke-todo.md).
+They are deferred until the slides interaction-test harness lands;
+neither blocks merging the umbrella feature work.
 
 ## Smoke-test fixes (Phase D follow-on, same branch)
 
