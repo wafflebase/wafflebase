@@ -1886,6 +1886,11 @@ class SlidesEditorImpl implements SlidesEditor {
     // overlay drawing handles at group-local coords for grouped children.
     const slide = this.options.store.read().slides.find((s) => s.id === slideId);
     const selectedIds = [...this.selection.get()];
+    // Table-specific entries take priority over the generic shape /
+    // connector / group menus when a table is the active element. The
+    // tableItems block below is empty for non-tables so callers can
+    // spread it unconditionally.
+    const tableItems = this.tableContextItems(slideId);
     const groupItem: ContextMenuItem = {
       label: 'Group',
       disabled: !slide || !canGroup(selectedIds, slide),
@@ -1954,12 +1959,174 @@ class SlidesEditorImpl implements SlidesEditor {
       ungroupItem,
       ...textAlignItems,
       ...connectorItems,
+      ...tableItems,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
     ];
+  }
+
+  /**
+   * Right-click menu items for table structural ops. Returns an empty
+   * list (which is spread harmlessly) when the selection isn't a single
+   * table — every other element kind falls back to its existing menu.
+   *
+   * When `cellSelection` is set, ops target the cell range:
+   *   - Insert row above / below the range
+   *   - Insert column left / right of the range
+   *   - Delete row(s) / column(s) the range spans
+   *   - Merge cells (when the range is > 1 cell and no overlap)
+   *   - Unmerge cells (when the active anchor's gridSpan/rowSpan > 1)
+   *
+   * Without `cellSelection` the menu only exposes the element-level
+   * "Delete table" (which is the generic Delete entry above), so the
+   * table sub-menu collapses to nothing.
+   */
+  private tableContextItems(slideId: string): ContextMenuItem[] {
+    if (this.selection.get().length !== 1) return [];
+    const id = this.selection.get()[0];
+    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    if (!slide) return [];
+    const table = findElement(slide.elements, id);
+    if (!table || table.type !== 'table') return [];
+    const sel = this.cellSelection;
+    if (sel === null || sel.tableId !== id) return [];
+
+    const rmin = Math.min(sel.r0, sel.r1);
+    const rmax = Math.max(sel.r0, sel.r1);
+    const cmin = Math.min(sel.c0, sel.c1);
+    const cmax = Math.max(sel.c0, sel.c1);
+    const rowCount = rmax - rmin + 1;
+    const colCount = cmax - cmin + 1;
+    const store = this.options.store;
+
+    // Single-cell anchor check: only the very cell the user
+    // right-clicked is the gating coord for "Unmerge". When the user
+    // has a multi-cell range we still expose Unmerge if the TOP-LEFT
+    // of the range is a merge anchor — covers the common "select the
+    // merged region by dragging and unmerge" path.
+    const topLeft = table.data.rows[rmin]?.cells[cmin];
+    const isAnchor =
+      topLeft !== undefined &&
+      ((topLeft.gridSpan ?? 1) > 1 || (topLeft.rowSpan ?? 1) > 1);
+    const canMerge = rowCount > 1 || colCount > 1;
+
+    const items: ContextMenuItem[] = [{ label: '---', run: () => undefined }];
+    items.push({
+      label: rowCount > 1 ? `Insert ${rowCount} rows above` : 'Insert row above',
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < rowCount; i++) {
+            store.insertTableRow(slideId, id, rmin);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: rowCount > 1 ? `Insert ${rowCount} rows below` : 'Insert row below',
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < rowCount; i++) {
+            store.insertTableRow(slideId, id, rmax + 1);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Insert ${colCount} columns left` : 'Insert column left',
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < colCount; i++) {
+            store.insertTableColumn(slideId, id, cmin);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Insert ${colCount} columns right` : 'Insert column right',
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < colCount; i++) {
+            store.insertTableColumn(slideId, id, cmax + 1);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: rowCount > 1 ? `Delete ${rowCount} rows` : 'Delete row',
+      // Cannot remove the only row; the store throws "last row". The
+      // menu greys out instead of letting the user discover that
+      // mid-undo-stack.
+      disabled: rowCount >= table.data.rows.length,
+      run: () => {
+        store.batch(() => {
+          // Delete from the bottom so earlier indices stay valid as
+          // rows splice out.
+          for (let r = rmax; r >= rmin; r--) {
+            store.deleteTableRow(slideId, id, r);
+          }
+        });
+        // Cell-range now points at removed rows; drop it so the
+        // overlay doesn't paint stale rects.
+        this.cellSelection = null;
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Delete ${colCount} columns` : 'Delete column',
+      disabled: colCount >= table.data.columnWidths.length,
+      run: () => {
+        store.batch(() => {
+          for (let c = cmax; c >= cmin; c--) {
+            store.deleteTableColumn(slideId, id, c);
+          }
+        });
+        this.cellSelection = null;
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+    if (canMerge) {
+      items.push({
+        label: 'Merge cells',
+        run: () => {
+          store.batch(() => {
+            try {
+              store.mergeTableCells(slideId, id, {
+                r0: rmin,
+                c0: cmin,
+                r1: rmax,
+                c1: cmax,
+              });
+            } catch {
+              // Overlap or out-of-range — surface as a no-op rather
+              // than throwing past the menu's run() boundary.
+            }
+          });
+          this.requestRender();
+        },
+      });
+    }
+    if (isAnchor) {
+      items.push({
+        label: 'Unmerge cells',
+        run: () => {
+          store.batch(() => {
+            store.unmergeTableCells(slideId, id, { row: rmin, col: cmin });
+          });
+          this.requestRender();
+        },
+      });
+    }
+    return items;
   }
 
   private guideContextItems(
