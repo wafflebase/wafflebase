@@ -1679,37 +1679,153 @@ export class YorkieSlidesStore implements SlidesStore {
   insertTableRow(slideId: string, elementId: string, atIndex: number): void {
     this.requireBatch();
     this.doc.update((r) => {
-      const s = r.slides.find((s) => s.id === slideId);
-      if (!s) throw new Error(`Slide not found: ${slideId}`);
-      const path = yorkieFindElementPath(
-        s.elements as unknown as ProxyArray,
-        elementId,
-      );
-      if (!path) throw new Error(`Element not found: ${elementId}`);
-      const e = path[path.length - 1];
-      if (e.type !== 'table') {
-        throw new Error(`Element ${elementId} is not a table`);
-      }
-      const eAny = e as {
-        data: { columnWidths: number[]; rows: { height: number; cells: unknown[] }[] };
-        frame: { x: number; y: number; w: number; h: number; rotation: number };
-      };
-      const nRows = eAny.data.rows.length;
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nRows = e.data.rows.length;
       if (atIndex < 0 || atIndex > nRows) {
         throw new Error(
           `insertTableRow: atIndex ${atIndex} out of range [0, ${nRows}]`,
         );
       }
-      const inheritFrom =
-        eAny.data.rows[atIndex - 1] ?? eAny.data.rows[atIndex];
+      const inheritFrom = e.data.rows[atIndex - 1] ?? e.data.rows[atIndex];
       const height = inheritFrom?.height ?? 30;
-      const cells = eAny.data.columnWidths.map(() => ({
+      const cells = e.data.columnWidths.map(() => ({
         body: { blocks: [] as Block[] },
         style: {},
       }));
-      eAny.data.rows.splice(atIndex, 0, { height, cells });
-      eAny.frame = { ...eAny.frame, h: eAny.frame.h + height };
+      e.data.rows.splice(atIndex, 0, { height, cells });
+      e.frame = { ...e.frame, h: e.frame.h + height };
     });
+  }
+
+  insertTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      if (atIndex < 0 || atIndex > nCols) {
+        throw new Error(
+          `insertTableColumn: atIndex ${atIndex} out of range [0, ${nCols}]`,
+        );
+      }
+      const inheritWidth =
+        e.data.columnWidths[atIndex - 1] ?? e.data.columnWidths[atIndex] ?? 100;
+      e.data.columnWidths.splice(atIndex, 0, inheritWidth);
+      for (const row of e.data.rows) {
+        row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
+      }
+      e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+    });
+  }
+
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nRows = e.data.rows.length;
+      if (atIndex < 0 || atIndex >= nRows) {
+        throw new Error(
+          `deleteTableRow: atIndex ${atIndex} out of range [0, ${nRows - 1}]`,
+        );
+      }
+      if (nRows <= 1) {
+        throw new Error(
+          'deleteTableRow: cannot remove the last row of a table',
+        );
+      }
+      const removedHeight = e.data.rows[atIndex].height;
+      for (let row = 0; row < atIndex; row++) {
+        const cells = e.data.rows[row].cells;
+        for (let c = 0; c < cells.length; c++) {
+          const cell = cells[c];
+          if (!cell) continue;
+          const rs = cell.rowSpan;
+          if (rs === undefined || rs <= 1) continue;
+          if (row + rs > atIndex) cell.rowSpan = rs - 1;
+        }
+      }
+      e.data.rows.splice(atIndex, 1);
+      e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+    });
+  }
+
+  deleteTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      if (atIndex < 0 || atIndex >= nCols) {
+        throw new Error(
+          `deleteTableColumn: atIndex ${atIndex} out of range [0, ${nCols - 1}]`,
+        );
+      }
+      if (nCols <= 1) {
+        throw new Error(
+          'deleteTableColumn: cannot remove the last column of a table',
+        );
+      }
+      const removedWidth = e.data.columnWidths[atIndex];
+      for (const row of e.data.rows) {
+        for (let c = 0; c < atIndex; c++) {
+          const cell = row.cells[c];
+          if (!cell) continue;
+          const gs = cell.gridSpan;
+          if (gs === undefined || gs <= 1) continue;
+          if (c + gs > atIndex) cell.gridSpan = gs - 1;
+        }
+        row.cells.splice(atIndex, 1);
+      }
+      e.data.columnWidths.splice(atIndex, 1);
+      e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+    });
+  }
+
+  /**
+   * Lookup helper for the table-structural ops above: resolve a
+   * TableElement by id under the Yorkie root, throwing the same error
+   * shapes as MemSlidesStore so callers get consistent messages. All
+   * four ops touch nearly identical preamble — centralising it here
+   * keeps each method's body focused on its own structural edit.
+   */
+  private requireTableElement(
+    root: { slides: { id: string; elements: ProxyArray }[] },
+    slideId: string,
+    elementId: string,
+  ): {
+    data: {
+      columnWidths: number[];
+      rows: { height: number; cells: { gridSpan?: number; rowSpan?: number }[] }[];
+    };
+    frame: { x: number; y: number; w: number; h: number; rotation: number };
+  } {
+    const s = root.slides.find((s) => s.id === slideId);
+    if (!s) throw new Error(`Slide not found: ${slideId}`);
+    const path = yorkieFindElementPath(
+      s.elements as unknown as ProxyArray,
+      elementId,
+    );
+    if (!path) throw new Error(`Element not found: ${elementId}`);
+    const e = path[path.length - 1];
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    return e as unknown as {
+      data: {
+        columnWidths: number[];
+        rows: {
+          height: number;
+          cells: { gridSpan?: number; rowSpan?: number }[];
+        }[];
+      };
+      frame: { x: number; y: number; w: number; h: number; rotation: number };
+    };
   }
 
   withTableCellBody(

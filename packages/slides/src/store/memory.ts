@@ -1017,6 +1017,112 @@ export class MemSlidesStore implements SlidesStore {
     e.frame = { ...e.frame, h: e.frame.h + height };
   }
 
+  insertTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    if (atIndex < 0 || atIndex > nCols) {
+      throw new Error(
+        `insertTableColumn: atIndex ${atIndex} out of range [0, ${nCols}]`,
+      );
+    }
+    const inheritWidth =
+      e.data.columnWidths[atIndex - 1] ?? e.data.columnWidths[atIndex] ?? 100;
+    e.data.columnWidths.splice(atIndex, 0, inheritWidth);
+    for (const row of e.data.rows) {
+      row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
+    }
+    e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+  }
+
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nRows = e.data.rows.length;
+    if (atIndex < 0 || atIndex >= nRows) {
+      throw new Error(
+        `deleteTableRow: atIndex ${atIndex} out of range [0, ${nRows - 1}]`,
+      );
+    }
+    if (nRows <= 1) {
+      throw new Error(
+        'deleteTableRow: cannot remove the last row of a table',
+      );
+    }
+    const removedHeight = e.data.rows[atIndex].height;
+    // Decrement rowSpan on anchors in earlier rows whose span covers
+    // (i.e. extends past) the deleted row. Walk every row above the
+    // deletion; anchors live in those rows; covered cells are skipped.
+    for (let r = 0; r < atIndex; r++) {
+      const row = e.data.rows[r];
+      for (let c = 0; c < row.cells.length; c++) {
+        const cell = row.cells[c];
+        if (!cell) continue;
+        const rs = cell.rowSpan;
+        if (rs === undefined || rs <= 1) continue;
+        if (r + rs > atIndex) {
+          cell.rowSpan = rs - 1;
+        }
+      }
+    }
+    e.data.rows.splice(atIndex, 1);
+    e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+  }
+
+  deleteTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    if (atIndex < 0 || atIndex >= nCols) {
+      throw new Error(
+        `deleteTableColumn: atIndex ${atIndex} out of range [0, ${nCols - 1}]`,
+      );
+    }
+    if (nCols <= 1) {
+      throw new Error(
+        'deleteTableColumn: cannot remove the last column of a table',
+      );
+    }
+    const removedWidth = e.data.columnWidths[atIndex];
+    // Decrement gridSpan on anchors in earlier columns of the SAME row
+    // whose span covers the deleted column. Iterate every row; anchor
+    // lookup is local to that row.
+    for (const row of e.data.rows) {
+      for (let c = 0; c < atIndex; c++) {
+        const cell = row.cells[c];
+        if (!cell) continue;
+        const gs = cell.gridSpan;
+        if (gs === undefined || gs <= 1) continue;
+        if (c + gs > atIndex) {
+          cell.gridSpan = gs - 1;
+        }
+      }
+      row.cells.splice(atIndex, 1);
+    }
+    e.data.columnWidths.splice(atIndex, 1);
+    e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+  }
+
   withTableCellBody(
     slideId: string,
     elementId: string,

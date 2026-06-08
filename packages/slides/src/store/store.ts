@@ -249,6 +249,55 @@ export interface SlidesStore {
    * with the full P4 structural ops.
    */
   insertTableRow(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Insert a new column into a table at `atIndex`.
+   *
+   * - `atIndex === 0` prepends; `atIndex === columnWidths.length` appends.
+   * - Each existing row gains one fresh cell at `cells[atIndex]` with
+   *   empty body and `{}` style.
+   * - The new column inherits the width of the adjacent column
+   *   (`columnWidths[atIndex - 1]` if present, else `columnWidths[atIndex]`,
+   *   else 100 px).
+   * - `frame.w` grows by the inserted column's width.
+   *
+   * Like `insertTableRow`, mid-table inserts that would split an
+   * existing `gridSpan > 1` merge are NOT handled yet — the anchor's
+   * gridSpan stays unchanged, which may leave the new cell visually
+   * over-counted in the merge. Append-at-end is the verified path.
+   */
+  insertTableColumn(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Remove the row at `atIndex` from a table.
+   *
+   * - `frame.h` shrinks by the removed row's height.
+   * - When the deletion crosses an existing `rowSpan > 1` merge anchor
+   *   (anchor row is BEFORE `atIndex` and its span covered the deleted
+   *   row), the anchor's `rowSpan` is decremented by 1 so the merge
+   *   stays consistent.
+   * - When the deletion removes the merge ANCHOR row itself, the
+   *   covered cells in subsequent rows are left with `rowSpan: 0`
+   *   markers pointing at a now-missing anchor. The renderer treats
+   *   them as covered (invisible) until the user manually re-anchors.
+   *   A future cleanup pass may promote the first covered row to a
+   *   new anchor; not in this slice.
+   *
+   * Throws when called with `atIndex` out of range or when removing
+   * the only row (a table must have at least one row).
+   */
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Remove the column at `atIndex` from a table. Mirror of
+   * `deleteTableRow`:
+   * - `frame.w` shrinks by the removed column's width.
+   * - `gridSpan > 1` anchors that crossed the deleted column have
+   *   their gridSpan decremented by 1.
+   * - Removing an anchor column orphans the covered cells in the
+   *   same row (same caveat as deleteTableRow).
+   *
+   * Throws when `atIndex` is out of range or when removing the only
+   * column.
+   */
+  deleteTableColumn(slideId: string, elementId: string, atIndex: number): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

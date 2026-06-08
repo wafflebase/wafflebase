@@ -426,3 +426,280 @@ describe('MemSlidesStore.insertTableRow', () => {
     ).toThrow(/atIndex/);
   });
 });
+
+describe('MemSlidesStore.insertTableColumn', () => {
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: {
+          columnWidths: [80, 120],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('appends a column at the right edge (atIndex === columnWidths.length)', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.insertTableColumn(slideId, tableId, 2);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.columnWidths).toHaveLength(3);
+    // Each row also gains one cell, in the new column.
+    for (const row of t.data.rows) {
+      expect(row.cells).toHaveLength(3);
+      expect(row.cells[2].body.blocks).toEqual([]);
+    }
+  });
+
+  it('inserts a column at index 0', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.insertTableColumn(slideId, tableId, 0);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.columnWidths[0]).toBe(80); // inherits the previously-first
+    for (const row of t.data.rows) {
+      expect(row.cells).toHaveLength(3);
+    }
+  });
+
+  it('extends frame.w by the new column width', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.insertTableColumn(slideId, tableId, 2);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.frame.w).toBe(80 + 120 + 120); // appended inherits adjacent (right of last) -> rows[atIndex-1] width
+  });
+});
+
+describe('MemSlidesStore.deleteTableRow', () => {
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 150, rotation: 0 },
+        data: {
+          columnWidths: [100],
+          rows: [
+            { height: 50, cells: [{ body: { blocks: [] }, style: {} }] },
+            { height: 50, cells: [{ body: { blocks: [] }, style: {} }] },
+            { height: 50, cells: [{ body: { blocks: [] }, style: {} }] },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('removes the row and shrinks frame.h', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.deleteTableRow(slideId, tableId, 1);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows).toHaveLength(2);
+    expect(t.frame.h).toBe(100); // was 150 - removed 50
+  });
+
+  it('throws when removing the only row would empty the table', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100],
+          rows: [{ height: 50, cells: [{ body: { blocks: [] }, style: {} }] }],
+        },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.deleteTableRow(slideId, tableId, 0);
+      }),
+    ).toThrow(/last row/);
+  });
+
+  it('decrements rowSpan when deletion crosses a merge anchor', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 150, rotation: 0 },
+        data: {
+          columnWidths: [100],
+          rows: [
+            { height: 50, cells: [{ body: { blocks: [] }, style: {}, rowSpan: 3 }] },
+            { height: 50, cells: [{ body: { blocks: [] }, style: {}, rowSpan: 0 }] },
+            { height: 50, cells: [{ body: { blocks: [] }, style: {}, rowSpan: 0 }] },
+          ],
+        },
+      });
+    });
+    // Delete the middle row (row 1, which is a vMerge-covered cell).
+    store.batch(() => {
+      store.deleteTableRow(slideId, tableId, 1);
+    });
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const t = slide?.elements.find((e) => e.id === tableId);
+    if (!t || t.type !== 'table') throw new Error('table missing');
+    expect(t.data.rows).toHaveLength(2);
+    // Anchor's rowSpan dropped from 3 to 2 (one covered row removed).
+    expect(t.data.rows[0].cells[0].rowSpan).toBe(2);
+    // The remaining row is the original row 2 — still a covered marker.
+    expect(t.data.rows[1].cells[0].rowSpan).toBe(0);
+  });
+});
+
+describe('MemSlidesStore.deleteTableColumn', () => {
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 300, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100, 100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('removes the column and shrinks frame.w', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.deleteTableColumn(slideId, tableId, 1);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.columnWidths).toEqual([100, 100]);
+    expect(t.frame.w).toBe(200);
+    // Each row's cells array also shrinks.
+    for (const row of t.data.rows) {
+      expect(row.cells).toHaveLength(2);
+    }
+  });
+
+  it('throws when removing the only column would empty the table', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100],
+          rows: [{ height: 50, cells: [{ body: { blocks: [] }, style: {} }] }],
+        },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.deleteTableColumn(slideId, tableId, 0);
+      }),
+    ).toThrow(/last column/);
+  });
+
+  it('decrements gridSpan when deletion crosses a horizontal merge anchor', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 300, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100, 100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {}, gridSpan: 3 },
+                { body: { blocks: [] }, style: {}, gridSpan: 0 },
+                { body: { blocks: [] }, style: {}, gridSpan: 0 },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    store.batch(() => {
+      store.deleteTableColumn(slideId, tableId, 1);
+    });
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const t = slide?.elements.find((e) => e.id === tableId);
+    if (!t || t.type !== 'table') throw new Error('table missing');
+    expect(t.data.columnWidths).toEqual([100, 100]);
+    expect(t.data.rows[0].cells[0].gridSpan).toBe(2);
+    expect(t.data.rows[0].cells[1].gridSpan).toBe(0);
+  });
+});
