@@ -1,189 +1,216 @@
-import type { Element as SlideElement, Frame, ShapeElement, TextElement } from '../../model/element';
+import type {
+  CellBorder,
+  CellStyle,
+  Element as SlideElement,
+  TableCell,
+  TableElement,
+  TableRow,
+  VerticalAnchorMode,
+} from '../../model/element';
 import { generateId } from '../../model/element';
+import type { ThemeColor } from '../../model/theme';
 import { parseColorFromContainer } from './color';
 import { emuToStrokePx, parseXfrm } from './geometry';
 import type { SlideParseContext } from './shape';
-import { parseTextBody } from './text';
+import { detectVerticalAnchor, parseTextBody } from './text';
 import { attr, attrInt, child, children, descendant } from './xml';
 
 /**
- * ECMA-376 default `<a:tcPr>` cell insets in EMU. PowerPoint omits the
- * attributes when the slide uses these defaults, so without a fallback
- * every imported cell paints text edge-to-edge and adjacent
- * right/left-aligned content visually merges.
- */
-const DEFAULT_CELL_MARGIN_LR_EMU = 91_440;
-const DEFAULT_CELL_MARGIN_TB_EMU = 45_720;
-
-interface CellMargins {
-  marL: number;
-  marR: number;
-  marT: number;
-  marB: number;
-}
-
-function parseCellMargins(cell: Element): CellMargins {
-  const tcPr = child(cell, 'tcPr');
-  return {
-    marL: (tcPr && attrInt(tcPr, 'marL')) ?? DEFAULT_CELL_MARGIN_LR_EMU,
-    marR: (tcPr && attrInt(tcPr, 'marR')) ?? DEFAULT_CELL_MARGIN_LR_EMU,
-    marT: (tcPr && attrInt(tcPr, 'marT')) ?? DEFAULT_CELL_MARGIN_TB_EMU,
-    marB: (tcPr && attrInt(tcPr, 'marB')) ?? DEFAULT_CELL_MARGIN_TB_EMU,
-  };
-}
-
-/**
- * Flatten `<p:graphicFrame><a:tbl>` into a matrix of TextElements (one
- * per cell) overlaid on a borderless rect per cell to carry the cell's
- * stroke. Cells with `<a:gridSpan>` / `<a:rowSpan>` are reported but
- * not specially merged in v1 — the benchmark deck has zero merges, and
- * a true merge requires `colSpan/rowSpan` semantics that our generic
- * shape rect can't express. Merge placeholders (`<a:hMerge>` /
- * `<a:vMerge>`) are simply dropped.
+ * Parse a `<p:graphicFrame>/<a:tbl>` into a single structured
+ * `TableElement`. Returned as a one-item `SlideElement[]` so `parseSpTree`
+ * can splice the result into the slide's elements list alongside the
+ * other shape kinds.
  *
- * Returns an array of slide elements in painting order:
- *   - first: cell border rect (so text paints on top)
- *   - then: cell text body
+ * Returns an empty list when the frame holds something other than a
+ * table (e.g. `<a:graphicData uri=".../diagram">`) so the parent
+ * dispatcher can continue without special-casing.
+ *
+ * **Encoding contract** (consumed by the renderer and by store ops):
+ *  - `gridSpan`/`rowSpan` > 1 lives on the merge anchor.
+ *  - PPTX covered cells encoded as `<a:tc hMerge="1">` / `<a:tc vMerge="1">`
+ *    map to `gridSpan: 0` / `rowSpan: 0` on the covered cell so renderer
+ *    and store ops can short-circuit via `isCovered`.
+ *  - `<a:tableStyleId>` is preserved verbatim for PPTX round-trip; v1
+ *    bakes per-cell fills / borders from `tcPr` and does NOT consult
+ *    `ppt/tableStyles.xml`.
  */
 export function parseTable(
   graphicFrame: Element,
   ctx: SlideParseContext,
 ): SlideElement[] {
   const xfrm = child(graphicFrame, 'xfrm');
-  const tableFrame = parseXfrm(xfrm, ctx.scale);
+  const xfrmFrame = parseXfrm(xfrm, ctx.scale);
 
   const tbl = descendant(graphicFrame, 'tbl');
   if (!tbl) return [];
 
+  const tblPr = child(tbl, 'tblPr');
+  const tableStyleId = tblPr
+    ? child(tblPr, 'tableStyleId')?.textContent ?? undefined
+    : undefined;
+
   const gridCols = children(child(tbl, 'tblGrid') ?? tbl, 'gridCol');
-  const colWidthsPx = gridCols.map((g) => (attrInt(g, 'w') ?? 0) * ctx.scale.sx);
+  const columnWidths = gridCols.map(
+    (g) => (attrInt(g, 'w') ?? 0) * ctx.scale.sx,
+  );
 
-  const rows = children(tbl, 'tr');
-  const rowHeightsPx = rows.map((r) => (attrInt(r, 'h') ?? 0) * ctx.scale.sy);
+  const trs = children(tbl, 'tr');
+  const rows: TableRow[] = trs.map((tr) => {
+    const height = (attrInt(tr, 'h') ?? 0) * ctx.scale.sy;
+    const tcs = children(tr, 'tc');
+    const cells = tcs.map((tc) => parseCell(tc, ctx));
+    return { height, cells };
+  });
 
-  const out: SlideElement[] = [];
+  // The renderer's frame-sync invariant requires
+  // `frame.w == sum(columnWidths)` and `frame.h == sum(row.height)`,
+  // so the grid is canonical even when xfrm.ext disagrees by a few EMU
+  // (some authoring tools round). Position still comes from xfrm.off.
+  const tableW = columnWidths.reduce((a, b) => a + b, 0);
+  const tableH = rows.reduce((a, r) => a + r.height, 0);
 
-  let y = tableFrame.y;
-  for (let r = 0; r < rows.length; r++) {
-    const rowEl = rows[r];
-    const rowHeight = rowHeightsPx[r] || 0;
-    let x = tableFrame.x;
-    const cells = children(rowEl, 'tc');
-    for (let c = 0; c < cells.length; c++) {
-      const cell = cells[c];
-      const colWidth = colWidthsPx[c] || 0;
+  const table: TableElement = {
+    id: generateId(),
+    type: 'table',
+    frame: {
+      ...xfrmFrame,
+      w: tableW,
+      h: tableH,
+    },
+    data: {
+      columnWidths,
+      rows,
+      ...(tableStyleId ? { tableStyleId } : {}),
+    },
+  };
 
-      // Track merge artifacts; we don't honor them but counting tells
-      // the user when a deck would benefit from real table support.
-      if (attr(cell, 'hMerge') || attr(cell, 'vMerge')) {
-        ctx.report.tableMergesIgnored += 1;
-        x += colWidth;
-        continue;
-      }
-      const colSpan = attrInt(cell, 'gridSpan');
-      const rowSpan = attrInt(cell, 'rowSpan');
-      if ((colSpan && colSpan > 1) || (rowSpan && rowSpan > 1)) {
-        ctx.report.tableMergesIgnored += 1;
-      }
-
-      const cellFrame: Frame = {
-        x,
-        y,
-        w: colWidth * (colSpan ?? 1),
-        h: rowHeight * (rowSpan ?? 1),
-        rotation: 0,
-      };
-
-      const border = buildCellBorder(cellFrame, cell, ctx);
-      if (border) out.push(border);
-
-      const txBody = child(cell, 'txBody');
-      if (txBody) {
-        const margins = parseCellMargins(cell);
-        const insetX = margins.marL * ctx.scale.sx;
-        const insetY = margins.marT * ctx.scale.sy;
-        const insetW = (margins.marL + margins.marR) * ctx.scale.sx;
-        const insetH = (margins.marT + margins.marB) * ctx.scale.sy;
-        const textFrame: Frame = {
-          x: cellFrame.x + insetX,
-          y: cellFrame.y + insetY,
-          w: Math.max(0, cellFrame.w - insetW),
-          h: Math.max(0, cellFrame.h - insetH),
-          rotation: 0,
-        };
-        const txt: TextElement = {
-          id: generateId(),
-          type: 'text',
-          frame: textFrame,
-          data: {
-            blocks: parseTextBody(txBody, {
-              rels: ctx.rels,
-              report: ctx.report,
-              clrMap: ctx.clrMap,
-            }),
-          },
-        };
-        out.push(txt);
-      }
-
-      // Advance by the effective horizontal span so the next `<a:tc>`
-      // (typically a column-merge placeholder) lands at the right
-      // column index even if PPTX omits the corresponding `hMerge`.
-      const span = colSpan && colSpan > 1 ? colSpan : 1;
-      let stepW = 0;
-      for (let s = 0; s < span; s++) stepW += colWidthsPx[c + s] || 0;
-      x += stepW;
-      c += span - 1;
-    }
-    y += rowHeight;
-  }
-
-  ctx.report.tablesFlattened += 1;
-  return out;
+  return [table];
 }
 
-/**
- * Synthesise a single transparent rect with the dominant cell border as
- * its stroke. PPTX cells expose four separate borders (`lnL`/`lnR`/
- * `lnT`/`lnB`), but our `ShapeStroke` is uniform per element. Pick the
- * first border with a real color and report the approximation.
- */
-function buildCellBorder(
-  frame: Frame,
-  cell: Element,
+function parseCell(tc: Element, ctx: SlideParseContext): TableCell {
+  const tcPr = child(tc, 'tcPr');
+  const txBody = child(tc, 'txBody');
+
+  // OOXML covered-cell markers — see TableCell JSDoc for the contract.
+  // `hMerge` / `vMerge` translate to `gridSpan: 0` / `rowSpan: 0` so
+  // renderer / store ops can short-circuit via `isCovered`.
+  const hMerge = attr(tc, 'hMerge') === '1';
+  const vMerge = attr(tc, 'vMerge') === '1';
+  const gridSpanAttr = attrInt(tc, 'gridSpan');
+  const rowSpanAttr = attrInt(tc, 'rowSpan');
+
+  let gridSpan: number | undefined;
+  if (hMerge) gridSpan = 0;
+  else if (gridSpanAttr !== undefined && gridSpanAttr !== 1) gridSpan = gridSpanAttr;
+
+  let rowSpan: number | undefined;
+  if (vMerge) rowSpan = 0;
+  else if (rowSpanAttr !== undefined && rowSpanAttr !== 1) rowSpan = rowSpanAttr;
+
+  const body = txBody
+    ? {
+        blocks: parseTextBody(txBody, {
+          rels: ctx.rels,
+          report: ctx.report,
+          clrMap: ctx.clrMap,
+        }),
+        ...(detectVerticalAnchor(txBody) !== undefined
+          ? { verticalAnchor: detectVerticalAnchor(txBody) as VerticalAnchorMode }
+          : {}),
+      }
+    : { blocks: [] };
+
+  return {
+    body,
+    style: parseCellStyle(tcPr, ctx),
+    ...(gridSpan !== undefined ? { gridSpan } : {}),
+    ...(rowSpan !== undefined ? { rowSpan } : {}),
+  };
+}
+
+function parseCellStyle(
+  tcPr: Element | undefined,
   ctx: SlideParseContext,
-): ShapeElement | undefined {
-  const tcPr = child(cell, 'tcPr');
-  if (!tcPr) return undefined;
-  for (const tag of ['lnL', 'lnR', 'lnT', 'lnB'] as const) {
-    const ln = child(tcPr, tag);
-    if (!ln) continue;
-    const solid = child(ln, 'solidFill');
-    if (!solid) continue;
-    const color = parseColorFromContainer(solid, ctx.clrMap);
-    if (!color) continue;
-    // `<a:alpha val="0"/>` on a border color means the side is
-    // intentionally invisible (PowerPoint writers use this to draw an
-    // unstyled-looking table without dropping the four `<a:lnX>`
-    // elements). Treat it as no color so we don't emit an invisible
-    // stroke shape — keep scanning the remaining sides in case one
-    // carries a real visible color.
-    if (color.alpha === 0) continue;
-    // Scale EMU stroke width with the deck so cell borders stay
-    // proportional to the rendered cell rect.
-    const wEmu = attrInt(ln, 'w');
-    const width = wEmu != null ? emuToStrokePx(wEmu, ctx.scale) : 1;
-    // Bump approximation counter once per cell, not per border.
-    ctx.report.tableBordersApproximated += 1;
-    return {
-      id: generateId(),
-      type: 'shape',
-      frame,
-      data: {
-        kind: 'rect',
-        stroke: { color, width },
-      },
-    };
+): CellStyle {
+  if (!tcPr) return {};
+  const style: CellStyle = {};
+
+  // Padding: tcPr marL/R/T/B (EMU → px). PowerPoint omits these when
+  // the cell uses the ECMA-376 defaults (8 px LR, 4 px TB); the
+  // renderer applies `DEFAULT_CELL_PADDING` for absent keys.
+  const marL = attrInt(tcPr, 'marL');
+  const marR = attrInt(tcPr, 'marR');
+  const marT = attrInt(tcPr, 'marT');
+  const marB = attrInt(tcPr, 'marB');
+  if (
+    marL !== undefined
+    || marR !== undefined
+    || marT !== undefined
+    || marB !== undefined
+  ) {
+    style.padding = {};
+    if (marL !== undefined) style.padding.left = marL * ctx.scale.sx;
+    if (marR !== undefined) style.padding.right = marR * ctx.scale.sx;
+    if (marT !== undefined) style.padding.top = marT * ctx.scale.sy;
+    if (marB !== undefined) style.padding.bottom = marB * ctx.scale.sy;
   }
+
+  // Fill: <a:solidFill> only in v1; gradient / pattern / blip fills
+  // imported as a missing fill (clean fall-back rather than a wrong color).
+  const solidFill = child(tcPr, 'solidFill');
+  if (solidFill) {
+    const color = parseColorFromContainer(solidFill, ctx.clrMap);
+    if (color && !isInvisible(color)) {
+      style.fill = color;
+    }
+  }
+
+  // Vertical anchor: <a:tcPr anchor="t|ctr|b">.
+  const anchorAttr = attr(tcPr, 'anchor');
+  const vAlign = mapAnchor(anchorAttr);
+  if (vAlign) style.verticalAlign = vAlign;
+
+  // Per-side borders: lnL/lnR/lnT/lnB.
+  const border: NonNullable<CellStyle['border']> = {};
+  const left = parseCellBorder(child(tcPr, 'lnL'), ctx);
+  if (left) border.left = left;
+  const right = parseCellBorder(child(tcPr, 'lnR'), ctx);
+  if (right) border.right = right;
+  const top = parseCellBorder(child(tcPr, 'lnT'), ctx);
+  if (top) border.top = top;
+  const bottom = parseCellBorder(child(tcPr, 'lnB'), ctx);
+  if (bottom) border.bottom = bottom;
+  if (Object.keys(border).length > 0) style.border = border;
+
+  return style;
+}
+
+function parseCellBorder(
+  ln: Element | undefined,
+  ctx: SlideParseContext,
+): CellBorder | undefined {
+  if (!ln) return undefined;
+  const solid = child(ln, 'solidFill');
+  if (!solid) return undefined;
+  const color = parseColorFromContainer(solid, ctx.clrMap);
+  if (!color) return undefined;
+  // `<a:alpha val="0"/>` on a border color means the side is
+  // intentionally invisible (PowerPoint writers use this to draw an
+  // unstyled-looking table without dropping the four `<a:lnX>`
+  // elements). Treat it as no border on that side.
+  if (isInvisible(color)) return undefined;
+  const wEmu = attrInt(ln, 'w');
+  const width = wEmu != null ? emuToStrokePx(wEmu, ctx.scale) : 1;
+  return { color, width };
+}
+
+function mapAnchor(a: string | undefined): VerticalAnchorMode | undefined {
+  if (a === 't') return 'top';
+  if (a === 'ctr') return 'middle';
+  if (a === 'b') return 'bottom';
   return undefined;
+}
+
+function isInvisible(color: ThemeColor): boolean {
+  return 'alpha' in color && color.alpha === 0;
 }

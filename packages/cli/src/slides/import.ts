@@ -274,15 +274,17 @@ function defaultTitleFor(file: string): string {
  * regex-matching prose.
  */
 function summariseReport(report: ImportReport): Record<string, number> {
+  // `tablesFlattened` / `tableMergesIgnored` / `tableBordersApproximated`
+  // were retired when the structured-TableElement importer landed
+  // (slides-tables P2). Tables now round-trip without lossy fallbacks,
+  // so there's no per-table counter to surface — a clean import shows
+  // empty parts and the standard "no fallbacks" line.
   return {
     groupsFlattened: report.groupsFlattened,
-    tablesFlattened: report.tablesFlattened,
     shadowsDropped: report.shadowsDropped,
     textBoxesPreScaled: report.textBoxesPreScaled,
     unknownShapes: report.unknownShapes,
     unknownLayoutTypes: report.unknownLayoutTypes,
-    tableMergesIgnored: report.tableMergesIgnored,
-    tableBordersApproximated: report.tableBordersApproximated,
     skippedImages: report.skippedImages,
   };
 }
