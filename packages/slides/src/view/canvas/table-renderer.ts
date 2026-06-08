@@ -397,6 +397,48 @@ function findIndex(boundaries: readonly number[], v: number): number {
 }
 
 /**
+ * Pointer-near-border hit-test. Given element-local pointer coords and
+ * the table's pre-computed `TableLayout`, return the column or row
+ * boundary the pointer is near (within `tolerance` px). Excludes the
+ * outermost boundaries (table edges) — those are part of the outer
+ * element's resize handles, not the column/row drag affordance.
+ *
+ * Used by the editor's drag-resize gesture: hover sets the
+ * col-resize / row-resize cursor; pointerdown arms the gesture.
+ */
+export function tableEdgeAt(
+  layout: TableLayout,
+  localX: number,
+  localY: number,
+  tolerance: number,
+): { kind: 'col' | 'row'; index: number; position: number } | null {
+  const colCount = layout.colX.length - 1;
+  const rowCount = layout.rowY.length - 1;
+  const tableW = layout.colX[colCount];
+  const tableH = layout.rowY[rowCount];
+  // Column boundaries — interior only (index 1..colCount - 1). The
+  // pointer must be inside the table's y range so brushing past the
+  // table on the left / right doesn't false-positive.
+  if (localY >= 0 && localY <= tableH) {
+    for (let i = 1; i < colCount; i++) {
+      const x = layout.colX[i];
+      if (Math.abs(localX - x) <= tolerance) {
+        return { kind: 'col', index: i, position: x };
+      }
+    }
+  }
+  if (localX >= 0 && localX <= tableW) {
+    for (let i = 1; i < rowCount; i++) {
+      const y = layout.rowY[i];
+      if (Math.abs(localY - y) <= tolerance) {
+        return { kind: 'row', index: i, position: y };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Step one cell in `direction` (+1 = forward, -1 = backward), wrapping
  * across row boundaries (`(r, nCols-1) → (r+1, 0)` forward / mirror
  * backward). Covered cells (`gridSpan === 0 || rowSpan === 0`) are

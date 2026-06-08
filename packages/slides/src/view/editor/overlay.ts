@@ -111,6 +111,21 @@ export interface OverlayOptions {
    * boxes on top. Empty / omitted = no cell-range highlight.
    */
   cellRangeRects?: readonly Frame[];
+  /**
+   * Live preview of an in-progress table column / row resize. Renders
+   * as a single 1-px magenta line across the table at the proposed
+   * border position. World coords; the editor resolves the table's
+   * frame + pending position into the line segment.
+   */
+  tableResizePreview?: {
+    kind: 'col' | 'row';
+    /** Line start in world coords. */
+    x0: number;
+    y0: number;
+    /** Line end in world coords. */
+    x1: number;
+    y1: number;
+  };
 }
 
 /**
@@ -239,6 +254,16 @@ export function renderOverlay(
     for (const r of options.cellRangeRects) {
       overlay.appendChild(makeCellRangeRect(r, options.scale));
     }
+  }
+
+  // Live table column / row resize preview (a 1-px magenta line at
+  // the proposed border position). Painted above cell-range so it's
+  // visible during the gesture; cleared automatically when the editor
+  // unsets `pendingTableResize` on pointerup.
+  if (options.tableResizePreview) {
+    overlay.appendChild(
+      makeTableResizePreview(options.tableResizePreview, options.scale),
+    );
   }
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
@@ -501,6 +526,38 @@ function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivEle
     div.style.transform = `rotate(${frame.rotation}rad)`;
   }
   div.dataset.slidesHoverHighlight = id;
+  return div;
+}
+
+/**
+ * Live table column / row resize guide. A 1-px magenta line at the
+ * proposed border position; same accent the snap guides use so the
+ * UX language stays consistent. Pointer-events disabled — the
+ * gesture is driven by document-level listeners.
+ */
+function makeTableResizePreview(
+  segment: { kind: 'col' | 'row'; x0: number; y0: number; x1: number; y1: number },
+  scale: number,
+): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.background = '#be123c';
+  div.style.pointerEvents = 'none';
+  div.dataset.slidesTableResize = segment.kind;
+  if (segment.kind === 'col') {
+    // Vertical line — width 1, height spans the table's vertical
+    // extent. Center the 1-px stroke on the proposed boundary so the
+    // user sees the guide aligned to where the column edge will land.
+    div.style.left = `${segment.x0 * scale - 0.5}px`;
+    div.style.top = `${segment.y0 * scale}px`;
+    div.style.width = '1px';
+    div.style.height = `${(segment.y1 - segment.y0) * scale}px`;
+  } else {
+    div.style.left = `${segment.x0 * scale}px`;
+    div.style.top = `${segment.y0 * scale - 0.5}px`;
+    div.style.width = `${(segment.x1 - segment.x0) * scale}px`;
+    div.style.height = '1px';
+  }
   return div;
 }
 

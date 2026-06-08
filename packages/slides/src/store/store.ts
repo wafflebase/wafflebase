@@ -357,6 +357,30 @@ export interface SlidesStore {
     col: number,
     patch: Partial<import('../model/element').CellStyle>,
   ): void;
+  /**
+   * Replace `data.columnWidths` atomically. `widths.length` must equal
+   * the current column count; the implementation reshapes the array
+   * (LWW on each width slot for Yorkie). `frame.w` is recomputed to
+   * `sum(widths)` so the CR#13 invariant holds.
+   *
+   * Used by the column-border drag gesture (P4.7) and by future
+   * "distribute columns evenly" commands.
+   */
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void;
+  /**
+   * Replace each row's `height` atomically. `heights.length` must
+   * equal the current row count; `frame.h` is recomputed to
+   * `sum(heights)`.
+   */
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

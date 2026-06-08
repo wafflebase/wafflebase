@@ -1287,6 +1287,54 @@ export class MemSlidesStore implements SlidesStore {
     }
   }
 
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    if (widths.length !== e.data.columnWidths.length) {
+      throw new Error(
+        `updateTableColumnWidths: length ${widths.length} != current column count ${e.data.columnWidths.length}`,
+      );
+    }
+    e.data.columnWidths = [...widths];
+    e.frame = {
+      ...e.frame,
+      w: e.data.columnWidths.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    if (heights.length !== e.data.rows.length) {
+      throw new Error(
+        `updateTableRowHeights: length ${heights.length} != current row count ${e.data.rows.length}`,
+      );
+    }
+    for (let r = 0; r < e.data.rows.length; r++) {
+      e.data.rows[r].height = heights[r];
+    }
+    e.frame = {
+      ...e.frame,
+      h: heights.reduce((a, b) => a + b, 0),
+    };
+  }
+
   updateTableCellStyle(
     slideId: string,
     elementId: string,

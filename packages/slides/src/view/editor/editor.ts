@@ -18,6 +18,7 @@ import {
   computeTableLayout,
   nextCellInDirection,
   tableCellAtPoint,
+  tableEdgeAt,
   type TableLayout,
 } from '../canvas/table-renderer';
 import type { ThemeColor } from '../../model/theme';
@@ -626,6 +627,23 @@ class SlidesEditorImpl implements SlidesEditor {
   private cellSelection:
     | { tableId: string; r0: number; c0: number; r1: number; c1: number }
     | null = null;
+  /**
+   * Live preview of a table column / row drag-resize. Set on
+   * pointerdown over a border; updated on pointermove (overlay
+   * paints a 1-px magenta guide at `position`); cleared on
+   * pointerup / pointercancel — and at that point the final widths
+   * or heights commit via `updateTableColumnWidths` /
+   * `updateTableRowHeights` in one batch (one undo entry per
+   * gesture).
+   */
+  private pendingTableResize:
+    | {
+        tableId: string;
+        kind: 'col' | 'row';
+        index: number;
+        position: number;
+      }
+    | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
@@ -919,6 +937,38 @@ class SlidesEditorImpl implements SlidesEditor {
         this.cellSelection = null;
       }
     }
+    // Live table column / row resize preview. Resolve the table id
+    // → current frame so the magenta line lands on the table being
+    // resized, then map the proposed boundary position into a 1-px
+    // world-coord line segment.
+    let tableResizePreview:
+      | { kind: 'col' | 'row'; x0: number; y0: number; x1: number; y1: number }
+      | undefined;
+    if (this.pendingTableResize !== null) {
+      const p = this.pendingTableResize;
+      const t = findElement(slide.elements, p.tableId);
+      if (t?.type === 'table') {
+        const totalW = t.data.columnWidths.reduce((a, b) => a + b, 0);
+        const totalH = t.data.rows.reduce((a, r) => a + r.height, 0);
+        if (p.kind === 'col') {
+          tableResizePreview = {
+            kind: 'col',
+            x0: t.frame.x + p.position,
+            y0: t.frame.y,
+            x1: t.frame.x + p.position,
+            y1: t.frame.y + totalH,
+          };
+        } else {
+          tableResizePreview = {
+            kind: 'row',
+            x0: t.frame.x,
+            y0: t.frame.y + p.position,
+            x1: t.frame.x + totalW,
+            y1: t.frame.y + p.position,
+          };
+        }
+      }
+    }
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -935,6 +985,7 @@ class SlidesEditorImpl implements SlidesEditor {
       contextBox,
       hoverHighlightFrame,
       cellRangeRects: cellRangeRects.length > 0 ? cellRangeRects : undefined,
+      tableResizePreview,
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
@@ -2460,11 +2511,16 @@ class SlidesEditorImpl implements SlidesEditor {
       // selected so a subsequent drag moves them together).
       const scopeId = pickScopeId(hitResult, this.selection.getScope());
       // Click on an already-selected, top-level, non-rotated table:
-      // drill into cell selection. The table's element selection (and
-      // its outer handles) stay; only the interior click pivots from
-      // "arm drag" to "set cellSelection". Matches Google Slides where
-      // an interior click on a selected table picks a cell and the
-      // user moves the whole table via the selection-border / handles.
+      // - On an interior column / row border (4-px tolerance) → arm a
+      //   drag-resize for that border. Border check wins over cell
+      //   selection so the user can grab a border that runs through
+      //   the cell they would otherwise have selected.
+      // - Elsewhere → drill into cell selection. The table's element
+      //   selection (and its outer handles) stay; only the interior
+      //   click pivots from "arm drag" to "set cellSelection". Matches
+      //   Google Slides where an interior click on a selected table
+      //   picks a cell and the user moves the whole table via the
+      //   selection-border / handles.
       if (
         scopeId !== null &&
         this.selection.has(scopeId) &&
@@ -2481,11 +2537,22 @@ class SlidesEditorImpl implements SlidesEditor {
           const layout = computeTableLayout(hitEl.data, {
             fontScale: deckFontScale(doc.meta),
           });
+          const localX = x - hitEl.frame.x;
+          const localY = y - hitEl.frame.y;
+          // Border drag check first — same 4-px host-pixel tolerance
+          // the hover cursor logic uses (so the visible col-resize
+          // cursor and the actual grab zone agree).
+          const edge = tableEdgeAt(layout, localX, localY, 4 / this.scale());
+          if (edge !== null) {
+            e.preventDefault();
+            this.startTableEdgeResize(e as PointerEvent, hitEl, edge);
+            return;
+          }
           const cell = tableCellAtPoint(
             hitEl.data,
             layout,
-            x - hitEl.frame.x,
-            y - hitEl.frame.y,
+            localX,
+            localY,
           );
           if (cell !== null) {
             // Shift+click extends the current range to include the
@@ -3000,6 +3067,155 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
+   * Compute the col-resize / row-resize cursor for a selected table
+   * whose interior column or row border is under the pointer. Returns
+   * `null` when the selection isn't a top-level non-rotated table, the
+   * pointer is outside the table, or it's not within tolerance of any
+   * interior border.
+   */
+  private computeTableEdgeCursor(
+    clientX: number,
+    clientY: number,
+  ): string | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const ids = this.selection.get();
+    if (ids.length !== 1) return null;
+    const table = findElement(slide.elements, ids[0]);
+    if (!table || table.type !== 'table') return null;
+    if (table.frame.rotation !== 0) return null;
+    if (!slide.elements.some((el) => el.id === table.id)) return null;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const layout = computeTableLayout(table.data, {
+      fontScale: deckFontScale(this.options.store.read().meta),
+    });
+    // The hover tolerance in slide-logical coords is 4 host-pixels
+    // divided by the current zoom — keeps the grab band the same
+    // visual thickness regardless of zoom level.
+    const tolPx = 4;
+    const localX = x - table.frame.x;
+    const localY = y - table.frame.y;
+    const edge = tableEdgeAt(layout, localX, localY, tolPx / this.scale());
+    if (edge === null) return null;
+    return edge.kind === 'col' ? 'col-resize' : 'row-resize';
+  }
+
+  /**
+   * Start a column / row border drag-resize. The gesture lives outside
+   * the standard element-drag flow so the table's columnWidths /
+   * rowHeights are the only things mutated — frame.w / frame.h follow
+   * via the store op's `sum(columnWidths)` / `sum(rowH)` recalc, and
+   * the merge-aware redistribution in `computeTableLayout` keeps cell
+   * paints honouring the new sizes.
+   *
+   * No store writes during the drag itself; the overlay paints a
+   * magenta guide line at the proposed border position and the final
+   * widths / heights commit on pointerup in one batch (one undo entry
+   * per gesture).
+   */
+  private startTableEdgeResize(
+    e: PointerEvent,
+    table: TableElement,
+    edge: { kind: 'col' | 'row'; index: number; position: number },
+  ): void {
+    const slideId = this.currentSlide()?.id;
+    if (slideId === undefined) return;
+    const store = this.options.store;
+    const tableId = table.id;
+    const kind = edge.kind;
+    const idx = edge.index;
+    const originalWidths = [...table.data.columnWidths];
+    const originalHeights = table.data.rows.map((r) => r.height);
+    // Anchor the gesture at the pointerdown logical position so a
+    // single dx / dy can compute the new boundary regardless of
+    // intermediate move events.
+    const start = this.clientToLogical(e.clientX, e.clientY);
+    const startLocalX = start.x - table.frame.x;
+    const startLocalY = start.y - table.frame.y;
+    const MIN_CELL = 10;
+
+    const clampPosition = (proposed: number): number => {
+      if (kind === 'col') {
+        const leftMin = sumPrefix(originalWidths, idx - 1) + MIN_CELL;
+        const rightMax =
+          sumPrefix(originalWidths, idx + 1) - MIN_CELL;
+        return Math.max(leftMin, Math.min(rightMax, proposed));
+      }
+      const topMin = sumPrefix(originalHeights, idx - 1) + MIN_CELL;
+      const bottomMax = sumPrefix(originalHeights, idx + 1) - MIN_CELL;
+      return Math.max(topMin, Math.min(bottomMax, proposed));
+    };
+
+    // Initial preview at the pointerdown position so the overlay
+    // paints the guide line immediately (no flash before first move).
+    const initialProposed = kind === 'col' ? startLocalX : startLocalY;
+    this.pendingTableResize = {
+      tableId,
+      kind,
+      index: idx,
+      position: clampPosition(initialProposed),
+    };
+    this.repaintOverlay();
+    // While the gesture is live, lock the cursor — pointermove
+    // fires on document with no chance for the hover logic to
+    // reassert col/row-resize.
+    document.body.style.cursor = kind === 'col' ? 'col-resize' : 'row-resize';
+
+    const onMove = (ev: PointerEvent): void => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const localX = cur.x - table.frame.x;
+      const localY = cur.y - table.frame.y;
+      const proposed = kind === 'col' ? localX : localY;
+      const clamped = clampPosition(proposed);
+      if (this.pendingTableResize?.position === clamped) return;
+      this.pendingTableResize = {
+        tableId,
+        kind,
+        index: idx,
+        position: clamped,
+      };
+      this.repaintOverlay();
+    };
+    const finish = (commit: boolean): void => {
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', onUp, true);
+      document.removeEventListener('pointercancel', onCancel, true);
+      document.body.style.cursor = '';
+      const pending = this.pendingTableResize;
+      this.pendingTableResize = null;
+      if (commit && pending !== null) {
+        if (pending.kind === 'col') {
+          const left = pending.position - sumPrefix(originalWidths, idx - 1);
+          const right =
+            sumPrefix(originalWidths, idx + 1) - pending.position;
+          const next = [...originalWidths];
+          next[idx - 1] = left;
+          next[idx] = right;
+          store.batch(() => {
+            store.updateTableColumnWidths(slideId, tableId, next);
+          });
+        } else {
+          const top = pending.position - sumPrefix(originalHeights, idx - 1);
+          const bottom =
+            sumPrefix(originalHeights, idx + 1) - pending.position;
+          const next = [...originalHeights];
+          next[idx - 1] = top;
+          next[idx] = bottom;
+          store.batch(() => {
+            store.updateTableRowHeights(slideId, tableId, next);
+          });
+        }
+      }
+      this.repaintOverlay();
+    };
+    const onUp = (): void => finish(true);
+    const onCancel = (): void => finish(false);
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
+  }
+
+  /**
    * Arm a drag-to-extend gesture: pointermove updates `cellSelection.r1/c1`
    * to the cell under the pointer; pointerup / pointercancel tears the
    * listeners down. Anchor (`r0`, `c0`) stays fixed at the pointerdown
@@ -3151,6 +3367,17 @@ class SlidesEditorImpl implements SlidesEditor {
     let desired = '';
     let nextHighlightId: string | null = null;
 
+    // Table interior border (col/row resize) wins over both the outer
+    // bbox edge cursor and the move cursor — the user is mousing over
+    // a draggable border that lives inside the table's frame, and
+    // showing "move" here would suggest the wrong gesture.
+    const tableEdgeCursor =
+      this.selection.get().length === 1
+        ? this.computeTableEdgeCursor(e.clientX, e.clientY)
+        : null;
+    if (tableEdgeCursor !== null) {
+      desired = tableEdgeCursor;
+    } else {
     // P2.7 — edge-zone resize cursor wins over text-region / move /
     // idle-hover when the pointer is within 4 px of the selected
     // element's bbox edge (inside OR outside the bbox). The handle hit
@@ -3184,6 +3411,7 @@ class SlidesEditorImpl implements SlidesEditor {
           }
         }
       }
+    }
     }
 
     this.setHoverHighlight(nextHighlightId);
@@ -4715,6 +4943,19 @@ function canUngroup(selectedIds: string[], slide: { elements: Element[] }): bool
  * Find an element anywhere in the element tree and return it.
  * Returns `undefined` when not found (unlike `requireElement` which throws).
  */
+/**
+ * Sum the first `n` entries of `arr` (i.e. cumulative width / height
+ * up to but excluding column / row `n`). Returns 0 when `n <= 0`.
+ * Helper for `startTableEdgeResize` — its clamp + commit math needs
+ * prefix sums of the original-at-pointerdown column / row sizes to
+ * convert a proposed boundary position back into per-cell sizes.
+ */
+function sumPrefix(arr: readonly number[], n: number): number {
+  let s = 0;
+  for (let i = 0; i < n && i < arr.length; i++) s += arr[i];
+  return s;
+}
+
 function findElement(elements: readonly Element[], id: string): Element | undefined {
   for (const el of elements) {
     if (el.id === id) return el;

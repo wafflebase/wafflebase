@@ -1919,6 +1919,52 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      if (widths.length !== e.data.columnWidths.length) {
+        throw new Error(
+          `updateTableColumnWidths: length ${widths.length} != current column count ${e.data.columnWidths.length}`,
+        );
+      }
+      // Per-slot LWW: write each column width individually. A wholesale
+      // array replacement would issue one big LWW op instead of
+      // per-element ones, losing concurrent-edit granularity on
+      // adjacent columns.
+      for (let c = 0; c < widths.length; c++) {
+        e.data.columnWidths[c] = widths[c];
+      }
+      const total = widths.reduce((a, b) => a + b, 0);
+      e.frame = { ...e.frame, w: total };
+    });
+  }
+
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      if (heights.length !== e.data.rows.length) {
+        throw new Error(
+          `updateTableRowHeights: length ${heights.length} != current row count ${e.data.rows.length}`,
+        );
+      }
+      for (let row = 0; row < heights.length; row++) {
+        e.data.rows[row].height = heights[row];
+      }
+      const total = heights.reduce((a, b) => a + b, 0);
+      e.frame = { ...e.frame, h: total };
+    });
+  }
+
   updateTableCellStyle(
     slideId: string,
     elementId: string,

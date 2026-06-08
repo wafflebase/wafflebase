@@ -819,6 +819,69 @@ describe('MemSlidesStore.mergeTableCells / unmergeTableCells', () => {
   });
 });
 
+describe('MemSlidesStore.updateTableColumnWidths / updateTableRowHeights', () => {
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: {
+          columnWidths: [80, 120],
+          rows: [
+            { height: 50, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+            { height: 50, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('replaces columnWidths atomically and recomputes frame.w', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.updateTableColumnWidths(slideId, tableId, [60, 140]);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.columnWidths).toEqual([60, 140]);
+    expect(t.frame.w).toBe(200);
+  });
+
+  it('replaces row heights atomically and recomputes frame.h', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.updateTableRowHeights(slideId, tableId, [40, 60]);
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows.map((r) => r.height)).toEqual([40, 60]);
+    expect(t.frame.h).toBe(100);
+  });
+
+  it('throws on length mismatch', () => {
+    const { store, slideId, tableId } = setup();
+    expect(() =>
+      store.batch(() => {
+        store.updateTableColumnWidths(slideId, tableId, [100]);
+      }),
+    ).toThrow(/length/);
+    expect(() =>
+      store.batch(() => {
+        store.updateTableRowHeights(slideId, tableId, [50, 50, 50]);
+      }),
+    ).toThrow(/length/);
+  });
+});
+
 describe('SlidesEditor.insertTable (via store.addElement integration)', () => {
   // Direct test of the model invariants the editor's insertTable
   // produces; full Editor instance is overkill for shape validation.
