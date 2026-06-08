@@ -163,3 +163,141 @@ describe('MemSlidesStore.updateElementFrame on a TableElement', () => {
     expect(table.data.rows.map((r) => r.height)).toEqual([60, 40]);
   });
 });
+
+describe('MemSlidesStore.withTableCellBody', () => {
+  function setupTable(): { store: MemSlidesStore; slideId: string; tableId: string } {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: {
+          columnWidths: [100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [paragraph('a')] }, style: {} },
+                { body: { blocks: [paragraph('b')] }, style: {} },
+              ],
+            },
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [paragraph('c')] }, style: {} },
+                { body: { blocks: [paragraph('d')] }, style: {} },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+
+  function readTable(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId);
+    if (!slide) throw new Error('slide missing');
+    const el = slide.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  function paragraph(text: string) {
+    return {
+      id: `b-${text}`,
+      type: 'paragraph' as const,
+      inlines: [{ text, style: {} }],
+      style: { alignment: 'left' as const, lineHeight: 1.2, marginTop: 0, marginBottom: 0, marginLeft: 0, textIndent: 0 },
+    };
+  }
+
+  function readCellText(table: TableElement, r: number, c: number): string {
+    return table.data.rows[r].cells[c].body.blocks[0].inlines[0].text;
+  }
+
+  it('mutates the targeted cell.body.blocks via the callback', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.withTableCellBody(slideId, tableId, 0, 1, (blocks) => {
+        blocks[0].inlines[0].text = 'B';
+      });
+    });
+    const table = readTable(store, slideId, tableId);
+    expect(readCellText(table, 0, 0)).toBe('a');
+    expect(readCellText(table, 0, 1)).toBe('B');
+    expect(readCellText(table, 1, 0)).toBe('c');
+    expect(readCellText(table, 1, 1)).toBe('d');
+  });
+
+  it('honors an explicit blocks[] return value from the callback', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.withTableCellBody(slideId, tableId, 1, 1, () => [paragraph('replaced')]);
+    });
+    const table = readTable(store, slideId, tableId);
+    expect(readCellText(table, 1, 1)).toBe('replaced');
+  });
+
+  it('throws when the element is not a table', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let textId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 30, rotation: 0 },
+        data: { blocks: [paragraph('hi')] },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.withTableCellBody(slideId, textId, 0, 0, () => undefined);
+      }),
+    ).toThrow(/not a table/);
+  });
+
+  it('throws when the cell is covered (gridSpan === 0 or rowSpan === 0)', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {}, gridSpan: 2 },
+                { body: { blocks: [] }, style: {}, gridSpan: 0 },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.withTableCellBody(slideId, tableId, 0, 1, () => undefined);
+      }),
+    ).toThrow(/covered/);
+  });
+
+  it('throws when (row, col) is out of bounds', () => {
+    const { store, slideId, tableId } = setupTable();
+    expect(() =>
+      store.batch(() => {
+        store.withTableCellBody(slideId, tableId, 5, 5, () => undefined);
+      }),
+    ).toThrow(/cell/i);
+  });
+});

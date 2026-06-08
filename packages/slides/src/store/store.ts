@@ -210,6 +210,25 @@ export interface SlidesStore {
     elementId: string,
     fn: (blocks: Block[]) => Block[] | void,
   ): void;
+  /**
+   * Mutate a single cell's `body.blocks` inside a TableElement. Mirrors
+   * `withTextElement` / `withShapeText` so the slides text-bridge can
+   * commit cell edits via the same Block[] surface.
+   *
+   * Throws when:
+   *   - the element is missing or not a table
+   *   - `(row, col)` is out of bounds for the cell grid
+   *   - the cell is covered (`gridSpan === 0 || rowSpan === 0`) — covered
+   *     cells have no editable body; the caller must resolve to the merge
+   *     anchor first.
+   */
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

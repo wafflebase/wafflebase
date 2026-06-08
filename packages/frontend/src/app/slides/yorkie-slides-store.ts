@@ -1676,6 +1676,65 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(
+        s.elements as unknown as ProxyArray,
+        elementId,
+      );
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'table') {
+        throw new Error(`Element ${elementId} is not a table`);
+      }
+      const eAny = e as { data: { rows: { cells: unknown[] }[] } };
+      const cellsProxy = eAny.data.rows[row]?.cells;
+      const cell = cellsProxy?.[col] as
+        | {
+            body?: { blocks?: unknown };
+            gridSpan?: number;
+            rowSpan?: number;
+          }
+        | undefined;
+      if (!cell) {
+        throw new Error(
+          `Cell (${row}, ${col}) not found on table ${elementId}`,
+        );
+      }
+      if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+        throw new Error(
+          `Cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+        );
+      }
+      // Snapshot the plain blocks, hand them to the callback, then write
+      // back. Mirrors `withTextElement` — Yorkie proxies don't expose
+      // live nested values for non-CRDT fields so in-place mutation
+      // through the proxy alone would silently no-op, diverging from
+      // MemSlidesStore where `fn` receives the live reference.
+      const priorBlocks =
+        yorkieToPlain<Block[]>(cell.body?.blocks) ?? [];
+      const returned = fn(priorBlocks);
+      const nextBlocks = returned !== undefined ? clone(returned) : clone(priorBlocks);
+      const existingBody = cell.body as
+        | { blocks?: unknown; autofit?: unknown; verticalAnchor?: unknown }
+        | undefined;
+      if (existingBody !== undefined) {
+        existingBody.blocks = nextBlocks;
+      } else {
+        (cell as { body: unknown }).body = { blocks: nextBlocks };
+      }
+    });
+  }
+
   // --- guides (presentation-wide) ---
 
   addGuide(axis: 'x' | 'y', position: number): string {

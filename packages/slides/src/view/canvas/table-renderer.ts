@@ -36,29 +36,60 @@ export function drawTable(
   theme: Theme,
   options?: { fontScale?: number },
 ): void {
+  const { rows } = data;
+  const nCols = data.columnWidths.length;
+  if (nCols === 0 || rows.length === 0) return;
+
+  const { colX, rowY } = computeTableLayout(data, options);
+
+  // void unused size param for now — kept on signature for parity with
+  // drawText/drawShape and so a future overflow-clamp path can clip.
+  void size;
+
+  paintCellFills(ctx, rows, nCols, colX, rowY, theme);
+  paintCellContents(ctx, rows, nCols, colX, rowY, theme, options);
+  paintCellBorders(ctx, rows, nCols, colX, rowY, theme);
+}
+
+export interface TableLayout {
+  /** Column x-offsets at every column boundary; length = nCols + 1. */
+  readonly colX: readonly number[];
+  /** Row y-offsets at every row boundary; length = nRows + 1. */
+  readonly rowY: readonly number[];
+  /** Final per-row heights after auto-grow + merge redistribution. */
+  readonly rowH: readonly number[];
+}
+
+/**
+ * Compute the column / row offsets and final row heights of a table.
+ *
+ * Auto-grow is two passes (matches `drawTable`'s prior inline logic):
+ *  - Pass A (unmerged): each row grows to fit the tallest rowSpan=1
+ *    cell content, with declared `row.height` as the floor (OOXML
+ *    `<a:tr h>` "minimum" semantics).
+ *  - Pass B (merged anchors): when a rowSpan>1 cell's content exceeds
+ *    the sum of its covered rows, the deficit is added to the LAST row
+ *    of the merge. Matches PowerPoint's "tall merged headline pushes
+ *    its last row down" behavior; the alternative (clip overflow to
+ *    declared span) would truncate visible text.
+ *
+ * Pure: depends only on the table data + the docs `measureTextBodyHeight`
+ * helper, no canvas / DOM / theme access. Safe to call from the editor
+ * (cell hit-test, cell text-edit mount frame) and from future PDF
+ * export.
+ */
+export function computeTableLayout(
+  data: Data,
+  options?: { fontScale?: number },
+): TableLayout {
   const { columnWidths, rows } = data;
   const nCols = columnWidths.length;
   const nRows = rows.length;
-  if (nCols === 0 || nRows === 0) return;
 
-  // Column x-offsets at every column boundary (length nCols + 1).
   const colX: number[] = new Array(nCols + 1);
   colX[0] = 0;
   for (let c = 0; c < nCols; c++) colX[c + 1] = colX[c] + columnWidths[c];
 
-  // Row heights with content auto-grow.
-  //
-  // Pass A — unmerged cells. Each row's height is
-  // `max(declared, max contentHeight across non-covered rowSpan=1
-  // cells in this row)`. Mirrors OOXML `<a:tr h>` ("minimum") semantics.
-  //
-  // Pass B — merged anchors (rowSpan > 1). If the anchor's content
-  // height exceeds the SUM of its covered rows (Pass A heights), the
-  // deficit is added to the LAST row of the merge so the anchor cell's
-  // painted height always equals the rendered content height. Matches
-  // PowerPoint's "tall merged headline pushes its last row down"
-  // behavior; the alternative (clip overflow to declared span) would
-  // truncate visible text.
   const measureOpts = { fontScale: options?.fontScale };
   const rowH: number[] = new Array(nRows);
   for (let r = 0; r < nRows; r++) {
@@ -103,21 +134,15 @@ export function drawTable(
   rowY[0] = 0;
   for (let r = 0; r < nRows; r++) rowY[r + 1] = rowY[r] + rowH[r];
 
-  // void unused size param for now — kept on signature for parity with
-  // drawText/drawShape and so a future overflow-clamp path can clip.
-  void size;
-
-  paintCellFills(ctx, rows, nCols, colX, rowY, theme);
-  paintCellContents(ctx, rows, nCols, colX, rowY, theme, options);
-  paintCellBorders(ctx, rows, nCols, colX, rowY, theme);
+  return { colX, rowY, rowH };
 }
 
 function paintCellFills(
   ctx: CanvasRenderingContext2D,
   rows: Data['rows'],
   nCols: number,
-  colX: number[],
-  rowY: number[],
+  colX: readonly number[],
+  rowY: readonly number[],
   theme: Theme,
 ): void {
   for (let r = 0; r < rows.length; r++) {
@@ -141,8 +166,8 @@ function paintCellContents(
   ctx: CanvasRenderingContext2D,
   rows: Data['rows'],
   nCols: number,
-  colX: number[],
-  rowY: number[],
+  colX: readonly number[],
+  rowY: readonly number[],
   theme: Theme,
   options: { fontScale?: number } | undefined,
 ): void {
@@ -195,8 +220,8 @@ function paintCellBorders(
   ctx: CanvasRenderingContext2D,
   rows: Data['rows'],
   nCols: number,
-  colX: number[],
-  rowY: number[],
+  colX: readonly number[],
+  rowY: readonly number[],
   theme: Theme,
 ): void {
   type Edge = {
@@ -326,6 +351,79 @@ function dashPattern(dash: CellBorder['dash']): number[] {
 
 function isCovered(cell: TableCell): boolean {
   return cell.gridSpan === 0 || cell.rowSpan === 0;
+}
+
+/**
+ * Pointer hit-test in element-local table coordinates. Given a logical
+ * `(localX, localY)` measured from the table's top-left corner and the
+ * pre-computed `TableLayout`, return `{row, col}` of the anchor cell the
+ * pointer lands on, or `null` when the point falls outside the table's
+ * painted bounds.
+ *
+ * Hits on merge-covered cells (`gridSpan === 0 || rowSpan === 0`) snap
+ * to the anchor cell whose declared span covers the (r, c) coordinate.
+ * Both axis-only and 2D merges resolve correctly — there is no special
+ * casing for "horizontal-only" vs "vertical-only" coverage.
+ *
+ * Used by the editor's dblclick → enter-cell-edit path so the docs text
+ * bridge mounts on the anchor's rect rather than on the visually-empty
+ * covered region.
+ */
+export function tableCellAtPoint(
+  data: Data,
+  layout: TableLayout,
+  localX: number,
+  localY: number,
+): { row: number; col: number } | null {
+  const r = findIndex(layout.rowY, localY);
+  const c = findIndex(layout.colX, localX);
+  if (r < 0 || c < 0) return null;
+  return resolveAnchor(data, r, c);
+}
+
+/**
+ * Largest index `i` in `[0..boundaries.length - 2]` such that
+ * `boundaries[i] <= v < boundaries[i+1]`, or `-1` when `v` is out of
+ * the half-open range `[boundaries[0], boundaries.at(-1)!)`.
+ */
+function findIndex(boundaries: readonly number[], v: number): number {
+  if (boundaries.length < 2) return -1;
+  if (v < boundaries[0]) return -1;
+  if (v >= boundaries[boundaries.length - 1]) return -1;
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    if (v < boundaries[i + 1]) return i;
+  }
+  return -1;
+}
+
+function resolveAnchor(
+  data: Data,
+  r: number,
+  c: number,
+): { row: number; col: number } {
+  const cell = data.rows[r]?.cells[c];
+  if (cell && !isCovered(cell)) return { row: r, col: c };
+  // Linear scan: at most one anchor's declared span covers (r, c) for
+  // valid OOXML data, so we return the first that matches. Tables are
+  // typically <= ~10 rows × ~10 cols, so O(r*c) is fine for the editor
+  // dblclick path.
+  for (let r2 = 0; r2 <= r; r2++) {
+    const row = data.rows[r2];
+    if (!row) continue;
+    for (let c2 = 0; c2 <= c; c2++) {
+      const candidate = row.cells[c2];
+      if (!candidate || isCovered(candidate)) continue;
+      const gs = candidate.gridSpan ?? 1;
+      const rs = candidate.rowSpan ?? 1;
+      if (c2 + gs > c && r2 + rs > r) {
+        return { row: r2, col: c2 };
+      }
+    }
+  }
+  // Unreachable for valid data (every covered cell has an anchor in
+  // scan order before it); fall back to the literal hit to avoid crashing
+  // the caller on malformed input.
+  return { row: r, col: c };
 }
 
 function spanOf(

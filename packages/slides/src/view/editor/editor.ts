@@ -5,12 +5,19 @@ import type {
   ShapeKind,
   Stroke,
   ShapeElement,
+  TableCell,
+  TableElement,
   TextElement,
   VerticalAnchorMode,
 } from '../../model/element';
+import { DEFAULT_CELL_PADDING } from '../../model/element';
 import type { Block } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
+import {
+  computeTableLayout,
+  tableCellAtPoint,
+} from '../canvas/table-renderer';
 import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
@@ -576,6 +583,14 @@ class SlidesEditorImpl implements SlidesEditor {
    *   - clicks outside the text-box's container commit + exit edit mode
    */
   private editingElementId: string | null = null;
+  /**
+   * Cell coordinates being edited when the active text-box targets a
+   * TableElement cell. Set in `enterEditMode` when the dblclick path
+   * passes a `cell` option; cleared in `finishEditMode`. Used by
+   * `maskEditingElement` to clear ONLY the targeted cell's body on the
+   * canvas underlay so the in-place editor doesn't double-paint.
+   */
+  private editingCellCoords: { row: number; col: number } | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
@@ -922,7 +937,11 @@ class SlidesEditorImpl implements SlidesEditor {
       const editingId = this.editingElementId;
       const visible = {
         ...slide,
-        elements: maskEditingElement(slide.elements, editingId),
+        elements: maskEditingElement(
+          slide.elements,
+          editingId,
+          this.editingCellCoords,
+        ),
       };
       this.renderer.forceRender(visible, doc);
       this.paintRuler();
@@ -2193,7 +2212,28 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return;
     const el = findElement(slide.elements, selectedIds[0]);
-    if (!el || (el.type !== 'text' && el.type !== 'shape')) return;
+    if (!el) return;
+    if (el.type === 'table') {
+      // Tables route the dblclick into the table-aware cell editor.
+      // Rotated tables don't support cell editing in P3 (the cell's
+      // center of rotation is NOT the table's center, so the in-place
+      // editor and the painted cell would diverge); silently fall
+      // through.
+      if (el.frame.rotation !== 0) return;
+      const localX = x - el.frame.x;
+      const localY = y - el.frame.y;
+      const doc = this.options.store.read();
+      const layout = computeTableLayout(el.data, {
+        fontScale: deckFontScale(doc.meta),
+      });
+      const cell = tableCellAtPoint(el.data, layout, localX, localY);
+      if (!cell) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterEditMode(slide.id, el.id, { cell });
+      return;
+    }
+    if (el.type !== 'text' && el.type !== 'shape') return;
     e.preventDefault();
     e.stopPropagation();
     this.enterEditMode(slide.id, el.id);
@@ -2202,7 +2242,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private enterEditMode(
     slideId: string,
     elementId: string,
-    options?: { initialText?: string },
+    options?: { initialText?: string; cell?: { row: number; col: number } },
   ): void {
     // If we're already editing some other text-box, commit it first so
     // the text in flight is not lost when focus moves.
@@ -2221,9 +2261,16 @@ class SlidesEditorImpl implements SlidesEditor {
     // elements, so grouped text/shape would silently fail to enter
     // edit mode.
     const localElement = findElement(slide.elements, elementId);
-    if (
-      !localElement ||
-      (localElement.type !== 'text' && localElement.type !== 'shape')
+    if (!localElement) return;
+    const isCellMode = options?.cell !== undefined;
+    if (isCellMode) {
+      // Cell edit requires the element to be a table; everything else
+      // is a programmer error so reject silently rather than mounting
+      // a text editor over an unrelated element.
+      if (localElement.type !== 'table') return;
+    } else if (
+      localElement.type !== 'text' &&
+      localElement.type !== 'shape'
     ) {
       return;
     }
@@ -2236,16 +2283,34 @@ class SlidesEditorImpl implements SlidesEditor {
     // world lookup returns the live element by reference, so this is
     // a no-op.
     const worldLookup = buildElementWorldLookup(slide.elements);
-    const worldElement = worldLookup.get(elementId) as
-      | TextElement
-      | ShapeElement;
+    const worldElement = worldLookup.get(elementId);
+    if (!worldElement) return;
 
     // Build a small descriptor that papers over the difference between
     // editing a TextElement (text in `data.blocks`, frame auto-grows to
-    // fit content) and a ShapeElement (text in `data.text.blocks`,
-    // frame is user-sized and does NOT auto-grow into the text). All
-    // the wiring below works off `target` so the two kinds stay aligned.
-    const target = buildEditTarget(worldElement);
+    // fit content), a ShapeElement (text in `data.text.blocks`, frame
+    // is user-sized and does NOT auto-grow), and a single TableElement
+    // cell (text in `data.rows[r].cells[c].body.blocks`, mounted on
+    // the cell's inner rect within the table's world frame).
+    let target: EditTarget | null;
+    if (isCellMode) {
+      const cellCoord = options!.cell!;
+      target = buildCellEditTarget(
+        worldElement as TableElement,
+        cellCoord.row,
+        cellCoord.col,
+        worldElement.frame,
+        deckFontScale(doc.meta),
+      );
+      // null means rotated table / covered cell / out-of-bounds —
+      // dblclick should silently fall through rather than mount on a
+      // bogus rect.
+      if (target === null) return;
+    } else {
+      target = buildEditTarget(
+        worldElement as TextElement | ShapeElement,
+      );
+    }
 
     // Frame height at entry; the committed fit only writes when the
     // content height differs from this (text-element only; shapes skip
@@ -2277,6 +2342,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // the editor (toolbar etc.) reflects the active target.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
+    this.editingCellCoords = target.cell ?? null;
     // Drop any idle hover highlight and stale hover cursor; once
     // text-edit owns the box, pointermove early-returns without
     // re-evaluating either.
@@ -2337,7 +2403,7 @@ class SlidesEditorImpl implements SlidesEditor {
         if (!cancelled) {
           try {
             this.options.store.batch(() => {
-              if (target.kind === 'text') {
+              if (target!.kind === 'text') {
                 this.options.store.withTextElement(slideId, elementId, () => next);
                 // Fit the frame height to the content in the SAME batch
                 // as the text write — one undo entry, no per-keystroke
@@ -2354,6 +2420,20 @@ class SlidesEditorImpl implements SlidesEditor {
                     this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
                   }
                 }
+              } else if (target!.kind === 'cell' && target!.cell) {
+                // Cell text writes through the table-aware bridge. Row
+                // height auto-grow is handled by the renderer at next
+                // paint via computeTableLayout's "max(declared,
+                // contentHeight)" rule, so no row.height writeback is
+                // needed here — keeping the declared row.height stable
+                // matches PPTX `<a:tr h>` "minimum" semantics.
+                this.options.store.withTableCellBody(
+                  slideId,
+                  elementId,
+                  target!.cell.row,
+                  target!.cell.col,
+                  () => next,
+                );
               } else {
                 this.options.store.withShapeText(slideId, elementId, () => next);
               }
@@ -2408,6 +2488,7 @@ class SlidesEditorImpl implements SlidesEditor {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
     this.editingElementId = null;
+    this.editingCellCoords = null;
     this.lastEditingContentHeight = null;
     this.activeTextEditor = null;
     for (const cb of this.textEditingListeners) cb();
@@ -4117,13 +4198,17 @@ function replaceShapeAdjustments(
  * Rebuild a slide's element tree with the in-edit element masked: a
  * text element is dropped entirely, a shape element keeps its
  * fill/stroke but has `data.text` stripped so the renderer doesn't
- * paint the body that the in-place text-box editor now owns. Groups
- * are walked recursively so the mask applies regardless of nesting
- * depth. Shallow clones only; block arrays are aliased.
+ * paint the body that the in-place text-box editor now owns. For a
+ * table being edited at the cell level, only the targeted cell's
+ * `body.blocks` is cleared — the rest of the table (fills, borders,
+ * other cells' content) keeps painting. Groups are walked recursively
+ * so the mask applies regardless of nesting depth. Shallow clones
+ * only; block arrays are aliased.
  */
 function maskEditingElement(
   elements: readonly Element[],
   editingId: string,
+  cellCoords: { row: number; col: number } | null,
 ): Element[] {
   const out: Element[] = [];
   for (const el of elements) {
@@ -4131,6 +4216,8 @@ function maskEditingElement(
       if (el.type === 'shape') {
         const { text: _omit, ...rest } = el.data;
         out.push({ ...el, data: rest } as typeof el);
+      } else if (el.type === 'table' && cellCoords !== null) {
+        out.push(maskTableCellBody(el, cellCoords));
       }
       // TextElement → drop entirely; the overlay editor owns it now.
       continue;
@@ -4140,7 +4227,7 @@ function maskEditingElement(
         ...el,
         data: {
           ...el.data,
-          children: maskEditingElement(el.data.children, editingId),
+          children: maskEditingElement(el.data.children, editingId, cellCoords),
         },
       });
       continue;
@@ -4148,6 +4235,35 @@ function maskEditingElement(
     out.push(el);
   }
   return out;
+}
+
+/**
+ * Clone a TableElement with the editing cell's body.blocks cleared so
+ * the canvas underlay doesn't double-paint the text the in-place
+ * editor is rendering. Cell style (fill, border, padding, vAlign) and
+ * span markers are preserved verbatim — only the inline content
+ * vanishes. Shallow clones at every level; sibling cells and other
+ * rows alias through unchanged.
+ */
+function maskTableCellBody(
+  table: TableElement,
+  cell: { row: number; col: number },
+): TableElement {
+  const targetRow = table.data.rows[cell.row];
+  if (!targetRow) return table;
+  const targetCell = targetRow.cells[cell.col];
+  if (!targetCell) return table;
+  const nextCells = targetRow.cells.slice();
+  nextCells[cell.col] = {
+    ...targetCell,
+    body: { ...targetCell.body, blocks: [] },
+  };
+  const nextRows = table.data.rows.slice();
+  nextRows[cell.row] = { ...targetRow, cells: nextCells };
+  return {
+    ...table,
+    data: { ...table.data, rows: nextRows },
+  };
 }
 
 /**
@@ -4167,11 +4283,13 @@ function maskEditingElement(
  *   Google Slides behavior.
  */
 type EditTarget = {
-  kind: 'text' | 'shape';
+  kind: 'text' | 'shape' | 'cell';
   blocks: Block[];
   autofit?: AutofitMode;
   verticalAnchor?: VerticalAnchorMode;
   editFrame: Frame;
+  /** Set when `kind === 'cell'` so `onCommit` can route to withTableCellBody. */
+  cell?: { row: number; col: number };
 };
 
 function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
@@ -4198,6 +4316,90 @@ function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
     autofit: body?.autofit ?? 'none',
     verticalAnchor: body?.verticalAnchor ?? 'middle',
     editFrame: innerFrame,
+  };
+}
+
+/**
+ * Build an EditTarget for a single cell inside a TableElement.
+ *
+ * `worldFrame` is the table's frame in world (slide-logical) coords —
+ * already composed through any ancestor group transform by
+ * `buildElementWorldLookup`. The cell's editFrame is the cell's inner
+ * rect (column / row offset within the table, minus cell padding)
+ * translated into world coords.
+ *
+ * Caller MUST resolve `(row, col)` to the merge ANCHOR via
+ * `tableCellAtPoint` before calling — covered cells (gridSpan/rowSpan
+ * === 0) have no body to edit and `withTableCellBody` will throw.
+ *
+ * Rotation: P1/P3 supports non-rotated tables only. Rotated tables
+ * would need cell-center-relative re-rotation (the cell's center is
+ * NOT the table's center), so this helper returns `null` when
+ * `worldFrame.rotation !== 0`. Cell editing on rotated tables is
+ * deferred; the dblclick path simply does nothing in that case.
+ */
+function buildCellEditTarget(
+  table: TableElement,
+  row: number,
+  col: number,
+  worldFrame: Frame,
+  fontScale: number,
+): EditTarget | null {
+  if (worldFrame.rotation !== 0) return null;
+  const cellRow = table.data.rows[row];
+  const cell = cellRow?.cells[col];
+  if (!cell) return null;
+  if (cell.gridSpan === 0 || cell.rowSpan === 0) return null;
+
+  const layout = computeTableLayout(table.data, { fontScale });
+  const gridSpan = Math.min(
+    Math.max(cell.gridSpan ?? 1, 1),
+    table.data.columnWidths.length - col,
+  );
+  const rowSpan = Math.min(
+    Math.max(cell.rowSpan ?? 1, 1),
+    table.data.rows.length - row,
+  );
+  const x0 = layout.colX[col];
+  const x1 = layout.colX[col + gridSpan];
+  const y0 = layout.rowY[row];
+  const y1 = layout.rowY[row + rowSpan];
+  const pad = cellPadding(cell);
+
+  const innerFrame: Frame = {
+    x: worldFrame.x + x0 + pad.left,
+    y: worldFrame.y + y0 + pad.top,
+    w: Math.max(0, x1 - x0 - pad.left - pad.right),
+    h: Math.max(0, y1 - y0 - pad.top - pad.bottom),
+    rotation: 0,
+  };
+
+  return {
+    kind: 'cell',
+    blocks: cell.body.blocks.length > 0 ? cell.body.blocks : [emptyShapeTextBlock()],
+    // Cell content never shrinks (the row auto-grows instead — see
+    // CR#5 / slides-tables.md). 'none' mirrors what paintCellContents
+    // forwards to paintTextBody at render time.
+    autofit: 'none',
+    verticalAnchor:
+      cell.body.verticalAnchor ?? cell.style.verticalAlign ?? 'top',
+    editFrame: innerFrame,
+    cell: { row, col },
+  };
+}
+
+function cellPadding(cell: TableCell): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
+  const p = cell.style.padding;
+  return {
+    top: p?.top ?? DEFAULT_CELL_PADDING.top,
+    right: p?.right ?? DEFAULT_CELL_PADDING.right,
+    bottom: p?.bottom ?? DEFAULT_CELL_PADDING.bottom,
+    left: p?.left ?? DEFAULT_CELL_PADDING.left,
   };
 }
 

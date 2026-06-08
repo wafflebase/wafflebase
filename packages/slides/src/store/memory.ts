@@ -982,6 +982,36 @@ export class MemSlidesStore implements SlidesStore {
     e.data.text = { ...e.data.text, blocks: next };
   }
 
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[row]?.cells[col];
+    if (!cell) {
+      throw new Error(
+        `Cell (${row}, ${col}) not found on table ${elementId}`,
+      );
+    }
+    if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+      throw new Error(
+        `Cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+      );
+    }
+    const next = fn(cell.body.blocks);
+    if (next !== undefined) {
+      cell.body.blocks = clone(next);
+    }
+  }
+
   withNotes(
     slideId: string,
     fn: (blocks: Block[]) => Block[] | void,
