@@ -3091,9 +3091,68 @@ class SlidesEditorImpl implements SlidesEditor {
     // with its listener, so no explicit teardown is needed here.
     if (target.kind === 'cell' && target.cell) {
       const startCell = target.cell;
+      // Cache the docs editor's current cursor position so the
+      // ArrowLeft / ArrowRight boundary check below can decide
+      // synchronously (before the docs editor processes the
+      // keystroke) whether the caret is at the very start / end of
+      // the cell body. `onCursorMove` fires after every typing,
+      // click, and programmatic-move so the cache stays current.
+      let cursorPos: { blockId: string; offset: number } | null = null;
+      tb.onCursorMove((pos) => {
+        cursorPos = pos;
+      });
+
+      const cellBodyBoundary = (): {
+        atStart: boolean;
+        atEnd: boolean;
+      } => {
+        if (cursorPos === null) return { atStart: false, atEnd: false };
+        const cellBlocks = target.blocks;
+        if (cellBlocks.length === 0) {
+          return { atStart: true, atEnd: true };
+        }
+        const first = cellBlocks[0];
+        const last = cellBlocks[cellBlocks.length - 1];
+        const lastLen = last.inlines.reduce(
+          (s, inl) => s + inl.text.length,
+          0,
+        );
+        return {
+          atStart: cursorPos.blockId === first.id && cursorPos.offset === 0,
+          atEnd: cursorPos.blockId === last.id && cursorPos.offset === lastLen,
+        };
+      };
+
       tb.container.addEventListener(
         'keydown',
         (e: KeyboardEvent) => {
+          // ArrowLeft / ArrowRight at the cell-body boundary jumps
+          // to the previous / next cell. Inside the body the docs
+          // editor handles the arrow normally; the boundary check
+          // bypasses preventDefault so character-by-character
+          // navigation inside text keeps working.
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const direction: 1 | -1 = e.key === 'ArrowRight' ? 1 : -1;
+            const { atStart, atEnd } = cellBodyBoundary();
+            const atBoundary = direction === 1 ? atEnd : atStart;
+            if (!atBoundary) return;
+            const liveDoc = this.options.store.read();
+            const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+            if (!liveSlide) return;
+            const liveEl = findElement(liveSlide.elements, elementId);
+            if (!liveEl || liveEl.type !== 'table') return;
+            const next = nextCellInDirection(
+              liveEl.data,
+              startCell.row,
+              startCell.col,
+              direction,
+            );
+            if (next === null) return; // let the docs editor handle it (bounce)
+            e.preventDefault();
+            e.stopPropagation();
+            this.enterEditMode(slideId, elementId, { cell: next });
+            return;
+          }
           if (e.key !== 'Tab') return;
           // Re-read the table from the store: a peer (or undo / redo)
           // could have mutated rows / cells while the user was typing.
