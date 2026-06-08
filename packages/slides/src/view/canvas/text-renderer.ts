@@ -196,15 +196,24 @@ export function paintTextBody(
 }
 
 /**
- * Measure the laid-out height of a `TextBody` at a given inner width,
- * applying the same pre-layout transforms (`fontScale`, `autofit:
- * 'shrink'`) that `paintTextBody` would apply. Returns 0 for empty
- * bodies so callers can treat "no text" and "text that lays out to
- * zero" identically.
+ * Measure the laid-out height of a `TextBody` at a given inner width.
+ * Applies the deck-level `fontScale` exactly like `paintTextBody`
+ * would, but **does NOT apply `autofit: 'shrink'`** — measurement is
+ * driven by table row auto-grow, which expects to learn the *natural*
+ * (un-shrunken) height of the content so the row can grow to fit it.
+ * Returns 0 for empty bodies so callers can treat "no text" and "text
+ * that lays out to zero" identically.
  *
- * Used by `table-renderer` to grow row heights when cell content
- * exceeds the declared `<a:tr h>` (and by anything else that needs
- * the docs layout height without painting).
+ * Tables consume this output to grow row heights when cell content
+ * exceeds the declared `<a:tr h>`. The painter — which IS allowed to
+ * apply shrink autofit — runs after the row has already grown, so in
+ * practice the shrink branch never fires for table cells and the
+ * measure-vs-paint heights stay consistent.
+ *
+ * Callers that genuinely need shrink-aware measurement (e.g. computing
+ * the laid-out height inside a fixed-height frame) must run
+ * `computeAutofitScale` themselves with the target height and call
+ * this helper on the pre-shrunken blocks.
  */
 export function measureTextBodyHeight(
   body: TextBody,
@@ -217,12 +226,10 @@ export function measureTextBodyHeight(
     style: normalizeBlockStyle(b.style),
   }));
   const fontScale = opts.fontScale ?? 1;
-  let toLayout =
+  const toLayout =
     fontScale !== 1 ? scaleBlocks(normalized, fontScale) : normalized;
-  if (body.autofit === 'shrink') {
-    const scale = computeAutofitScale(toLayout, measurer, innerW, Infinity, 0);
-    if (scale !== 1) toLayout = scaleBlocks(toLayout, scale);
-  }
+  // Intentionally skip the `body.autofit === 'shrink'` branch from
+  // paintTextBody — see the doc-comment above for why.
   const { layout } = computeLayout(toLayout, measurer, innerW);
   return layout.totalHeight;
 }

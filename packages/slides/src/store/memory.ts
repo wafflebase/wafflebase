@@ -388,7 +388,25 @@ export class MemSlidesStore implements SlidesStore {
         `Element ${elementId} is a connector; update its endpoints instead of its frame`,
       );
     }
+    const oldW = e.frame.w;
+    const oldH = e.frame.h;
     e.frame = { ...e.frame, ...frame };
+    // Tables paint cells from `data.columnWidths` and `rows[].height`
+    // (authoritative per design); a frame resize that bypassed these
+    // would leave the painted footprint disconnected from the selection
+    // bbox / hit-test region. Proportionally scale so a generic
+    // `updateElementFrame` keeps the model coherent without making
+    // every resize call site table-aware.
+    if (e.type === 'table') {
+      if (e.frame.w !== oldW && oldW > 0) {
+        const sx = e.frame.w / oldW;
+        e.data.columnWidths = e.data.columnWidths.map((w) => w * sx);
+      }
+      if (e.frame.h !== oldH && oldH > 0) {
+        const sy = e.frame.h / oldH;
+        e.data.rows = e.data.rows.map((r) => ({ ...r, height: r.height * sy }));
+      }
+    }
     // Recompute cached frames of connectors whose endpoints attach to
     // this element. The renderer reads endpoints live, so the visual
     // line already follows the source move — but selection bbox /

@@ -48,10 +48,20 @@ export function drawTable(
   colX[0] = 0;
   for (let c = 0; c < nCols; c++) colX[c + 1] = colX[c] + columnWidths[c];
 
-  // Row heights with content auto-grow: each row's height is
-  // `max(declared, max contentHeight across non-covered, rowSpan=1
-  // cells in this row)`. Merged cells (rowSpan>1) keep their declared
-  // distribution; overflow inside a merge is not redistributed in P1.
+  // Row heights with content auto-grow.
+  //
+  // Pass A — unmerged cells. Each row's height is
+  // `max(declared, max contentHeight across non-covered rowSpan=1
+  // cells in this row)`. Mirrors OOXML `<a:tr h>` ("minimum") semantics.
+  //
+  // Pass B — merged anchors (rowSpan > 1). If the anchor's content
+  // height exceeds the SUM of its covered rows (Pass A heights), the
+  // deficit is added to the LAST row of the merge so the anchor cell's
+  // painted height always equals the rendered content height. Matches
+  // PowerPoint's "tall merged headline pushes its last row down"
+  // behavior; the alternative (clip overflow to declared span) would
+  // truncate visible text.
+  const measureOpts = { fontScale: options?.fontScale };
   const rowH: number[] = new Array(nRows);
   for (let r = 0; r < nRows; r++) {
     let maxContent = 0;
@@ -62,14 +72,34 @@ export function drawTable(
       const rspan = Math.max(cell.rowSpan ?? 1, 1);
       if (rspan !== 1) continue;
       const gspan = Math.min(Math.max(cell.gridSpan ?? 1, 1), nCols - c);
-      const cellW = sumRange(columnWidths, c, c + gspan);
+      const cellW = colX[c + gspan] - colX[c];
       const pad = paddingOf(cell);
       const innerW = Math.max(0, cellW - pad.left - pad.right);
       const contentH =
-        measureTextBodyHeight(cell.body, innerW) + pad.top + pad.bottom;
+        measureTextBodyHeight(cell.body, innerW, measureOpts)
+        + pad.top + pad.bottom;
       if (contentH > maxContent) maxContent = contentH;
     }
     rowH[r] = Math.max(row.height, maxContent);
+  }
+  for (let r = 0; r < nRows; r++) {
+    const row = rows[r];
+    for (let c = 0; c < nCols; c++) {
+      const cell = row.cells[c];
+      if (!cell || isCovered(cell)) continue;
+      const rspan = Math.min(Math.max(cell.rowSpan ?? 1, 1), nRows - r);
+      if (rspan === 1) continue;
+      const gspan = Math.min(Math.max(cell.gridSpan ?? 1, 1), nCols - c);
+      const cellW = colX[c + gspan] - colX[c];
+      const pad = paddingOf(cell);
+      const innerW = Math.max(0, cellW - pad.left - pad.right);
+      const contentH =
+        measureTextBodyHeight(cell.body, innerW, measureOpts)
+        + pad.top + pad.bottom;
+      let spanH = 0;
+      for (let i = 0; i < rspan; i++) spanH += rowH[r + i];
+      if (contentH > spanH) rowH[r + rspan - 1] += contentH - spanH;
+    }
   }
   const rowY: number[] = new Array(nRows + 1);
   rowY[0] = 0;
@@ -137,11 +167,18 @@ function paintCellContents(
 
       ctx.save();
       ctx.translate(x + pad.left, y + pad.top);
+      // Tables grow rows, not text. The row-height pass already grew
+      // the row to fit the un-shrunken content height, so paint never
+      // needs to shrink — but pinning autofit to 'none' here makes the
+      // policy explicit and prevents a future PPTX importer from
+      // accidentally re-introducing a measure-vs-paint divergence by
+      // forwarding `<a:normAutofit/>` straight onto cell bodies.
       paintTextBody(
         ctx,
         { w: innerW, h: innerH },
         {
           ...cell.body,
+          autofit: 'none',
           verticalAnchor: cell.body.verticalAnchor ?? cell.style.verticalAlign,
         },
         theme,
@@ -317,8 +354,3 @@ function paddingOf(cell: TableCell): {
   };
 }
 
-function sumRange(arr: number[], from: number, to: number): number {
-  let s = 0;
-  for (let i = from; i < to; i++) s += arr[i];
-  return s;
-}

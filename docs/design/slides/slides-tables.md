@@ -63,6 +63,12 @@ and blocks an eventual PPTX export.
   the same cell at the same time fall back to LWW at the cell's text
   Tree, matching the docs-tables decision in
   [docs-tables.md](../docs/docs-tables.md) §Non-Goals.
+- **Cell text shrink-autofit.** Cell bodies always lay out at full size
+  and rows grow to fit (`max(declared row.height, contentHeight)`).
+  Imported PPTX `<a:normAutofit/>` on a table cell is dropped on import
+  — PowerPoint shrinks cell text in this mode but the auto-grow policy
+  matches Google Slides and ~90% of real decks. Re-introducing per-cell
+  shrink is a v2 affordance gated on a fixed-row-height toggle.
 
 ## Proposal Details
 

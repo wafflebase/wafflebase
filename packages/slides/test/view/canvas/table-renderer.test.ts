@@ -350,6 +350,125 @@ describe('drawTable — content layout (text body)', () => {
   });
 });
 
+describe('drawTable — rowSpan>1 anchor overflow redistribution', () => {
+  it('grows the last row of a merge span when an anchor cell’s content overflows the declared rows', () => {
+    // Regression guard: before CR#7, rowSpan>1 anchors were skipped by
+    // the auto-grow pass and paintTextBody would paint past the merged
+    // region into adjacent rows / outside the table frame entirely.
+    // The fix grows the LAST row of the merge to absorb any deficit so
+    // the painted anchor rect always equals the rendered content
+    // height.
+    const ctx = createCtxSpy();
+    drawTable(
+      asCtx(ctx),
+      { w: 100, h: 20 },
+      data({
+        columnWidths: [100],
+        rows: [
+          {
+            height: 10,
+            cells: [
+              {
+                body: {
+                  blocks: [
+                    {
+                      id: 'b',
+                      type: 'paragraph',
+                      inlines: [{ text: 'tall', style: { fontSize: 24 } }],
+                      style: { ...DEFAULT_BLOCK_STYLE },
+                    },
+                  ],
+                },
+                style: { fill: '#abc' },
+                rowSpan: 2,
+              },
+            ],
+          },
+          {
+            height: 10,
+            cells: [
+              { body: { blocks: [] }, style: { fill: '#bcd' }, rowSpan: 0 },
+            ],
+          },
+        ],
+      }),
+      THEME,
+    );
+    // Anchor cell painted once; covered cell skipped.
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    const [x, y, w, h] = ctx.fillRect.mock.calls[0] as [
+      number, number, number, number,
+    ];
+    expect(x).toBe(0);
+    expect(y).toBe(0);
+    expect(w).toBe(100);
+    // Declared sum was 20 (10+10); merged content needs ~24px line +
+    // top/bottom cell padding (4+4=8). Merged span grew past 20 to fit.
+    expect(h).toBeGreaterThan(20);
+  });
+
+  it('keeps unmerged row heights unchanged while growing the last row of a merge', () => {
+    // 2-col x 2-row: column 0 is a rowSpan=2 anchor with tall content;
+    // column 1 has normal cells in both rows. After the fix, row 0's
+    // height stays at its declared value (because the merge content
+    // overflow lands in row 1), so the (row 1, col 1) cell still paints
+    // at y == declared rowH[0].
+    const ctx = createCtxSpy();
+    drawTable(
+      asCtx(ctx),
+      { w: 100, h: 200 },
+      data({
+        columnWidths: [50, 50],
+        rows: [
+          {
+            height: 10,
+            cells: [
+              {
+                body: {
+                  blocks: [
+                    {
+                      id: 'b',
+                      type: 'paragraph',
+                      inlines: [{ text: 'tall', style: { fontSize: 24 } }],
+                      style: { ...DEFAULT_BLOCK_STYLE },
+                    },
+                  ],
+                },
+                style: { fill: '#abc' },
+                rowSpan: 2,
+              },
+              { body: { blocks: [] }, style: { fill: '#bcd' } },
+            ],
+          },
+          {
+            height: 10,
+            cells: [
+              { body: { blocks: [] }, style: { fill: '#cde' }, rowSpan: 0 },
+              { body: { blocks: [] }, style: { fill: '#def' } },
+            ],
+          },
+        ],
+      }),
+      THEME,
+    );
+    expect(ctx.fillRect).toHaveBeenCalledTimes(3);
+    const calls = ctx.fillRect.mock.calls as unknown as ReadonlyArray<
+      [number, number, number, number]
+    >;
+    // (0,0) anchor — width 50, full merged height
+    expect(calls[0][0]).toBe(0);
+    expect(calls[0][1]).toBe(0);
+    // (0,1) — y starts at 0, height equals declared row 0 height (10)
+    expect(calls[1][1]).toBe(0);
+    expect(calls[1][3]).toBe(10);
+    // (1,1) — y starts at declared row 0 height (10, unchanged), height
+    // is the *grown* last-row height (> 10) so the rendered footprint
+    // sums to the merged span height the anchor needs.
+    expect(calls[2][1]).toBe(10);
+    expect(calls[2][3]).toBeGreaterThan(10);
+  });
+});
+
 describe('drawTable — row content auto-grow', () => {
   it('grows row height to fit content when declared height is too small', () => {
     // Two-row table: row 0 declared at 4 px (smaller than text line height,
