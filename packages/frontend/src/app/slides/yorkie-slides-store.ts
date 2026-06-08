@@ -31,6 +31,7 @@ import {
   applyLayoutToSlide,
   composeAncestorTransform,
   computeConnectorFrame,
+  defaultDark,
   defaultLight,
   generateId,
   getLayout,
@@ -159,18 +160,28 @@ function unwrapElement(e: unknown): YorkieElement {
  * array (defaulting to `[]` if missing) and each text element's
  * `data.blocks` is an array (defaulting to `[]` if missing). No Tree
  * creation here.
+ *
+ * `initialThemePreference` only applies to brand-new decks (the
+ * `needsRoot` branch). A pre-v0.5 doc being migrated keeps `defaultLight`
+ * so we don't repaint an existing deck just because the current viewer
+ * happens to be in dark mode.
  */
 export function ensureSlidesRoot(
   doc: YorkieDocument<YorkieSlidesRoot>,
+  options?: { initialThemePreference?: 'light' | 'dark' },
 ): void {
   const root = doc.getRoot();
   const needsRoot = root.meta == null || root.slides == null || root.layouts == null;
+  const seedTheme =
+    needsRoot && options?.initialThemePreference === 'dark'
+      ? defaultDark
+      : defaultLight;
   if (needsRoot) {
     doc.update((r) => {
       if (r.meta == null) {
         r.meta = {
           title: 'Untitled presentation',
-          themeId: 'default-light',
+          themeId: seedTheme.id,
           masterId: 'default',
         };
       }
@@ -190,7 +201,7 @@ export function ensureSlidesRoot(
       guides?: unknown[];
     };
     if (rootAny.themes == null || rootAny.themes.length === 0) {
-      rootAny.themes = [clone(defaultLight)];
+      rootAny.themes = [clone(seedTheme)];
     }
     if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];

@@ -26,6 +26,56 @@ describe('YorkieSlidesStore — read', () => {
   });
 });
 
+describe('ensureSlidesRoot — initial theme preference', () => {
+  it('seeds default-light when no preference is provided', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc);
+    const root = doc.getRoot();
+    expect(root.meta.themeId).toBe('default-light');
+    expect(root.themes.map((t) => t.id)).toEqual(['default-light']);
+  });
+
+  it('seeds default-dark when initialThemePreference is "dark"', () => {
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    ensureSlidesRoot(doc, { initialThemePreference: 'dark' });
+    const root = doc.getRoot();
+    expect(root.meta.themeId).toBe('default-dark');
+    expect(root.themes.map((t) => t.id)).toEqual(['default-dark']);
+  });
+
+  it('does NOT change theme on a doc whose meta already exists', () => {
+    // Migration safety: an existing deck that lacks a `themes` array
+    // (pre-v0.5 shape) but already has `meta` must keep its existing
+    // look. A current dark-mode viewer mounting that deck should NOT
+    // repaint it to default-dark.
+    const doc = new yorkie.Document<YorkieSlidesRoot>(
+      `test-${Date.now()}-${Math.random()}`,
+    );
+    doc.update((r) => {
+      const rootAny = r as unknown as {
+        meta: { title: string; themeId: string; masterId: string };
+        slides: unknown[];
+        layouts: unknown[];
+      };
+      rootAny.meta = {
+        title: 'Pre-existing deck',
+        themeId: 'default-light',
+        masterId: 'default',
+      };
+      rootAny.slides = [];
+      rootAny.layouts = [];
+    });
+    ensureSlidesRoot(doc, { initialThemePreference: 'dark' });
+    const root = doc.getRoot();
+    expect(root.meta.themeId).toBe('default-light');
+    expect(root.themes.map((t) => t.id)).toEqual(['default-light']);
+  });
+});
+
 describe('YorkieSlidesStore — slide ops', () => {
   it('addSlide pushes onto the array and returns the new id', () => {
     const doc = makeDoc();
