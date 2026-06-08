@@ -255,6 +255,64 @@ describe('drawTable — per-side borders', () => {
     expect(ctx.strokeStyle).toBe('#f00');
     expect(ctx.stroke).toHaveBeenCalledTimes(1);
   });
+
+  it('resolves ThemeColor borders through the theme before comparing luminance (darker theme color wins on shared edge)', () => {
+    // Regression guard: before threading `theme` into dominantBorder /
+    // luminance, both ThemeColor objects returned the 0.5 fallback and
+    // the OOXML "darker wins" tiebreak always lost to first-registered
+    // (scan order: top row's `bottom` border).
+    // accent1 is the brand-light hex (#abc → luminance ≈ 0.66); text is
+    // near-black (#000 → luminance 0). The dark side should paint.
+    const ctx = createCtxSpy();
+    drawTable(
+      asCtx(ctx),
+      { w: 100, h: 100 },
+      data({
+        columnWidths: [100],
+        rows: [
+          {
+            height: 50,
+            cells: [
+              {
+                body: { blocks: [] },
+                style: {
+                  border: {
+                    bottom: {
+                      color: { kind: 'role', role: 'accent1' }, // #abc, light
+                      width: 1,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          {
+            height: 50,
+            cells: [
+              {
+                body: { blocks: [] },
+                style: {
+                  border: {
+                    top: {
+                      color: { kind: 'role', role: 'text' }, // #000, dark
+                      width: 1,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      THEME,
+    );
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    // The painted stroke color must be the theme-resolved dark color,
+    // not the light one. Before the fix, the light bottom border (first
+    // registered) won the tie because both ThemeColor objects hashed to
+    // luminance 0.5.
+    expect(ctx.strokeStyle).toBe('#000');
+  });
 });
 
 describe('drawTable — content layout (text body)', () => {

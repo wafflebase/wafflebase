@@ -55,4 +55,12 @@ describe('pickSections', () => {
   it('mixed → [size-position]', () => {
     expect(pickSections(objSel('mixed'))).toEqual(['size-position']);
   });
+
+  it('table → [size-position]', () => {
+    // Regression guard: before adding 'table' to ObjectSelectionType,
+    // derivePanelSelection mapped single-table selections to 'mixed', and
+    // pickSections('mixed') + SizePositionSection's `kind !== 'mixed'`
+    // gate hid W/H/Rotation from a single-table selection.
+    expect(pickSections(objSel('table'))).toEqual(['size-position']);
+  });
 });

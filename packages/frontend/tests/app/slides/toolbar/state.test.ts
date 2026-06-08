@@ -134,6 +134,26 @@ function makeConnectorElement(id: string) {
   };
 }
 
+function makeTableElement(id: string) {
+  return {
+    id,
+    type: 'table' as const,
+    frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+    data: {
+      columnWidths: [100, 100],
+      rows: [
+        {
+          height: 100,
+          cells: [
+            { body: { blocks: [] }, style: {} },
+            { body: { blocks: [] }, style: {} },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // idle cases
 // ---------------------------------------------------------------------------
@@ -293,5 +313,22 @@ test("getToolbarState returns 'mixed' when selection spans connector and shape",
   expect(state.kind).toBe("object");
   if (state.kind === "object") {
     expect(state.selectionType).toBe("mixed");
+  }
+});
+
+test("getToolbarState returns selectionType 'table' for single TableElement (not 'shape')", () => {
+  // Regression guard: before adding the table union member to getToolbarState,
+  // a single TableElement selection fell through the else into 'shape', so
+  // ObjectSection rendered ShapeControls (Fill + Border) on a table — phantom
+  // controls that silently no-op against an el.type === 'shape' guard inside
+  // onStrokeChange but still opened store.batch (snapshot + redo-clear).
+  const editor = makeEditor({ selection: ["el-tbl"], currentSlideId: "slide-1" });
+  const store = makeStore([
+    makeSlide("slide-1", [makeTableElement("el-tbl") as unknown as Slide['elements'][number]]),
+  ]);
+  const state = getToolbarState(editor, store);
+  expect(state.kind).toBe("object");
+  if (state.kind === "object") {
+    expect(state.selectionType).toBe("table");
   }
 });

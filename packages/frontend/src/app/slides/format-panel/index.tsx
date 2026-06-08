@@ -44,6 +44,7 @@ function derivePanelSelection(
     | 'text-element'
     | 'connector'
     | 'group'
+    | 'table'
     | 'mixed';
   if (types.size > 1) selectionType = 'mixed';
   else if (types.has('shape')) selectionType = 'shape';
@@ -51,6 +52,7 @@ function derivePanelSelection(
   else if (types.has('text')) selectionType = 'text-element';
   else if (types.has('connector')) selectionType = 'connector';
   else if (types.has('group')) selectionType = 'group';
+  else if (types.has('table')) selectionType = 'table';
   else selectionType = 'mixed';
   return { kind: 'object', selectionType, elements, slideId };
 }

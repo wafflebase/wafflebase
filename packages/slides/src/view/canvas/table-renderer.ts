@@ -186,10 +186,10 @@ function paintCellBorders(
       const left = cell.style.border?.left;
       const right = cell.style.border?.right;
 
-      if (top) registerEdge(horizontal, 'h', x0, x1, y0, top);
-      if (bottom) registerEdge(horizontal, 'h', x0, x1, y1, bottom);
-      if (left) registerEdge(vertical, 'v', y0, y1, x0, left);
-      if (right) registerEdge(vertical, 'v', y0, y1, x1, right);
+      if (top) registerEdge(horizontal, 'h', x0, x1, y0, top, theme);
+      if (bottom) registerEdge(horizontal, 'h', x0, x1, y1, bottom, theme);
+      if (left) registerEdge(vertical, 'v', y0, y1, x0, left, theme);
+      if (right) registerEdge(vertical, 'v', y0, y1, x1, right, theme);
     }
   }
 
@@ -222,6 +222,7 @@ function registerEdge(
   b: number,
   p: number,
   stroke: CellBorder,
+  theme: Theme,
 ): void {
   const key = edgeKey(axis, a, b, p);
   const prev = map.get(key);
@@ -229,7 +230,7 @@ function registerEdge(
     map.set(key, { axis, a, b, p, stroke });
     return;
   }
-  const dominant = dominantBorder(prev.stroke, stroke);
+  const dominant = dominantBorder(prev.stroke, stroke, theme);
   if (dominant !== prev.stroke) {
     map.set(key, { axis, a, b, p, stroke: dominant });
   }
@@ -248,17 +249,25 @@ function edgeKey(axis: 'h' | 'v', a: number, b: number, p: number): string {
  * OOXML border-collapse: thicker first, then darker. Ties stay with `a`
  * (the first-registered border, which is the cell at the smaller row /
  * column index in our scan order — matches PowerPoint's convention).
+ *
+ * `theme` is threaded so role-bound `ThemeColor` borders resolve to a
+ * concrete hex before the luminance comparison — otherwise every
+ * theme-colored border tied at the 0.5 fallback and the "darker wins"
+ * branch silently degraded to first-registered.
  */
-function dominantBorder(a: CellBorder, b: CellBorder): CellBorder {
+function dominantBorder(a: CellBorder, b: CellBorder, theme: Theme): CellBorder {
   if (a.width !== b.width) return a.width > b.width ? a : b;
-  const la = luminance(a.color);
-  const lb = luminance(b.color);
+  const la = luminance(a.color, theme);
+  const lb = luminance(b.color, theme);
   if (la !== lb) return la < lb ? a : b;
   return a;
 }
 
-function luminance(color: CellBorder['color']): number {
-  const hex = typeof color === 'string' ? color : '';
+function luminance(color: CellBorder['color'], theme: Theme): number {
+  // Resolve role-bound colors to concrete hex through the deck theme so
+  // imported PPTX borders (which routinely use {kind:'role'} encodings)
+  // compare by their painted darkness, not by the type-discriminator.
+  const hex = resolveStrokeColor(color, theme);
   const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex);
   if (!m) return 0.5;
   const h =
