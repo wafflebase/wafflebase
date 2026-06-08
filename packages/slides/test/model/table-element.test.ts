@@ -818,3 +818,118 @@ describe('MemSlidesStore.mergeTableCells / unmergeTableCells', () => {
     ).toThrow(/not a merge anchor/);
   });
 });
+
+describe('MemSlidesStore.updateTableCellStyle', () => {
+  function setup() {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: {
+          columnWidths: [100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: { fill: '#abc' } },
+              ],
+            },
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('patches the cell style with the supplied keys', () => {
+    const { store, slideId, tableId } = setup();
+    store.batch(() => {
+      store.updateTableCellStyle(slideId, tableId, 0, 0, {
+        fill: '#f00',
+        verticalAlign: 'middle',
+      });
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows[0].cells[0].style.fill).toBe('#f00');
+    expect(t.data.rows[0].cells[0].style.verticalAlign).toBe('middle');
+  });
+
+  it('preserves keys not in the patch (LWW per key, not whole-object replace)', () => {
+    const { store, slideId, tableId } = setup();
+    // (0,1) already has fill='#abc'; patch only verticalAlign and ensure
+    // fill stays.
+    store.batch(() => {
+      store.updateTableCellStyle(slideId, tableId, 0, 1, { verticalAlign: 'bottom' });
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows[0].cells[1].style.fill).toBe('#abc');
+    expect(t.data.rows[0].cells[1].style.verticalAlign).toBe('bottom');
+  });
+
+  it('removes a key when the patch explicitly sets it to undefined', () => {
+    const { store, slideId, tableId } = setup();
+    // Set then unset fill on (0,1).
+    store.batch(() => {
+      store.updateTableCellStyle(slideId, tableId, 0, 1, { fill: undefined });
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows[0].cells[1].style.fill).toBeUndefined();
+  });
+
+  it('throws when (row, col) is out of bounds', () => {
+    const { store, slideId, tableId } = setup();
+    expect(() =>
+      store.batch(() => {
+        store.updateTableCellStyle(slideId, tableId, 5, 5, { fill: '#000' });
+      }),
+    ).toThrow(/cell/i);
+  });
+
+  it('throws when the targeted cell is covered (gridSpan/rowSpan === 0)', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 50, rotation: 0 },
+        data: {
+          columnWidths: [100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {}, gridSpan: 2 },
+                { body: { blocks: [] }, style: {}, gridSpan: 0 },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.updateTableCellStyle(slideId, tableId, 0, 1, { fill: '#000' });
+      }),
+    ).toThrow(/covered/);
+  });
+});

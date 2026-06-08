@@ -1919,6 +1919,42 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('@wafflebase/slides').CellStyle>,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const cell = e.data.rows[row]?.cells[col] as
+        | {
+            style?: Record<string, unknown>;
+            gridSpan?: number;
+            rowSpan?: number;
+          }
+        | undefined;
+      if (!cell) {
+        throw new Error(
+          `updateTableCellStyle: cell (${row}, ${col}) not found on table ${elementId}`,
+        );
+      }
+      if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+        throw new Error(
+          `updateTableCellStyle: cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+        );
+      }
+      const next: Record<string, unknown> = { ...(cell.style ?? {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) delete next[k];
+        else next[k] = clone(v);
+      }
+      (cell as { style: unknown }).style = next;
+    });
+  }
+
   /**
    * Lookup helper for the table-structural ops above: resolve a
    * TableElement by id under the Yorkie root, throwing the same error

@@ -338,6 +338,25 @@ export interface SlidesStore {
     elementId: string,
     anchor: { row: number; col: number },
   ): void;
+  /**
+   * Patch a single cell's `style` object — LWW per key, not whole-
+   * object replace. Keys present in `patch` overwrite or extend the
+   * cell's existing style; keys explicitly set to `undefined` are
+   * removed from the stored object. Other style keys (and the cell's
+   * body / span markers) are left intact.
+   *
+   * Throws when `(row, col)` is out of bounds or the targeted cell
+   * is covered (`gridSpan === 0 || rowSpan === 0`) — covered cells
+   * have no visible paint of their own; the caller must resolve to
+   * the merge anchor first.
+   */
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('../model/element').CellStyle>,
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

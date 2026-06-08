@@ -1287,6 +1287,42 @@ export class MemSlidesStore implements SlidesStore {
     }
   }
 
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('../model/element').CellStyle>,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[row]?.cells[col];
+    if (!cell) {
+      throw new Error(
+        `updateTableCellStyle: cell (${row}, ${col}) not found on table ${elementId}`,
+      );
+    }
+    if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+      throw new Error(
+        `updateTableCellStyle: cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+      );
+    }
+    // Per-key LWW: spread current style, then apply patch keys
+    // (explicit `undefined` removes the key so renderers fall back to
+    // their defaults). Clone patch values so callers can't keep a live
+    // reference into the store.
+    const next: Record<string, unknown> = { ...(cell.style as object) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete next[k];
+      else next[k] = clone(v);
+    }
+    cell.style = next as typeof cell.style;
+  }
+
   withTableCellBody(
     slideId: string,
     elementId: string,

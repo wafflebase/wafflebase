@@ -2126,6 +2126,78 @@ class SlidesEditorImpl implements SlidesEditor {
         },
       });
     }
+
+    // Cell-style ops. Patches apply to every non-covered cell in the
+    // range so a 2x2 cell-range fill paints all four cells in one
+    // batch (one undo entry). Covered cells skip — `updateTableCellStyle`
+    // would throw on them.
+    const applyStyleToRange = (
+      patch: Partial<import('../../model/element').CellStyle>,
+    ): void => {
+      store.batch(() => {
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = table.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            store.updateTableCellStyle(slideId, id, r, c, patch);
+          }
+        }
+      });
+      this.requestRender();
+    };
+
+    // Fill palette — a fixed set of common backgrounds. "No fill"
+    // removes the key entirely (so the cell renders transparent and
+    // any future theme background shows through). Theme-aware
+    // palettes can layer on top in a follow-up TableControls toolbar.
+    items.push({ label: '---', run: () => undefined });
+    const FILL_PALETTE: ReadonlyArray<{ label: string; color: string | undefined }> = [
+      { label: 'Fill: none',       color: undefined },
+      { label: 'Fill: white',      color: '#FFFFFF' },
+      { label: 'Fill: light gray', color: '#E5E7EB' },
+      { label: 'Fill: yellow',     color: '#FEF3C7' },
+      { label: 'Fill: blue',       color: '#DBEAFE' },
+      { label: 'Fill: green',      color: '#D1FAE5' },
+      { label: 'Fill: red',        color: '#FEE2E2' },
+    ];
+    const sampleCellFill = (() => {
+      // The "selected" radio prefix uses the top-left cell's current
+      // fill as the representative value. Mixed fills across the
+      // range fall through with no radio mark (the next click forces
+      // them all to the chosen color).
+      const sample = table.data.rows[rmin]?.cells[cmin]?.style.fill;
+      return typeof sample === 'string' ? sample : undefined;
+    })();
+    for (const swatch of FILL_PALETTE) {
+      items.push({
+        label: swatch.label,
+        selected: sampleCellFill === swatch.color,
+        run: () => applyStyleToRange({ fill: swatch.color }),
+      });
+    }
+
+    // Vertical alignment — three radio items. Selected reflects the
+    // top-left cell; same "mixed range" caveat as the fill palette.
+    items.push({ label: '---', run: () => undefined });
+    const sampleVAlign =
+      table.data.rows[rmin]?.cells[cmin]?.style.verticalAlign ?? 'top';
+    items.push({
+      label: 'Align cell top',
+      selected: sampleVAlign === 'top',
+      run: () => applyStyleToRange({ verticalAlign: 'top' }),
+    });
+    items.push({
+      label: 'Align cell middle',
+      selected: sampleVAlign === 'middle',
+      run: () => applyStyleToRange({ verticalAlign: 'middle' }),
+    });
+    items.push({
+      label: 'Align cell bottom',
+      selected: sampleVAlign === 'bottom',
+      run: () => applyStyleToRange({ verticalAlign: 'bottom' }),
+    });
+
     return items;
   }
 
