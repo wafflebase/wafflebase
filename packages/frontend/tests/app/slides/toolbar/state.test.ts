@@ -38,6 +38,8 @@ function makeEditor(overrides: Partial<{
     onTextEditingChange: () => () => {},
     getActiveTextEditor: () => o.textEditor,
     enterTextEditing() {},
+    getCellSelection: () => null,
+    onCellSelectionChange: () => () => {},
     exitTextEditing() {},
     onCurrentSlideChange: () => () => {},
     setHostSize() {},

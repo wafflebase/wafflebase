@@ -2,7 +2,25 @@ import type { SlidesEditor, SlidesStore, SlidesTextBoxEditor, Element } from '@w
 
 export type ToolbarState =
   | { kind: 'idle' }
-  | { kind: 'object'; selectionType: 'shape' | 'connector' | 'image' | 'text-element' | 'table' | 'mixed'; ids: readonly string[] }
+  | {
+      kind: 'object';
+      selectionType: 'shape' | 'connector' | 'image' | 'text-element' | 'table' | 'mixed';
+      ids: readonly string[];
+      /**
+       * Live cell-range selection inside a table — present iff
+       * `selectionType === 'table'` AND the user has clicked into a
+       * specific cell / dragged a range. TableControls reads this to
+       * scope its ops (fill / vAlign / border) to the selected cells;
+       * when absent (`null`), the same ops apply to the WHOLE table.
+       */
+      cellRange?: {
+        tableId: string;
+        r0: number;
+        c0: number;
+        r1: number;
+        c1: number;
+      } | null;
+    }
   | { kind: 'text-edit'; elementId: string; textEditor: SlidesTextBoxEditor };
 
 export function getToolbarState(
@@ -48,5 +66,7 @@ export function getToolbarState(
   } else {
     selectionType = 'shape';
   }
-  return { kind: 'object', selectionType, ids: selection };
+  const cellRange =
+    selectionType === 'table' ? editor.getCellSelection() : null;
+  return { kind: 'object', selectionType, ids: selection, cellRange };
 }

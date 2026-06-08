@@ -73,6 +73,7 @@ export function SlidesToolbar({
       editor.onSelectionChange(refresh),
       editor.onCurrentSlideChange(refresh),
       editor.onTextEditingChange(refresh),
+      editor.onCellSelectionChange(refresh),
       store?.onChange?.(refresh) ?? (() => {}),
     ];
     return () => offs.forEach((off) => off());
