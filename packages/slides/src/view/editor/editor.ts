@@ -2313,6 +2313,54 @@ class SlidesEditorImpl implements SlidesEditor {
       run: () => applyStyleToRange({ verticalAlign: 'bottom' }),
     });
 
+    // Border presets: all sides on, outer perimeter only, all sides
+    // cleared. The default border style is 1-px solid black — enough
+    // to be visible against any cell fill. Per-side + custom-color
+    // pickers will live in the contextual TableControls toolbar.
+    items.push({ label: '---', run: () => undefined });
+    const DEFAULT_BORDER: import('../../model/element').CellBorder = {
+      color: '#000000',
+      width: 1,
+    };
+    const applyBorderPattern = (
+      pattern: 'all' | 'outer' | 'clear',
+    ): void => {
+      store.batch(() => {
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = table.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            const onTop = pattern === 'all' || (pattern === 'outer' && r === rmin);
+            const onBottom = pattern === 'all' || (pattern === 'outer' && r === rmax);
+            const onLeft = pattern === 'all' || (pattern === 'outer' && c === cmin);
+            const onRight = pattern === 'all' || (pattern === 'outer' && c === cmax);
+            const nextBorder: import('../../model/element').CellStyle['border'] = {
+              ...(cell.style.border ?? {}),
+              top: onTop ? { ...DEFAULT_BORDER } : undefined,
+              bottom: onBottom ? { ...DEFAULT_BORDER } : undefined,
+              left: onLeft ? { ...DEFAULT_BORDER } : undefined,
+              right: onRight ? { ...DEFAULT_BORDER } : undefined,
+            };
+            // Drop the whole border object when no side remains so the
+            // model stays clean. The renderer treats `border ===
+            // undefined` and `border = { top: undefined, ... }` the
+            // same, but the former round-trips through PPTX export
+            // more faithfully (no empty container nodes).
+            if (pattern === 'clear') {
+              store.updateTableCellStyle(slideId, id, r, c, { border: undefined });
+            } else {
+              store.updateTableCellStyle(slideId, id, r, c, { border: nextBorder });
+            }
+          }
+        }
+      });
+      this.requestRender();
+    };
+    items.push({ label: 'Cell border: all', run: () => applyBorderPattern('all') });
+    items.push({ label: 'Cell border: outer', run: () => applyBorderPattern('outer') });
+    items.push({ label: 'Cell border: clear', run: () => applyBorderPattern('clear') });
+
     return items;
   }
 
