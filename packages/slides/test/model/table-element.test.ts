@@ -703,3 +703,118 @@ describe('MemSlidesStore.deleteTableColumn', () => {
     expect(t.data.rows[0].cells[1].gridSpan).toBe(0);
   });
 });
+
+describe('MemSlidesStore.mergeTableCells / unmergeTableCells', () => {
+  function setup(rows: number, cols: number) {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 100 * cols, h: 50 * rows, rotation: 0 },
+        data: {
+          columnWidths: Array(cols).fill(100),
+          rows: Array(rows).fill(0).map(() => ({
+            height: 50,
+            cells: Array(cols).fill(0).map(() => ({
+              body: { blocks: [] },
+              style: {},
+            })),
+          })),
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+  function read(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('mergeTableCells sets the anchor gridSpan/rowSpan and marks covered cells', () => {
+    const { store, slideId, tableId } = setup(3, 3);
+    store.batch(() => {
+      store.mergeTableCells(slideId, tableId, { r0: 0, c0: 0, r1: 1, c1: 1 });
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows[0].cells[0].gridSpan).toBe(2);
+    expect(t.data.rows[0].cells[0].rowSpan).toBe(2);
+    // Covered cells
+    expect(t.data.rows[0].cells[1].gridSpan).toBe(0);
+    expect(t.data.rows[1].cells[0].rowSpan).toBe(0);
+    expect(t.data.rows[1].cells[1].gridSpan).toBe(0);
+    expect(t.data.rows[1].cells[1].rowSpan).toBe(0);
+    // Untouched corner
+    expect(t.data.rows[2].cells[2].gridSpan).toBeUndefined();
+  });
+
+  it('mergeTableCells normalizes r0>r1 / c0>c1 input', () => {
+    const { store, slideId, tableId } = setup(2, 2);
+    store.batch(() => {
+      store.mergeTableCells(slideId, tableId, { r0: 1, c0: 1, r1: 0, c1: 0 });
+    });
+    const t = read(store, slideId, tableId);
+    expect(t.data.rows[0].cells[0].gridSpan).toBe(2);
+    expect(t.data.rows[0].cells[0].rowSpan).toBe(2);
+  });
+
+  it('mergeTableCells refuses to merge a 1x1 range', () => {
+    const { store, slideId, tableId } = setup(2, 2);
+    expect(() =>
+      store.batch(() => {
+        store.mergeTableCells(slideId, tableId, { r0: 0, c0: 0, r1: 0, c1: 0 });
+      }),
+    ).toThrow(/at least/);
+  });
+
+  it('mergeTableCells refuses an out-of-range range', () => {
+    const { store, slideId, tableId } = setup(2, 2);
+    expect(() =>
+      store.batch(() => {
+        store.mergeTableCells(slideId, tableId, { r0: 0, c0: 0, r1: 5, c1: 5 });
+      }),
+    ).toThrow(/out of range/);
+  });
+
+  it('mergeTableCells throws when the range overlaps an existing merge', () => {
+    const { store, slideId, tableId } = setup(3, 3);
+    store.batch(() => {
+      store.mergeTableCells(slideId, tableId, { r0: 0, c0: 0, r1: 1, c1: 1 });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.mergeTableCells(slideId, tableId, { r0: 1, c0: 1, r1: 2, c1: 2 });
+      }),
+    ).toThrow(/existing merge/);
+  });
+
+  it('unmergeTableCells resets the anchor span and covered markers', () => {
+    const { store, slideId, tableId } = setup(2, 2);
+    store.batch(() => {
+      store.mergeTableCells(slideId, tableId, { r0: 0, c0: 0, r1: 1, c1: 1 });
+    });
+    store.batch(() => {
+      store.unmergeTableCells(slideId, tableId, { row: 0, col: 0 });
+    });
+    const t = read(store, slideId, tableId);
+    for (const row of t.data.rows) {
+      for (const cell of row.cells) {
+        expect(cell.gridSpan).toBeUndefined();
+        expect(cell.rowSpan).toBeUndefined();
+      }
+    }
+  });
+
+  it('unmergeTableCells throws when the target cell is not a merge anchor', () => {
+    const { store, slideId, tableId } = setup(2, 2);
+    expect(() =>
+      store.batch(() => {
+        store.unmergeTableCells(slideId, tableId, { row: 0, col: 0 });
+      }),
+    ).toThrow(/not a merge anchor/);
+  });
+});

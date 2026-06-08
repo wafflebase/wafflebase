@@ -65,6 +65,42 @@ function assertFinitePosition(op: string, position: number): void {
   }
 }
 
+/**
+ * Resolve the merge anchor for a covered cell at `(r, c)` by scanning
+ * earlier rows / columns for an anchor whose declared span reaches
+ * `(r, c)`. Returns `null` when the cell is not covered (no
+ * `gridSpan === 0` or `rowSpan === 0` marker on the input cell, or
+ * no anchor in scan order owns the cell — the latter shouldn't happen
+ * with valid OOXML data but the renderer / store ops tolerate it).
+ *
+ * Linear O(r*c) scan; called per-cell only inside the overlap check
+ * in `mergeTableCells`, so the cost is bounded by the merge range.
+ */
+function findMergeAnchor(
+  data: { rows: { cells: { gridSpan?: number; rowSpan?: number }[] }[] },
+  r: number,
+  c: number,
+): { row: number; col: number } | null {
+  const target = data.rows[r]?.cells[c];
+  if (!target) return null;
+  if (target.gridSpan !== 0 && target.rowSpan !== 0) return null;
+  for (let r2 = r; r2 >= 0; r2--) {
+    const row = data.rows[r2];
+    if (!row) continue;
+    for (let c2 = c; c2 >= 0; c2--) {
+      const candidate = row.cells[c2];
+      if (!candidate) continue;
+      if (candidate.gridSpan === 0 || candidate.rowSpan === 0) continue;
+      const gs = candidate.gridSpan ?? 1;
+      const rs = candidate.rowSpan ?? 1;
+      if (r2 + rs > r && c2 + gs > c) {
+        return { row: r2, col: c2 };
+      }
+    }
+  }
+  return null;
+}
+
 function emptyDocument(): SlidesDocument {
   return {
     meta: {
@@ -1121,6 +1157,134 @@ export class MemSlidesStore implements SlidesStore {
     }
     e.data.columnWidths.splice(atIndex, 1);
     e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+  }
+
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    const nRows = e.data.rows.length;
+    const rmin = Math.min(range.r0, range.r1);
+    const rmax = Math.max(range.r0, range.r1);
+    const cmin = Math.min(range.c0, range.c1);
+    const cmax = Math.max(range.c0, range.c1);
+    if (rmax === rmin && cmax === cmin) {
+      throw new Error(
+        'mergeTableCells: range must span at least two cells',
+      );
+    }
+    if (
+      rmin < 0 || cmin < 0 ||
+      rmax >= nRows || cmax >= nCols
+    ) {
+      throw new Error(
+        `mergeTableCells: range (${rmin},${cmin})-(${rmax},${cmax}) out of range for ${nRows}x${nCols} table`,
+      );
+    }
+    // Verify every cell in the range is either non-spanned or part of
+    // the SAME merge we're about to absorb. Existing 0-markers without
+    // a matching anchor inside the range mean the range overlaps
+    // another merge that the caller must unmerge first.
+    for (let r = rmin; r <= rmax; r++) {
+      for (let c = cmin; c <= cmax; c++) {
+        const cell = e.data.rows[r].cells[c];
+        if (!cell) continue;
+        // Covered cells inside the new range are fine as long as their
+        // owning anchor is also inside the range. We don't have a
+        // direct anchor pointer, but for any covered cell at (r, c)
+        // there must be an anchor at (r', c') with r' <= r, c' <= c
+        // and r' + rowSpan > r, c' + gridSpan > c. If that anchor sits
+        // outside the new range, this is an overlap.
+        if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+          const anchor = findMergeAnchor(e.data, r, c);
+          if (
+            anchor === null ||
+            anchor.row < rmin ||
+            anchor.col < cmin ||
+            anchor.row > rmax ||
+            anchor.col > cmax
+          ) {
+            throw new Error(
+              `mergeTableCells: range overlaps an existing merge anchored at (${anchor?.row}, ${anchor?.col})`,
+            );
+          }
+        }
+      }
+    }
+    const anchor = e.data.rows[rmin].cells[cmin];
+    if (!anchor) {
+      throw new Error(
+        `mergeTableCells: anchor cell (${rmin}, ${cmin}) missing`,
+      );
+    }
+    anchor.gridSpan = cmax - cmin + 1;
+    anchor.rowSpan = rmax - rmin + 1;
+    // Mark every other cell in the range as covered. Cells outside
+    // the anchor (any (r, c) other than (rmin, cmin)) get
+    // gridSpan: 0 / rowSpan: 0 to honour the OOXML covered-cell
+    // encoding. Bodies cleared so the renderer never tries to paint
+    // text that visually belongs to the anchor.
+    for (let r = rmin; r <= rmax; r++) {
+      for (let c = cmin; c <= cmax; c++) {
+        if (r === rmin && c === cmin) continue;
+        const cell = e.data.rows[r].cells[c];
+        if (!cell) continue;
+        cell.gridSpan = 0;
+        cell.rowSpan = 0;
+        cell.body = { blocks: [] };
+        cell.style = {};
+      }
+    }
+  }
+
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[anchor.row]?.cells[anchor.col];
+    if (!cell) {
+      throw new Error(
+        `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) not found`,
+      );
+    }
+    const gs = cell.gridSpan ?? 1;
+    const rs = cell.rowSpan ?? 1;
+    if (gs <= 1 && rs <= 1) {
+      throw new Error(
+        `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) is not a merge anchor`,
+      );
+    }
+    // Clear the anchor's span markers...
+    cell.gridSpan = undefined;
+    cell.rowSpan = undefined;
+    // ...and every cell that used to be covered by this anchor's
+    // declared span. The renderer's `isCovered` predicate keys off
+    // `gridSpan === 0 || rowSpan === 0`; clearing the 0-markers
+    // promotes each cell back to a standalone editable cell.
+    for (let r = anchor.row; r < anchor.row + rs; r++) {
+      for (let c = anchor.col; c < anchor.col + gs; c++) {
+        if (r === anchor.row && c === anchor.col) continue;
+        const covered = e.data.rows[r]?.cells[c];
+        if (!covered) continue;
+        covered.gridSpan = undefined;
+        covered.rowSpan = undefined;
+      }
+    }
   }
 
   withTableCellBody(

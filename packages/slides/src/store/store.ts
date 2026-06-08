@@ -298,6 +298,46 @@ export interface SlidesStore {
    * column.
    */
   deleteTableColumn(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Merge a rectangular cell range `{r0, c0, r1, c1}` (inclusive on
+   * both ends, accepts unordered endpoints) into a single anchor at
+   * `(min(r0,r1), min(c0,c1))`. The anchor's `gridSpan` / `rowSpan`
+   * become the range size; every other cell in the range gets
+   * `gridSpan: 0` / `rowSpan: 0` (OOXML covered-cell encoding).
+   *
+   * The anchor's body is preserved; covered cells' bodies are
+   * cleared. The anchor's style is preserved; covered cells' styles
+   * are also cleared (the covered area visually belongs to the
+   * anchor's paint).
+   *
+   * Throws when:
+   *   - the range is empty (1×1) — merging a single cell is a no-op
+   *     but reported as a misuse so callers don't accidentally merge
+   *     "nothing" without realising
+   *   - the range is out of the table's bounds
+   *   - any cell inside the range is already covered by a DIFFERENT
+   *     merge — the caller must unmerge that one first
+   */
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void;
+  /**
+   * Inverse of `mergeTableCells`: reset the merge anchor at `(row,
+   * col)` and every cell it covered back to standalone cells (no
+   * `gridSpan` / `rowSpan` set; bodies remain whatever they currently
+   * hold, which for covered cells is the empty state `mergeTableCells`
+   * left them in).
+   *
+   * Throws when `(row, col)` is not a merge anchor (i.e. its
+   * `gridSpan ?? 1 === 1 && rowSpan ?? 1 === 1`).
+   */
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

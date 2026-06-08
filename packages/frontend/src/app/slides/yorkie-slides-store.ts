@@ -107,6 +107,37 @@ function assertFiniteGuidePosition(op: string, position: number): void {
 }
 
 /**
+ * Resolve the merge anchor for a covered cell at `(r, c)`. Mirror of
+ * `findMergeAnchor` in MemSlidesStore — used by `mergeTableCells`'s
+ * overlap check to reject ranges that touch an existing merge whose
+ * anchor sits outside the new range.
+ */
+function findMergeAnchorInData(
+  data: { rows: { cells: { gridSpan?: number; rowSpan?: number }[] }[] },
+  r: number,
+  c: number,
+): { row: number; col: number } | null {
+  const target = data.rows[r]?.cells[c];
+  if (!target) return null;
+  if (target.gridSpan !== 0 && target.rowSpan !== 0) return null;
+  for (let r2 = r; r2 >= 0; r2--) {
+    const row = data.rows[r2];
+    if (!row) continue;
+    for (let c2 = c; c2 >= 0; c2--) {
+      const candidate = row.cells[c2];
+      if (!candidate) continue;
+      if (candidate.gridSpan === 0 || candidate.rowSpan === 0) continue;
+      const gs = candidate.gridSpan ?? 1;
+      const rs = candidate.rowSpan ?? 1;
+      if (r2 + rs > r && c2 + gs > c) {
+        return { row: r2, col: c2 };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Convert a Yorkie object/array proxy to a plain JS value. Yorkie proxies
  * implement `toJSON()` that returns a JSON string (not a plain object), so
  * we parse it back. Returns the input unchanged when it doesn't have the
@@ -1784,6 +1815,107 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       e.data.columnWidths.splice(atIndex, 1);
       e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+    });
+  }
+
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      const nRows = e.data.rows.length;
+      const rmin = Math.min(range.r0, range.r1);
+      const rmax = Math.max(range.r0, range.r1);
+      const cmin = Math.min(range.c0, range.c1);
+      const cmax = Math.max(range.c0, range.c1);
+      if (rmax === rmin && cmax === cmin) {
+        throw new Error(
+          'mergeTableCells: range must span at least two cells',
+        );
+      }
+      if (rmin < 0 || cmin < 0 || rmax >= nRows || cmax >= nCols) {
+        throw new Error(
+          `mergeTableCells: range (${rmin},${cmin})-(${rmax},${cmax}) out of range for ${nRows}x${nCols} table`,
+        );
+      }
+      for (let row = rmin; row <= rmax; row++) {
+        for (let c = cmin; c <= cmax; c++) {
+          const cell = e.data.rows[row].cells[c];
+          if (!cell) continue;
+          if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+            const anchor = findMergeAnchorInData(e.data, row, c);
+            if (
+              anchor === null ||
+              anchor.row < rmin ||
+              anchor.col < cmin ||
+              anchor.row > rmax ||
+              anchor.col > cmax
+            ) {
+              throw new Error(
+                `mergeTableCells: range overlaps an existing merge anchored at (${anchor?.row}, ${anchor?.col})`,
+              );
+            }
+          }
+        }
+      }
+      const anchor = e.data.rows[rmin].cells[cmin];
+      if (!anchor) {
+        throw new Error(
+          `mergeTableCells: anchor cell (${rmin}, ${cmin}) missing`,
+        );
+      }
+      anchor.gridSpan = cmax - cmin + 1;
+      anchor.rowSpan = rmax - rmin + 1;
+      for (let row = rmin; row <= rmax; row++) {
+        for (let c = cmin; c <= cmax; c++) {
+          if (row === rmin && c === cmin) continue;
+          const cell = e.data.rows[row].cells[c];
+          if (!cell) continue;
+          cell.gridSpan = 0;
+          cell.rowSpan = 0;
+          cell.body = { blocks: [] };
+          cell.style = {};
+        }
+      }
+    });
+  }
+
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const cell = e.data.rows[anchor.row]?.cells[anchor.col];
+      if (!cell) {
+        throw new Error(
+          `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) not found`,
+        );
+      }
+      const gs = cell.gridSpan ?? 1;
+      const rs = cell.rowSpan ?? 1;
+      if (gs <= 1 && rs <= 1) {
+        throw new Error(
+          `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) is not a merge anchor`,
+        );
+      }
+      cell.gridSpan = undefined;
+      cell.rowSpan = undefined;
+      for (let row = anchor.row; row < anchor.row + rs; row++) {
+        for (let c = anchor.col; c < anchor.col + gs; c++) {
+          if (row === anchor.row && c === anchor.col) continue;
+          const covered = e.data.rows[row]?.cells[c];
+          if (!covered) continue;
+          covered.gridSpan = undefined;
+          covered.rowSpan = undefined;
+        }
+      }
     });
   }
 
