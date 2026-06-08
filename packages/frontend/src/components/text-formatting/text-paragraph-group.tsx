@@ -91,12 +91,16 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
           className="w-[200px]"
           data-text-edit-keepalive
           onCloseAutoFocus={(e) => {
-            e.preventDefault();
             const pick = pendingAlignRef.current;
-            if (pick !== null) {
-              pendingAlignRef.current = null;
-              handleAlign(pick);
+            if (pick === null) {
+              // No pick — let Radix restore focus to the trigger so
+              // Esc / outside-click dismiss does not strand focus on
+              // <body>.
+              return;
             }
+            e.preventDefault();
+            pendingAlignRef.current = null;
+            handleAlign(pick);
           }}
         >
           <DropdownMenuItem

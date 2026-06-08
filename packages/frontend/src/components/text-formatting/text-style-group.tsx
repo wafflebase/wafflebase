@@ -85,15 +85,18 @@ export function TextStyleGroup({
         className="w-[210px]"
         data-text-edit-keepalive
         onCloseAutoFocus={(e) => {
-          e.preventDefault();
           const pick = pendingPickRef.current;
-          if (pick !== null) {
-            pendingPickRef.current = null;
-            handleBlockType(
-              pick.type,
-              pick.headingLevel ? { headingLevel: pick.headingLevel } : undefined,
-            );
+          if (pick === null) {
+            // No pick — let Radix restore focus to the trigger so Esc /
+            // outside-click dismiss does not strand focus on <body>.
+            return;
           }
+          e.preventDefault();
+          pendingPickRef.current = null;
+          handleBlockType(
+            pick.type,
+            pick.headingLevel ? { headingLevel: pick.headingLevel } : undefined,
+          );
         }}
       >
         {visibleOptions.map((opt) => (

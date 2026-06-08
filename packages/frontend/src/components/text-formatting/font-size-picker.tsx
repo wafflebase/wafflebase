@@ -153,12 +153,16 @@ export function FontSizePicker({
         align="center"
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => {
-          e.preventDefault();
           const picked = pendingPresetRef.current;
-          if (picked !== null) {
-            pendingPresetRef.current = null;
-            commit(picked);
+          if (picked === null) {
+            // No pick — let Radix restore focus to the trigger (the
+            // size <input>) so Esc / outside-click dismiss does not
+            // strand focus on <body>.
+            return;
           }
+          e.preventDefault();
+          pendingPresetRef.current = null;
+          commit(picked);
         }}
       >
         {FONT_SIZE_PRESETS.map((s) => (

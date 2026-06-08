@@ -94,12 +94,15 @@ export function FontFamilyPicker({
         className="max-h-[320px] w-[220px] overflow-y-auto"
         data-text-edit-keepalive
         onCloseAutoFocus={(e) => {
-          e.preventDefault();
           const family = pendingFamilyRef.current;
-          if (family !== null) {
-            pendingFamilyRef.current = null;
-            onChange(family);
+          if (family === null) {
+            // No pick — let Radix restore focus to the trigger so Esc /
+            // outside-click dismiss does not strand focus on <body>.
+            return;
           }
+          e.preventDefault();
+          pendingFamilyRef.current = null;
+          onChange(family);
         }}
       >
         {GROUP_ORDER.map((group, gi) => {
