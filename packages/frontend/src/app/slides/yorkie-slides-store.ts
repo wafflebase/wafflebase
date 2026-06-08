@@ -1019,7 +1019,32 @@ export class YorkieSlidesStore implements SlidesStore {
         );
       }
       const eAny = e as { frame: Frame };
+      const oldW = eAny.frame.w;
+      const oldH = eAny.frame.h;
       eAny.frame = { ...eAny.frame, ...frame };
+      // Tables paint cells from `data.columnWidths` and
+      // `data.rows[].height` (authoritative per design); a frame
+      // resize that bypassed those would leave the painted footprint
+      // disconnected from the selection bbox / hit-test region. Mirror
+      // the MemSlidesStore CR#4 fix here so the Yorkie code path
+      // (which the live app actually runs) keeps the model coherent
+      // when the element-level resize handles drag the table's outer
+      // frame.
+      if (e.type === 'table') {
+        const dataAny = (e as { data: { columnWidths: number[]; rows: { height: number }[] } }).data;
+        if (eAny.frame.w !== oldW && oldW > 0) {
+          const sx = eAny.frame.w / oldW;
+          for (let c = 0; c < dataAny.columnWidths.length; c++) {
+            dataAny.columnWidths[c] = dataAny.columnWidths[c] * sx;
+          }
+        }
+        if (eAny.frame.h !== oldH && oldH > 0) {
+          const sy = eAny.frame.h / oldH;
+          for (const row of dataAny.rows) {
+            row.height = row.height * sy;
+          }
+        }
+      }
       // Refresh the cached frames of connectors whose endpoints attach to
       // this element. The renderer reads endpoints live, so the visual
       // line already follows the source move — but selection bbox /
