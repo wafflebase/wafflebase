@@ -396,6 +396,54 @@ function findIndex(boundaries: readonly number[], v: number): number {
   return -1;
 }
 
+/**
+ * Step one cell in `direction` (+1 = forward, -1 = backward), wrapping
+ * across row boundaries (`(r, nCols-1) → (r+1, 0)` forward / mirror
+ * backward). Covered cells (`gridSpan === 0 || rowSpan === 0`) are
+ * skipped — the loop keeps stepping in the same direction until it
+ * lands on a non-covered cell or falls off the table.
+ *
+ * Returns `null` when stepping past the last (resp. first) cell in
+ * the table — the caller decides whether to bounce, append a new row,
+ * or no-op. P3 uses the bounce behaviour; P4 will inject an
+ * `appendRow + enter(r+1, 0)` here.
+ *
+ * Used by the cell-edit Tab / Shift+Tab navigation: `enterEditMode`
+ * commits the current cell and re-enters at the returned coordinate.
+ */
+export function nextCellInDirection(
+  data: Data,
+  row: number,
+  col: number,
+  direction: 1 | -1,
+): { row: number; col: number } | null {
+  const nCols = data.columnWidths.length;
+  const nRows = data.rows.length;
+  let r = row;
+  let c = col;
+  while (true) {
+    if (direction === 1) {
+      c++;
+      if (c >= nCols) {
+        c = 0;
+        r++;
+        if (r >= nRows) return null;
+      }
+    } else {
+      c--;
+      if (c < 0) {
+        c = nCols - 1;
+        r--;
+        if (r < 0) return null;
+      }
+    }
+    const cell = data.rows[r]?.cells[c];
+    if (cell && !isCovered(cell)) return { row: r, col: c };
+    // Otherwise keep stepping in `direction` until we land on a
+    // non-covered cell or fall off the table.
+  }
+}
+
 function resolveAnchor(
   data: Data,
   r: number,

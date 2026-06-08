@@ -16,6 +16,7 @@ import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
 import {
   computeTableLayout,
+  nextCellInDirection,
   tableCellAtPoint,
 } from '../canvas/table-renderer';
 import type { ThemeColor } from '../../model/theme';
@@ -2461,6 +2462,46 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+    // Cell-edit only: intercept Tab / Shift+Tab on the text-box
+    // container before the docs editor's contenteditable sees it,
+    // commit the current cell, and re-enter on the adjacent cell.
+    // Capture phase guarantees we run before any descendant Tab
+    // handler the docs editor might attach; preventDefault stops the
+    // browser's default focus-out behaviour. Bounces at table edges
+    // (auto-append row on Tab from the last cell is a P4 affordance).
+    // The listener lives on the container DOM node, which `finishEditMode`
+    // detaches via `tb.detach()` — once detached the node is GC'd along
+    // with its listener, so no explicit teardown is needed here.
+    if (target.kind === 'cell' && target.cell) {
+      const startCell = target.cell;
+      tb.container.addEventListener(
+        'keydown',
+        (e: KeyboardEvent) => {
+          if (e.key !== 'Tab') return;
+          // Re-read the table from the store: a peer (or undo / redo)
+          // could have mutated rows / cells while the user was typing.
+          const liveDoc = this.options.store.read();
+          const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+          if (!liveSlide) return;
+          const liveEl = findElement(liveSlide.elements, elementId);
+          if (!liveEl || liveEl.type !== 'table') return;
+          const next = nextCellInDirection(
+            liveEl.data,
+            startCell.row,
+            startCell.col,
+            e.shiftKey ? -1 : 1,
+          );
+          // Suppress the default tab-out / tab-insert regardless of
+          // whether there's a next cell so the user never falls out of
+          // the table by accident.
+          e.preventDefault();
+          e.stopPropagation();
+          if (next === null) return;
+          this.enterEditMode(slideId, elementId, { cell: next });
+        },
+        { capture: true },
+      );
+    }
     // Focus so keystrokes flow into the textarea immediately.
     tb.focus();
   }
