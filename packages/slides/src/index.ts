@@ -44,6 +44,8 @@ export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
 export type {
   AutofitMode,
+  CellBorder,
+  CellStyle,
   Crop,
   Element,
   ElementBase,
@@ -58,11 +60,19 @@ export type {
   ShapeKind,
   ShapeStroke,
   Stroke,
+  TableCell,
+  TableElement,
+  TableRow,
   TextBody,
   TextElement,
   VerticalAnchorMode,
 } from './model/element';
-export { generateId, isBlocksEmpty, isElementEmpty } from './model/element';
+export {
+  DEFAULT_CELL_PADDING,
+  generateId,
+  isBlocksEmpty,
+  isElementEmpty,
+} from './model/element';
 
 export type { GroupTransform } from './model/group';
 export {

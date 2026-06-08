@@ -238,12 +238,113 @@ export type GroupElement = ElementBase & {
   // represent layout slots and are slide-direct only.
 };
 
+/**
+ * Border descriptor for one side of a table cell. Mirrors OOXML
+ * `<a:lnL/R/T/B>` — each side is independent, unlike the uniform stroke
+ * on shapes / connectors. Absent ⇒ no rendered border on that side.
+ */
+export type CellBorder = {
+  color: ThemeColor | string;
+  /** Pixels. */
+  width: number;
+  dash?: 'solid' | 'dashed' | 'dotted';
+};
+
+export type CellStyle = {
+  fill?: ThemeColor | string;
+  border?: {
+    top?: CellBorder;
+    right?: CellBorder;
+    bottom?: CellBorder;
+    left?: CellBorder;
+  };
+  /**
+   * Cell padding in pixels. Mirrors OOXML `<a:tcPr marL/R/T/B>`.
+   * Absent keys fall back to `DEFAULT_CELL_PADDING`.
+   */
+  padding?: {
+    top?: number;
+    right?: number;
+    bottom?: number;
+    left?: number;
+  };
+  /** Defaults to `'top'`. */
+  verticalAlign?: VerticalAnchorMode;
+};
+
+/**
+ * Default cell padding in pixels — matches the OOXML default
+ * (`tcPr marL/R = 91440 EMU = ~8 px`, `marT/B = 45720 EMU = ~4 px`)
+ * after the standard EMU→px conversion at 96 DPI.
+ */
+export const DEFAULT_CELL_PADDING = {
+  top: 4,
+  right: 8,
+  bottom: 4,
+  left: 8,
+} as const;
+
+export type TableCell = {
+  /**
+   * Rich-text body. Reuses the same `TextBody` engine used by
+   * `TextElement.data` and `ShapeElement.data.text` so cell editing
+   * goes through the existing text-bridge / IME / autofit paths.
+   */
+  body: TextBody;
+  style: CellStyle;
+  /**
+   * 1 = unmerged. `> 1` = anchor cell of a horizontal merge spanning
+   * `gridSpan` columns. `0` = covered cell (rendered as no-op).
+   * Absent ⇒ `1`. Mirrors OOXML `<a:tc gridSpan>` / `<a:tc hMerge>`.
+   */
+  gridSpan?: number;
+  /**
+   * 1 = unmerged. `> 1` = anchor cell of a vertical merge spanning
+   * `rowSpan` rows. `0` = covered cell. Absent ⇒ `1`. Mirrors OOXML
+   * `<a:tc rowSpan>` / `<a:tc vMerge>`.
+   */
+  rowSpan?: number;
+};
+
+export type TableRow = {
+  /**
+   * Declared row height in slide-logical pixels. The rendered row
+   * height is `max(height, max contentHeight across non-covered cells)`
+   * — matching PPTX, where `<a:tr h>` is a *minimum* that content can
+   * grow past.
+   */
+  height: number;
+  cells: TableCell[];
+};
+
+export type TableElement = ElementBase & {
+  type: 'table';
+  data: {
+    /**
+     * Column widths in slide-logical pixels. Authoritative — the
+     * rendered table width is `sum(columnWidths)`. `frame.w` is kept
+     * in sync by structural mutations. Mirrors OOXML
+     * `<a:tblGrid>/<a:gridCol w="...">`.
+     */
+    columnWidths: number[];
+    rows: TableRow[];
+    /**
+     * Optional table-wide style identifier. PPTX-only field; preserved
+     * verbatim on import for future PPTX round-trip. v1 does not
+     * resolve banded-row / header style rules from this id — per-cell
+     * fills/borders are baked at import time.
+     */
+    tableStyleId?: string;
+  };
+};
+
 export type Element =
   | TextElement
   | ImageElement
   | ShapeElement
   | ConnectorElement
-  | GroupElement;
+  | GroupElement
+  | TableElement;
 
 export type ElementType = Element['type'];
 
@@ -253,7 +354,8 @@ export type ElementInit =
   | Omit<ImageElement, 'id'>
   | Omit<ShapeElement, 'id'>
   | Omit<ConnectorElement, 'id'>
-  | Omit<GroupElement, 'id'>;
+  | Omit<GroupElement, 'id'>
+  | Omit<TableElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

@@ -6,6 +6,7 @@ import { deckFontScale } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
 import { drawConnector } from './connector-renderer';
 import { drawShape, paintShapeText } from './shape-renderer';
+import { drawTable } from './table-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
 
@@ -204,6 +205,14 @@ export function drawElement(
           // Images intentionally mirror with flipH/flipV — the user is
           // flipping a picture, so no counter-flip is applied.
           drawImage(ctx, size, element.data, onAssetLoad);
+          break;
+        case 'table':
+          // P1 paints the whole table (fills, borders, AND cell text)
+          // under counter-flip. Tables are rarely flipped in practice;
+          // separating geometry-flip from text-counter-flip is deferred.
+          withCounterFlip(ctx, size, totalFlip, () => {
+            drawTable(ctx, size, element.data, theme, { fontScale });
+          });
           break;
       }
     }

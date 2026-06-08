@@ -196,6 +196,38 @@ export function paintTextBody(
 }
 
 /**
+ * Measure the laid-out height of a `TextBody` at a given inner width,
+ * applying the same pre-layout transforms (`fontScale`, `autofit:
+ * 'shrink'`) that `paintTextBody` would apply. Returns 0 for empty
+ * bodies so callers can treat "no text" and "text that lays out to
+ * zero" identically.
+ *
+ * Used by `table-renderer` to grow row heights when cell content
+ * exceeds the declared `<a:tr h>` (and by anything else that needs
+ * the docs layout height without painting).
+ */
+export function measureTextBodyHeight(
+  body: TextBody,
+  innerW: number,
+  opts: { fontScale?: number } = {},
+): number {
+  if (isTextBodyEmpty(body)) return 0;
+  const normalized: Block[] = body.blocks.map((b) => ({
+    ...b,
+    style: normalizeBlockStyle(b.style),
+  }));
+  const fontScale = opts.fontScale ?? 1;
+  let toLayout =
+    fontScale !== 1 ? scaleBlocks(normalized, fontScale) : normalized;
+  if (body.autofit === 'shrink') {
+    const scale = computeAutofitScale(toLayout, measurer, innerW, Infinity, 0);
+    if (scale !== 1) toLayout = scaleBlocks(toLayout, scale);
+  }
+  const { layout } = computeLayout(toLayout, measurer, innerW);
+  return layout.totalHeight;
+}
+
+/**
  * Compute the y offset that aligns laid-out content to the requested
  * vertical anchor inside a frame of height `frameH`.
  *
