@@ -2361,6 +2361,58 @@ class SlidesEditorImpl implements SlidesEditor {
     items.push({ label: 'Cell border: outer', run: () => applyBorderPattern('outer') });
     items.push({ label: 'Cell border: clear', run: () => applyBorderPattern('clear') });
 
+    // Distribute columns / rows evenly — common when one drag-resize
+    // throws off the proportions. Operates across the WHOLE table
+    // (not just the range) because a partial distribute would shift
+    // the unrelated columns' positions which is rarely what the user
+    // wants. The store ops keep the CR#13 invariant so the total
+    // width / height stays constant.
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: 'Distribute columns evenly',
+      disabled: table.data.columnWidths.length < 2,
+      run: () => {
+        const total = table.data.columnWidths.reduce((a, b) => a + b, 0);
+        const n = table.data.columnWidths.length;
+        const even = Array(n).fill(total / n);
+        store.batch(() => {
+          store.updateTableColumnWidths(slideId, id, even);
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: 'Distribute rows evenly',
+      disabled: table.data.rows.length < 2,
+      run: () => {
+        const total = table.data.rows.reduce((a, r) => a + r.height, 0);
+        const n = table.data.rows.length;
+        const even = Array(n).fill(total / n);
+        store.batch(() => {
+          store.updateTableRowHeights(slideId, id, even);
+        });
+        this.requestRender();
+      },
+    });
+
+    // Delete the whole table — distinct from the generic "Delete"
+    // entry above (which removes the selected ELEMENT regardless of
+    // cell-range state). Surface here so a user with a cell range
+    // doesn't have to Esc + Backspace to drop the table.
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: 'Delete table',
+      run: () => {
+        this.cellSelection = null;
+        store.batch(() => {
+          store.removeElement(slideId, id);
+        });
+        this.selection.clear();
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+
     return items;
   }
 
