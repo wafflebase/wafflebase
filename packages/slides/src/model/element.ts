@@ -296,12 +296,21 @@ export type TableCell = {
    * 1 = unmerged. `> 1` = anchor cell of a horizontal merge spanning
    * `gridSpan` columns. `0` = covered cell (rendered as no-op).
    * Absent ⇒ `1`. Mirrors OOXML `<a:tc gridSpan>` / `<a:tc hMerge>`.
+   *
+   * **Importer contract:** PPTX has two encodings for covered cells —
+   * `<a:tc hMerge='1'>` (used inside `<a:tblGrid>` regions) and
+   * `<a:tc>` with `gridSpan` only on the anchor. Importers MUST
+   * translate `hMerge` into `gridSpan: 0` on the covered cell;
+   * renderers / store ops rely on the `=== 0` marker to skip painting
+   * and exclude the cell from edge / span resolution.
    */
   gridSpan?: number;
   /**
    * 1 = unmerged. `> 1` = anchor cell of a vertical merge spanning
    * `rowSpan` rows. `0` = covered cell. Absent ⇒ `1`. Mirrors OOXML
-   * `<a:tc rowSpan>` / `<a:tc vMerge>`.
+   * `<a:tc rowSpan>` / `<a:tc vMerge>`. The same importer contract
+   * applies — `vMerge='1'` translates to `rowSpan: 0` on the covered
+   * cell.
    */
   rowSpan?: number;
 };
@@ -322,9 +331,17 @@ export type TableElement = ElementBase & {
   data: {
     /**
      * Column widths in slide-logical pixels. Authoritative — the
-     * rendered table width is `sum(columnWidths)`. `frame.w` is kept
-     * in sync by structural mutations. Mirrors OOXML
+     * rendered table width is `sum(columnWidths)`. Mirrors OOXML
      * `<a:tblGrid>/<a:gridCol w="...">`.
+     *
+     * **Frame-sync invariant:** `frame.w` always equals
+     * `sum(columnWidths)` and `frame.h` equals `sum(row.height for
+     * row in rows)` (after row auto-grow). The contract is enforced
+     * write-side by `MemSlidesStore.updateElementFrame`, which scales
+     * `columnWidths` / `rows[].height` proportionally on every w/h
+     * change. Any other code path that mutates `frame.w` / `frame.h`
+     * directly (PPTX import builder, future bake operations) MUST
+     * preserve the same invariant.
      */
     columnWidths: number[];
     rows: TableRow[];

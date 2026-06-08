@@ -34,4 +34,15 @@ describe('getTextRegionRect', () => {
     );
     expect(rect).toBeNull();
   });
+
+  it('returns a region for tables (every cell carries a TextBody)', () => {
+    // Regression guard: before adding the 'table' branch,
+    // getTextRegionRect returned null for tables and the cursor never
+    // switched to the text I-beam over a selected table. Per-cell
+    // hover routing lands in P3; in P1 the entire table inset is the
+    // text region.
+    const frame = { x: 100, y: 200, w: 300, h: 80, rotation: 0 };
+    const rect = getTextRegionRect({ type: 'table' } as never, frame);
+    expect(rect).toEqual({ x: 106, y: 206, w: 288, h: 68 });
+  });
 });

@@ -14,8 +14,6 @@ type Data = TableElement['data'];
 
 type Span = { row: number; col: number; rowSpan: number; gridSpan: number };
 
-const EPS = 0.5; // sub-pixel slack used when keying coincident edges
-
 /**
  * Draw a table element into element-local coordinates (top-left at 0,0).
  * Mirrors `drawText` / `drawShape` — the frame transform belongs to the
@@ -173,16 +171,20 @@ function paintCellContents(
       // policy explicit and prevents a future PPTX importer from
       // accidentally re-introducing a measure-vs-paint divergence by
       // forwarding `<a:normAutofit/>` straight onto cell bodies.
+      //
+      // The cell-level vertical-align default routes through
+      // paintTextBody's `defaultVerticalAnchor` opt so the body's own
+      // `verticalAnchor` (when set) still wins, matching how
+      // shape-renderer wires the same precedence.
       paintTextBody(
         ctx,
         { w: innerW, h: innerH },
-        {
-          ...cell.body,
-          autofit: 'none',
-          verticalAnchor: cell.body.verticalAnchor ?? cell.style.verticalAlign,
-        },
+        { ...cell.body, autofit: 'none' },
         theme,
-        { fontScale: options?.fontScale },
+        {
+          fontScale: options?.fontScale,
+          defaultVerticalAnchor: cell.style.verticalAlign,
+        },
       );
       ctx.restore();
     }
@@ -274,12 +276,11 @@ function registerEdge(
 }
 
 function edgeKey(axis: 'h' | 'v', a: number, b: number, p: number): string {
-  // Quantize to sub-pixel epsilon so coincident edges from adjacent
-  // cells hash to the same key.
-  const qa = Math.round(a / EPS);
-  const qb = Math.round(b / EPS);
-  const qp = Math.round(p / EPS);
-  return `${axis}|${qa}|${qb}|${qp}`;
+  // Adjacent cells derive their shared edge from the same `colX[]`
+  // prefix sum (or `rowY[]`), so coincident coordinates are bit-equal.
+  // Exact equality is sufficient in P1; if a future phase introduces
+  // sub-pixel drag-resize, add a tolerance pinned by a regression test.
+  return `${axis}|${a}|${b}|${p}`;
 }
 
 /**

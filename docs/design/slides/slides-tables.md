@@ -70,6 +70,26 @@ and blocks an eventual PPTX export.
   matches Google Slides and ~90% of real decks. Re-introducing per-cell
   shrink is a v2 affordance gated on a fixed-row-height toggle.
 
+## Known limitations (P1)
+
+- **Flip is a visual no-op on tables.** `element-renderer.ts` wraps the
+  whole `drawTable` call in `withCounterFlip`, so `frame.flipH` /
+  `frame.flipV` on a `TableElement` doesn't mirror cell fills or
+  borders. Tables rarely carry flip in real decks (PPTX
+  `<p:graphicFrame>` doesn't expose it the same way `<p:sp>` does);
+  splitting geometry-flip from text-counter-flip is a P3+ follow-up.
+- **Outer-frame ungroup-bake doesn't route through the store.**
+  `model/group.ts:ungroup` mutates `cloned.frame` directly via
+  `applyGroupTransform` rather than calling `updateElementFrame`, so a
+  TableElement inside a group whose group is later ungrouped won't get
+  its `columnWidths` / row heights proportionally scaled. The bug is
+  latent in P1 (no UI path to insert tables into groups) and is
+  closed when P3 wires the group-bake call sites through the store.
+- **Cell-range selection is absent.** Selecting a TableElement gives
+  whole-element selection; per-cell hover I-beam engages over the
+  entire table inset (see `getTextRegionRect` 'table' branch). Cell
+  selection, Tab/Shift+Tab navigation, and structural ops arrive in P3.
+
 ## Proposal Details
 
 ### Data model
