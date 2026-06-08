@@ -737,7 +737,7 @@ class SlidesEditorImpl implements SlidesEditor {
       ungroup: () => this.ungroup(),
       isPaintingFormat: () => this.isPaintingFormat(),
       cancelFormatPaint: () => this.cancelFormatPaint(),
-      hasCellSelection: () => this.cellSelection !== null,
+      getCellSelection: () => this.cellSelection,
       clearCellSelection: () => {
         if (this.cellSelection === null) return;
         this.cellSelection = null;
