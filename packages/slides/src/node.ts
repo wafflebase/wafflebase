@@ -100,6 +100,7 @@ export {
 
 export { migrateDocument } from './model/migrate';
 export { defaultLight } from './themes/default-light';
+export { defaultDark } from './themes/default-dark';
 
 export {
   BUILT_IN_LAYOUTS,

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
+import { useTheme } from "@/components/theme-provider";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
@@ -137,6 +138,14 @@ export function SlidesView({
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
   const readOnlyMount = readOnly === true;
 
+  // Capture the resolved (light|dark) theme into a ref so the mount
+  // effect — which doesn't track theme as a dependency — can read the
+  // current value when seeding a brand-new deck. Only the value at
+  // first-creation time matters; later toggles don't change the deck.
+  const { resolvedTheme } = useTheme();
+  const resolvedThemeRef = useRef(resolvedTheme);
+  resolvedThemeRef.current = resolvedTheme;
+
   // Capture the latest onStartPresentation in a ref so the editor's
   // Cmd/Ctrl+Enter handler always calls the freshest callback, without
   // adding the prop to the mount effect's deps (which would tear down
@@ -199,7 +208,9 @@ export function SlidesView({
     // policy below. Fixing it properly (gating the migration on a
     // role, or migrating server-side) is owned by the doc-migration
     // workstream — not the share-link toolbar work.
-    ensureSlidesRoot(doc);
+    ensureSlidesRoot(doc, {
+      initialThemePreference: resolvedThemeRef.current,
+    });
 
     // Build the canvas + overlay DOM into the container. The slides
     // editor is vanilla DOM, so we hand-build the scaffolding here

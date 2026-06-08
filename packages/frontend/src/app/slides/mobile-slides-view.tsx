@@ -17,6 +17,7 @@ import {
   type SlidesEditor,
 } from "@wafflebase/slides";
 import { Loader } from "@/components/loader";
+import { useTheme } from "@/components/theme-provider";
 import { usePointerSwipe } from "@/hooks/use-pointer-swipe";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { SlidesPresence } from "@/types/users";
@@ -99,6 +100,23 @@ export function MobileSlidesView({
     SlidesPresence
   >();
 
+  // Read the resolved (light|dark) theme through a ref so the store-mount
+  // effect can seed a brand-new deck with the matching theme without
+  // re-running when the user later toggles dark mode. The `didMount`
+  // gate below pushes the seed read out by one render — without it,
+  // child-before-parent effect ordering would let this effect fire
+  // before `ThemeProvider`'s effect flips `resolvedTheme` from the
+  // matchMedia-only initial value to the localStorage-corrected one,
+  // which would silently seed a light deck for a user whose explicit
+  // dark preference disagrees with their OS setting.
+  const { resolvedTheme } = useTheme();
+  const resolvedThemeRef = useRef(resolvedTheme);
+  resolvedThemeRef.current = resolvedTheme;
+  const [didMount, setDidMount] = useState(false);
+  useEffect(() => {
+    setDidMount(true);
+  }, []);
+
   // Stash the lifted-state callbacks behind refs so the effects below
   // don't re-run whenever the parent renders with a fresh closure for
   // either callback. The parent today passes `setStore`/`setEditor`
@@ -120,8 +138,10 @@ export function MobileSlidesView({
   // cleanup. Disposed in cleanup either way.
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   useEffect(() => {
-    if (!doc) return;
-    ensureSlidesRoot(doc);
+    if (!didMount || !doc) return;
+    ensureSlidesRoot(doc, {
+      initialThemePreference: resolvedThemeRef.current,
+    });
     const s = new YorkieSlidesStore(doc);
     setStore(s);
     onStoreReadyRef.current?.(s);
@@ -130,7 +150,7 @@ export function MobileSlidesView({
       setStore(null);
       onStoreReadyRef.current?.(null);
     };
-  }, [doc]);
+  }, [didMount, doc]);
 
   // Snapshot of the slide list the mobile shell renders. Refreshed
   // whenever the store fires `onChange` so the footer indicator and
