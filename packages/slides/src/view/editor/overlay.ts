@@ -103,6 +103,14 @@ export interface OverlayOptions {
    * harness attribute.
    */
   hoverHighlightFrame?: { id: string; frame: Frame } | null;
+  /**
+   * World-space rectangles to paint as cell-range selection highlights.
+   * Each rect is one selected (non-covered) cell anchor's bounding box.
+   * Resolved by the editor from `cellSelection` + `computeTableLayout`
+   * before this call; the overlay just paints semi-transparent blue
+   * boxes on top. Empty / omitted = no cell-range highlight.
+   */
+  cellRangeRects?: readonly Frame[];
 }
 
 /**
@@ -220,6 +228,17 @@ export function renderOverlay(
         options.scale,
       ),
     );
+  }
+
+  // Cell-range selection highlights (Google-Slides-style blue tint over
+  // selected table cells). One rect per non-covered anchor cell in the
+  // range, already resolved to world coords by the editor. Painted
+  // under selection handles so the table's outer handles still take
+  // pointer-priority. Anchor rotation maps to the rect's CSS rotate.
+  if (options.cellRangeRects && options.cellRangeRects.length > 0) {
+    for (const r of options.cellRangeRects) {
+      overlay.appendChild(makeCellRangeRect(r, options.scale));
+    }
   }
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
@@ -482,6 +501,32 @@ function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivEle
     div.style.transform = `rotate(${frame.rotation}rad)`;
   }
   div.dataset.slidesHoverHighlight = id;
+  return div;
+}
+
+/**
+ * Cell-range selection highlight: a semi-transparent blue fill over the
+ * cell's world rect. Lives below the selection handles so the table's
+ * outer handles still receive pointer events for resize. Stacks
+ * additively in a range — a 2x2 cell range paints four overlapping
+ * rects which deepen at intersections; we deliberately keep the alpha
+ * low so the overlap doesn't read as a single dark blob.
+ */
+function makeCellRangeRect(frame: Frame, scale: number): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.left = `${frame.x * scale}px`;
+  div.style.top = `${frame.y * scale}px`;
+  div.style.width = `${frame.w * scale}px`;
+  div.style.height = `${frame.h * scale}px`;
+  div.style.background = 'rgba(26, 115, 232, 0.18)';
+  div.style.boxSizing = 'border-box';
+  div.style.pointerEvents = 'none';
+  if (frame.rotation !== 0) {
+    div.style.transformOrigin = 'center';
+    div.style.transform = `rotate(${frame.rotation}rad)`;
+  }
+  div.dataset.slidesCellRange = 'true';
   return div;
 }
 

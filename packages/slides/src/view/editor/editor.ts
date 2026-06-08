@@ -18,6 +18,7 @@ import {
   computeTableLayout,
   nextCellInDirection,
   tableCellAtPoint,
+  type TableLayout,
 } from '../canvas/table-renderer';
 import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
@@ -592,6 +593,21 @@ class SlidesEditorImpl implements SlidesEditor {
    * canvas underlay so the in-place editor doesn't double-paint.
    */
   private editingCellCoords: { row: number; col: number } | null = null;
+  /**
+   * Cell-range selection inside a TableElement. Set when the user
+   * clicks a cell of an already-element-selected table; cleared when
+   * the user clicks a different element, presses Esc, or enters text
+   * edit. The range is inclusive on both ends and stored as the raw
+   * (r0,c0)-(r1,c1) tuple; the overlay renderer resolves it to
+   * world-space rects via `computeTableLayout`.
+   *
+   * Independent from `selection` (which still holds the table's id at
+   * the element level) and from `editingCellCoords` (which is only
+   * meaningful inside an active text edit).
+   */
+  private cellSelection:
+    | { tableId: string; r0: number; c0: number; r1: number; c1: number }
+    | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
@@ -688,6 +704,17 @@ class SlidesEditorImpl implements SlidesEditor {
     this.currentId = options.store.read().slides[0]?.id;
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
+      // Cell-range selection is anchored to a specific table id. If
+      // the element-level selection no longer includes that table (the
+      // user clicked elsewhere, cleared, or drilled out), drop the
+      // stale range before re-rendering the overlay so the blue tint
+      // disappears in the same frame as the outer selection box.
+      if (
+        this.cellSelection !== null &&
+        !this.selection.has(this.cellSelection.tableId)
+      ) {
+        this.cellSelection = null;
+      }
       this.renderer.markDirty();
       this.repaintOverlay();
     });
@@ -710,6 +737,12 @@ class SlidesEditorImpl implements SlidesEditor {
       ungroup: () => this.ungroup(),
       isPaintingFormat: () => this.isPaintingFormat(),
       cancelFormatPaint: () => this.cancelFormatPaint(),
+      hasCellSelection: () => this.cellSelection !== null,
+      clearCellSelection: () => {
+        if (this.cellSelection === null) return;
+        this.cellSelection = null;
+        this.repaintOverlay();
+      },
     });
     // Read-only mounts (viewer-role share links) skip every pointer +
     // keyboard binding. The renderer still paints, including remote
@@ -816,6 +849,58 @@ class SlidesEditorImpl implements SlidesEditor {
       const worldFrame = toWorldFrame(el.frame, scope, slide);
       return { id: hoverId, frame: worldFrame };
     })();
+    // Cell-range selection rects (when the user has clicked into a
+    // table cell after the table is already element-selected). Skipped
+    // while text-edit is active so the in-place editor's outline owns
+    // the visual focus.
+    const cellRangeRects: Frame[] = [];
+    if (this.cellSelection !== null && this.editingElementId === null) {
+      const sel = this.cellSelection;
+      const tableEl = findElement(slide.elements, sel.tableId);
+      if (tableEl?.type === 'table') {
+        const layout = computeTableLayout(tableEl.data, {
+          fontScale: deckFontScale(doc.meta),
+        });
+        const nCols = tableEl.data.columnWidths.length;
+        const nRows = tableEl.data.rows.length;
+        const rmin = Math.min(sel.r0, sel.r1);
+        const rmax = Math.max(sel.r0, sel.r1);
+        const cmin = Math.min(sel.c0, sel.c1);
+        const cmax = Math.max(sel.c0, sel.c1);
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = tableEl.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            // Skip covered cells — they have no rect of their own; the
+            // anchor's rect (with its full merged span) is painted from
+            // its own (r, c).
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            const gs = Math.min(
+              Math.max(cell.gridSpan ?? 1, 1),
+              nCols - c,
+            );
+            const rs = Math.min(
+              Math.max(cell.rowSpan ?? 1, 1),
+              nRows - r,
+            );
+            const x0 = layout.colX[c];
+            const x1 = layout.colX[c + gs];
+            const y0 = layout.rowY[r];
+            const y1 = layout.rowY[r + rs];
+            cellRangeRects.push({
+              x: tableEl.frame.x + x0,
+              y: tableEl.frame.y + y0,
+              w: x1 - x0,
+              h: y1 - y0,
+              rotation: tableEl.frame.rotation,
+            });
+          }
+        }
+      } else {
+        // The table was removed (or replaced); drop the stale selection.
+        this.cellSelection = null;
+      }
+    }
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -831,6 +916,7 @@ class SlidesEditorImpl implements SlidesEditor {
       memberOutlines,
       contextBox,
       hoverHighlightFrame,
+      cellRangeRects: cellRangeRects.length > 0 ? cellRangeRects : undefined,
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
@@ -2070,6 +2156,63 @@ class SlidesEditorImpl implements SlidesEditor {
       // (e.g. clicking on one of several selected elements should keep all
       // selected so a subsequent drag moves them together).
       const scopeId = pickScopeId(hitResult, this.selection.getScope());
+      // Click on an already-selected, top-level, non-rotated table:
+      // drill into cell selection. The table's element selection (and
+      // its outer handles) stay; only the interior click pivots from
+      // "arm drag" to "set cellSelection". Matches Google Slides where
+      // an interior click on a selected table picks a cell and the
+      // user moves the whole table via the selection-border / handles.
+      if (
+        scopeId !== null &&
+        this.selection.has(scopeId) &&
+        this.selection.get().length === 1
+      ) {
+        const hitEl = findElement(slide.elements, scopeId);
+        const topLevel = slide.elements.some((el) => el.id === scopeId);
+        if (
+          hitEl?.type === 'table' &&
+          hitEl.frame.rotation === 0 &&
+          topLevel
+        ) {
+          const doc = this.options.store.read();
+          const layout = computeTableLayout(hitEl.data, {
+            fontScale: deckFontScale(doc.meta),
+          });
+          const cell = tableCellAtPoint(
+            hitEl.data,
+            layout,
+            x - hitEl.frame.x,
+            y - hitEl.frame.y,
+          );
+          if (cell !== null) {
+            // Shift+click extends the current range to include the
+            // newly-clicked cell. Plain click resets to a fresh
+            // single-cell range anchored at the click. The drag tail
+            // (below) keeps the anchor (r0,c0) fixed and updates
+            // (r1,c1) as the pointer moves.
+            const anchor =
+              mods.shift && this.cellSelection?.tableId === scopeId
+                ? { r0: this.cellSelection.r0, c0: this.cellSelection.c0 }
+                : { r0: cell.row, c0: cell.col };
+            this.cellSelection = {
+              tableId: scopeId,
+              r0: anchor.r0,
+              c0: anchor.c0,
+              r1: cell.row,
+              c1: cell.col,
+            };
+            this.lastClickElementId = scopeId;
+            this.lastClickAt = e.timeStamp;
+            this.repaintOverlay();
+            // Arm drag-to-extend: track pointermove and update r1/c1
+            // as the pointer hits new cells. pointerup tears the
+            // listeners down. Stays within the same table — moves
+            // outside the table bounds clamp to the last valid cell.
+            this.startCellRangeDrag(hitEl, layout);
+            return;
+          }
+        }
+      }
       if (!mods.shift && scopeId !== null && this.selection.has(scopeId)) {
         // P1.5 eligibility: the spec requires a real PRIOR click on the
         // same element within the sequence window — programmatic selection
@@ -2340,10 +2483,14 @@ class SlidesEditorImpl implements SlidesEditor {
     this.lastEditingContentHeight = null;
 
     // Make sure the selection is on the editing element so the rest of
-    // the editor (toolbar etc.) reflects the active target.
+    // the editor (toolbar etc.) reflects the active target. Drop any
+    // standing cell-range selection: text edit is a different mode and
+    // the cell rect's blue tint would compete visually with the text-
+    // box's outline.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
     this.editingCellCoords = target.cell ?? null;
+    this.cellSelection = null;
     // Drop any idle hover highlight and stale hover cursor; once
     // text-edit owns the box, pointermove early-returns without
     // re-evaluating either.
@@ -2547,6 +2694,75 @@ class SlidesEditorImpl implements SlidesEditor {
     if (reason === 'cancel') {
       this.finishEditMode();
     }
+  }
+
+  /**
+   * Arm a drag-to-extend gesture: pointermove updates `cellSelection.r1/c1`
+   * to the cell under the pointer; pointerup / pointercancel tears the
+   * listeners down. Anchor (`r0`, `c0`) stays fixed at the pointerdown
+   * cell — matches Google Sheets / PowerPoint range-select.
+   *
+   * No commit step is needed because `cellSelection` is editor-local
+   * state (not persisted to the store). Layout is captured at gesture
+   * start so the drag uses one consistent grid even if the table
+   * auto-grows mid-drag.
+   */
+  private startCellRangeDrag(
+    table: TableElement,
+    layout: TableLayout,
+  ): void {
+    const tableId = table.id;
+    const data = table.data;
+    const frame = table.frame;
+    let lastCell: { row: number; col: number } | null = this.cellSelection
+      ? { row: this.cellSelection.r1, col: this.cellSelection.c1 }
+      : null;
+    const onMove = (ev: PointerEvent): void => {
+      if (
+        this.cellSelection === null ||
+        this.cellSelection.tableId !== tableId
+      ) {
+        teardown();
+        return;
+      }
+      const { x: lx, y: ly } = this.clientToLogical(ev.clientX, ev.clientY);
+      // Clamp the pointer-in-table coords to the table's painted
+      // bounds so dragging past the edge just selects the last cell
+      // in that direction (rather than returning null and freezing
+      // the range mid-stream).
+      const localX = lx - frame.x;
+      const localY = ly - frame.y;
+      const maxX = layout.colX[layout.colX.length - 1] - 0.5;
+      const maxY = layout.rowY[layout.rowY.length - 1] - 0.5;
+      const clampedX = Math.max(0, Math.min(localX, maxX));
+      const clampedY = Math.max(0, Math.min(localY, maxY));
+      const cell = tableCellAtPoint(data, layout, clampedX, clampedY);
+      if (cell === null) return;
+      // Coalesce same-cell moves so we don't repaint the overlay 60×/s
+      // when the pointer wiggles inside one cell rect.
+      if (
+        lastCell !== null &&
+        cell.row === lastCell.row &&
+        cell.col === lastCell.col
+      ) {
+        return;
+      }
+      lastCell = cell;
+      this.cellSelection = {
+        ...this.cellSelection,
+        r1: cell.row,
+        c1: cell.col,
+      };
+      this.repaintOverlay();
+    };
+    const teardown = (): void => {
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', teardown, true);
+      document.removeEventListener('pointercancel', teardown, true);
+    };
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', teardown, true);
+    document.addEventListener('pointercancel', teardown, true);
   }
 
   private finishEditMode(): void {

@@ -61,6 +61,15 @@ export interface KeyboardContext {
   isPaintingFormat(): boolean;
   /** Cancel a staged format-paint snapshot. */
   cancelFormatPaint(): void;
+  /**
+   * Whether there is a live cell-range selection inside a table.
+   * Read by the Escape rule so the first Esc on a cell-selected table
+   * drops the cell range while preserving the table's outer element
+   * selection (a second Esc then clears the element selection).
+   */
+  hasCellSelection(): boolean;
+  /** Clear the cell-range selection. No-op when no range is set. */
+  clearCellSelection(): void;
 }
 
 const NUDGE = 1;
@@ -544,6 +553,23 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         }
         e.preventDefault();
         ctx.enterEditMode(slide.id, element.id, { initialText: e.key });
+      },
+    },
+
+    // Esc — drop cell-range selection inside a table (if present)
+    // before falling through to the generic drill-out / clear path.
+    // The first Esc on a cell-selected table peels back to the outer
+    // table element selection; a second Esc then clears it. Mirrors
+    // Google Slides' "Esc steps out one selection level at a time".
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target) &&
+        ctx.hasCellSelection(),
+      run: (e) => {
+        e.preventDefault();
+        ctx.clearCellSelection();
       },
     },
 
