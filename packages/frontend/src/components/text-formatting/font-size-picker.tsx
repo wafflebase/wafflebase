@@ -46,6 +46,10 @@ export function FontSizePicker({
     value !== undefined ? String(value) : "",
   );
   const lastValue = useRef(value);
+  // Preset picks are deferred to `onCloseAutoFocus` (see FontFamilyPicker
+  // for the rationale). The +/- buttons sit outside the DropdownMenu and
+  // do not need this — their `commit` runs synchronously.
+  const pendingPresetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (value !== lastValue.current) {
@@ -148,10 +152,22 @@ export function FontSizePicker({
       <DropdownMenuContent
         align="center"
         onOpenAutoFocus={(e) => e.preventDefault()}
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          const picked = pendingPresetRef.current;
+          if (picked !== null) {
+            pendingPresetRef.current = null;
+            commit(picked);
+          }
+        }}
       >
         {FONT_SIZE_PRESETS.map((s) => (
-          <DropdownMenuItem key={s} onClick={() => commit(s)}>
+          <DropdownMenuItem
+            key={s}
+            onClick={() => {
+              pendingPresetRef.current = s;
+            }}
+          >
             {s}
           </DropdownMenuItem>
         ))}

@@ -47,6 +47,35 @@ changes.
 - [x] Capture lessons in matching `-lessons.md`
 - [x] `pnpm tasks:archive && pnpm tasks:index`
 
+## Follow-up: toolbar dropdown focus race
+
+After verifying the picker freeze fix, a second issue surfaced: after
+picking a font family (and same for Styles / paragraph Alignment) the
+editor's hidden textarea sometimes loses focus to `<body>`, so typed
+characters never reach the document.
+
+Root cause: `editor.focus()` was called synchronously from the item's
+`onClick`, but Radix's FocusScope cleanup runs on a `setTimeout(0)`
+that fires *after* our focus call. The composed `onCloseAutoFocus` path
+in DropdownMenuContent normally honours user `preventDefault`, but the
+synchronous timing leaves no headroom and any FocusScope variation
+between Radix versions / browsers can drop focus to body.
+
+Fix: in each shared dropdown picker (FontFamilyPicker, FontSizePicker
+preset items, TextStyleGroup, TextParagraphGroup alignment), stash the
+clicked value in a `useRef` on `onClick` and replay it from
+`onCloseAutoFocus` — same proven pattern as the slim color pickers'
+`useMenuCloseHandlers`. The caller's `editor.focus()` then runs after
+FocusScope has finished tearing down, so it lands last and sticks.
+
+- [x] Apply deferred-replay pattern in `FontFamilyPicker`
+- [x] Apply in `FontSizePicker` preset items (the `+`/`−` buttons sit
+  outside the dropdown and keep their synchronous commit)
+- [x] Apply in `TextStyleGroup` (Styles dropdown)
+- [x] Apply in `TextParagraphGroup` alignment dropdown
+- [x] Regression test in `font-family-picker.test.ts` asserts onChange
+  fires AFTER the menu DOM has torn down
+
 ## Notes
 
 - Pure view-local; no DocStore, Yorkie, or model changes.

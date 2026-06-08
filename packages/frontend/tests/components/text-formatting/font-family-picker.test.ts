@@ -64,7 +64,7 @@ describe("FontFamilyPicker", () => {
     expect(trigger.textContent).toContain("—");
   });
 
-  test("fires onChange with the catalog family on item click", () => {
+  test("fires onChange with the catalog family on item click", async () => {
     const onChange = vi.fn();
     const el = render(h(FontFamilyPicker, { value: "Arial", onChange }));
     // Radix DropdownMenu opens on pointer events, not synthetic .click(),
@@ -112,6 +112,59 @@ describe("FontFamilyPicker", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
+    // onChange now fires from Radix's `onCloseAutoFocus`, which runs
+    // inside FocusScope's `setTimeout(0)` cleanup. Yield to flush that
+    // macrotask before asserting.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(onChange).toHaveBeenCalledWith("Georgia");
+  });
+
+  // Regression: the docs collapsed-caret font-face flow expects the
+  // editor's hidden textarea to remain focused after the user picks a
+  // family. The picker must defer onChange until after Radix's
+  // FocusScope cleanup so the caller's `editor.focus()` lands last and
+  // sticks — otherwise the next typed character never reaches the
+  // editor. We assert this by checking that, when onChange runs, the
+  // menu DOM is already torn down (proving FocusScope teardown ran
+  // first).
+  test("invokes onChange after Radix has torn down the menu", async () => {
+    let menuStillMountedDuringOnChange: boolean | null = null;
+    const onChange = vi.fn(() => {
+      menuStillMountedDuringOnChange =
+        document.body.querySelector('[role="menuitem"]') !== null;
+    });
+    const el = render(h(FontFamilyPicker, { value: "Arial", onChange }));
+    const trigger = el.querySelector('[aria-label="Font"]') as HTMLElement;
+    act(() => {
+      for (const type of ["pointerdown", "pointerup"] as const) {
+        trigger.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, cancelable: true, button: 0 }),
+        );
+      }
+      trigger.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    const item = [
+      ...document.body.querySelectorAll('[role="menuitem"]'),
+    ].find((n) => n.textContent === "Georgia") as HTMLElement | undefined;
+    expect(item).toBeTruthy();
+    act(() => {
+      for (const type of ["pointerdown", "pointerup"] as const) {
+        item!.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, cancelable: true, button: 0 }),
+        );
+      }
+      item!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(onChange).toHaveBeenCalledWith("Georgia");
+    expect(menuStillMountedDuringOnChange).toBe(false);
   });
 });

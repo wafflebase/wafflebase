@@ -55,3 +55,46 @@ hover preview, drafts, etc.):
   `super/subscript`, B/I/U/strike — though only family/size/colour
   feed pickers that surface this bug).
 - `pnpm verify:fast` → 904/905 docs tests pass, all phases green.
+
+## Second lesson — dropdown focus race with Radix FocusScope
+
+After the picker freeze fix, a related issue surfaced: after picking
+a font family / paragraph style / alignment from a dropdown, the
+editor's hidden textarea lost focus to `<body>`. Typing went nowhere.
+
+### What broke
+
+`editor.focus()` was called synchronously from the dropdown item's
+`onClick`. Radix's `FocusScope` cleanup uses `setTimeout(0)` on
+unmount (see `@radix-ui/react-focus-scope/dist/index.mjs:89`); that
+macrotask fires *after* our synchronous focus call. In the dropdown
+content wrapper, the composed `onCloseAutoFocus` does check
+`event.defaultPrevented` to skip the trigger-restore branch — so in
+theory `onCloseAutoFocus={(e) => e.preventDefault()}` is sufficient.
+In practice the race leaves zero headroom: any tweak to FocusScope's
+ordering across Radix releases, or any browser quirk during the
+unmount-then-restore dance, drops focus to body.
+
+### Rule
+
+When a Radix dropdown item triggers an editor-level side-effect that
+needs the host element (textarea, contenteditable, etc.) refocused
+afterwards, do **not** call `editor.focus()` synchronously from the
+item's `onClick`. Stash the pick in a `useRef` and replay it from
+`onCloseAutoFocus`. That timing lands after FocusScope's
+`setTimeout(0)` so the focus call wins.
+
+The slim color pickers' `useMenuCloseHandlers` already encoded this
+pattern; the other shared dropdowns (FontFamily, FontSize presets,
+Styles, Alignment) had to catch up.
+
+### Verification
+
+- Regression test in
+  `packages/frontend/tests/components/text-formatting/font-family-picker.test.ts`
+  asserts that when `onChange` runs, the menu DOM is already
+  torn down (proving FocusScope's cleanup ran first).
+- Same deferral applied to FontSizePicker presets, TextStyleGroup,
+  and TextParagraphGroup alignment dropdown so every shared text
+  formatting dropdown is consistent.
+- `pnpm verify:fast` green; 26/26 text-formatting tests pass.
