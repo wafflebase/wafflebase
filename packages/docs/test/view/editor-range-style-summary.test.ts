@@ -223,4 +223,48 @@ describe('getRangeStyleSummary', () => {
     expect(summary.fontFamily).toBe('Arial');
     editor.dispose();
   });
+
+  // Toolbar font size +/- and family pickers drive their displayed value
+  // from getRangeStyleSummary. With a collapsed caret, applyStyle records
+  // a pending inline style instead of mutating the document — the summary
+  // must layer that pending state on top of the caret's inline style so
+  // the picker reflects the new value, otherwise the next click reads the
+  // same pre-pending caret value and the picker freezes.
+  test('reflects pending fontSize at a collapsed caret', () => {
+    const blockId = 'b1';
+    const { editor } = setupEditor([
+      {
+        id: blockId,
+        type: 'paragraph',
+        inlines: [{ text: 'abc', style: { fontSize: 11 } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 1 },
+      focus: { blockId, offset: 1 },
+    });
+    editor.applyStyle({ fontSize: 14 });
+    expect(editor.getRangeStyleSummary().fontSize).toBe(14);
+    editor.dispose();
+  });
+
+  test('reflects pending fontFamily at a collapsed caret', () => {
+    const blockId = 'b1';
+    const { editor } = setupEditor([
+      {
+        id: blockId,
+        type: 'paragraph',
+        inlines: [{ text: 'abc', style: { fontFamily: 'Arial' } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 1 },
+      focus: { blockId, offset: 1 },
+    });
+    editor.applyStyle({ fontFamily: 'Georgia' });
+    expect(editor.getRangeStyleSummary().fontFamily).toBe('Georgia');
+    editor.dispose();
+  });
 });
