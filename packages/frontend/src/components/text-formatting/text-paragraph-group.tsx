@@ -4,7 +4,7 @@
  * slides text-edit state toolbar.
  */
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { TextFormattingEditor } from "./types";
 import {
   Tooltip,
@@ -45,6 +45,13 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
     [editor]
   );
 
+  // Same deferral pattern as FontFamilyPicker: stash the pick on click,
+  // replay it from `onCloseAutoFocus` so the caller's `editor.focus()`
+  // runs after Radix's FocusScope teardown and sticks.
+  const pendingAlignRef = useRef<
+    "left" | "center" | "right" | "justify" | null
+  >(null);
+
   const isDisabled = disabled || !editor;
 
   // Mirror the current paragraph alignment on the trigger icon so the
@@ -83,11 +90,24 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <DropdownMenuContent
           className="w-[200px]"
           data-text-edit-keepalive
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            const pick = pendingAlignRef.current;
+            if (pick === null) {
+              // No pick — let Radix restore focus to the trigger so
+              // Esc / outside-click dismiss does not strand focus on
+              // <body>.
+              return;
+            }
+            e.preventDefault();
+            pendingAlignRef.current = null;
+            handleAlign(pick);
+          }}
         >
           <DropdownMenuItem
             className="flex items-center justify-between"
-            onClick={() => handleAlign("left")}
+            onClick={() => {
+              pendingAlignRef.current = "left";
+            }}
           >
             <span className="flex items-center">
               <IconAlignLeft size={16} className="mr-2" />
@@ -99,7 +119,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
           </DropdownMenuItem>
           <DropdownMenuItem
             className="flex items-center justify-between"
-            onClick={() => handleAlign("center")}
+            onClick={() => {
+              pendingAlignRef.current = "center";
+            }}
           >
             <span className="flex items-center">
               <IconAlignCenter size={16} className="mr-2" />
@@ -111,7 +133,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
           </DropdownMenuItem>
           <DropdownMenuItem
             className="flex items-center justify-between"
-            onClick={() => handleAlign("right")}
+            onClick={() => {
+              pendingAlignRef.current = "right";
+            }}
           >
             <span className="flex items-center">
               <IconAlignRight size={16} className="mr-2" />
@@ -123,7 +147,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
           </DropdownMenuItem>
           <DropdownMenuItem
             className="flex items-center justify-between"
-            onClick={() => handleAlign("justify")}
+            onClick={() => {
+              pendingAlignRef.current = "justify";
+            }}
           >
             <span className="flex items-center">
               <IconAlignJustified size={16} className="mr-2" />

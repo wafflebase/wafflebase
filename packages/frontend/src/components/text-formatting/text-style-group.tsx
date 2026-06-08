@@ -4,6 +4,7 @@
  * state toolbar.
  */
 
+import { useRef } from "react";
 import type { BlockType, HeadingLevel } from "@wafflebase/docs";
 import type { TextFormattingEditor } from "./types";
 import {
@@ -47,6 +48,14 @@ export function TextStyleGroup({
     editor.focus();
   };
 
+  // Same deferral pattern as FontFamilyPicker: stash the pick on click,
+  // replay it from `onCloseAutoFocus` so the caller's `editor.focus()`
+  // runs after Radix's FocusScope teardown and sticks.
+  const pendingPickRef = useRef<{
+    type: BlockType;
+    headingLevel?: HeadingLevel;
+  } | null>(null);
+
   const blockType = editor ? editor.getBlockType() : null;
   const visibleOptions = getFilteredStyleOptions(allowedBlockTypes);
 
@@ -75,18 +84,31 @@ export function TextStyleGroup({
       <DropdownMenuContent
         className="w-[210px]"
         data-text-edit-keepalive
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => {
+          const pick = pendingPickRef.current;
+          if (pick === null) {
+            // No pick — let Radix restore focus to the trigger so Esc /
+            // outside-click dismiss does not strand focus on <body>.
+            return;
+          }
+          e.preventDefault();
+          pendingPickRef.current = null;
+          handleBlockType(
+            pick.type,
+            pick.headingLevel ? { headingLevel: pick.headingLevel } : undefined,
+          );
+        }}
       >
         {visibleOptions.map((opt) => (
           <DropdownMenuItem
             key={opt.label}
             className="flex items-center justify-between py-1"
-            onClick={() =>
-              handleBlockType(
-                opt.type,
-                opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined
-              )
-            }
+            onClick={() => {
+              pendingPickRef.current = {
+                type: opt.type,
+                headingLevel: opt.headingLevel,
+              };
+            }}
           >
             <span className={opt.className}>{opt.label}</span>
             {opt.shortcut && (

@@ -6,7 +6,7 @@
  * used for mixed selections.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +57,16 @@ export function FontFamilyPicker({
     return map;
   }, []);
 
+  // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
+  // rather than firing `onChange` directly from the item's onClick. The
+  // caller's onChange typically ends with `editor.focus()` to restore the
+  // editor's hidden textarea — but Radix's FocusScope cleanup runs on a
+  // `setTimeout(0)` after the click, so firing focus synchronously can
+  // race the scope teardown and leave focus on the body. Mirrors the
+  // proven `useMenuCloseHandlers` pattern used by the slim color
+  // palettes.
+  const pendingFamilyRef = useRef<string | null>(null);
+
   const label = value ?? "—";
 
   return (
@@ -83,7 +93,17 @@ export function FontFamilyPicker({
       <DropdownMenuContent
         className="max-h-[320px] w-[220px] overflow-y-auto"
         data-text-edit-keepalive
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => {
+          const family = pendingFamilyRef.current;
+          if (family === null) {
+            // No pick — let Radix restore focus to the trigger so Esc /
+            // outside-click dismiss does not strand focus on <body>.
+            return;
+          }
+          e.preventDefault();
+          pendingFamilyRef.current = null;
+          onChange(family);
+        }}
       >
         {GROUP_ORDER.map((group, gi) => {
           const entries = grouped.get(group) ?? [];
@@ -100,7 +120,9 @@ export function FontFamilyPicker({
                   onPointerEnter={() => {
                     if (entry.webFont) onPrefetch?.(entry.family);
                   }}
-                  onClick={() => onChange(entry.family)}
+                  onClick={() => {
+                    pendingFamilyRef.current = entry.family;
+                  }}
                 >
                   <span style={{ fontFamily: entry.family }}>{entry.label}</span>
                 </DropdownMenuItem>

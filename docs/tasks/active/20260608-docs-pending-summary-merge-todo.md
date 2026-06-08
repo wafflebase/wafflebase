@@ -1,0 +1,87 @@
+# Docs: merge pending inline style into `getRangeStyleSummary` for collapsed caret
+
+## Problem
+
+In the docs editor, pressing the font size **+/−** buttons (or picking a
+font family) with a collapsed caret produces no visible response after
+the first click. The toolbar pickers freeze on the old value.
+
+Root cause: `getRangeStyleSummary()` in `packages/docs/src/view/editor.ts`
+returns `styleAtCaret()` directly in the collapsed-caret branch — it does
+not merge in the pending inline style that `applyStyleImpl` just stored.
+The pending mechanism (`docs-pending-inline-style.md`) was added with
+`getSelectionStyle()` as the only toolbar read path (B/I/U buttons), but
+the font family / size pickers in
+`packages/frontend/src/app/docs/docs-formatting-toolbar.tsx` are driven
+by `getRangeStyleSummary()`.
+
+Effect — every consumer of `getRangeStyleSummary` collapsed-caret values:
+
+- Desktop FontSizePicker `+` / `−` and numeric input
+- Desktop FontFamilyPicker dropdown
+- Header / footer slim toolbar (same pickers)
+- Mobile overflow menu (same pickers)
+
+After click #1 the local picker draft state updates, but click #2 reads
+the same pre-pending caret value and computes the same `next`, so nothing
+changes.
+
+## Plan
+
+- [x] Add a failing test in
+  `packages/docs/test/view/editor-range-style-summary.test.ts` that:
+  - Sets a collapsed caret
+  - Calls `editor.applyStyle({ fontSize: 14 })`
+  - Asserts `editor.getRangeStyleSummary().fontSize === 14`
+  - Plus a fontFamily case for symmetry
+- [x] Verify the test fails on `main`
+- [x] In `packages/docs/src/view/editor.ts`, in `getRangeStyleSummary`'s
+  collapsed-caret branch, merge `pending.get()` over `styleAtCaret()`,
+  mirroring the existing logic in `getSelectionStyle()`
+- [x] Verify the test passes
+- [x] `pnpm verify:fast`
+- [ ] Manual smoke (deferred — covered by unit tests at the API
+  layer; user can verify in dev): `pnpm dev`, empty doc, click font
+  size `+` twice → picker shows 12 then 13; pick a font from the
+  family dropdown → label reflects the picked family
+- [x] Capture lessons in matching `-lessons.md`
+- [x] `pnpm tasks:archive && pnpm tasks:index`
+
+## Follow-up: toolbar dropdown focus race
+
+After verifying the picker freeze fix, a second issue surfaced: after
+picking a font family (and same for Styles / paragraph Alignment) the
+editor's hidden textarea sometimes loses focus to `<body>`, so typed
+characters never reach the document.
+
+Root cause: `editor.focus()` was called synchronously from the item's
+`onClick`, but Radix's FocusScope cleanup runs on a `setTimeout(0)`
+that fires *after* our focus call. The composed `onCloseAutoFocus` path
+in DropdownMenuContent normally honours user `preventDefault`, but the
+synchronous timing leaves no headroom and any FocusScope variation
+between Radix versions / browsers can drop focus to body.
+
+Fix: in each shared dropdown picker (FontFamilyPicker, FontSizePicker
+preset items, TextStyleGroup, TextParagraphGroup alignment), stash the
+clicked value in a `useRef` on `onClick` and replay it from
+`onCloseAutoFocus` — same proven pattern as the slim color pickers'
+`useMenuCloseHandlers`. The caller's `editor.focus()` then runs after
+FocusScope has finished tearing down, so it lands last and sticks.
+
+- [x] Apply deferred-replay pattern in `FontFamilyPicker`
+- [x] Apply in `FontSizePicker` preset items (the `+`/`−` buttons sit
+  outside the dropdown and keep their synchronous commit)
+- [x] Apply in `TextStyleGroup` (Styles dropdown)
+- [x] Apply in `TextParagraphGroup` alignment dropdown
+- [x] Regression test in `font-family-picker.test.ts` asserts onChange
+  fires AFTER the menu DOM has torn down
+
+## Notes
+
+- Pure view-local; no DocStore, Yorkie, or model changes.
+- Fix is symmetric across **all** `KEYS` in `getRangeStyleSummary` —
+  color, backgroundColor, super/subscript, etc. all benefit, not just
+  font size / family.
+- Design doc `docs/design/docs/docs-pending-inline-style.md` is still
+  correct in spirit; we are just plumbing the same pending merge into
+  the second toolbar read path it overlooked.

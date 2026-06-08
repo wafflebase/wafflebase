@@ -1926,9 +1926,18 @@ export function initialize(
         return last ? { ...last.style } : {};
       };
 
-      // No range — return the caret style.
+      // No range — return the caret style, layered with any pending
+      // inline style. The font family / size pickers in the docs
+      // toolbar read from here, so without the pending merge the
+      // picker freezes after one click on a collapsed caret (the next
+      // read returns the same pre-pending value and the +/- computes
+      // the same `next`). Mirrors `getSelectionStyle` above.
       if (!selection.hasSelection() || !selection.range) {
-        return { ...styleAtCaret() } as Summary;
+        const base = styleAtCaret();
+        if (pending.has()) {
+          return { ...base, ...pending.get()! } as Summary;
+        }
+        return { ...base } as Summary;
       }
 
       const range = selection.range;
