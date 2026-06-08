@@ -126,6 +126,16 @@ export interface OverlayOptions {
     x1: number;
     y1: number;
   };
+  /**
+   * Live preview of an in-progress OUTER-frame drag-resize on a
+   * table — a 1-px dashed rectangle at the proposed world frame.
+   * The canvas keeps painting the table at its committed frame
+   * underneath; the ghost rect + the moved resize handles signal
+   * "this is where the resize will land." On pointerup the editor
+   * commits via updateElementFrame, which proportionally scales
+   * the cell sizes so the rendered table catches up to the ghost.
+   */
+  tableGhostFrame?: Frame;
 }
 
 /**
@@ -263,6 +273,17 @@ export function renderOverlay(
   if (options.tableResizePreview) {
     overlay.appendChild(
       makeTableResizePreview(options.tableResizePreview, options.scale),
+    );
+  }
+
+  // Live table OUTER-frame resize ghost (a dashed rect at the
+  // proposed world frame). Painted alongside the resize handles —
+  // the editor swaps in the same ghost frame for the selected
+  // element so the handles + dashed outline track the pointer
+  // while the committed table sits unchanged on the canvas.
+  if (options.tableGhostFrame) {
+    overlay.appendChild(
+      makeTableGhostFrame(options.tableGhostFrame, options.scale),
     );
   }
 
@@ -558,6 +579,30 @@ function makeTableResizePreview(
     div.style.width = `${(segment.x1 - segment.x0) * scale}px`;
     div.style.height = '1px';
   }
+  return div;
+}
+
+/**
+ * Outer-frame resize ghost: a 1-px dashed rectangle (PowerPoint
+ * convention, accent #3a7) at the proposed world frame. Pointer-
+ * events disabled so the gesture's document-level listeners receive
+ * pointermove / pointerup without the overlay intercepting them.
+ */
+function makeTableGhostFrame(frame: Frame, scale: number): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.left = `${frame.x * scale}px`;
+  div.style.top = `${frame.y * scale}px`;
+  div.style.width = `${frame.w * scale}px`;
+  div.style.height = `${frame.h * scale}px`;
+  div.style.border = '1px dashed #3a7';
+  div.style.boxSizing = 'border-box';
+  div.style.pointerEvents = 'none';
+  if (frame.rotation !== 0) {
+    div.style.transformOrigin = 'center';
+    div.style.transform = `rotate(${frame.rotation}rad)`;
+  }
+  div.dataset.slidesTableGhost = 'true';
   return div;
 }
 
