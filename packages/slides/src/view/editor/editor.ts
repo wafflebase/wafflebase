@@ -10,7 +10,7 @@ import type {
   TextElement,
   VerticalAnchorMode,
 } from '../../model/element';
-import { DEFAULT_CELL_PADDING } from '../../model/element';
+import { DEFAULT_CELL_BORDER, DEFAULT_CELL_PADDING } from '../../model/element';
 import type { Block } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
@@ -281,6 +281,27 @@ export interface SlidesEditor {
   getSelection(): readonly string[];
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
+  /**
+   * Currently-selected cell range inside a table, or `null` when no
+   * range is active. Toolbar code reads this to decide whether to show
+   * the table-cell controls (fill, vAlign, border).
+   *
+   * The range may be a single cell (r0 === r1 && c0 === c1) or a
+   * rectangular block (always normalised — callers don't need to
+   * reorder r0/r1 / c0/c1). `tableId` identifies the host table.
+   */
+  getCellSelection(): {
+    tableId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  } | null;
+  /**
+   * Subscribe to cell-range changes. Fires whenever `cellSelection`
+   * is set, replaced, or cleared. Returns an unsubscribe function.
+   */
+  onCellSelectionChange(cb: () => void): () => void;
   setInsertMode(kind: InsertKind | null): void;
   /** Current insert mode, or `null` if no insert mode is active. */
   getInsertMode(): InsertKind | null;
@@ -653,6 +674,8 @@ class SlidesEditorImpl implements SlidesEditor {
   private lastEditingContentHeight: number | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
+  /** Listeners for table cell-range selection state changes. */
+  private cellSelectionListeners = new Set<() => void>();
   /**
    * Current scroll offset of the slide canvas's scroll wrapper, in CSS
    * pixels. The slide canvas itself does not scroll — the host shell
@@ -749,7 +772,7 @@ class SlidesEditorImpl implements SlidesEditor {
         this.cellSelection !== null &&
         !this.selection.has(this.cellSelection.tableId)
       ) {
-        this.cellSelection = null;
+        this.setCellSelection(null);
       }
       this.renderer.markDirty();
       this.repaintOverlay();
@@ -776,7 +799,7 @@ class SlidesEditorImpl implements SlidesEditor {
       getCellSelection: () => this.cellSelection,
       clearCellSelection: () => {
         if (this.cellSelection === null) return;
-        this.cellSelection = null;
+        this.setCellSelection(null);
         this.repaintOverlay();
       },
     });
@@ -934,7 +957,7 @@ class SlidesEditorImpl implements SlidesEditor {
         }
       } else {
         // The table was removed (or replaced); drop the stale selection.
-        this.cellSelection = null;
+        this.setCellSelection(null);
       }
     }
     // Live table column / row resize preview. Resolve the table id
@@ -1146,6 +1169,48 @@ class SlidesEditorImpl implements SlidesEditor {
     return this.selection.subscribe(cb);
   }
 
+  getCellSelection(): {
+    tableId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  } | null {
+    return this.cellSelection;
+  }
+
+  onCellSelectionChange(cb: () => void): () => void {
+    this.cellSelectionListeners.add(cb);
+    return () => {
+      this.cellSelectionListeners.delete(cb);
+    };
+  }
+
+  /**
+   * Mutator helper for `cellSelection`: applies the new value (or
+   * `null` to clear) and notifies subscribers if it changed. Callers
+   * still trigger overlay repaints separately — this helper only
+   * handles the state + change-notify pair.
+   *
+   * Identity comparison is sufficient because every "real" set
+   * creates a new object literal; the existing mutation sites that
+   * set the same range (e.g. drag still inside the same cell) early-
+   * return before reaching this setter via per-call dedup.
+   */
+  private setCellSelection(
+    next: {
+      tableId: string;
+      r0: number;
+      c0: number;
+      r1: number;
+      c1: number;
+    } | null,
+  ): void {
+    if (this.cellSelection === next) return;
+    this.cellSelection = next;
+    for (const cb of this.cellSelectionListeners) cb();
+  }
+
   onCurrentSlideChange(cb: () => void): () => void {
     this.currentSlideListeners.add(cb);
     return () => {
@@ -1204,13 +1269,26 @@ class SlidesEditorImpl implements SlidesEditor {
     const rowHeight = height / rows;
     const x = (SLIDE_WIDTH - width) / 2;
     const y = (SLIDE_HEIGHT - height) / 2;
+    // Seed every cell with a light-gray border on all four sides so
+    // the freshly-inserted table is visible right away. The
+    // renderer's border-collapse rule de-duplicates shared edges, so
+    // the user sees the same single-stroke grid the renderer would
+    // paint after a manual "Cell border: all" run.
+    const newCellStyle = () => ({
+      border: {
+        top: { ...DEFAULT_CELL_BORDER },
+        right: { ...DEFAULT_CELL_BORDER },
+        bottom: { ...DEFAULT_CELL_BORDER },
+        left: { ...DEFAULT_CELL_BORDER },
+      },
+    });
     const rowsData = Array(rows)
       .fill(0)
       .map(() => ({
         height: rowHeight,
         cells: Array(cols)
           .fill(0)
-          .map(() => ({ body: { blocks: [] }, style: {} })),
+          .map(() => ({ body: { blocks: [] }, style: newCellStyle() })),
       }));
     let id = '';
     this.options.store.batch(() => {
@@ -2190,7 +2268,7 @@ class SlidesEditorImpl implements SlidesEditor {
         });
         // Cell-range now points at removed rows; drop it so the
         // overlay doesn't paint stale rects.
-        this.cellSelection = null;
+        this.setCellSelection(null);
         this.requestRender();
         this.repaintOverlay();
       },
@@ -2204,7 +2282,7 @@ class SlidesEditorImpl implements SlidesEditor {
             store.deleteTableColumn(slideId, id, c);
           }
         });
-        this.cellSelection = null;
+        this.setCellSelection(null);
         this.requestRender();
         this.repaintOverlay();
       },
@@ -2403,7 +2481,7 @@ class SlidesEditorImpl implements SlidesEditor {
     items.push({
       label: 'Delete table',
       run: () => {
-        this.cellSelection = null;
+        this.setCellSelection(null);
         store.batch(() => {
           store.removeElement(slideId, id);
         });
@@ -2664,13 +2742,13 @@ class SlidesEditorImpl implements SlidesEditor {
               mods.shift && this.cellSelection?.tableId === scopeId
                 ? { r0: this.cellSelection.r0, c0: this.cellSelection.c0 }
                 : { r0: cell.row, c0: cell.col };
-            this.cellSelection = {
+            this.setCellSelection({
               tableId: scopeId,
               r0: anchor.r0,
               c0: anchor.c0,
               r1: cell.row,
               c1: cell.col,
-            };
+            });
             this.lastClickElementId = scopeId;
             this.lastClickAt = e.timeStamp;
             this.repaintOverlay();
@@ -2960,7 +3038,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.selection.set([elementId]);
     this.editingElementId = elementId;
     this.editingCellCoords = target.cell ?? null;
-    this.cellSelection = null;
+    this.setCellSelection(null);
     // Drop any idle hover highlight and stale hover cursor; once
     // text-edit owns the box, pointermove early-returns without
     // re-evaluating either.
@@ -3426,11 +3504,11 @@ class SlidesEditorImpl implements SlidesEditor {
         return;
       }
       lastCell = cell;
-      this.cellSelection = {
+      this.setCellSelection({
         ...this.cellSelection,
         r1: cell.row,
         c1: cell.col,
-      };
+      });
       this.repaintOverlay();
     };
     const teardown = (): void => {

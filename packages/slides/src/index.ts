@@ -68,6 +68,7 @@ export type {
   VerticalAnchorMode,
 } from './model/element';
 export {
+  DEFAULT_CELL_BORDER,
   DEFAULT_CELL_PADDING,
   generateId,
   isBlocksEmpty,

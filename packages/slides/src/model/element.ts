@@ -284,6 +284,25 @@ export const DEFAULT_CELL_PADDING = {
   left: 8,
 } as const;
 
+/**
+ * Default cell border applied to every side of every cell when the
+ * editor inserts a fresh table — without it the cells are invisible
+ * until the user types or applies a fill, which makes a brand-new
+ * table look like an empty rectangle. Tailwind `gray-300` at 1 px is
+ * subtle enough to read as "table grid" without competing with the
+ * authored content; users can override via the cell-border presets
+ * ("All", "Outer", "Clear") or per-side picks once we ship the full
+ * TableControls toolbar.
+ *
+ * Imported PPTX tables retain whatever borders they came with
+ * (including the `<a:alpha val="0"/>` "invisible-by-design" idiom);
+ * this constant only seeds the in-editor insert path.
+ */
+export const DEFAULT_CELL_BORDER: CellBorder = {
+  color: '#D1D5DB',
+  width: 1,
+};
+
 export type TableCell = {
   /**
    * Rich-text body. Reuses the same `TextBody` engine used by
