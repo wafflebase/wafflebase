@@ -819,6 +819,52 @@ describe('MemSlidesStore.mergeTableCells / unmergeTableCells', () => {
   });
 });
 
+describe('SlidesEditor.insertTable (via store.addElement integration)', () => {
+  // Direct test of the model invariants the editor's insertTable
+  // produces; full Editor instance is overkill for shape validation.
+  it('creates a rows × cols table whose frame matches the grid sums', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let id = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      const width = 480;
+      const height = 240;
+      const rows = 3;
+      const cols = 4;
+      id = store.addElement(slideId, {
+        type: 'table',
+        frame: {
+          x: (1920 - width) / 2,
+          y: (1080 - height) / 2,
+          w: width,
+          h: height,
+          rotation: 0,
+        },
+        data: {
+          columnWidths: Array(cols).fill(width / cols),
+          rows: Array(rows).fill(0).map(() => ({
+            height: height / rows,
+            cells: Array(cols).fill(0).map(() => ({
+              body: { blocks: [] },
+              style: {},
+            })),
+          })),
+        },
+      });
+    });
+    const slide = store.read().slides.find((s) => s.id === slideId);
+    const el = slide?.elements.find((e) => e.id === id);
+    expect(el?.type).toBe('table');
+    if (el?.type !== 'table') throw new Error('table missing');
+    expect(el.data.columnWidths).toEqual([120, 120, 120, 120]);
+    expect(el.data.rows).toHaveLength(3);
+    expect(el.data.rows.every((r) => r.cells.length === 4)).toBe(true);
+    expect(el.frame.w).toBe(el.data.columnWidths.reduce((a, b) => a + b, 0));
+    expect(el.frame.h).toBe(el.data.rows.reduce((a, r) => a + r.height, 0));
+  });
+});
+
 describe('MemSlidesStore.updateTableCellStyle', () => {
   function setup() {
     const store = new MemSlidesStore();

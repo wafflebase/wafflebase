@@ -385,6 +385,24 @@ export interface SlidesEditor {
    */
   align(direction: AlignDirection): void;
   /**
+   * Insert a new `rows × cols` table centered on the current slide.
+   * Each cell starts with an empty body and `{}` style; the new
+   * table's columns/rows are evenly distributed across the supplied
+   * `width × height` (default ≈ 480 × 240 px, large enough to be
+   * easily readable on a 1920×1080 slide). After insertion the
+   * editor selects the new table at the element level so the user
+   * sees the resize handles immediately; a second click drills into
+   * cell selection (P3.8) and a dblclick enters cell text edit (P3.4).
+   *
+   * Returns the new table's element id, or `null` when no slide is
+   * current.
+   */
+  insertTable(
+    rows: number,
+    cols: number,
+    opts?: { width?: number; height?: number },
+  ): string | null;
+  /**
    * Equalize the gaps between consecutive selected elements along the
    * given axis. Endpoints stay; only inner elements move.
    * Spacing uses each frame's axis-aligned `x/y/w/h`; rotation is
@@ -1111,6 +1129,52 @@ class SlidesEditorImpl implements SlidesEditor {
     // are sized by the host shell, not by the editor's own scroll
     // state, so calling `render()` would do redundant work.
     this.paintRuler();
+  }
+
+  insertTable(
+    rows: number,
+    cols: number,
+    opts?: { width?: number; height?: number },
+  ): string | null {
+    if (rows < 1 || cols < 1) {
+      throw new Error(
+        `insertTable: rows / cols must be >= 1 (got ${rows}, ${cols})`,
+      );
+    }
+    const slideId = this.currentId;
+    if (slideId === undefined) return null;
+    // Default footprint: ~25% of the slide width × 25% of the slide
+    // height, big enough to read at 100% zoom. Picker UI can pass
+    // custom dimensions; the cell heights are derived to keep the
+    // CR#13 invariant (`frame.h == sum(row.height)`).
+    const width = opts?.width ?? SLIDE_WIDTH * 0.5;
+    const height = opts?.height ?? SLIDE_HEIGHT * 0.25;
+    const colWidth = width / cols;
+    const rowHeight = height / rows;
+    const x = (SLIDE_WIDTH - width) / 2;
+    const y = (SLIDE_HEIGHT - height) / 2;
+    const rowsData = Array(rows)
+      .fill(0)
+      .map(() => ({
+        height: rowHeight,
+        cells: Array(cols)
+          .fill(0)
+          .map(() => ({ body: { blocks: [] }, style: {} })),
+      }));
+    let id = '';
+    this.options.store.batch(() => {
+      id = this.options.store.addElement(slideId, {
+        type: 'table',
+        frame: { x, y, w: width, h: height, rotation: 0 },
+        data: {
+          columnWidths: Array(cols).fill(colWidth),
+          rows: rowsData,
+        },
+      });
+    });
+    this.selection.set([id]);
+    this.requestRender();
+    return id;
   }
 
   align(direction: AlignDirection): void {
