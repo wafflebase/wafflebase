@@ -229,6 +229,26 @@ export interface SlidesStore {
     col: number,
     fn: (blocks: Block[]) => Block[] | void,
   ): void;
+  /**
+   * Insert a new row into a table at `atIndex`.
+   *
+   * - `atIndex === 0` prepends; `atIndex === rows.length` appends.
+   * - The new row inherits the column count from `data.columnWidths`.
+   *   Each new cell carries an empty `TextBody` and `{}` style;
+   *   callers apply any further styling separately.
+   * - The inserted row's height defaults to the height of the adjacent
+   *   row (`rows[atIndex - 1]` if present, else `rows[atIndex]`, else
+   *   30 px).
+   * - `frame.h` is grown by the inserted row's height so the
+   *   `frame.h == sum(row.height)` invariant established by P1 holds.
+   *
+   * Append-at-end is the only verified path so far (P3 wires it to the
+   * Tab-from-last-cell UX). Mid-table inserts that would split an
+   * existing `rowSpan > 1` merge currently leave the merge anchor's
+   * `rowSpan` unchanged — proper merge-extension semantics arrive
+   * with the full P4 structural ops.
+   */
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

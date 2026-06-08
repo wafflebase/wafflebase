@@ -13,7 +13,13 @@ import type {
   Endpoint,
 } from '../model/connector';
 import type { Stroke } from '../model/element';
-import type { Element, ElementInit, Frame, GroupElement } from '../model/element';
+import type {
+  Element,
+  ElementInit,
+  Frame,
+  GroupElement,
+  TableCell,
+} from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
@@ -980,6 +986,35 @@ export class MemSlidesStore implements SlidesStore {
       return;
     }
     e.data.text = { ...e.data.text, blocks: next };
+  }
+
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nRows = e.data.rows.length;
+    if (atIndex < 0 || atIndex > nRows) {
+      throw new Error(
+        `insertTableRow: atIndex ${atIndex} out of range [0, ${nRows}]`,
+      );
+    }
+    // Inherit the height of the adjacent row so the new row visually
+    // matches its neighbour. Falls back to 30 px when the table is
+    // empty — close to a single typical body-text line at the default
+    // 14 pt scale.
+    const inheritFrom = e.data.rows[atIndex - 1] ?? e.data.rows[atIndex];
+    const height = inheritFrom?.height ?? 30;
+    const cells: TableCell[] = e.data.columnWidths.map(() => ({
+      body: { blocks: [] },
+      style: {},
+    }));
+    e.data.rows.splice(atIndex, 0, { height, cells });
+    // Preserve `frame.h == sum(row.height)` (CR#13 invariant). Width
+    // is unaffected — inserting a row doesn't change column widths.
+    e.frame = { ...e.frame, h: e.frame.h + height };
   }
 
   withTableCellBody(

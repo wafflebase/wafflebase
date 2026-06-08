@@ -2485,19 +2485,43 @@ class SlidesEditorImpl implements SlidesEditor {
           if (!liveSlide) return;
           const liveEl = findElement(liveSlide.elements, elementId);
           if (!liveEl || liveEl.type !== 'table') return;
+          const direction: 1 | -1 = e.shiftKey ? -1 : 1;
           const next = nextCellInDirection(
             liveEl.data,
             startCell.row,
             startCell.col,
-            e.shiftKey ? -1 : 1,
+            direction,
           );
           // Suppress the default tab-out / tab-insert regardless of
-          // whether there's a next cell so the user never falls out of
-          // the table by accident.
+          // outcome so the user never falls out of the table by
+          // accident.
           e.preventDefault();
           e.stopPropagation();
-          if (next === null) return;
-          this.enterEditMode(slideId, elementId, { cell: next });
+          if (next !== null) {
+            this.enterEditMode(slideId, elementId, { cell: next });
+            return;
+          }
+          // Tab past the last cell appends a new row and enters its
+          // first cell — Google Sheets / PowerPoint convention. The
+          // insert + enter share one logical user action; calling
+          // enterEditMode here triggers the existing auto-commit at
+          // the top of enterEditMode, but the row insert needs its
+          // own batch first so the new cell exists when we enter it.
+          if (direction === 1) {
+            const newRowIndex = liveEl.data.rows.length;
+            this.options.store.batch(() => {
+              this.options.store.insertTableRow(
+                slideId,
+                elementId,
+                newRowIndex,
+              );
+            });
+            this.enterEditMode(slideId, elementId, {
+              cell: { row: newRowIndex, col: 0 },
+            });
+          }
+          // Shift+Tab past the first cell bounces — no equivalent
+          // "prepend row" UX in PowerPoint / Google Slides.
         },
         { capture: true },
       );

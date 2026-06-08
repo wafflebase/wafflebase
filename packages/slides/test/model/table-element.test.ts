@@ -301,3 +301,128 @@ describe('MemSlidesStore.withTableCellBody', () => {
     ).toThrow(/cell/i);
   });
 });
+
+describe('MemSlidesStore.insertTableRow', () => {
+  function setupTable(): { store: MemSlidesStore; slideId: string; tableId: string } {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let tableId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      tableId = store.addElement(slideId, {
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: {
+          columnWidths: [100, 100],
+          rows: [
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+            {
+              height: 50,
+              cells: [
+                { body: { blocks: [] }, style: {} },
+                { body: { blocks: [] }, style: {} },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    return { store, slideId, tableId };
+  }
+
+  function readTable(store: MemSlidesStore, slideId: string, tableId: string): TableElement {
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId);
+    if (!slide) throw new Error('slide missing');
+    const el = slide.elements.find((e) => e.id === tableId);
+    if (!el || el.type !== 'table') throw new Error('table missing');
+    return el;
+  }
+
+  it('appends a row with the same column count when atIndex === rows.length', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.insertTableRow(slideId, tableId, 2);
+    });
+    const t = readTable(store, slideId, tableId);
+    expect(t.data.rows).toHaveLength(3);
+    expect(t.data.rows[2].cells).toHaveLength(2);
+    // Empty body, no style, no spans on the new cells.
+    for (const cell of t.data.rows[2].cells) {
+      expect(cell.body.blocks).toEqual([]);
+      expect(cell.style).toEqual({});
+      expect(cell.gridSpan).toBeUndefined();
+      expect(cell.rowSpan).toBeUndefined();
+    }
+  });
+
+  it('inserts a row at the head when atIndex === 0', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.insertTableRow(slideId, tableId, 0);
+    });
+    const t = readTable(store, slideId, tableId);
+    expect(t.data.rows).toHaveLength(3);
+    // The new row is now row 0; the old rows shifted down.
+    expect(t.data.rows[0].cells).toHaveLength(2);
+    expect(t.data.rows[0].cells[0].body.blocks).toEqual([]);
+  });
+
+  it('inherits the adjacent row height as a sensible default', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.insertTableRow(slideId, tableId, 2);
+    });
+    const t = readTable(store, slideId, tableId);
+    expect(t.data.rows[2].height).toBe(50); // inherited from row 1
+  });
+
+  it('extends frame.h by the new row height to keep the sum invariant', () => {
+    const { store, slideId, tableId } = setupTable();
+    store.batch(() => {
+      store.insertTableRow(slideId, tableId, 2);
+    });
+    const t = readTable(store, slideId, tableId);
+    // sum(row.height) = 50 + 50 + 50 = 150
+    expect(t.frame.h).toBe(150);
+  });
+
+  it('throws when the element is not a table', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let textId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank', 0);
+      textId = store.addElement(slideId, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 30, rotation: 0 },
+        data: { blocks: [] },
+      });
+    });
+    expect(() =>
+      store.batch(() => {
+        store.insertTableRow(slideId, textId, 0);
+      }),
+    ).toThrow(/not a table/);
+  });
+
+  it('throws when atIndex is out of range', () => {
+    const { store, slideId, tableId } = setupTable();
+    expect(() =>
+      store.batch(() => {
+        store.insertTableRow(slideId, tableId, -1);
+      }),
+    ).toThrow(/atIndex/);
+    expect(() =>
+      store.batch(() => {
+        store.insertTableRow(slideId, tableId, 99);
+      }),
+    ).toThrow(/atIndex/);
+  });
+});

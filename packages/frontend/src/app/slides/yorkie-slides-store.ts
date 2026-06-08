@@ -1676,6 +1676,42 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(
+        s.elements as unknown as ProxyArray,
+        elementId,
+      );
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'table') {
+        throw new Error(`Element ${elementId} is not a table`);
+      }
+      const eAny = e as {
+        data: { columnWidths: number[]; rows: { height: number; cells: unknown[] }[] };
+        frame: { x: number; y: number; w: number; h: number; rotation: number };
+      };
+      const nRows = eAny.data.rows.length;
+      if (atIndex < 0 || atIndex > nRows) {
+        throw new Error(
+          `insertTableRow: atIndex ${atIndex} out of range [0, ${nRows}]`,
+        );
+      }
+      const inheritFrom =
+        eAny.data.rows[atIndex - 1] ?? eAny.data.rows[atIndex];
+      const height = inheritFrom?.height ?? 30;
+      const cells = eAny.data.columnWidths.map(() => ({
+        body: { blocks: [] as Block[] },
+        style: {},
+      }));
+      eAny.data.rows.splice(atIndex, 0, { height, cells });
+      eAny.frame = { ...eAny.frame, h: eAny.frame.h + height };
+    });
+  }
+
   withTableCellBody(
     slideId: string,
     elementId: string,
