@@ -126,16 +126,6 @@ export interface OverlayOptions {
     x1: number;
     y1: number;
   };
-  /**
-   * Live preview of an in-progress OUTER-frame drag-resize on a
-   * table — a 1-px dashed rectangle at the proposed world frame.
-   * The canvas keeps painting the table at its committed frame
-   * underneath; the ghost rect + the moved resize handles signal
-   * "this is where the resize will land." On pointerup the editor
-   * commits via updateElementFrame, which proportionally scales
-   * the cell sizes so the rendered table catches up to the ghost.
-   */
-  tableGhostFrame?: Frame;
 }
 
 /**
@@ -291,16 +281,6 @@ export function renderOverlay(
   renderConnectionPointsOverlay(overlay, options);
 
   if (selectedElements.length === 0) {
-    // Empty-selection branch still owes the ghost layer when the
-    // user is actively dragging a table border resize on a table
-    // that has somehow lost element-level selection (e.g. through a
-    // peer remove). Tolerable since the ghost will detach on
-    // pointerup with the gesture's cleanup.
-    if (options.tableGhostFrame) {
-      overlay.appendChild(
-        makeTableGhostFrame(options.tableGhostFrame, options.scale),
-      );
-    }
     return;
   }
 
@@ -341,18 +321,6 @@ export function renderOverlay(
     options.onAutofitToggle
   ) {
     renderAutofitToggle(overlay, selectedElements[0], options);
-  }
-
-  // Table outer-frame resize ghost — painted AFTER the selection
-  // handles so the translucent fill + dashed border aren't masked by
-  // the solid-#3a7 selection frame that paints at the same position
-  // (the editor swaps in the ghost frame so handles track the
-  // gesture, but the frame outline overlap would otherwise hide the
-  // ghost layer).
-  if (options.tableGhostFrame) {
-    overlay.appendChild(
-      makeTableGhostFrame(options.tableGhostFrame, options.scale),
-    );
   }
 
   // Snap guide lines (drag-time visual feedback). Rendered last so they
@@ -597,36 +565,6 @@ function makeTableResizePreview(
     div.style.width = `${(segment.x1 - segment.x0) * scale}px`;
     div.style.height = '1px';
   }
-  return div;
-}
-
-/**
- * Outer-frame resize ghost: a 1-px dashed rectangle (PowerPoint
- * convention, accent #3a7) at the proposed world frame. Pointer-
- * events disabled so the gesture's document-level listeners receive
- * pointermove / pointerup without the overlay intercepting them.
- */
-function makeTableGhostFrame(frame: Frame, scale: number): HTMLDivElement {
-  const div = document.createElement('div');
-  div.style.position = 'absolute';
-  div.style.left = `${frame.x * scale}px`;
-  div.style.top = `${frame.y * scale}px`;
-  div.style.width = `${frame.w * scale}px`;
-  div.style.height = `${frame.h * scale}px`;
-  // 2-px dashed accent + translucent fill so the ghost reads as a
-  // distinct "preview" layer over the selection frame underneath
-  // (which paints solid green at the same position when the editor
-  // swaps in the ghost frame for handle alignment). Same accent the
-  // table-border line-drag preview uses for visual cohesion.
-  div.style.border = '2px dashed #be123c';
-  div.style.background = 'rgba(190, 18, 60, 0.08)';
-  div.style.boxSizing = 'border-box';
-  div.style.pointerEvents = 'none';
-  if (frame.rotation !== 0) {
-    div.style.transformOrigin = 'center';
-    div.style.transform = `rotate(${frame.rotation}rad)`;
-  }
-  div.dataset.slidesTableGhost = 'true';
   return div;
 }
 

@@ -665,25 +665,6 @@ class SlidesEditorImpl implements SlidesEditor {
         position: number;
       }
     | null = null;
-  /**
-   * Live preview of an in-progress OUTER-frame resize on a
-   * TableElement. The canvas keeps painting the table at its
-   * committed frame; the overlay paints a 1-px dashed rect at the
-   * proposed world frame (`tableGhostFrame`) and moves the resize
-   * handles to follow it. On pointerup the gesture's commit branch
-   * routes the proposed frame through `updateElementFrame`, which
-   * proportionally scales `columnWidths` / `rows[].height` so the
-   * rendered cells catch up to the ghost.
-   *
-   * Live cell-scaling during the gesture would also work (and is
-   * what shapes / text use) but a dashed-ghost feels closer to the
-   * Google-Slides / Keynote "deferred resize" affordance that the
-   * user asked for, and it sidesteps the cost of recomputing the
-   * full table layout on every pointermove.
-   */
-  private pendingTableFrameResize:
-    | { tableId: string; frame: Frame }
-    | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
@@ -889,8 +870,6 @@ class SlidesEditorImpl implements SlidesEditor {
     // the positions the user actually sees.
     const scope = this.selection.getScope();
     const allSelectedIds = this.selection.get();
-    const ghostTableId = this.pendingTableFrameResize?.tableId ?? null;
-    const ghostTableFrame = this.pendingTableFrameResize?.frame ?? null;
     const selected = allSelectedIds
       .filter((id) => id !== this.editingElementId)
       .map((id) => {
@@ -904,15 +883,7 @@ class SlidesEditorImpl implements SlidesEditor {
         const localFrame =
           el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
         const worldFrame = toWorldFrame(localFrame, scope, slide);
-        // During an outer-frame ghost-resize on a table, swap in the
-        // proposed world frame so the handles + selection box visually
-        // follow the pointer while the committed table stays painted
-        // at its original size underneath.
-        const liveFrame =
-          ghostTableId !== null && id === ghostTableId && ghostTableFrame !== null
-            ? ghostTableFrame
-            : worldFrame;
-        return { ...el, frame: liveFrame } as Element;
+        return { ...el, frame: worldFrame } as Element;
       })
       .filter((e): e is Element => e !== null);
     // groupOverlayFrames keys off the raw selection ids, kept separate
@@ -1038,7 +1009,6 @@ class SlidesEditorImpl implements SlidesEditor {
       hoverHighlightFrame,
       cellRangeRects: cellRangeRects.length > 0 ? cellRangeRects : undefined,
       tableResizePreview,
-      tableGhostFrame: ghostTableFrame ?? undefined,
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
@@ -4391,6 +4361,57 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
+   * Outer-frame resize preview for tables. Paints the committed slide
+   * untouched + a translucent ghost table at the proposed frame with
+   * its `columnWidths` / `rows[].height` scaled proportionally — same
+   * channel as `paintMoveGhost` (canvas-level GHOST_ALPHA), so the
+   * user sees their actual table content (cells, fills, text) ghosted
+   * at the new size rather than a placeholder outline. Handles snap
+   * to the ghost frame so the drag stays interactive. Commit on
+   * pointerup goes through `updateElementFrame`, whose CR#4 scaling
+   * matches the ghost's preview.
+   */
+  private paintTableResizeGhost(
+    startEl: TableElement,
+    worldFrame: Frame,
+    scope: readonly string[],
+    guides: readonly (SnapGuide | SmartGuide)[] = [],
+  ): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const oldW = startEl.frame.w;
+    const oldH = startEl.frame.h;
+    const sx = oldW > 0 ? worldFrame.w / oldW : 1;
+    const sy = oldH > 0 ? worldFrame.h / oldH : 1;
+    const localFrame = fromWorldFrame(worldFrame, scope, slide);
+    const ghostTable: TableElement = {
+      ...startEl,
+      frame: localFrame,
+      data: {
+        ...startEl.data,
+        columnWidths: startEl.data.columnWidths.map((w) => w * sx),
+        rows: startEl.data.rows.map((r) => ({ ...r, height: r.height * sy })),
+      },
+    };
+    this.renderer.forceRender(slide, this.options.store.read(), [ghostTable]);
+    // Overlay handles track the ghost frame so the user can keep dragging
+    // smoothly — unlike move where handles stay anchored to the original
+    // (move semantics are "where will it land vs. where it started";
+    // resize semantics are "the active size right now").
+    const ghostWorld: Element = { ...startEl, frame: worldFrame };
+    renderOverlay(this.options.overlay, [ghostWorld], {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+      guides,
+      allElements: slide.elements,
+      connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
+    });
+  }
+
+  /**
    * Drag-move preview: paint the slide unchanged + a translucent ghost
    * of each selected element at its dragged position. Overlay handles
    * render against the **original** frames so they stay anchored to the
@@ -5105,20 +5126,19 @@ class SlidesEditorImpl implements SlidesEditor {
         x: matched.x, y: matched.y, w: matched.w, h: matched.h,
       };
       if (isTable) {
-        // Deferred-resize ghost path: the committed table stays
-        // painted on the canvas (no paintLiveScoped call) and the
-        // overlay carries the gesture — a magenta dashed rect at the
-        // proposed frame plus the resize handles snapped to that
-        // frame so the user can keep dragging. The commit on
-        // pointerup scales `columnWidths` / `rows[].height` via the
-        // existing updateElementFrame path so the canvas catches up
-        // in one step. Matches the user's "leave the original, only
-        // the ghost grows" preference.
-        this.pendingTableFrameResize = {
-          tableId: elementId,
-          frame: live.worldFrame,
-        };
-        this.repaintOverlay();
+        // Deferred-resize: the committed table stays painted on the
+        // canvas and a translucent ghost table — with cells scaled
+        // proportionally — paints on top at the proposed frame. Same
+        // GHOST_ALPHA channel as move, so the ghost reads as a
+        // semi-transparent copy of the real shape rather than a
+        // placeholder outline. Commit on pointerup applies the
+        // scaling for real via updateElementFrame.
+        this.paintTableResizeGhost(
+          startEl as TableElement,
+          live.worldFrame,
+          scope,
+          matched.guides,
+        );
         return;
       }
       const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
@@ -5132,10 +5152,6 @@ class SlidesEditorImpl implements SlidesEditor {
       this.options.store.batch(() => {
         this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
       });
-      // Drop the in-flight ghost (if any) BEFORE the canvas repaint
-      // so the next overlay rebuild renders the committed handles
-      // without the dashed outline lingering on top.
-      this.pendingTableFrameResize = null;
       this.renderer.markDirty();
       this.render();
       // Clear lingering equal-size dashed outlines from the last
