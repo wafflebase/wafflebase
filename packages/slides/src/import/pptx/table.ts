@@ -128,7 +128,7 @@ function parseCell(tc: Element, ctx: SlideParseContext): TableCell {
   if (style.verticalAlign === undefined && txBody) {
     const bodyAnchor = detectVerticalAnchor(txBody);
     if (bodyAnchor !== undefined) {
-      style.verticalAlign = bodyAnchor as VerticalAnchorMode;
+      style.verticalAlign = bodyAnchor;
     }
   }
 

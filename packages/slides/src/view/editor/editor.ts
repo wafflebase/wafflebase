@@ -2206,9 +2206,38 @@ class SlidesEditorImpl implements SlidesEditor {
       ((topLeft.gridSpan ?? 1) > 1 || (topLeft.rowSpan ?? 1) > 1);
     const canMerge = rowCount > 1 || colCount > 1;
 
+    // A row/column op that splices the table at `boundary` (the new
+    // row's index, or the splice point for a column) corrupts any
+    // merge anchor whose span strictly straddles that boundary —
+    // the anchor's covered cells end up referencing rows / columns
+    // that no longer line up. Disable the menu item rather than
+    // throwing or orphaning cells. Delete passes its top + bottom
+    // boundaries; insert passes the one splice point. Full
+    // structural rewrite of mid-merge ops tracked separately.
+    const crossesAt = (axis: 'row' | 'col', boundary: number): boolean => {
+      const nRows = table.data.rows.length;
+      const nCols = table.data.columnWidths.length;
+      for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
+          const cell = table.data.rows[r]?.cells[c];
+          if (!cell) continue;
+          const rs = cell.rowSpan ?? 1;
+          const gs = cell.gridSpan ?? 1;
+          if (rs <= 1 && gs <= 1) continue; // not an anchor
+          if (axis === 'row') {
+            if (rs > 1 && r < boundary && r + rs > boundary) return true;
+          } else {
+            if (gs > 1 && c < boundary && c + gs > boundary) return true;
+          }
+        }
+      }
+      return false;
+    };
+
     const items: ContextMenuItem[] = [{ label: '---', run: () => undefined }];
     items.push({
       label: rowCount > 1 ? `Insert ${rowCount} rows above` : 'Insert row above',
+      disabled: crossesAt('row', rmin),
       run: () => {
         store.batch(() => {
           for (let i = 0; i < rowCount; i++) {
@@ -2220,6 +2249,7 @@ class SlidesEditorImpl implements SlidesEditor {
     });
     items.push({
       label: rowCount > 1 ? `Insert ${rowCount} rows below` : 'Insert row below',
+      disabled: crossesAt('row', rmax + 1),
       run: () => {
         store.batch(() => {
           for (let i = 0; i < rowCount; i++) {
@@ -2231,6 +2261,7 @@ class SlidesEditorImpl implements SlidesEditor {
     });
     items.push({
       label: colCount > 1 ? `Insert ${colCount} columns left` : 'Insert column left',
+      disabled: crossesAt('col', cmin),
       run: () => {
         store.batch(() => {
           for (let i = 0; i < colCount; i++) {
@@ -2242,6 +2273,7 @@ class SlidesEditorImpl implements SlidesEditor {
     });
     items.push({
       label: colCount > 1 ? `Insert ${colCount} columns right` : 'Insert column right',
+      disabled: crossesAt('col', cmax + 1),
       run: () => {
         store.batch(() => {
           for (let i = 0; i < colCount; i++) {
@@ -2256,8 +2288,13 @@ class SlidesEditorImpl implements SlidesEditor {
       label: rowCount > 1 ? `Delete ${rowCount} rows` : 'Delete row',
       // Cannot remove the only row; the store throws "last row". The
       // menu greys out instead of letting the user discover that
-      // mid-undo-stack.
-      disabled: rowCount >= table.data.rows.length,
+      // mid-undo-stack. Also guard mid-merge bisects (anchor's row
+      // span straddles either the top or bottom edge of the
+      // deletion range).
+      disabled:
+        rowCount >= table.data.rows.length ||
+        crossesAt('row', rmin) ||
+        crossesAt('row', rmax + 1),
       run: () => {
         store.batch(() => {
           // Delete from the bottom so earlier indices stay valid as
@@ -2275,7 +2312,10 @@ class SlidesEditorImpl implements SlidesEditor {
     });
     items.push({
       label: colCount > 1 ? `Delete ${colCount} columns` : 'Delete column',
-      disabled: colCount >= table.data.columnWidths.length,
+      disabled:
+        colCount >= table.data.columnWidths.length ||
+        crossesAt('col', cmin) ||
+        crossesAt('col', cmax + 1),
       run: () => {
         store.batch(() => {
           for (let c = cmax; c >= cmin; c--) {
@@ -2910,8 +2950,13 @@ class SlidesEditorImpl implements SlidesEditor {
       // Rotated tables don't support cell editing in P3 (the cell's
       // center of rotation is NOT the table's center, so the in-place
       // editor and the painted cell would diverge); silently fall
-      // through.
+      // through. Group-nested tables also fall through — `frame.x/y`
+      // is parent-local for grouped elements, so the world-to-local
+      // subtraction below would land on the wrong cell; mirrors the
+      // single-click guard at ~2708.
       if (el.frame.rotation !== 0) return;
+      const topLevel = slide.elements.some((e) => e.id === el.id);
+      if (!topLevel) return;
       const localX = x - el.frame.x;
       const localY = y - el.frame.y;
       const doc = this.options.store.read();
@@ -3464,6 +3509,14 @@ class SlidesEditorImpl implements SlidesEditor {
             store.updateTableRowHeights(slideId, tableId, next);
           });
         }
+        // The store mutation alone doesn't repaint the canvas — the
+        // overlay's preview rect is cleared by `repaintOverlay`
+        // below, but the column / row commit needs a fresh canvas
+        // pass for the new widths / heights to take effect. Without
+        // this the table stays visually frozen at the pre-resize
+        // state until some unrelated event triggers a repaint.
+        this.renderer.markDirty();
+        this.render();
       }
       this.repaintOverlay();
     };
