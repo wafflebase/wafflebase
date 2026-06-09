@@ -5,12 +5,22 @@ import type {
   ShapeKind,
   Stroke,
   ShapeElement,
+  TableCell,
+  TableElement,
   TextElement,
   VerticalAnchorMode,
 } from '../../model/element';
+import { DEFAULT_CELL_BORDER, DEFAULT_CELL_PADDING } from '../../model/element';
 import type { Block } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
+import {
+  computeTableLayout,
+  nextCellInDirection,
+  tableCellAtPoint,
+  tableEdgeAt,
+  type TableLayout,
+} from '../canvas/table-renderer';
 import type { ThemeColor } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
@@ -271,6 +281,27 @@ export interface SlidesEditor {
   getSelection(): readonly string[];
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
+  /**
+   * Currently-selected cell range inside a table, or `null` when no
+   * range is active. Toolbar code reads this to decide whether to show
+   * the table-cell controls (fill, vAlign, border).
+   *
+   * The range may be a single cell (r0 === r1 && c0 === c1) or a
+   * rectangular block (always normalised — callers don't need to
+   * reorder r0/r1 / c0/c1). `tableId` identifies the host table.
+   */
+  getCellSelection(): {
+    tableId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  } | null;
+  /**
+   * Subscribe to cell-range changes. Fires whenever `cellSelection`
+   * is set, replaced, or cleared. Returns an unsubscribe function.
+   */
+  onCellSelectionChange(cb: () => void): () => void;
   setInsertMode(kind: InsertKind | null): void;
   /** Current insert mode, or `null` if no insert mode is active. */
   getInsertMode(): InsertKind | null;
@@ -375,6 +406,24 @@ export interface SlidesEditor {
    * the operation atomically.
    */
   align(direction: AlignDirection): void;
+  /**
+   * Insert a new `rows × cols` table centered on the current slide.
+   * Each cell starts with an empty body and `{}` style; the new
+   * table's columns/rows are evenly distributed across the supplied
+   * `width × height` (default ≈ 480 × 240 px, large enough to be
+   * easily readable on a 1920×1080 slide). After insertion the
+   * editor selects the new table at the element level so the user
+   * sees the resize handles immediately; a second click drills into
+   * cell selection (P3.8) and a dblclick enters cell text edit (P3.4).
+   *
+   * Returns the new table's element id, or `null` when no slide is
+   * current.
+   */
+  insertTable(
+    rows: number,
+    cols: number,
+    opts?: { width?: number; height?: number },
+  ): string | null;
   /**
    * Equalize the gaps between consecutive selected elements along the
    * given axis. Endpoints stay; only inner elements move.
@@ -576,6 +625,46 @@ class SlidesEditorImpl implements SlidesEditor {
    *   - clicks outside the text-box's container commit + exit edit mode
    */
   private editingElementId: string | null = null;
+  /**
+   * Cell coordinates being edited when the active text-box targets a
+   * TableElement cell. Set in `enterEditMode` when the dblclick path
+   * passes a `cell` option; cleared in `finishEditMode`. Used by
+   * `maskEditingElement` to clear ONLY the targeted cell's body on the
+   * canvas underlay so the in-place editor doesn't double-paint.
+   */
+  private editingCellCoords: { row: number; col: number } | null = null;
+  /**
+   * Cell-range selection inside a TableElement. Set when the user
+   * clicks a cell of an already-element-selected table; cleared when
+   * the user clicks a different element, presses Esc, or enters text
+   * edit. The range is inclusive on both ends and stored as the raw
+   * (r0,c0)-(r1,c1) tuple; the overlay renderer resolves it to
+   * world-space rects via `computeTableLayout`.
+   *
+   * Independent from `selection` (which still holds the table's id at
+   * the element level) and from `editingCellCoords` (which is only
+   * meaningful inside an active text edit).
+   */
+  private cellSelection:
+    | { tableId: string; r0: number; c0: number; r1: number; c1: number }
+    | null = null;
+  /**
+   * Live preview of a table column / row drag-resize. Set on
+   * pointerdown over a border; updated on pointermove (overlay
+   * paints a 1-px magenta guide at `position`); cleared on
+   * pointerup / pointercancel — and at that point the final widths
+   * or heights commit via `updateTableColumnWidths` /
+   * `updateTableRowHeights` in one batch (one undo entry per
+   * gesture).
+   */
+  private pendingTableResize:
+    | {
+        tableId: string;
+        kind: 'col' | 'row';
+        index: number;
+        position: number;
+      }
+    | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
@@ -585,6 +674,8 @@ class SlidesEditorImpl implements SlidesEditor {
   private lastEditingContentHeight: number | null = null;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
+  /** Listeners for table cell-range selection state changes. */
+  private cellSelectionListeners = new Set<() => void>();
   /**
    * Current scroll offset of the slide canvas's scroll wrapper, in CSS
    * pixels. The slide canvas itself does not scroll — the host shell
@@ -672,6 +763,17 @@ class SlidesEditorImpl implements SlidesEditor {
     this.currentId = options.store.read().slides[0]?.id;
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
+      // Cell-range selection is anchored to a specific table id. If
+      // the element-level selection no longer includes that table (the
+      // user clicked elsewhere, cleared, or drilled out), drop the
+      // stale range before re-rendering the overlay so the blue tint
+      // disappears in the same frame as the outer selection box.
+      if (
+        this.cellSelection !== null &&
+        !this.selection.has(this.cellSelection.tableId)
+      ) {
+        this.setCellSelection(null);
+      }
       this.renderer.markDirty();
       this.repaintOverlay();
     });
@@ -694,6 +796,12 @@ class SlidesEditorImpl implements SlidesEditor {
       ungroup: () => this.ungroup(),
       isPaintingFormat: () => this.isPaintingFormat(),
       cancelFormatPaint: () => this.cancelFormatPaint(),
+      getCellSelection: () => this.cellSelection,
+      clearCellSelection: () => {
+        if (this.cellSelection === null) return;
+        this.setCellSelection(null);
+        this.repaintOverlay();
+      },
     });
     // Read-only mounts (viewer-role share links) skip every pointer +
     // keyboard binding. The renderer still paints, including remote
@@ -800,6 +908,90 @@ class SlidesEditorImpl implements SlidesEditor {
       const worldFrame = toWorldFrame(el.frame, scope, slide);
       return { id: hoverId, frame: worldFrame };
     })();
+    // Cell-range selection rects (when the user has clicked into a
+    // table cell after the table is already element-selected). Skipped
+    // while text-edit is active so the in-place editor's outline owns
+    // the visual focus.
+    const cellRangeRects: Frame[] = [];
+    if (this.cellSelection !== null && this.editingElementId === null) {
+      const sel = this.cellSelection;
+      const tableEl = findElement(slide.elements, sel.tableId);
+      if (tableEl?.type === 'table') {
+        const layout = computeTableLayout(tableEl.data, {
+          fontScale: deckFontScale(doc.meta),
+        });
+        const nCols = tableEl.data.columnWidths.length;
+        const nRows = tableEl.data.rows.length;
+        const rmin = Math.min(sel.r0, sel.r1);
+        const rmax = Math.max(sel.r0, sel.r1);
+        const cmin = Math.min(sel.c0, sel.c1);
+        const cmax = Math.max(sel.c0, sel.c1);
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = tableEl.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            // Skip covered cells — they have no rect of their own; the
+            // anchor's rect (with its full merged span) is painted from
+            // its own (r, c).
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            const gs = Math.min(
+              Math.max(cell.gridSpan ?? 1, 1),
+              nCols - c,
+            );
+            const rs = Math.min(
+              Math.max(cell.rowSpan ?? 1, 1),
+              nRows - r,
+            );
+            const x0 = layout.colX[c];
+            const x1 = layout.colX[c + gs];
+            const y0 = layout.rowY[r];
+            const y1 = layout.rowY[r + rs];
+            cellRangeRects.push({
+              x: tableEl.frame.x + x0,
+              y: tableEl.frame.y + y0,
+              w: x1 - x0,
+              h: y1 - y0,
+              rotation: tableEl.frame.rotation,
+            });
+          }
+        }
+      } else {
+        // The table was removed (or replaced); drop the stale selection.
+        this.setCellSelection(null);
+      }
+    }
+    // Live table column / row resize preview. Resolve the table id
+    // → current frame so the magenta line lands on the table being
+    // resized, then map the proposed boundary position into a 1-px
+    // world-coord line segment.
+    let tableResizePreview:
+      | { kind: 'col' | 'row'; x0: number; y0: number; x1: number; y1: number }
+      | undefined;
+    if (this.pendingTableResize !== null) {
+      const p = this.pendingTableResize;
+      const t = findElement(slide.elements, p.tableId);
+      if (t?.type === 'table') {
+        const totalW = t.data.columnWidths.reduce((a, b) => a + b, 0);
+        const totalH = t.data.rows.reduce((a, r) => a + r.height, 0);
+        if (p.kind === 'col') {
+          tableResizePreview = {
+            kind: 'col',
+            x0: t.frame.x + p.position,
+            y0: t.frame.y,
+            x1: t.frame.x + p.position,
+            y1: t.frame.y + totalH,
+          };
+        } else {
+          tableResizePreview = {
+            kind: 'row',
+            x0: t.frame.x,
+            y0: t.frame.y + p.position,
+            x1: t.frame.x + totalW,
+            y1: t.frame.y + p.position,
+          };
+        }
+      }
+    }
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -815,6 +1007,8 @@ class SlidesEditorImpl implements SlidesEditor {
       memberOutlines,
       contextBox,
       hoverHighlightFrame,
+      cellRangeRects: cellRangeRects.length > 0 ? cellRangeRects : undefined,
+      tableResizePreview,
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
@@ -922,7 +1116,11 @@ class SlidesEditorImpl implements SlidesEditor {
       const editingId = this.editingElementId;
       const visible = {
         ...slide,
-        elements: maskEditingElement(slide.elements, editingId),
+        elements: maskEditingElement(
+          slide.elements,
+          editingId,
+          this.editingCellCoords,
+        ),
       };
       this.renderer.forceRender(visible, doc);
       this.paintRuler();
@@ -971,6 +1169,48 @@ class SlidesEditorImpl implements SlidesEditor {
     return this.selection.subscribe(cb);
   }
 
+  getCellSelection(): {
+    tableId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  } | null {
+    return this.cellSelection;
+  }
+
+  onCellSelectionChange(cb: () => void): () => void {
+    this.cellSelectionListeners.add(cb);
+    return () => {
+      this.cellSelectionListeners.delete(cb);
+    };
+  }
+
+  /**
+   * Mutator helper for `cellSelection`: applies the new value (or
+   * `null` to clear) and notifies subscribers if it changed. Callers
+   * still trigger overlay repaints separately — this helper only
+   * handles the state + change-notify pair.
+   *
+   * Identity comparison is sufficient because every "real" set
+   * creates a new object literal; the existing mutation sites that
+   * set the same range (e.g. drag still inside the same cell) early-
+   * return before reaching this setter via per-call dedup.
+   */
+  private setCellSelection(
+    next: {
+      tableId: string;
+      r0: number;
+      c0: number;
+      r1: number;
+      c1: number;
+    } | null,
+  ): void {
+    if (this.cellSelection === next) return;
+    this.cellSelection = next;
+    for (const cb of this.cellSelectionListeners) cb();
+  }
+
   onCurrentSlideChange(cb: () => void): () => void {
     this.currentSlideListeners.add(cb);
     return () => {
@@ -1005,6 +1245,65 @@ class SlidesEditorImpl implements SlidesEditor {
     // are sized by the host shell, not by the editor's own scroll
     // state, so calling `render()` would do redundant work.
     this.paintRuler();
+  }
+
+  insertTable(
+    rows: number,
+    cols: number,
+    opts?: { width?: number; height?: number },
+  ): string | null {
+    if (rows < 1 || cols < 1) {
+      throw new Error(
+        `insertTable: rows / cols must be >= 1 (got ${rows}, ${cols})`,
+      );
+    }
+    const slideId = this.currentId;
+    if (slideId === undefined) return null;
+    // Default footprint: ~25% of the slide width × 25% of the slide
+    // height, big enough to read at 100% zoom. Picker UI can pass
+    // custom dimensions; the cell heights are derived to keep the
+    // CR#13 invariant (`frame.h == sum(row.height)`).
+    const width = opts?.width ?? SLIDE_WIDTH * 0.5;
+    const height = opts?.height ?? SLIDE_HEIGHT * 0.25;
+    const colWidth = width / cols;
+    const rowHeight = height / rows;
+    const x = (SLIDE_WIDTH - width) / 2;
+    const y = (SLIDE_HEIGHT - height) / 2;
+    // Seed every cell with a light-gray border on all four sides so
+    // the freshly-inserted table is visible right away. The
+    // renderer's border-collapse rule de-duplicates shared edges, so
+    // the user sees the same single-stroke grid the renderer would
+    // paint after a manual "Cell border: all" run.
+    const newCellStyle = () => ({
+      border: {
+        top: { ...DEFAULT_CELL_BORDER },
+        right: { ...DEFAULT_CELL_BORDER },
+        bottom: { ...DEFAULT_CELL_BORDER },
+        left: { ...DEFAULT_CELL_BORDER },
+      },
+    });
+    const rowsData = Array(rows)
+      .fill(0)
+      .map(() => ({
+        height: rowHeight,
+        cells: Array(cols)
+          .fill(0)
+          .map(() => ({ body: { blocks: [] }, style: newCellStyle() })),
+      }));
+    let id = '';
+    this.options.store.batch(() => {
+      id = this.options.store.addElement(slideId, {
+        type: 'table',
+        frame: { x, y, w: width, h: height, rotation: 0 },
+        data: {
+          columnWidths: Array(cols).fill(colWidth),
+          rows: rowsData,
+        },
+      });
+    });
+    this.selection.set([id]);
+    this.requestRender();
+    return id;
   }
 
   align(direction: AlignDirection): void {
@@ -1780,6 +2079,11 @@ class SlidesEditorImpl implements SlidesEditor {
     // overlay drawing handles at group-local coords for grouped children.
     const slide = this.options.store.read().slides.find((s) => s.id === slideId);
     const selectedIds = [...this.selection.get()];
+    // Table-specific entries take priority over the generic shape /
+    // connector / group menus when a table is the active element. The
+    // tableItems block below is empty for non-tables so callers can
+    // spread it unconditionally.
+    const tableItems = this.tableContextItems(slideId);
     const groupItem: ContextMenuItem = {
       label: 'Group',
       disabled: !slide || !canGroup(selectedIds, slide),
@@ -1848,12 +2152,386 @@ class SlidesEditorImpl implements SlidesEditor {
       ungroupItem,
       ...textAlignItems,
       ...connectorItems,
+      ...tableItems,
       { label: '---', run: () => undefined },
       { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
       { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
       { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
       { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
     ];
+  }
+
+  /**
+   * Right-click menu items for table structural ops. Returns an empty
+   * list (which is spread harmlessly) when the selection isn't a single
+   * table — every other element kind falls back to its existing menu.
+   *
+   * When `cellSelection` is set, ops target the cell range:
+   *   - Insert row above / below the range
+   *   - Insert column left / right of the range
+   *   - Delete row(s) / column(s) the range spans
+   *   - Merge cells (when the range is > 1 cell and no overlap)
+   *   - Unmerge cells (when the active anchor's gridSpan/rowSpan > 1)
+   *
+   * Without `cellSelection` the menu only exposes the element-level
+   * "Delete table" (which is the generic Delete entry above), so the
+   * table sub-menu collapses to nothing.
+   */
+  private tableContextItems(slideId: string): ContextMenuItem[] {
+    if (this.selection.get().length !== 1) return [];
+    const id = this.selection.get()[0];
+    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    if (!slide) return [];
+    const table = findElement(slide.elements, id);
+    if (!table || table.type !== 'table') return [];
+    const sel = this.cellSelection;
+    if (sel === null || sel.tableId !== id) return [];
+
+    const rmin = Math.min(sel.r0, sel.r1);
+    const rmax = Math.max(sel.r0, sel.r1);
+    const cmin = Math.min(sel.c0, sel.c1);
+    const cmax = Math.max(sel.c0, sel.c1);
+    const rowCount = rmax - rmin + 1;
+    const colCount = cmax - cmin + 1;
+    const store = this.options.store;
+
+    // Single-cell anchor check: only the very cell the user
+    // right-clicked is the gating coord for "Unmerge". When the user
+    // has a multi-cell range we still expose Unmerge if the TOP-LEFT
+    // of the range is a merge anchor — covers the common "select the
+    // merged region by dragging and unmerge" path.
+    const topLeft = table.data.rows[rmin]?.cells[cmin];
+    const isAnchor =
+      topLeft !== undefined &&
+      ((topLeft.gridSpan ?? 1) > 1 || (topLeft.rowSpan ?? 1) > 1);
+    const canMerge = rowCount > 1 || colCount > 1;
+
+    // A row/column op that splices the table at `boundary` (the new
+    // row's index, or the splice point for a column) corrupts any
+    // merge anchor whose span strictly straddles that boundary —
+    // the anchor's covered cells end up referencing rows / columns
+    // that no longer line up. Disable the menu item rather than
+    // throwing or orphaning cells. Delete passes its top + bottom
+    // boundaries; insert passes the one splice point. Full
+    // structural rewrite of mid-merge ops tracked separately.
+    const crossesAt = (axis: 'row' | 'col', boundary: number): boolean => {
+      const nRows = table.data.rows.length;
+      const nCols = table.data.columnWidths.length;
+      for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
+          const cell = table.data.rows[r]?.cells[c];
+          if (!cell) continue;
+          const rs = cell.rowSpan ?? 1;
+          const gs = cell.gridSpan ?? 1;
+          if (rs <= 1 && gs <= 1) continue; // not an anchor
+          if (axis === 'row') {
+            if (rs > 1 && r < boundary && r + rs > boundary) return true;
+          } else {
+            if (gs > 1 && c < boundary && c + gs > boundary) return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const items: ContextMenuItem[] = [{ label: '---', run: () => undefined }];
+    items.push({
+      label: rowCount > 1 ? `Insert ${rowCount} rows above` : 'Insert row above',
+      disabled: crossesAt('row', rmin),
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < rowCount; i++) {
+            store.insertTableRow(slideId, id, rmin);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: rowCount > 1 ? `Insert ${rowCount} rows below` : 'Insert row below',
+      disabled: crossesAt('row', rmax + 1),
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < rowCount; i++) {
+            store.insertTableRow(slideId, id, rmax + 1);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Insert ${colCount} columns left` : 'Insert column left',
+      disabled: crossesAt('col', cmin),
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < colCount; i++) {
+            store.insertTableColumn(slideId, id, cmin);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Insert ${colCount} columns right` : 'Insert column right',
+      disabled: crossesAt('col', cmax + 1),
+      run: () => {
+        store.batch(() => {
+          for (let i = 0; i < colCount; i++) {
+            store.insertTableColumn(slideId, id, cmax + 1);
+          }
+        });
+        this.requestRender();
+      },
+    });
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: rowCount > 1 ? `Delete ${rowCount} rows` : 'Delete row',
+      // Cannot remove the only row; the store throws "last row". The
+      // menu greys out instead of letting the user discover that
+      // mid-undo-stack. Also guard mid-merge bisects (anchor's row
+      // span straddles either the top or bottom edge of the
+      // deletion range).
+      disabled:
+        rowCount >= table.data.rows.length ||
+        crossesAt('row', rmin) ||
+        crossesAt('row', rmax + 1),
+      run: () => {
+        store.batch(() => {
+          // Delete from the bottom so earlier indices stay valid as
+          // rows splice out.
+          for (let r = rmax; r >= rmin; r--) {
+            store.deleteTableRow(slideId, id, r);
+          }
+        });
+        // Cell-range now points at removed rows; drop it so the
+        // overlay doesn't paint stale rects.
+        this.setCellSelection(null);
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+    items.push({
+      label: colCount > 1 ? `Delete ${colCount} columns` : 'Delete column',
+      disabled:
+        colCount >= table.data.columnWidths.length ||
+        crossesAt('col', cmin) ||
+        crossesAt('col', cmax + 1),
+      run: () => {
+        store.batch(() => {
+          for (let c = cmax; c >= cmin; c--) {
+            store.deleteTableColumn(slideId, id, c);
+          }
+        });
+        this.setCellSelection(null);
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+    if (canMerge) {
+      items.push({
+        label: 'Merge cells',
+        run: () => {
+          store.batch(() => {
+            try {
+              store.mergeTableCells(slideId, id, {
+                r0: rmin,
+                c0: cmin,
+                r1: rmax,
+                c1: cmax,
+              });
+            } catch {
+              // Overlap or out-of-range — surface as a no-op rather
+              // than throwing past the menu's run() boundary.
+            }
+          });
+          this.requestRender();
+        },
+      });
+    }
+    if (isAnchor) {
+      items.push({
+        label: 'Unmerge cells',
+        run: () => {
+          store.batch(() => {
+            store.unmergeTableCells(slideId, id, { row: rmin, col: cmin });
+          });
+          this.requestRender();
+        },
+      });
+    }
+
+    // Cell-style ops. Patches apply to every non-covered cell in the
+    // range so a 2x2 cell-range fill paints all four cells in one
+    // batch (one undo entry). Covered cells skip — `updateTableCellStyle`
+    // would throw on them.
+    const applyStyleToRange = (
+      patch: Partial<import('../../model/element').CellStyle>,
+    ): void => {
+      store.batch(() => {
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = table.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            store.updateTableCellStyle(slideId, id, r, c, patch);
+          }
+        }
+      });
+      this.requestRender();
+    };
+
+    // Fill palette — a fixed set of common backgrounds. "No fill"
+    // removes the key entirely (so the cell renders transparent and
+    // any future theme background shows through). Theme-aware
+    // palettes can layer on top in a follow-up TableControls toolbar.
+    items.push({ label: '---', run: () => undefined });
+    const FILL_PALETTE: ReadonlyArray<{ label: string; color: string | undefined }> = [
+      { label: 'Fill: none',       color: undefined },
+      { label: 'Fill: white',      color: '#FFFFFF' },
+      { label: 'Fill: light gray', color: '#E5E7EB' },
+      { label: 'Fill: yellow',     color: '#FEF3C7' },
+      { label: 'Fill: blue',       color: '#DBEAFE' },
+      { label: 'Fill: green',      color: '#D1FAE5' },
+      { label: 'Fill: red',        color: '#FEE2E2' },
+    ];
+    const sampleCellFill = (() => {
+      // The "selected" radio prefix uses the top-left cell's current
+      // fill as the representative value. Mixed fills across the
+      // range fall through with no radio mark (the next click forces
+      // them all to the chosen color).
+      const sample = table.data.rows[rmin]?.cells[cmin]?.style.fill;
+      return typeof sample === 'string' ? sample : undefined;
+    })();
+    for (const swatch of FILL_PALETTE) {
+      items.push({
+        label: swatch.label,
+        selected: sampleCellFill === swatch.color,
+        run: () => applyStyleToRange({ fill: swatch.color }),
+      });
+    }
+
+    // Vertical alignment — three radio items. Selected reflects the
+    // top-left cell; same "mixed range" caveat as the fill palette.
+    items.push({ label: '---', run: () => undefined });
+    const sampleVAlign =
+      table.data.rows[rmin]?.cells[cmin]?.style.verticalAlign ?? 'top';
+    items.push({
+      label: 'Align cell top',
+      selected: sampleVAlign === 'top',
+      run: () => applyStyleToRange({ verticalAlign: 'top' }),
+    });
+    items.push({
+      label: 'Align cell middle',
+      selected: sampleVAlign === 'middle',
+      run: () => applyStyleToRange({ verticalAlign: 'middle' }),
+    });
+    items.push({
+      label: 'Align cell bottom',
+      selected: sampleVAlign === 'bottom',
+      run: () => applyStyleToRange({ verticalAlign: 'bottom' }),
+    });
+
+    // Border presets: all sides on, outer perimeter only, all sides
+    // cleared. The default border style is 1-px solid black — enough
+    // to be visible against any cell fill. Per-side + custom-color
+    // pickers will live in the contextual TableControls toolbar.
+    items.push({ label: '---', run: () => undefined });
+    const DEFAULT_BORDER: import('../../model/element').CellBorder = {
+      color: '#000000',
+      width: 1,
+    };
+    const applyBorderPattern = (
+      pattern: 'all' | 'outer' | 'clear',
+    ): void => {
+      store.batch(() => {
+        for (let r = rmin; r <= rmax; r++) {
+          for (let c = cmin; c <= cmax; c++) {
+            const cell = table.data.rows[r]?.cells[c];
+            if (!cell) continue;
+            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+            const onTop = pattern === 'all' || (pattern === 'outer' && r === rmin);
+            const onBottom = pattern === 'all' || (pattern === 'outer' && r === rmax);
+            const onLeft = pattern === 'all' || (pattern === 'outer' && c === cmin);
+            const onRight = pattern === 'all' || (pattern === 'outer' && c === cmax);
+            const nextBorder: import('../../model/element').CellStyle['border'] = {
+              ...(cell.style.border ?? {}),
+              top: onTop ? { ...DEFAULT_BORDER } : undefined,
+              bottom: onBottom ? { ...DEFAULT_BORDER } : undefined,
+              left: onLeft ? { ...DEFAULT_BORDER } : undefined,
+              right: onRight ? { ...DEFAULT_BORDER } : undefined,
+            };
+            // Drop the whole border object when no side remains so the
+            // model stays clean. The renderer treats `border ===
+            // undefined` and `border = { top: undefined, ... }` the
+            // same, but the former round-trips through PPTX export
+            // more faithfully (no empty container nodes).
+            if (pattern === 'clear') {
+              store.updateTableCellStyle(slideId, id, r, c, { border: undefined });
+            } else {
+              store.updateTableCellStyle(slideId, id, r, c, { border: nextBorder });
+            }
+          }
+        }
+      });
+      this.requestRender();
+    };
+    items.push({ label: 'Cell border: all', run: () => applyBorderPattern('all') });
+    items.push({ label: 'Cell border: outer', run: () => applyBorderPattern('outer') });
+    items.push({ label: 'Cell border: clear', run: () => applyBorderPattern('clear') });
+
+    // Distribute columns / rows evenly — common when one drag-resize
+    // throws off the proportions. Operates across the WHOLE table
+    // (not just the range) because a partial distribute would shift
+    // the unrelated columns' positions which is rarely what the user
+    // wants. The store ops keep the CR#13 invariant so the total
+    // width / height stays constant.
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: 'Distribute columns evenly',
+      disabled: table.data.columnWidths.length < 2,
+      run: () => {
+        const total = table.data.columnWidths.reduce((a, b) => a + b, 0);
+        const n = table.data.columnWidths.length;
+        const even = Array(n).fill(total / n);
+        store.batch(() => {
+          store.updateTableColumnWidths(slideId, id, even);
+        });
+        this.requestRender();
+      },
+    });
+    items.push({
+      label: 'Distribute rows evenly',
+      disabled: table.data.rows.length < 2,
+      run: () => {
+        const total = table.data.rows.reduce((a, r) => a + r.height, 0);
+        const n = table.data.rows.length;
+        const even = Array(n).fill(total / n);
+        store.batch(() => {
+          store.updateTableRowHeights(slideId, id, even);
+        });
+        this.requestRender();
+      },
+    });
+
+    // Delete the whole table — distinct from the generic "Delete"
+    // entry above (which removes the selected ELEMENT regardless of
+    // cell-range state). Surface here so a user with a cell range
+    // doesn't have to Esc + Backspace to drop the table.
+    items.push({ label: '---', run: () => undefined });
+    items.push({
+      label: 'Delete table',
+      run: () => {
+        this.setCellSelection(null);
+        store.batch(() => {
+          store.removeElement(slideId, id);
+        });
+        this.selection.clear();
+        this.requestRender();
+        this.repaintOverlay();
+      },
+    });
+
+    return items;
   }
 
   private guideContextItems(
@@ -2050,6 +2728,79 @@ class SlidesEditorImpl implements SlidesEditor {
       // (e.g. clicking on one of several selected elements should keep all
       // selected so a subsequent drag moves them together).
       const scopeId = pickScopeId(hitResult, this.selection.getScope());
+      // Click on an already-selected, top-level, non-rotated table:
+      // - On an interior column / row border (4-px tolerance) → arm a
+      //   drag-resize for that border. Border check wins over cell
+      //   selection so the user can grab a border that runs through
+      //   the cell they would otherwise have selected.
+      // - Elsewhere → drill into cell selection. The table's element
+      //   selection (and its outer handles) stay; only the interior
+      //   click pivots from "arm drag" to "set cellSelection". Matches
+      //   Google Slides where an interior click on a selected table
+      //   picks a cell and the user moves the whole table via the
+      //   selection-border / handles.
+      if (
+        scopeId !== null &&
+        this.selection.has(scopeId) &&
+        this.selection.get().length === 1
+      ) {
+        const hitEl = findElement(slide.elements, scopeId);
+        const topLevel = slide.elements.some((el) => el.id === scopeId);
+        if (
+          hitEl?.type === 'table' &&
+          hitEl.frame.rotation === 0 &&
+          topLevel
+        ) {
+          const doc = this.options.store.read();
+          const layout = computeTableLayout(hitEl.data, {
+            fontScale: deckFontScale(doc.meta),
+          });
+          const localX = x - hitEl.frame.x;
+          const localY = y - hitEl.frame.y;
+          // Border drag check first — same 4-px host-pixel tolerance
+          // the hover cursor logic uses (so the visible col-resize
+          // cursor and the actual grab zone agree).
+          const edge = tableEdgeAt(layout, localX, localY, 4 / this.scale());
+          if (edge !== null) {
+            e.preventDefault();
+            this.startTableEdgeResize(e as PointerEvent, hitEl, edge);
+            return;
+          }
+          const cell = tableCellAtPoint(
+            hitEl.data,
+            layout,
+            localX,
+            localY,
+          );
+          if (cell !== null) {
+            // Shift+click extends the current range to include the
+            // newly-clicked cell. Plain click resets to a fresh
+            // single-cell range anchored at the click. The drag tail
+            // (below) keeps the anchor (r0,c0) fixed and updates
+            // (r1,c1) as the pointer moves.
+            const anchor =
+              mods.shift && this.cellSelection?.tableId === scopeId
+                ? { r0: this.cellSelection.r0, c0: this.cellSelection.c0 }
+                : { r0: cell.row, c0: cell.col };
+            this.setCellSelection({
+              tableId: scopeId,
+              r0: anchor.r0,
+              c0: anchor.c0,
+              r1: cell.row,
+              c1: cell.col,
+            });
+            this.lastClickElementId = scopeId;
+            this.lastClickAt = e.timeStamp;
+            this.repaintOverlay();
+            // Arm drag-to-extend: track pointermove and update r1/c1
+            // as the pointer hits new cells. pointerup tears the
+            // listeners down. Stays within the same table — moves
+            // outside the table bounds clamp to the last valid cell.
+            this.startCellRangeDrag(hitEl, layout);
+            return;
+          }
+        }
+      }
       if (!mods.shift && scopeId !== null && this.selection.has(scopeId)) {
         // P1.5 eligibility: the spec requires a real PRIOR click on the
         // same element within the sequence window — programmatic selection
@@ -2193,7 +2944,33 @@ class SlidesEditorImpl implements SlidesEditor {
     const selectedIds = this.selection.get();
     if (selectedIds.length !== 1) return;
     const el = findElement(slide.elements, selectedIds[0]);
-    if (!el || (el.type !== 'text' && el.type !== 'shape')) return;
+    if (!el) return;
+    if (el.type === 'table') {
+      // Tables route the dblclick into the table-aware cell editor.
+      // Rotated tables don't support cell editing in P3 (the cell's
+      // center of rotation is NOT the table's center, so the in-place
+      // editor and the painted cell would diverge); silently fall
+      // through. Group-nested tables also fall through — `frame.x/y`
+      // is parent-local for grouped elements, so the world-to-local
+      // subtraction below would land on the wrong cell; mirrors the
+      // single-click guard at ~2708.
+      if (el.frame.rotation !== 0) return;
+      const topLevel = slide.elements.some((e) => e.id === el.id);
+      if (!topLevel) return;
+      const localX = x - el.frame.x;
+      const localY = y - el.frame.y;
+      const doc = this.options.store.read();
+      const layout = computeTableLayout(el.data, {
+        fontScale: deckFontScale(doc.meta),
+      });
+      const cell = tableCellAtPoint(el.data, layout, localX, localY);
+      if (!cell) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterEditMode(slide.id, el.id, { cell });
+      return;
+    }
+    if (el.type !== 'text' && el.type !== 'shape') return;
     e.preventDefault();
     e.stopPropagation();
     this.enterEditMode(slide.id, el.id);
@@ -2202,7 +2979,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private enterEditMode(
     slideId: string,
     elementId: string,
-    options?: { initialText?: string },
+    options?: { initialText?: string; cell?: { row: number; col: number } },
   ): void {
     // If we're already editing some other text-box, commit it first so
     // the text in flight is not lost when focus moves.
@@ -2221,9 +2998,16 @@ class SlidesEditorImpl implements SlidesEditor {
     // elements, so grouped text/shape would silently fail to enter
     // edit mode.
     const localElement = findElement(slide.elements, elementId);
-    if (
-      !localElement ||
-      (localElement.type !== 'text' && localElement.type !== 'shape')
+    if (!localElement) return;
+    const isCellMode = options?.cell !== undefined;
+    if (isCellMode) {
+      // Cell edit requires the element to be a table; everything else
+      // is a programmer error so reject silently rather than mounting
+      // a text editor over an unrelated element.
+      if (localElement.type !== 'table') return;
+    } else if (
+      localElement.type !== 'text' &&
+      localElement.type !== 'shape'
     ) {
       return;
     }
@@ -2236,16 +3020,34 @@ class SlidesEditorImpl implements SlidesEditor {
     // world lookup returns the live element by reference, so this is
     // a no-op.
     const worldLookup = buildElementWorldLookup(slide.elements);
-    const worldElement = worldLookup.get(elementId) as
-      | TextElement
-      | ShapeElement;
+    const worldElement = worldLookup.get(elementId);
+    if (!worldElement) return;
 
     // Build a small descriptor that papers over the difference between
     // editing a TextElement (text in `data.blocks`, frame auto-grows to
-    // fit content) and a ShapeElement (text in `data.text.blocks`,
-    // frame is user-sized and does NOT auto-grow into the text). All
-    // the wiring below works off `target` so the two kinds stay aligned.
-    const target = buildEditTarget(worldElement);
+    // fit content), a ShapeElement (text in `data.text.blocks`, frame
+    // is user-sized and does NOT auto-grow), and a single TableElement
+    // cell (text in `data.rows[r].cells[c].body.blocks`, mounted on
+    // the cell's inner rect within the table's world frame).
+    let target: EditTarget | null;
+    if (isCellMode) {
+      const cellCoord = options!.cell!;
+      target = buildCellEditTarget(
+        worldElement as TableElement,
+        cellCoord.row,
+        cellCoord.col,
+        worldElement.frame,
+        deckFontScale(doc.meta),
+      );
+      // null means rotated table / covered cell / out-of-bounds —
+      // dblclick should silently fall through rather than mount on a
+      // bogus rect.
+      if (target === null) return;
+    } else {
+      target = buildEditTarget(
+        worldElement as TextElement | ShapeElement,
+      );
+    }
 
     // Frame height at entry; the committed fit only writes when the
     // content height differs from this (text-element only; shapes skip
@@ -2274,9 +3076,14 @@ class SlidesEditorImpl implements SlidesEditor {
     this.lastEditingContentHeight = null;
 
     // Make sure the selection is on the editing element so the rest of
-    // the editor (toolbar etc.) reflects the active target.
+    // the editor (toolbar etc.) reflects the active target. Drop any
+    // standing cell-range selection: text edit is a different mode and
+    // the cell rect's blue tint would compete visually with the text-
+    // box's outline.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
+    this.editingCellCoords = target.cell ?? null;
+    this.setCellSelection(null);
     // Drop any idle hover highlight and stale hover cursor; once
     // text-edit owns the box, pointermove early-returns without
     // re-evaluating either.
@@ -2337,7 +3144,7 @@ class SlidesEditorImpl implements SlidesEditor {
         if (!cancelled) {
           try {
             this.options.store.batch(() => {
-              if (target.kind === 'text') {
+              if (target!.kind === 'text') {
                 this.options.store.withTextElement(slideId, elementId, () => next);
                 // Fit the frame height to the content in the SAME batch
                 // as the text write — one undo entry, no per-keystroke
@@ -2354,6 +3161,20 @@ class SlidesEditorImpl implements SlidesEditor {
                     this.options.store.updateElementFrame(slideId, elementId, { h: targetH });
                   }
                 }
+              } else if (target!.kind === 'cell' && target!.cell) {
+                // Cell text writes through the table-aware bridge. Row
+                // height auto-grow is handled by the renderer at next
+                // paint via computeTableLayout's "max(declared,
+                // contentHeight)" rule, so no row.height writeback is
+                // needed here — keeping the declared row.height stable
+                // matches PPTX `<a:tr h>` "minimum" semantics.
+                this.options.store.withTableCellBody(
+                  slideId,
+                  elementId,
+                  target!.cell.row,
+                  target!.cell.col,
+                  () => next,
+                );
               } else {
                 this.options.store.withShapeText(slideId, elementId, () => next);
               }
@@ -2381,6 +3202,144 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+    // Cell-edit only: intercept Tab / Shift+Tab on the text-box
+    // container before the docs editor's contenteditable sees it,
+    // commit the current cell, and re-enter on the adjacent cell.
+    // Capture phase guarantees we run before any descendant Tab
+    // handler the docs editor might attach; preventDefault stops the
+    // browser's default focus-out behaviour. Bounces at table edges
+    // (auto-append row on Tab from the last cell is a P4 affordance).
+    // The listener lives on the container DOM node, which `finishEditMode`
+    // detaches via `tb.detach()` — once detached the node is GC'd along
+    // with its listener, so no explicit teardown is needed here.
+    if (target.kind === 'cell' && target.cell) {
+      const startCell = target.cell;
+      // Cache the docs editor's current cursor position so the
+      // ArrowLeft / ArrowRight boundary check below can decide
+      // synchronously (before the docs editor processes the
+      // keystroke) whether the caret is at the very start / end of
+      // the cell body. `onCursorMove` fires after every typing,
+      // click, and programmatic-move so the cache stays current.
+      let cursorPos: { blockId: string; offset: number } | null = null;
+      tb.onCursorMove((pos) => {
+        cursorPos = pos;
+      });
+
+      const cellBodyBoundary = (): {
+        atStart: boolean;
+        atEnd: boolean;
+      } => {
+        if (cursorPos === null) return { atStart: false, atEnd: false };
+        // Read the LIVE block list from the store, not the edit-entry
+        // snapshot — the docs editor writes blocks back per keystroke,
+        // so `target.blocks` becomes stale the moment the user types.
+        // Without this lookup the boundary check fires on the wrong
+        // offsets and ArrowRight at "hello"'s end (offset 5) misses
+        // while ArrowRight at offset 0 falsely jumps to the next cell.
+        const liveDoc = this.options.store.read();
+        const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+        const liveEl =
+          liveSlide && findElement(liveSlide.elements, elementId);
+        if (!liveEl || liveEl.type !== 'table') {
+          return { atStart: false, atEnd: false };
+        }
+        const liveCell =
+          liveEl.data.rows[startCell.row]?.cells[startCell.col];
+        const cellBlocks = liveCell?.body?.blocks ?? [];
+        if (cellBlocks.length === 0) {
+          return { atStart: true, atEnd: true };
+        }
+        const first = cellBlocks[0];
+        const last = cellBlocks[cellBlocks.length - 1];
+        const lastLen = last.inlines.reduce(
+          (s, inl) => s + inl.text.length,
+          0,
+        );
+        return {
+          atStart: cursorPos.blockId === first.id && cursorPos.offset === 0,
+          atEnd: cursorPos.blockId === last.id && cursorPos.offset === lastLen,
+        };
+      };
+
+      tb.container.addEventListener(
+        'keydown',
+        (e: KeyboardEvent) => {
+          // ArrowLeft / ArrowRight at the cell-body boundary jumps
+          // to the previous / next cell. Inside the body the docs
+          // editor handles the arrow normally; the boundary check
+          // bypasses preventDefault so character-by-character
+          // navigation inside text keeps working.
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const direction: 1 | -1 = e.key === 'ArrowRight' ? 1 : -1;
+            const { atStart, atEnd } = cellBodyBoundary();
+            const atBoundary = direction === 1 ? atEnd : atStart;
+            if (!atBoundary) return;
+            const liveDoc = this.options.store.read();
+            const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+            if (!liveSlide) return;
+            const liveEl = findElement(liveSlide.elements, elementId);
+            if (!liveEl || liveEl.type !== 'table') return;
+            const next = nextCellInDirection(
+              liveEl.data,
+              startCell.row,
+              startCell.col,
+              direction,
+            );
+            if (next === null) return; // let the docs editor handle it (bounce)
+            e.preventDefault();
+            e.stopPropagation();
+            this.enterEditMode(slideId, elementId, { cell: next });
+            return;
+          }
+          if (e.key !== 'Tab') return;
+          // Re-read the table from the store: a peer (or undo / redo)
+          // could have mutated rows / cells while the user was typing.
+          const liveDoc = this.options.store.read();
+          const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+          if (!liveSlide) return;
+          const liveEl = findElement(liveSlide.elements, elementId);
+          if (!liveEl || liveEl.type !== 'table') return;
+          const direction: 1 | -1 = e.shiftKey ? -1 : 1;
+          const next = nextCellInDirection(
+            liveEl.data,
+            startCell.row,
+            startCell.col,
+            direction,
+          );
+          // Suppress the default tab-out / tab-insert regardless of
+          // outcome so the user never falls out of the table by
+          // accident.
+          e.preventDefault();
+          e.stopPropagation();
+          if (next !== null) {
+            this.enterEditMode(slideId, elementId, { cell: next });
+            return;
+          }
+          // Tab past the last cell appends a new row and enters its
+          // first cell — Google Sheets / PowerPoint convention. The
+          // insert + enter share one logical user action; calling
+          // enterEditMode here triggers the existing auto-commit at
+          // the top of enterEditMode, but the row insert needs its
+          // own batch first so the new cell exists when we enter it.
+          if (direction === 1) {
+            const newRowIndex = liveEl.data.rows.length;
+            this.options.store.batch(() => {
+              this.options.store.insertTableRow(
+                slideId,
+                elementId,
+                newRowIndex,
+              );
+            });
+            this.enterEditMode(slideId, elementId, {
+              cell: { row: newRowIndex, col: 0 },
+            });
+          }
+          // Shift+Tab past the first cell bounces — no equivalent
+          // "prepend row" UX in PowerPoint / Google Slides.
+        },
+        { capture: true },
+      );
+    }
     // Focus so keystrokes flow into the textarea immediately.
     tb.focus();
   }
@@ -2404,10 +3363,244 @@ class SlidesEditorImpl implements SlidesEditor {
     }
   }
 
+  /**
+   * Compute the col-resize / row-resize cursor for a selected table
+   * whose interior column or row border is under the pointer. Returns
+   * `null` when the selection isn't a top-level non-rotated table, the
+   * pointer is outside the table, or it's not within tolerance of any
+   * interior border.
+   */
+  private computeTableEdgeCursor(
+    clientX: number,
+    clientY: number,
+  ): string | null {
+    const slide = this.currentSlide();
+    if (!slide) return null;
+    const ids = this.selection.get();
+    if (ids.length !== 1) return null;
+    const table = findElement(slide.elements, ids[0]);
+    if (!table || table.type !== 'table') return null;
+    if (table.frame.rotation !== 0) return null;
+    if (!slide.elements.some((el) => el.id === table.id)) return null;
+    const { x, y } = this.clientToLogical(clientX, clientY);
+    const layout = computeTableLayout(table.data, {
+      fontScale: deckFontScale(this.options.store.read().meta),
+    });
+    // The hover tolerance in slide-logical coords is 4 host-pixels
+    // divided by the current zoom — keeps the grab band the same
+    // visual thickness regardless of zoom level.
+    const tolPx = 4;
+    const localX = x - table.frame.x;
+    const localY = y - table.frame.y;
+    const edge = tableEdgeAt(layout, localX, localY, tolPx / this.scale());
+    if (edge === null) return null;
+    return edge.kind === 'col' ? 'col-resize' : 'row-resize';
+  }
+
+  /**
+   * Start a column / row border drag-resize. The gesture lives outside
+   * the standard element-drag flow so the table's columnWidths /
+   * rowHeights are the only things mutated — frame.w / frame.h follow
+   * via the store op's `sum(columnWidths)` / `sum(rowH)` recalc, and
+   * the merge-aware redistribution in `computeTableLayout` keeps cell
+   * paints honouring the new sizes.
+   *
+   * No store writes during the drag itself; the overlay paints a
+   * magenta guide line at the proposed border position and the final
+   * widths / heights commit on pointerup in one batch (one undo entry
+   * per gesture).
+   */
+  private startTableEdgeResize(
+    e: PointerEvent,
+    table: TableElement,
+    edge: { kind: 'col' | 'row'; index: number; position: number },
+  ): void {
+    const slideId = this.currentSlide()?.id;
+    if (slideId === undefined) return;
+    const store = this.options.store;
+    const tableId = table.id;
+    const kind = edge.kind;
+    const idx = edge.index;
+    const originalWidths = [...table.data.columnWidths];
+    const originalHeights = table.data.rows.map((r) => r.height);
+    // Anchor the gesture at the pointerdown logical position so a
+    // single dx / dy can compute the new boundary regardless of
+    // intermediate move events. Track the pointer offset from the
+    // true edge — the hit-test allows a 4-px grab tolerance so the
+    // user can pointerdown a few pixels off-edge. Without this delta
+    // a no-move release would commit a 1–4 px resize equal to the
+    // off-edge grab offset.
+    const start = this.clientToLogical(e.clientX, e.clientY);
+    const startLocalX = start.x - table.frame.x;
+    const startLocalY = start.y - table.frame.y;
+    const grabDelta =
+      kind === 'col' ? startLocalX - edge.position : startLocalY - edge.position;
+    const MIN_CELL = 10;
+
+    const clampPosition = (proposed: number): number => {
+      if (kind === 'col') {
+        const leftMin = sumPrefix(originalWidths, idx - 1) + MIN_CELL;
+        const rightMax =
+          sumPrefix(originalWidths, idx + 1) - MIN_CELL;
+        return Math.max(leftMin, Math.min(rightMax, proposed));
+      }
+      const topMin = sumPrefix(originalHeights, idx - 1) + MIN_CELL;
+      const bottomMax = sumPrefix(originalHeights, idx + 1) - MIN_CELL;
+      return Math.max(topMin, Math.min(bottomMax, proposed));
+    };
+
+    // Initial preview at the edge's true position so a no-move
+    // release commits no change. The pointermove handler subtracts
+    // grabDelta to keep the gesture stable even when the user
+    // pointerdown'd off-edge.
+    this.pendingTableResize = {
+      tableId,
+      kind,
+      index: idx,
+      position: clampPosition(edge.position),
+    };
+    this.repaintOverlay();
+    // While the gesture is live, lock the cursor — pointermove
+    // fires on document with no chance for the hover logic to
+    // reassert col/row-resize.
+    document.body.style.cursor = kind === 'col' ? 'col-resize' : 'row-resize';
+
+    const onMove = (ev: PointerEvent): void => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const localX = cur.x - table.frame.x;
+      const localY = cur.y - table.frame.y;
+      const proposed = (kind === 'col' ? localX : localY) - grabDelta;
+      const clamped = clampPosition(proposed);
+      if (this.pendingTableResize?.position === clamped) return;
+      this.pendingTableResize = {
+        tableId,
+        kind,
+        index: idx,
+        position: clamped,
+      };
+      this.repaintOverlay();
+    };
+    const finish = (commit: boolean): void => {
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', onUp, true);
+      document.removeEventListener('pointercancel', onCancel, true);
+      document.body.style.cursor = '';
+      const pending = this.pendingTableResize;
+      this.pendingTableResize = null;
+      if (commit && pending !== null) {
+        if (pending.kind === 'col') {
+          const left = pending.position - sumPrefix(originalWidths, idx - 1);
+          const right =
+            sumPrefix(originalWidths, idx + 1) - pending.position;
+          const next = [...originalWidths];
+          next[idx - 1] = left;
+          next[idx] = right;
+          store.batch(() => {
+            store.updateTableColumnWidths(slideId, tableId, next);
+          });
+        } else {
+          const top = pending.position - sumPrefix(originalHeights, idx - 1);
+          const bottom =
+            sumPrefix(originalHeights, idx + 1) - pending.position;
+          const next = [...originalHeights];
+          next[idx - 1] = top;
+          next[idx] = bottom;
+          store.batch(() => {
+            store.updateTableRowHeights(slideId, tableId, next);
+          });
+        }
+        // The store mutation alone doesn't repaint the canvas — the
+        // overlay's preview rect is cleared by `repaintOverlay`
+        // below, but the column / row commit needs a fresh canvas
+        // pass for the new widths / heights to take effect. Without
+        // this the table stays visually frozen at the pre-resize
+        // state until some unrelated event triggers a repaint.
+        this.renderer.markDirty();
+        this.render();
+      }
+      this.repaintOverlay();
+    };
+    const onUp = (): void => finish(true);
+    const onCancel = (): void => finish(false);
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
+  }
+
+  /**
+   * Arm a drag-to-extend gesture: pointermove updates `cellSelection.r1/c1`
+   * to the cell under the pointer; pointerup / pointercancel tears the
+   * listeners down. Anchor (`r0`, `c0`) stays fixed at the pointerdown
+   * cell — matches Google Sheets / PowerPoint range-select.
+   *
+   * No commit step is needed because `cellSelection` is editor-local
+   * state (not persisted to the store). Layout is captured at gesture
+   * start so the drag uses one consistent grid even if the table
+   * auto-grows mid-drag.
+   */
+  private startCellRangeDrag(
+    table: TableElement,
+    layout: TableLayout,
+  ): void {
+    const tableId = table.id;
+    const data = table.data;
+    const frame = table.frame;
+    let lastCell: { row: number; col: number } | null = this.cellSelection
+      ? { row: this.cellSelection.r1, col: this.cellSelection.c1 }
+      : null;
+    const onMove = (ev: PointerEvent): void => {
+      if (
+        this.cellSelection === null ||
+        this.cellSelection.tableId !== tableId
+      ) {
+        teardown();
+        return;
+      }
+      const { x: lx, y: ly } = this.clientToLogical(ev.clientX, ev.clientY);
+      // Clamp the pointer-in-table coords to the table's painted
+      // bounds so dragging past the edge just selects the last cell
+      // in that direction (rather than returning null and freezing
+      // the range mid-stream).
+      const localX = lx - frame.x;
+      const localY = ly - frame.y;
+      const maxX = layout.colX[layout.colX.length - 1] - 0.5;
+      const maxY = layout.rowY[layout.rowY.length - 1] - 0.5;
+      const clampedX = Math.max(0, Math.min(localX, maxX));
+      const clampedY = Math.max(0, Math.min(localY, maxY));
+      const cell = tableCellAtPoint(data, layout, clampedX, clampedY);
+      if (cell === null) return;
+      // Coalesce same-cell moves so we don't repaint the overlay 60×/s
+      // when the pointer wiggles inside one cell rect.
+      if (
+        lastCell !== null &&
+        cell.row === lastCell.row &&
+        cell.col === lastCell.col
+      ) {
+        return;
+      }
+      lastCell = cell;
+      this.setCellSelection({
+        ...this.cellSelection,
+        r1: cell.row,
+        c1: cell.col,
+      });
+      this.repaintOverlay();
+    };
+    const teardown = (): void => {
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', teardown, true);
+      document.removeEventListener('pointercancel', teardown, true);
+    };
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', teardown, true);
+    document.addEventListener('pointercancel', teardown, true);
+  }
+
   private finishEditMode(): void {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
     this.editingElementId = null;
+    this.editingCellCoords = null;
     this.lastEditingContentHeight = null;
     this.activeTextEditor = null;
     for (const cb of this.textEditingListeners) cb();
@@ -2486,6 +3679,17 @@ class SlidesEditorImpl implements SlidesEditor {
     let desired = '';
     let nextHighlightId: string | null = null;
 
+    // Table interior border (col/row resize) wins over both the outer
+    // bbox edge cursor and the move cursor — the user is mousing over
+    // a draggable border that lives inside the table's frame, and
+    // showing "move" here would suggest the wrong gesture.
+    const tableEdgeCursor =
+      this.selection.get().length === 1
+        ? this.computeTableEdgeCursor(e.clientX, e.clientY)
+        : null;
+    if (tableEdgeCursor !== null) {
+      desired = tableEdgeCursor;
+    } else {
     // P2.7 — edge-zone resize cursor wins over text-region / move /
     // idle-hover when the pointer is within 4 px of the selected
     // element's bbox edge (inside OR outside the bbox). The handle hit
@@ -2519,6 +3723,7 @@ class SlidesEditorImpl implements SlidesEditor {
           }
         }
       }
+    }
     }
 
     this.setHoverHighlight(nextHighlightId);
@@ -3231,6 +4436,57 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
+   * Outer-frame resize preview for tables. Paints the committed slide
+   * untouched + a translucent ghost table at the proposed frame with
+   * its `columnWidths` / `rows[].height` scaled proportionally — same
+   * channel as `paintMoveGhost` (canvas-level GHOST_ALPHA), so the
+   * user sees their actual table content (cells, fills, text) ghosted
+   * at the new size rather than a placeholder outline. Handles snap
+   * to the ghost frame so the drag stays interactive. Commit on
+   * pointerup goes through `updateElementFrame`, whose CR#4 scaling
+   * matches the ghost's preview.
+   */
+  private paintTableResizeGhost(
+    startEl: TableElement,
+    worldFrame: Frame,
+    scope: readonly string[],
+    guides: readonly (SnapGuide | SmartGuide)[] = [],
+  ): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const oldW = startEl.frame.w;
+    const oldH = startEl.frame.h;
+    const sx = oldW > 0 ? worldFrame.w / oldW : 1;
+    const sy = oldH > 0 ? worldFrame.h / oldH : 1;
+    const localFrame = fromWorldFrame(worldFrame, scope, slide);
+    const ghostTable: TableElement = {
+      ...startEl,
+      frame: localFrame,
+      data: {
+        ...startEl.data,
+        columnWidths: startEl.data.columnWidths.map((w) => w * sx),
+        rows: startEl.data.rows.map((r) => ({ ...r, height: r.height * sy })),
+      },
+    };
+    this.renderer.forceRender(slide, this.options.store.read(), [ghostTable]);
+    // Overlay handles track the ghost frame so the user can keep dragging
+    // smoothly — unlike move where handles stay anchored to the original
+    // (move semantics are "where will it land vs. where it started";
+    // resize semantics are "the active size right now").
+    const ghostWorld: Element = { ...startEl, frame: worldFrame };
+    renderOverlay(this.options.overlay, [ghostWorld], {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+      guides,
+      allElements: slide.elements,
+      connectorAffordance: this.connectorAffordance(),
+      permanentGuides: this.options.store.read().guides,
+      pendingGuide: this.pendingGuide,
+    });
+  }
+
+  /**
    * Drag-move preview: paint the slide unchanged + a translucent ghost
    * of each selected element at its dragged position. Overlay handles
    * render against the **original** frames so they stay anchored to the
@@ -3929,6 +5185,7 @@ class SlidesEditorImpl implements SlidesEditor {
       new Set([elementId]),
     );
 
+    const isTable = startEl.type === 'table';
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
@@ -3943,6 +5200,22 @@ class SlidesEditorImpl implements SlidesEditor {
         ...raw,
         x: matched.x, y: matched.y, w: matched.w, h: matched.h,
       };
+      if (isTable) {
+        // Deferred-resize: the committed table stays painted on the
+        // canvas and a translucent ghost table — with cells scaled
+        // proportionally — paints on top at the proposed frame. Same
+        // GHOST_ALPHA channel as move, so the ghost reads as a
+        // semi-transparent copy of the real shape rather than a
+        // placeholder outline. Commit on pointerup applies the
+        // scaling for real via updateElementFrame.
+        this.paintTableResizeGhost(
+          startEl as TableElement,
+          live.worldFrame,
+          scope,
+          matched.guides,
+        );
+        return;
+      }
       const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
       this.paintLiveScoped(livMap, scope, matched.guides);
     };
@@ -4050,6 +5323,19 @@ function canUngroup(selectedIds: string[], slide: { elements: Element[] }): bool
  * Find an element anywhere in the element tree and return it.
  * Returns `undefined` when not found (unlike `requireElement` which throws).
  */
+/**
+ * Sum the first `n` entries of `arr` (i.e. cumulative width / height
+ * up to but excluding column / row `n`). Returns 0 when `n <= 0`.
+ * Helper for `startTableEdgeResize` — its clamp + commit math needs
+ * prefix sums of the original-at-pointerdown column / row sizes to
+ * convert a proposed boundary position back into per-cell sizes.
+ */
+function sumPrefix(arr: readonly number[], n: number): number {
+  let s = 0;
+  for (let i = 0; i < n && i < arr.length; i++) s += arr[i];
+  return s;
+}
+
 function findElement(elements: readonly Element[], id: string): Element | undefined {
   for (const el of elements) {
     if (el.id === id) return el;
@@ -4117,13 +5403,17 @@ function replaceShapeAdjustments(
  * Rebuild a slide's element tree with the in-edit element masked: a
  * text element is dropped entirely, a shape element keeps its
  * fill/stroke but has `data.text` stripped so the renderer doesn't
- * paint the body that the in-place text-box editor now owns. Groups
- * are walked recursively so the mask applies regardless of nesting
- * depth. Shallow clones only; block arrays are aliased.
+ * paint the body that the in-place text-box editor now owns. For a
+ * table being edited at the cell level, only the targeted cell's
+ * `body.blocks` is cleared — the rest of the table (fills, borders,
+ * other cells' content) keeps painting. Groups are walked recursively
+ * so the mask applies regardless of nesting depth. Shallow clones
+ * only; block arrays are aliased.
  */
 function maskEditingElement(
   elements: readonly Element[],
   editingId: string,
+  cellCoords: { row: number; col: number } | null,
 ): Element[] {
   const out: Element[] = [];
   for (const el of elements) {
@@ -4131,6 +5421,8 @@ function maskEditingElement(
       if (el.type === 'shape') {
         const { text: _omit, ...rest } = el.data;
         out.push({ ...el, data: rest } as typeof el);
+      } else if (el.type === 'table' && cellCoords !== null) {
+        out.push(maskTableCellBody(el, cellCoords));
       }
       // TextElement → drop entirely; the overlay editor owns it now.
       continue;
@@ -4140,7 +5432,7 @@ function maskEditingElement(
         ...el,
         data: {
           ...el.data,
-          children: maskEditingElement(el.data.children, editingId),
+          children: maskEditingElement(el.data.children, editingId, cellCoords),
         },
       });
       continue;
@@ -4148,6 +5440,35 @@ function maskEditingElement(
     out.push(el);
   }
   return out;
+}
+
+/**
+ * Clone a TableElement with the editing cell's body.blocks cleared so
+ * the canvas underlay doesn't double-paint the text the in-place
+ * editor is rendering. Cell style (fill, border, padding, vAlign) and
+ * span markers are preserved verbatim — only the inline content
+ * vanishes. Shallow clones at every level; sibling cells and other
+ * rows alias through unchanged.
+ */
+function maskTableCellBody(
+  table: TableElement,
+  cell: { row: number; col: number },
+): TableElement {
+  const targetRow = table.data.rows[cell.row];
+  if (!targetRow) return table;
+  const targetCell = targetRow.cells[cell.col];
+  if (!targetCell) return table;
+  const nextCells = targetRow.cells.slice();
+  nextCells[cell.col] = {
+    ...targetCell,
+    body: { ...targetCell.body, blocks: [] },
+  };
+  const nextRows = table.data.rows.slice();
+  nextRows[cell.row] = { ...targetRow, cells: nextCells };
+  return {
+    ...table,
+    data: { ...table.data, rows: nextRows },
+  };
 }
 
 /**
@@ -4167,11 +5488,13 @@ function maskEditingElement(
  *   Google Slides behavior.
  */
 type EditTarget = {
-  kind: 'text' | 'shape';
+  kind: 'text' | 'shape' | 'cell';
   blocks: Block[];
   autofit?: AutofitMode;
   verticalAnchor?: VerticalAnchorMode;
   editFrame: Frame;
+  /** Set when `kind === 'cell'` so `onCommit` can route to withTableCellBody. */
+  cell?: { row: number; col: number };
 };
 
 function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
@@ -4198,6 +5521,90 @@ function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
     autofit: body?.autofit ?? 'none',
     verticalAnchor: body?.verticalAnchor ?? 'middle',
     editFrame: innerFrame,
+  };
+}
+
+/**
+ * Build an EditTarget for a single cell inside a TableElement.
+ *
+ * `worldFrame` is the table's frame in world (slide-logical) coords —
+ * already composed through any ancestor group transform by
+ * `buildElementWorldLookup`. The cell's editFrame is the cell's inner
+ * rect (column / row offset within the table, minus cell padding)
+ * translated into world coords.
+ *
+ * Caller MUST resolve `(row, col)` to the merge ANCHOR via
+ * `tableCellAtPoint` before calling — covered cells (gridSpan/rowSpan
+ * === 0) have no body to edit and `withTableCellBody` will throw.
+ *
+ * Rotation: P1/P3 supports non-rotated tables only. Rotated tables
+ * would need cell-center-relative re-rotation (the cell's center is
+ * NOT the table's center), so this helper returns `null` when
+ * `worldFrame.rotation !== 0`. Cell editing on rotated tables is
+ * deferred; the dblclick path simply does nothing in that case.
+ */
+function buildCellEditTarget(
+  table: TableElement,
+  row: number,
+  col: number,
+  worldFrame: Frame,
+  fontScale: number,
+): EditTarget | null {
+  if (worldFrame.rotation !== 0) return null;
+  const cellRow = table.data.rows[row];
+  const cell = cellRow?.cells[col];
+  if (!cell) return null;
+  if (cell.gridSpan === 0 || cell.rowSpan === 0) return null;
+
+  const layout = computeTableLayout(table.data, { fontScale });
+  const gridSpan = Math.min(
+    Math.max(cell.gridSpan ?? 1, 1),
+    table.data.columnWidths.length - col,
+  );
+  const rowSpan = Math.min(
+    Math.max(cell.rowSpan ?? 1, 1),
+    table.data.rows.length - row,
+  );
+  const x0 = layout.colX[col];
+  const x1 = layout.colX[col + gridSpan];
+  const y0 = layout.rowY[row];
+  const y1 = layout.rowY[row + rowSpan];
+  const pad = cellPadding(cell);
+
+  const innerFrame: Frame = {
+    x: worldFrame.x + x0 + pad.left,
+    y: worldFrame.y + y0 + pad.top,
+    w: Math.max(0, x1 - x0 - pad.left - pad.right),
+    h: Math.max(0, y1 - y0 - pad.top - pad.bottom),
+    rotation: 0,
+  };
+
+  return {
+    kind: 'cell',
+    blocks: cell.body.blocks.length > 0 ? cell.body.blocks : [emptyShapeTextBlock()],
+    // Cell content never shrinks (the row auto-grows instead — see
+    // CR#5 / slides-tables.md). 'none' mirrors what paintCellContents
+    // forwards to paintTextBody at render time.
+    autofit: 'none',
+    verticalAnchor:
+      cell.body.verticalAnchor ?? cell.style.verticalAlign ?? 'top',
+    editFrame: innerFrame,
+    cell: { row, col },
+  };
+}
+
+function cellPadding(cell: TableCell): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
+  const p = cell.style.padding;
+  return {
+    top: p?.top ?? DEFAULT_CELL_PADDING.top,
+    right: p?.right ?? DEFAULT_CELL_PADDING.right,
+    bottom: p?.bottom ?? DEFAULT_CELL_PADDING.bottom,
+    left: p?.left ?? DEFAULT_CELL_PADDING.left,
   };
 }
 

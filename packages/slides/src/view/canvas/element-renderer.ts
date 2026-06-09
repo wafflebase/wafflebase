@@ -6,6 +6,7 @@ import { deckFontScale } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
 import { drawConnector } from './connector-renderer';
 import { drawShape, paintShapeText } from './shape-renderer';
+import { drawTable } from './table-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
 
@@ -204,6 +205,19 @@ export function drawElement(
           // Images intentionally mirror with flipH/flipV — the user is
           // flipping a picture, so no counter-flip is applied.
           drawImage(ctx, size, element.data, onAssetLoad);
+          break;
+        case 'table':
+          // P1 paints the whole table (fills, borders, AND cell text)
+          // under counter-flip, so `frame.flipH` / `frame.flipV` on a
+          // TableElement is a visual no-op for now. Diverges from the
+          // 'shape' case (geometry mirrors, text counter-flips), but
+          // tables are rarely flipped in practice and the OOXML
+          // `<p:graphicFrame>` schema doesn't surface flipH/flipV the
+          // same way it does on `<p:sp>` shapes. Tracked as a follow-up
+          // in `docs/design/slides/slides-tables.md` (Known limitations).
+          withCounterFlip(ctx, size, totalFlip, () => {
+            drawTable(ctx, size, element.data, theme, { fontScale });
+          });
           break;
       }
     }

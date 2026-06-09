@@ -64,6 +64,12 @@ export function getTextRegionRect(
       text !== undefined &&
       Array.isArray((text as { blocks?: unknown }).blocks) &&
       (text as { blocks: unknown[] }).blocks.length > 0;
+  } else if (element.type === 'table') {
+    // Every TableCell carries a TextBody; the cursor I-beam should
+    // engage over the entire table in P1. Cell-level routing (different
+    // I-beam region per cell, distinct hit-test for cell borders) is
+    // wired alongside cell-range selection in P3.
+    hasTextBody = true;
   }
   if (!hasTextBody) return null;
   const w = Math.max(0, frame.w - 2 * HOVER_TEXT_REGION_INSET_PX);

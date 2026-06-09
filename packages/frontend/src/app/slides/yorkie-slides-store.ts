@@ -107,6 +107,37 @@ function assertFiniteGuidePosition(op: string, position: number): void {
 }
 
 /**
+ * Resolve the merge anchor for a covered cell at `(r, c)`. Mirror of
+ * `findMergeAnchor` in MemSlidesStore — used by `mergeTableCells`'s
+ * overlap check to reject ranges that touch an existing merge whose
+ * anchor sits outside the new range.
+ */
+function findMergeAnchorInData(
+  data: { rows: { cells: { gridSpan?: number; rowSpan?: number }[] }[] },
+  r: number,
+  c: number,
+): { row: number; col: number } | null {
+  const target = data.rows[r]?.cells[c];
+  if (!target) return null;
+  if (target.gridSpan !== 0 && target.rowSpan !== 0) return null;
+  for (let r2 = r; r2 >= 0; r2--) {
+    const row = data.rows[r2];
+    if (!row) continue;
+    for (let c2 = c; c2 >= 0; c2--) {
+      const candidate = row.cells[c2];
+      if (!candidate) continue;
+      if (candidate.gridSpan === 0 || candidate.rowSpan === 0) continue;
+      const gs = candidate.gridSpan ?? 1;
+      const rs = candidate.rowSpan ?? 1;
+      if (r2 + rs > r && c2 + gs > c) {
+        return { row: r2, col: c2 };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Convert a Yorkie object/array proxy to a plain JS value. Yorkie proxies
  * implement `toJSON()` that returns a JSON string (not a plain object), so
  * we parse it back. Returns the input unchanged when it doesn't have the
@@ -988,7 +1019,32 @@ export class YorkieSlidesStore implements SlidesStore {
         );
       }
       const eAny = e as { frame: Frame };
+      const oldW = eAny.frame.w;
+      const oldH = eAny.frame.h;
       eAny.frame = { ...eAny.frame, ...frame };
+      // Tables paint cells from `data.columnWidths` and
+      // `data.rows[].height` (authoritative per design); a frame
+      // resize that bypassed those would leave the painted footprint
+      // disconnected from the selection bbox / hit-test region. Mirror
+      // the MemSlidesStore CR#4 fix here so the Yorkie code path
+      // (which the live app actually runs) keeps the model coherent
+      // when the element-level resize handles drag the table's outer
+      // frame.
+      if (e.type === 'table') {
+        const dataAny = (e as { data: { columnWidths: number[]; rows: { height: number }[] } }).data;
+        if (eAny.frame.w !== oldW && oldW > 0) {
+          const sx = eAny.frame.w / oldW;
+          for (let c = 0; c < dataAny.columnWidths.length; c++) {
+            dataAny.columnWidths[c] = dataAny.columnWidths[c] * sx;
+          }
+        }
+        if (eAny.frame.h !== oldH && oldH > 0) {
+          const sy = eAny.frame.h / oldH;
+          for (const row of dataAny.rows) {
+            row.height = row.height * sy;
+          }
+        }
+      }
       // Refresh the cached frames of connectors whose endpoints attach to
       // this element. The renderer reads endpoints live, so the visual
       // line already follows the source move — but selection bbox /
@@ -1673,6 +1729,400 @@ export class YorkieSlidesStore implements SlidesStore {
       // Same rationale as withTextElement above — write back regardless
       // of whether `fn` returned a value or mutated in place.
       s.notes = clone(next ?? blocks) as unknown as YorkieSlide['notes'];
+    });
+  }
+
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nRows = e.data.rows.length;
+      if (atIndex < 0 || atIndex > nRows) {
+        throw new Error(
+          `insertTableRow: atIndex ${atIndex} out of range [0, ${nRows}]`,
+        );
+      }
+      const inheritFrom = e.data.rows[atIndex - 1] ?? e.data.rows[atIndex];
+      const height = inheritFrom?.height ?? 30;
+      const cells = e.data.columnWidths.map(() => ({
+        body: { blocks: [] as Block[] },
+        style: {},
+      }));
+      e.data.rows.splice(atIndex, 0, { height, cells });
+      e.frame = { ...e.frame, h: e.frame.h + height };
+    });
+  }
+
+  insertTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      if (atIndex < 0 || atIndex > nCols) {
+        throw new Error(
+          `insertTableColumn: atIndex ${atIndex} out of range [0, ${nCols}]`,
+        );
+      }
+      const inheritWidth =
+        e.data.columnWidths[atIndex - 1] ?? e.data.columnWidths[atIndex] ?? 100;
+      e.data.columnWidths.splice(atIndex, 0, inheritWidth);
+      for (const row of e.data.rows) {
+        row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
+      }
+      e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+    });
+  }
+
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nRows = e.data.rows.length;
+      if (atIndex < 0 || atIndex >= nRows) {
+        throw new Error(
+          `deleteTableRow: atIndex ${atIndex} out of range [0, ${nRows - 1}]`,
+        );
+      }
+      if (nRows <= 1) {
+        throw new Error(
+          'deleteTableRow: cannot remove the last row of a table',
+        );
+      }
+      const removedHeight = e.data.rows[atIndex].height;
+      for (let row = 0; row < atIndex; row++) {
+        const cells = e.data.rows[row].cells;
+        for (let c = 0; c < cells.length; c++) {
+          const cell = cells[c];
+          if (!cell) continue;
+          const rs = cell.rowSpan;
+          if (rs === undefined || rs <= 1) continue;
+          if (row + rs > atIndex) cell.rowSpan = rs - 1;
+        }
+      }
+      e.data.rows.splice(atIndex, 1);
+      e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+    });
+  }
+
+  deleteTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      if (atIndex < 0 || atIndex >= nCols) {
+        throw new Error(
+          `deleteTableColumn: atIndex ${atIndex} out of range [0, ${nCols - 1}]`,
+        );
+      }
+      if (nCols <= 1) {
+        throw new Error(
+          'deleteTableColumn: cannot remove the last column of a table',
+        );
+      }
+      const removedWidth = e.data.columnWidths[atIndex];
+      for (const row of e.data.rows) {
+        for (let c = 0; c < atIndex; c++) {
+          const cell = row.cells[c];
+          if (!cell) continue;
+          const gs = cell.gridSpan;
+          if (gs === undefined || gs <= 1) continue;
+          if (c + gs > atIndex) cell.gridSpan = gs - 1;
+        }
+        row.cells.splice(atIndex, 1);
+      }
+      e.data.columnWidths.splice(atIndex, 1);
+      e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+    });
+  }
+
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const nCols = e.data.columnWidths.length;
+      const nRows = e.data.rows.length;
+      const rmin = Math.min(range.r0, range.r1);
+      const rmax = Math.max(range.r0, range.r1);
+      const cmin = Math.min(range.c0, range.c1);
+      const cmax = Math.max(range.c0, range.c1);
+      if (rmax === rmin && cmax === cmin) {
+        throw new Error(
+          'mergeTableCells: range must span at least two cells',
+        );
+      }
+      if (rmin < 0 || cmin < 0 || rmax >= nRows || cmax >= nCols) {
+        throw new Error(
+          `mergeTableCells: range (${rmin},${cmin})-(${rmax},${cmax}) out of range for ${nRows}x${nCols} table`,
+        );
+      }
+      for (let row = rmin; row <= rmax; row++) {
+        for (let c = cmin; c <= cmax; c++) {
+          const cell = e.data.rows[row].cells[c];
+          if (!cell) continue;
+          if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+            const anchor = findMergeAnchorInData(e.data, row, c);
+            if (
+              anchor === null ||
+              anchor.row < rmin ||
+              anchor.col < cmin ||
+              anchor.row > rmax ||
+              anchor.col > cmax
+            ) {
+              throw new Error(
+                `mergeTableCells: range overlaps an existing merge anchored at (${anchor?.row}, ${anchor?.col})`,
+              );
+            }
+          }
+        }
+      }
+      const anchor = e.data.rows[rmin].cells[cmin];
+      if (!anchor) {
+        throw new Error(
+          `mergeTableCells: anchor cell (${rmin}, ${cmin}) missing`,
+        );
+      }
+      anchor.gridSpan = cmax - cmin + 1;
+      anchor.rowSpan = rmax - rmin + 1;
+      for (let row = rmin; row <= rmax; row++) {
+        for (let c = cmin; c <= cmax; c++) {
+          if (row === rmin && c === cmin) continue;
+          const cell = e.data.rows[row].cells[c];
+          if (!cell) continue;
+          cell.gridSpan = 0;
+          cell.rowSpan = 0;
+          cell.body = { blocks: [] };
+          cell.style = {};
+        }
+      }
+    });
+  }
+
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const cell = e.data.rows[anchor.row]?.cells[anchor.col];
+      if (!cell) {
+        throw new Error(
+          `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) not found`,
+        );
+      }
+      const gs = cell.gridSpan ?? 1;
+      const rs = cell.rowSpan ?? 1;
+      if (gs <= 1 && rs <= 1) {
+        throw new Error(
+          `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) is not a merge anchor`,
+        );
+      }
+      cell.gridSpan = undefined;
+      cell.rowSpan = undefined;
+      for (let row = anchor.row; row < anchor.row + rs; row++) {
+        for (let c = anchor.col; c < anchor.col + gs; c++) {
+          if (row === anchor.row && c === anchor.col) continue;
+          const covered = e.data.rows[row]?.cells[c];
+          if (!covered) continue;
+          covered.gridSpan = undefined;
+          covered.rowSpan = undefined;
+        }
+      }
+    });
+  }
+
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      if (widths.length !== e.data.columnWidths.length) {
+        throw new Error(
+          `updateTableColumnWidths: length ${widths.length} != current column count ${e.data.columnWidths.length}`,
+        );
+      }
+      // Per-slot LWW: write each column width individually. A wholesale
+      // array replacement would issue one big LWW op instead of
+      // per-element ones, losing concurrent-edit granularity on
+      // adjacent columns.
+      for (let c = 0; c < widths.length; c++) {
+        e.data.columnWidths[c] = widths[c];
+      }
+      const total = widths.reduce((a, b) => a + b, 0);
+      e.frame = { ...e.frame, w: total };
+    });
+  }
+
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      if (heights.length !== e.data.rows.length) {
+        throw new Error(
+          `updateTableRowHeights: length ${heights.length} != current row count ${e.data.rows.length}`,
+        );
+      }
+      for (let row = 0; row < heights.length; row++) {
+        e.data.rows[row].height = heights[row];
+      }
+      const total = heights.reduce((a, b) => a + b, 0);
+      e.frame = { ...e.frame, h: total };
+    });
+  }
+
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('@wafflebase/slides').CellStyle>,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const e = this.requireTableElement(r, slideId, elementId);
+      const cell = e.data.rows[row]?.cells[col] as
+        | {
+            style?: Record<string, unknown>;
+            gridSpan?: number;
+            rowSpan?: number;
+          }
+        | undefined;
+      if (!cell) {
+        throw new Error(
+          `updateTableCellStyle: cell (${row}, ${col}) not found on table ${elementId}`,
+        );
+      }
+      if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+        throw new Error(
+          `updateTableCellStyle: cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+        );
+      }
+      const next: Record<string, unknown> = { ...(cell.style ?? {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) delete next[k];
+        else next[k] = clone(v);
+      }
+      (cell as { style: unknown }).style = next;
+    });
+  }
+
+  /**
+   * Lookup helper for the table-structural ops above: resolve a
+   * TableElement by id under the Yorkie root, throwing the same error
+   * shapes as MemSlidesStore so callers get consistent messages. All
+   * four ops touch nearly identical preamble — centralising it here
+   * keeps each method's body focused on its own structural edit.
+   */
+  private requireTableElement(
+    root: { slides: { id: string; elements: ProxyArray }[] },
+    slideId: string,
+    elementId: string,
+  ): {
+    data: {
+      columnWidths: number[];
+      rows: { height: number; cells: { gridSpan?: number; rowSpan?: number }[] }[];
+    };
+    frame: { x: number; y: number; w: number; h: number; rotation: number };
+  } {
+    const s = root.slides.find((s) => s.id === slideId);
+    if (!s) throw new Error(`Slide not found: ${slideId}`);
+    const path = yorkieFindElementPath(
+      s.elements as unknown as ProxyArray,
+      elementId,
+    );
+    if (!path) throw new Error(`Element not found: ${elementId}`);
+    const e = path[path.length - 1];
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    return e as unknown as {
+      data: {
+        columnWidths: number[];
+        rows: {
+          height: number;
+          cells: { gridSpan?: number; rowSpan?: number }[];
+        }[];
+      };
+      frame: { x: number; y: number; w: number; h: number; rotation: number };
+    };
+  }
+
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(
+        s.elements as unknown as ProxyArray,
+        elementId,
+      );
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'table') {
+        throw new Error(`Element ${elementId} is not a table`);
+      }
+      const eAny = e as { data: { rows: { cells: unknown[] }[] } };
+      const cellsProxy = eAny.data.rows[row]?.cells;
+      const cell = cellsProxy?.[col] as
+        | {
+            body?: { blocks?: unknown };
+            gridSpan?: number;
+            rowSpan?: number;
+          }
+        | undefined;
+      if (!cell) {
+        throw new Error(
+          `Cell (${row}, ${col}) not found on table ${elementId}`,
+        );
+      }
+      if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+        throw new Error(
+          `Cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+        );
+      }
+      // Snapshot the plain blocks, hand them to the callback, then write
+      // back. Mirrors `withTextElement` — Yorkie proxies don't expose
+      // live nested values for non-CRDT fields so in-place mutation
+      // through the proxy alone would silently no-op, diverging from
+      // MemSlidesStore where `fn` receives the live reference.
+      const priorBlocks =
+        yorkieToPlain<Block[]>(cell.body?.blocks) ?? [];
+      const returned = fn(priorBlocks);
+      const nextBlocks = returned !== undefined ? clone(returned) : clone(priorBlocks);
+      const existingBody = cell.body as
+        | { blocks?: unknown; autofit?: unknown; verticalAnchor?: unknown }
+        | undefined;
+      if (existingBody !== undefined) {
+        existingBody.blocks = nextBlocks;
+      } else {
+        (cell as { body: unknown }).body = { blocks: nextBlocks };
+      }
     });
   }
 

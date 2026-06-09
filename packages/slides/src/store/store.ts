@@ -210,6 +210,177 @@ export interface SlidesStore {
     elementId: string,
     fn: (blocks: Block[]) => Block[] | void,
   ): void;
+  /**
+   * Mutate a single cell's `body.blocks` inside a TableElement. Mirrors
+   * `withTextElement` / `withShapeText` so the slides text-bridge can
+   * commit cell edits via the same Block[] surface.
+   *
+   * Throws when:
+   *   - the element is missing or not a table
+   *   - `(row, col)` is out of bounds for the cell grid
+   *   - the cell is covered (`gridSpan === 0 || rowSpan === 0`) — covered
+   *     cells have no editable body; the caller must resolve to the merge
+   *     anchor first.
+   */
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void;
+  /**
+   * Insert a new row into a table at `atIndex`.
+   *
+   * - `atIndex === 0` prepends; `atIndex === rows.length` appends.
+   * - The new row inherits the column count from `data.columnWidths`.
+   *   Each new cell carries an empty `TextBody` and `{}` style;
+   *   callers apply any further styling separately.
+   * - The inserted row's height defaults to the height of the adjacent
+   *   row (`rows[atIndex - 1]` if present, else `rows[atIndex]`, else
+   *   30 px).
+   * - `frame.h` is grown by the inserted row's height so the
+   *   `frame.h == sum(row.height)` invariant established by P1 holds.
+   *
+   * Append-at-end is the only verified path so far (P3 wires it to the
+   * Tab-from-last-cell UX). Mid-table inserts that would split an
+   * existing `rowSpan > 1` merge currently leave the merge anchor's
+   * `rowSpan` unchanged — proper merge-extension semantics arrive
+   * with the full P4 structural ops.
+   */
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Insert a new column into a table at `atIndex`.
+   *
+   * - `atIndex === 0` prepends; `atIndex === columnWidths.length` appends.
+   * - Each existing row gains one fresh cell at `cells[atIndex]` with
+   *   empty body and `{}` style.
+   * - The new column inherits the width of the adjacent column
+   *   (`columnWidths[atIndex - 1]` if present, else `columnWidths[atIndex]`,
+   *   else 100 px).
+   * - `frame.w` grows by the inserted column's width.
+   *
+   * Like `insertTableRow`, mid-table inserts that would split an
+   * existing `gridSpan > 1` merge are NOT handled yet — the anchor's
+   * gridSpan stays unchanged, which may leave the new cell visually
+   * over-counted in the merge. Append-at-end is the verified path.
+   */
+  insertTableColumn(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Remove the row at `atIndex` from a table.
+   *
+   * - `frame.h` shrinks by the removed row's height.
+   * - When the deletion crosses an existing `rowSpan > 1` merge anchor
+   *   (anchor row is BEFORE `atIndex` and its span covered the deleted
+   *   row), the anchor's `rowSpan` is decremented by 1 so the merge
+   *   stays consistent.
+   * - When the deletion removes the merge ANCHOR row itself, the
+   *   covered cells in subsequent rows are left with `rowSpan: 0`
+   *   markers pointing at a now-missing anchor. The renderer treats
+   *   them as covered (invisible) until the user manually re-anchors.
+   *   A future cleanup pass may promote the first covered row to a
+   *   new anchor; not in this slice.
+   *
+   * Throws when called with `atIndex` out of range or when removing
+   * the only row (a table must have at least one row).
+   */
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Remove the column at `atIndex` from a table. Mirror of
+   * `deleteTableRow`:
+   * - `frame.w` shrinks by the removed column's width.
+   * - `gridSpan > 1` anchors that crossed the deleted column have
+   *   their gridSpan decremented by 1.
+   * - Removing an anchor column orphans the covered cells in the
+   *   same row (same caveat as deleteTableRow).
+   *
+   * Throws when `atIndex` is out of range or when removing the only
+   * column.
+   */
+  deleteTableColumn(slideId: string, elementId: string, atIndex: number): void;
+  /**
+   * Merge a rectangular cell range `{r0, c0, r1, c1}` (inclusive on
+   * both ends, accepts unordered endpoints) into a single anchor at
+   * `(min(r0,r1), min(c0,c1))`. The anchor's `gridSpan` / `rowSpan`
+   * become the range size; every other cell in the range gets
+   * `gridSpan: 0` / `rowSpan: 0` (OOXML covered-cell encoding).
+   *
+   * The anchor's body is preserved; covered cells' bodies are
+   * cleared. The anchor's style is preserved; covered cells' styles
+   * are also cleared (the covered area visually belongs to the
+   * anchor's paint).
+   *
+   * Throws when:
+   *   - the range is empty (1×1) — merging a single cell is a no-op
+   *     but reported as a misuse so callers don't accidentally merge
+   *     "nothing" without realising
+   *   - the range is out of the table's bounds
+   *   - any cell inside the range is already covered by a DIFFERENT
+   *     merge — the caller must unmerge that one first
+   */
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void;
+  /**
+   * Inverse of `mergeTableCells`: reset the merge anchor at `(row,
+   * col)` and every cell it covered back to standalone cells (no
+   * `gridSpan` / `rowSpan` set; bodies remain whatever they currently
+   * hold, which for covered cells is the empty state `mergeTableCells`
+   * left them in).
+   *
+   * Throws when `(row, col)` is not a merge anchor (i.e. its
+   * `gridSpan ?? 1 === 1 && rowSpan ?? 1 === 1`).
+   */
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void;
+  /**
+   * Patch a single cell's `style` object — LWW per key, not whole-
+   * object replace. Keys present in `patch` overwrite or extend the
+   * cell's existing style; keys explicitly set to `undefined` are
+   * removed from the stored object. Other style keys (and the cell's
+   * body / span markers) are left intact.
+   *
+   * Throws when `(row, col)` is out of bounds or the targeted cell
+   * is covered (`gridSpan === 0 || rowSpan === 0`) — covered cells
+   * have no visible paint of their own; the caller must resolve to
+   * the merge anchor first.
+   */
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('../model/element').CellStyle>,
+  ): void;
+  /**
+   * Replace `data.columnWidths` atomically. `widths.length` must equal
+   * the current column count; the implementation reshapes the array
+   * (LWW on each width slot for Yorkie). `frame.w` is recomputed to
+   * `sum(widths)` so the CR#13 invariant holds.
+   *
+   * Used by the column-border drag gesture (P4.7) and by future
+   * "distribute columns evenly" commands.
+   */
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void;
+  /**
+   * Replace each row's `height` atomically. `heights.length` must
+   * equal the current row count; `frame.h` is recomputed to
+   * `sum(heights)`.
+   */
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void;
   /** Mutate a slide's speaker notes via the docs Tree. */
   withNotes(
     slideId: string,

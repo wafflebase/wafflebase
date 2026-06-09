@@ -168,11 +168,6 @@ export function paintTextBody(
   const padY = opts.padding?.y ?? 0;
   const innerW = Math.max(0, size.w - 2 * padX);
   const innerH = Math.max(0, size.h - 2 * padY);
-  const normalized: Block[] = body.blocks.map((b) => ({
-    ...b,
-    style: normalizeBlockStyle(b.style),
-  }));
-  const colorResolver = makeColorResolver(theme);
 
   // Apply the deck-level pre-scale first so all downstream measurements
   // (wrap width fit, shrink-autofit, vertical-anchor offset) operate on
@@ -180,19 +175,75 @@ export function paintTextBody(
   // blocks; the editor wires the same composition through
   // `transformLayoutBlocks` so committed canvas and in-place edit stay
   // pixel-identical.
-  const fontScale = opts.fontScale ?? 1;
-  let toLayout =
-    fontScale !== 1 ? scaleBlocks(normalized, fontScale) : normalized;
+  let toLayout = prepareBlocksForLayout(body, opts.fontScale ?? 1);
+  if (toLayout === null) return;
   if (body.autofit === 'shrink') {
     const scale = computeAutofitScale(toLayout, measurer, innerW, innerH, 0);
     if (scale !== 1) toLayout = scaleBlocks(toLayout, scale);
   }
 
   const { layout } = computeLayout(toLayout, measurer, innerW);
+  const colorResolver = makeColorResolver(theme);
   const anchor = body.verticalAnchor ?? opts.defaultVerticalAnchor ?? 'top';
   const originY =
     padY + computeVerticalOriginY(anchor, innerH, layout.totalHeight);
   paintLayout(ctx, layout, padX, originY, { colorResolver });
+}
+
+/**
+ * Internal shared pre-layout pipeline used by both `paintTextBody` and
+ * `measureTextBodyHeight`: normalize per-block styles + apply the
+ * deck-level `fontScale`. Returns `null` when the body has no visible
+ * content (callers should short-circuit).
+ *
+ * Centralising this step prevents the two helpers from drifting on
+ * normalization edge cases (e.g., sparse `style: {}` paragraphs
+ * defaulting to `marginTop: 0`) and is the only place that needs
+ * updating when a new pre-layout transform lands.
+ */
+function prepareBlocksForLayout(
+  body: TextBody,
+  fontScale: number,
+): Block[] | null {
+  if (isTextBodyEmpty(body)) return null;
+  const normalized: Block[] = body.blocks.map((b) => ({
+    ...b,
+    style: normalizeBlockStyle(b.style),
+  }));
+  return fontScale !== 1 ? scaleBlocks(normalized, fontScale) : normalized;
+}
+
+/**
+ * Measure the laid-out height of a `TextBody` at a given inner width.
+ * Applies the deck-level `fontScale` exactly like `paintTextBody`
+ * would, but **does NOT apply `autofit: 'shrink'`** — measurement is
+ * driven by table row auto-grow, which expects to learn the *natural*
+ * (un-shrunken) height of the content so the row can grow to fit it.
+ * Returns 0 for empty bodies so callers can treat "no text" and "text
+ * that lays out to zero" identically.
+ *
+ * Tables consume this output to grow row heights when cell content
+ * exceeds the declared `<a:tr h>`. The painter — which IS allowed to
+ * apply shrink autofit — runs after the row has already grown, so in
+ * practice the shrink branch never fires for table cells and the
+ * measure-vs-paint heights stay consistent.
+ *
+ * Callers that genuinely need shrink-aware measurement (e.g. computing
+ * the laid-out height inside a fixed-height frame) must run
+ * `computeAutofitScale` themselves with the target height and call
+ * this helper on the pre-shrunken blocks.
+ */
+export function measureTextBodyHeight(
+  body: TextBody,
+  innerW: number,
+  opts: { fontScale?: number } = {},
+): number {
+  const toLayout = prepareBlocksForLayout(body, opts.fontScale ?? 1);
+  if (toLayout === null) return 0;
+  // Intentionally skip the `body.autofit === 'shrink'` branch from
+  // paintTextBody — see the doc-comment above for why.
+  const { layout } = computeLayout(toLayout, measurer, innerW);
+  return layout.totalHeight;
 }
 
 /**

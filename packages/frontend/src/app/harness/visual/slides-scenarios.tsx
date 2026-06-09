@@ -828,6 +828,8 @@ function makeStubEditor(opts: {
     getSelection: () => selection,
     setSelection: () => {},
     onSelectionChange: noop,
+    getCellSelection: () => null,
+    onCellSelectionChange: noop,
     onCurrentSlideChange: noop,
     onTextEditingChange: noop,
     onInsertModeChange: noop,

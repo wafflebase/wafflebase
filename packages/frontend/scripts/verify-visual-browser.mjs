@@ -203,6 +203,8 @@ async function captureScreenshots(playwright) {
 
       try {
         const page = await context.newPage();
+        page.on('pageerror', (err) => console.error('[page-error]', err.message, '\n', err.stack || ''));
+        page.on('console', (msg) => { if (msg.type() === 'error') console.error('[page-console]', msg.text()); });
         await page.goto(profileUrl(profile), { waitUntil: "networkidle" });
         await page.addStyleTag({
           content:

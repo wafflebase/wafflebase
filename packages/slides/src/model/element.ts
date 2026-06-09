@@ -238,12 +238,149 @@ export type GroupElement = ElementBase & {
   // represent layout slots and are slide-direct only.
 };
 
+/**
+ * Border descriptor for one side of a table cell. Mirrors OOXML
+ * `<a:lnL/R/T/B>` — each side is independent, unlike the uniform stroke
+ * on shapes / connectors. Absent ⇒ no rendered border on that side.
+ */
+export type CellBorder = {
+  color: ThemeColor | string;
+  /** Pixels. */
+  width: number;
+  dash?: 'solid' | 'dashed' | 'dotted';
+};
+
+export type CellStyle = {
+  fill?: ThemeColor | string;
+  border?: {
+    top?: CellBorder;
+    right?: CellBorder;
+    bottom?: CellBorder;
+    left?: CellBorder;
+  };
+  /**
+   * Cell padding in pixels. Mirrors OOXML `<a:tcPr marL/R/T/B>`.
+   * Absent keys fall back to `DEFAULT_CELL_PADDING`.
+   */
+  padding?: {
+    top?: number;
+    right?: number;
+    bottom?: number;
+    left?: number;
+  };
+  /** Defaults to `'top'`. */
+  verticalAlign?: VerticalAnchorMode;
+};
+
+/**
+ * Default cell padding in pixels — matches the OOXML default
+ * (`tcPr marL/R = 91440 EMU = ~8 px`, `marT/B = 45720 EMU = ~4 px`)
+ * after the standard EMU→px conversion at 96 DPI.
+ */
+export const DEFAULT_CELL_PADDING = {
+  top: 4,
+  right: 8,
+  bottom: 4,
+  left: 8,
+} as const;
+
+/**
+ * Default cell border applied to every side of every cell when the
+ * editor inserts a fresh table — without it the cells are invisible
+ * until the user types or applies a fill, which makes a brand-new
+ * table look like an empty rectangle. Tailwind `gray-300` at 1 px is
+ * subtle enough to read as "table grid" without competing with the
+ * authored content; users can override via the cell-border presets
+ * ("All", "Outer", "Clear") or per-side picks once we ship the full
+ * TableControls toolbar.
+ *
+ * Imported PPTX tables retain whatever borders they came with
+ * (including the `<a:alpha val="0"/>` "invisible-by-design" idiom);
+ * this constant only seeds the in-editor insert path.
+ */
+export const DEFAULT_CELL_BORDER: CellBorder = {
+  color: '#D1D5DB',
+  width: 1,
+};
+
+export type TableCell = {
+  /**
+   * Rich-text body. Reuses the same `TextBody` engine used by
+   * `TextElement.data` and `ShapeElement.data.text` so cell editing
+   * goes through the existing text-bridge / IME / autofit paths.
+   */
+  body: TextBody;
+  style: CellStyle;
+  /**
+   * 1 = unmerged. `> 1` = anchor cell of a horizontal merge spanning
+   * `gridSpan` columns. `0` = covered cell (rendered as no-op).
+   * Absent ⇒ `1`. Mirrors OOXML `<a:tc gridSpan>` / `<a:tc hMerge>`.
+   *
+   * **Importer contract:** PPTX has two encodings for covered cells —
+   * `<a:tc hMerge='1'>` (used inside `<a:tblGrid>` regions) and
+   * `<a:tc>` with `gridSpan` only on the anchor. Importers MUST
+   * translate `hMerge` into `gridSpan: 0` on the covered cell;
+   * renderers / store ops rely on the `=== 0` marker to skip painting
+   * and exclude the cell from edge / span resolution.
+   */
+  gridSpan?: number;
+  /**
+   * 1 = unmerged. `> 1` = anchor cell of a vertical merge spanning
+   * `rowSpan` rows. `0` = covered cell. Absent ⇒ `1`. Mirrors OOXML
+   * `<a:tc rowSpan>` / `<a:tc vMerge>`. The same importer contract
+   * applies — `vMerge='1'` translates to `rowSpan: 0` on the covered
+   * cell.
+   */
+  rowSpan?: number;
+};
+
+export type TableRow = {
+  /**
+   * Declared row height in slide-logical pixels. The rendered row
+   * height is `max(height, max contentHeight across non-covered cells)`
+   * — matching PPTX, where `<a:tr h>` is a *minimum* that content can
+   * grow past.
+   */
+  height: number;
+  cells: TableCell[];
+};
+
+export type TableElement = ElementBase & {
+  type: 'table';
+  data: {
+    /**
+     * Column widths in slide-logical pixels. Authoritative — the
+     * rendered table width is `sum(columnWidths)`. Mirrors OOXML
+     * `<a:tblGrid>/<a:gridCol w="...">`.
+     *
+     * **Frame-sync invariant:** `frame.w` always equals
+     * `sum(columnWidths)` and `frame.h` equals `sum(row.height for
+     * row in rows)` (after row auto-grow). The contract is enforced
+     * write-side by `MemSlidesStore.updateElementFrame`, which scales
+     * `columnWidths` / `rows[].height` proportionally on every w/h
+     * change. Any other code path that mutates `frame.w` / `frame.h`
+     * directly (PPTX import builder, future bake operations) MUST
+     * preserve the same invariant.
+     */
+    columnWidths: number[];
+    rows: TableRow[];
+    /**
+     * Optional table-wide style identifier. PPTX-only field; preserved
+     * verbatim on import for future PPTX round-trip. v1 does not
+     * resolve banded-row / header style rules from this id — per-cell
+     * fills/borders are baked at import time.
+     */
+    tableStyleId?: string;
+  };
+};
+
 export type Element =
   | TextElement
   | ImageElement
   | ShapeElement
   | ConnectorElement
-  | GroupElement;
+  | GroupElement
+  | TableElement;
 
 export type ElementType = Element['type'];
 
@@ -253,7 +390,8 @@ export type ElementInit =
   | Omit<ImageElement, 'id'>
   | Omit<ShapeElement, 'id'>
   | Omit<ConnectorElement, 'id'>
-  | Omit<GroupElement, 'id'>;
+  | Omit<GroupElement, 'id'>
+  | Omit<TableElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

@@ -61,6 +61,21 @@ export interface KeyboardContext {
   isPaintingFormat(): boolean;
   /** Cancel a staged format-paint snapshot. */
   cancelFormatPaint(): void;
+  /**
+   * Live cell-range selection inside a table, or `null` when none is
+   * set. Read by the Escape rule (peel cell-range first) and by the
+   * Backspace / Delete rule (clear cell contents when a range is
+   * active, instead of removing the entire table element).
+   */
+  getCellSelection(): {
+    tableId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  } | null;
+  /** Clear the cell-range selection. No-op when no range is set. */
+  clearCellSelection(): void;
 }
 
 const NUDGE = 1;
@@ -117,6 +132,50 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       match: (e) =>
         keyEquals(e.key, 'z') && isModPressed(e) && e.shiftKey,
       run: (e) => { e.preventDefault(); ctx.store.redo(); ctx.requestRender(); },
+    },
+
+    // Delete / Backspace with a live cell-range selection — clear the
+    // body of each non-covered cell in the range, leave the table
+    // structure (row / column counts, merges, styles) intact. The
+    // cell-range stays selected so the user can immediately type to
+    // refill. Runs BEFORE the element-delete rule below so Backspace
+    // on a cell range doesn't accidentally remove the whole table.
+    {
+      match: (e) =>
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target) &&
+        ctx.getCellSelection() !== null,
+      run: (e) => {
+        e.preventDefault();
+        const sel = ctx.getCellSelection();
+        if (sel === null) return;
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        const table = slide.elements.find((el) => el.id === sel.tableId);
+        if (!table || table.type !== 'table') return;
+        const rmin = Math.min(sel.r0, sel.r1);
+        const rmax = Math.max(sel.r0, sel.r1);
+        const cmin = Math.min(sel.c0, sel.c1);
+        const cmax = Math.max(sel.c0, sel.c1);
+        ctx.store.batch(() => {
+          for (let r = rmin; r <= rmax; r++) {
+            for (let c = cmin; c <= cmax; c++) {
+              const cell = table.data.rows[r]?.cells[c];
+              if (!cell) continue;
+              if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+              ctx.store.withTableCellBody(
+                slide.id,
+                sel.tableId,
+                r,
+                c,
+                () => [],
+              );
+            }
+          }
+        });
+        ctx.requestRender();
+      },
     },
 
     // Delete / Backspace — remove selected elements. Skipped while the
@@ -544,6 +603,23 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         }
         e.preventDefault();
         ctx.enterEditMode(slide.id, element.id, { initialText: e.key });
+      },
+    },
+
+    // Esc — drop cell-range selection inside a table (if present)
+    // before falling through to the generic drill-out / clear path.
+    // The first Esc on a cell-selected table peels back to the outer
+    // table element selection; a second Esc then clears it. Mirrors
+    // Google Slides' "Esc steps out one selection level at a time".
+    {
+      match: (e) =>
+        e.key === 'Escape' &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target) &&
+        ctx.getCellSelection() !== null,
+      run: (e) => {
+        e.preventDefault();
+        ctx.clearCellSelection();
       },
     },
 

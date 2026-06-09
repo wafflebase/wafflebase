@@ -12,6 +12,7 @@ export type ObjectSelectionType =
   | 'text-element'
   | 'connector'
   | 'group'
+  | 'table'
   | 'mixed';
 
 export type PanelSelection =
@@ -31,6 +32,7 @@ export function pickSections(
     case 'shape':
     case 'connector':
     case 'group':
+    case 'table':
     case 'mixed':
       return ['size-position'];
     case 'image':

@@ -13,7 +13,13 @@ import type {
   Endpoint,
 } from '../model/connector';
 import type { Stroke } from '../model/element';
-import type { Element, ElementInit, Frame, GroupElement } from '../model/element';
+import type {
+  Element,
+  ElementInit,
+  Frame,
+  GroupElement,
+  TableCell,
+} from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
@@ -57,6 +63,42 @@ function assertFinitePosition(op: string, position: number): void {
   if (!Number.isFinite(position)) {
     throw new Error(`${op}: position must be a finite number, got ${position}`);
   }
+}
+
+/**
+ * Resolve the merge anchor for a covered cell at `(r, c)` by scanning
+ * earlier rows / columns for an anchor whose declared span reaches
+ * `(r, c)`. Returns `null` when the cell is not covered (no
+ * `gridSpan === 0` or `rowSpan === 0` marker on the input cell, or
+ * no anchor in scan order owns the cell — the latter shouldn't happen
+ * with valid OOXML data but the renderer / store ops tolerate it).
+ *
+ * Linear O(r*c) scan; called per-cell only inside the overlap check
+ * in `mergeTableCells`, so the cost is bounded by the merge range.
+ */
+function findMergeAnchor(
+  data: { rows: { cells: { gridSpan?: number; rowSpan?: number }[] }[] },
+  r: number,
+  c: number,
+): { row: number; col: number } | null {
+  const target = data.rows[r]?.cells[c];
+  if (!target) return null;
+  if (target.gridSpan !== 0 && target.rowSpan !== 0) return null;
+  for (let r2 = r; r2 >= 0; r2--) {
+    const row = data.rows[r2];
+    if (!row) continue;
+    for (let c2 = c; c2 >= 0; c2--) {
+      const candidate = row.cells[c2];
+      if (!candidate) continue;
+      if (candidate.gridSpan === 0 || candidate.rowSpan === 0) continue;
+      const gs = candidate.gridSpan ?? 1;
+      const rs = candidate.rowSpan ?? 1;
+      if (r2 + rs > r && c2 + gs > c) {
+        return { row: r2, col: c2 };
+      }
+    }
+  }
+  return null;
 }
 
 function emptyDocument(): SlidesDocument {
@@ -388,7 +430,25 @@ export class MemSlidesStore implements SlidesStore {
         `Element ${elementId} is a connector; update its endpoints instead of its frame`,
       );
     }
+    const oldW = e.frame.w;
+    const oldH = e.frame.h;
     e.frame = { ...e.frame, ...frame };
+    // Tables paint cells from `data.columnWidths` and `rows[].height`
+    // (authoritative per design); a frame resize that bypassed these
+    // would leave the painted footprint disconnected from the selection
+    // bbox / hit-test region. Proportionally scale so a generic
+    // `updateElementFrame` keeps the model coherent without making
+    // every resize call site table-aware.
+    if (e.type === 'table') {
+      if (e.frame.w !== oldW && oldW > 0) {
+        const sx = e.frame.w / oldW;
+        e.data.columnWidths = e.data.columnWidths.map((w) => w * sx);
+      }
+      if (e.frame.h !== oldH && oldH > 0) {
+        const sy = e.frame.h / oldH;
+        e.data.rows = e.data.rows.map((r) => ({ ...r, height: r.height * sy }));
+      }
+    }
     // Recompute cached frames of connectors whose endpoints attach to
     // this element. The renderer reads endpoints live, so the visual
     // line already follows the source move — but selection bbox /
@@ -962,6 +1022,383 @@ export class MemSlidesStore implements SlidesStore {
       return;
     }
     e.data.text = { ...e.data.text, blocks: next };
+  }
+
+  insertTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nRows = e.data.rows.length;
+    if (atIndex < 0 || atIndex > nRows) {
+      throw new Error(
+        `insertTableRow: atIndex ${atIndex} out of range [0, ${nRows}]`,
+      );
+    }
+    // Inherit the height of the adjacent row so the new row visually
+    // matches its neighbour. Falls back to 30 px when the table is
+    // empty — close to a single typical body-text line at the default
+    // 14 pt scale.
+    const inheritFrom = e.data.rows[atIndex - 1] ?? e.data.rows[atIndex];
+    const height = inheritFrom?.height ?? 30;
+    const cells: TableCell[] = e.data.columnWidths.map(() => ({
+      body: { blocks: [] },
+      style: {},
+    }));
+    e.data.rows.splice(atIndex, 0, { height, cells });
+    // Preserve `frame.h == sum(row.height)` (CR#13 invariant). Width
+    // is unaffected — inserting a row doesn't change column widths.
+    e.frame = { ...e.frame, h: e.frame.h + height };
+  }
+
+  insertTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    if (atIndex < 0 || atIndex > nCols) {
+      throw new Error(
+        `insertTableColumn: atIndex ${atIndex} out of range [0, ${nCols}]`,
+      );
+    }
+    const inheritWidth =
+      e.data.columnWidths[atIndex - 1] ?? e.data.columnWidths[atIndex] ?? 100;
+    e.data.columnWidths.splice(atIndex, 0, inheritWidth);
+    for (const row of e.data.rows) {
+      row.cells.splice(atIndex, 0, { body: { blocks: [] }, style: {} });
+    }
+    e.frame = { ...e.frame, w: e.frame.w + inheritWidth };
+  }
+
+  deleteTableRow(slideId: string, elementId: string, atIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nRows = e.data.rows.length;
+    if (atIndex < 0 || atIndex >= nRows) {
+      throw new Error(
+        `deleteTableRow: atIndex ${atIndex} out of range [0, ${nRows - 1}]`,
+      );
+    }
+    if (nRows <= 1) {
+      throw new Error(
+        'deleteTableRow: cannot remove the last row of a table',
+      );
+    }
+    const removedHeight = e.data.rows[atIndex].height;
+    // Decrement rowSpan on anchors in earlier rows whose span covers
+    // (i.e. extends past) the deleted row. Walk every row above the
+    // deletion; anchors live in those rows; covered cells are skipped.
+    for (let r = 0; r < atIndex; r++) {
+      const row = e.data.rows[r];
+      for (let c = 0; c < row.cells.length; c++) {
+        const cell = row.cells[c];
+        if (!cell) continue;
+        const rs = cell.rowSpan;
+        if (rs === undefined || rs <= 1) continue;
+        if (r + rs > atIndex) {
+          cell.rowSpan = rs - 1;
+        }
+      }
+    }
+    e.data.rows.splice(atIndex, 1);
+    e.frame = { ...e.frame, h: e.frame.h - removedHeight };
+  }
+
+  deleteTableColumn(
+    slideId: string,
+    elementId: string,
+    atIndex: number,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    if (atIndex < 0 || atIndex >= nCols) {
+      throw new Error(
+        `deleteTableColumn: atIndex ${atIndex} out of range [0, ${nCols - 1}]`,
+      );
+    }
+    if (nCols <= 1) {
+      throw new Error(
+        'deleteTableColumn: cannot remove the last column of a table',
+      );
+    }
+    const removedWidth = e.data.columnWidths[atIndex];
+    // Decrement gridSpan on anchors in earlier columns of the SAME row
+    // whose span covers the deleted column. Iterate every row; anchor
+    // lookup is local to that row.
+    for (const row of e.data.rows) {
+      for (let c = 0; c < atIndex; c++) {
+        const cell = row.cells[c];
+        if (!cell) continue;
+        const gs = cell.gridSpan;
+        if (gs === undefined || gs <= 1) continue;
+        if (c + gs > atIndex) {
+          cell.gridSpan = gs - 1;
+        }
+      }
+      row.cells.splice(atIndex, 1);
+    }
+    e.data.columnWidths.splice(atIndex, 1);
+    e.frame = { ...e.frame, w: e.frame.w - removedWidth };
+  }
+
+  mergeTableCells(
+    slideId: string,
+    elementId: string,
+    range: { r0: number; c0: number; r1: number; c1: number },
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const nCols = e.data.columnWidths.length;
+    const nRows = e.data.rows.length;
+    const rmin = Math.min(range.r0, range.r1);
+    const rmax = Math.max(range.r0, range.r1);
+    const cmin = Math.min(range.c0, range.c1);
+    const cmax = Math.max(range.c0, range.c1);
+    if (rmax === rmin && cmax === cmin) {
+      throw new Error(
+        'mergeTableCells: range must span at least two cells',
+      );
+    }
+    if (
+      rmin < 0 || cmin < 0 ||
+      rmax >= nRows || cmax >= nCols
+    ) {
+      throw new Error(
+        `mergeTableCells: range (${rmin},${cmin})-(${rmax},${cmax}) out of range for ${nRows}x${nCols} table`,
+      );
+    }
+    // Verify every cell in the range is either non-spanned or part of
+    // the SAME merge we're about to absorb. Existing 0-markers without
+    // a matching anchor inside the range mean the range overlaps
+    // another merge that the caller must unmerge first.
+    for (let r = rmin; r <= rmax; r++) {
+      for (let c = cmin; c <= cmax; c++) {
+        const cell = e.data.rows[r].cells[c];
+        if (!cell) continue;
+        // Covered cells inside the new range are fine as long as their
+        // owning anchor is also inside the range. We don't have a
+        // direct anchor pointer, but for any covered cell at (r, c)
+        // there must be an anchor at (r', c') with r' <= r, c' <= c
+        // and r' + rowSpan > r, c' + gridSpan > c. If that anchor sits
+        // outside the new range, this is an overlap.
+        if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+          const anchor = findMergeAnchor(e.data, r, c);
+          if (
+            anchor === null ||
+            anchor.row < rmin ||
+            anchor.col < cmin ||
+            anchor.row > rmax ||
+            anchor.col > cmax
+          ) {
+            throw new Error(
+              `mergeTableCells: range overlaps an existing merge anchored at (${anchor?.row}, ${anchor?.col})`,
+            );
+          }
+        }
+      }
+    }
+    const anchor = e.data.rows[rmin].cells[cmin];
+    if (!anchor) {
+      throw new Error(
+        `mergeTableCells: anchor cell (${rmin}, ${cmin}) missing`,
+      );
+    }
+    anchor.gridSpan = cmax - cmin + 1;
+    anchor.rowSpan = rmax - rmin + 1;
+    // Mark every other cell in the range as covered. Cells outside
+    // the anchor (any (r, c) other than (rmin, cmin)) get
+    // gridSpan: 0 / rowSpan: 0 to honour the OOXML covered-cell
+    // encoding. Bodies cleared so the renderer never tries to paint
+    // text that visually belongs to the anchor.
+    for (let r = rmin; r <= rmax; r++) {
+      for (let c = cmin; c <= cmax; c++) {
+        if (r === rmin && c === cmin) continue;
+        const cell = e.data.rows[r].cells[c];
+        if (!cell) continue;
+        cell.gridSpan = 0;
+        cell.rowSpan = 0;
+        cell.body = { blocks: [] };
+        cell.style = {};
+      }
+    }
+  }
+
+  unmergeTableCells(
+    slideId: string,
+    elementId: string,
+    anchor: { row: number; col: number },
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[anchor.row]?.cells[anchor.col];
+    if (!cell) {
+      throw new Error(
+        `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) not found`,
+      );
+    }
+    const gs = cell.gridSpan ?? 1;
+    const rs = cell.rowSpan ?? 1;
+    if (gs <= 1 && rs <= 1) {
+      throw new Error(
+        `unmergeTableCells: cell (${anchor.row}, ${anchor.col}) is not a merge anchor`,
+      );
+    }
+    // Clear the anchor's span markers...
+    cell.gridSpan = undefined;
+    cell.rowSpan = undefined;
+    // ...and every cell that used to be covered by this anchor's
+    // declared span. The renderer's `isCovered` predicate keys off
+    // `gridSpan === 0 || rowSpan === 0`; clearing the 0-markers
+    // promotes each cell back to a standalone editable cell.
+    for (let r = anchor.row; r < anchor.row + rs; r++) {
+      for (let c = anchor.col; c < anchor.col + gs; c++) {
+        if (r === anchor.row && c === anchor.col) continue;
+        const covered = e.data.rows[r]?.cells[c];
+        if (!covered) continue;
+        covered.gridSpan = undefined;
+        covered.rowSpan = undefined;
+      }
+    }
+  }
+
+  updateTableColumnWidths(
+    slideId: string,
+    elementId: string,
+    widths: readonly number[],
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    if (widths.length !== e.data.columnWidths.length) {
+      throw new Error(
+        `updateTableColumnWidths: length ${widths.length} != current column count ${e.data.columnWidths.length}`,
+      );
+    }
+    e.data.columnWidths = [...widths];
+    e.frame = {
+      ...e.frame,
+      w: e.data.columnWidths.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  updateTableRowHeights(
+    slideId: string,
+    elementId: string,
+    heights: readonly number[],
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    if (heights.length !== e.data.rows.length) {
+      throw new Error(
+        `updateTableRowHeights: length ${heights.length} != current row count ${e.data.rows.length}`,
+      );
+    }
+    for (let r = 0; r < e.data.rows.length; r++) {
+      e.data.rows[r].height = heights[r];
+    }
+    e.frame = {
+      ...e.frame,
+      h: heights.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  updateTableCellStyle(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    patch: Partial<import('../model/element').CellStyle>,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[row]?.cells[col];
+    if (!cell) {
+      throw new Error(
+        `updateTableCellStyle: cell (${row}, ${col}) not found on table ${elementId}`,
+      );
+    }
+    if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+      throw new Error(
+        `updateTableCellStyle: cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+      );
+    }
+    // Per-key LWW: spread current style, then apply patch keys
+    // (explicit `undefined` removes the key so renderers fall back to
+    // their defaults). Clone patch values so callers can't keep a live
+    // reference into the store.
+    const next: Record<string, unknown> = { ...(cell.style as object) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete next[k];
+      else next[k] = clone(v);
+    }
+    cell.style = next as typeof cell.style;
+  }
+
+  withTableCellBody(
+    slideId: string,
+    elementId: string,
+    row: number,
+    col: number,
+    fn: (blocks: Block[]) => Block[] | void,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'table') {
+      throw new Error(`Element ${elementId} is not a table`);
+    }
+    const cell = e.data.rows[row]?.cells[col];
+    if (!cell) {
+      throw new Error(
+        `Cell (${row}, ${col}) not found on table ${elementId}`,
+      );
+    }
+    if (cell.gridSpan === 0 || cell.rowSpan === 0) {
+      throw new Error(
+        `Cell (${row}, ${col}) is covered by a merge; resolve to the merge anchor first`,
+      );
+    }
+    const next = fn(cell.body.blocks);
+    if (next !== undefined) {
+      cell.body.blocks = clone(next);
+    }
   }
 
   withNotes(

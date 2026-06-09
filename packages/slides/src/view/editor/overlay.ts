@@ -103,6 +103,29 @@ export interface OverlayOptions {
    * harness attribute.
    */
   hoverHighlightFrame?: { id: string; frame: Frame } | null;
+  /**
+   * World-space rectangles to paint as cell-range selection highlights.
+   * Each rect is one selected (non-covered) cell anchor's bounding box.
+   * Resolved by the editor from `cellSelection` + `computeTableLayout`
+   * before this call; the overlay just paints semi-transparent blue
+   * boxes on top. Empty / omitted = no cell-range highlight.
+   */
+  cellRangeRects?: readonly Frame[];
+  /**
+   * Live preview of an in-progress table column / row resize. Renders
+   * as a single 1-px magenta line across the table at the proposed
+   * border position. World coords; the editor resolves the table's
+   * frame + pending position into the line segment.
+   */
+  tableResizePreview?: {
+    kind: 'col' | 'row';
+    /** Line start in world coords. */
+    x0: number;
+    y0: number;
+    /** Line end in world coords. */
+    x1: number;
+    y1: number;
+  };
 }
 
 /**
@@ -222,6 +245,32 @@ export function renderOverlay(
     );
   }
 
+  // Cell-range selection highlights (Google-Slides-style blue tint over
+  // selected table cells). One rect per non-covered anchor cell in the
+  // range, already resolved to world coords by the editor. Painted
+  // under selection handles so the table's outer handles still take
+  // pointer-priority. Anchor rotation maps to the rect's CSS rotate.
+  if (options.cellRangeRects && options.cellRangeRects.length > 0) {
+    for (const r of options.cellRangeRects) {
+      overlay.appendChild(makeCellRangeRect(r, options.scale));
+    }
+  }
+
+  // Live table column / row resize preview (a 1-px magenta line at
+  // the proposed border position). Painted above cell-range so it's
+  // visible during the gesture; cleared automatically when the editor
+  // unsets `pendingTableResize` on pointerup.
+  if (options.tableResizePreview) {
+    overlay.appendChild(
+      makeTableResizePreview(options.tableResizePreview, options.scale),
+    );
+  }
+
+  // (Table outer-frame ghost is painted AFTER the selection handles
+  // below so the dashed outline + translucent fill aren't masked by
+  // the solid-#3a7 selection frame that paints at the same position
+  // when the editor swaps in the ghost frame for handle alignment.)
+
   // Connector affordance (Task 13): blue dots over the nearest shape's
   // connection sites. Painted above the hover outline so the dots win
   // visually during a connector draw. The affordance only fires while
@@ -231,7 +280,9 @@ export function renderOverlay(
   // drag.
   renderConnectionPointsOverlay(overlay, options);
 
-  if (selectedElements.length === 0) return;
+  if (selectedElements.length === 0) {
+    return;
+  }
 
   // Connectors get a custom selection treatment: exactly two endpoint
   // handles (start + end) at the resolved endpoint world positions, no
@@ -482,6 +533,64 @@ function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivEle
     div.style.transform = `rotate(${frame.rotation}rad)`;
   }
   div.dataset.slidesHoverHighlight = id;
+  return div;
+}
+
+/**
+ * Live table column / row resize guide. A 1-px magenta line at the
+ * proposed border position; same accent the snap guides use so the
+ * UX language stays consistent. Pointer-events disabled — the
+ * gesture is driven by document-level listeners.
+ */
+function makeTableResizePreview(
+  segment: { kind: 'col' | 'row'; x0: number; y0: number; x1: number; y1: number },
+  scale: number,
+): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.background = '#be123c';
+  div.style.pointerEvents = 'none';
+  div.dataset.slidesTableResize = segment.kind;
+  if (segment.kind === 'col') {
+    // Vertical line — width 1, height spans the table's vertical
+    // extent. Center the 1-px stroke on the proposed boundary so the
+    // user sees the guide aligned to where the column edge will land.
+    div.style.left = `${segment.x0 * scale - 0.5}px`;
+    div.style.top = `${segment.y0 * scale}px`;
+    div.style.width = '1px';
+    div.style.height = `${(segment.y1 - segment.y0) * scale}px`;
+  } else {
+    div.style.left = `${segment.x0 * scale}px`;
+    div.style.top = `${segment.y0 * scale - 0.5}px`;
+    div.style.width = `${(segment.x1 - segment.x0) * scale}px`;
+    div.style.height = '1px';
+  }
+  return div;
+}
+
+/**
+ * Cell-range selection highlight: a semi-transparent blue fill over the
+ * cell's world rect. Lives below the selection handles so the table's
+ * outer handles still receive pointer events for resize. Stacks
+ * additively in a range — a 2x2 cell range paints four overlapping
+ * rects which deepen at intersections; we deliberately keep the alpha
+ * low so the overlap doesn't read as a single dark blob.
+ */
+function makeCellRangeRect(frame: Frame, scale: number): HTMLDivElement {
+  const div = document.createElement('div');
+  div.style.position = 'absolute';
+  div.style.left = `${frame.x * scale}px`;
+  div.style.top = `${frame.y * scale}px`;
+  div.style.width = `${frame.w * scale}px`;
+  div.style.height = `${frame.h * scale}px`;
+  div.style.background = 'rgba(26, 115, 232, 0.18)';
+  div.style.boxSizing = 'border-box';
+  div.style.pointerEvents = 'none';
+  if (frame.rotation !== 0) {
+    div.style.transformOrigin = 'center';
+    div.style.transform = `rotate(${frame.rotation}rad)`;
+  }
+  div.dataset.slidesCellRange = 'true';
   return div;
 }
 

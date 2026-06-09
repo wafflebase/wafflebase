@@ -10,6 +10,7 @@ import { IconPointer, IconLetterT, IconPhoto } from '@tabler/icons-react';
 import { ShapePicker } from '../shape-picker';
 import { LinePicker } from '../line-picker';
 import { isLinePickerKind } from '../line-picker-helpers';
+import { TablePicker } from '../table-picker';
 
 export interface InsertGroupProps {
   editor: SlidesEditor | null;
@@ -106,6 +107,11 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
+
+      {/* Table ▾ — Google-Slides-style grid picker; clicking a cell
+          (rows, cols) inserts a default-sized table on the current
+          slide and selects it. */}
+      <TablePicker editor={editor} disabled={disabled} />
     </>
   );
 }

@@ -23,6 +23,7 @@ export type SectionKind =
   | 'text-element'
   | 'connector'
   | 'group'
+  | 'table'
   | 'mixed';
 
 export interface SizePositionSectionProps {
