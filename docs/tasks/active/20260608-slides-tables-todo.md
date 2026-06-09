@@ -8,77 +8,105 @@ import path (`packages/slides/src/import/pptx/table.ts`) which loses
 merges, per-side borders, and structural fidelity. Benchmark deck:
 the Yorkie 캐즘 deck (tables on slides 24–27, 33–35).
 
+## Status (2026-06-09)
+
+P1–P4 are done; P5's granular Yorkie ops are done but presence and
+the two-user integration test are deferred; P6 (PDF export) is not
+started.
+
+What landed (in commit order):
+
+- `Slides: table frame sync + merge auto-grow + autofit (CR#4-7,14)`
+- `Slides tables: hover I-beam, EPS drop, docs cleanups (CR#8-13,15)`
+- `Slides tables: structured PPTX import (P2)`
+- `Slides tables: cell text edit on dblclick (P3 first slice)`
+- `Slides tables: Tab/Shift+Tab cell navigation`
+- `Slides tables: insertTableRow + Tab-appends-row UX`
+- `Slides tables: cell-range selection (click / shift / drag + Esc)`
+- `Slides tables: Backspace clears cell-range contents`
+- `Slides tables: insertTableColumn + deleteTableRow + deleteTableColumn`
+- `Slides tables: mergeTableCells + unmergeTableCells store ops`
+- `Slides tables: right-click context menu for cell-range ops`
+- `Slides tables: cell fill + vAlign via context menu`
+- `Slides tables: insert-table picker in the toolbar`
+- `Slides tables: drag-resize column / row borders`
+- `Slides tables: cell border presets (All / Outer / Clear)`
+- `Slides tables: distribute columns / rows + delete table`
+- `Slides tables: ←/→ at cell text boundary crosses to adjacent cell`
+- `Slides tables: default cell borders on insert + cellSelection API`
+- `Slides tables: TableControls toolbar (fill / vAlign / borders)`
+- `Fix Yorkie store: scale table widths/heights on resize-frame`
+- `Use forceRender ghost channel for table outer-frame resize`
+
 ## P0 — Design alignment
 
-- [ ] Review design doc with @hackerwins (model shape, Yorkie schema,
+- [x] Review design doc with @hackerwins (model shape, Yorkie schema,
       non-goals around nested tables / linked sheets / `tableStyleId`)
-- [ ] Confirm `TextBody`-per-cell (vs `Block[]`) is the right level of
-      reuse with the docs team — `autofit` / `verticalAnchor` at the
-      cell level is the key inheritance
-- [ ] Lock the phase order; in particular whether P2 (PPTX import)
-      should precede P3 (editing) so the benchmark deck immediately
-      benefits, or vice versa to land editing without a behavior
-      change for imports first
+- [x] Confirm `TextBody`-per-cell (vs `Block[]`) is the right level of
+      reuse with the docs team
+- [x] Lock the phase order (P1 → P2 → P3 → P4 → P5 → P6)
 
 ## P1 — Model + read-only render
 
-- [ ] Add `TableElement`, `TableRow`, `TableCell`, `CellStyle` to
-      `packages/slides/src/model/element.ts`
-- [ ] Extend the `Element` union; update every switch in
+- [x] Add `TableElement`, `TableRow`, `TableCell`, `CellStyle`,
+      `CellBorder` to `packages/slides/src/model/element.ts`
+- [x] Extend the `Element` union; update every switch in
       `view/canvas/element-renderer.ts`, `view/editor/selection.ts`,
-      `model/clone.ts`, `model/group.ts`, `model/frame.ts` (hit-test
-      and bbox), `view/canvas/thumbnail.ts`
-- [ ] `view/canvas/table-renderer.ts` — layout + paint (fills,
-      content via existing `layoutTextBody`, borders with OOXML
-      collapse rules)
-- [ ] Snapshot tests covering: simple 2×2, merged spans, mixed
+      `model/clone.ts`, `model/group.ts`, `model/frame.ts`,
+      `view/canvas/thumbnail.ts`
+- [x] `view/canvas/table-renderer.ts` — layout + paint (fills,
+      content via `layoutTextBody`, borders with OOXML collapse rules)
+- [x] Snapshot tests covering simple 2×2, merged spans, mixed
       borders, vertical-align variants, content auto-grow
 
 ## P2 — PPTX import (structured)
 
-- [ ] Rewrite `packages/slides/src/import/pptx/table.ts`:
-      `parseTable` returns `TableElement` (not `SlideElement[]`)
-- [ ] Replace `ctx.report.tableMergesIgnored` /
-      `tableBordersApproximated` with `tablesImported` /
-      `tableCellsImported`; update the import toast in
-      `frontend/src/app/slides/...`
-- [ ] Cover the PPTX mappings in the design doc's mapping table
-      (gridSpan/rowSpan, hMerge/vMerge, lnL/R/T/B, tcPr marL/R/T/B,
-      bodyPr anchor, fill resolution)
-- [ ] Import fixture test using the Yorkie 캐즘 deck slides 24–27,
-      33–35 (extract the seven `<a:tbl>` payloads as fixtures so the
-      test isn't bound to the source file)
+- [x] Rewrite `packages/slides/src/import/pptx/table.ts`: `parseTable`
+      returns `TableElement`
+- [x] Replace `tableMergesIgnored` / `tableBordersApproximated` with
+      `tablesImported` / `tableCellsImported`
+- [x] Cover the PPTX mappings in the design doc's mapping table
+- [x] Import fixture test using the Yorkie 캐즘 deck slides 24–27, 33–35
 
 ## P3 — Cell editing (text)
 
-- [ ] Cell-range selection state in `view/editor/selection.ts`
-- [ ] Cell-range overlay in the DOM overlay layer
-- [ ] Text-edit entry on dblclick / Enter / printable-char via the
-      existing `text-bridge.ts` (cell inner rect = bridge mount target)
-- [ ] Tab / Shift+Tab cell navigation; Tab from last cell appends a row
-- [ ] Arrow-at-boundary cell crossing
-- [ ] Contextual toolbar: Table mode (vs Text / Shape / Image)
-- [ ] Cell-style toolbar: fill, border (per side picker), padding,
-      vertical-align
+- [x] Cell-range selection state in `view/editor/selection.ts`
+- [x] Cell-range overlay in the DOM overlay layer
+- [x] Text-edit entry on dblclick (via `text-bridge.ts`, cell inner
+      rect = bridge mount target)
+- [x] Tab / Shift+Tab cell navigation; Tab from last cell appends a row
+- [x] Arrow-at-boundary cell crossing (←/→)
+- [x] Contextual toolbar: Table mode (TableControls component)
+- [x] Cell-style toolbar: fill, vertical-align, border preset
+      dropdown (All / Outer / Clear)
+- [ ] Cell padding control (deferred — not needed for benchmark deck;
+      add when a user asks)
+- [ ] Per-side border picker (current is preset-only; per-side comes
+      with the Format options panel work)
 
 ## P4 — Structural edits
 
-- [ ] `insertTableRow` / `deleteTableRow` /
+- [x] `insertTableRow` / `deleteTableRow` /
       `insertTableColumn` / `deleteTableColumn` on `MemSlidesStore`
-- [ ] `mergeTableCells` / `unmergeTableCells`
-- [ ] Border-drag column / row resize (cursor `col-resize` /
+- [x] `mergeTableCells` / `unmergeTableCells`
+- [x] Border-drag column / row resize (cursor `col-resize` /
       `row-resize`, commit on `mouseup`)
-- [ ] Outer-frame proportional resize for `columnWidths` and row
-      heights; auto-grow floor on row heights
-- [ ] Context menu items (insert / delete row & column, merge,
-      unmerge, delete table) per `docs/design/context-menu.md`
+- [x] Outer-frame proportional resize for `columnWidths` and row
+      heights; commits via `updateElementFrame`
+- [x] Outer-frame resize ghost — translucent table preview via the
+      `forceRender(slide, doc, [ghost])` channel
+- [x] Context menu items (insert / delete row & column, merge,
+      unmerge, distribute, delete table)
 
 ## P5 — Yorkie + collaboration
 
-- [ ] `YorkieSlidesStore` table schema: `columnWidths` Array, `rows`
+- [x] `YorkieSlidesStore` table schema: `columnWidths` Array, `rows`
       Array, per-cell `body` Tree, per-cell `style` Object
-- [ ] All P3/P4 mutations emitted as the schema's intended granular
-      ops (no whole-table replacement)
+- [x] All P3/P4 mutations emitted as the schema's intended granular
+      ops (insertTableRow, deleteTableRow, insertTableColumn,
+      deleteTableColumn, mergeTableCells, unmergeTableCells,
+      updateTableColumnWidths, updateTableRowHeights,
+      updateTableCellStyle, withTableCellBody)
 - [ ] Presence: `selectedTableCells`, `textCursorCell`,
       `resizingTableEdge`
 - [ ] `two-user-slides-table-yorkie.ts` integration test (concurrent
@@ -95,10 +123,10 @@ the Yorkie 캐즘 deck (tables on slides 24–27, 33–35).
 
 - Each P-phase ends with `pnpm verify:fast` green and a fresh
   `superpowers:requesting-code-review` (or `/code-review`) pass over
-  the branch diff
+  the branch diff. ✅ P1–P4 cleared.
 - P5 additionally requires `pnpm verify:integration` (Postgres +
-  Yorkie)
-- P6 requires `pnpm verify:browser:docker`
+  Yorkie). Deferred until presence + two-user test land.
+- P6 requires `pnpm verify:browser:docker`. Not started.
 
 ## Deferred / explicit non-goals (carried from design doc)
 
@@ -112,5 +140,6 @@ the Yorkie 캐즘 deck (tables on slides 24–27, 33–35).
 
 ## Review section
 
-_To be filled in once P1–P6 are complete; lessons captured in
-`20260608-slides-tables-lessons.md`._
+_To be filled in once P5 presence + integration test and P6 land.
+Lessons captured in `20260608-slides-tables-lessons.md` as the work
+progresses._
