@@ -114,15 +114,27 @@ function parseCell(tc: Element, ctx: SlideParseContext): TableCell {
           report: ctx.report,
           clrMap: ctx.clrMap,
         }),
-        ...(detectVerticalAnchor(txBody) !== undefined
-          ? { verticalAnchor: detectVerticalAnchor(txBody) as VerticalAnchorMode }
-          : {}),
       }
     : { blocks: [] };
 
+  // Fold bodyPr's anchor into `style.verticalAlign` when tcPr's anchor
+  // is absent. Two sources of vertical anchor on a single cell — body
+  // and style — diverge when the toolbar writes only style: the
+  // renderer reads `body.verticalAnchor ?? defaultVerticalAnchor`, so
+  // a body-set anchor would silently override the toolbar's edit. PPTX
+  // gives no semantic to having both, so picking one (style) keeps the
+  // toolbar authoritative.
+  const style = parseCellStyle(tcPr, ctx);
+  if (style.verticalAlign === undefined && txBody) {
+    const bodyAnchor = detectVerticalAnchor(txBody);
+    if (bodyAnchor !== undefined) {
+      style.verticalAlign = bodyAnchor as VerticalAnchorMode;
+    }
+  }
+
   return {
     body,
-    style: parseCellStyle(tcPr, ctx),
+    style,
     ...(gridSpan !== undefined ? { gridSpan } : {}),
     ...(rowSpan !== undefined ? { rowSpan } : {}),
   };

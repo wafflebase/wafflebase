@@ -3185,7 +3185,22 @@ class SlidesEditorImpl implements SlidesEditor {
         atEnd: boolean;
       } => {
         if (cursorPos === null) return { atStart: false, atEnd: false };
-        const cellBlocks = target.blocks;
+        // Read the LIVE block list from the store, not the edit-entry
+        // snapshot — the docs editor writes blocks back per keystroke,
+        // so `target.blocks` becomes stale the moment the user types.
+        // Without this lookup the boundary check fires on the wrong
+        // offsets and ArrowRight at "hello"'s end (offset 5) misses
+        // while ArrowRight at offset 0 falsely jumps to the next cell.
+        const liveDoc = this.options.store.read();
+        const liveSlide = liveDoc.slides.find((s) => s.id === slideId);
+        const liveEl =
+          liveSlide && findElement(liveSlide.elements, elementId);
+        if (!liveEl || liveEl.type !== 'table') {
+          return { atStart: false, atEnd: false };
+        }
+        const liveCell =
+          liveEl.data.rows[startCell.row]?.cells[startCell.col];
+        const cellBlocks = liveCell?.body?.blocks ?? [];
         if (cellBlocks.length === 0) {
           return { atStart: true, atEnd: true };
         }
@@ -3365,10 +3380,16 @@ class SlidesEditorImpl implements SlidesEditor {
     const originalHeights = table.data.rows.map((r) => r.height);
     // Anchor the gesture at the pointerdown logical position so a
     // single dx / dy can compute the new boundary regardless of
-    // intermediate move events.
+    // intermediate move events. Track the pointer offset from the
+    // true edge — the hit-test allows a 4-px grab tolerance so the
+    // user can pointerdown a few pixels off-edge. Without this delta
+    // a no-move release would commit a 1–4 px resize equal to the
+    // off-edge grab offset.
     const start = this.clientToLogical(e.clientX, e.clientY);
     const startLocalX = start.x - table.frame.x;
     const startLocalY = start.y - table.frame.y;
+    const grabDelta =
+      kind === 'col' ? startLocalX - edge.position : startLocalY - edge.position;
     const MIN_CELL = 10;
 
     const clampPosition = (proposed: number): number => {
@@ -3383,14 +3404,15 @@ class SlidesEditorImpl implements SlidesEditor {
       return Math.max(topMin, Math.min(bottomMax, proposed));
     };
 
-    // Initial preview at the pointerdown position so the overlay
-    // paints the guide line immediately (no flash before first move).
-    const initialProposed = kind === 'col' ? startLocalX : startLocalY;
+    // Initial preview at the edge's true position so a no-move
+    // release commits no change. The pointermove handler subtracts
+    // grabDelta to keep the gesture stable even when the user
+    // pointerdown'd off-edge.
     this.pendingTableResize = {
       tableId,
       kind,
       index: idx,
-      position: clampPosition(initialProposed),
+      position: clampPosition(edge.position),
     };
     this.repaintOverlay();
     // While the gesture is live, lock the cursor — pointermove
@@ -3402,7 +3424,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const localX = cur.x - table.frame.x;
       const localY = cur.y - table.frame.y;
-      const proposed = kind === 'col' ? localX : localY;
+      const proposed = (kind === 'col' ? localX : localY) - grabDelta;
       const clamped = clampPosition(proposed);
       if (this.pendingTableResize?.position === clamped) return;
       this.pendingTableResize = {
