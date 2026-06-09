@@ -5089,6 +5089,7 @@ class SlidesEditorImpl implements SlidesEditor {
       new Set([elementId]),
     );
 
+    const isTable = startEl.type === 'table';
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
@@ -5103,15 +5104,24 @@ class SlidesEditorImpl implements SlidesEditor {
         ...raw,
         x: matched.x, y: matched.y, w: matched.w, h: matched.h,
       };
+      if (isTable) {
+        // Deferred-resize ghost path: the committed table stays
+        // painted on the canvas (no paintLiveScoped call) and the
+        // overlay carries the gesture — a magenta dashed rect at the
+        // proposed frame plus the resize handles snapped to that
+        // frame so the user can keep dragging. The commit on
+        // pointerup scales `columnWidths` / `rows[].height` via the
+        // existing updateElementFrame path so the canvas catches up
+        // in one step. Matches the user's "leave the original, only
+        // the ghost grows" preference.
+        this.pendingTableFrameResize = {
+          tableId: elementId,
+          frame: live.worldFrame,
+        };
+        this.repaintOverlay();
+        return;
+      }
       const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
-      // Tables live-resize like every other element kind now —
-      // `patchElementFrames` (called inside paintLiveScoped) detects
-      // the table case and scales `data.columnWidths` /
-      // `data.rows[].height` by the same factor as the outer frame,
-      // so the cells track the resize on canvas. CR#4's store-side
-      // updateElementFrame applies the identical scaling on the
-      // pointerup commit, so the live preview agrees with the
-      // committed paint.
       this.paintLiveScoped(livMap, scope, matched.guides);
     };
     const onUp = () => {
@@ -5164,32 +5174,7 @@ function patchElementFrames(
 ): Element[] {
   return elements.map((el) => {
     if (frames.has(el.id)) {
-      const newFrame = frames.get(el.id)!;
-      // Tables paint their cells from `data.columnWidths` /
-      // `rows[].height`, which are independent of `frame.w/h`. A frame
-      // patch alone leaves the cells at their committed sizes — the
-      // outer rect shrinks/grows but the visible grid stays put,
-      // making the live drag preview look broken. Scale the per-cell
-      // sizes proportionally for the synthetic paint so the canvas
-      // tracks the proposed resize end-to-end. CR#4's store-side
-      // commit also scales these on pointerup, so the live preview
-      // and the committed state agree.
-      if (el.type === 'table') {
-        const oldW = el.frame.w;
-        const oldH = el.frame.h;
-        const sx = oldW > 0 ? newFrame.w / oldW : 1;
-        const sy = oldH > 0 ? newFrame.h / oldH : 1;
-        return {
-          ...el,
-          frame: newFrame,
-          data: {
-            ...el.data,
-            columnWidths: el.data.columnWidths.map((w) => w * sx),
-            rows: el.data.rows.map((r) => ({ ...r, height: r.height * sy })),
-          },
-        };
-      }
-      return { ...el, frame: newFrame };
+      return { ...el, frame: frames.get(el.id)! };
     }
     if (el.type === 'group') {
       const patched = patchElementFrames(el.data.children, frames);
