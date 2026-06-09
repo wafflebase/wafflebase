@@ -276,16 +276,10 @@ export function renderOverlay(
     );
   }
 
-  // Live table OUTER-frame resize ghost (a dashed rect at the
-  // proposed world frame). Painted alongside the resize handles —
-  // the editor swaps in the same ghost frame for the selected
-  // element so the handles + dashed outline track the pointer
-  // while the committed table sits unchanged on the canvas.
-  if (options.tableGhostFrame) {
-    overlay.appendChild(
-      makeTableGhostFrame(options.tableGhostFrame, options.scale),
-    );
-  }
+  // (Table outer-frame ghost is painted AFTER the selection handles
+  // below so the dashed outline + translucent fill aren't masked by
+  // the solid-#3a7 selection frame that paints at the same position
+  // when the editor swaps in the ghost frame for handle alignment.)
 
   // Connector affordance (Task 13): blue dots over the nearest shape's
   // connection sites. Painted above the hover outline so the dots win
@@ -296,7 +290,19 @@ export function renderOverlay(
   // drag.
   renderConnectionPointsOverlay(overlay, options);
 
-  if (selectedElements.length === 0) return;
+  if (selectedElements.length === 0) {
+    // Empty-selection branch still owes the ghost layer when the
+    // user is actively dragging a table border resize on a table
+    // that has somehow lost element-level selection (e.g. through a
+    // peer remove). Tolerable since the ghost will detach on
+    // pointerup with the gesture's cleanup.
+    if (options.tableGhostFrame) {
+      overlay.appendChild(
+        makeTableGhostFrame(options.tableGhostFrame, options.scale),
+      );
+    }
+    return;
+  }
 
   // Connectors get a custom selection treatment: exactly two endpoint
   // handles (start + end) at the resolved endpoint world positions, no
@@ -335,6 +341,18 @@ export function renderOverlay(
     options.onAutofitToggle
   ) {
     renderAutofitToggle(overlay, selectedElements[0], options);
+  }
+
+  // Table outer-frame resize ghost — painted AFTER the selection
+  // handles so the translucent fill + dashed border aren't masked by
+  // the solid-#3a7 selection frame that paints at the same position
+  // (the editor swaps in the ghost frame so handles track the
+  // gesture, but the frame outline overlap would otherwise hide the
+  // ghost layer).
+  if (options.tableGhostFrame) {
+    overlay.appendChild(
+      makeTableGhostFrame(options.tableGhostFrame, options.scale),
+    );
   }
 
   // Snap guide lines (drag-time visual feedback). Rendered last so they
@@ -595,7 +613,13 @@ function makeTableGhostFrame(frame: Frame, scale: number): HTMLDivElement {
   div.style.top = `${frame.y * scale}px`;
   div.style.width = `${frame.w * scale}px`;
   div.style.height = `${frame.h * scale}px`;
-  div.style.border = '1px dashed #3a7';
+  // 2-px dashed accent + translucent fill so the ghost reads as a
+  // distinct "preview" layer over the selection frame underneath
+  // (which paints solid green at the same position when the editor
+  // swaps in the ghost frame for handle alignment). Same accent the
+  // table-border line-drag preview uses for visual cohesion.
+  div.style.border = '2px dashed #be123c';
+  div.style.background = 'rgba(190, 18, 60, 0.08)';
   div.style.boxSizing = 'border-box';
   div.style.pointerEvents = 'none';
   if (frame.rotation !== 0) {
