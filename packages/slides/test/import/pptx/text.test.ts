@@ -405,6 +405,7 @@ describe('PPTX import — verticalAnchor wiring', () => {
       scale: { kx: 1 / 9525, ky: 1 / 9525 },
       report: new ImportReport(),
       idMap: new Map(),
+      shapeKindByPptxId: new Map(),
       placeholderSizes: new Map(),
       clrMap: {},
     } as unknown as SlideParseContext;

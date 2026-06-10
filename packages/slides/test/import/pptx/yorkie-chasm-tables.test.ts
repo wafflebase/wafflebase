@@ -55,6 +55,7 @@ function ctx(report = new ImportReport()): SlideParseContext {
     scale: emuScale(DEFAULT_WIDESCREEN_EMU),
     report,
     idMap: new Map(),
+    shapeKindByPptxId: new Map(),
     placeholderSizes: new Map(),
     clrMap: new Map(),
   };

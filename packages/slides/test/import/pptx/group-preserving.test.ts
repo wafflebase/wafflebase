@@ -38,6 +38,7 @@ function makeCtx(report = new ImportReport()): SlideParseContext {
     scale: SCALE,
     report,
     idMap: new Map(),
+    shapeKindByPptxId: new Map(),
     placeholderSizes: new Map(),
     clrMap: new Map(),
   };

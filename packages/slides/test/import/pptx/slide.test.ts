@@ -143,3 +143,91 @@ describe('parseSlide — blipFill background', () => {
     expect(report.skippedImages).toBe(1);
   });
 });
+
+/**
+ * Slide-21 regression: when a `<p:cxnSp>` targets an ellipse via
+ * `<a:endCxn id idx="3"/>`, the production parseSlide path must
+ * thread `shapeKindByPptxId` so `ooxmlToWaffleSiteIndex` picks the
+ * ellipse identity remap (stores idx=3 verbatim) instead of the
+ * rect-family swap remap (which sends idx=3 → siteIndex=1).
+ *
+ * idx=3 is deliberate: it's one of the two indices (1 and 3) where
+ * the rect remap `[0, 3, 2, 1]` actually diverges from identity. If
+ * a future change drops the `shapeKindByPptxId: new Map()` init from
+ * `slide.ts` (or otherwise breaks the kind lookup so it returns
+ * undefined for the target), the importer silently falls back to
+ * the rect remap and stores siteIndex=1 (NW on the ellipse, top-left
+ * diagonal) instead of 3 (SW, bottom-left diagonal). This test
+ * asserts the resolved world position is the SW corner at
+ * (0.1464, 0.8536), which only matches when the ellipse path runs.
+ *
+ * Indices 0, 2, 4-7 cannot detect the regression because both remaps
+ * return the same number for those inputs (rect because of
+ * out-of-range fallback, ellipse because of identity).
+ */
+const SLIDE_WITH_ELLIPSE_AND_CONNECTOR = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="5" name="ellipse"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="100" y="100"/><a:ext cx="200" cy="200"/></a:xfrm>
+          <a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:sp>
+      <p:cxnSp>
+        <p:nvCxnSpPr>
+          <p:cNvPr id="6" name="c"/>
+          <p:cNvCxnSpPr><a:endCxn id="5" idx="3"/></p:cNvCxnSpPr>
+          <p:nvPr/>
+        </p:nvCxnSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="200"/><a:ext cx="100" cy="0"/></a:xfrm>
+          <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:cxnSp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+describe('parseSlide — ellipse connector site remap (slide-21 regression)', () => {
+  it('threads shapeKindByPptxId so an ellipse endCxn idx=3 lands on the SW site, not NW (rect swap)', async () => {
+    const { getConnectionSites } = await import(
+      '../../../src/view/canvas/connection-sites/index'
+    );
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': SLIDE_WITH_ELLIPSE_AND_CONNECTOR,
+    });
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    expect(slide).toBeDefined();
+    const target = slide!.elements.find((e) => e.type === 'shape');
+    const connector = slide!.elements.find((e) => e.type === 'connector');
+    expect(target).toBeDefined();
+    expect(connector).toBeDefined();
+    if (connector?.type !== 'connector') return;
+    expect(connector.end.kind).toBe('attached');
+    if (connector.end.kind !== 'attached') return;
+    // Ellipse-aware path stores idx=3 verbatim (SW). A regressed
+    // shapeKindByPptxId threading would silently apply the rect
+    // remap and store siteIndex=1 (NW) instead.
+    expect(connector.end.siteIndex).toBe(3);
+    const sites = getConnectionSites(target!);
+    expect(sites).toHaveLength(8);
+    const site = sites[connector.end.siteIndex];
+    // SW on the ellipse outline: (0.5 - SQRT1_2/2, 0.5 + SQRT1_2/2)
+    expect(site.x).toBeCloseTo(0.5 - Math.SQRT1_2 / 2, 5);
+    expect(site.y).toBeCloseTo(0.5 + Math.SQRT1_2 / 2, 5);
+  });
+});

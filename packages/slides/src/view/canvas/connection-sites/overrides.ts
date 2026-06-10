@@ -2,7 +2,11 @@ import type { ConnectionSite } from '../../../model/connection-site';
 import {
   DIR_E,
   DIR_N,
+  DIR_NE,
+  DIR_NW,
   DIR_S,
+  DIR_SE,
+  DIR_SW,
   DIR_W,
 } from '../../../model/connection-site';
 import type { ShapeKind } from '../../../model/element';
@@ -69,6 +73,30 @@ const TRAPEZOID_SITES: readonly ConnectionSite[] = Object.freeze([
   { x: 0,   y: 0.5, angle: DIR_W },
 ]);
 
+/**
+ * Ellipse with 8 connection sites — 4 cardinals + 4 diagonals on the
+ * ellipse outline. Ordered to match the PPTX `ellipse` preset `cxnLst`
+ * (CCW from top), so a PPTX `<a:endCxn idx>` is the site index verbatim:
+ *
+ *   0 = N    1 = NW   2 = W    3 = SW
+ *   4 = S    5 = SE   6 = E    7 = NE
+ *
+ * Diagonal coordinates are the 45° points on the unit-bbox ellipse:
+ * `0.5 ± cos(45°)/2 ≈ 0.5 ± 0.3536 = 0.1464 / 0.8536` on each axis.
+ */
+const DIAG_LO = 0.5 - Math.SQRT1_2 / 2;
+const DIAG_HI = 0.5 + Math.SQRT1_2 / 2;
+const ELLIPSE_SITES: readonly ConnectionSite[] = Object.freeze([
+  { x: 0.5,     y: 0,       angle: DIR_N  }, // 0: N
+  { x: DIAG_LO, y: DIAG_LO, angle: DIR_NW }, // 1: NW
+  { x: 0,       y: 0.5,     angle: DIR_W  }, // 2: W
+  { x: DIAG_LO, y: DIAG_HI, angle: DIR_SW }, // 3: SW
+  { x: 0.5,     y: 1,       angle: DIR_S  }, // 4: S
+  { x: DIAG_HI, y: DIAG_HI, angle: DIR_SE }, // 5: SE
+  { x: 1,       y: 0.5,     angle: DIR_E  }, // 6: E
+  { x: DIAG_HI, y: DIAG_LO, angle: DIR_NE }, // 7: NE
+]);
+
 export const CONNECTION_SITES: ReadonlyMap<
   ShapeKind,
   readonly ConnectionSite[]
@@ -77,6 +105,7 @@ export const CONNECTION_SITES: ReadonlyMap<
     diamond: DIAMOND_SITES,
     parallelogram: PARALLELOGRAM_SITES,
     trapezoid: TRAPEZOID_SITES,
+    ellipse: ELLIPSE_SITES,
   } satisfies Partial<Record<ShapeKind, readonly ConnectionSite[]>>) as Array<
     [ShapeKind, readonly ConnectionSite[]]
   >,

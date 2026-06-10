@@ -34,13 +34,48 @@ describe('parseColorElement', () => {
     });
   });
 
-  it('preserves tint and shade modifiers on role colors', () => {
+  it('normalizes tint and shade modifiers to 0..1 on role colors', () => {
+    // OOXML stores `<a:tint val="50000"/>` (50% in thousandths); we
+    // normalize at the import boundary so `resolveColor` / `tintColor`
+    // can apply the value directly as a 0..1 ratio. Without this
+    // normalization, `tintColor(hex, 50000)` saturates to white.
     expect(
       parseColorElement(colorEl(`<a:schemeClr val="accent2"><a:tint val="50000"/></a:schemeClr>`)),
-    ).toEqual({ kind: 'role', role: 'accent2', tint: 50000 });
+    ).toEqual({ kind: 'role', role: 'accent2', tint: 0.5 });
     expect(
       parseColorElement(colorEl(`<a:schemeClr val="accent2"><a:shade val="25000"/></a:schemeClr>`)),
-    ).toEqual({ kind: 'role', role: 'accent2', shade: 25000 });
+    ).toEqual({ kind: 'role', role: 'accent2', shade: 0.25 });
+  });
+
+  it('captures lumMod and lumOff modifiers on role colors as 0..1 ratios', () => {
+    // PPTX produces `<a:lumMod val="95000"/>` on a `bg1` schemeClr to
+    // express "95% luminance" — a light gray derived from white. The
+    // importer normalizes OOXML thousandths to 0..1 so the renderer
+    // can apply the HSL shift directly without re-scaling at every
+    // paint. Matches `resolveColor`'s 0..1 expectation for tint/shade.
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="bg1"><a:lumMod val="95000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'background', lumMod: 0.95 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="bg1"><a:lumMod val="75000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'background', lumMod: 0.75 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="dk1"><a:lumOff val="10000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'text', lumOff: 0.1 });
+    // lumMod and lumOff frequently appear together (HSL luminance shift).
+    expect(
+      parseColorElement(
+        colorEl(
+          `<a:schemeClr val="accent1"><a:lumMod val="75000"/><a:lumOff val="25000"/></a:schemeClr>`,
+        ),
+      ),
+    ).toEqual({ kind: 'role', role: 'accent1', lumMod: 0.75, lumOff: 0.25 });
   });
 
   it('falls back through sysClr.lastClr and prstClr', () => {
@@ -83,7 +118,7 @@ describe('parseColorElement', () => {
           `<a:schemeClr val="accent3"><a:tint val="50000"/><a:alpha val="25000"/></a:schemeClr>`,
         ),
       ),
-    ).toEqual({ kind: 'role', role: 'accent3', tint: 50000, alpha: 0.25 });
+    ).toEqual({ kind: 'role', role: 'accent3', tint: 0.5, alpha: 0.25 });
   });
 
   it('captures `<a:alpha>` on sysClr (resolved via lastClr) and prstClr', () => {
@@ -114,7 +149,7 @@ describe('parseColorElement', () => {
     const out = parseColorElement(
       colorEl(`<a:schemeClr val="accent3"><a:tint val="50000"/></a:schemeClr>`),
     );
-    expect(out).toEqual({ kind: 'role', role: 'accent3', tint: 50000 });
+    expect(out).toEqual({ kind: 'role', role: 'accent3', tint: 0.5 });
     expect(Object.prototype.hasOwnProperty.call(out, 'alpha')).toBe(false);
   });
 
