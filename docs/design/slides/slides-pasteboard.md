@@ -39,8 +39,13 @@ and `scrollHost`'s edges becomes the pasteboard.
 
 ### Non-goals (v1)
 
-- Off-slide shapes when zoom > Fit (canvas equals slide, no extra
-  pasteboard band). User drops to Fit to recover; documented limit.
+- Off-slide shapes on any axis where the slide already exceeds
+  `scrollHost`. Pasteboard is asymmetric by design: an axis on which
+  the slide overflows `scrollHost` gets canvas == slide on that axis
+  with no surrounding band, while the other axis (if it still fits)
+  keeps its pasteboard. When both axes overflow — typically at zoom
+  > Fit — there is no surrounding pasteboard anywhere and the user
+  drops to Fit to recover off-slide content.
 - Ruler 0-tick re-alignment to slide-left/top.
 - Thumbnail panel changes — thumbnails render slide-only.
 - PowerPoint-style fixed pasteboard extending beyond the viewport.
@@ -153,13 +158,18 @@ editor.setSlideOffset(
 )
 ```
 
-`canvas.style.boxShadow` is removed — the shadow is painted into the
-canvas around the slide rect so it appears in pasteboard space.
+`canvas.style.boxShadow` is removed from the canvas element — the
+shadow + hairline live as CSS `box-shadow` on the new `slideElevation`
+sibling div (see DOM shape above), so they ride the slide rect and
+extend outward into the pasteboard band where the canvas is
+transparent.
 
-`canvasWrap.style.background` picks up the pasteboard color, e.g.
-`color-mix(in srgb, var(--foreground) 6%, var(--background))` so
-both light and dark themes get a subtly darker shade than the
-workspace.
+`canvasWrap.style.background` is transparent: the pasteboard blends
+into the surrounding workspace background (the `scrollHost` /
+`canvasArea` parents have no explicit fill, so the page bg shows
+through). The slide rect's visual identity comes from `slideElevation`'s
+hairline + drop shadow plus the slide-bg fill painted into the canvas
+at the slide rect — not from a colored pasteboard.
 
 ## Risks and Mitigation
 
@@ -168,9 +178,11 @@ workspace.
   can drag a shape ≤12 px off-slide and still grab it. Bigger
   recovery zone would need a wider `SLIDE_FRAME_GAP` or a fixed
   pasteboard band (which v1 explicitly rejects).
-- **Zoom > Fit has no surrounding pasteboard.** Off-slide shapes at
-  high zoom are invisible / unreachable; user drops to Fit zoom to
-  recover. Documented limitation.
+- **Pasteboard is asymmetric — only axes where the slide fits inside
+  `scrollHost` get a band.** When the slide overflows both axes
+  (typical above Fit zoom) the canvas equals the slide and there is
+  no surrounding pasteboard. User drops to Fit zoom to recover.
+  Documented limitation.
 - **Slide elevation moved into its own `slideElevation` div.** Keeps
   the existing CSS box-shadow + hairline rendering — no behavioural
   change at the slide edge, just a new sibling element to keep in

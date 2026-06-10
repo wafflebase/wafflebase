@@ -707,6 +707,14 @@ export function SlidesView({
       const sameSlide = nextW === hostW && nextH === hostH;
       const sameCanvas =
         nextCanvasW === canvasFullW && nextCanvasH === canvasFullH;
+      // Resync the ruler even when sizes match: a right-pane resize
+      // (devtools open/close, sidebar collapse, notes-pane drag) can
+      // shrink scrollHost without changing the canvas, leaving the
+      // browser to clamp `scrollLeft` / `scrollTop` silently. No
+      // scroll event fires for that clamp, so without this call the
+      // ruler tick origin lags behind the actual viewport until the
+      // next user scroll.
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
       if (sameSlide && sameCanvas) return;
       hostW = nextW;
       hostH = nextH;

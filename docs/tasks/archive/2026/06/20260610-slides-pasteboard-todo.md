@@ -91,12 +91,15 @@ drops to Fit to recover.
 
 ## Risks
 
-- Canvas DOM grew → bigger bitmap memory footprint per slide
-  (margin = 240 logical px ≈ 12.5% extra per axis, ≈ 27% area).
-  Acceptable at 1 active slide; thumbnails unaffected.
-- Drop shadow now painted into canvas (was CSS `box-shadow`); subtle
-  visual differences may appear under high zoom. Will verify in
-  smoke test and adjust shadow params if needed.
+- Canvas DOM grows up to `scrollHost` size when there is
+  surrounding empty area → larger per-slide bitmap memory
+  footprint when the pasteboard is active. Acceptable at 1 active
+  slide; thumbnails unaffected.
+- Slide elevation (1-px theme-aware hairline + soft drop shadow)
+  moved from the canvas element's CSS `box-shadow` to a sibling
+  `slideElevation` div's CSS `box-shadow`. Same CSS rendering, so
+  no visual change at the slide edge — just a new element to keep
+  in lockstep with the overlay during refit.
 - Pasteboard-area click → editor's existing pointermove cursor
   resolution path must handle logical coords outside slide rect
   without crashes. Today's hit-test already does (no bounds

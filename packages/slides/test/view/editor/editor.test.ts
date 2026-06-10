@@ -261,6 +261,66 @@ describe('initialize', () => {
     expect(editor.getSelection().length).toBe(1);
   });
 
+  it('slideOffsetLogical shifts clientToLogical so off-slide shapes are hit-testable', () => {
+    // Pasteboard contract: the view shell can advertise a positive
+    // `slideOffsetLogicalX/Y` to declare that the canvas DOM extends
+    // past the slide rect on each axis. The editor's `clientToLogical`
+    // must subtract the offset so a click in the pasteboard band
+    // (negative logical x/y) routes to off-slide elements.
+    const { canvas, overlay, store } = makeFixture();
+    let offSlideId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      offSlideId = store.addElement(sid, {
+        type: 'shape',
+        // Off-slide rect spanning logical x ∈ [-150 .. -50], y ∈ [80 .. 180].
+        frame: { x: -150, y: 80, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      // Slide sits at (200, 50) inside the bigger canvas; the off-slide
+      // shape's logical x = -100 maps to canvas-local x = 100, well
+      // inside the canvas pasteboard band.
+      slideOffsetLogicalX: 200,
+      slideOffsetLogicalY: 50,
+    });
+    // jsdom getBoundingClientRect returns zeros, so clientX/Y are
+    // canvas-local CSS px. At scale = 1 + offset (200, 50): logical
+    // (clientX - 200, clientY - 50). Click at (100, 130) → logical
+    // (-100, 80) → centre of the off-slide rect.
+    dispatchMouseDown(canvas, 100, 130);
+    expect(editor.getSelection()).toEqual([offSlideId]);
+  });
+
+  it('setSlideOffset is live: subsequent calls re-route clientToLogical', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let shapeId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        // Centre at logical (150, 150), sized 100×100.
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // No offset → client (150, 150) → logical (150, 150) → hit.
+    dispatchMouseDown(canvas, 150, 150);
+    expect(editor.getSelection()).toEqual([shapeId]);
+    editor.setSelection([]);
+    // Apply a 200-px X offset → client (150, 150) → logical (-50, 150) → miss.
+    editor.setSlideOffset(200, 0);
+    dispatchMouseDown(canvas, 150, 150);
+    expect(editor.getSelection()).toEqual([]);
+    // Shift the click by the offset → logical (150, 150) again → hit.
+    dispatchMouseDown(canvas, 350, 150);
+    expect(editor.getSelection()).toEqual([shapeId]);
+  });
+
   it('drag moves the selected element by the pointer delta and commits one batch', () => {
     const { canvas, overlay, store } = makeFixture();
     let elementId = '';
