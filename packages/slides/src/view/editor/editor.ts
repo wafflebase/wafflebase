@@ -382,6 +382,19 @@ export interface SlidesEditor {
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
   /**
+   * Update the slide's offset inside the canvas bitmap, in
+   * slide-logical pixels. Used when the canvas is bigger than the
+   * slide rect so the empty surrounding area can act as a
+   * pasteboard. Both axes default to 0 (slide pinned at canvas
+   * top-left).
+   *
+   * Caller responsibilities mirror `setHostSize`: size the canvas
+   * bitmap + CSS box to cover both slide and pasteboard before
+   * calling. The editor updates its renderer / pointer math and
+   * triggers a repaint.
+   */
+  setSlideOffset(logicalX: number, logicalY: number): void;
+  /**
    * Update the ruler's viewport scroll offset (CSS pixels). The slide
    * canvas itself does not scroll — its DOM is sized via `setHostSize`
    * and any overflow scrolling happens in a parent wrapper. The ruler
@@ -1227,6 +1240,20 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     this.options.hostWidth = hostWidth;
     this.options.hostHeight = hostHeight;
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  setSlideOffset(logicalX: number, logicalY: number): void {
+    if (
+      (this.options.slideOffsetLogicalX ?? 0) === logicalX &&
+      (this.options.slideOffsetLogicalY ?? 0) === logicalY
+    ) {
+      return;
+    }
+    this.options.slideOffsetLogicalX = logicalX;
+    this.options.slideOffsetLogicalY = logicalY;
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
@@ -4526,9 +4553,15 @@ class SlidesEditorImpl implements SlidesEditor {
   private clientToLogical(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.options.canvas.getBoundingClientRect();
     const scale = this.scale();
+    // The canvas DOM may extend past the slide rect on each axis
+    // (the surrounding empty area inside `scrollHost` becomes the
+    // pasteboard). Subtract the slide's offset inside the canvas so
+    // logical (0,0) lands at slide-left/top regardless.
+    const offsetX = this.options.slideOffsetLogicalX ?? 0;
+    const offsetY = this.options.slideOffsetLogicalY ?? 0;
     return {
-      x: (clientX - rect.left) / scale,
-      y: (clientY - rect.top) / scale,
+      x: (clientX - rect.left) / scale - offsetX,
+      y: (clientY - rect.top) / scale - offsetY,
     };
   }
 

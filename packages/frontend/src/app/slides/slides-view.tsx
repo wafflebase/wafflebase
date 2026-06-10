@@ -368,42 +368,91 @@ export function SlidesView({
     vRulerCanvas.style.zIndex = "1";
     canvasArea.appendChild(vRulerCanvas);
 
-    // Canvas + overlay live inside this wrapper at the slide's
-    // intrinsic host dimensions (no ruler offset — the ruler lives
-    // outside, on the canvas-area frame). `z-index: 2` pushes its
+    // The canvas can grow beyond the slide rect to cover the empty
+    // area inside `scrollHost`. That surrounding band becomes the
+    // pasteboard — off-slide shapes stay rendered, visible, and
+    // pointer-reachable instead of being clipped by a slide-only
+    // canvas. The slide rect itself keeps its fit size; the offsets
+    // below center it inside `canvasWrap`.
+    //
+    // Seeded with the initial host size; lockstep updates land in
+    // `refitCanvas` below.
+    let canvasFullW = hostW;
+    let canvasFullH = hostH;
+    let slideOffsetCssX = 0;
+    let slideOffsetCssY = 0;
+
+    // Canvas + overlay live inside this wrapper. With the pasteboard,
+    // the wrapper/canvas can be bigger than the slide rect; the slide
+    // rect itself sits at `(slideOffsetCssX, slideOffsetCssY)` and is
+    // the same `hostW × hostH` it always was. Off-slide elements
+    // paint into the pasteboard band, where pointer events still
+    // reach the canvas so selection works. `z-index: 2` pushes the
     // overlay (and the over-sized permanent guide lines inside it)
     // above the ruler canvases at z-index 1 so guides visually
     // connect through the ruler ticks.
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
     canvasWrap.style.zIndex = "2";
-    canvasWrap.style.width = `${hostW}px`;
-    canvasWrap.style.height = `${hostH}px`;
+    canvasWrap.style.width = `${canvasFullW}px`;
+    canvasWrap.style.height = `${canvasFullH}px`;
+    // Pasteboard background is intentionally transparent: the band
+    // blends into the surrounding workspace (the `scrollHost` /
+    // `canvasArea` parents have no explicit background, so the page
+    // bg shows through). The slide rect stays visually distinct via
+    // `slideElevation`'s drop shadow + hairline (below).
+    canvasWrap.style.background = "transparent";
 
-    const canvas = document.createElement("canvas");
-    canvas.width = hostW * dpr;
-    canvas.height = hostH * dpr;
-    canvas.style.display = "block";
-    canvas.style.width = `${hostW}px`;
-    canvas.style.height = `${hostH}px`;
-    canvas.style.background = "#fff";
-    // Slide elevation: 1px hairline + soft drop shadow so the slide edge
-    // stays visible when its background matches the surrounding inset's
-    // `bg-background` — happens in two pairings: default-light (white slide
-    // on white bg) and dark mode + Simple Dark (dark slide on dark bg).
-    // Hairline is mixed from `--foreground` so it inverts with the theme
-    // (dark on light, light on dark) and reads on both. The drop shadow
-    // is a black rgba — it adds depth in light mode and quietly fades in
-    // dark mode where the hairline carries the edge.
-    canvas.style.boxShadow =
+    // Slide elevation: an absolute-positioned transparent div pinned
+    // to the slide rect, carrying the 1-px theme-aware hairline and
+    // the soft drop shadow as CSS `box-shadow`. Painting the
+    // elevation in CSS — rather than as canvas paint inside
+    // `drawSlide` — keeps the shadow:
+    //   - present in every paint regardless of `slideOffsetLogical`
+    //     (so zoom > Fit, with no pasteboard, still shows elevation),
+    //   - theme-reactive via the `--foreground` token (the hairline
+    //     was load-bearing in dark mode + Simple Dark where the slide
+    //     background and workspace background are both near-black),
+    //   - constant in CSS-px size regardless of zoom (canvas-painted
+    //     shadow would scale with the active `ctx.scale(scale,scale)`).
+    //
+    // The shadow extends OUTSIDE the elevation div's box — into the
+    // pasteboard band — while the canvas (sitting on top in DOM order
+    // and opaque inside the slide rect) hides the in-slide portion.
+    // Net effect: hairline + drop shadow ring exactly the slide edge.
+    const slideElevation = document.createElement("div");
+    slideElevation.style.position = "absolute";
+    slideElevation.style.left = `${slideOffsetCssX}px`;
+    slideElevation.style.top = `${slideOffsetCssY}px`;
+    slideElevation.style.width = `${hostW}px`;
+    slideElevation.style.height = `${hostH}px`;
+    slideElevation.style.pointerEvents = "none";
+    slideElevation.style.boxShadow =
       "0 0 0 1px color-mix(in srgb, var(--foreground) 25%, transparent)," +
       " 0 4px 12px rgba(0, 0, 0, 0.08)";
+    canvasWrap.appendChild(slideElevation);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasFullW * dpr;
+    canvas.height = canvasFullH * dpr;
+    canvas.style.display = "block";
+    canvas.style.width = `${canvasFullW}px`;
+    canvas.style.height = `${canvasFullH}px`;
+    // The renderer paints the slide background at the slide rect
+    // inside the canvas (see `drawSlide` with the
+    // `slideOffsetLogicalX/Y` options). Canvas's CSS background stays
+    // transparent so the surrounding workspace shows through the
+    // off-slide band; slide elevation is owned by `slideElevation`.
+    canvas.style.position = "absolute";
+    canvas.style.left = "0";
+    canvas.style.top = "0";
+    canvas.style.background = "transparent";
     canvasWrap.appendChild(canvas);
 
     const overlay = document.createElement("div");
     overlay.style.position = "absolute";
-    overlay.style.left = "0";
-    overlay.style.top = "0";
+    overlay.style.left = `${slideOffsetCssX}px`;
+    overlay.style.top = `${slideOffsetCssY}px`;
     overlay.style.width = `${hostW}px`;
     overlay.style.height = `${hostH}px`;
     overlay.style.pointerEvents = "none";
@@ -534,6 +583,11 @@ export function SlidesView({
       hostWidth: hostW,
       hostHeight: hostH,
       dpr,
+      // Slide offset inside the (potentially bigger) canvas. Seeded
+      // to 0; updated on every `refitCanvas` once the scroll host's
+      // size is known.
+      slideOffsetLogicalX: 0,
+      slideOffsetLogicalY: 0,
       readOnly: readOnlyMount,
       hRulerCanvas,
       vRulerCanvas,
@@ -632,18 +686,62 @@ export function SlidesView({
       hRulerCanvas.style.width = `${rulerHCss}px`;
       vRulerCanvas.style.height = `${rulerVCss}px`;
 
-      if (nextW === hostW && nextH === hostH) return;
+      // Pasteboard band: grow `canvasWrap` to fill `scrollHost` when
+      // there is surrounding empty area, so off-slide shapes paint
+      // into the same canvas the slide does and stay reachable for
+      // pointer events. At zoom > Fit the slide overflows
+      // `scrollHost`; canvasWrap stays exactly slide-sized so the
+      // existing scroll behaviour is preserved (no extra pasteboard,
+      // off-slide shapes clipped — acceptable limitation; the user
+      // can drop to Fit to recover them).
+      const scrollRect = scrollHost.getBoundingClientRect();
+      const nextCanvasW = Math.max(nextW, Math.floor(scrollRect.width));
+      const nextCanvasH = Math.max(nextH, Math.floor(scrollRect.height));
+      // `Math.floor` over `/ 2` so the offset is always an integer CSS
+      // px. A fractional offset (e.g. 0.5) would sub-pixel-position
+      // both the elevation div and the overlay, AA-blurring the slide
+      // hairline and risking 1-px misalignment between canvas paint
+      // (browser handles sub-pixel) and absolute children (UA-rounded).
+      const nextOffsetX = Math.floor((nextCanvasW - nextW) / 2);
+      const nextOffsetY = Math.floor((nextCanvasH - nextH) / 2);
+      const sameSlide = nextW === hostW && nextH === hostH;
+      const sameCanvas =
+        nextCanvasW === canvasFullW && nextCanvasH === canvasFullH;
+      // Resync the ruler even when sizes match: a right-pane resize
+      // (devtools open/close, sidebar collapse, notes-pane drag) can
+      // shrink scrollHost without changing the canvas, leaving the
+      // browser to clamp `scrollLeft` / `scrollTop` silently. No
+      // scroll event fires for that clamp, so without this call the
+      // ruler tick origin lags behind the actual viewport until the
+      // next user scroll.
+      editor.setRulerScroll(scrollHost.scrollLeft, scrollHost.scrollTop);
+      if (sameSlide && sameCanvas) return;
       hostW = nextW;
       hostH = nextH;
-      canvas.width = hostW * dpr;
-      canvas.height = hostH * dpr;
-      canvas.style.width = `${hostW}px`;
-      canvas.style.height = `${hostH}px`;
+      canvasFullW = nextCanvasW;
+      canvasFullH = nextCanvasH;
+      slideOffsetCssX = nextOffsetX;
+      slideOffsetCssY = nextOffsetY;
+      canvas.width = canvasFullW * dpr;
+      canvas.height = canvasFullH * dpr;
+      canvas.style.width = `${canvasFullW}px`;
+      canvas.style.height = `${canvasFullH}px`;
+      slideElevation.style.left = `${slideOffsetCssX}px`;
+      slideElevation.style.top = `${slideOffsetCssY}px`;
+      slideElevation.style.width = `${hostW}px`;
+      slideElevation.style.height = `${hostH}px`;
+      overlay.style.left = `${slideOffsetCssX}px`;
+      overlay.style.top = `${slideOffsetCssY}px`;
       overlay.style.width = `${hostW}px`;
       overlay.style.height = `${hostH}px`;
-      canvasWrap.style.width = `${hostW}px`;
-      canvasWrap.style.height = `${hostH}px`;
+      canvasWrap.style.width = `${canvasFullW}px`;
+      canvasWrap.style.height = `${canvasFullH}px`;
       editor.setHostSize(hostW, hostH);
+      const scaleCssPerLogical = hostW / SLIDE_WIDTH;
+      editor.setSlideOffset(
+        slideOffsetCssX / scaleCssPerLogical,
+        slideOffsetCssY / scaleCssPerLogical,
+      );
       // After a size change the browser may or may not emit a scroll
       // event (e.g. shrinking back to Fit clamps scrollLeft to 0
       // implicitly). Sync the ruler explicitly so its tick origin
