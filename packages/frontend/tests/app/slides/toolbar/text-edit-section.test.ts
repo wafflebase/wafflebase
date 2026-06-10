@@ -78,6 +78,7 @@ function makeEditor(overrides: Partial<{
     exitTextEditing() {},
     onCurrentSlideChange: () => () => {},
     setHostSize() {},
+    setSlideOffset() {},
     align() {},
     distribute() {},
     destroy() {},

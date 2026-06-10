@@ -175,16 +175,14 @@ export function drawSlide(
     // SLIDE_WIDTH / SLIDE_HEIGHT) now land in the pasteboard band
     // rather than off the bitmap.
     ctx.translate(slideOffsetLogicalX, slideOffsetLogicalY);
-    // Slide background fill + drop shadow, restricted to the slide
-    // rect. The ±1 px pad absorbs the same aspect-ratio rounding
-    // gap the no-pasteboard path solves with a full-canvas fill.
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.10)';
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetY = 6;
+    // Slide background fill, restricted to the slide rect. The ±1 px
+    // pad absorbs the same aspect-ratio rounding gap the
+    // no-pasteboard path solves with a full-canvas fill. Drop shadow
+    // and hairline are owned by `slideElevation` in slides-view.tsx
+    // — keeping them in CSS means they survive every paint mode
+    // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
     ctx.fillStyle = resolveColor(slide.background.fill, theme);
     ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, SLIDE_HEIGHT + 2);
-    ctx.restore();
   }
 
   // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted

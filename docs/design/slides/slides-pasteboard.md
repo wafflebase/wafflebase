@@ -67,10 +67,25 @@ unchanged. `slideOffsetCss = (canvasFull - slideHost) / 2`;
 ```
 canvasArea (overflow: hidden, rulers pinned)
 └── scrollHost (overflow: auto, centered)
-    └── canvasWrap (max(slide, scrollHost), neutral CSS background)
+    └── canvasWrap (max(slide, scrollHost), transparent)
+        ├── slideElevation (slide-host sized, at slide offset, CSS box-shadow)
         ├── canvas (max(slide, scrollHost), transparent in pasteboard area)
         └── overlay (slide-host sized, positioned at slide offset)
 ```
+
+`slideElevation` is a transparent absolute div positioned exactly at
+the slide rect that owns the slide's 1-px theme-aware hairline + soft
+drop shadow as CSS `box-shadow`. Its shadow extends into the
+pasteboard band where the canvas is transparent, so the ring renders
+on the slide edge. Keeping elevation in CSS — rather than painting
+it inside `drawSlide` — guarantees that:
+
+- the shadow appears in every paint mode (no-pasteboard, mobile,
+  presenter, before the first refit tick),
+- the hairline tracks `--foreground` automatically (load-bearing in
+  dark mode + Simple Dark where slide + workspace are both near-
+  black),
+- shadow blur stays a constant CSS-px size regardless of zoom.
 
 `overlay` stays slide-host sized at the slide rect — handle children
 position via `world * scale` exactly as today. Handles for off-slide
@@ -87,13 +102,17 @@ selections naturally overflow `overlay`'s box and remain interactive
 2. `ctx.scale(scale·dpr, scale·dpr)`.
 3. `ctx.translate(Ox, Oy)` — slide-logical origin lands at
    `(Ox·s·dpr, Oy·s·dpr)` in bitmap px.
-4. Paint slide background fill + drop shadow restricted to the slide
-   rect `(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT)` (+1 px padding to
-   absorb aspect-ratio rounding).
+4. Paint slide background fill restricted to the slide rect
+   `(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT)` (+1 px padding to absorb
+   aspect-ratio rounding).
 5. Existing background-image + element-iteration loop unchanged.
 
 With both offsets `0` (default) the renderer keeps the pre-pasteboard
 behaviour, filling the full bitmap with the slide background.
+
+The slide's drop shadow + hairline are NOT painted in canvas — they
+live as a CSS `box-shadow` on `slideElevation` (see DOM shape above).
+The renderer only owns the slide background fill.
 
 ### Editor
 
@@ -152,9 +171,10 @@ workspace.
 - **Zoom > Fit has no surrounding pasteboard.** Off-slide shapes at
   high zoom are invisible / unreachable; user drops to Fit zoom to
   recover. Documented limitation.
-- **Drop shadow moves from CSS to canvas paint.** Subtle visual
-  differences may appear at high DPI; smoke-test, tune shadow
-  blur / alpha if needed.
+- **Slide elevation moved into its own `slideElevation` div.** Keeps
+  the existing CSS box-shadow + hairline rendering — no behavioural
+  change at the slide edge, just a new sibling element to keep in
+  lockstep with the overlay during refit.
 - **Off-slide hover paths.** Editor's `onPointerMove` / hit-test
   already accepts arbitrary logical coords with no bounds assertion,
   so no crash expected — but snap candidates and smart guides might

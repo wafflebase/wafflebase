@@ -400,9 +400,37 @@ export function SlidesView({
     // blends into the surrounding workspace (the `scrollHost` /
     // `canvasArea` parents have no explicit background, so the page
     // bg shows through). The slide rect stays visually distinct via
-    // the drop shadow painted into the canvas, not via a colored
-    // pasteboard.
+    // `slideElevation`'s drop shadow + hairline (below).
     canvasWrap.style.background = "transparent";
+
+    // Slide elevation: an absolute-positioned transparent div pinned
+    // to the slide rect, carrying the 1-px theme-aware hairline and
+    // the soft drop shadow as CSS `box-shadow`. Painting the
+    // elevation in CSS — rather than as canvas paint inside
+    // `drawSlide` — keeps the shadow:
+    //   - present in every paint regardless of `slideOffsetLogical`
+    //     (so zoom > Fit, with no pasteboard, still shows elevation),
+    //   - theme-reactive via the `--foreground` token (the hairline
+    //     was load-bearing in dark mode + Simple Dark where the slide
+    //     background and workspace background are both near-black),
+    //   - constant in CSS-px size regardless of zoom (canvas-painted
+    //     shadow would scale with the active `ctx.scale(scale,scale)`).
+    //
+    // The shadow extends OUTSIDE the elevation div's box — into the
+    // pasteboard band — while the canvas (sitting on top in DOM order
+    // and opaque inside the slide rect) hides the in-slide portion.
+    // Net effect: hairline + drop shadow ring exactly the slide edge.
+    const slideElevation = document.createElement("div");
+    slideElevation.style.position = "absolute";
+    slideElevation.style.left = `${slideOffsetCssX}px`;
+    slideElevation.style.top = `${slideOffsetCssY}px`;
+    slideElevation.style.width = `${hostW}px`;
+    slideElevation.style.height = `${hostH}px`;
+    slideElevation.style.pointerEvents = "none";
+    slideElevation.style.boxShadow =
+      "0 0 0 1px color-mix(in srgb, var(--foreground) 25%, transparent)," +
+      " 0 4px 12px rgba(0, 0, 0, 0.08)";
+    canvasWrap.appendChild(slideElevation);
 
     const canvas = document.createElement("canvas");
     canvas.width = canvasFullW * dpr;
@@ -410,11 +438,14 @@ export function SlidesView({
     canvas.style.display = "block";
     canvas.style.width = `${canvasFullW}px`;
     canvas.style.height = `${canvasFullH}px`;
-    // The renderer paints the slide background + drop shadow at the
-    // slide rect inside the canvas (see `drawSlide` with the
+    // The renderer paints the slide background at the slide rect
+    // inside the canvas (see `drawSlide` with the
     // `slideOffsetLogicalX/Y` options). Canvas's CSS background stays
-    // transparent so `canvasWrap`'s pasteboard color shows through
-    // the off-slide band.
+    // transparent so the surrounding workspace shows through the
+    // off-slide band; slide elevation is owned by `slideElevation`.
+    canvas.style.position = "absolute";
+    canvas.style.left = "0";
+    canvas.style.top = "0";
     canvas.style.background = "transparent";
     canvasWrap.appendChild(canvas);
 
@@ -666,8 +697,13 @@ export function SlidesView({
       const scrollRect = scrollHost.getBoundingClientRect();
       const nextCanvasW = Math.max(nextW, Math.floor(scrollRect.width));
       const nextCanvasH = Math.max(nextH, Math.floor(scrollRect.height));
-      const nextOffsetX = (nextCanvasW - nextW) / 2;
-      const nextOffsetY = (nextCanvasH - nextH) / 2;
+      // `Math.floor` over `/ 2` so the offset is always an integer CSS
+      // px. A fractional offset (e.g. 0.5) would sub-pixel-position
+      // both the elevation div and the overlay, AA-blurring the slide
+      // hairline and risking 1-px misalignment between canvas paint
+      // (browser handles sub-pixel) and absolute children (UA-rounded).
+      const nextOffsetX = Math.floor((nextCanvasW - nextW) / 2);
+      const nextOffsetY = Math.floor((nextCanvasH - nextH) / 2);
       const sameSlide = nextW === hostW && nextH === hostH;
       const sameCanvas =
         nextCanvasW === canvasFullW && nextCanvasH === canvasFullH;
@@ -682,6 +718,10 @@ export function SlidesView({
       canvas.height = canvasFullH * dpr;
       canvas.style.width = `${canvasFullW}px`;
       canvas.style.height = `${canvasFullH}px`;
+      slideElevation.style.left = `${slideOffsetCssX}px`;
+      slideElevation.style.top = `${slideOffsetCssY}px`;
+      slideElevation.style.width = `${hostW}px`;
+      slideElevation.style.height = `${hostH}px`;
       overlay.style.left = `${slideOffsetCssX}px`;
       overlay.style.top = `${slideOffsetCssY}px`;
       overlay.style.width = `${hostW}px`;
