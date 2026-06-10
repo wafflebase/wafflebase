@@ -11,9 +11,11 @@ Korean text with the browser's default sans-serif because:
   only fires when `style.fontFamily` is unset (so it misses any explicit face);
 - embedded font binaries in `ppt/fonts/font*.fntdata` are ignored.
 
-Repro file: `최상위영입채널_유튜브비교_260608_vF.pptx` — theme uses
-`<a:latin typeface="NanumSquare Neo OTF"/>`, slides use the Bold/ExtraBold
-weights, and Arial appears on some Hangul runs.
+Reproduced against a private PPTX deck whose theme declares
+`<a:latin typeface="NanumSquare Neo OTF"/>` with the Bold / ExtraBold
+weights used per-run, and `Arial` appearing on some Hangul runs. The
+filename is intentionally omitted from the design doc — the deck is
+not redistributable.
 
 P3 (embedded font extraction) is deferred — see "Out of scope" below.
 
