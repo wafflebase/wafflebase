@@ -46,6 +46,7 @@ function ctx(opts: {
     scale: SCALE,
     report: new ImportReport(),
     idMap: new Map(),
+    shapeKindByPptxId: new Map(),
     placeholderSizes: new Map(),
     clrMap: new Map(),
   };

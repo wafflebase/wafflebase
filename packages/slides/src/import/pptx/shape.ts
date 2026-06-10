@@ -62,11 +62,12 @@ export interface SlideParseContext {
    * uses this to pick a shape-specific OOXML `cxnLst → site index`
    * remap (e.g. ellipse uses 8-point CCW-from-top; rect family uses
    * `[T,L,B,R]`). Unknown / non-shape targets fall back to the rect
-   * remap, matching the prior behavior. Optional so existing test
-   * harnesses that construct `SlideParseContext` directly continue to
-   * work; missing entry ⇒ rect remap.
+   * remap, matching the prior behavior. Required so a forgotten
+   * initialization at a new call site fails TypeScript loudly rather
+   * than silently degrading every ellipse connector to the wrong
+   * cardinal site (the exact bug this map was added to fix).
    */
-  shapeKindByPptxId?: Map<number, ShapeKind>;
+  shapeKindByPptxId: Map<number, ShapeKind>;
   /**
    * Default font sizes per layout placeholder, keyed by `"{ooxmlType}:{idx}"`.
    * Slide-level runs whose `<a:rPr>` lacks an explicit `sz` inherit from
@@ -307,7 +308,7 @@ function applyTransformToElement(
 function preassignIds(
   parent: Element,
   idMap: Map<number, string>,
-  shapeKindMap?: Map<number, ShapeKind>,
+  shapeKindMap: Map<number, ShapeKind>,
 ): void {
   for (let i = 0; i < parent.childNodes.length; i++) {
     const n = parent.childNodes[i];
@@ -319,7 +320,7 @@ function preassignIds(
       case 'cxnSp': {
         const id = pptxIdOf(el);
         if (id != null && !idMap.has(id)) idMap.set(id, generateId());
-        if (id != null && shapeKindMap && el.localName === 'sp') {
+        if (id != null && el.localName === 'sp') {
           const spPr = child(el, 'spPr');
           const prstGeom = spPr ? child(spPr, 'prstGeom') : undefined;
           const prst = prstGeom ? attr(prstGeom, 'prst') : undefined;
@@ -810,7 +811,7 @@ function resolveEndpoint(
     if (idAttr != null) {
       const mapped = ctx.idMap.get(idAttr);
       if (mapped) {
-        const targetKind = ctx.shapeKindByPptxId?.get(idAttr);
+        const targetKind = ctx.shapeKindByPptxId.get(idAttr);
         return {
           kind: 'attached',
           elementId: mapped,

@@ -86,6 +86,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     scale: opts.scale,
     report: opts.report,
     idMap: new Map(),
+    shapeKindByPptxId: new Map(),
     placeholderSizes,
     clrMap: opts.clrMap,
     txStylesMarkers: opts.txStylesMarkers,

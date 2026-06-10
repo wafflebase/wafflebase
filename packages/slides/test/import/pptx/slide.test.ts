@@ -143,3 +143,86 @@ describe('parseSlide — blipFill background', () => {
     expect(report.skippedImages).toBe(1);
   });
 });
+
+/**
+ * Slide-21 regression: when a `<p:cxnSp>` targets an ellipse via
+ * `<a:endCxn id idx="6"/>`, the production parseSlide path must
+ * resolve the OOXML idx to the ellipse-aware E cardinal site
+ * (siteIndex 6 in PPTX cxnLst order), not the rect-family remap's
+ * out-of-range fallback. The ctx in slide.ts must initialize
+ * shapeKindByPptxId for the kind lookup to fire — this test guards
+ * that initialization.
+ *
+ * idx=6 is deliberate: under the bug, the rect remap returns
+ * `OOXML_TO_WAFFLE_RECT_SITE_INDEX[6] ?? 6 = 6`, which then misses
+ * `fourCardinal()`'s 4-entry array at the renderer. The fix routes
+ * to `ELLIPSE_SITES` where idx=6 is the E mid-edge — observable as
+ * an 8-site sites list with a real E entry at sites[6].
+ */
+const SLIDE_WITH_ELLIPSE_AND_CONNECTOR = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="5" name="ellipse"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="100" y="100"/><a:ext cx="200" cy="200"/></a:xfrm>
+          <a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:sp>
+      <p:cxnSp>
+        <p:nvCxnSpPr>
+          <p:cNvPr id="6" name="c"/>
+          <p:cNvCxnSpPr><a:endCxn id="5" idx="6"/></p:cNvCxnSpPr>
+          <p:nvPr/>
+        </p:nvCxnSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="200"/><a:ext cx="100" cy="0"/></a:xfrm>
+          <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:cxnSp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+describe('parseSlide — ellipse connector site remap (slide-21 regression)', () => {
+  it('threads shapeKindByPptxId so an ellipse endCxn idx=6 lands on the E site', async () => {
+    const { getConnectionSites } = await import(
+      '../../../src/view/canvas/connection-sites/index'
+    );
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': SLIDE_WITH_ELLIPSE_AND_CONNECTOR,
+    });
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    expect(slide).toBeDefined();
+    const target = slide!.elements.find((e) => e.type === 'shape');
+    const connector = slide!.elements.find((e) => e.type === 'connector');
+    expect(target).toBeDefined();
+    expect(connector).toBeDefined();
+    if (connector?.type !== 'connector') return;
+    expect(connector.end.kind).toBe('attached');
+    if (connector.end.kind !== 'attached') return;
+    // Under the bug, rect-family remap on idx=6 stores 6 verbatim, but
+    // `getConnectionSites` returns FOUR_CARDINAL (length 4), so sites[6]
+    // is undefined and the renderer falls back to sites[0] = N. With
+    // the fix, the ellipse override returns ELLIPSE_SITES (length 8)
+    // and sites[6] = (1, 0.5) — the E mid-edge.
+    expect(connector.end.siteIndex).toBe(6);
+    const sites = getConnectionSites(target!);
+    expect(sites).toHaveLength(8);
+    const site = sites[connector.end.siteIndex];
+    expect(site.x).toBeCloseTo(1, 5);
+    expect(site.y).toBeCloseTo(0.5, 5);
+  });
+});
