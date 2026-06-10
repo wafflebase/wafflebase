@@ -26,6 +26,7 @@ function ctx(): SlideParseContext {
     scale: SCALE,
     report: new ImportReport(),
     idMap: new Map(),
+    shapeKindByPptxId: new Map(),
     placeholderSizes: new Map(),
     clrMap: new Map(),
   };
@@ -41,12 +42,13 @@ function buildTree(
   which: 'stCxn' | 'endCxn',
   targetIdxs: number[],
   targetId = 10,
+  targetPrst = 'roundRect',
 ): string {
   const target = `<p:sp>
     <p:nvSpPr><p:cNvPr id="${targetId}" name="t"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
     <p:spPr>
       <a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
-      <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+      <a:prstGeom prst="${targetPrst}"><a:avLst/></a:prstGeom>
     </p:spPr>
   </p:sp>`;
   const connectors = targetIdxs
@@ -100,6 +102,54 @@ describe('parseCxnSp / attached endpoint site index', () => {
       c.end.kind === 'attached' ? c.end.siteIndex : -1,
     );
     expect(siteIndices).toEqual([0, 3, 2, 1]);
+  });
+
+  // PPTX ellipse cxnLst is 8 connection points CCW from top:
+  //   0=N  1=NW  2=W  3=SW  4=S  5=SE  6=E  7=NE
+  // The Waffle override stores ELLIPSE_SITES in the same CCW order so the
+  // OOXML idx is the site index verbatim — no remap needed.
+  it('preserves OOXML cxnLst indices verbatim for ellipse targets', async () => {
+    const elements = await parseSpTree(
+      spTree(buildTree('endCxn', [0, 1, 2, 3, 4, 5, 6, 7], 10, 'ellipse')),
+      ctx(),
+    );
+    const connectors = elements.filter(
+      (e): e is ConnectorElement => e.type === 'connector',
+    );
+    expect(connectors).toHaveLength(8);
+    const siteIndices = connectors.map((c) =>
+      c.end.kind === 'attached' ? c.end.siteIndex : -1,
+    );
+    expect(siteIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  // Slide 21 of the bug report: connector with `endCxn id=5 idx=2` on the
+  // 8월 green ellipse should anchor at the LEFT-CENTER, not the bottom.
+  // Pre-fix the rect-family remap mapped idx=2 to FOUR_CARDINAL[2]=S, so
+  // the line terminated at the bottom of the circle.
+  it('routes ellipse idx=2 to the W site (not S)', async () => {
+    const elements = await parseSpTree(
+      spTree(buildTree('endCxn', [2], 10, 'ellipse')),
+      ctx(),
+    );
+    const connector = elements.find(
+      (e): e is ConnectorElement => e.type === 'connector',
+    );
+    expect(connector).toBeDefined();
+    expect(connector!.end.kind).toBe('attached');
+    if (connector!.end.kind !== 'attached') return;
+    // Site index 2 in ELLIPSE_SITES is the W cardinal point at
+    // (x=0, y=0.5) with outward-normal pointing -x (DIR_W).
+    const { getConnectionSites } = await import(
+      '../../../src/view/canvas/connection-sites/index'
+    );
+    const targetEl = elements.find((e) => e.type === 'shape');
+    expect(targetEl).toBeDefined();
+    const sites = getConnectionSites(targetEl!);
+    expect(sites).toHaveLength(8);
+    const site = sites[connector!.end.siteIndex];
+    expect(site.x).toBeCloseTo(0, 5);
+    expect(site.y).toBeCloseTo(0.5, 5);
   });
 
   it('returns a free endpoint when stCxn id has no matching sp', async () => {

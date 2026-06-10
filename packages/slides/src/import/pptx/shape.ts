@@ -5,6 +5,7 @@ import type {
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,
+  ShapeKind,
   ShapeStroke,
   TextBody,
   TextElement,
@@ -56,6 +57,17 @@ export interface SlideParseContext {
    */
   idMap: Map<number, string>;
   /**
+   * Parallel to `idMap`: the resolved `ShapeKind` for each `<p:sp>`
+   * with a `<a:prstGeom>` we recognise. Connector endpoint resolution
+   * uses this to pick a shape-specific OOXML `cxnLst → site index`
+   * remap (e.g. ellipse uses 8-point CCW-from-top; rect family uses
+   * `[T,L,B,R]`). Unknown / non-shape targets fall back to the rect
+   * remap, matching the prior behavior. Optional so existing test
+   * harnesses that construct `SlideParseContext` directly continue to
+   * work; missing entry ⇒ rect remap.
+   */
+  shapeKindByPptxId?: Map<number, ShapeKind>;
+  /**
    * Default font sizes per layout placeholder, keyed by `"{ooxmlType}:{idx}"`.
    * Slide-level runs whose `<a:rPr>` lacks an explicit `sz` inherit from
    * here when the parent shape has a matching `<p:ph>` reference.
@@ -105,7 +117,7 @@ export async function parseSpTree(
   // Pass 1: id assignment for `<p:sp>` / `<p:pic>` / `<p:cxnSp>`,
   // recursing through `<p:grpSp>` so nested ids land in the same map
   // and connectors can resolve attached endpoints regardless of depth.
-  preassignIds(spTree, ctx.idMap);
+  preassignIds(spTree, ctx.idMap, ctx.shapeKindByPptxId);
 
   // Pass 2: parse each child element, preserving groups as GroupElement.
   const out: SlideElement[] = [];
@@ -292,7 +304,11 @@ function applyTransformToElement(
   return { ...elem, frame: applyGroupTransform(elem.frame, transform) };
 }
 
-function preassignIds(parent: Element, idMap: Map<number, string>): void {
+function preassignIds(
+  parent: Element,
+  idMap: Map<number, string>,
+  shapeKindMap?: Map<number, ShapeKind>,
+): void {
   for (let i = 0; i < parent.childNodes.length; i++) {
     const n = parent.childNodes[i];
     if (n.nodeType !== 1) continue;
@@ -303,10 +319,17 @@ function preassignIds(parent: Element, idMap: Map<number, string>): void {
       case 'cxnSp': {
         const id = pptxIdOf(el);
         if (id != null && !idMap.has(id)) idMap.set(id, generateId());
+        if (id != null && shapeKindMap && el.localName === 'sp') {
+          const spPr = child(el, 'spPr');
+          const prstGeom = spPr ? child(spPr, 'prstGeom') : undefined;
+          const prst = prstGeom ? attr(prstGeom, 'prst') : undefined;
+          const kind = prst ? prstToShapeKind(prst) : undefined;
+          if (kind) shapeKindMap.set(id, kind);
+        }
         break;
       }
       case 'grpSp':
-        preassignIds(el, idMap);
+        preassignIds(el, idMap, shapeKindMap);
         break;
     }
   }
@@ -744,27 +767,32 @@ function parseCxnSp(cxn: Element, ctx: SlideParseContext): ConnectorElement | un
 }
 
 /**
- * Translate an OOXML `cxnLst` index to a Waffle `FOUR_CARDINAL` index.
+ * Translate an OOXML `cxnLst` index to a Waffle site index, picking the
+ * remap based on the target shape's `ShapeKind`.
  *
- * Correct for the T,L,B,R family (`rect`, `roundRect`, the various
- * `*Rect` variants, `plaque`, `bevel`, `flowChartTerminator`, …), whose
- * OOXML order is `T(0), L(1), B(2), R(3)`. Waffle's `FOUR_CARDINAL` is
- * `N(0), E(1), S(2), W(3)` — i.e. `T, R, B, L` — so indices 1 and 3
- * swap; 0 and 2 are unchanged.
+ * - **Rect family** (`rect`, `roundRect`, the various `*Rect` variants,
+ *   `plaque`, `bevel`, `flowChartTerminator`, …): OOXML `cxnLst` order
+ *   is `T(0), L(1), B(2), R(3)`; Waffle `FOUR_CARDINAL` is
+ *   `N(0), E(1), S(2), W(3)` — i.e. `T, R, B, L` — so indices 1 and 3
+ *   swap; 0 and 2 are unchanged. This is the default for any target
+ *   without a more specific remap registered below.
+ * - **Ellipse / oval**: PPTX `cxnLst` is 8 points CCW from top
+ *   (`N, NW, W, SW, S, SE, E, NE`). The matching `ELLIPSE_SITES`
+ *   override in `connection-sites/overrides.ts` stores entries in the
+ *   same order, so the OOXML idx is the Waffle site index verbatim
+ *   (identity remap).
  *
- * Other preset shapes (`ellipse`, `triangle`, arrows, callouts, …)
- * declare their own `cxnLst` ordering and length. Today this is
- * harmless because `getConnectionSites()` always returns
- * `FOUR_CARDINAL` regardless of shape kind, so non-T,L,B,R targets
- * resolve to a 4-cardinal site either way. When slides-connectors PR2
- * lands per-`ShapeKind` overrides, this helper must grow into a
- * per-shape `cxnLst → FOUR_CARDINAL` (or per-shape sites) table; until
- * then, out-of-range indices pass through unchanged and fall back to
- * `sites[0]` (N) at render time (`connector-frame.ts`).
+ * Other multi-vertex presets (`triangle` / `rtTriangle`, n-gons,
+ * arrows, callouts) still fall through to the rect-family remap.
+ * That's a noted incomplete spot, deferred to a follow-up — see the
+ * top-of-file comment in `connection-sites/overrides.ts`. Out-of-range
+ * indices pass through unchanged and the renderer's
+ * `sites[idx] ?? sites[0]` fallback (`connector-frame.ts`) lands on N.
  */
 const OOXML_TO_WAFFLE_RECT_SITE_INDEX: readonly number[] = [0, 3, 2, 1];
 
-function ooxmlToWaffleSiteIndex(idx: number): number {
+function ooxmlToWaffleSiteIndex(idx: number, targetKind?: ShapeKind): number {
+  if (targetKind === 'ellipse') return idx;
   return OOXML_TO_WAFFLE_RECT_SITE_INDEX[idx] ?? idx;
 }
 
@@ -782,10 +810,11 @@ function resolveEndpoint(
     if (idAttr != null) {
       const mapped = ctx.idMap.get(idAttr);
       if (mapped) {
+        const targetKind = ctx.shapeKindByPptxId?.get(idAttr);
         return {
           kind: 'attached',
           elementId: mapped,
-          siteIndex: ooxmlToWaffleSiteIndex(idxAttr ?? 0),
+          siteIndex: ooxmlToWaffleSiteIndex(idxAttr ?? 0, targetKind),
         };
       }
     }
