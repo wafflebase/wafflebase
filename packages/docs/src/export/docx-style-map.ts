@@ -13,6 +13,25 @@ const DEFAULT_LATIN_FAMILY = 'Arial';
 const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
 
 /**
+ * Escape a value for safe interpolation into a double-quoted XML
+ * attribute. `style.fontFamily` originates from untrusted sources
+ * (PPTX/DOCX imports, user input in the font picker), so a hostile
+ * family name like `A"><script>` could break the DOCX `<w:rFonts>`
+ * element or inject attributes. The five canonical replacements cover
+ * every reserved character inside attribute content per the XML 1.0
+ * spec — applied to `&` first so subsequent escapes don't get
+ * re-escaped.
+ */
+function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
  * Build <w:rPr>...</w:rPr> XML from InlineStyle.
  * Returns empty string if no properties to set.
  */
@@ -31,7 +50,11 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
   const eastAsia = style.fontFamily && isKoreanCapableFamily(style.fontFamily)
     ? style.fontFamily
     : DEFAULT_EAST_ASIAN_FAMILY;
-  parts.push(`<w:rFonts w:ascii="${ascii}" w:hAnsi="${ascii}" w:eastAsia="${eastAsia}"/>`);
+  const asciiAttr = escapeXmlAttr(ascii);
+  const eastAsiaAttr = escapeXmlAttr(eastAsia);
+  parts.push(
+    `<w:rFonts w:ascii="${asciiAttr}" w:hAnsi="${asciiAttr}" w:eastAsia="${eastAsiaAttr}"/>`,
+  );
   if (style.bold) parts.push('<w:b/>');
   if (style.italic) parts.push('<w:i/>');
   if (style.underline) parts.push('<w:u w:val="single"/>');

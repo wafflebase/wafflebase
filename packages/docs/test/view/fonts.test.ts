@@ -1,5 +1,5 @@
 import { describe, it, test, expect } from 'vitest';
-import { FontRegistry, resolveFontFamily } from '../../src/view/fonts.js';
+import { FontRegistry, isKoreanCapableFamily, resolveFontFamily } from '../../src/view/fonts.js';
 
 describe('FontRegistry', () => {
   it('should resolve known Korean font to fallback chain', () => {
@@ -188,6 +188,50 @@ describe('resolveFontFamily — PPTX typeface normalization', () => {
     // already a chain (CSS forbids unescaped commas in identifiers).
     const chain = "'Arial', 'Noto Sans KR', sans-serif";
     expect(resolveFontFamily(chain)).toBe(chain);
+  });
+
+  test('case-insensitive lookup against FONT_MAP keys (gothic a1 → Gothic A1)', () => {
+    // The case-insensitive suffix strip was only half the fix — without a
+    // lowercase FONT_MAP index, the normalized form ('gothic a1') would
+    // still miss FONT_MAP['Gothic A1'] and fall through to the generic
+    // path. Trace 'gothic a1 bold': direct=miss → strip → 'gothic a1' →
+    // index hit → canonical 'Gothic A1' → serif/sans bucket via the
+    // lowercase SERIF_FONTS_INDEX. The verbatim is prepended only when it
+    // differs in lowercase (case-only mismatch is not a prepend trigger).
+    expect(resolveFontFamily('gothic a1 bold')).toBe(
+      "'gothic a1 bold', 'Gothic A1', 'Noto Sans KR', sans-serif",
+    );
+    expect(resolveFontFamily('GOTHIC A1')).toBe(
+      "'Gothic A1', 'Noto Sans KR', sans-serif",
+    );
+    // Lowercase 'times new roman' should classify as serif via the
+    // lowercase SERIF_FONTS_INDEX, not fall through to sans.
+    expect(resolveFontFamily('times new roman')).toMatch(/serif$/);
+  });
+});
+
+describe('isKoreanCapableFamily', () => {
+  test('matches canonical Korean families regardless of case', () => {
+    expect(isKoreanCapableFamily('Noto Sans KR')).toBe(true);
+    expect(isKoreanCapableFamily('noto sans kr')).toBe(true);
+    expect(isKoreanCapableFamily('NOTO SANS KR')).toBe(true);
+    expect(isKoreanCapableFamily('Malgun Gothic')).toBe(true);
+    expect(isKoreanCapableFamily('malgun gothic')).toBe(true);
+  });
+
+  test('matches Korean families after weight-suffix normalization', () => {
+    expect(isKoreanCapableFamily('Gothic A1 Bold')).toBe(true);
+    expect(isKoreanCapableFamily('gothic a1 bold')).toBe(true);
+    expect(isKoreanCapableFamily('Nanum Gothic ExtraBold')).toBe(true);
+  });
+
+  test('returns false for Latin-only families', () => {
+    expect(isKoreanCapableFamily('Arial')).toBe(false);
+    expect(isKoreanCapableFamily('Times New Roman')).toBe(false);
+    // Unknown brand fonts (no catalog entry) default to false even after
+    // normalization — the DOCX exporter then writes Noto Sans KR for the
+    // East Asian slot, which is the safe choice.
+    expect(isKoreanCapableFamily('NanumSquare Neo OTF Bold')).toBe(false);
   });
 
   test('canonical family without suffix is unaffected', () => {

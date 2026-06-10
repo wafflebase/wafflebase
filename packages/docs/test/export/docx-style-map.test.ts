@@ -41,6 +41,31 @@ describe('buildRunPropertiesXml', () => {
     expect(xml).toContain('w:eastAsia="Noto Sans KR"');
   });
 
+  it('XML-escapes hostile fontFamily values in rFonts attributes', () => {
+    // style.fontFamily originates from untrusted sources (PPTX/DOCX
+    // imports, user input in the picker). Without escaping, a family
+    // name containing XML-reserved characters (`&`, `"`, `<`, `>`)
+    // would break the rFonts element or open it to attribute
+    // injection in DOCX viewers.
+    const xml = buildRunPropertiesXml({ fontFamily: 'A"B&<>C' });
+    expect(xml).toContain('w:ascii="A&quot;B&amp;&lt;&gt;C"');
+    expect(xml).toContain('w:hAnsi="A&quot;B&amp;&lt;&gt;C"');
+    // The raw characters must NOT appear unescaped inside the
+    // attribute — if any did, the surrounding "..." would close early
+    // and Word would treat the rest as new attributes / elements.
+    expect(xml).not.toContain('w:ascii="A"B');
+    expect(xml).not.toContain('w:ascii="A&B');
+  });
+
+  it('escapes ampersand first so the other replacements do not re-escape it', () => {
+    // If `&` were replaced after `<` / `>` / `"`, the entity references
+    // those produced (`&lt;`, `&quot;`) would themselves get rewritten
+    // into `&amp;lt;` / `&amp;quot;` — visibly garbled inside Word.
+    const xml = buildRunPropertiesXml({ fontFamily: '<b>' });
+    expect(xml).toContain('w:ascii="&lt;b&gt;"');
+    expect(xml).not.toContain('w:ascii="&amp;lt;');
+  });
+
   it('should generate color', () => {
     const xml = buildRunPropertiesXml({ color: '#FF0000' });
     expect(xml).toContain('<w:color w:val="FF0000"/>');

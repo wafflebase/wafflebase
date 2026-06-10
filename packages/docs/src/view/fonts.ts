@@ -44,20 +44,41 @@ const SERIF_FONTS = new Set([
 const MONOSPACE_FONTS = new Set(['Courier New', 'Courier', 'Consolas']);
 
 /**
+ * Lowercase-keyed view of FONT_MAP that holds both the canonical name
+ * and its resolved chain. Lookups in `resolveFontFamily` are
+ * case-insensitive so PPTX/DOCX inputs that vary the casing of the
+ * canonical family ('gothic a1', 'GOTHIC A1') hit the same entry as
+ * the PascalCase key. The case-insensitive suffix strip only takes us
+ * halfway — without a case-insensitive lookup table the normalized
+ * `'gothic a1'` would still miss `FONT_MAP['Gothic A1']`.
+ */
+const FONT_MAP_INDEX: ReadonlyMap<string, { canonical: string; stack: string }> = (() => {
+  const map = new Map<string, { canonical: string; stack: string }>();
+  for (const [key, stack] of Object.entries(FONT_MAP)) {
+    map.set(key.toLowerCase(), { canonical: key, stack });
+  }
+  return map;
+})();
+
+const SERIF_FONTS_INDEX: ReadonlySet<string> = new Set(
+  [...SERIF_FONTS].map((f) => f.toLowerCase()),
+);
+const MONOSPACE_FONTS_INDEX: ReadonlySet<string> = new Set(
+  [...MONOSPACE_FONTS].map((f) => f.toLowerCase()),
+);
+
+/**
  * Families that already carry Korean glyph coverage — derived at module
  * init from FONT_MAP entries whose stack names a Noto KR face, plus
- * Noto Sans/Serif KR themselves and the picker-display aliases ('맑은
- * 고딕' is a FONT_MAP key but the stack contains 'Malgun Gothic'; either
- * could appear as the raw input). Deriving from FONT_MAP keeps the
- * "is this Korean-capable?" question in lockstep with the catalog —
- * adding a new mapped Korean family no longer requires editing two
- * sets manually.
+ * Noto Sans/Serif KR themselves. Stored lowercase so DOCX export's
+ * `isKoreanCapableFamily` query and the in-chain de-dup check both
+ * accept any casing the importer hands them.
  */
-const KOREAN_CAPABLE: ReadonlySet<string> = (() => {
-  const set = new Set<string>(['Noto Sans KR', 'Noto Serif KR']);
+const KOREAN_CAPABLE_INDEX: ReadonlySet<string> = (() => {
+  const set = new Set<string>(['noto sans kr', 'noto serif kr']);
   for (const [key, stack] of Object.entries(FONT_MAP)) {
     if (stack.includes("'Noto Sans KR'") || stack.includes("'Noto Serif KR'")) {
-      set.add(key);
+      set.add(key.toLowerCase());
     }
   }
   return set;
@@ -136,14 +157,20 @@ function escapeFontFamily(family: string): string {
  * face or fall back to Noto Sans KR for the EA script axis.
  */
 export function isKoreanCapableFamily(family: string): boolean {
-  if (KOREAN_CAPABLE.has(family)) return true;
+  if (KOREAN_CAPABLE_INDEX.has(family.toLowerCase())) return true;
   const normalized = stripTypefaceSuffixes(family);
-  return normalized !== family && KOREAN_CAPABLE.has(normalized);
+  return (
+    normalized !== family &&
+    KOREAN_CAPABLE_INDEX.has(normalized.toLowerCase())
+  );
 }
 
 function stackContainsKoreanFamily(stack: string): boolean {
-  for (const family of KOREAN_CAPABLE) {
-    if (stack.includes(`'${family}'`)) return true;
+  // The stack always carries canonical casing (FONT_MAP values use the
+  // canonical family name), so substring search against the original
+  // FONT_MAP keys is safe — no need to lowercase the stack.
+  for (const family of KOREAN_CAPABLE_INDEX) {
+    if (stack.toLowerCase().includes(`'${family}'`)) return true;
   }
   return false;
 }
@@ -204,13 +231,19 @@ export function resolveFontFamily(family: string): string {
   // direct catalog hit wins; if it misses, strip standard weight/format
   // suffixes and try the canonical name. The stored `style.fontFamily`
   // is left untouched — we only normalize the lookup key.
-  const direct = FONT_MAP[family];
+  // Direct + normalized lookups both go through the lowercase index so
+  // PPTX inputs like `'gothic a1 bold'` (LibreOffice / Google Slides
+  // sometimes emit non-PascalCase) hit the same catalog entry as
+  // `'Gothic A1 Bold'`. Without the index, the case-insensitive suffix
+  // strip would leave us with `'gothic a1'` and still miss
+  // `FONT_MAP['Gothic A1']`.
+  const direct = FONT_MAP_INDEX.get(family.toLowerCase());
   const normalized = direct ? family : stripTypefaceSuffixes(family);
-  const mapped = direct ?? FONT_MAP[normalized];
-  const lookupKey = mapped ? normalized : family;
-  const generic: 'sans-serif' | 'serif' | 'monospace' = MONOSPACE_FONTS.has(lookupKey)
+  const mapped = direct ?? FONT_MAP_INDEX.get(normalized.toLowerCase());
+  const lookupKey = (mapped?.canonical ?? family).toLowerCase();
+  const generic: 'sans-serif' | 'serif' | 'monospace' = MONOSPACE_FONTS_INDEX.has(lookupKey)
     ? 'monospace'
-    : SERIF_FONTS.has(lookupKey)
+    : SERIF_FONTS_INDEX.has(lookupKey)
       ? 'serif'
       : 'sans-serif';
 
@@ -218,12 +251,15 @@ export function resolveFontFamily(family: string): string {
   // verbatim, prepend the verbatim face: a user who has the weight-
   // specific cut installed locally ("Roboto Bold" as its own PostScript
   // face) still gets the real glyph rather than CSS-synthesized bold
-  // off the regular weight.
+  // off the regular weight. Compare lowercase so a pure case difference
+  // ('gothic a1' vs canonical 'Gothic A1') doesn't trigger a redundant
+  // prepend.
   let base: string;
   if (mapped) {
-    base = family !== normalized
-      ? `'${escapeFontFamily(family)}', ${mapped}`
-      : mapped;
+    base =
+      family.toLowerCase() !== mapped.canonical.toLowerCase()
+        ? `'${escapeFontFamily(family)}', ${mapped.stack}`
+        : mapped.stack;
   } else {
     base = `'${escapeFontFamily(family)}', ${generic}`;
   }
