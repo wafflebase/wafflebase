@@ -146,18 +146,24 @@ describe('parseSlide — blipFill background', () => {
 
 /**
  * Slide-21 regression: when a `<p:cxnSp>` targets an ellipse via
- * `<a:endCxn id idx="6"/>`, the production parseSlide path must
- * resolve the OOXML idx to the ellipse-aware E cardinal site
- * (siteIndex 6 in PPTX cxnLst order), not the rect-family remap's
- * out-of-range fallback. The ctx in slide.ts must initialize
- * shapeKindByPptxId for the kind lookup to fire — this test guards
- * that initialization.
+ * `<a:endCxn id idx="3"/>`, the production parseSlide path must
+ * thread `shapeKindByPptxId` so `ooxmlToWaffleSiteIndex` picks the
+ * ellipse identity remap (stores idx=3 verbatim) instead of the
+ * rect-family swap remap (which sends idx=3 → siteIndex=1).
  *
- * idx=6 is deliberate: under the bug, the rect remap returns
- * `OOXML_TO_WAFFLE_RECT_SITE_INDEX[6] ?? 6 = 6`, which then misses
- * `fourCardinal()`'s 4-entry array at the renderer. The fix routes
- * to `ELLIPSE_SITES` where idx=6 is the E mid-edge — observable as
- * an 8-site sites list with a real E entry at sites[6].
+ * idx=3 is deliberate: it's one of the two indices (1 and 3) where
+ * the rect remap `[0, 3, 2, 1]` actually diverges from identity. If
+ * a future change drops the `shapeKindByPptxId: new Map()` init from
+ * `slide.ts` (or otherwise breaks the kind lookup so it returns
+ * undefined for the target), the importer silently falls back to
+ * the rect remap and stores siteIndex=1 (NW on the ellipse, top-left
+ * diagonal) instead of 3 (SW, bottom-left diagonal). This test
+ * asserts the resolved world position is the SW corner at
+ * (0.1464, 0.8536), which only matches when the ellipse path runs.
+ *
+ * Indices 0, 2, 4-7 cannot detect the regression because both remaps
+ * return the same number for those inputs (rect because of
+ * out-of-range fallback, ellipse because of identity).
  */
 const SLIDE_WITH_ELLIPSE_AND_CONNECTOR = `<?xml version="1.0"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -177,7 +183,7 @@ const SLIDE_WITH_ELLIPSE_AND_CONNECTOR = `<?xml version="1.0"?>
       <p:cxnSp>
         <p:nvCxnSpPr>
           <p:cNvPr id="6" name="c"/>
-          <p:cNvCxnSpPr><a:endCxn id="5" idx="6"/></p:cNvCxnSpPr>
+          <p:cNvCxnSpPr><a:endCxn id="5" idx="3"/></p:cNvCxnSpPr>
           <p:nvPr/>
         </p:nvCxnSpPr>
         <p:spPr>
@@ -190,7 +196,7 @@ const SLIDE_WITH_ELLIPSE_AND_CONNECTOR = `<?xml version="1.0"?>
 </p:sld>`;
 
 describe('parseSlide — ellipse connector site remap (slide-21 regression)', () => {
-  it('threads shapeKindByPptxId so an ellipse endCxn idx=6 lands on the E site', async () => {
+  it('threads shapeKindByPptxId so an ellipse endCxn idx=3 lands on the SW site, not NW (rect swap)', async () => {
     const { getConnectionSites } = await import(
       '../../../src/view/canvas/connection-sites/index'
     );
@@ -213,16 +219,15 @@ describe('parseSlide — ellipse connector site remap (slide-21 regression)', ()
     if (connector?.type !== 'connector') return;
     expect(connector.end.kind).toBe('attached');
     if (connector.end.kind !== 'attached') return;
-    // Under the bug, rect-family remap on idx=6 stores 6 verbatim, but
-    // `getConnectionSites` returns FOUR_CARDINAL (length 4), so sites[6]
-    // is undefined and the renderer falls back to sites[0] = N. With
-    // the fix, the ellipse override returns ELLIPSE_SITES (length 8)
-    // and sites[6] = (1, 0.5) — the E mid-edge.
-    expect(connector.end.siteIndex).toBe(6);
+    // Ellipse-aware path stores idx=3 verbatim (SW). A regressed
+    // shapeKindByPptxId threading would silently apply the rect
+    // remap and store siteIndex=1 (NW) instead.
+    expect(connector.end.siteIndex).toBe(3);
     const sites = getConnectionSites(target!);
     expect(sites).toHaveLength(8);
     const site = sites[connector.end.siteIndex];
-    expect(site.x).toBeCloseTo(1, 5);
-    expect(site.y).toBeCloseTo(0.5, 5);
+    // SW on the ellipse outline: (0.5 - SQRT1_2/2, 0.5 + SQRT1_2/2)
+    expect(site.x).toBeCloseTo(0.5 - Math.SQRT1_2 / 2, 5);
+    expect(site.y).toBeCloseTo(0.5 + Math.SQRT1_2 / 2, 5);
   });
 });
