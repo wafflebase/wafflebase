@@ -1,4 +1,5 @@
 import { palette } from '@wafflebase/tokens';
+import { resolveFontFamily } from './fonts.js';
 
 /**
  * Theme mode type.
@@ -143,6 +144,11 @@ export function ptToPx(pt: number): number {
 /**
  * Build a CSS font string from inline style properties.
  * Font sizes are stored in pt; the CSS string uses px for Canvas compatibility.
+ *
+ * The family is routed through `resolveFontFamily` so Canvas paint
+ * picks up the same Korean-fallback chain the DOM/CSS path uses. This
+ * is what lets Hangul render correctly when the resolved face is a
+ * Latin-only family like Arial or a brand font we don't have installed.
  */
 export function buildFont(
   fontSize?: number,
@@ -153,6 +159,6 @@ export function buildFont(
   const style = italic ? 'italic ' : '';
   const weight = bold ? 'bold ' : '';
   const size = ptToPx(fontSize ?? activeTheme.defaultFontSize);
-  const family = fontFamily ?? activeTheme.defaultFontFamily;
+  const family = resolveFontFamily(fontFamily ?? activeTheme.defaultFontFamily);
   return `${style}${weight}${size}px ${family}`;
 }

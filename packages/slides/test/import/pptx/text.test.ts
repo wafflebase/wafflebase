@@ -79,10 +79,23 @@ describe('parseTextBody — runs', () => {
     ).toBeUndefined();
   });
 
-  it('falls back to Noto Sans KR when typeface is missing but Hangul is present', () => {
+  it('leaves fontFamily unset on a Hangul run with no typeface override', () => {
+    // The importer no longer injects 'Noto Sans KR' for Hangul runs; the
+    // renderer's `resolveFontFamily` splices a Korean-capable family into
+    // every non-monospace fallback chain, so the theme default applies and
+    // Hangul still renders properly via the CSS cascade.
     const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:t>안녕</a:t></a:r></a:p></a:txBody>`);
     const inline = parseTextBody(t, { report: new ImportReport() })[0].inlines[0];
-    expect(inline.style.fontFamily).toBe('Noto Sans KR');
+    expect(inline.style.fontFamily).toBeUndefined();
+  });
+
+  it('preserves an explicit Latin typeface even on Hangul runs', () => {
+    // Previously the Korean-fallback guard could shadow whatever face was set;
+    // now the importer preserves the original face verbatim and the renderer
+    // appends the Korean fallback.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:rPr><a:latin typeface="Arial"/></a:rPr><a:t>안녕</a:t></a:r></a:p></a:txBody>`);
+    const inline = parseTextBody(t, { report: new ImportReport() })[0].inlines[0];
+    expect(inline.style.fontFamily).toBe('Arial');
   });
 
   it('does not override an explicit Korean-capable typeface', () => {

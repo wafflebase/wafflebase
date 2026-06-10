@@ -61,7 +61,10 @@ describe('renderListMarker', () => {
     });
     renderListMarker(ctx, block, 0, 24, 10, '●');
     expect(calls).toHaveLength(1);
-    expect(calls[0].font).toBe('24px Arial');
+    // buildFont now routes the family through resolveFontFamily, which
+    // splices a Korean-capable fallback before the trailing generic so
+    // Hangul markers render correctly even with a Latin face.
+    expect(calls[0].font).toBe("24px 'Arial', 'Noto Sans KR', sans-serif");
     expect(calls[0].fillStyle).toBe('#FF9900');
     expect(calls[0].text).toBe('●');
   });
@@ -72,7 +75,9 @@ describe('renderListMarker', () => {
       inline: { fontSize: 18, fontFamily: 'Noto Sans KR', color: '#1155cc' },
     });
     renderListMarker(ctx, block, 0, 24, 10, '●');
-    expect(calls[0].font).toBe('24px Noto Sans KR');
+    // Noto Sans KR is itself Korean-capable; resolveFontFamily must NOT
+    // double-append it. The chain ends in the generic sans-serif token.
+    expect(calls[0].font).toBe("24px 'Noto Sans KR', sans-serif");
     expect(calls[0].fillStyle).toBe('#1155cc');
   });
 
@@ -83,8 +88,10 @@ describe('renderListMarker', () => {
       inline: { fontSize: 20, fontFamily: 'Arial' },
     });
     renderListMarker(ctx, block, 0, 24, 10, '●');
-    // pt → px: 20 * 96 / 72 = 26.6666… → "26.666…px Arial"
-    expect(calls[0].font).toMatch(/^\d+(?:\.\d+)?px Arial$/);
+    // pt → px: 20 * 96 / 72 = 26.6666… → "26.666…px '<family chain>'"
+    expect(calls[0].font).toMatch(
+      /^\d+(?:\.\d+)?px 'Arial', 'Noto Sans KR', sans-serif$/,
+    );
     expect(calls[0].fillStyle).toBe('#FF9900');
   });
 });
