@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { parseXml } from '../../../src/import/pptx/xml';
-import { containsHangul, parsePrimaryTypeface } from '../../../src/import/pptx/font';
+import { parsePrimaryTypeface } from '../../../src/import/pptx/font';
 
 function fontEl(xml: string): Element {
   return parseXml(`<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${xml}</root>`).documentElement.firstElementChild!;
@@ -27,15 +27,3 @@ describe('parsePrimaryTypeface', () => {
   });
 });
 
-describe('containsHangul', () => {
-  it('detects Hangul syllables', () => {
-    expect(containsHangul('안녕하세요')).toBe(true);
-    expect(containsHangul('hello 안')).toBe(true);
-  });
-
-  it('returns false for Latin / CJK Han', () => {
-    expect(containsHangul('Hello')).toBe(false);
-    expect(containsHangul('中文')).toBe(false);
-    expect(containsHangul('')).toBe(false);
-  });
-});

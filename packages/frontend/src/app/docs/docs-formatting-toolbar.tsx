@@ -62,7 +62,6 @@ import {
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { isMac, modKey } from "@/components/text-formatting/platform";
-import { ensureGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 
 // ─── Docs-specific sub-components ────────────────────────────────────────────
 
@@ -305,11 +304,9 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
   useEffect(() => {
     if (!editor) return;
-    // Inject the Google Fonts CSS link on the FIRST docs editor mount
-    // rather than from `main.tsx` — every non-docs route would otherwise
-    // pay the third-party request (and CSP cost) for fonts it never
-    // paints. Idempotent across HMR / multiple toolbar mounts.
-    ensureGoogleFontsLink();
+    // The Google Fonts <link> is now injected by `useGoogleFontsLink()`
+    // in `docs-view.tsx` so read-only viewers get the same web fonts;
+    // the toolbar itself no longer needs to trigger it.
     const refresh = () => {
       setSummary(editor.getRangeStyleSummary());
       const bs = editor.getBlockStyle();

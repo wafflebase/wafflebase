@@ -152,7 +152,7 @@ export { findMarkerAt } from './view/comment-markers.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
-export { resolveFontFamily, FontRegistry } from './view/fonts.js';
+export { resolveFontFamily, isKoreanCapableFamily, FontRegistry } from './view/fonts.js';
 
 // Serialize (Markdown / text / JSON)
 export { serializeMarkdown } from './serialize/markdown.js';

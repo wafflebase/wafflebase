@@ -19,6 +19,7 @@ import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
+import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -163,6 +164,10 @@ export function SlidesView({
   useEffect(() => {
     setDidMount(true);
   }, []);
+
+  // Inject the Google Fonts `<link>` for read-only / shared-URL viewers
+  // that never mount the toolbar. Idempotent across surfaces.
+  useGoogleFontsLink();
 
   useEffect(() => {
     if (!didMount || !doc) return;

@@ -1,6 +1,35 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
 import { defaultColorResolver } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
+import { isKoreanCapableFamily } from '../view/fonts.js';
+
+/**
+ * Default Latin face the docs view paints unstyled runs with — kept in
+ * sync with `Theme.defaultFontFamily`. Duplicated here (rather than
+ * imported) so the DOCX exporter stays free of the browser-only view
+ * module (palette tokens, Canvas APIs).
+ */
+const DEFAULT_LATIN_FAMILY = 'Arial';
+const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
+
+/**
+ * Escape a value for safe interpolation into a double-quoted XML
+ * attribute. `style.fontFamily` originates from untrusted sources
+ * (PPTX/DOCX imports, user input in the font picker), so a hostile
+ * family name like `A"><script>` could break the DOCX `<w:rFonts>`
+ * element or inject attributes. The five canonical replacements cover
+ * every reserved character inside attribute content per the XML 1.0
+ * spec — applied to `&` first so subsequent escapes don't get
+ * re-escaped.
+ */
+function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 /**
  * Build <w:rPr>...</w:rPr> XML from InlineStyle.
@@ -9,9 +38,23 @@ import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 export function buildRunPropertiesXml(style: InlineStyle): string {
   const parts: string[] = [];
 
-  if (style.fontFamily) {
-    parts.push(`<w:rFonts w:ascii="${style.fontFamily}" w:hAnsi="${style.fontFamily}" w:eastAsia="${style.fontFamily}"/>`);
-  }
+  // Always emit `<w:rFonts>` so DOCX viewers (Word, LibreOffice, Pages)
+  // pick up the same East Asian face the docs view paints. Previously
+  // we skipped the override when `style.fontFamily` was undefined,
+  // which left Word to render Hangul runs in the document default
+  // (typically Calibri) — but Wafflebase paints those runs through the
+  // theme default + Noto Sans KR fallback. Defaulting the EA slot
+  // separately keeps Latin runs unchanged while making Hangul render
+  // with Noto Sans KR in Word.
+  const ascii = style.fontFamily ?? DEFAULT_LATIN_FAMILY;
+  const eastAsia = style.fontFamily && isKoreanCapableFamily(style.fontFamily)
+    ? style.fontFamily
+    : DEFAULT_EAST_ASIAN_FAMILY;
+  const asciiAttr = escapeXmlAttr(ascii);
+  const eastAsiaAttr = escapeXmlAttr(eastAsia);
+  parts.push(
+    `<w:rFonts w:ascii="${asciiAttr}" w:hAnsi="${asciiAttr}" w:eastAsia="${eastAsiaAttr}"/>`,
+  );
   if (style.bold) parts.push('<w:b/>');
   if (style.italic) parts.push('<w:i/>');
   if (style.underline) parts.push('<w:u w:val="single"/>');

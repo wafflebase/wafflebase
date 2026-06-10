@@ -51,9 +51,13 @@ describe('CanvasTextMeasurer', () => {
     measurer.measureWidth('A', {
       family: 'Helvetica', size: 12, weight: 'normal', style: 'normal',
     });
+    // The raw family is routed through `resolveFontFamily` inside the
+    // measurer so the Korean fallback splice lands in `ctx.font` (same
+    // chain that `buildFont` produces at paint time). Latin sans
+    // families get a Noto Sans KR fallback before the trailing generic.
     expect(fonts).toEqual([
-      'italic bold 14px Arial',
-      '12px Helvetica',
+      "italic bold 14px 'Arial', 'Noto Sans KR', sans-serif",
+      "12px 'Helvetica', 'Arial', 'Noto Sans KR', sans-serif",
     ]);
   });
 
@@ -64,7 +68,7 @@ describe('CanvasTextMeasurer', () => {
     };
     measurer.measureWidth('hello', font);
     measurer.measureWidth('world', font);
-    expect(fonts).toEqual(['16px Arial']);
+    expect(fonts).toEqual(["16px 'Arial', 'Noto Sans KR', sans-serif"]);
   });
 
   it('lazily creates an offscreen canvas when no ctx is supplied', () => {

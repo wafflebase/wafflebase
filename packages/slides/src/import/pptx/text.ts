@@ -1,7 +1,7 @@
 import type { Block, BlockMarker, BlockStyle, Inline, InlineStyle } from '@wafflebase/docs';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
 import { parseColorFromContainer, type ClrMap } from './color';
-import { containsHangul, parsePrimaryTypeface } from './font';
+import { parsePrimaryTypeface } from './font';
 import { ImportReport } from './report';
 import type { PptxRel } from './rels';
 import { attr, attrInt, child, children, NS, textOf } from './xml';
@@ -350,11 +350,11 @@ function parseRun(
 
   const text = textOverride ?? textOf(child(r, 't') ?? r);
 
-  // Korean-script fallback — only when the explicit Latin face is one of
-  // the well-known Latin-only fonts that we know don't render Hangul.
-  if (!style.fontFamily && containsHangul(text)) {
-    style.fontFamily = 'Noto Sans KR';
-  }
+  // No script-specific fontFamily override here. The renderer
+  // (`@wafflebase/docs` `resolveFontFamily`) splices a Korean-capable
+  // family into every non-monospace fallback chain, so the browser picks
+  // a Hangul face per-glyph even when this run's typeface (e.g. Arial or
+  // a brand font we don't have) carries no Korean glyphs.
 
   return { text, style };
 }

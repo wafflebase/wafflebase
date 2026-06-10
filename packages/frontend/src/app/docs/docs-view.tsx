@@ -18,6 +18,7 @@ import { CommentComposer } from "@/components/comments/components/CommentCompose
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
+import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsShortcutsHelp } from "./docs-shortcuts-help";
@@ -194,6 +195,10 @@ export function DocsView({
   useEffect(() => {
     setDidMount(true);
   }, []);
+
+  // Inject the Google Fonts `<link>` for read-only / shared-URL viewers
+  // that never mount the toolbar. Idempotent across surfaces.
+  useGoogleFontsLink();
 
   const buildPeerCursors = useCallback((): PeerCursor[] => {
     const store = storeRef.current;

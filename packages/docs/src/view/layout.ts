@@ -84,6 +84,13 @@ export function resolveInlineFont(style: InlineStyle): ResolvedFont {
   const isSuperOrSub = !!(style.superscript || style.subscript);
   const baseSizePt = style.fontSize ?? Theme.defaultFontSize;
   const sizePt = isSuperOrSub ? baseSizePt * 0.6 : baseSizePt;
+  // `family` stays the raw face name (not the resolved CSS chain). Each
+  // measurer applies its own resolution: CanvasTextMeasurer routes
+  // through `resolveFontFamily` at `fontToCss` time so the Korean
+  // fallback splice lands in `ctx.font`; FontkitMeasurer (CLI) keys its
+  // font cache on the raw family for direct hits against the registered
+  // face. Carrying the chain here would break the CLI cache lookup and
+  // bloat the measureCache fontKey.
   return {
     family: style.fontFamily ?? Theme.defaultFontFamily,
     size: ptToPx(sizePt),

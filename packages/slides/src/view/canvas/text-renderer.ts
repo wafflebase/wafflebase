@@ -3,6 +3,7 @@ import {
   computeLayout,
   normalizeBlockStyle,
   paintLayout,
+  resolveFontFamily,
   type Block,
   type ColorResolver,
   type StoredColor,
@@ -299,7 +300,13 @@ function drawHint(
   // not pt — they predate the docs-shared text path). Multiply by the
   // deck-level fontScale so the ghost hint visually matches the
   // committed text inside this placeholder once the user types.
-  ctx.font = `${style.fontSize * fontScale}px ${family}`;
+  // Route the raw theme family through `resolveFontFamily` so the
+  // ghost hint picks up the same Korean fallback chain typed text gets
+  // via `paintLayout → buildFont`. Without this, a Korean placeholder
+  // hint ("제목을 추가하려면 클릭하세요") on a Latin-themed deck would
+  // fall back to the browser default while real text in the same
+  // placeholder rendered through Noto Sans KR.
+  ctx.font = `${style.fontSize * fontScale}px ${resolveFontFamily(family)}`;
   ctx.textBaseline = 'top';
   ctx.textAlign = style.align;
   const padding = 8;
