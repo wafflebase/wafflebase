@@ -1,6 +1,6 @@
 ---
 title: slides pasteboard v1
-status: in-progress
+status: done
 owner: hackerwins
 created: 2026-06-10
 ---
@@ -67,8 +67,27 @@ editor (`setSlideOffset` method + `clientToLogical` subtraction).
         `max(slide, scrollHost)`, center slide inside, push the
         offsets into the editor on every `refitCanvas`.
 - [x] `pnpm verify:fast` green.
-- [ ] Smoke-test in `pnpm dev`: drag a shape off the slide, click on
-      it on the pasteboard, drag it back. Awaiting feedback.
+- [x] Smoke-test in `pnpm dev` across iterations (fixed-margin →
+      variable pasteboard → transparent pasteboard bg → CSS-elevation
+      after code review). Final round merged via PR #353.
+- [x] Self-review (9 finder angles + verify + sweep) → fixed shadow
+      regression at zoom > Fit, restored theme-aware hairline via
+      `slideElevation` div, snapped offsets to integer CSS px, added
+      `setSlideOffset` to toolbar mocks.
+
+## Review
+
+PR: [#353](https://github.com/wafflebase/wafflebase/pull/353).
+Target version: `0.4.5`.
+
+Shipped as two commits:
+1. Variable pasteboard wiring (renderer + editor + view shell + docs).
+2. Code-review fixes (CSS elevation div, integer offsets, mock
+   parity).
+
+Known v1 limit (documented in design doc): no surrounding pasteboard
+at zoom > Fit. Off-slide shapes at high zoom are clipped; the user
+drops to Fit to recover.
 
 ## Risks
 

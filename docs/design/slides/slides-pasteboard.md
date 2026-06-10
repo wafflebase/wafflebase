@@ -1,6 +1,6 @@
 ---
 title: slides-pasteboard
-target-version: 0.2.0
+target-version: 0.4.5
 ---
 
 # Slides Pasteboard (v1)
