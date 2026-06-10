@@ -19,6 +19,7 @@ import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
+import { ensureGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 
 export type { SlidesEditor } from "@wafflebase/slides";
 
@@ -162,6 +163,16 @@ export function SlidesView({
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
     setDidMount(true);
+  }, []);
+
+  // Inject the Google Fonts `<link>` from the slides view itself, not just
+  // from the toolbar / font picker mounts. Read-only or shared-URL
+  // viewers may never mount those surfaces, but the Canvas painter still
+  // needs the Korean web fonts to render imported decks faithfully.
+  // The function is idempotent (guarded by an id), so an editable mount
+  // that also opens the toolbar pays no second request.
+  useEffect(() => {
+    ensureGoogleFontsLink();
   }, []);
 
   useEffect(() => {

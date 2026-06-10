@@ -18,6 +18,7 @@ import { CommentComposer } from "@/components/comments/components/CommentCompose
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
+import { ensureGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsShortcutsHelp } from "./docs-shortcuts-help";
@@ -193,6 +194,16 @@ export function DocsView({
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
     setDidMount(true);
+  }, []);
+
+  // Inject the Google Fonts `<link>` from the docs view itself, not just
+  // from the formatting toolbar mount. Read-only or shared-URL viewers
+  // may never mount the toolbar, but the Canvas painter still needs the
+  // Korean web fonts to render imported docs faithfully. The function
+  // is idempotent (guarded by an id), so an editable mount that also
+  // opens the toolbar pays no second request.
+  useEffect(() => {
+    ensureGoogleFontsLink();
   }, []);
 
   const buildPeerCursors = useCallback((): PeerCursor[] => {

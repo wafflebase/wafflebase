@@ -21,15 +21,29 @@ export interface FontEntry {
    * `FontRegistry.ensureFont()` before paint. Local/system fonts skip both.
    */
   webFont: boolean;
+  /**
+   * Google Fonts `wght@…` axis values to request. Defaults to `'400;700'`
+   * for two-weight families. Display fonts that only ship a single
+   * weight (e.g. `Jua`, `Black Han Sans`) must override this — Google
+   * Fonts returns an error CSS payload when an unavailable weight is
+   * requested, and a single bad family poisons the whole `<link>`.
+   */
+  weights?: string;
 }
 
 export const FONT_CATALOG: readonly FontEntry[] = [
-  // Korean
+  // Korean — body text faces (display faces deferred to a later catalog
+  // pass; today's priority is broader coverage for imported PPTX/DOCX
+  // decks, which lean on text bodies, not headlines).
   { label: '맑은 고딕', family: '맑은 고딕', group: 'Korean', webFont: false },
   { label: '바탕', family: '바탕', group: 'Korean', webFont: false },
   { label: 'Noto Sans KR', family: 'Noto Sans KR', group: 'Korean', webFont: true },
   { label: 'Noto Serif KR', family: 'Noto Serif KR', group: 'Korean', webFont: true },
   { label: '나눔고딕', family: 'Nanum Gothic', group: 'Korean', webFont: true },
+  { label: '나눔명조', family: 'Nanum Myeongjo', group: 'Korean', webFont: true },
+  { label: 'Gothic A1', family: 'Gothic A1', group: 'Korean', webFont: true },
+  { label: 'Gowun Dodum', family: 'Gowun Dodum', group: 'Korean', webFont: true, weights: '400' },
+  { label: 'Gowun Batang', family: 'Gowun Batang', group: 'Korean', webFont: true },
   // Sans-serif
   { label: 'Arial', family: 'Arial', group: 'Sans-serif', webFont: false },
   { label: 'Helvetica', family: 'Helvetica', group: 'Sans-serif', webFont: false },
@@ -58,10 +72,13 @@ export const LINE_SPACING_MAX = 10.0;
  *  Returns an empty string when no entries have `webFont: true` — callers
  *  should skip injecting the link in that case. */
 export function buildGoogleFontsHref(): string {
-  const webFamilies = FONT_CATALOG.filter((f) => f.webFont).map((f) => f.family);
-  if (webFamilies.length === 0) return '';
-  const params = webFamilies
-    .map((name) => `family=${encodeURIComponent(name)}:wght@400;700`)
+  const webEntries = FONT_CATALOG.filter((f) => f.webFont);
+  if (webEntries.length === 0) return '';
+  const params = webEntries
+    .map(
+      (entry) =>
+        `family=${encodeURIComponent(entry.family)}:wght@${entry.weights ?? '400;700'}`,
+    )
     .join('&');
   return `https://fonts.googleapis.com/css2?${params}&display=swap`;
 }

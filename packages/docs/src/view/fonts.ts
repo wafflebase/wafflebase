@@ -11,6 +11,10 @@ const FONT_MAP: Record<string, string> = {
   'Noto Sans KR': "'Noto Sans KR', sans-serif",
   'Noto Serif KR': "'Noto Serif KR', serif",
   'Nanum Gothic': "'Nanum Gothic', sans-serif",
+  'Nanum Myeongjo': "'Nanum Myeongjo', serif",
+  'Gothic A1': "'Gothic A1', sans-serif",
+  'Gowun Dodum': "'Gowun Dodum', sans-serif",
+  'Gowun Batang': "'Gowun Batang', serif",
   'HY헤드라인M': "'Noto Sans KR', sans-serif",
   'Arial': "'Arial', sans-serif",
   'Helvetica': "'Helvetica', 'Arial', sans-serif",
@@ -26,6 +30,7 @@ const FONT_MAP: Record<string, string> = {
 const SERIF_FONTS = new Set([
   '바탕', 'Batang',
   'Noto Serif KR',
+  'Nanum Myeongjo', 'Gowun Batang',
   'Times New Roman', 'Georgia', 'Cambria',
 ]);
 
@@ -42,13 +47,60 @@ const KOREAN_CAPABLE_SANS = new Set([
   'Noto Sans KR',
   'Malgun Gothic', '맑은 고딕',
   'Nanum Gothic', '나눔고딕',
+  'Gothic A1',
+  'Gowun Dodum',
   'HY헤드라인M',
 ]);
 
 const KOREAN_CAPABLE_SERIF = new Set([
   'Noto Serif KR',
   'Batang', '바탕',
+  'Nanum Myeongjo',
+  'Gowun Batang',
 ]);
+
+/**
+ * Weight / style suffixes a typeface name from PPTX/DOCX may carry that
+ * we want to peel off before matching against the catalog. PowerPoint
+ * stores each weight as a separate family name
+ * (`"NanumSquare Neo OTF Bold"`, `"Gothic A1 Bold"`), but our catalog
+ * is keyed on the canonical family (`"Gothic A1"`).
+ *
+ * The suffixes are tried in length order so longer variants strip
+ * before substrings (e.g. `ExtraBold` before `Bold`). Kept private —
+ * importers don't need to call this directly; `resolveFontFamily`
+ * normalizes at lookup time so the stored `fontFamily` round-trips
+ * unchanged through export.
+ */
+const WEIGHT_SUFFIXES = [
+  'ExtraBold', 'ExtraLight', 'UltraBold', 'UltraLight',
+  'SemiBold', 'DemiBold',
+  'Medium', 'Regular', 'Light', 'Heavy', 'Black', 'Thin',
+  'Bold', 'Italic',
+];
+
+function stripTypefaceSuffixes(face: string): string {
+  let trimmed = face.trim();
+  // Iteratively peel a trailing weight, then a trailing 'OTF' / 'TTF'.
+  // Two passes cover "NanumSquare Neo OTF Bold" → "NanumSquare Neo OTF" →
+  // "NanumSquare Neo".
+  for (let i = 0; i < 2; i++) {
+    let changed = false;
+    for (const suffix of WEIGHT_SUFFIXES) {
+      if (trimmed.endsWith(' ' + suffix)) {
+        trimmed = trimmed.slice(0, -(suffix.length + 1));
+        changed = true;
+        break;
+      }
+    }
+    if (trimmed.endsWith(' OTF') || trimmed.endsWith(' TTF')) {
+      trimmed = trimmed.slice(0, -4);
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return trimmed;
+}
 
 /**
  * Escape a font family name for use in a CSS single-quoted string.
@@ -98,10 +150,18 @@ function injectKoreanFallback(stack: string, generic: 'sans-serif' | 'serif'): s
  * variable-width glyphs into a Courier stack would break code alignment.
  */
 export function resolveFontFamily(family: string): string {
-  const mapped = FONT_MAP[family];
-  const generic: 'sans-serif' | 'serif' | 'monospace' = MONOSPACE_FONTS.has(family)
+  // PPTX/DOCX often serialize per-weight families as separate names
+  // ("NanumSquare Neo OTF Bold"). Try the verbatim name first so a
+  // direct catalog hit wins; if it misses, strip standard weight/format
+  // suffixes and try the canonical name. The stored `style.fontFamily`
+  // is left untouched — we only normalize the lookup key.
+  const direct = FONT_MAP[family];
+  const normalized = direct ? undefined : stripTypefaceSuffixes(family);
+  const mapped = direct ?? (normalized ? FONT_MAP[normalized] : undefined);
+  const lookupKey = direct ? family : normalized ?? family;
+  const generic: 'sans-serif' | 'serif' | 'monospace' = MONOSPACE_FONTS.has(lookupKey)
     ? 'monospace'
-    : SERIF_FONTS.has(family)
+    : SERIF_FONTS.has(lookupKey)
       ? 'serif'
       : 'sans-serif';
   const base = mapped ?? `'${escapeFontFamily(family)}', ${generic}`;

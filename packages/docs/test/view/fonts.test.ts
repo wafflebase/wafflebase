@@ -87,6 +87,10 @@ describe('resolveFontFamily — catalog coverage', () => {
     ['Noto Sans KR', /Noto Sans KR/],
     ['Noto Serif KR', /Noto Serif KR/],
     ['Nanum Gothic', /Nanum Gothic/],
+    ['Nanum Myeongjo', /Nanum Myeongjo/],
+    ['Gothic A1', /Gothic A1/],
+    ['Gowun Dodum', /Gowun Dodum/],
+    ['Gowun Batang', /Gowun Batang/],
     ['Roboto', /Roboto/],
     ['Helvetica', /Helvetica/],
     ['Georgia', /Georgia/],
@@ -103,5 +107,56 @@ describe('resolveFontFamily — catalog coverage', () => {
 
   test('Courier New ends in monospace fallback', () => {
     expect(resolveFontFamily('Courier New')).toMatch(/monospace$/);
+  });
+
+  test('Korean serif catalog entries end in serif', () => {
+    expect(resolveFontFamily('Nanum Myeongjo')).toMatch(/serif$/);
+    expect(resolveFontFamily('Gowun Batang')).toMatch(/serif$/);
+  });
+});
+
+describe('resolveFontFamily — PPTX typeface normalization', () => {
+  test('strips trailing weight suffix to hit the catalog', () => {
+    // PPTX writes each weight as its own family name. The canonical
+    // family is in FONT_MAP; the verbose form should normalize to it
+    // so Google Fonts serves the matching face. Gothic A1 / Nanum
+    // Gothic are themselves Korean-capable, so no extra Noto KR
+    // splice is needed — the chain stays compact.
+    expect(resolveFontFamily('Gothic A1 Bold')).toBe(
+      "'Gothic A1', sans-serif",
+    );
+    expect(resolveFontFamily('Nanum Gothic ExtraBold')).toBe(
+      "'Nanum Gothic', sans-serif",
+    );
+  });
+
+  test('strips OTF + weight suffixes together', () => {
+    // Repro file uses "NanumSquare Neo OTF Bold". NanumSquare Neo
+    // itself isn't in the catalog yet (not on Google Fonts), so the
+    // normalized form still falls through to the generic path — but
+    // crucially the Korean fallback gets spliced in regardless, so
+    // Hangul renders properly via Noto Sans KR. The verbatim family
+    // name stays on the chain in case the user's machine has the
+    // brand font installed locally.
+    expect(resolveFontFamily('NanumSquare Neo OTF Bold')).toBe(
+      "'NanumSquare Neo OTF Bold', 'Noto Sans KR', sans-serif",
+    );
+    expect(resolveFontFamily('NanumSquare Neo OTF Regular')).toBe(
+      "'NanumSquare Neo OTF Regular', 'Noto Sans KR', sans-serif",
+    );
+    // When the normalized base IS in the catalog, the verbatim
+    // "Whatever OTF Bold" family is replaced by the canonical mapping.
+    expect(resolveFontFamily('Gothic A1 OTF Bold')).toBe(
+      "'Gothic A1', sans-serif",
+    );
+  });
+
+  test('canonical family without suffix is unaffected', () => {
+    // Sanity check: the normalizer is a fallback path, never overrides
+    // a direct catalog hit. "Cambria" without a weight suffix resolves
+    // through FONT_MAP['Cambria'] verbatim, not through the normalizer.
+    expect(resolveFontFamily('Cambria')).toBe(
+      "'Cambria', 'Georgia', 'Noto Serif KR', serif",
+    );
   });
 });

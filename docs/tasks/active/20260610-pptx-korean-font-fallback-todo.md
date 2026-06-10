@@ -24,33 +24,26 @@ family, so the browser handles per-glyph fallback at paint time. This
 makes Hangul readable for any imported deck regardless of the original
 typeface name.
 
-- [ ] `packages/docs/src/view/fonts.ts` — `resolveFontFamily(family)`
-      returns a stack that always includes `'Noto Sans KR'` before the
-      generic, unless the chain already names a Korean-capable face.
-  - Detect Korean-capable families via a small `KOREAN_FAMILIES` set
-    (Noto Sans KR, Noto Serif KR, Malgun Gothic / 맑은 고딕, Batang /
-    바탕, Nanum Gothic, and any P1 additions) so we don't double-append.
-  - For families with an existing explicit chain in `FONT_MAP`, splice
-    `'Noto Sans KR'` into the chain right before the generic.
-  - Pick `Noto Serif KR` (not Noto Sans KR) when the resolved face is
-    in `SERIF_FONTS`, so Times New Roman + Hangul still feels serif.
-- [ ] `packages/slides/src/import/pptx/text.ts:353-357` — remove the
-      Korean fallback guard; rendering layer handles it uniformly now.
-      Add a regression test asserting that import preserves the original
-      `fontFamily` even for Hangul runs (no longer overridden).
-- [ ] `packages/docs/src/view/fonts.ts` test additions:
-  - `resolveFontFamily('Arial')` → contains `'Noto Sans KR'` before
-    `sans-serif`.
-  - `resolveFontFamily('Times New Roman')` → contains `'Noto Serif KR'`
-    before `serif`.
-  - `resolveFontFamily('Noto Sans KR')` → does NOT double-append.
-  - `resolveFontFamily('NanumSquare Neo OTF Bold')` (unknown family) →
-    `'NanumSquare Neo OTF Bold', 'Noto Sans KR', sans-serif`.
-- [ ] Canvas `measureText` / `ctx.font` callers in `packages/docs/src/view`
-      (paint-layout.ts, table-renderer.ts) already feed the resolved
-      string — verify they go through `resolveFontFamily` or update them
-      to pick up the new fallback. If any path builds the CSS font string
-      with raw `style.fontFamily`, route it through `resolveFontFamily`.
+- [x] `packages/docs/src/view/fonts.ts` — `resolveFontFamily(family)`
+      returns a stack that always includes `'Noto Sans KR'` (or `'Noto
+      Serif KR'` for serif chains) before the generic, unless the chain
+      already names a Korean-capable face. Monospace skipped to keep
+      code alignment intact.
+- [x] `packages/slides/src/import/pptx/text.ts` — remove the Korean
+      fallback guard; rendering layer handles it uniformly now. Updated
+      regression tests assert the importer preserves the original
+      typeface verbatim (even on Hangul runs with an explicit Latin
+      face) and leaves `fontFamily` unset when the source has no
+      override (theme default + render-layer fallback take over).
+- [x] `packages/docs/src/view/fonts.ts` test additions for Arial /
+      Times New Roman / unknown family / NotoSansKR-no-double-append /
+      monospace-skipped cases.
+- [x] Canvas `ctx.font` callers — `buildFont` (`theme.ts`) and
+      `resolveInlineFont` (`layout.ts`) both route through
+      `resolveFontFamily` so Canvas measure + paint share the chain the
+      DOM/CSS path uses. Previously `buildFont` passed the raw family
+      into `ctx.font`, so measure and paint diverged once the new
+      fallback landed.
 
 ## P1 — Catalog expansion via Google Fonts (this PR)
 
@@ -60,41 +53,39 @@ already builds a single `<link href="…fonts.googleapis.com…">` from
 the Korean families that are actually on Google Fonts so common decks
 render with their original face.
 
-- [ ] Add Korean entries to `FONT_CATALOG` (all `webFont: true`,
-      family names match Google Fonts canonical names):
-  - `Gothic A1` — neutral sans, broad weight range.
-  - `Gowun Dodum` — friendly modern sans.
-  - `Gowun Batang` — modern serif counterpart.
-  - `Black Han Sans` — display.
-  - `Jua` — rounded display.
-  - `Do Hyeon` — bold display.
-  - `Nanum Myeongjo` — serif companion to Nanum Gothic.
-  - (do NOT add NanumSquare Neo / Pretendard / SUIT — not on Google
-    Fonts; route through P1.5/P3, see "Out of scope".)
-- [ ] Mirror these into `packages/docs/src/view/fonts.ts` `FONT_MAP`
-      so `resolveFontFamily` returns proper stacks (each with the
-      Korean fallback from P0 spliced in).
-- [ ] Add a typeface-name normalizer used by the PPTX importer:
-      strip trailing weight suffixes (`" Regular"`, `" Bold"`,
-      `" ExtraBold"`, `" OTF"`, `" OTF Regular"`, etc.) when matching
-      against `FONT_MAP` / `FONT_CATALOG`. PPTX writes per-weight as
-      separate family names (`"NanumSquare Neo OTF Bold"`); the
-      canonical family is `"NanumSquare Neo"`. This unblocks future
-      catalog hits without a custom mapper for every weight.
-  - Implementation: a `normalizeTypeface(face)` helper in
-    `packages/slides/src/import/pptx/font.ts`, called from
-    `parsePrimaryTypeface` and the run-level reader in `text.ts:318`.
-  - Test: `normalizeTypeface('NanumSquare Neo OTF Bold')` →
-    `'NanumSquare Neo'`; benign for already-canonical names.
-- [ ] Bootstrap `ensureGoogleFontsLink()` from the Slides editor mount
-      (it's currently called from the Docs editor mount only). The
-      Slides canvas needs the same web fonts during paint — without
-      this, the link injection only happens on the Docs route.
+- [x] Added 4 body-text Korean entries to `FONT_CATALOG`:
+      Gothic A1, Nanum Myeongjo, Gowun Dodum, Gowun Batang. Display
+      fonts (Black Han Sans / Jua / Do Hyeon) deferred — body coverage
+      gets us the higher-leverage parity wins for imported decks first.
+      NanumSquare Neo / Pretendard / SUIT still parked under "Out of
+      scope" — they're not on Google Fonts.
+- [x] `FontEntry.weights?: string` — per-entry override for the
+      `wght@…` axis on the Google Fonts URL. Default stays `'400;700'`;
+      Gowun Dodum overrides to `'400'` (it ships only Regular, and a
+      bad weight request 400s the entire CSS payload poisoning every
+      other family on the link).
+- [x] Mirrored the 4 new entries into `FONT_MAP` (docs renderer) with
+      matching generic suffix (sans-serif vs serif) so
+      `resolveFontFamily` returns the right shape. Updated
+      `KOREAN_CAPABLE_SANS` / `KOREAN_CAPABLE_SERIF` so the new
+      Korean-capable faces don't double-append the Noto fallback.
+- [x] `stripTypefaceSuffixes` normalizer added to fonts.ts (NOT to
+      the importer — keeping the stored `style.fontFamily` verbatim so
+      PPTX export round-trips). `resolveFontFamily` tries the verbatim
+      family first, falls back to the normalized form for the FONT_MAP
+      lookup. Covers `" Bold"`, `" ExtraBold"`, …, `" OTF"`, `" TTF"`
+      and combinations like `"X OTF Bold"`.
+- [x] `ensureGoogleFontsLink()` wired into both `SlidesView` and
+      `DocsView` mounts. Was previously called only from the toolbar /
+      font-picker surfaces, so read-only and shared-URL viewers (no
+      toolbar mount) painted imported decks against the browser's
+      local fonts. Idempotent guard means editable mounts still pay
+      one request.
 
 ## Verification
 
-- [ ] `pnpm verify:fast` green.
-- [ ] `pnpm sheets test`, `pnpm docs test`, `pnpm slides test` pass.
+- [x] `pnpm verify:fast` green (docs 915 / slides 1720 / frontend 531
+      / sheets 1279 / cli 191 / backend 175 passing).
 - [ ] Manual: in `pnpm dev`, re-import the repro PPTX and confirm
       Hangul renders with proper Korean glyphs (Noto Sans KR if the
       original face is not in the catalog; the original face if it is
