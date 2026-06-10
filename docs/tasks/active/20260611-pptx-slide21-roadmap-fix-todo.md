@@ -52,6 +52,12 @@ and hit-test paths iterate `sites.length`).
 
 ## P2 — `<a:lumMod>` / `<a:lumOff>` modifier parsing + resolution
 
+(Also normalizes the existing `<a:tint>` / `<a:shade>` parsing on the
+same code path so all four color modifiers store 0..1 ratios at the
+import boundary. Pre-fix the importer stored tint / shade as raw
+OOXML thousandths but `tintColor` / `shadeColor` expected 0..1, so
+any PPTX tint / shade saturated to white / black.)
+
 `lumMod` (luminance modulation, 0..100000 thousandths) and `lumOff`
 (luminance offset, -100000..100000 thousandths) are HSL-space
 adjustments to a theme color. PowerPoint applies them after the role
@@ -92,11 +98,6 @@ lookup but before tint/shade in the resolution order (per ECMA-376
 - **Triangle / rtTriangle / n-gon shape-aware remap.** Same root
   pattern as Issue 1 but no user report yet. Captured as a follow-up
   in `shape.ts` once the per-shape table lands.
-- **Existing tint/shade raw-value bug.** The importer stores
-  `tint: 50000` (raw OOXML thousandths) but `resolveColor` treats the
-  value as a `0..1` ratio in `tintColor` / `shadeColor`, which
-  saturates to white/black for any real tint. Separately tracked;
-  this PR does not change tint/shade behavior to avoid scope creep.
 - **`<p:embeddedFontLst>` and other unrelated PPTX gaps.** See the
   existing `20260610-pptx-korean-font-fallback-todo.md` for the
   font-side roadmap.
