@@ -33,27 +33,22 @@ and replaces the global rect-family remap with a per-shape lookup.
 Native authoring picks up the new sites for free (the picker, snap,
 and hit-test paths iterate `sites.length`).
 
-- [ ] `packages/slides/src/model/connection-site.ts` — add the four
+- [x] `packages/slides/src/model/connection-site.ts` — added the four
       diagonal `DIR_NE`, `DIR_SE`, `DIR_SW`, `DIR_NW` constants.
-- [ ] `packages/slides/src/view/canvas/connection-sites/overrides.ts`
-      — add `ELLIPSE_SITES` with 8 entries in **PPTX `cxnLst` order**
-      (CCW from top: N, NW, W, SW, S, SE, E, NE) so the importer
-      stores `idx` directly without a per-shape remap table.
-      Register under `ShapeKind` "ellipse". Document the site
-      coordinates (x=0.5±cos(45°)/2, y=0.5∓sin(45°)/2 = 0.1464 / 0.8536)
-      with a reference to the OOXML preset.
-- [ ] `packages/slides/src/import/pptx/shape.ts` — make
-      `ooxmlToWaffleSiteIndex` shape-aware. Lookup table keyed by
-      target shape kind. For ellipse / oval, return idx verbatim. For
-      rect-family, keep the existing `[0,3,2,1]` remap. Other shapes
-      (triangle, n-gons) still pass through with the rect remap as a
-      noted limitation — out of scope for this PR.
-- [ ] `packages/slides/test/import/pptx/connector.test.ts` — add a
-      regression test that builds an `<p:sp prstGeom prst="ellipse">`
-      target and connectors with `endCxn id idx="0"..."7"`, asserts the
-      stored `siteIndex` equals the input idx, and that the world-space
-      position of each site (via `siteWorldPos`) matches the expected
-      cardinal/diagonal point on the ellipse bbox.
+- [x] `packages/slides/src/view/canvas/connection-sites/overrides.ts`
+      — `ELLIPSE_SITES` with 8 entries in PPTX cxnLst order (CCW
+      from top: N, NW, W, SW, S, SE, E, NE). Site coords
+      `(0.5 ± SQRT1_2/2 ≈ 0.1464 / 0.8536)`. Registered under
+      `ShapeKind` "ellipse".
+- [x] `packages/slides/src/import/pptx/shape.ts` — `ooxmlToWaffleSite
+      Index` is now shape-aware. Identity remap for ellipse; rect
+      remap for everything else. Target shape kind plumbed via a new
+      `shapeKindByPptxId` field on `SlideParseContext`, filled in
+      `preassignIds` from `<a:prstGeom prst>`.
+- [x] `packages/slides/test/import/pptx/connector.test.ts` — `prst`
+      param on `buildTree` helper; new tests assert (1) ellipse idx
+      0..7 stored verbatim and (2) idx=2 lands on the W cardinal
+      site at (0, 0.5) for the slide-21 case.
 
 ## P2 — `<a:lumMod>` / `<a:lumOff>` modifier parsing + resolution
 
@@ -63,33 +58,34 @@ adjustments to a theme color. PowerPoint applies them after the role
 lookup but before tint/shade in the resolution order (per ECMA-376
 § 20.1.2.3 color modifier semantics).
 
-- [ ] `packages/slides/src/model/theme.ts` — extend the `role` variant
-      of `ThemeColor` with optional `lumMod?: number` and `lumOff
-      ?: number` (raw OOXML thousandths, matching the existing
-      tint/shade import convention). `applyLumModOff(hex, lumMod,
-      lumOff)` helper that converts hex → HSL, multiplies L by
-      `lumMod/100000`, adds `lumOff/100000`, clamps to [0,1], converts
-      back. `resolveColor` applies lumMod/lumOff before tint/shade.
-- [ ] `packages/slides/src/import/pptx/color.ts` — read `<a:lumMod>`
-      and `<a:lumOff>` children in `applyModifiers`, store on the
-      result like tint/shade.
-- [ ] `packages/slides/test/import/pptx/color.test.ts` — assert that
+- [x] `packages/slides/src/model/theme.ts` — extended the `role`
+      variant of `ThemeColor` with optional `lumMod?: number` and
+      `lumOff?: number`, stored as **0..1 ratios** (importer
+      normalizes from OOXML thousandths at the import boundary, so
+      `resolveColor` doesn't re-scale every paint). `applyLumModOff
+      (hex, lumMod, lumOff)` converts hex → HSL, applies `L ← clamp
+      (L * lumMod + lumOff, 0, 1)`, converts back. `resolveColor`
+      applies lumMod/lumOff before tint/shade (per ECMA-376).
+- [x] `packages/slides/src/import/pptx/color.ts` — `applyModifiers`
+      now reads `<a:lumMod>` and `<a:lumOff>` children, divides by
+      100000 at parse time, stores 0..1 ratios.
+- [x] `packages/slides/test/import/pptx/color.test.ts` — asserts
       `<a:schemeClr val="bg1"><a:lumMod val="95000"/></a:schemeClr>`
-      stores `{ role: 'background', lumMod: 95000 }`, and a
-      lumMod+lumOff pair is captured together.
-- [ ] `packages/slides/test/model/theme.test.ts` — assert that
-      resolving `{ role: 'background', lumMod: 95000 }` against a
-      `bg1=#FFFFFF` theme yields the expected near-white hex (≈
-      `#F2F2F2` at 95% luminance), and that `{ role: 'background',
-      lumMod: 75000 }` yields a clearly visible mid-gray. Edge cases:
-      clamp at 0 / 100% L, lumOff alone, lumMod+lumOff combined.
+      stores `{ role: 'background', lumMod: 0.95 }`; lumMod+lumOff
+      pair captured together as 0.75 / 0.25.
+- [x] `packages/slides/test/model/theme.test.ts` — bg1=#FFFFFF +
+      lumMod 0.95 → `#F2F2F2`; lumMod 0.75 → `#BFBFBF`. lumOff alone
+      on text=#000000 → mid-gray. Combined lumMod + lumOff on
+      accent1 round-trips to original. Clamp tests at L≥1 and L≤0.
 
 ## Verification
 
-- [ ] `pnpm verify:fast` green (slides unit tests + lint).
+- [x] `pnpm verify:fast` green (slides 1727 / 1729 — 5 new lumMod +
+      ellipse tests; docs 925 / 926; sheets 1279 / 1279; frontend
+      531 / 575; cli 191 / 191; backend 175 / 175). EXIT=0.
 - [ ] Manual: import the user-reported PPTX (private), open slide 21,
       confirm the green 8월 arrow terminates at the LEFT edge of the
-      circle and that both gray circles are visible.
+      circle and that both gray circles are visible. Pending user.
 
 ## Out of scope
 
