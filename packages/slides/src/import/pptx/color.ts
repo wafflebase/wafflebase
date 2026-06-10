@@ -156,26 +156,51 @@ export function parseHexInContainer(container: Element): string | undefined {
 
 function applyModifiers(base: ThemeColor, el: Element): ThemeColor {
   // Alpha applies to every color kind (an OOXML producer can attach
-  // `<a:alpha>` to srgb / scheme / sys / prst alike). Tint and shade
-  // are role-only — they recolor a theme slot, which makes no sense
-  // for a literal sRGB value.
+  // `<a:alpha>` to srgb / scheme / sys / prst alike). Tint, shade,
+  // lumMod, and lumOff are role-only — they recolor a theme slot,
+  // which makes no sense for a literal sRGB value.
   const alpha = readAlpha(el);
   if (base.kind !== 'role') {
     return alpha != null ? { ...base, alpha } : base;
   }
   let tint: number | undefined;
   let shade: number | undefined;
+  let lumMod: number | undefined;
+  let lumOff: number | undefined;
   const tEl = children(el, 'tint')[0];
   if (tEl) tint = attrInt(tEl, 'val');
   const sEl = children(el, 'shade')[0];
   if (sEl) shade = attrInt(sEl, 'val');
-  if (tint == null && shade == null && alpha == null) return base;
+  // lumMod / lumOff are OOXML thousandths (0..100000 / -100000..100000);
+  // normalize to 0..1 at the import boundary so `resolveColor` can apply
+  // them directly without re-scaling at every paint.
+  const lmEl = children(el, 'lumMod')[0];
+  if (lmEl) {
+    const v = attrInt(lmEl, 'val');
+    if (v != null) lumMod = v / 100000;
+  }
+  const loEl = children(el, 'lumOff')[0];
+  if (loEl) {
+    const v = attrInt(loEl, 'val');
+    if (v != null) lumOff = v / 100000;
+  }
+  if (
+    tint == null &&
+    shade == null &&
+    lumMod == null &&
+    lumOff == null &&
+    alpha == null
+  ) {
+    return base;
+  }
   // Spread only the modifiers that were actually present; an
   // `alpha: undefined` key would break `toEqual` shape checks (and
   // serializes as `null` through some JSON pipelines).
   const out = { ...base };
   if (tint != null) out.tint = tint;
   if (shade != null) out.shade = shade;
+  if (lumMod != null) out.lumMod = lumMod;
+  if (lumOff != null) out.lumOff = lumOff;
   if (alpha != null) out.alpha = alpha;
   return out;
 }

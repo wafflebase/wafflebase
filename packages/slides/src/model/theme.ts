@@ -39,8 +39,24 @@ export type FontRole = keyof FontScheme;
  * importer normalizes to this `0..1` range so the renderer can use the
  * value directly as a CSS alpha multiplier.
  */
+/**
+ * `lumMod` / `lumOff` modifiers shift the role color in HSL space —
+ * `L ← clamp(L * lumMod + lumOff, 0, 1)`. Both stored as 0..1 ratios
+ * (the importer normalizes from OOXML thousandths). PowerPoint applies
+ * them BEFORE tint/shade in the resolve order. Common pattern in real
+ * decks: `<a:schemeClr val="bg1"><a:lumMod val="95000"/>` for a light
+ * gray derived from white.
+ */
 export type ThemeColor =
-  | { kind: 'role'; role: ColorRole; tint?: number; shade?: number; alpha?: number }
+  | {
+      kind: 'role';
+      role: ColorRole;
+      lumMod?: number;
+      lumOff?: number;
+      tint?: number;
+      shade?: number;
+      alpha?: number;
+    }
   | { kind: 'srgb'; value: string; alpha?: number };
 
 export type ThemeFont =
@@ -52,7 +68,10 @@ export function resolveColor(color: ThemeColor, theme: Theme): string {
   if (color.kind === 'srgb') {
     hex = color.value;
   } else {
-    const base = theme.colors[color.role];
+    let base = theme.colors[color.role];
+    if (color.lumMod != null || color.lumOff != null) {
+      base = applyLumModOff(base, color.lumMod, color.lumOff);
+    }
     if (color.tint != null) hex = tintColor(base, color.tint);
     else if (color.shade != null) hex = shadeColor(base, color.shade);
     else hex = base;
@@ -100,6 +119,64 @@ function tintColor(hex: string, ratio: number): string {
 function shadeColor(hex: string, ratio: number): string {
   const [r, g, b] = parseHex(hex);
   return toHex(r * (1 - ratio), g * (1 - ratio), b * (1 - ratio));
+}
+
+/**
+ * Shift `hex` in HSL space: `L ← clamp(L * lumMod + lumOff, 0, 1)`.
+ * Matches OOXML `<a:lumMod>` / `<a:lumOff>` semantics (per ECMA-376
+ * § 20.1.2.3): luminance modulation runs in HSL, not RGB, so the hue
+ * and saturation of the role color are preserved. Either operand may
+ * be undefined; defaults are `lumMod=1` (identity) and `lumOff=0`.
+ */
+function applyLumModOff(
+  hex: string,
+  lumMod: number | undefined,
+  lumOff: number | undefined,
+): string {
+  const [r, g, b] = parseHex(hex);
+  const [h, s, l] = rgbToHsl(r, g, b);
+  const newL = Math.max(0, Math.min(1, l * (lumMod ?? 1) + (lumOff ?? 0)));
+  const [nr, ng, nb] = hslToRgb(h, s, newL);
+  return toHex(nr, ng, nb);
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+  else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+  else h = ((rn - gn) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) {
+    const v = l * 255;
+    return [v, v, v];
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hueToRgb = (t: number): number => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [
+    hueToRgb(h + 1 / 3) * 255,
+    hueToRgb(h) * 255,
+    hueToRgb(h - 1 / 3) * 255,
+  ];
 }
 
 function hexToRgba(hex: string, alpha: number): string {

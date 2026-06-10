@@ -43,6 +43,37 @@ describe('parseColorElement', () => {
     ).toEqual({ kind: 'role', role: 'accent2', shade: 25000 });
   });
 
+  it('captures lumMod and lumOff modifiers on role colors as 0..1 ratios', () => {
+    // PPTX produces `<a:lumMod val="95000"/>` on a `bg1` schemeClr to
+    // express "95% luminance" — a light gray derived from white. The
+    // importer normalizes OOXML thousandths to 0..1 so the renderer
+    // can apply the HSL shift directly without re-scaling at every
+    // paint. Matches `resolveColor`'s 0..1 expectation for tint/shade.
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="bg1"><a:lumMod val="95000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'background', lumMod: 0.95 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="bg1"><a:lumMod val="75000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'background', lumMod: 0.75 });
+    expect(
+      parseColorElement(
+        colorEl(`<a:schemeClr val="dk1"><a:lumOff val="10000"/></a:schemeClr>`),
+      ),
+    ).toEqual({ kind: 'role', role: 'text', lumOff: 0.1 });
+    // lumMod and lumOff frequently appear together (HSL luminance shift).
+    expect(
+      parseColorElement(
+        colorEl(
+          `<a:schemeClr val="accent1"><a:lumMod val="75000"/><a:lumOff val="25000"/></a:schemeClr>`,
+        ),
+      ),
+    ).toEqual({ kind: 'role', role: 'accent1', lumMod: 0.75, lumOff: 0.25 });
+  });
+
   it('falls back through sysClr.lastClr and prstClr', () => {
     expect(parseColorElement(colorEl(`<a:sysClr val="windowText" lastClr="2B2B2B"/>`))).toEqual({
       kind: 'srgb',

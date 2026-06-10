@@ -74,6 +74,50 @@ describe('resolveColor', () => {
     expect(resolveColor({ kind: 'srgb', value: '#abcdef', alpha: 1 }, THEME)).toBe('#abcdef');
   });
 
+  it('applies lumMod to a role color (HSL luminance scale)', () => {
+    // bg1 = #FFFFFF (HSL L=1). lumMod 0.95 → L=0.95 → #F2F2F2.
+    // This is the exact case from the slide-21 roadmap diagram where
+    // a `<a:schemeClr val="bg1"><a:lumMod val="95000"/>` light-gray
+    // ellipse was rendering as pure white (invisible on white slide).
+    expect(
+      resolveColor({ kind: 'role', role: 'background', lumMod: 0.95 }, THEME),
+    ).toBe('#F2F2F2');
+    // lumMod 0.75 → mid-gray border on the same diagram.
+    expect(
+      resolveColor({ kind: 'role', role: 'background', lumMod: 0.75 }, THEME),
+    ).toBe('#BFBFBF');
+  });
+
+  it('applies lumOff to a role color (HSL luminance offset)', () => {
+    // dk1 = #000000 (HSL L=0). lumOff 0.5 → L=0.5 → #808080.
+    expect(
+      resolveColor({ kind: 'role', role: 'text', lumOff: 0.5 }, THEME),
+    ).toBe('#808080');
+  });
+
+  it('combines lumMod and lumOff (PowerPoint applies mod then off)', () => {
+    // accent1 = #FF9900 → HSL ≈ (36°, 100%, 50%). lumMod 0.5 → L=0.25,
+    // then lumOff 0.25 → L=0.5. Back to the same brightness, hue/sat
+    // preserved → original color.
+    expect(
+      resolveColor(
+        { kind: 'role', role: 'accent1', lumMod: 0.5, lumOff: 0.25 },
+        THEME,
+      ).toUpperCase(),
+    ).toBe('#FF9900');
+  });
+
+  it('clamps luminance to [0, 1] when lumMod/lumOff drive it out of range', () => {
+    // background L=1, lumOff 0.5 would push L=1.5; clamps to 1 → white.
+    expect(
+      resolveColor({ kind: 'role', role: 'background', lumOff: 0.5 }, THEME),
+    ).toBe('#FFFFFF');
+    // text L=0, lumOff -0.5 would push L=-0.5; clamps to 0 → black.
+    expect(
+      resolveColor({ kind: 'role', role: 'text', lumOff: -0.5 }, THEME),
+    ).toBe('#000000');
+  });
+
   it('clamps out-of-range alpha to [0, 1]', () => {
     expect(
       resolveColor({ kind: 'srgb', value: '#000000', alpha: -0.5 }, THEME),
