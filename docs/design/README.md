@@ -73,6 +73,7 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-smart-guides.md](slides/slides-smart-guides.md)                               | Smart guides v1 — equal-spacing trios + equal-distance pairs during drag + equal-size during resize, PowerPoint-style red arrow / dashed outline overlays, reuses snap-candidates pipeline                  |
 | [slides-hover-and-text-edit-entry.md](slides/slides-hover-and-text-edit-entry.md)     | Hover preview + text-edit entry parity with Google Slides — idle hover outline, text-region I-beam, Enter/F2 entry, empty-placeholder 1-click, slow double-click, printable-char typing; 3-phase rollout (P0/P1/P2) |
 | [slides-tables.md](slides/slides-tables.md)                                           | Slides tables — structured `TableElement` (rows × cols, per-cell `TextBody`, per-side borders, merges), Yorkie granular schema, PPTX import upgrade (replaces flatten path), 6-phase rollout                          |
+| [slides-pasteboard.md](slides/slides-pasteboard.md)                                   | Slides pasteboard v1 — fixed margin around the slide so off-slide shapes stay visible, hit-testable, selectable; renderer translates origin, overlay stays at slide rect, ruler/thumb unchanged                       |
 
 ## Common
 

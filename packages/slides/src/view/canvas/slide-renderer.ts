@@ -13,9 +13,26 @@ import { getActiveTheme } from './render-context';
 export const GHOST_ALPHA = 0.4;
 
 export interface SlideRendererOptions {
-  hostWidth: number;   // CSS pixels of the target <canvas>
-  hostHeight: number;  // CSS pixels of the target <canvas>
+  hostWidth: number;   // CSS pixels of the SLIDE rect (excludes pasteboard)
+  hostHeight: number;  // CSS pixels of the SLIDE rect (excludes pasteboard)
   dpr: number;         // devicePixelRatio
+  /**
+   * Slide-logical pixels from the canvas top-left to the slide rect
+   * top-left, on each axis. Non-zero values are how the editor turns
+   * the empty area around the slide inside `canvasWrap` (the
+   * "pasteboard") into a paint surface for off-slide elements.
+   * The caller sizes the actual `<canvas>` bitmap big enough to
+   * cover both the slide and the surrounding pasteboard; the
+   * renderer translates the slide-logical origin to
+   * `(slideOffsetLogicalX, slideOffsetLogicalY)` inside that bitmap
+   * and paints the slide background + shadow only in the slide
+   * rect, leaving the pasteboard transparent so `canvasWrap`'s CSS
+   * background can supply the pasteboard color.
+   *
+   * Defaults `0` preserve pre-pasteboard behaviour (canvas == slide).
+   */
+  slideOffsetLogicalX?: number;
+  slideOffsetLogicalY?: number;
 }
 
 /**
@@ -113,6 +130,9 @@ export function drawSlide(
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
+  const slideOffsetLogicalX = options.slideOffsetLogicalX ?? 0;
+  const slideOffsetLogicalY = options.slideOffsetLogicalY ?? 0;
+  const hasPasteboard = slideOffsetLogicalX !== 0 || slideOffsetLogicalY !== 0;
   // Uniform fit-scale: pick whichever axis is the binding constraint
   // so the slide fits inside the host canvas without distortion. The
   // SlidesView host is currently a fixed 16:9 (960×540), so both
@@ -123,22 +143,49 @@ export function drawSlide(
   const scaleY = (hostHeight / SLIDE_HEIGHT) * dpr;
   const scale = Math.min(scaleX, scaleY);
 
-  // Reset to identity, paint the slide background across the FULL canvas
-  // (not just the logical 1920×1080 region), then re-establish the world
-  // scale so element content paints at the correct host pixel size.
+  // Reset to identity and clear the full bitmap. With pasteboard the
+  // off-slide band stays transparent so `canvasWrap`'s CSS background
+  // can supply the pasteboard color. Without pasteboard (default) we
+  // still fill the full bitmap with the slide background fill — this
+  // hides the 1–2 px aspect-ratio rounding gap that would otherwise
+  // reveal the canvas's CSS `background` underneath. With pasteboard
+  // the slide-bg fill below pads its own slide rect by ±1 logical
+  // px for the same reason.
   //
-  // Filling the full canvas — rather than `fillRect(0, 0, SLIDE_W, SLIDE_H)`
-  // after the scale transform — hides 1–2 px aspect-ratio rounding gaps on
-  // the right/bottom edges. Without this, host dimensions whose ratio drifts
-  // from SLIDE_WIDTH:SLIDE_HEIGHT (rounding from `computeFitSize` →
-  // `Math.round`) leave a transparent strip that reveals the canvas's CSS
-  // `background` underneath. That strip reads white in light mode and reads
-  // as a flashing white edge in dark mode + Simple Dark, where the slide
-  // background is `#202124` but the canvas backdrop stays `#fff`.
+  // Bitmap dims come from `ctx.canvas` when available (the real
+  // browser canvas, which the caller has sized to cover slide +
+  // pasteboard). The test 2D-context stub doesn't expose `canvas`,
+  // so fall back to `hostWidth × hostHeight` — tests don't drive a
+  // non-zero pasteboard, so the fallback matches reality there.
+  const bitmapW = ctx.canvas?.width ?? hostWidth * dpr;
+  const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = resolveColor(slide.background.fill, theme);
-  ctx.fillRect(0, 0, hostWidth * dpr, hostHeight * dpr);
+  if (!hasPasteboard) {
+    ctx.fillStyle = resolveColor(slide.background.fill, theme);
+    ctx.fillRect(0, 0, bitmapW, bitmapH);
+  } else {
+    ctx.clearRect(0, 0, bitmapW, bitmapH);
+  }
   ctx.scale(scale, scale);
+  if (hasPasteboard) {
+    // Move slide-logical (0,0) to the slide rect inside the bigger
+    // canvas so every drawElement call paints relative to
+    // slide-left/top without per-element offset bookkeeping.
+    // Coordinates outside the slide rect (negative x/y, or beyond
+    // SLIDE_WIDTH / SLIDE_HEIGHT) now land in the pasteboard band
+    // rather than off the bitmap.
+    ctx.translate(slideOffsetLogicalX, slideOffsetLogicalY);
+    // Slide background fill + drop shadow, restricted to the slide
+    // rect. The ±1 px pad absorbs the same aspect-ratio rounding
+    // gap the no-pasteboard path solves with a full-canvas fill.
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.10)';
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = resolveColor(slide.background.fill, theme);
+    ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, SLIDE_HEIGHT + 2);
+    ctx.restore();
+  }
 
   // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted
   // *after* the full-canvas color fill so the surrounding strip stays
