@@ -4,17 +4,24 @@
  */
 
 const FONT_MAP: Record<string, string> = {
+  // Korean families — every chain ends with a Noto KR safety net before
+  // the generic so missing-glyph coverage is uniform (some catalog
+  // faces, e.g. Nanum Gothic, lack a few rare Hangul codepoints that
+  // Noto KR covers). The trailing Noto KR is also what
+  // `stackContainsKoreanFamily` keys off when deciding whether to
+  // double-append the script fallback, so keeping Korean entries
+  // consistent here makes the capability set self-deriving.
   '맑은 고딕': "'Malgun Gothic', 'Noto Sans KR', sans-serif",
   'Malgun Gothic': "'Malgun Gothic', 'Noto Sans KR', sans-serif",
   '바탕': "'Batang', 'Noto Serif KR', serif",
   'Batang': "'Batang', 'Noto Serif KR', serif",
   'Noto Sans KR': "'Noto Sans KR', sans-serif",
   'Noto Serif KR': "'Noto Serif KR', serif",
-  'Nanum Gothic': "'Nanum Gothic', sans-serif",
-  'Nanum Myeongjo': "'Nanum Myeongjo', serif",
-  'Gothic A1': "'Gothic A1', sans-serif",
-  'Gowun Dodum': "'Gowun Dodum', sans-serif",
-  'Gowun Batang': "'Gowun Batang', serif",
+  'Nanum Gothic': "'Nanum Gothic', 'Noto Sans KR', sans-serif",
+  'Nanum Myeongjo': "'Nanum Myeongjo', 'Noto Serif KR', serif",
+  'Gothic A1': "'Gothic A1', 'Noto Sans KR', sans-serif",
+  'Gowun Dodum': "'Gowun Dodum', 'Noto Sans KR', sans-serif",
+  'Gowun Batang': "'Gowun Batang', 'Noto Serif KR', serif",
   'HY헤드라인M': "'Noto Sans KR', sans-serif",
   'Arial': "'Arial', sans-serif",
   'Helvetica': "'Helvetica', 'Arial', sans-serif",
@@ -37,27 +44,24 @@ const SERIF_FONTS = new Set([
 const MONOSPACE_FONTS = new Set(['Courier New', 'Courier', 'Consolas']);
 
 /**
- * Families that already carry Korean glyph coverage. When the resolved
- * stack already names one of these (either as the primary face or via
- * a FONT_MAP-injected secondary face like Malgun Gothic), we skip the
- * Korean-fallback splice in `resolveFontFamily` to avoid duplicating
- * the Noto KR entry.
+ * Families that already carry Korean glyph coverage — derived at module
+ * init from FONT_MAP entries whose stack names a Noto KR face, plus
+ * Noto Sans/Serif KR themselves and the picker-display aliases ('맑은
+ * 고딕' is a FONT_MAP key but the stack contains 'Malgun Gothic'; either
+ * could appear as the raw input). Deriving from FONT_MAP keeps the
+ * "is this Korean-capable?" question in lockstep with the catalog —
+ * adding a new mapped Korean family no longer requires editing two
+ * sets manually.
  */
-const KOREAN_CAPABLE_SANS = new Set([
-  'Noto Sans KR',
-  'Malgun Gothic', '맑은 고딕',
-  'Nanum Gothic', '나눔고딕',
-  'Gothic A1',
-  'Gowun Dodum',
-  'HY헤드라인M',
-]);
-
-const KOREAN_CAPABLE_SERIF = new Set([
-  'Noto Serif KR',
-  'Batang', '바탕',
-  'Nanum Myeongjo',
-  'Gowun Batang',
-]);
+const KOREAN_CAPABLE: ReadonlySet<string> = (() => {
+  const set = new Set<string>(['Noto Sans KR', 'Noto Serif KR']);
+  for (const [key, stack] of Object.entries(FONT_MAP)) {
+    if (stack.includes("'Noto Sans KR'") || stack.includes("'Noto Serif KR'")) {
+      set.add(key);
+    }
+  }
+  return set;
+})();
 
 /**
  * Weight / style suffixes a typeface name from PPTX/DOCX may carry that
@@ -66,38 +70,51 @@ const KOREAN_CAPABLE_SERIF = new Set([
  * (`"NanumSquare Neo OTF Bold"`, `"Gothic A1 Bold"`), but our catalog
  * is keyed on the canonical family (`"Gothic A1"`).
  *
- * The suffixes are tried in length order so longer variants strip
- * before substrings (e.g. `ExtraBold` before `Bold`). Kept private —
- * importers don't need to call this directly; `resolveFontFamily`
- * normalizes at lookup time so the stored `fontFamily` round-trips
- * unchanged through export.
+ * Matching is case-insensitive so families written by LibreOffice
+ * (`'Pretendard Semibold'`) and Google Slides (often lowercase) hit the
+ * same catalog entry as PowerPoint's PascalCase. Italic / Oblique are
+ * style axes, not weights, and are excluded — many real families ship
+ * with `Italic` in the canonical family name (`Lucida Sans Italic`).
  */
 const WEIGHT_SUFFIXES = [
   'ExtraBold', 'ExtraLight', 'UltraBold', 'UltraLight',
   'SemiBold', 'DemiBold',
   'Medium', 'Regular', 'Light', 'Heavy', 'Black', 'Thin',
-  'Bold', 'Italic',
+  'Bold',
 ];
+
+const FORMAT_SUFFIXES = ['OTF', 'TTF'];
+
+function stripTrailingSuffix(input: string, suffixes: readonly string[]): string | null {
+  const lower = input.toLowerCase();
+  for (const suffix of suffixes) {
+    const candidate = ' ' + suffix;
+    if (lower.endsWith(candidate.toLowerCase())) {
+      return input.slice(0, -candidate.length);
+    }
+  }
+  return null;
+}
 
 function stripTypefaceSuffixes(face: string): string {
   let trimmed = face.trim();
-  // Iteratively peel a trailing weight, then a trailing 'OTF' / 'TTF'.
-  // Two passes cover "NanumSquare Neo OTF Bold" → "NanumSquare Neo OTF" →
-  // "NanumSquare Neo".
-  for (let i = 0; i < 2; i++) {
-    let changed = false;
-    for (const suffix of WEIGHT_SUFFIXES) {
-      if (trimmed.endsWith(' ' + suffix)) {
-        trimmed = trimmed.slice(0, -(suffix.length + 1));
-        changed = true;
-        break;
-      }
+  // Peel trailing format and weight tokens until no rule matches. PPTX
+  // emits combinations like `"NanumSquare Neo OTF Bold"`; PowerPoint and
+  // Apple Keynote occasionally append three tokens (`X OTF Bold Light`,
+  // for designer error). A `while (changed)` loop normalizes any depth
+  // without a hardcoded pass count.
+  while (true) {
+    const formatStripped = stripTrailingSuffix(trimmed, FORMAT_SUFFIXES);
+    if (formatStripped !== null) {
+      trimmed = formatStripped;
+      continue;
     }
-    if (trimmed.endsWith(' OTF') || trimmed.endsWith(' TTF')) {
-      trimmed = trimmed.slice(0, -4);
-      changed = true;
+    const weightStripped = stripTrailingSuffix(trimmed, WEIGHT_SUFFIXES);
+    if (weightStripped !== null) {
+      trimmed = weightStripped;
+      continue;
     }
-    if (!changed) break;
+    break;
   }
   return trimmed;
 }
@@ -111,11 +128,21 @@ function escapeFontFamily(family: string): string {
   return family.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+/**
+ * True when `family` (a raw face name) carries Korean glyph coverage,
+ * either as a Noto KR face or via a FONT_MAP entry that ends in one.
+ * Exported so downstream surfaces — most notably the DOCX exporter's
+ * `w:rFonts` East Asian slot — can decide whether to keep the user's
+ * face or fall back to Noto Sans KR for the EA script axis.
+ */
+export function isKoreanCapableFamily(family: string): boolean {
+  if (KOREAN_CAPABLE.has(family)) return true;
+  const normalized = stripTypefaceSuffixes(family);
+  return normalized !== family && KOREAN_CAPABLE.has(normalized);
+}
+
 function stackContainsKoreanFamily(stack: string): boolean {
-  for (const family of KOREAN_CAPABLE_SANS) {
-    if (stack.includes(`'${family}'`)) return true;
-  }
-  for (const family of KOREAN_CAPABLE_SERIF) {
+  for (const family of KOREAN_CAPABLE) {
     if (stack.includes(`'${family}'`)) return true;
   }
   return false;
@@ -138,6 +165,15 @@ function injectKoreanFallback(stack: string, generic: 'sans-serif' | 'serif'): s
 }
 
 /**
+ * Memo for `resolveFontFamily`. Inputs are bounded by the document's
+ * unique typeface names (catalog size + a handful of brand fonts per
+ * deck), so the map size never grows materially during a session. Pre-
+ * vents the per-frame resolver work from showing up on the Canvas paint
+ * profile during scroll/typing on dense decks.
+ */
+const RESOLVE_CACHE = new Map<string, string>();
+
+/**
  * Resolve a font family name to a CSS fallback chain string.
  *
  * Every sans-serif or serif resolution ends with a Noto KR fallback so
@@ -148,25 +184,53 @@ function injectKoreanFallback(stack: string, generic: 'sans-serif' | 'serif'): s
  *
  * Monospace resolutions are NOT augmented — mixing Noto Sans KR's
  * variable-width glyphs into a Courier stack would break code alignment.
+ *
+ * Idempotent — a chain already in the resolved shape returns unchanged.
+ * The exported API can therefore be called by external surfaces without
+ * worrying about double-wrap escaping the inner quotes.
  */
 export function resolveFontFamily(family: string): string {
+  // Idempotency guard: a CSS chain contains commas; a raw family never
+  // does (CSS doesn't permit unescaped commas in identifiers). If the
+  // caller already passed a resolved chain, return it verbatim so the
+  // escape path doesn't re-wrap the inner quotes into garbage.
+  if (family.includes(',')) return family;
+
+  const memoed = RESOLVE_CACHE.get(family);
+  if (memoed !== undefined) return memoed;
+
   // PPTX/DOCX often serialize per-weight families as separate names
   // ("NanumSquare Neo OTF Bold"). Try the verbatim name first so a
   // direct catalog hit wins; if it misses, strip standard weight/format
   // suffixes and try the canonical name. The stored `style.fontFamily`
   // is left untouched — we only normalize the lookup key.
   const direct = FONT_MAP[family];
-  const normalized = direct ? undefined : stripTypefaceSuffixes(family);
-  const mapped = direct ?? (normalized ? FONT_MAP[normalized] : undefined);
-  const lookupKey = direct ? family : normalized ?? family;
+  const normalized = direct ? family : stripTypefaceSuffixes(family);
+  const mapped = direct ?? FONT_MAP[normalized];
+  const lookupKey = mapped ? normalized : family;
   const generic: 'sans-serif' | 'serif' | 'monospace' = MONOSPACE_FONTS.has(lookupKey)
     ? 'monospace'
     : SERIF_FONTS.has(lookupKey)
       ? 'serif'
       : 'sans-serif';
-  const base = mapped ?? `'${escapeFontFamily(family)}', ${generic}`;
-  if (generic === 'monospace') return base;
-  return injectKoreanFallback(base, generic);
+
+  // When the normalized form hits the catalog AND it differs from the
+  // verbatim, prepend the verbatim face: a user who has the weight-
+  // specific cut installed locally ("Roboto Bold" as its own PostScript
+  // face) still gets the real glyph rather than CSS-synthesized bold
+  // off the regular weight.
+  let base: string;
+  if (mapped) {
+    base = family !== normalized
+      ? `'${escapeFontFamily(family)}', ${mapped}`
+      : mapped;
+  } else {
+    base = `'${escapeFontFamily(family)}', ${generic}`;
+  }
+
+  const result = generic === 'monospace' ? base : injectKoreanFallback(base, generic);
+  RESOLVE_CACHE.set(family, result);
+  return result;
 }
 
 type FontStatus = 'pending' | 'loading' | 'loaded' | 'error';

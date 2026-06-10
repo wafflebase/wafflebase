@@ -1,6 +1,16 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
 import { defaultColorResolver } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
+import { isKoreanCapableFamily } from '../view/fonts.js';
+
+/**
+ * Default Latin face the docs view paints unstyled runs with — kept in
+ * sync with `Theme.defaultFontFamily`. Duplicated here (rather than
+ * imported) so the DOCX exporter stays free of the browser-only view
+ * module (palette tokens, Canvas APIs).
+ */
+const DEFAULT_LATIN_FAMILY = 'Arial';
+const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
 
 /**
  * Build <w:rPr>...</w:rPr> XML from InlineStyle.
@@ -9,9 +19,19 @@ import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 export function buildRunPropertiesXml(style: InlineStyle): string {
   const parts: string[] = [];
 
-  if (style.fontFamily) {
-    parts.push(`<w:rFonts w:ascii="${style.fontFamily}" w:hAnsi="${style.fontFamily}" w:eastAsia="${style.fontFamily}"/>`);
-  }
+  // Always emit `<w:rFonts>` so DOCX viewers (Word, LibreOffice, Pages)
+  // pick up the same East Asian face the docs view paints. Previously
+  // we skipped the override when `style.fontFamily` was undefined,
+  // which left Word to render Hangul runs in the document default
+  // (typically Calibri) — but Wafflebase paints those runs through the
+  // theme default + Noto Sans KR fallback. Defaulting the EA slot
+  // separately keeps Latin runs unchanged while making Hangul render
+  // with Noto Sans KR in Word.
+  const ascii = style.fontFamily ?? DEFAULT_LATIN_FAMILY;
+  const eastAsia = style.fontFamily && isKoreanCapableFamily(style.fontFamily)
+    ? style.fontFamily
+    : DEFAULT_EAST_ASIAN_FAMILY;
+  parts.push(`<w:rFonts w:ascii="${ascii}" w:hAnsi="${ascii}" w:eastAsia="${eastAsia}"/>`);
   if (style.bold) parts.push('<w:b/>');
   if (style.italic) parts.push('<w:i/>');
   if (style.underline) parts.push('<w:u w:val="single"/>');

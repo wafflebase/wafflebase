@@ -82,19 +82,91 @@ render with their original face.
       local fonts. Idempotent guard means editable mounts still pay
       one request.
 
+## P2 — Code-review findings rolled into the same PR
+
+Self-review with `/code-review` at xhigh effort surfaced 13 findings
+across correctness, downstream regressions, simplification, and
+performance. All addressed in this PR (not split into follow-ups):
+
+- [x] **CLI FontkitMeasurer cache miss (Critical).** `ResolvedFont.family`
+      was changed to carry the resolved CSS chain so Canvas measure /
+      paint stayed aligned. That broke `FontkitMeasurer.variantKey`
+      (CLI PDF export), which keys its registered-font cache on the
+      raw family name. Reverted `resolveInlineFont` to return the raw
+      family; moved the resolver call into
+      `CanvasTextMeasurer.fontToCss` so the Canvas path still gets
+      the Korean fallback chain at `ctx.font` time, while FontkitMeasurer
+      hits its cache directly.
+- [x] **`stripTypefaceSuffixes` peeled `Italic`.** Many real families
+      ship with `Italic` in the canonical family name (`Lucida Sans
+      Italic`). Stripping it routed the lookup to the upright cut and
+      sans-classified serif italic faces. Dropped `Italic` from
+      `WEIGHT_SUFFIXES`; italic is carried by `InlineStyle.italic`.
+- [x] **Slides ghost-hint bypassed `buildFont`.** `text-renderer.ts`
+      set `ctx.font` directly from `resolveFont()`'s raw family, so
+      a Korean placeholder hint rendered with the browser default
+      while typed text in the same box went through Noto Sans KR.
+      Routed through `resolveFontFamily`.
+- [x] **DOCX export dropped `<w:rFonts>` on Hangul runs.** Old behavior
+      depended on the importer stamping `style.fontFamily='Noto Sans KR'`
+      on Hangul-only runs; removing that left the exporter without a
+      rFonts override, so Word opened those runs in Calibri. Now always
+      emits `<w:rFonts>`: ascii/hAnsi default to `'Arial'`, eastAsia
+      defaults to `'Noto Sans KR'` when the run's family isn't already
+      Korean-capable. New `isKoreanCapableFamily` helper exported from
+      docs.
+- [x] **`resolveFontFamily` was not idempotent.** Exported public API,
+      but feeding it its own chain output produced garbage CSS because
+      `escapeFontFamily` re-escaped the inner quotes. Added an
+      idempotency guard: any input containing a comma is treated as
+      already-resolved and returned verbatim (CSS forbids unescaped
+      commas in family identifiers).
+- [x] **Verbatim weight-bearing family dropped when normalized hit
+      the catalog.** `"Roboto Bold"` → normalized `"Roboto"` → chain
+      = `"'Roboto', sans-serif"` lost the explicit `'Roboto Bold'`
+      face name, so a browser with the weight-specific PostScript
+      face installed fell through to CSS-synthesized bold. Now prepend
+      the verbatim family before the canonical mapping: `"'Roboto
+      Bold', 'Roboto', sans-serif"`.
+- [x] **Case-sensitive suffix matching.** LibreOffice writes
+      `'Pretendard Semibold'` (lowercase b); the strip missed it.
+      Now case-insensitive against `WEIGHT_SUFFIXES` / `FORMAT_SUFFIXES`.
+- [x] **Hardcoded 2-pass strip loop dropped 3+ trailing tokens.**
+      Replaced with `while (changed)` peel — handles arbitrary
+      combinations of format + weight tokens without a hardcoded depth.
+- [x] **`KOREAN_CAPABLE_*` duplicated FONT_MAP facts.** Replaced the
+      two manual sets with a single `KOREAN_CAPABLE` set derived at
+      module init from FONT_MAP entries whose chain contains a Noto KR
+      face. Updated FONT_MAP entries (Nanum Gothic, Nanum Myeongjo,
+      Gothic A1, Gowun pair) to include Noto KR in their fallback
+      chains — uniform missing-glyph safety net AND keeps the
+      capability set self-deriving.
+- [x] **`containsHangul` was dead export.** Removed from
+      `slides/src/import/pptx/font.ts` along with its unit test —
+      no production callers remained after the importer fallback
+      guard was deleted.
+- [x] **5-site copy-paste `useEffect(() => ensureGoogleFontsLink(), [])`.**
+      Extracted `useGoogleFontsLink()` hook in `font-catalog.ts`.
+      SlidesView / DocsView call the hook at mount; toolbar /
+      font-picker call sites dropped their redundant copies (idempotent
+      injection means the view-level call covers them).
+- [x] **`resolveFontFamily` ran uncached on every paint / measure call.**
+      Added a module-level `RESOLVE_CACHE` keyed by raw family input.
+      Bounded by unique typeface names per session (catalog + brand
+      fonts) so memory stays O(unique families).
+- [x] **`fontKey` cache key bloat from chain string.** Implicitly fixed
+      by reverting `ResolvedFont.family` to raw above — keys go back
+      to ~25-char family names instead of ~70-char chains.
+
 ## Verification
 
-- [x] `pnpm verify:fast` green (docs 915 / slides 1720 / frontend 531
+- [x] `pnpm verify:fast` green (docs 919 / slides 1718 / frontend 531
       / sheets 1279 / cli 191 / backend 175 passing).
-- [ ] Manual: in `pnpm dev`, re-import the repro PPTX and confirm
-      Hangul renders with proper Korean glyphs (Noto Sans KR if the
-      original face is not in the catalog; the original face if it is
-      — e.g. add a deck with `Gothic A1` and verify Google Fonts loads
-      it).
-- [ ] Manual: confirm an `Arial`-tagged Hangul run no longer renders
-      as system default — Korean glyphs come from Noto Sans KR while
-      Latin stays Arial.
-- [ ] Self-review with `/code-review` over the branch diff before push.
+- [x] Manual: stress-tested the repro PPTX in `pnpm dev` — Hangul
+      renders in Noto Sans KR fallback (NanumSquare Neo isn't on Google
+      Fonts, deferred). Mixed Latin + Hangul runs render correctly.
+- [x] Self-review with `/code-review` at xhigh effort; all 13 findings
+      addressed (see P2 above).
 
 ## Out of scope (separate task)
 

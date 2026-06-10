@@ -119,14 +119,16 @@ describe('resolveFontFamily — PPTX typeface normalization', () => {
   test('strips trailing weight suffix to hit the catalog', () => {
     // PPTX writes each weight as its own family name. The canonical
     // family is in FONT_MAP; the verbose form should normalize to it
-    // so Google Fonts serves the matching face. Gothic A1 / Nanum
-    // Gothic are themselves Korean-capable, so no extra Noto KR
-    // splice is needed — the chain stays compact.
+    // so Google Fonts serves the matching face. The verbatim name is
+    // PREPENDED before the canonical entry so a user with the
+    // weight-specific cut installed locally ("Gothic A1 Bold" as its
+    // own face) still gets the real glyph rather than CSS-synthesized
+    // bold off the regular weight.
     expect(resolveFontFamily('Gothic A1 Bold')).toBe(
-      "'Gothic A1', sans-serif",
+      "'Gothic A1 Bold', 'Gothic A1', 'Noto Sans KR', sans-serif",
     );
     expect(resolveFontFamily('Nanum Gothic ExtraBold')).toBe(
-      "'Nanum Gothic', sans-serif",
+      "'Nanum Gothic ExtraBold', 'Nanum Gothic', 'Noto Sans KR', sans-serif",
     );
   });
 
@@ -144,11 +146,48 @@ describe('resolveFontFamily — PPTX typeface normalization', () => {
     expect(resolveFontFamily('NanumSquare Neo OTF Regular')).toBe(
       "'NanumSquare Neo OTF Regular', 'Noto Sans KR', sans-serif",
     );
-    // When the normalized base IS in the catalog, the verbatim
-    // "Whatever OTF Bold" family is replaced by the canonical mapping.
+    // When the normalized base IS in the catalog, the verbatim form
+    // is prepended to the canonical mapping so installed-Bold faces
+    // are tried first.
     expect(resolveFontFamily('Gothic A1 OTF Bold')).toBe(
-      "'Gothic A1', sans-serif",
+      "'Gothic A1 OTF Bold', 'Gothic A1', 'Noto Sans KR', sans-serif",
     );
+  });
+
+  test('case-insensitive suffix matching matches LibreOffice / Google output', () => {
+    // LibreOffice often emits 'Pretendard Semibold' (lowercase b);
+    // Google Slides sometimes lowercases the whole word. Stripping
+    // must hit the catalog either way.
+    expect(resolveFontFamily('Gothic A1 bold')).toBe(
+      "'Gothic A1 bold', 'Gothic A1', 'Noto Sans KR', sans-serif",
+    );
+    expect(resolveFontFamily('Gothic A1 BOLD')).toBe(
+      "'Gothic A1 BOLD', 'Gothic A1', 'Noto Sans KR', sans-serif",
+    );
+    expect(resolveFontFamily('Nanum Gothic semibold')).toBe(
+      "'Nanum Gothic semibold', 'Nanum Gothic', 'Noto Sans KR', sans-serif",
+    );
+  });
+
+  test('does not strip "Italic" (style axis, not a weight)', () => {
+    // Many real families ship with 'Italic' baked into the canonical
+    // family name (e.g. 'Lucida Sans Italic'). Stripping it would
+    // route the lookup to the upright cut, dropping the italic axis
+    // entirely. The italic style is carried separately by
+    // `InlineStyle.italic`.
+    expect(resolveFontFamily('Lucida Sans Italic')).toBe(
+      "'Lucida Sans Italic', 'Noto Sans KR', sans-serif",
+    );
+  });
+
+  test('resolveFontFamily is idempotent (a resolved chain returns unchanged)', () => {
+    // The exported API may be called by external surfaces (or future
+    // code paths) on a value that has already been resolved. Without
+    // idempotency, the escape path would re-wrap the inner quotes into
+    // garbage CSS. Detection: any comma in the input means it's
+    // already a chain (CSS forbids unescaped commas in identifiers).
+    const chain = "'Arial', 'Noto Sans KR', sans-serif";
+    expect(resolveFontFamily(chain)).toBe(chain);
   });
 
   test('canonical family without suffix is unaffected', () => {

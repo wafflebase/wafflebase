@@ -1,4 +1,5 @@
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
+import { resolveFontFamily } from './fonts.js';
 
 /**
  * Build the Canvas 2D `font` shorthand for a `ResolvedFont`.
@@ -6,11 +7,17 @@ import type { ResolvedFont, TextMeasurer } from './measurer.js';
  * Mirrors the format `buildFont` in `theme.ts` produces from inline
  * styles (`'<italic? ><bold? ><sizepx> <family>'`) so cached `ctx.font`
  * strings round-trip cleanly between layout and the canvas painter.
+ *
+ * The family is routed through `resolveFontFamily` so the Korean
+ * fallback splice lands in `ctx.font` here too — otherwise the
+ * Canvas measurer would size Hangul against the raw Latin face while
+ * paint draws with Noto Sans KR for the same glyph, producing a width
+ * mismatch between measurement and paint.
  */
 function fontToCss(font: ResolvedFont): string {
   const style = font.style === 'italic' ? 'italic ' : '';
   const weight = font.weight === 'bold' ? 'bold ' : '';
-  return `${style}${weight}${font.size}px ${font.family}`;
+  return `${style}${weight}${font.size}px ${resolveFontFamily(font.family)}`;
 }
 
 /**

@@ -6,6 +6,7 @@
  * Future "More fonts…" work extends `FONT_CATALOG` without breaking the
  * picker contract (`value: string`, not a closed union).
  */
+import { useEffect } from 'react';
 
 export type FontGroup = 'Korean' | 'Sans-serif' | 'Serif' | 'Monospace';
 
@@ -102,4 +103,24 @@ export function ensureGoogleFontsLink(): void {
   link.rel = 'stylesheet';
   link.href = href;
   document.head.appendChild(link);
+}
+
+/**
+ * React mount-effect that triggers `ensureGoogleFontsLink()` once on
+ * mount. Shared by every editor surface (SlidesView, DocsView, formatting
+ * toolbar, themed font picker, slides toolbar) so the rationale lives
+ * with the implementation and the call sites stay one-line. The
+ * underlying function is idempotent (id-guarded), so React strict-mode's
+ * double-fire is harmless and any number of mounts on the same page
+ * only injects the link once.
+ *
+ * Calling from view shells (read-only / shared-URL viewers) is the
+ * critical path — those surfaces never mount a toolbar, so the link
+ * would otherwise be skipped and imported decks would paint against
+ * the browser's local fonts only.
+ */
+export function useGoogleFontsLink(): void {
+  useEffect(() => {
+    ensureGoogleFontsLink();
+  }, []);
 }

@@ -10,7 +10,6 @@ import {
   type InlineStyle,
 } from '../model/types.js';
 import { Theme, ptToPx } from './theme.js';
-import { resolveFontFamily } from './fonts.js';
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
 import { computeTableLayout, type LayoutTable } from './table-layout.js';
 
@@ -85,13 +84,15 @@ export function resolveInlineFont(style: InlineStyle): ResolvedFont {
   const isSuperOrSub = !!(style.superscript || style.subscript);
   const baseSizePt = style.fontSize ?? Theme.defaultFontSize;
   const sizePt = isSuperOrSub ? baseSizePt * 0.6 : baseSizePt;
-  // Pass the resolved fallback chain (not the raw family name) so the
-  // Canvas measurer's `ctx.font` matches the chain `buildFont` produces
-  // at paint time. Otherwise Hangul widths come out off — the measurer
-  // would size text against a Latin face while paint reaches into Noto
-  // Sans KR per glyph.
+  // `family` stays the raw face name (not the resolved CSS chain). Each
+  // measurer applies its own resolution: CanvasTextMeasurer routes
+  // through `resolveFontFamily` at `fontToCss` time so the Korean
+  // fallback splice lands in `ctx.font`; FontkitMeasurer (CLI) keys its
+  // font cache on the raw family for direct hits against the registered
+  // face. Carrying the chain here would break the CLI cache lookup and
+  // bloat the measureCache fontKey.
   return {
-    family: resolveFontFamily(style.fontFamily ?? Theme.defaultFontFamily),
+    family: style.fontFamily ?? Theme.defaultFontFamily,
     size: ptToPx(sizePt),
     weight: style.bold ? 'bold' : 'normal',
     style: style.italic ? 'italic' : 'normal',
