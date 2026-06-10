@@ -163,17 +163,24 @@ function applyModifiers(base: ThemeColor, el: Element): ThemeColor {
   if (base.kind !== 'role') {
     return alpha != null ? { ...base, alpha } : base;
   }
+  // tint / shade / lumMod / lumOff are OOXML thousandths (lumOff allows
+  // negatives, the others are 0..100000); normalize to 0..1 at the
+  // import boundary so `resolveColor` / `tintColor` / `shadeColor` can
+  // apply them directly as ratios without re-scaling at every paint.
   let tint: number | undefined;
   let shade: number | undefined;
   let lumMod: number | undefined;
   let lumOff: number | undefined;
   const tEl = children(el, 'tint')[0];
-  if (tEl) tint = attrInt(tEl, 'val');
+  if (tEl) {
+    const v = attrInt(tEl, 'val');
+    if (v != null) tint = v / 100000;
+  }
   const sEl = children(el, 'shade')[0];
-  if (sEl) shade = attrInt(sEl, 'val');
-  // lumMod / lumOff are OOXML thousandths (0..100000 / -100000..100000);
-  // normalize to 0..1 at the import boundary so `resolveColor` can apply
-  // them directly without re-scaling at every paint.
+  if (sEl) {
+    const v = attrInt(sEl, 'val');
+    if (v != null) shade = v / 100000;
+  }
   const lmEl = children(el, 'lumMod')[0];
   if (lmEl) {
     const v = attrInt(lmEl, 'val');

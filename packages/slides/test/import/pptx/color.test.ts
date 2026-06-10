@@ -34,13 +34,17 @@ describe('parseColorElement', () => {
     });
   });
 
-  it('preserves tint and shade modifiers on role colors', () => {
+  it('normalizes tint and shade modifiers to 0..1 on role colors', () => {
+    // OOXML stores `<a:tint val="50000"/>` (50% in thousandths); we
+    // normalize at the import boundary so `resolveColor` / `tintColor`
+    // can apply the value directly as a 0..1 ratio. Without this
+    // normalization, `tintColor(hex, 50000)` saturates to white.
     expect(
       parseColorElement(colorEl(`<a:schemeClr val="accent2"><a:tint val="50000"/></a:schemeClr>`)),
-    ).toEqual({ kind: 'role', role: 'accent2', tint: 50000 });
+    ).toEqual({ kind: 'role', role: 'accent2', tint: 0.5 });
     expect(
       parseColorElement(colorEl(`<a:schemeClr val="accent2"><a:shade val="25000"/></a:schemeClr>`)),
-    ).toEqual({ kind: 'role', role: 'accent2', shade: 25000 });
+    ).toEqual({ kind: 'role', role: 'accent2', shade: 0.25 });
   });
 
   it('captures lumMod and lumOff modifiers on role colors as 0..1 ratios', () => {
@@ -114,7 +118,7 @@ describe('parseColorElement', () => {
           `<a:schemeClr val="accent3"><a:tint val="50000"/><a:alpha val="25000"/></a:schemeClr>`,
         ),
       ),
-    ).toEqual({ kind: 'role', role: 'accent3', tint: 50000, alpha: 0.25 });
+    ).toEqual({ kind: 'role', role: 'accent3', tint: 0.5, alpha: 0.25 });
   });
 
   it('captures `<a:alpha>` on sysClr (resolved via lastClr) and prstClr', () => {
@@ -145,7 +149,7 @@ describe('parseColorElement', () => {
     const out = parseColorElement(
       colorEl(`<a:schemeClr val="accent3"><a:tint val="50000"/></a:schemeClr>`),
     );
-    expect(out).toEqual({ kind: 'role', role: 'accent3', tint: 50000 });
+    expect(out).toEqual({ kind: 'role', role: 'accent3', tint: 0.5 });
     expect(Object.prototype.hasOwnProperty.call(out, 'alpha')).toBe(false);
   });
 
