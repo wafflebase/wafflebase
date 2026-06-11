@@ -22,6 +22,8 @@ import {
   type TextElement,
   type Theme,
   BUILT_IN_LAYOUTS,
+  CURVE_BEND_MAX,
+  CURVE_BEND_MIN,
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
   applyGroupTransformMatrix,
@@ -1212,13 +1214,16 @@ export class YorkieSlidesStore implements SlidesStore {
       const c = e as unknown as {
         routing: ConnectorRouting;
         elbowBend?: number;
+        curveBend?: number;
         frame: Frame;
       };
       if (c.routing === routing) return;
       c.routing = routing;
-      // Persisted bend is only meaningful for elbow routing; drop it on
-      // the way out so a future return to elbow starts from the default.
+      // Persisted bend is only meaningful for its own routing kind;
+      // drop the stored value on the way out so a future return to
+      // that routing starts from the default.
       if (routing !== 'elbow') delete c.elbowBend;
+      if (routing !== 'curved') delete c.curveBend;
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
     });
@@ -1245,6 +1250,33 @@ export class YorkieSlidesStore implements SlidesStore {
       } else {
         // Round to 0.01 to keep the CRDT payload tidy under drag updates.
         c.elbowBend = Math.round(bend * 100) / 100;
+      }
+      const plain = unwrapElement(e) as unknown as ConnectorElement;
+      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+    });
+  }
+
+  updateConnectorCurveBend(
+    slideId: string,
+    elementId: string,
+    bend: number | undefined,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as { curveBend?: number; frame: Frame };
+      if (bend === undefined) {
+        delete c.curveBend;
+      } else {
+        const rounded = Math.round(bend * 100) / 100;
+        c.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
