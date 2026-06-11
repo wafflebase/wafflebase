@@ -1,11 +1,13 @@
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 export type AdjustmentHandleKind = `adjust-${number}`;
 export type ConnectorEndpointHandle = 'start' | 'end';
+export type ConnectorBendHandle = 'bend';
 export type HandleKind =
   | ResizeHandle
   | 'rotate'
   | AdjustmentHandleKind
-  | ConnectorEndpointHandle;
+  | ConnectorEndpointHandle
+  | ConnectorBendHandle;
 
 /**
  * P2.7 edge-zone tuning: how close to the bbox edge (inside or outside)
@@ -141,13 +143,13 @@ export function edgeZoneCursor(zone: ResizeHandle): string {
 }
 
 const RESIZE_HANDLES: readonly string[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rotate'];
-const CONNECTOR_ENDPOINT_HANDLES: readonly string[] = ['start', 'end'];
+const CONNECTOR_HANDLES: readonly string[] = ['start', 'end', 'bend'];
 
 function isHandleKind(value: string | undefined): value is HandleKind {
   return (
     value !== undefined &&
     (RESIZE_HANDLES.includes(value) ||
-      CONNECTOR_ENDPOINT_HANDLES.includes(value) ||
+      CONNECTOR_HANDLES.includes(value) ||
       /^adjust-\d+$/.test(value))
   );
 }
