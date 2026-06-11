@@ -54,6 +54,8 @@ import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
+import { bendFromCursor } from '../canvas/connector-bend';
+import { commitBend } from './interactions/bend-drag';
 import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
   commitTranslate,
@@ -4621,6 +4623,10 @@ class SlidesEditorImpl implements SlidesEditor {
       this.startConnectorEndpointDrag(handle, clientX, clientY);
       return;
     }
+    if (handle === 'bend') {
+      this.startBendDrag(clientX, clientY);
+      return;
+    }
     if (handle.startsWith('adjust-')) {
       const handleIndex = parseInt(handle.slice('adjust-'.length), 10);
       this.startAdjustmentDrag(handleIndex, clientX, clientY);
@@ -4867,6 +4873,81 @@ class SlidesEditorImpl implements SlidesEditor {
         this.options.store.updateElementData(startSlide.id, elementId, {
           adjustments: live,
         });
+      });
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  /**
+   * Drag the yellow-diamond bend handle on a selected connector.
+   * `bendFromCursor` computes the per-routing value from the cursor
+   * each move; we ghost-paint a synthetic connector through
+   * `renderer.forceRender` so the canvas previews the new path
+   * without touching the store, then commit a single batched
+   * `commitBend` on mouseup so undo treats the whole drag as one op.
+   */
+  private startBendDrag(clientX: number, clientY: number): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl || startEl.type !== 'connector') return;
+    const startConnector = startEl;
+    const slideId = startSlide.id;
+
+    const lookup = buildElementWorldLookup(startSlide.elements);
+    let liveBend: number | null = null;
+    let moved = false;
+    const startCursor = this.clientToLogical(clientX, clientY);
+
+    const paintLive = () => {
+      if (liveBend === null) return;
+      const ghost =
+        startConnector.routing === 'elbow'
+          ? { ...startConnector, elbowBend: liveBend }
+          : { ...startConnector, curveBend: liveBend };
+      this.renderer.forceRender(
+        startSlide,
+        this.options.store.read(),
+        [ghost],
+      );
+      const selected = startSlide.elements.filter((e) =>
+        this.selection.has(e.id),
+      );
+      renderOverlay(this.options.overlay, selected, {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+        allElements: startSlide.elements,
+      });
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      if (!moved) {
+        const dx = cur.x - startCursor.x;
+        const dy = cur.y - startCursor.y;
+        const threshold = CONNECTOR_MIN_DRAG_DISTANCE / this.scale();
+        if (dx * dx + dy * dy < threshold * threshold) return;
+        moved = true;
+      }
+      const next = bendFromCursor(startConnector, cur, lookup);
+      if (next === null) return;
+      liveBend = next;
+      paintLive();
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (!moved || liveBend === null) return;
+      const value = liveBend;
+      this.options.store.batch(() => {
+        commitBend(this.options.store, slideId, startConnector, value);
       });
       this.renderer.markDirty();
       this.render();
