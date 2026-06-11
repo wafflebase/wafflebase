@@ -7,6 +7,7 @@ import {
   siteWorldPos,
 } from '../canvas/connection-sites';
 import { resolveEndpoint } from '../canvas/connector-frame';
+import { bendHandlePosition } from '../canvas/connector-bend';
 import { buildElementWorldLookup } from '../../model/group';
 import type { SnapGuide } from './snap';
 import type { SmartGuide, Span } from './smart-guides';
@@ -370,6 +371,17 @@ function renderConnectorEndpointHandles(
   overlay.appendChild(
     makeEndpointHandle('end', connector.end, b.x * scale, b.y * scale),
   );
+
+  // Yellow-diamond bend handle for routings that expose an adjustable
+  // bend. `bendHandlePosition` returns null for straight + elbow
+  // topologies without a bend parameter (L / U / C), so the handle
+  // simply doesn't paint there.
+  const bend = bendHandlePosition(connector, map);
+  if (bend) {
+    overlay.appendChild(
+      makeBendHandle(bend.x * scale, bend.y * scale),
+    );
+  }
 }
 
 function makeEndpointHandle(
@@ -921,6 +933,22 @@ function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElem
   el.style.border = '1px solid #000';
   el.style.transform = 'rotate(45deg)'; // diamond
   el.style.cursor = 'pointer';
+  return el;
+}
+
+function makeBendHandle(cx: number, cy: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.handle = 'bend';
+  el.className = 'wfb-slides-handle wfb-slides-bend';
+  el.style.position = 'absolute';
+  el.style.left = `${cx - ADJUST_HANDLE_SIZE / 2}px`;
+  el.style.top  = `${cy - ADJUST_HANDLE_SIZE / 2}px`;
+  el.style.width  = `${ADJUST_HANDLE_SIZE}px`;
+  el.style.height = `${ADJUST_HANDLE_SIZE}px`;
+  el.style.background = '#FFD500';
+  el.style.border = '1px solid #000';
+  el.style.transform = 'rotate(45deg)';
+  el.style.cursor = 'move';
   return el;
 }
 
