@@ -2762,3 +2762,241 @@ describe('Editor — bodyHost click deselect', () => {
     expect(editor.getSelection()).toEqual([elementId]);
   });
 });
+
+describe('rotate — angle tooltip positioning', () => {
+  let editor: SlidesEditor | null = null;
+  afterEach(() => {
+    if (editor) { editor.detach(); editor = null; }
+    document.body.innerHTML = '';
+  });
+
+  // jsdom returns zeros for `getBoundingClientRect`. The tooltip lives
+  // in `overlay.parentElement`, so its `style.transform` translate is
+  // interpreted relative to the parent. When the slides-view installs
+  // a pasteboard, overlay sits offset inside canvasWrap; computing the
+  // tooltip position against the overlay's rect would drift the
+  // tooltip by that offset. This test exposes the mismatch by giving
+  // the overlay a non-zero `getBoundingClientRect` while leaving the
+  // parent at the origin, then asserting the tooltip's translate equals
+  // the raw client-coord position (the parent-frame coords), not the
+  // overlay-relative coords.
+  it('positions the angle tooltip in the parent (canvasWrap) frame, not the offset overlay frame', () => {
+    const wrap = document.createElement('div');
+    wrap.style.position = 'relative';
+    document.body.appendChild(wrap);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 960;
+    canvas.height = 540;
+    wrap.appendChild(canvas);
+
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    // Mimic the slides-view: overlay sits at (slideOffsetCssX, Y) inside wrap.
+    const OVERLAY_OFFSET_X = 50;
+    const OVERLAY_OFFSET_Y = 30;
+    overlay.style.left = `${OVERLAY_OFFSET_X}px`;
+    overlay.style.top  = `${OVERLAY_OFFSET_Y}px`;
+    wrap.appendChild(overlay);
+
+    // jsdom doesn't reflect the inline left/top into getBoundingClientRect.
+    // Stub it so the editor's overlay-rect math sees the offset.
+    overlay.getBoundingClientRect = (): DOMRect => ({
+      x: OVERLAY_OFFSET_X, y: OVERLAY_OFFSET_Y,
+      left: OVERLAY_OFFSET_X, top: OVERLAY_OFFSET_Y,
+      right: OVERLAY_OFFSET_X + 960, bottom: OVERLAY_OFFSET_Y + 540,
+      width: 960, height: 540,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let shapeId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        // Sized so the rotate handle ends up at a known overlay-local
+        // position. Frame at (100, 50, 200, 100) → axis-aligned rotate
+        // handle at (left + width/2, top - 24) = (200, 26) in overlay
+        // CSS px (host scale = 1: hostWidth=960, dpr=1, SLIDE_WIDTH=1920
+        // → scale = 0.5, so this rotate handle lands at (100, 1) in
+        // overlay px — but with hostWidth=1920 it's (200, 26)).
+        frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    editor.setSelection([shapeId]);
+
+    // Find the rotate handle the editor just painted. Its CSS left/top
+    // (minus HANDLE_SIZE/2 = 4) gives the handle's centre in overlay
+    // CSS px. Convert to client coords by adding the overlay offset.
+    const rotateHandle = overlay.querySelector<HTMLDivElement>(
+      '[data-handle="rotate"]',
+    );
+    expect(rotateHandle).not.toBeNull();
+    const handleLeft = parseFloat(rotateHandle!.style.left);
+    const handleTop  = parseFloat(rotateHandle!.style.top);
+    const handleCxOverlay = handleLeft + 4;
+    const handleCyOverlay = handleTop + 4;
+    const rotateClientX = handleCxOverlay + OVERLAY_OFFSET_X;
+    const rotateClientY = handleCyOverlay + OVERLAY_OFFSET_Y;
+
+    // pointerdown on the overlay at the rotate handle's client coords —
+    // routes through onPointerDown → handleAtClient → startRotate.
+    overlay.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: rotateClientX, clientY: rotateClientY, bubbles: true,
+    }));
+
+    // pointermove on document drives `showTooltip`. Pick a target
+    // somewhere clearly off the handle so the tooltip transform is
+    // a non-trivial number we can inspect.
+    const MOVE_CLIENT_X = 400;
+    const MOVE_CLIENT_Y = 200;
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: MOVE_CLIENT_X, clientY: MOVE_CLIENT_Y, bubbles: true,
+    }));
+
+    // The tooltip lives outside the overlay, in `overlay.parentElement`
+    // (= wrap), so renderOverlay's innerHTML reset doesn't wipe it.
+    // Its `style.transform` is interpreted in wrap's frame; we want it
+    // to encode (clientX + 14, clientY + 14) since wrap sits at
+    // (0, 0) in jsdom's default rect. Pre-fix this would be
+    // (clientX - OVERLAY_OFFSET_X + 14, clientY - OVERLAY_OFFSET_Y + 14).
+    const tooltip = document.querySelector<HTMLDivElement>(
+      '.wfb-slides-rotate-tooltip',
+    );
+    expect(tooltip).not.toBeNull();
+    const transform = tooltip!.style.transform;
+    // Match `translate(<x>px, <y>px)` and parse out the two numbers.
+    const m = /^translate\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)$/.exec(
+      transform,
+    );
+    expect(m, `unexpected transform format: ${transform}`).not.toBeNull();
+    const tx = parseFloat(m![1]);
+    const ty = parseFloat(m![2]);
+    expect(tx).toBeCloseTo(MOVE_CLIENT_X + 14, 4);
+    expect(ty).toBeCloseTo(MOVE_CLIENT_Y + 14, 4);
+
+    // Release the drag so the document-level handlers come off.
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: MOVE_CLIENT_X, clientY: MOVE_CLIENT_Y, bubbles: true,
+    }));
+  });
+
+  // After one rotate completes, `acquireRotateTooltip` used to flip
+  // `display: block` while the previous drag's `transform` was still on
+  // the element, painting a stale position for one frame before the
+  // first `pointermove` corrected it. The fix: acquire keeps it
+  // hidden, and `startRotate` calls `showTooltip(clientX, clientY, 0)`
+  // immediately so `transform` and `display: block` land in the same
+  // paint frame. Regression: at the moment of the second pointerdown
+  // (before any pointermove), the tooltip's transform must reflect the
+  // NEW click position — not the previous drag's last move.
+  it('paints the angle tooltip at the new pointerdown on re-acquire, not the previous drag\'s last position', () => {
+    const wrap = document.createElement('div');
+    wrap.style.position = 'relative';
+    document.body.appendChild(wrap);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 960; canvas.height = 540;
+    wrap.appendChild(canvas);
+
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    const OVERLAY_OFFSET_X = 50;
+    const OVERLAY_OFFSET_Y = 30;
+    overlay.style.left = `${OVERLAY_OFFSET_X}px`;
+    overlay.style.top  = `${OVERLAY_OFFSET_Y}px`;
+    wrap.appendChild(overlay);
+    overlay.getBoundingClientRect = (): DOMRect => ({
+      x: OVERLAY_OFFSET_X, y: OVERLAY_OFFSET_Y,
+      left: OVERLAY_OFFSET_X, top: OVERLAY_OFFSET_Y,
+      right: OVERLAY_OFFSET_X + 960, bottom: OVERLAY_OFFSET_Y + 540,
+      width: 960, height: 540,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const store = new MemSlidesStore();
+    store.batch(() => store.addSlide('blank'));
+    let shapeId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    editor.setSelection([shapeId]);
+
+    const grabHandleClient = (): { x: number; y: number } => {
+      const h = overlay.querySelector<HTMLDivElement>(
+        '[data-handle="rotate"]',
+      );
+      if (!h) throw new Error('rotate handle missing');
+      return {
+        x: parseFloat(h.style.left) + 4 + OVERLAY_OFFSET_X,
+        y: parseFloat(h.style.top)  + 4 + OVERLAY_OFFSET_Y,
+      };
+    };
+
+    // ── First rotation cycle: drive transform to (414, 214). ──
+    const r1 = grabHandleClient();
+    overlay.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: r1.x, clientY: r1.y, bubbles: true,
+    }));
+    const MOVE_X = 400;
+    const MOVE_Y = 200;
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: MOVE_X, clientY: MOVE_Y, bubbles: true,
+    }));
+    // pointerup releases the tooltip (display: none) but keeps the
+    // element + its stale transform around for re-use next drag.
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: MOVE_X, clientY: MOVE_Y, bubbles: true,
+    }));
+
+    const tooltip = document.querySelector<HTMLDivElement>(
+      '.wfb-slides-rotate-tooltip',
+    );
+    expect(tooltip).not.toBeNull();
+    const staleTransform = tooltip!.style.transform;
+    expect(staleTransform).toMatch(/translate\(414px,\s*214px\)/);
+    expect(tooltip!.style.display).toBe('none');
+
+    // ── Second rotation cycle: pointerdown only, NO pointermove. ──
+    const r2 = grabHandleClient();
+    overlay.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: r2.x, clientY: r2.y, bubbles: true,
+    }));
+
+    // Pre-fix behaviour: display flips to 'block' but transform still
+    // reads `translate(414px, 214px)`. Post-fix: showTooltip is called
+    // immediately with the new pointerdown coords, and `transform`
+    // moves with `display` in the same paint frame.
+    const newTransform = tooltip!.style.transform;
+    const m = /^translate\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)$/.exec(
+      newTransform,
+    );
+    expect(m, `unexpected transform format: ${newTransform}`).not.toBeNull();
+    const tx = parseFloat(m![1]);
+    const ty = parseFloat(m![2]);
+    expect(tx).toBeCloseTo(r2.x + 14, 4);
+    expect(ty).toBeCloseTo(r2.y + 14, 4);
+    expect(tooltip!.style.display).toBe('block');
+
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: r2.x, clientY: r2.y, bubbles: true,
+    }));
+  });
+});

@@ -4,6 +4,12 @@ import { placeholderHintFor } from '../../model/placeholder-hints';
 import type { SlidesDocument } from '../../model/presentation';
 import { deckFontScale } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
+import {
+  IDENTITY_GROUP_TRANSFORM,
+  composeGroupMatrix,
+  groupToTransform,
+  type GroupTransform,
+} from '../../model/group';
 import { drawConnector } from './connector-renderer';
 import { drawShape, paintShapeText } from './shape-renderer';
 import { drawTable } from './table-renderer';
@@ -76,11 +82,34 @@ export function drawElement(
   onAssetLoad: () => void,
   elementsLookup: ReadonlyMap<string, Element> = EMPTY_LOOKUP,
   parentFlip: FlipState = NO_FLIP,
+  parentTransform: GroupTransform = IDENTITY_GROUP_TRANSFORM,
 ): void {
   // Connectors paint directly in world coordinates and need a lookup map
   // to resolve attached endpoints — skip the per-element frame transform.
   if (element.type === 'connector') {
-    drawConnector(ctx, element, elementsLookup, theme);
+    // Inside a group the ctx already has the group's transform applied
+    // and the connector's own `start.x/y` / `end.x/y` for free endpoints
+    // are stored in group-local space (store.group() normalises them).
+    // `buildElementWorldLookup` re-lifts those free endpoints into world
+    // space, and attached endpoints always resolve through the lookup
+    // against world frames — so the lookup's connector is the single
+    // source of truth for "world-coordinate endpoints".
+    //
+    // We undo the parent-group transform so the ctx is back at
+    // slide-world, then hand drawConnector the lookup's view of the
+    // connector. Both endpoint kinds now agree on world coords; the
+    // bug where attached endpoints drifted by the group's translation
+    // (and free endpoints stayed correct only by coincidence) is gone.
+    if (parentTransform !== IDENTITY_GROUP_TRANSFORM) {
+      const worldEl = (elementsLookup.get(element.id) ?? element) as typeof element;
+      ctx.save();
+      const inv = invertGroupTransform(parentTransform);
+      ctx.transform(inv.a, inv.b, inv.c, inv.d, inv.tx, inv.ty);
+      drawConnector(ctx, worldEl, elementsLookup, theme);
+      ctx.restore();
+    } else {
+      drawConnector(ctx, element, elementsLookup, theme);
+    }
     return;
   }
 
@@ -143,12 +172,18 @@ export function drawElement(
       // the group's own frame transform places them correctly in world
       // space. Arbitrary nesting depth is handled by recursion.
       //
-      // NOTE: Connectors inside groups are painted in raw ctx space
-      // (drawConnector returns before the frame transform is applied).
-      // In v1, group() never includes connectors as children (Task 11
-      // invariant), so this is safe. A TODO remains for v2+ support.
+      // Connector children take the early return at the top of
+      // drawElement and use `childTransform` to undo this ctx layer
+      // before painting in world coords — see the connector branch above.
+      const childTransform = composeGroupMatrix(
+        parentTransform,
+        groupToTransform(element),
+      );
       for (const child of element.data.children) {
-        drawElement(ctx, child, doc, theme, onAssetLoad, elementsLookup, totalFlip);
+        drawElement(
+          ctx, child, doc, theme, onAssetLoad,
+          elementsLookup, totalFlip, childTransform,
+        );
       }
     } else {
       // Resolved per-deck so PPTX decks authored at a non-default
@@ -228,4 +263,29 @@ export function drawElement(
   // text renderer to a colorResolver that closes over the deck's
   // resolved palette.
   void doc;
+}
+
+/**
+ * Affine inverse of a GroupTransform in the 6-coefficient form
+ * `ctx.transform` consumes. Used to undo the cumulative parent-group
+ * transform before drawing a grouped connector in world coords.
+ *
+ * The math matches `applyInverseMatrix` in model/group.ts but returns
+ * the raw a/b/c/d/tx/ty fields needed by the canvas API.
+ */
+function invertGroupTransform(t: GroupTransform): {
+  a: number; b: number; c: number; d: number; tx: number; ty: number;
+} {
+  const det = t.a * t.d - t.b * t.c;
+  if (Math.abs(det) < 1e-9) {
+    throw new Error('[slides] cannot invert singular group transform (group frame must have non-zero w and h)');
+  }
+  return {
+    a:  t.d / det,
+    b: -t.b / det,
+    c: -t.c / det,
+    d:  t.a / det,
+    tx: -(t.d * t.tx - t.c * t.ty) / det,
+    ty:  (t.b * t.tx - t.a * t.ty) / det,
+  };
 }

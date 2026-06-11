@@ -325,3 +325,133 @@ describe('drawSlide ghosts', () => {
     expect(omitted.restore.mock.calls.length).toBe(empty.restore.mock.calls.length);
   });
 });
+
+describe('drawSlide — grouped connector', () => {
+  it('undoes the group transform before painting an attached connector child so the world-coord contract holds', () => {
+    // Two rects + an attached connector between them on the slide root.
+    // After grouping all three, the connector becomes a group child but
+    // still resolves its endpoints via the slide-world lookup
+    // (`buildElementWorldLookup` lifts grouped frames to world). The
+    // ctx is in the group's transformed space at the moment we recurse
+    // into the connector child, so the renderer must apply the inverse
+    // before calling drawConnector — otherwise the line drifts by the
+    // group's translation.
+    const store = new MemSlidesStore();
+    let sid = '';
+    let a = '', b = '', c = '';
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 200, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#a00' } },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 600, y: 500, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+      c = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: a, siteIndex: 0 },
+        end:   { kind: 'attached', elementId: b, siteIndex: 0 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    // Pre-group baseline: connector is at slide root, no group ancestor.
+    // drawElement's connector early-return takes the identity-parent
+    // branch and never calls ctx.transform.
+    const pre = createCtxSpy();
+    drawSlide(asCtx(pre), store.read().slides[0], store.read(), opts);
+    expect(pre.transform).not.toHaveBeenCalled();
+
+    // Group all three. The connector joins the group's children (both
+    // endpoints internal → see store/memory.ts partition).
+    store.batch(() => { store.group(sid, [a, b, c]); });
+    const grouped = store.read().slides[0].elements[0];
+    expect(grouped.type).toBe('group');
+    const groupFrame = grouped.frame;
+
+    // Post-group: rendering the grouped connector applies the inverse
+    // of the group's transform via `ctx.transform`. With no rotation
+    // and `refSize == frame.w/h`, the group's matrix is just
+    // translate(x, y); the inverse is translate(-x, -y).
+    // `expect.closeTo(0)` absorbs the `-0` that `-t.b / det` produces
+    // for the b/c slots when t.b / t.c are zero.
+    const post = createCtxSpy();
+    drawSlide(asCtx(post), store.read().slides[0], store.read(), opts);
+    expect(post.transform).toHaveBeenCalledWith(
+      1,
+      expect.closeTo(0),
+      expect.closeTo(0),
+      1,
+      -groupFrame.x,
+      -groupFrame.y,
+    );
+
+    // The save/transform/restore bracket sits around drawConnector, so
+    // a save lands before moveTo and a restore lands after stroke.
+    const transformOrder = post.transform.mock.invocationCallOrder[0];
+    const moveToOrder = post.moveTo.mock.invocationCallOrder[0];
+    expect(transformOrder).toBeLessThan(moveToOrder);
+  });
+
+  it('draws a grouped free-endpoint connector at the same world coords as before grouping', () => {
+    // Two shapes + a connector with both endpoints `free` (not attached
+    // to either shape). store.group() normalises the free endpoint
+    // coords to group-local, and `buildElementWorldLookup` re-lifts
+    // them. The renderer must consult the lookup version so free
+    // endpoints — like attached ones — paint at slide-world coords.
+    const store = new MemSlidesStore();
+    let sid = '';
+    let a = '', b = '', c = '';
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 200, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#a00' } },
+      });
+      b = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 600, y: 500, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+      c = store.addElement(sid, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'free', x: 200, y: 250 },
+        end:   { kind: 'free', x: 600, y: 550 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    const pre = createCtxSpy();
+    drawSlide(asCtx(pre), store.read().slides[0], store.read(), opts);
+    const preStart = pre.moveTo.mock.calls[0] as [number, number];
+    const preEnd = pre.lineTo.mock.calls[pre.lineTo.mock.calls.length - 1] as [number, number];
+
+    store.batch(() => { store.group(sid, [a, b, c]); });
+
+    const post = createCtxSpy();
+    drawSlide(asCtx(post), store.read().slides[0], store.read(), opts);
+    const postStart = post.moveTo.mock.calls[0] as [number, number];
+    const postEnd = post.lineTo.mock.calls[post.lineTo.mock.calls.length - 1] as [number, number];
+
+    // The raw arguments to moveTo / lineTo should be the same world
+    // coords; the ctx transform stack inside drawElement absorbs the
+    // group transform via the inverse save/restore band.
+    expect(postStart[0]).toBeCloseTo(preStart[0], 6);
+    expect(postStart[1]).toBeCloseTo(preStart[1], 6);
+    expect(postEnd[0]).toBeCloseTo(preEnd[0], 6);
+    expect(postEnd[1]).toBeCloseTo(preEnd[1], 6);
+  });
+});

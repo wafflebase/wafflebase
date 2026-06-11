@@ -5047,10 +5047,23 @@ class SlidesEditorImpl implements SlidesEditor {
     };
 
     const tooltip = this.acquireRotateTooltip();
+    // The tooltip is appended to overlay.parentElement (see
+    // `acquireRotateTooltip`) so `renderOverlay`'s innerHTML reset
+    // doesn't wipe it mid-drag. That means `tooltip.style.transform`
+    // is interpreted in the PARENT's containing block — not the
+    // overlay's. When the slides-view installs a pasteboard, the
+    // overlay lives inside `canvasWrap` at `(slideOffsetCssX,
+    // slideOffsetCssY)`, so basing the coords on the overlay's rect
+    // would translate the tooltip by that offset relative to where
+    // the mouse actually is. Measure against the parent rect instead.
+    const tooltipContainer = tooltip.parentElement ?? this.options.overlay;
     const showTooltip = (clientPx: number, clientPy: number, delta: number) => {
-      const rect = this.options.overlay.getBoundingClientRect();
+      const rect = tooltipContainer.getBoundingClientRect();
       const localX = clientPx - rect.left;
       const localY = clientPy - rect.top;
+      // `transform` first, then `display: block` — same paint frame
+      // so the tooltip never lands at a stale position; see
+      // `acquireRotateTooltip` for context.
       // Show absolute rotation for single-element (matches Google Slides),
       // delta for multi (since the selection had no group rotation).
       const display = isMulti
@@ -5062,6 +5075,12 @@ class SlidesEditorImpl implements SlidesEditor {
       tooltip.style.transform = `translate(${localX + 14}px, ${localY + 14}px)`;
       tooltip.style.display = 'block';
     };
+    // Paint the tooltip at the click position immediately so the user
+    // gets a 0° reading next to the cursor without waiting for the
+    // first pointermove. acquireRotateTooltip keeps the element hidden
+    // until this call, so this is also the only place `display: block`
+    // gets set on a re-acquired element — no stale-transform flicker.
+    showTooltip(clientX, clientY, 0);
 
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
@@ -5123,10 +5142,13 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private rotateTooltipEl: HTMLDivElement | null = null;
   private acquireRotateTooltip(): HTMLDivElement {
-    if (this.rotateTooltipEl) {
-      this.rotateTooltipEl.style.display = 'block';
-      return this.rotateTooltipEl;
-    }
+    // Hand back the existing element as-is (still `display: none`) so
+    // the caller can set the live `transform` and the visible `display`
+    // together in one paint frame. Flipping `display: block` here would
+    // paint the previous drag's last `transform` for one frame, which
+    // shows up as a flicker at the old position before the first
+    // `pointermove` reaches `showTooltip`.
+    if (this.rotateTooltipEl) return this.rotateTooltipEl;
     const el = document.createElement('div');
     el.className = 'wfb-slides-rotate-tooltip';
     el.style.position = 'absolute';
