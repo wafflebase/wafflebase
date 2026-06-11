@@ -11,20 +11,33 @@ export function routeStraight(a: Point, b: Point): SegmentPath {
   return { points: [{ ...a }, { ...b }] };
 }
 
+export const CURVE_BEND_MIN = 0.1;
+export const CURVE_BEND_MAX = 3;
+export const CURVE_BEND_DEFAULT = 1;
+
+function clampCurveBend(bend: number | undefined): number {
+  if (bend === undefined || !Number.isFinite(bend)) return CURVE_BEND_DEFAULT;
+  return Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, bend));
+}
+
 /**
- * Cubic bezier connector. Control points sit `dist/3` along each exit
- * direction so the curve leaves both endpoints tangent to their outward
- * normals. Matches PowerPoint's `curvedConnector*` look.
+ * Cubic bezier connector. Control points sit `(dist/3) * bend` along
+ * each exit direction so the curve leaves both endpoints tangent to
+ * their outward normals. `bend` defaults to 1 (auto, matching
+ * PowerPoint's `curvedConnector*` look) and is clamped to
+ * `[CURVE_BEND_MIN, CURVE_BEND_MAX]` so an extreme stored value can't
+ * blow the control points into nonsense.
  */
 export function routeCurved(
   a: Point,
   aDir: number,
   b: Point,
   bDir: number,
+  bend?: number,
 ): BezierPath {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  const k = Math.hypot(dx, dy) / 3;
+  const k = (Math.hypot(dx, dy) / 3) * clampCurveBend(bend);
   return {
     p0: { ...a },
     c1: { x: a.x + Math.cos(aDir) * k, y: a.y + Math.sin(aDir) * k },

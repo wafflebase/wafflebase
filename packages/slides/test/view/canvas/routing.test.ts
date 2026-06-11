@@ -76,6 +76,33 @@ describe('routeCurved', () => {
   });
 });
 
+describe('routeCurved bend', () => {
+  it('defaults bend=1: control points sit at dist/3 along exit normals', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 300, y: 0 };
+    const bez = routeCurved(a, 0, b, Math.PI);
+    expect(bez.c1.x).toBeCloseTo(100, 5);
+    expect(bez.c2.x).toBeCloseTo(200, 5);
+  });
+
+  it('bend=2 doubles control-point reach along the exit normals', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 300, y: 0 };
+    const bez = routeCurved(a, 0, b, Math.PI, 2);
+    expect(bez.c1.x).toBeCloseTo(200, 5);
+    expect(bez.c2.x).toBeCloseTo(100, 5);
+  });
+
+  it('bend clamps to [0.1, 3] so an extreme value cannot blow up the curve', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 300, y: 0 };
+    const big = routeCurved(a, 0, b, Math.PI, 99);
+    expect(big.c1.x).toBeCloseTo(300, 5); // 100 * 3
+    const tiny = routeCurved(a, 0, b, Math.PI, 0);
+    expect(tiny.c1.x).toBeCloseTo(10, 5); // 100 * 0.1
+  });
+});
+
 describe('routeElbow', () => {
   it('perpendicular exits (E + S) — 1-bend L through (b.x, a.y)', () => {
     const path = routeElbow(
