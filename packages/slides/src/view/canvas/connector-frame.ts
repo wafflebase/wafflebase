@@ -83,7 +83,13 @@ export function buildConnectorPath(
   const a = resolveEndpointWithDir(connector.start, elements, bPos);
   const b = resolveEndpointWithDir(connector.end, elements, aPos);
   if (connector.routing === 'curved') {
-    return routeCurved({ x: a.x, y: a.y }, a.angle, { x: b.x, y: b.y }, b.angle);
+    return routeCurved(
+      { x: a.x, y: a.y },
+      a.angle,
+      { x: b.x, y: b.y },
+      b.angle,
+      connector.curveBend,
+    );
   }
   return routeElbow(
     { x: a.x, y: a.y },
