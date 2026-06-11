@@ -26,4 +26,11 @@ export type ConnectorElement = ElementBase & {
   stroke?: ShapeStroke;
   /** Present only when the user manually dragged the elbow handle. */
   elbowBend?: number;
+  /**
+   * Curve-bend multiplier on `routeCurved`'s control-point distance.
+   * Default (when undefined) is 1, matching the auto-routed look.
+   * Persists in [0.1, 3] only when the user manually dragged the
+   * curved-connector yellow-diamond handle.
+   */
+  curveBend?: number;
 };
