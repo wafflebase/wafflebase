@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 262
+Total archived tasks: 264
 
-## 2026/06 (17 tasks)
+## 2026/06 (19 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides grouped connector render (2026-06-12) | [20260612-slides-grouped-connector-render-todo.md](./2026/06/20260612-slides-grouped-connector-render-todo.md) | - |
+| pptx korean font fallback (2026-06-10) | [20260610-pptx-korean-font-fallback-todo.md](./2026/06/20260610-pptx-korean-font-fallback-todo.md) | - |
 | slides pasteboard (2026-06-10) | [20260610-slides-pasteboard-todo.md](./2026/06/20260610-slides-pasteboard-todo.md) | [20260610-slides-pasteboard-lessons.md](./2026/06/20260610-slides-pasteboard-lessons.md) |
 | slides dark theme on create (2026-06-08) | [20260608-slides-dark-theme-on-create-todo.md](./2026/06/20260608-slides-dark-theme-on-create-todo.md) | [20260608-slides-dark-theme-on-create-lessons.md](./2026/06/20260608-slides-dark-theme-on-create-lessons.md) |
 | cmd slash shortcuts help (2026-06-07) | [20260607-cmd-slash-shortcuts-help-todo.md](./2026/06/20260607-cmd-slash-shortcuts-help-todo.md) | [20260607-cmd-slash-shortcuts-help-lessons.md](./2026/06/20260607-cmd-slash-shortcuts-help-lessons.md) |

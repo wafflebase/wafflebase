@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pptx slide21 roadmap fix (2026-06-11) | [20260611-pptx-slide21-roadmap-fix-todo.md](./active/20260611-pptx-slide21-roadmap-fix-todo.md) | - |
 | docs pending summary merge (2026-06-08) | [20260608-docs-pending-summary-merge-todo.md](./active/20260608-docs-pending-summary-merge-todo.md) | [20260608-docs-pending-summary-merge-lessons.md](./active/20260608-docs-pending-summary-merge-lessons.md) |
 | release v0.4.4 (2026-06-08) | [20260608-release-v0.4.4-todo.md](./active/20260608-release-v0.4.4-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
@@ -31,7 +32,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 262
+- Archived task count: 264
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs pending summary merge (2026-06-08)
+Latest active task: pptx slide21 roadmap fix (2026-06-11)

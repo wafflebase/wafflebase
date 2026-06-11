@@ -175,7 +175,7 @@ fails on the transform check; post-fix it passes.
 
 ## Plan
 
-- [ ] `packages/slides/src/view/canvas/element-renderer.ts` — extend
+- [x] `packages/slides/src/view/canvas/element-renderer.ts` — extend
       `drawElement` signature with `parentTransform: GroupTransform`
       (defaulting to `IDENTITY_GROUP_TRANSFORM`). In the group branch,
       compose with `groupToTransform(group)` and pass to the recursive
@@ -183,17 +183,17 @@ fails on the transform check; post-fix it passes.
       identity, save / invert via the existing `applyInverseMatrix`
       math (point form already lives in `applyInversePoint`; we need
       the 6-number matrix form for `ctx.transform`) and apply.
-- [ ] `packages/slides/src/view/canvas/slide-renderer.ts` — pass
+- [x] `packages/slides/src/view/canvas/slide-renderer.ts` — pass
       `IDENTITY_GROUP_TRANSFORM` at the top-level loop call.
-- [ ] `packages/slides/test/view/canvas/slide-renderer.test.ts` — new
+- [x] `packages/slides/test/view/canvas/slide-renderer.test.ts` — new
       test "draws a connector inside a group at the same world
       coords as it did before grouping". Uses two rects and an
       attached connector. Records `moveTo` / `lineTo` calls into the
       existing 2D-context stub before and after `store.group()`.
-- [ ] `packages/slides/src/view/canvas/element-renderer.ts` — replace
+- [x] `packages/slides/src/view/canvas/element-renderer.ts` — replace
       the stale `// NOTE: Connectors inside groups are painted in
       raw ctx space …` comment.
-- [ ] `pnpm verify:fast` green.
+- [x] `pnpm verify:fast` green.
 
 ## Verification
 
