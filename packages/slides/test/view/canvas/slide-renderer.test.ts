@@ -454,4 +454,72 @@ describe('drawSlide — grouped connector', () => {
     expect(postEnd[0]).toBeCloseTo(preEnd[0], 6);
     expect(postEnd[1]).toBeCloseTo(preEnd[1], 6);
   });
+
+  it('skips a grouped connector when its parent transform is singular and keeps painting the rest of the slide', () => {
+    // Hand-roll a slide with a zero-width group so the connector
+    // branch hits a singular parentTransform — store.group() clamps
+    // groups to MIN_GROUP_DIM = 1, but a degenerate PPTX import or
+    // external mutation can still leak w=0 or h=0 with refSize > 0.
+    // Pre-fix this threw out of invertGroupTransform; the throw
+    // escaped drawElement's try/finally and aborted drawSlide's
+    // element loop, blanking every subsequent element. Now the
+    // connector is silently skipped and the rest of the slide
+    // continues to paint.
+    const a: Element = {
+      id: 'sing-a', type: 'shape',
+      frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb', value: '#a00' } },
+    };
+    const b: Element = {
+      id: 'sing-b', type: 'shape',
+      frame: { x: 100, y: 0, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb', value: '#0a0' } },
+    };
+    const c: Element = {
+      id: 'sing-c', type: 'connector',
+      routing: 'straight',
+      start: { kind: 'attached', elementId: 'sing-a', siteIndex: 0 },
+      end:   { kind: 'attached', elementId: 'sing-b', siteIndex: 0 },
+      arrowheads: {},
+      frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+    };
+    const group: Element = {
+      id: 'sing-g', type: 'group',
+      // w = 0 with refSize.w > 0 forces scaleX = 0 → det = 0 in the
+      // composed parent transform inside the connector child branch.
+      frame: { x: 50, y: 50, w: 0, h: 50, rotation: 0 },
+      data: { children: [a, b, c], refSize: { w: 200, h: 100 } },
+    };
+    const trailing: Element = {
+      id: 'sing-trailing', type: 'shape',
+      frame: { x: 500, y: 500, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect', fill: { kind: 'srgb', value: '#0aa' } },
+    };
+
+    const slide: Slide = {
+      id: 'sing-slide', layoutId: 'blank',
+      background: { ...DEFAULT_BACKGROUND, fill: { kind: 'srgb', value: '#fff' } },
+      elements: [group, trailing], notes: [],
+    };
+
+    const ctx = createCtxSpy();
+    const opts = { hostWidth: SLIDE_WIDTH, hostHeight: SLIDE_HEIGHT, dpr: 1 };
+
+    expect(() => drawSlide(asCtx(ctx), slide, DOC, opts)).not.toThrow();
+
+    // Trailing shape sits after the broken group in slide.elements.
+    // Pre-fix, the connector's throw would short-circuit drawSlide's
+    // for-loop before the trailing rect's `ctx.fill` ever fired. The
+    // group's child rects (a, b) also call `ctx.fill` even under a
+    // zero-scale ctx transform, so the easiest tell is the call count:
+    // a + b + trailing = 3 fills with the fix, 2 without.
+    expect(ctx.fill.mock.calls.length).toBeGreaterThanOrEqual(3);
+
+    // The connector itself must NOT have emitted any path commands —
+    // drawConnector is the only caller of `ctx.moveTo`/`ctx.lineTo`
+    // in this fixture, so zero calls confirms the singular branch
+    // dropped the paint.
+    expect(ctx.moveTo).not.toHaveBeenCalled();
+    expect(ctx.lineTo).not.toHaveBeenCalled();
+  });
 });
