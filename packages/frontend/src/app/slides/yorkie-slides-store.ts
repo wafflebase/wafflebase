@@ -166,7 +166,7 @@ function yorkieToPlain<T>(value: unknown): T {
  * `yorkieToPlain` in one shot, which is correct for every element kind:
  * text/image/shape all have `id` + `type` + `frame` + `data`; connectors
  * have `id` + `type` + `frame` + `routing` + `start` + `end` + `arrowheads`
- * + optional `stroke` + optional `elbowBend`.
+ * + optional `stroke` + optional `elbowBend` / `curveBend`.
  */
 function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
@@ -455,6 +455,7 @@ export class YorkieSlidesStore implements SlidesStore {
         arrowheads: ConnectorElement['arrowheads'];
         stroke?: ConnectorElement['stroke'];
         elbowBend?: number;
+        curveBend?: number;
       };
       return {
         id: el.id,
@@ -470,6 +471,7 @@ export class YorkieSlidesStore implements SlidesStore {
           ? yorkieToPlain<ConnectorElement['stroke']>(c.stroke)
           : undefined,
         elbowBend: c.elbowBend,
+        curveBend: c.curveBend,
       } as ModelElement;
     }
     if (el.type === 'group') {
