@@ -34,6 +34,7 @@ export interface CtxSpy {
   rotate: SpyFn;
   scale: SpyFn;
   setTransform: SpyFn;
+  transform: SpyFn;
 
   // paths
   beginPath: SpyFn;
@@ -81,6 +82,7 @@ export function createCtxSpy(): CtxSpy {
     rotate: vi.fn(),
     scale: vi.fn(),
     setTransform: vi.fn(),
+    transform: vi.fn(),
 
     beginPath: vi.fn(),
     closePath: vi.fn(),

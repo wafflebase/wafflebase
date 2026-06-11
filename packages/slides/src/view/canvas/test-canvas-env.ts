@@ -66,6 +66,7 @@ function makeFakeCanvasCtx(): unknown {
     rotate: noop,
     scale: noop,
     setTransform: noop,
+    transform: noop,
 
     beginPath: noop,
     closePath: noop,
