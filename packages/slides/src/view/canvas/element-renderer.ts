@@ -101,9 +101,13 @@ export function drawElement(
     // bug where attached endpoints drifted by the group's translation
     // (and free endpoints stayed correct only by coincidence) is gone.
     if (parentTransform !== IDENTITY_GROUP_TRANSFORM) {
+      const inv = invertGroupTransform(parentTransform);
+      // Singular parent transform — group has zero width or height. Skip
+      // the connector rather than crashing the slide; the broken group
+      // is visible on its own.
+      if (inv === null) return;
       const worldEl = (elementsLookup.get(element.id) ?? element) as typeof element;
       ctx.save();
-      const inv = invertGroupTransform(parentTransform);
       ctx.transform(inv.a, inv.b, inv.c, inv.d, inv.tx, inv.ty);
       drawConnector(ctx, worldEl, elementsLookup, theme);
       ctx.restore();
@@ -272,14 +276,20 @@ export function drawElement(
  *
  * The math matches `applyInverseMatrix` in model/group.ts but returns
  * the raw a/b/c/d/tx/ty fields needed by the canvas API.
+ *
+ * Returns `null` instead of throwing when the matrix is singular
+ * (det ≈ 0) — this lives in the render hot path and a throw inside
+ * `drawConnector` would escape `drawElement`'s try/finally and abort
+ * the rest of `drawSlide`'s element loop, blanking the slide. A
+ * degenerate group should drop the connector silently and let the
+ * rest of the slide paint; the offending group has bigger problems
+ * the user can see and fix separately.
  */
 function invertGroupTransform(t: GroupTransform): {
   a: number; b: number; c: number; d: number; tx: number; ty: number;
-} {
+} | null {
   const det = t.a * t.d - t.b * t.c;
-  if (Math.abs(det) < 1e-9) {
-    throw new Error('[slides] cannot invert singular group transform (group frame must have non-zero w and h)');
-  }
+  if (Math.abs(det) < 1e-9) return null;
   return {
     a:  t.d / det,
     b: -t.b / det,

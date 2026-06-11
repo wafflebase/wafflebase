@@ -203,3 +203,64 @@ fails on the transform check; post-fix it passes.
 - Manual smoke (deferred to the next session): open the shared deck,
   group the two shapes + line, confirm the line stays anchored to the
   shapes.
+
+## Code review follow-ups
+
+Pre-push review surfaced one blocking concern (fixed) and several
+latent/style items (recorded, deferred).
+
+**Fixed before push.**
+
+- `invertGroupTransform` no longer throws on singular matrices
+  (`element-renderer.ts:268-290`). Pre-fix, a degenerate group
+  (frame.w or h = 0, or PPTX-imported `refSize` orders of magnitude
+  larger than `frame`) yielded `det ≈ 0` and the
+  `throw new Error(...)` escaped through `drawElement`'s
+  `try/finally` into `drawSlide`'s top-level element loop, blanking
+  every subsequent element on the slide. Now it returns `null` and
+  the connector branch skips that connector's paint. The user still
+  sees the broken group's shape children, which is where their
+  attention belongs.
+
+**Deferred (non-blocking).**
+
+- **Flip blindness in `groupToTransform`** — already named above. A
+  flipped group ancestor leaves residual mirror in the inverse;
+  `walkWorld` has the same blind spot. The right depth is a shared
+  `elementCtxTransform(frame, refSize)` helper that both
+  `groupToTransform` and the renderer consume.
+- **Reference-equality identity check** (`element-renderer.ts:99`).
+  `composeGroupMatrix` always allocates fresh, so any group
+  recursion enters the inverse branch even when the composed matrix
+  is numerically identity. Functionally a no-op. Future cleanup:
+  structural check `isIdentityGroupTransform(t)`, or drop the gate
+  and always run inverse.
+- **Ghost connector inside group ghost** (`element-renderer.ts:100`).
+  `elementsLookup` is built from the committed slide tree; current
+  ghost paths produce top-level connector ghosts only (safe `else`
+  branch). A future grouped ghost tree with a connector child
+  would hit the inverse path with a lookup miss and fall back to
+  group-local endpoints. Future fix: transient lookup over the
+  ghost tree.
+- **`tooltipContainer` cached once at startRotate**
+  (`editor.ts:5063`). If the parent re-mounts mid-drag (mobile
+  branch swap, devtools open), the cached reference goes stale.
+  Future fix: re-resolve inside `showTooltip` each call, or assert
+  `isConnected`.
+- **`overlay.parentElement` null fallback in acquireRotateTooltip**
+  (`editor.ts:5155`). Appends the tooltip inside overlay when the
+  parent is missing, which then gets wiped by
+  `renderOverlay`'s `innerHTML = ''`. Not exercised by current
+  hosts. Future fix: fall back to `document.body` or assert on
+  initialize.
+- **`as typeof element` cast on lookup result**. Today's invariant
+  holds; tomorrow's `walkWorld` change could break it without a TS
+  error. Future cleanup: narrow with `worldEl.type === 'connector'
+  ? worldEl : element`.
+- **Three copies of the affine inverse math** (`element-renderer.ts`
+  `invertGroupTransform`, `model/group.ts` `applyInverseMatrix` /
+  `applyInversePoint`). Future cleanup: export a 6-coef inverse
+  from `model/group.ts` and consume from all three sites.
+- **Acquire-then-show invariant unannotated** (`editor.ts:5135`).
+  Future cleanup: rename to `acquireHiddenRotateTooltip` or warn
+  when `releaseRotateTooltip` runs on a still-hidden element.
