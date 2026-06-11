@@ -231,6 +231,12 @@ export class Doc {
       return newPos;
     }
 
+    const curBlock = this.getBlock(pos.blockId);
+    if (curBlock.type === 'list-item' && getBlockTextLength(curBlock) === 0) {
+      this.setBlockType(pos.blockId, 'paragraph');
+      return pos;
+    }
+
     // At start of block — merge with previous
     const blocks = this.getContextBlocks();
     const blockIndex = this.getBlockIndex(pos.blockId);
