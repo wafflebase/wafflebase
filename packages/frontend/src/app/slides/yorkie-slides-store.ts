@@ -1246,8 +1246,17 @@ export class YorkieSlidesStore implements SlidesStore {
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
-      const c = e as unknown as { elbowBend?: number; frame: Frame };
-      if (bend === undefined) {
+      const c = e as unknown as {
+        routing: ConnectorRouting;
+        elbowBend?: number;
+        frame: Frame;
+      };
+      // Race-safety in collaborative sessions: a routing-change away
+      // from elbow during the drag already cleared elbowBend via
+      // `updateConnectorRouting`; silently drop this late write so the
+      // last-write-wins routing change is preserved.
+      if (c.routing !== 'elbow') return;
+      if (bend === undefined || !Number.isFinite(bend)) {
         delete c.elbowBend;
       } else {
         // Round to 0.01 to keep the CRDT payload tidy under drag updates.
@@ -1273,8 +1282,14 @@ export class YorkieSlidesStore implements SlidesStore {
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
-      const c = e as unknown as { curveBend?: number; frame: Frame };
-      if (bend === undefined) {
+      const c = e as unknown as {
+        routing: ConnectorRouting;
+        curveBend?: number;
+        frame: Frame;
+      };
+      // Same race-safety as updateConnectorElbowBend.
+      if (c.routing !== 'curved') return;
+      if (bend === undefined || !Number.isFinite(bend)) {
         delete c.curveBend;
       } else {
         const rounded = Math.round(bend * 100) / 100;

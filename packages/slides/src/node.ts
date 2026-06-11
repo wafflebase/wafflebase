@@ -98,6 +98,16 @@ export {
   resolveEndpoint,
 } from './view/canvas/connector-frame';
 
+// Curve-bend clamp constants — `YorkieSlidesStore.updateConnectorCurveBend`
+// clamps incoming bend through these, so the integration suite (which
+// resolves `@wafflebase/slides` to this node entry under `tsx --test`)
+// must see them re-exported. Kept in sync with `src/index.ts`.
+export {
+  CURVE_BEND_DEFAULT,
+  CURVE_BEND_MAX,
+  CURVE_BEND_MIN,
+} from './view/canvas/routing';
+
 export { migrateDocument } from './model/migrate';
 export { defaultLight } from './themes/default-light';
 export { defaultDark } from './themes/default-dark';

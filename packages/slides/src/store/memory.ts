@@ -588,7 +588,12 @@ export class MemSlidesStore implements SlidesStore {
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
-    if (bend === undefined) {
+    // Race-safety in collaborative sessions: if routing changed away
+    // from elbow between drag-start and commit, the elbowBend field
+    // was already cleared by `updateConnectorRouting` — silently drop
+    // this late write so last-write-wins on routing is preserved.
+    if (e.routing !== 'elbow') return;
+    if (bend === undefined || !Number.isFinite(bend)) {
       delete e.elbowBend;
     } else {
       // Round to 0.01 so the CRDT payload stays tidy under drag updates.
@@ -606,7 +611,10 @@ export class MemSlidesStore implements SlidesStore {
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
-    if (bend === undefined) {
+    // Same race-safety as updateConnectorElbowBend: a routing change
+    // mid-drag already cleared the field; silently drop the late commit.
+    if (e.routing !== 'curved') return;
+    if (bend === undefined || !Number.isFinite(bend)) {
       delete e.curveBend;
     } else {
       // Round to 0.01 so the CRDT payload stays tidy under drag updates.
