@@ -56,8 +56,16 @@ format panel. Matches GS.
 
 ## Plan
 
-- [ ] Extend `rotate.ts` with `snapToCardinal` + free-drag soft snap
-- [ ] Update `editor.ts` callsite to pass `startRotation` for single
-- [ ] Add unit tests covering near-cardinal snap, mid-range pass-through,
+- [x] Extend `rotate.ts` with `snapToCardinal` + free-drag soft snap
+- [x] Update `editor.ts` callsite to pass `startRotation` for single
+- [x] Add unit tests covering near-cardinal snap, mid-range pass-through,
       Shift unchanged
-- [ ] `pnpm verify:fast`
+- [x] `pnpm verify:fast`
+
+## Review
+
+Shipped in `967198e6` (#361). Free rotate soft-snaps to 0/90/180/270°
+within ±3°, matching Google Slides. Single-element rotate now passes
+the actual `startRotation`, so Shift 15° snap is on absolute rotation
+(not delta) — the previously subtle bug on pre-rotated shapes is gone.
+Multi-element rotate keeps delta semantics for the gesture.

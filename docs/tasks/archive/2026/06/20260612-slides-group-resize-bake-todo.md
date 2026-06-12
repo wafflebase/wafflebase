@@ -39,7 +39,7 @@ bake into the group resize commit.
 
 ## Steps
 
-- [ ] **Step 1:** Add pure helper `bakeGroupScale` to
+- [x] **Step 1:** Add pure helper `bakeGroupScale` to
   `packages/slides/src/model/group.ts` with co-located unit tests in
   `packages/slides/test/model/group.test.ts` (or create the file
   if missing). Cases:
@@ -49,30 +49,39 @@ bake into the group resize commit.
   - Rotated child: rotation preserved, dims still scale.
   - Connector with free + attached endpoints: free scales, attached unchanged.
 
-- [ ] **Step 2:** Add `bakeGroupResize(slideId, groupId)` to the
+- [x] **Step 2:** Add `bakeGroupResize(slideId, groupId)` to the
   `Store` interface in `packages/slides/src/store/store.ts`.
 
-- [ ] **Step 3:** Implement `bakeGroupResize` in
+- [x] **Step 3:** Implement `bakeGroupResize` in
   `packages/slides/src/store/memory.ts` using the pure helper. No-op
   when group has no children or scale factors are 1.
 
-- [ ] **Step 4:** Implement `bakeGroupResize` in
+- [x] **Step 4:** Implement `bakeGroupResize` in
   `packages/frontend/src/app/slides/yorkie-slides-store.ts` (the
   collaborative impl) using the same pure helper.
 
-- [ ] **Step 5:** Wire into `SlidesEditorImpl.startResize`'s `onUp`
+- [x] **Step 5:** Wire into `SlidesEditorImpl.startResize`'s `onUp`
   in `packages/slides/src/view/editor/editor.ts`. Single-element
   group branch only (multi-resize Task 5 already bakes multi-select
   via per-child frame updates and so does not need this hook).
 
-- [ ] **Step 6:** Integration test in `packages/slides/test/view/editor/editor.test.ts`:
+- [x] **Step 6:** Integration test in `packages/slides/test/view/editor/editor.test.ts`:
   - Seed a group with one text child + one rect child.
   - Resize the group non-uniformly.
   - After commit: `group.data.refSize` matches `group.frame.{w,h}`;
     children's frames are scaled accordingly; child element's
     rotation preserved.
 
-- [ ] **Step 7:** Run `pnpm verify:fast`. Confirm green.
+- [x] **Step 7:** Run `pnpm verify:fast`. Confirm green.
 
-- [ ] **Step 8:** Commit with subject under 70 chars; body explains
+- [x] **Step 8:** Commit with subject under 70 chars; body explains
   the bake rationale + the GS/PPT parity reference. Open PR.
+
+## Review
+
+Shipped in `cece5cc0` (#360). `bakeGroupScale` pure helper +
+`bakeGroupResize` store method (Mem + Yorkie). Editor wires the
+single-element group resize commit into the same `store.batch` so
+the gesture is one undo unit. Glyphs no longer distort on non-uniform
+group resize — children's frames are baked at commit time and the
+canvas render-scale stays at 1.

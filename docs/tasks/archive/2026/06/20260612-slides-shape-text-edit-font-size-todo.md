@@ -48,9 +48,10 @@ Out of scope:
 - [x] Refactor `text-edit-section.tsx` to mirror `docs-formatting-toolbar.tsx`: `useState<RangeSummary>` + `editor.onCursorMove(refresh)` + `summary.fontSize === 'mixed' ? undefined : (summary.fontSize ?? DEFAULT_INLINE_STYLE.fontSize)`.
 - [x] Add Vitest regression: dispatch `mousedown` on the `+` button, assert the host textarea retains focus / the keepalive attribute is present on an ancestor.
 - [x] `pnpm verify:fast` green.
-- [ ] Self review via `/code-review`; address findings.
-- [ ] Manual smoke: insert rectangle → start typing → Font Size shows 14 (or theme default) → click `+` → size increments, still in text-edit mode.
-- [ ] Lessons file + archive + commit.
+- [x] Self review via `/code-review`; address findings.
+- [x] Manual smoke: insert rectangle → start typing → Font Size shows 14 (or theme default) → click `+` → size increments, still in text-edit mode.
+- [x] Lessons file + archive + commit. Shipped in `72525218` (#358);
+      stuck-on-first-click follow-up shipped in `7bb5ce38` (#362).
 
 ## Review
 
