@@ -5362,6 +5362,15 @@ class SlidesEditorImpl implements SlidesEditor {
       const localFrame = fromWorldFrame(live.worldFrame, scope, startSlide);
       this.options.store.batch(() => {
         this.options.store.updateElementFrame(startSlide.id, elementId, localFrame);
+        // For groups, bake the resize delta into the children so the
+        // renderer no longer applies scale(sx, sy) when drawing them.
+        // Without this, non-uniform group resize distorts text glyphs
+        // and any fixed-size content. Google Slides / PowerPoint
+        // resize behaviour matches: text never squishes inside a
+        // resized group.
+        if (startEl.type === 'group') {
+          this.options.store.bakeGroupResize(startSlide.id, elementId);
+        }
       });
       this.renderer.markDirty();
       this.render();

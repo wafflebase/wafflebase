@@ -37,6 +37,7 @@ import {
   defaultLight,
   generateId,
   getLayout,
+  bakeGroupScale,
   isBlocksEmpty,
   groupToTransform,
   migrateDocument,
@@ -1595,6 +1596,55 @@ export class YorkieSlidesStore implements SlidesStore {
           }
         }
       });
+    });
+  }
+
+  bakeGroupResize(slideId: string, groupId: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) return;
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+      const path = yorkieFindElementPath(proxyElements, groupId);
+      if (!path) return;
+
+      const group = path[path.length - 1];
+      if (group.type !== 'group') return;
+
+      const plainGroup = unwrapElement(group) as unknown as GroupElement;
+      const gAny = group as unknown as {
+        frame: Frame;
+        data: { refSize: { w: number; h: number }; children: ProxyArray };
+      };
+
+      if (plainGroup.data.children.length === 0) {
+        gAny.data.refSize = { w: plainGroup.frame.w, h: plainGroup.frame.h };
+        return;
+      }
+
+      const { children: bakedChildren, refSize } = bakeGroupScale(plainGroup);
+      if (bakedChildren === plainGroup.data.children) {
+        // bakeGroupScale returned identity — sync refSize defensively.
+        gAny.data.refSize = refSize;
+        return;
+      }
+
+      gAny.data.children.forEach((ch, i) => {
+        const next = bakedChildren[i];
+        const chAny = ch as unknown as {
+          type: string;
+          frame: Frame;
+          start?: Endpoint;
+          end?: Endpoint;
+        };
+        chAny.frame = { ...next.frame };
+        if (next.type === 'connector') {
+          (chAny as unknown as Record<'start' | 'end', Endpoint>).start = next.start;
+          (chAny as unknown as Record<'start' | 'end', Endpoint>).end = next.end;
+        }
+      });
+      gAny.data.refSize = refSize;
     });
   }
 

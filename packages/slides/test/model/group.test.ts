@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import type { GroupElement, ShapeElement } from '../../src/model/element';
+import type { ConnectorElement } from '../../src/model/connector';
 import {
   applyGroupTransform,
   applyInverseMatrix,
   applyInversePoint,
+  bakeGroupScale,
   findElementPath,
   groupToTransform,
   isGroupDescendantOf,
@@ -505,5 +507,95 @@ describe('worldTightFrame', () => {
     expect(aWorldAfter.h).toBeCloseTo(aWorldBefore.h, 3);
     expect(bWorldAfter.x).toBeCloseTo(bWorldBefore.x, 3);
     expect(bWorldAfter.y).toBeCloseTo(bWorldBefore.y, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bakeGroupScale — bake the group's render-scale into children at commit time
+// ---------------------------------------------------------------------------
+
+describe('bakeGroupScale', () => {
+  it('returns the input untouched when scale factors are already 1', () => {
+    const g: GroupElement = {
+      ...group('g', { x: 0, y: 0, w: 200, h: 100 }, [
+        shape('a', { x: 10, y: 10, w: 50, h: 30 }),
+      ]),
+      data: {
+        children: [shape('a', { x: 10, y: 10, w: 50, h: 30 })],
+        refSize: { w: 200, h: 100 },
+      },
+    };
+    const { children, refSize } = bakeGroupScale(g);
+    expect(refSize).toEqual({ w: 200, h: 100 });
+    expect(children).toBe(g.data.children);
+  });
+
+  it('scales each child frame uniformly when group doubled both axes', () => {
+    const g: GroupElement = {
+      ...group('g', { x: 0, y: 0, w: 400, h: 200 }, []),
+      data: {
+        children: [
+          shape('a', { x: 10, y: 10, w: 50, h: 30 }),
+          shape('b', { x: 100, y: 50, w: 60, h: 20, rotation: Math.PI / 6 }),
+        ],
+        refSize: { w: 200, h: 100 },
+      },
+    };
+    const { children, refSize } = bakeGroupScale(g);
+    expect(refSize).toEqual({ w: 400, h: 200 });
+    expect(children[0].frame).toMatchObject({ x: 20, y: 20, w: 100, h: 60 });
+    expect(children[1].frame).toMatchObject({
+      x: 200, y: 100, w: 120, h: 40,
+    });
+    expect(children[1].frame.rotation).toBeCloseTo(Math.PI / 6);
+  });
+
+  it('non-uniform scale (sx=2, sy=1): widths double, heights stay', () => {
+    const g: GroupElement = {
+      ...group('g', { x: 0, y: 0, w: 400, h: 100 }, []),
+      data: {
+        children: [shape('a', { x: 10, y: 20, w: 50, h: 30 })],
+        refSize: { w: 200, h: 100 },
+      },
+    };
+    const { children, refSize } = bakeGroupScale(g);
+    expect(refSize).toEqual({ w: 400, h: 100 });
+    expect(children[0].frame).toMatchObject({ x: 20, y: 20, w: 100, h: 30 });
+  });
+
+  it('connector children: free endpoints scale; attached endpoints unchanged', () => {
+    const connector: ConnectorElement = {
+      id: 'c',
+      type: 'connector',
+      frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+      routing: 'straight',
+      start: { kind: 'free', x: 10, y: 20 },
+      end:   { kind: 'attached', elementId: 'target', siteIndex: 0 },
+      arrowheads: {},
+    };
+    const g: GroupElement = {
+      ...group('g', { x: 0, y: 0, w: 400, h: 100 }, []),
+      data: {
+        children: [connector],
+        refSize: { w: 200, h: 50 },
+      },
+    };
+    const { children } = bakeGroupScale(g);
+    const baked = children[0] as ConnectorElement;
+    expect(baked.start).toEqual({ kind: 'free', x: 20, y: 40 });
+    expect(baked.end).toEqual({ kind: 'attached', elementId: 'target', siteIndex: 0 });
+    expect(baked.frame).toMatchObject({ x: 0, y: 0, w: 200, h: 100 });
+  });
+
+  it('treats missing refSize as identity (frame.w/h), giving a no-op', () => {
+    const g: GroupElement = {
+      ...group('g', { x: 0, y: 0, w: 200, h: 100 }, [
+        shape('a', { x: 10, y: 10, w: 50, h: 30 }),
+      ]),
+    };
+    // No refSize on data — defaults to frame.{w,h}.
+    const { children, refSize } = bakeGroupScale(g);
+    expect(refSize).toEqual({ w: 200, h: 100 });
+    expect(children).toBe(g.data.children);
   });
 });

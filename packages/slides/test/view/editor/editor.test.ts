@@ -3000,3 +3000,55 @@ describe('rotate — angle tooltip positioning', () => {
     }));
   });
 });
+
+describe('group resize commit — bake into children', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) { editor.detach(); editor = null; }
+  });
+
+  it('bakes the resize into child frames and resets refSize on group SE-handle drag', () => {
+    const { canvas, overlay, store } = makeGroupedFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+
+    // Select the group and inspect its starting geometry.
+    const slide0 = store.read().slides[0];
+    const group0 = slide0.elements[0] as Extract<typeof slide0.elements[0], { type: 'group' }>;
+    expect(group0.type).toBe('group');
+    const refBefore = { w: group0.frame.w, h: group0.frame.h };
+    const childAFrameBefore = { ...group0.data.children[0].frame };
+    editor.setSelection([group0.id]);
+
+    // Drag the SE handle by (+100, +50) logical px.
+    const seHandle = overlay.querySelector<HTMLDivElement>('[data-handle="se"]')!;
+    expect(seHandle).not.toBeNull();
+    const left = parseFloat(seHandle.style.left);
+    const top = parseFloat(seHandle.style.top);
+    const startX = left + 4;
+    const startY = top + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: startX, clientY: startY, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: startX + 100, clientY: startY + 50, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: startX + 100, clientY: startY + 50, bubbles: true,
+    }));
+
+    // After commit: group's frame.w/h grew; refSize matches new frame
+    // (so renderer scale is 1); child frames scaled proportionally.
+    const slide1 = store.read().slides[0];
+    const group1 = slide1.elements[0] as typeof group0;
+    const sx = group1.frame.w / refBefore.w;
+    const sy = group1.frame.h / refBefore.h;
+    expect(sx).toBeGreaterThan(1);
+    expect(sy).toBeGreaterThan(1);
+    expect(group1.data.refSize?.w).toBeCloseTo(group1.frame.w, 3);
+    expect(group1.data.refSize?.h).toBeCloseTo(group1.frame.h, 3);
+    expect(group1.data.children[0].frame.w).toBeCloseTo(childAFrameBefore.w * sx, 3);
+    expect(group1.data.children[0].frame.h).toBeCloseTo(childAFrameBefore.h * sy, 3);
+  });
+});
