@@ -44,7 +44,7 @@ function makeMockMount() {
       requestLink: () => {},
       undo: () => {},
       redo: () => {},
-      onCursorMove: () => {},
+      onCursorMove: () => () => {},
     };
   }
   return mount;

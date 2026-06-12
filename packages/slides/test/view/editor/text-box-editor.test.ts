@@ -94,7 +94,7 @@ function makeMockMount(): {
       requestLink: () => {},
       undo: () => {},
       redo: () => {},
-      onCursorMove: () => {},
+      onCursorMove: () => () => {},
     };
     current = tb;
     return tb;

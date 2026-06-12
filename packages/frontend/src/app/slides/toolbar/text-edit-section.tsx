@@ -2,10 +2,23 @@
  * Text-edit contextual section.
  *
  * Rendered in the toolbar's contextual middle slot when
- * `state.kind === 'text-edit'`. Composes the three shared
- * text-formatting groups from @/components/text-formatting bound to
- * the active SlidesTextBoxEditor, then ends with a Done button that
- * exits text-edit mode (equivalent to pressing Escape).
+ * `state.kind === 'text-edit'`. Composes the shared text-formatting
+ * groups from @/components/text-formatting bound to the active
+ * SlidesTextBoxEditor, then ends with a Done button that exits
+ * text-edit mode (equivalent to pressing Escape).
+ *
+ * Slides-specific surface choices (vs. docs):
+ *   - No block-style picker (`TextStyleGroup`). Slides text bodies are
+ *     positioned per-element via the slide layout / theme tier; promoting
+ *     a run to "Title" / "Heading 1" inside a shape doesn't carry the
+ *     semantic weight it does in a flowing document, and the picker
+ *     duplicates the layout-driven typography that themes already supply.
+ *   - No Strikethrough toggle. Bold / Italic / Underline cover the
+ *     in-deck inline-format needs; strike is rarely a first-class need
+ *     when editing a slide and the toolbar stays compact without it.
+ *   - No Highlight (background color) swatch. Highlight backgrounds
+ *     rarely read against themed slide backgrounds and the inline-format
+ *     cluster stays compact without them. Text color stays.
  *
  * `SlidesTextBoxEditor` structurally satisfies `TextFormattingEditor`
  * (all required methods are present on the type — see
@@ -23,10 +36,10 @@ import type { ToolbarState } from './state';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
-  TextStyleGroup,
   TextFormatGroup,
   TextParagraphGroup,
   FontSizePicker,
+  useResolvedFontSize,
 } from '@/components/text-formatting';
 
 export interface TextEditSectionProps {
@@ -36,21 +49,26 @@ export interface TextEditSectionProps {
 
 export function TextEditSection({ state, editor }: TextEditSectionProps) {
   const textEditor = state.textEditor;
+  // Three-case font-size resolution (uniform / mixed / unset → docs
+  // default). Shared with the mobile sheet via `useResolvedFontSize` so
+  // both surfaces follow the same rule.
+  const sizeValue = useResolvedFontSize(textEditor);
+
   return (
     <>
-      <TextStyleGroup
-        editor={textEditor}
-        allowedBlockTypes={['paragraph', 'heading']}
-      />
       <FontSizePicker
-        value={textEditor.getSelectionStyle().fontSize}
+        value={sizeValue}
         onChange={(size) => {
           textEditor.applyStyle({ fontSize: size });
           textEditor.focus();
         }}
       />
       <ToolbarSeparator className="mx-1" />
-      <TextFormatGroup editor={textEditor} />
+      <TextFormatGroup
+        editor={textEditor}
+        showStrikethrough={false}
+        showHighlight={false}
+      />
       <ToolbarSeparator className="mx-1" />
       <TextParagraphGroup editor={textEditor} />
       <ToolbarSeparator className="mx-1" />

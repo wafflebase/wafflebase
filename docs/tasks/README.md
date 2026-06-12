@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides connector bend handles (2026-06-12) | [20260612-slides-connector-bend-handles-todo.md](./active/20260612-slides-connector-bend-handles-todo.md) | - |
+| slides shape text edit font size (2026-06-12) | [20260612-slides-shape-text-edit-font-size-todo.md](./active/20260612-slides-shape-text-edit-font-size-todo.md) | [20260612-slides-shape-text-edit-font-size-lessons.md](./active/20260612-slides-shape-text-edit-font-size-lessons.md) |
 | pptx slide21 roadmap fix (2026-06-11) | [20260611-pptx-slide21-roadmap-fix-todo.md](./active/20260611-pptx-slide21-roadmap-fix-todo.md) | - |
 | docs pending summary merge (2026-06-08) | [20260608-docs-pending-summary-merge-todo.md](./active/20260608-docs-pending-summary-merge-todo.md) | [20260608-docs-pending-summary-merge-lessons.md](./active/20260608-docs-pending-summary-merge-lessons.md) |
 | release v0.4.4 (2026-06-08) | [20260608-release-v0.4.4-todo.md](./active/20260608-release-v0.4.4-todo.md) | - |
@@ -35,4 +37,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 264
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: pptx slide21 roadmap fix (2026-06-11)
+Latest active task: slides connector bend handles (2026-06-12)
