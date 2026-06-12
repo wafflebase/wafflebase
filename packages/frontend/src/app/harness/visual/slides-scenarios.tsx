@@ -3,6 +3,7 @@ import {
   BUILT_IN_LAYOUTS,
   BUILT_IN_THEMES,
   DEFAULT_MASTER,
+  GHOST_ALPHA,
   MemSlidesStore,
   SlideRenderer,
   defaultLight,
@@ -1110,9 +1111,354 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
       "4×3 grid of the 12 action buttons rendered via `drawActionButton` (special-cased dispatcher branch). Body = background fill + bevel outline; glyph = text-coloured inner icon. Includes `actionButtonBlank` to verify the no-glyph path.",
     render: () => <SlideCanvas doc={makeActionButtonsDoc()} />,
   },
+  // Multi-resize visual baselines — post-commit states and mid-drag ghost
+  // previews for the proportional-bbox resize path (Task 5 of the
+  // multi-select resize branch). Four scenarios:
+  //   slides-multi-resize-basic            — 2 rects at their post-SE-drag frames.
+  //   slides-multi-resize-with-rotated-child — 2 rects (one rotated 30°) post-drag.
+  //   slides-resize-ghost-mid-drag         — single shape, original + GHOST_ALPHA
+  //                                          ghost at a larger frame (mid-drag).
+  //   slides-multi-resize-ghost-mid-drag   — 2 shapes, original + ghosts (mid-drag).
+  {
+    id: "slides-multi-resize-basic",
+    title: "Multi-resize — basic post-commit",
+    description:
+      "Two axis-aligned rects after an SE-handle drag on their combined bounding box. Both grew in proportion to the original bbox (sx≈1.44, sy≈1.67). Verifies that proportional scaling keeps elements correctly positioned relative to the combined origin.",
+    render: () => <SlideCanvasMultiResizeBasic />,
+  },
+  {
+    id: "slides-multi-resize-with-rotated-child",
+    title: "Multi-resize — with rotated child post-commit",
+    description:
+      "Two rects (one unrotated, one rotated 30°) after an SE-handle drag. The rotated child's frame grows proportionally while its rotation is preserved. Verifies that resizeMultiFrames keeps per-element rotation untouched.",
+    render: () => <SlideCanvasMultiResizeRotated />,
+  },
+  {
+    id: "slides-resize-ghost-mid-drag",
+    title: "Resize ghost — single shape mid-drag",
+    description:
+      "Single rect at its original frame (full opacity) overlaid with a ghost copy at the post-SE-drag size rendered at GHOST_ALPHA (0.4). Captures the ghost-on-top preview channel that ships in the single-resize path.",
+    render: () => <SlideCanvasResizeGhost />,
+  },
+  {
+    id: "slides-multi-resize-ghost-mid-drag",
+    title: "Resize ghost — multi-shape mid-drag",
+    description:
+      "Two rects at their original frames (full opacity) with ghost copies at the proportionally-scaled SE-drag positions rendered at GHOST_ALPHA (0.4). Captures the ghost-on-top preview channel for the multi-resize path.",
+    render: () => <SlideCanvasMultiResizeGhost />,
+  },
 ];
 
 // ---- Scenario components ----
+
+// ---------------------------------------------------------------------------
+// Multi-resize and ghost scenarios (Task 7)
+//
+// These four scenarios use SlideRenderer.forceRender() to paint the slide
+// with an optional array of ghost elements overlaid at GHOST_ALPHA (0.4).
+// They do NOT drive pointer events — all frames are computed from the same
+// proportional-bbox math that resizeMultiFrames uses, but written as
+// constants so the visual baselines are stable across pointer-event timing
+// changes.
+//
+// Coordinate arithmetic (SE-handle drag by +200 logical px on each axis):
+//   startBbox = { x: minX, y: minY, w: bboxW, h: bboxH }
+//   newBbox   = { x: minX, y: minY, w: bboxW+200, h: bboxH+200 }
+//   sx = newBbox.w / startBbox.w
+//   sy = newBbox.h / startBbox.h
+//   newCenter = { x: newBbox.x + (cx - startBbox.x)*sx,
+//                  y: newBbox.y + (cy - startBbox.y)*sy }
+//   newFrame  = { x: newCenter.x - w*sx/2, y: newCenter.y - h*sy/2,
+//                  w: w*sx, h: h*sy, rotation }
+// ---------------------------------------------------------------------------
+
+/**
+ * Canvas component that calls SlideRenderer.forceRender so we can supply
+ * an optional ghosts array on top of the committed slide elements.
+ *
+ * `ghostElements` — if provided, these elements are painted at GHOST_ALPHA
+ * on top of the slide's committed elements, mirroring the mid-drag paint
+ * path used by the editor's resize interaction.
+ */
+function SlideCanvasWithGhost({
+  doc,
+  ghostElements,
+  width = 480,
+  height = 270,
+}: {
+  doc: SlidesDocument;
+  ghostElements?: readonly Element[];
+  width?: number;
+  height?: number;
+}) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const renderer = new SlideRenderer(ctx, {
+      hostWidth: width,
+      hostHeight: height,
+      dpr: 1,
+    });
+    if (ghostElements && ghostElements.length > 0) {
+      // forceRender paints the slide first, then overlays ghosts at
+      // GHOST_ALPHA — mirrors the editor's live resize preview path.
+      renderer.forceRender(doc.slides[0], doc, ghostElements);
+    } else {
+      renderer.forceRender(doc.slides[0], doc);
+    }
+  }, [doc, ghostElements, width, height]);
+
+  return (
+    <canvas
+      ref={ref}
+      className="rounded-md border bg-background"
+      style={{ width, height }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 1: slides-multi-resize-basic
+//
+// Two axis-aligned rects. Original bbox: x=200, y=200, w=450, h=300.
+// SE drag: dx=+200, dy=+200. newBbox: w=650, h=500.
+// sx = 650/450 ≈ 1.444, sy = 500/300 ≈ 1.667.
+//
+// Rect A (200,200,200,150):
+//   cx=300, cy=275
+//   newCx = 200 + (300-200)*1.444 = 200+144.4 = 344.4
+//   newCy = 200 + (275-200)*1.667 = 200+125.0 = 325.0
+//   w2=288.9, h2=250.0 → frame: (200, 200, 288.9, 250.0)
+//
+// Rect B (500,300,150,200):
+//   cx=575, cy=400
+//   newCx = 200 + (575-200)*1.444 = 200+541.7 = 741.7
+//   newCy = 200 + (400-200)*1.667 = 200+333.3 = 533.3
+//   w2=216.7, h2=333.3 → frame: (633.3, 366.7, 216.7, 333.3)
+// ---------------------------------------------------------------------------
+function SlideCanvasMultiResizeBasic() {
+  const doc = useMemo<SlidesDocument>(() => ({
+    meta: { title: "Multi-resize basic", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [{
+      id: "s1",
+      layoutId: "blank",
+      background: { fill: BG_ROLE },
+      elements: [
+        {
+          id: "rect-a",
+          type: "shape",
+          // Post-resize frame (rounded to 1 dp)
+          frame: { x: 200, y: 200, w: 288.9, h: 250.0, rotation: 0 },
+          data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+        } as Element,
+        {
+          id: "rect-b",
+          type: "shape",
+          // Post-resize frame (rounded to 1 dp)
+          frame: { x: 633.3, y: 366.7, w: 216.7, h: 333.3, rotation: 0 },
+          data: {
+            kind: "rect" as ShapeKind,
+            fill: { kind: "role" as const, role: "accent2" } as ThemeColor,
+          },
+        } as Element,
+      ],
+      notes: [],
+    }],
+  }), []);
+  return <SlideCanvas doc={doc} />;
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 2: slides-multi-resize-with-rotated-child
+//
+// Rect A (unrotated): (200,200,200,150).
+// Rect B (rotated 30°): world tight frame ≈ (490, 270, 178, 178); but
+// resizeMultiFrames uses worldFrame (the axis-aligned bbox of the rotated
+// element) for its proportional math. For a 160×160 rect rotated 30°,
+// worldFrame ≈ (490, 260, 178, 178).
+//
+// For simplicity in this harness we set Rect B's logical frame directly at
+// (500, 260, 160, 160, rotation=π/6) which matches the PPTX/store frame.
+// The bboxes used for proportional scaling come from worldTightFrame
+// (≈ axis-aligned envelope), but for the visual baseline we only need
+// a realistic-looking result, not exact pixel-perfect reproduction.
+//
+// Post-SE-drag (dx=+200, dy=+200) using same arithmetic as Scenario 1.
+// ---------------------------------------------------------------------------
+function SlideCanvasMultiResizeRotated() {
+  const doc = useMemo<SlidesDocument>(() => ({
+    meta: { title: "Multi-resize rotated", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [{
+      id: "s1",
+      layoutId: "blank",
+      background: { fill: BG_ROLE },
+      elements: [
+        {
+          id: "rect-unrot",
+          type: "shape",
+          // Post-resize (same as Scenario 1 Rect A)
+          frame: { x: 200, y: 200, w: 288.9, h: 250.0, rotation: 0 },
+          data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+        } as Element,
+        {
+          id: "rect-rotated",
+          type: "shape",
+          // Post-resize of a 160×160 rect rotated 30°: scale sx≈1.444, sy≈1.667
+          // Original: (500, 260, 160, 160). newW≈231, newH≈267; rotation preserved.
+          frame: { x: 624.4, y: 350.0, w: 231.1, h: 266.7, rotation: Math.PI / 6 },
+          data: {
+            kind: "rect" as ShapeKind,
+            fill: { kind: "role" as const, role: "accent2" } as ThemeColor,
+          },
+        } as Element,
+      ],
+      notes: [],
+    }],
+  }), []);
+  return <SlideCanvas doc={doc} />;
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3: slides-resize-ghost-mid-drag
+//
+// Single rect at its original frame (full opacity via normal render pass)
+// plus a ghost copy at the post-SE-drag frame (GHOST_ALPHA via forceRender).
+//
+// Original: (300, 250, 300, 200). SE drag +200,+200.
+// Ghost: (300, 250, 500, 400) — same top-left anchor for SE handle.
+// ---------------------------------------------------------------------------
+function SlideCanvasResizeGhost() {
+  const originalFrame = useMemo(
+    () => ({ x: 300, y: 250, w: 300, h: 200, rotation: 0 }),
+    [],
+  );
+  const doc = useMemo<SlidesDocument>(
+    () => ({
+      meta: { title: "Resize ghost single", themeId: "default-light", masterId: "default" },
+      themes: BUILT_IN_THEMES,
+      masters: [DEFAULT_MASTER],
+      layouts: BUILT_IN_LAYOUTS,
+      slides: [{
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements: [{
+          id: "shape-orig",
+          type: "shape",
+          frame: originalFrame,
+          data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+        } as Element],
+        notes: [],
+      }],
+    }),
+    [originalFrame],
+  );
+  // Ghost: SE-handle drag keeps NW anchor fixed → ghost grows SE.
+  const ghostElements = useMemo<readonly Element[]>(
+    () => [{
+      id: "shape-orig",
+      type: "shape",
+      frame: {
+        x: originalFrame.x,
+        y: originalFrame.y,
+        w: originalFrame.w + 200,
+        h: originalFrame.h + 200,
+        rotation: 0,
+      },
+      data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+    } as Element],
+    [originalFrame],
+  );
+  // Use a data-attribute to expose the ghost-alpha value for test readers.
+  return (
+    <div data-ghost-alpha={GHOST_ALPHA}>
+      <SlideCanvasWithGhost doc={doc} ghostElements={ghostElements} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4: slides-multi-resize-ghost-mid-drag
+//
+// Two rects at their original frames (full opacity via normal render pass)
+// plus ghost copies at the proportionally-scaled SE-drag frames (GHOST_ALPHA).
+//
+// Original bbox: x=200, y=200, w=450, h=300. SE drag +200,+200.
+// sx=650/450≈1.444, sy=500/300≈1.667.
+// (Same arithmetic as Scenario 1 — the original frames are the "before" view
+//  and the ghosts are the "during" preview.)
+// ---------------------------------------------------------------------------
+function SlideCanvasMultiResizeGhost() {
+  const doc = useMemo<SlidesDocument>(() => ({
+    meta: { title: "Multi-resize ghost", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [{
+      id: "s1",
+      layoutId: "blank",
+      background: { fill: BG_ROLE },
+      elements: [
+        {
+          id: "rect-a",
+          type: "shape",
+          frame: { x: 200, y: 200, w: 200, h: 150, rotation: 0 },
+          data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+        } as Element,
+        {
+          id: "rect-b",
+          type: "shape",
+          frame: { x: 500, y: 300, w: 150, h: 200, rotation: 0 },
+          data: {
+            kind: "rect" as ShapeKind,
+            fill: { kind: "role" as const, role: "accent2" } as ThemeColor,
+          },
+        } as Element,
+      ],
+      notes: [],
+    }],
+  }), []);
+  // Ghost frames: proportionally scaled by the SE drag (same as post-commit
+  // frames in Scenario 1). The originals above are shown at full opacity;
+  // the ghosts preview the pending resize at GHOST_ALPHA.
+  const ghostElements = useMemo<readonly Element[]>(
+    () => [
+      {
+        id: "rect-a",
+        type: "shape",
+        frame: { x: 200, y: 200, w: 288.9, h: 250.0, rotation: 0 },
+        data: { kind: "rect" as ShapeKind, fill: ACCENT1 },
+      } as Element,
+      {
+        id: "rect-b",
+        type: "shape",
+        frame: { x: 633.3, y: 366.7, w: 216.7, h: 333.3, rotation: 0 },
+        data: {
+          kind: "rect" as ShapeKind,
+          fill: { kind: "role" as const, role: "accent2" } as ThemeColor,
+        },
+      } as Element,
+    ],
+    [],
+  );
+  return (
+    <div data-ghost-alpha={GHOST_ALPHA}>
+      <SlideCanvasWithGhost doc={doc} ghostElements={ghostElements} />
+    </div>
+  );
+}
 
 function SlidesToolbarScenario() {
   const store = useMemo(() => new MemSlidesStore(), []);

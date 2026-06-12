@@ -736,6 +736,64 @@ describe('initialize', () => {
     expect(editor.getCurrentSlideId()).toBe(secondId);
     expect(editor.getSelection()).toEqual([]);
   });
+
+  it('multi-select SE-handle drag scales each child by the bbox ratio', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 200, y: 100, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    editor.render();
+
+    // Find the SE handle for the bbox: a spans x ∈ [0, 100], y ∈ [0, 50];
+    // b spans x ∈ [200, 280], y ∈ [100, 160]; combined bbox is x ∈ [0, 280], y ∈ [0, 160].
+    // The SE corner is at logical (280, 160). hostWidth=1920 == SLIDE_WIDTH=1920 → scale=1,
+    // so overlay px == logical px: handle sits at (280, 160); style.left = 276, style.top = 156.
+    const seHandle = overlay.querySelector<HTMLDivElement>('[data-handle="se"]');
+    expect(seHandle).not.toBeNull();
+    const seLeft = parseFloat(seHandle!.style.left);
+    const seTop = parseFloat(seHandle!.style.top);
+    // Dispatch pointerdown on the handle centre (HANDLE_SIZE/2 = 4 px offset from left/top).
+    const startX = seLeft + 4;
+    const startY = seTop + 4;
+    dispatchMouseDown(canvas, startX, startY);
+    // Drag the SE handle by (40, 30) client px. hostWidth=1920 equals SLIDE_WIDTH=1920,
+    // so scale=1 and client px == logical px.
+    // dx=40, dy=30. newBbox = (0, 0, 320, 190). sx = 320/280 ≈ 1.14286, sy = 190/160 = 1.1875.
+    // Element a (0, 0, 100, 50) → (0, 0, ~114.286, ~59.375).
+    // Element b (200, 100, 80, 60) → (~228.571, ~118.75, ~91.429, ~71.25).
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: startX + 40, clientY: startY + 30, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: startX + 40, clientY: startY + 30, bubbles: true }));
+
+    const elements = store.read().slides[0].elements;
+    const aFrame = elements.find((e) => e.id === aId)!.frame;
+    const bFrame = elements.find((e) => e.id === bId)!.frame;
+
+    // Element a should scale from (0, 0, 100, 50) to approximately (0, 0, 114.29, 59.38).
+    expect(aFrame.x).toBeCloseTo(0, 1);
+    expect(aFrame.y).toBeCloseTo(0, 1);
+    expect(aFrame.w).toBeCloseTo(114.286, 1);
+    expect(aFrame.h).toBeCloseTo(59.375, 1);
+
+    // Element b should scale from (200, 100, 80, 60) to approximately (228.57, 118.75, 91.43, 71.25).
+    expect(bFrame.x).toBeCloseTo(228.571, 1);
+    expect(bFrame.y).toBeCloseTo(118.75, 1);
+    expect(bFrame.w).toBeCloseTo(91.429, 1);
+    expect(bFrame.h).toBeCloseTo(71.25, 1);
+  });
 });
 
 describe('initialize with readOnly: true', () => {
