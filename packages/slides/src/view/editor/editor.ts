@@ -5428,10 +5428,12 @@ class SlidesEditorImpl implements SlidesEditor {
         for (const snap of snapshots) {
           const wf = frames.get(snap.id);
           if (!wf) continue;
-          // Fully-attached connectors are not in `connectorEndpoints`;
-          // their stored frame is auto-recomputed by the store from
-          // their endpoints, so we skip writing them too.
-          if (snap.kind === 'connector' && !connectorEndpoints.has(snap.id)) continue;
+          // Connector frames are always derived from their endpoints and
+          // cannot be patched via updateElementFrame (which throws for
+          // connectors). Free-endpoint connectors are committed via the
+          // connectorEndpoints loop below; fully-attached connectors have
+          // their frame auto-recomputed by the store when their hosts move.
+          if (snap.kind === 'connector') continue;
           this.options.store.updateElementFrame(
             startSlide.id,
             snap.id,
