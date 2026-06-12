@@ -233,7 +233,26 @@ export interface SlidesTextBoxEditor {
   requestLink(): void;
   undo(): void;
   redo(): void;
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
+  /**
+   * Register a cursor-move listener. Returns an unsubscribe function.
+   *
+   * Multi-listener at the slides wrapper layer (the underlying docs
+   * `TextBoxEditorAPI.onCursorMove` is single-callback). Slides
+   * editor.ts uses this for cell-boundary navigation; the slides
+   * toolbar uses it to refresh inline-style controls. A single-callback
+   * delegate would clobber whichever consumer registered second.
+   */
+  onCursorMove(
+    cb: (
+      pos: { blockId: string; offset: number },
+      selection?:
+        | {
+            anchor: { blockId: string; offset: number };
+            focus: { blockId: string; offset: number };
+          }
+        | null,
+    ) => void,
+  ): () => void;
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
@@ -310,6 +329,15 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   // a long-lived edit session (e.g. focus toggling during a toolbar
   // click) doesn't re-inject the same character.
   let initialTextPending = initialText !== undefined && initialText !== '';
+
+  // Multi-listener cursor-move fan-out. The underlying docs
+  // `TextBoxEditorAPI.onCursorMove` is single-callback, but multiple
+  // consumers register here (editor.ts cell-boundary navigation, the
+  // slides toolbar's inline-style refresh). The first registration
+  // installs the single docs-level callback that fans out to everyone.
+  type CursorMoveListener = Parameters<SlidesTextBoxEditor['onCursorMove']>[0];
+  const cursorMoveListeners = new Set<CursorMoveListener>();
+  let cursorMoveBridgeInstalled = false;
 
   const handleCommit = (next: Block[]): void => {
     if (committedAlready) return;
@@ -502,8 +530,17 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     redo(): void {
       api.redo();
     },
-    onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void {
-      api.onCursorMove(cb);
+    onCursorMove(cb): () => void {
+      cursorMoveListeners.add(cb);
+      if (!cursorMoveBridgeInstalled) {
+        cursorMoveBridgeInstalled = true;
+        api.onCursorMove((pos, selection) => {
+          for (const listener of cursorMoveListeners) listener(pos, selection);
+        });
+      }
+      return () => {
+        cursorMoveListeners.delete(cb);
+      };
     },
   };
 }

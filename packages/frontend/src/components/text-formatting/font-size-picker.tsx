@@ -105,11 +105,32 @@ export function FontSizePicker({
 
   return (
     <DropdownMenu>
-      <div className="inline-flex h-7 items-center rounded-md border border-transparent hover:border-border">
+      {/*
+       * `data-text-edit-keepalive` on the wrapper covers two cases when
+       * this picker is mounted inside the slides in-place text editor:
+       *
+       * 1. The dropdown trigger (`<input>`) takes focus on click — the
+       *    docs text-box blur handler treats keepalive-tagged
+       *    `relatedTarget` as a non-exit transition so the edit session
+       *    survives the textarea blur.
+       * 2. The ± steppers ALSO carry `onMouseDown preventDefault` so
+       *    focus never leaves the textarea in the first place. The
+       *    keepalive tag is a belt-and-suspenders fallback in case
+       *    pointer-down focus-prevention is suppressed elsewhere (e.g.
+       *    by a wrapping component that re-bubbles events).
+       *
+       * The matching tag on `DropdownMenuContent` covers the preset
+       * picklist — its menu items grab focus on hover.
+       */}
+      <div
+        data-text-edit-keepalive
+        className="inline-flex h-7 items-center rounded-md border border-transparent hover:border-border"
+      >
         <button
           type="button"
           aria-label="Decrease font size"
           disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(-1)}
           className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
@@ -143,6 +164,7 @@ export function FontSizePicker({
           type="button"
           aria-label="Increase font size"
           disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => step(1)}
           className="inline-flex h-7 w-5 cursor-pointer items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
@@ -151,6 +173,7 @@ export function FontSizePicker({
       </div>
       <DropdownMenuContent
         align="center"
+        data-text-edit-keepalive
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => {
           const picked = pendingPresetRef.current;

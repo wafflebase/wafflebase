@@ -27,6 +27,7 @@ import {
   TextParagraphGroup,
   TextFormatGroup,
   TextStyleGroup,
+  FontSizePicker,
 } from "../../../src/components/text-formatting/index.ts";
 import type { TextFormattingEditor } from "../../../src/components/text-formatting/types.ts";
 
@@ -139,5 +140,39 @@ describe("TextStyleGroup — block-style dropdown trigger keepalive", () => {
     const el = render(h(TextStyleGroup, { editor: makeEditor() }));
     const trigger = el.querySelector(`[aria-label="Text style"]`)!;
     expect(trigger.hasAttribute("data-text-edit-keepalive")).toBe(true);
+  });
+});
+
+describe("FontSizePicker — ± steppers + dropdown keepalive", () => {
+  // Regression: clicking the ± steppers used to blur the slides in-place
+  // text-box editor and commit/exit text-edit mode. The wrapper now
+  // carries data-text-edit-keepalive and both steppers preventDefault
+  // their mousedown, matching the sibling text-formatting controls.
+  for (const label of ["Increase font size", "Decrease font size"]) {
+    test(`${label} button prevents mousedown (keeps editor focus)`, () => {
+      const el = render(
+        h(FontSizePicker, { value: 12, onChange: () => {} }),
+      );
+      const btn = el.querySelector(`[aria-label="${label}"]`)!;
+      expect(btn).not.toBeNull();
+      expect(mousedownPrevented(btn)).toBe(true);
+    });
+  }
+
+  test("± steppers still fire onChange despite preventDefault", () => {
+    const onChange = vi.fn();
+    const el = render(h(FontSizePicker, { value: 12, onChange }));
+    const inc = el.querySelector(`[aria-label="Increase font size"]`)!;
+    mousedownPrevented(inc);
+    clickEl(inc);
+    expect(onChange).toHaveBeenCalledWith(13);
+  });
+
+  test("picker wrapper carries data-text-edit-keepalive", () => {
+    const el = render(h(FontSizePicker, { value: 12, onChange: () => {} }));
+    const trigger = el.querySelector(`[aria-label="Font size"]`)!;
+    // The keepalive attribute sits on the wrapper div containing the
+    // ± buttons and the input — climb to it via closest().
+    expect(trigger.closest("[data-text-edit-keepalive]")).not.toBeNull();
   });
 });

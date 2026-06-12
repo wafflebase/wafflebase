@@ -1313,7 +1313,7 @@ function makeStubTextBoxEditor(): SlidesTextBoxEditor {
     requestLink: noop,
     undo: noop,
     redo: noop,
-    onCursorMove: noop,
+    onCursorMove: () => noop,
   };
 }
 
