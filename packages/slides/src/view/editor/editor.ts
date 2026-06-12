@@ -78,7 +78,13 @@ import {
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { isEmptyPlaceholder } from './interactions/select';
-import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
+import {
+  resizeFrameWorld,
+  resizeMultiFrames,
+  type ElementSnapshot,
+  type MultiResizeResult,
+  type ResizeHandle,
+} from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
 import {
   adjustmentLocalToWorld,
@@ -5232,7 +5238,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!startSlide) return;
     const scope = this.selection.getScope();
     const selectedIds = this.selection.get();
-    if (selectedIds.length !== 1) return; // multi-resize is a v2 polish item
+    if (selectedIds.length > 1) {
+      this.startMultiResize(handle, clientX, clientY, startSlide, scope, selectedIds);
+      return;
+    }
     const elementId = selectedIds[0];
     const startEl = findElement(startSlide.elements, elementId);
     if (!startEl) return;
@@ -5313,6 +5322,159 @@ class SlidesEditorImpl implements SlidesEditor {
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+  }
+
+  private startMultiResize(
+    handle: ResizeHandle,
+    clientX: number,
+    clientY: number,
+    startSlide: Slide,
+    scope: readonly string[],
+    selectedIds: readonly string[],
+  ): void {
+    // Build immutable snapshots in world space. Group `worldFrame`
+    // uses worldTightFrame so the bbox matches the overlay handles.
+    const snapshots: ElementSnapshot[] = [];
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (!el) continue;
+      const displayLocal =
+        el.type === 'group' ? worldTightFrame(el).worldFrame : el.frame;
+      const worldFrame = toWorldFrame(displayLocal, scope, startSlide);
+      if (el.type === 'connector') {
+        snapshots.push({
+          kind: 'connector',
+          id,
+          worldFrame,
+          start: el.start,
+          end:   el.end,
+        });
+      } else {
+        snapshots.push({ kind: 'frame', id, worldFrame });
+      }
+    }
+    if (snapshots.length < 2) return;
+    const rawBbox = combinedBoundingBox(snapshots.map((s) => s.worldFrame));
+    if (!rawBbox) return;
+    const startBbox: Frame = { ...rawBbox, rotation: 0 };
+
+    const start = this.clientToLogical(clientX, clientY);
+    const selectedSet = new Set(selectedIds);
+    const otherFrames = collectSnapCandidates(startSlide, [...scope], selectedSet);
+    const live = {
+      result: {
+        newBbox: startBbox,
+        frames: new Map<string, Frame>(),
+        connectorEndpoints: new Map<string, { start: Endpoint; end: Endpoint }>(),
+      } as MultiResizeResult,
+    };
+
+    const onMove = (ev: MouseEvent): void => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const dx = cur.x - start.x;
+      const dy = cur.y - start.y;
+      const raw = resizeMultiFrames(
+        { scope, startBbox, snapshots },
+        handle,
+        dx,
+        dy,
+        ev.shiftKey,
+      );
+      let result = raw;
+      let guides: SmartGuide[] = [];
+      if (!ev.shiftKey) {
+        const matched = matchSize(
+          { x: raw.newBbox.x, y: raw.newBbox.y, w: raw.newBbox.w, h: raw.newBbox.h },
+          handle,
+          otherFrames,
+        );
+        guides = matched.guides;
+        if (
+          matched.w !== raw.newBbox.w ||
+          matched.h !== raw.newBbox.h ||
+          matched.x !== raw.newBbox.x ||
+          matched.y !== raw.newBbox.y
+        ) {
+          // Translate the matched bbox back to the dx/dy that produced it.
+          const matchedDx =
+            handle.includes('e') ? matched.w - startBbox.w
+            : handle.includes('w') ? startBbox.x - matched.x
+            : 0;
+          const matchedDy =
+            handle.includes('s') ? matched.h - startBbox.h
+            : handle.includes('n') ? startBbox.y - matched.y
+            : 0;
+          result = resizeMultiFrames(
+            { scope, startBbox, snapshots },
+            handle,
+            matchedDx,
+            matchedDy,
+            false,
+          );
+        }
+      }
+      live.result = result;
+      this.paintMultiResizeLive(snapshots, result, startSlide, guides);
+    };
+    const onUp = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      const { frames, connectorEndpoints } = live.result;
+      this.options.store.batch(() => {
+        for (const snap of snapshots) {
+          const wf = frames.get(snap.id);
+          if (!wf) continue;
+          // Fully-attached connectors are not in `connectorEndpoints`;
+          // their stored frame is auto-recomputed by the store from
+          // their endpoints, so we skip writing them too.
+          if (snap.kind === 'connector' && !connectorEndpoints.has(snap.id)) continue;
+          this.options.store.updateElementFrame(
+            startSlide.id,
+            snap.id,
+            fromWorldFrame(wf, scope, startSlide),
+          );
+        }
+        for (const [id, eps] of connectorEndpoints) {
+          this.options.store.updateConnectorEndpoint(startSlide.id, id, 'start', eps.start);
+          this.options.store.updateConnectorEndpoint(startSlide.id, id, 'end',   eps.end);
+        }
+      });
+      this.renderer.markDirty();
+      this.render();
+      this.repaintOverlay();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  private paintMultiResizeLive(
+    snapshots: readonly ElementSnapshot[],
+    result: MultiResizeResult,
+    startSlide: Slide,
+    guides: readonly SmartGuide[],
+  ): void {
+    // Build ghost Elements: each selected element with its frame
+    // replaced by the new world frame (and, for connectors, its
+    // endpoints replaced by the new endpoints).
+    const ghosts: Element[] = [];
+    for (const snap of snapshots) {
+      const wf = result.frames.get(snap.id);
+      if (!wf) continue;
+      const el = findElement(startSlide.elements, snap.id);
+      if (!el) continue;
+      if (el.type === 'connector') {
+        const eps = result.connectorEndpoints.get(snap.id);
+        ghosts.push({
+          ...el,
+          frame: wf,
+          start: eps ? eps.start : el.start,
+          end:   eps ? eps.end   : el.end,
+        } as Element);
+      } else {
+        ghosts.push({ ...el, frame: wf } as Element);
+      }
+    }
+    this.paintGhostPreview(ghosts, ghosts, guides);
   }
 }
 
