@@ -31,12 +31,12 @@ Pin the existing single-resize behavior down with a unit baseline before the pai
 - Test: `packages/slides/test/view/editor/interactions/resize.test.ts`
 - Test: `packages/slides/test/view/editor/editor.test.ts`
 
-- [ ] **Step 1: Read the existing `resize.test.ts` to confirm conventions**
+- [x] **Step 1: Read the existing `resize.test.ts` to confirm conventions**
 
 Run: `rg -n "describe|it\(" packages/slides/test/view/editor/interactions/resize.test.ts | head -30`
 Expected: A list of existing `describe` / `it` blocks. Match style for new cases (vitest `describe`/`it`, ESM imports).
 
-- [ ] **Step 2: Add a no-op multi-resize regression test**
+- [x] **Step 2: Add a no-op multi-resize regression test**
 
 File: `packages/slides/test/view/editor/editor.test.ts`
 
@@ -62,12 +62,12 @@ it('multi-select SE-handle drag is currently a no-op (baseline; flipped in multi
 
 If `createEditorWithElements`, `makeRect`, or `dragHandle` do not exist in the suite, look at the nearest existing test using the same helpers (e.g. `it('drags the SE handle...')`) and inline the equivalent setup. Do **not** create new helpers in this task — keep the baseline test self-contained if the helpers are missing.
 
-- [ ] **Step 3: Run the baseline**
+- [x] **Step 3: Run the baseline**
 
 Run: `pnpm --filter @wafflebase/slides test -- view/editor/editor.test.ts`
 Expected: PASS for the new test (baseline = no-op).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/test/view/editor/editor.test.ts
@@ -93,7 +93,7 @@ Pure rename. No behavior change. Splits cleanly out so the migration in later ta
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts` — line 4529 (definition), line 4335 (move call site), line 5171 (rotate call site)
 
-- [ ] **Step 1: Rename the method definition**
+- [x] **Step 1: Rename the method definition**
 
 In `editor.ts`, change:
 
@@ -126,7 +126,7 @@ to:
 
 The body is unchanged. Rename the inner reference `selectedOriginals` → `handleElements` to match the new parameter name (it is only used inside `renderOverlay(this.options.overlay, selectedOriginals, {...})` → `renderOverlay(this.options.overlay, handleElements, {...})`).
 
-- [ ] **Step 2: Update the two call sites**
+- [x] **Step 2: Update the two call sites**
 
 At line 4335 (move drag): `this.paintMoveGhost(ghosts, handleElements, guides);` → `this.paintGhostPreview(ghosts, handleElements, guides);`
 
@@ -134,12 +134,12 @@ At line 5171 (rotate drag): `this.paintMoveGhost(ghosts, handleElements);` → `
 
 The doc-comment of `paintTableResizeGhost` references `paintMoveGhost` in prose (line 4471). Update that string to `paintGhostPreview`.
 
-- [ ] **Step 3: Run type-check + tests**
+- [x] **Step 3: Run type-check + tests**
 
 Run: `pnpm --filter @wafflebase/slides build && pnpm --filter @wafflebase/slides test`
 Expected: PASS. Type-check confirms no remaining `paintMoveGhost` references.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -167,7 +167,7 @@ Single non-table resize currently uses `paintLiveScoped`, which patches the synt
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts` — line 5325-5357 (`startResize`'s `onMove`)
 
-- [ ] **Step 1: Replace the non-table paint call**
+- [x] **Step 1: Replace the non-table paint call**
 
 In `startResize`'s `onMove`, the current end is:
 
@@ -206,7 +206,7 @@ Replace the post-`if (isTable)` block with:
 
 Drop the `livMap` local; it is no longer used here.
 
-- [ ] **Step 2: Update the trailing-comment line reference**
+- [x] **Step 2: Update the trailing-comment line reference**
 
 Just below `onUp`, the comment reads:
 
@@ -222,17 +222,17 @@ Replace `paintLiveScoped` with `paintGhostPreview`:
       // paintGhostPreview guides arg. Mirrors the move-drag onUp at ~line 2568.
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS for all existing tests. Single-resize unit + integration tests assert frames at commit (not paint pixels), so they remain green.
 
-- [ ] **Step 4: Spot-check in the dev server**
+- [x] **Step 4: Spot-check in the dev server**
 
 Run: `pnpm dev`
 Manually: open a slide, single-select a shape, drag the SE handle. Confirm the original stays at full opacity, a translucent copy appears at the new size, and on release the original snaps to the new size with no flicker.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -262,12 +262,12 @@ The core math: given a start bbox, snapshots, handle, and pointer delta, return 
 - Test: `packages/slides/test/view/editor/interactions/resize.test.ts`
 - Create: extension of `packages/slides/src/view/editor/interactions/resize.ts`
 
-- [ ] **Step 1: Read existing imports + types in `resize.ts`**
+- [x] **Step 1: Read existing imports + types in `resize.ts`**
 
 Run: `rg -n "^import|^export" packages/slides/src/view/editor/interactions/resize.ts`
 Expected: Confirms `import type { Frame } from '../../../model/element';` and exported `resizeFrame`, `resizeFrameWorld`, `ResizeHandle`.
 
-- [ ] **Step 2: Add the failing test for the simplest case (two unrotated rects, SE, no Shift)**
+- [x] **Step 2: Add the failing test for the simplest case (two unrotated rects, SE, no Shift)**
 
 File: `packages/slides/test/view/editor/interactions/resize.test.ts`
 
@@ -309,12 +309,12 @@ describe('resizeMultiFrames', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- interactions/resize.test.ts`
 Expected: FAIL — `resizeMultiFrames` is not exported from `resize.ts`.
 
-- [ ] **Step 4: Implement the minimum to pass**
+- [x] **Step 4: Implement the minimum to pass**
 
 In `packages/slides/src/view/editor/interactions/resize.ts`, append:
 
@@ -408,12 +408,12 @@ export function resizeMultiFrames(
 
 `MIN_SIZE` is the existing module-private constant; no new import needed.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- interactions/resize.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Add edge-case tests, one at a time, TDD-style**
+- [x] **Step 6: Add edge-case tests, one at a time, TDD-style**
 
 Add the following tests to the same `describe('resizeMultiFrames')` block. For each: add the test, run, watch it pass (the implementation already covers them — these are belt-and-braces) or fail (extend the impl).
 
@@ -523,7 +523,7 @@ it('per-child min-size clamp does not collapse the bbox', () => {
 Run after each addition: `pnpm --filter @wafflebase/slides test -- interactions/resize.test.ts`
 Expected: PASS each time.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/resize.ts \
@@ -555,7 +555,7 @@ Remove the `length !== 1` guard. Add a `length > 1` branch that builds `MultiRes
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts` — `startResize` body (lines 5291-5374)
 
-- [ ] **Step 1: Add the multi branch (do not yet remove the guard)**
+- [x] **Step 1: Add the multi branch (do not yet remove the guard)**
 
 In `editor.ts`, just before the existing `if (selectedIds.length !== 1) return; // multi-resize is a v2 polish item` line, insert:
 
@@ -568,7 +568,7 @@ In `editor.ts`, just before the existing `if (selectedIds.length !== 1) return; 
 
 This routes multi to a dedicated helper before the legacy guard.
 
-- [ ] **Step 2: Implement `startMultiResize` as a new private method**
+- [x] **Step 2: Implement `startMultiResize` as a new private method**
 
 After `startResize` ends (just before the class closing brace), add:
 
@@ -748,7 +748,7 @@ import { worldTightFrame } from '../../model/group';
 
 (Some of these are already imported — only add what's missing. Check `rg -n "^import" packages/slides/src/view/editor/editor.ts | head -30` first.)
 
-- [ ] **Step 3: Remove the legacy guard**
+- [x] **Step 3: Remove the legacy guard**
 
 In `startResize`, delete the line:
 
@@ -758,7 +758,7 @@ In `startResize`, delete the line:
 
 The new `if (selectedIds.length > 1)` branch above already handles `> 1`; `length === 0` was unreachable (no handle is rendered then), and `length === 1` falls through to the existing path.
 
-- [ ] **Step 4: Flip the characterization test from Task 1**
+- [x] **Step 4: Flip the characterization test from Task 1**
 
 The Task 1 baseline asserted `after === before`. Update it so it now asserts both elements moved:
 
@@ -780,17 +780,17 @@ it('multi-select SE-handle drag scales each child by the bbox ratio', async () =
 });
 ```
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS. If the test that called `editor.selection.set(['a', 'b'])` previously asserted the no-op behavior anywhere else, those must be updated too. Search: `rg -n "selection.set(\[" packages/slides/test/view/editor/editor.test.ts`.
 
-- [ ] **Step 6: Run lint**
+- [x] **Step 6: Run lint**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -820,7 +820,7 @@ Cover the cases that the unit tests in Task 4 cannot: group + shape, table + sha
 **Files:**
 - Create: `packages/slides/test/view/editor/interactions/multi-resize.test.ts`
 
-- [ ] **Step 1: Create the test file**
+- [x] **Step 1: Create the test file**
 
 ```ts
 import { describe, expect, it, beforeEach } from 'vitest';
@@ -907,12 +907,12 @@ describe('multi-select resize integration', () => {
 
 For helpers that don't exist, either inline the construction (look at adjacent tests for the pattern) or add minimal ones to the test directory's shared `helpers.ts`. Inline is preferred per the "no premature abstraction" rule in CLAUDE.md.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `pnpm --filter @wafflebase/slides test -- interactions/multi-resize.test.ts`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/test/view/editor/interactions/multi-resize.test.ts
@@ -937,7 +937,7 @@ Add fixtures so reviewers can see the new behaviour and so the visual-regression
 **Files:**
 - Modify: `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
 
-- [ ] **Step 1: Read existing scenarios to learn the seeding + pointer-simulation pattern**
+- [x] **Step 1: Read existing scenarios to learn the seeding + pointer-simulation pattern**
 
 Run: `rg -n "scenarios.push|simulateDrag|pointerdown|setup:" packages/frontend/src/app/harness/visual/slides-scenarios.tsx | head -40`
 Expected: A list of existing scenarios. Pick the closest matches:
@@ -947,7 +947,7 @@ Expected: A list of existing scenarios. Pick the closest matches:
 
 Record the exact helper names you find — they are project-specific and replace the named callouts below.
 
-- [ ] **Step 2: Add four new scenarios at the end of the file**
+- [x] **Step 2: Add four new scenarios at the end of the file**
 
 Use the helpers identified in Step 1. The bodies below use placeholder helper names (`seedRect`, `simulateHandleDrag`, etc.); replace them with the actual project helpers from Step 1 before saving.
 
@@ -1002,12 +1002,12 @@ scenarios.push({
 
 `simulateHandleDrag` runs `pointerdown` + `pointermove` + `pointerup`; `simulateHandleDragMidGesture` runs `pointerdown` + `pointermove` but **omits** the `pointerup` so the screenshot captures the live ghost state. Both must use the project's existing synthetic-pointer dispatcher (found in Step 1).
 
-- [ ] **Step 3: Run the visual harness**
+- [x] **Step 3: Run the visual harness**
 
 Run: `pnpm verify:browser:docker` (or, locally, `pnpm dev` and open the harness UI to confirm the scenarios render).
 Expected: New scenarios render; the resize ghost shows the original at full opacity and the ghost translucent.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/harness/visual/slides-scenarios.tsx
@@ -1035,7 +1035,7 @@ EOF
 - Modify: `packages/slides/src/view/editor/editor.ts` (`startRotate`'s `buildLiveState`)
 - Test: `packages/slides/test/view/editor/interactions/rotate.test.ts`
 
-- [ ] **Step 1: Add the failing test**
+- [x] **Step 1: Add the failing test**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -1063,12 +1063,12 @@ describe('rotateMultiFrames', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- interactions/rotate.test.ts`
 Expected: FAIL — `rotateMultiFrames` is not exported.
 
-- [ ] **Step 3: Implement in `interactions/rotate.ts`**
+- [x] **Step 3: Implement in `interactions/rotate.ts`**
 
 Append:
 
@@ -1134,16 +1134,16 @@ export function rotateMultiFrames(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- interactions/rotate.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the helper into `startRotate`**
+- [x] **Step 5: Wire the helper into `startRotate`**
 
 In `editor.ts`'s `startRotate`, the `buildLiveState` closure can stay (it also computes `liveFrames` for `connectorEndpoint` writes via the local rotation). Wiring is optional — call `rotateMultiFrames` for assertions only if useful. Skip the editor change unless a future refactor warrants it; the helper is now available for new call sites.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/rotate.ts \
@@ -1166,17 +1166,17 @@ EOF
 
 **Files:** none
 
-- [ ] **Step 1: Run the fast verification lane**
+- [x] **Step 1: Run the fast verification lane**
 
 Run: `pnpm verify:fast`
 Expected: PASS. If lint flags new lines, fix in place; if a unit test fails, debug from the error not by relaxing the test.
 
-- [ ] **Step 2: Run the self-check lane (builds all packages)**
+- [x] **Step 2: Run the self-check lane (builds all packages)**
 
 Run: `pnpm verify:self`
 Expected: PASS. This catches any cross-package TypeScript breakage from the rename / new types.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Run: `pnpm dev`
 Manually:
@@ -1189,7 +1189,7 @@ Manually:
 7. Multi (rect + connector with attached endpoint to a third rect) — drag SE handle. Connector's free endpoint moves; attached endpoint stays put.
 8. Multi rotate — drag rotate handle 45°. All children rotate rigidly around bbox centre.
 
-- [ ] **Step 4: Capture lessons + archive**
+- [x] **Step 4: Capture lessons + archive**
 
 If you discovered any nuance not captured in the spec (e.g. a rotated-child case that surprised you), write it to `docs/tasks/active/20260612-multi-select-resize-lessons.md`. Otherwise create an empty lessons file with a one-line note.
 
@@ -1205,7 +1205,7 @@ Then archive:
 pnpm tasks:archive && pnpm tasks:index
 ```
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add docs/tasks/
