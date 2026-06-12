@@ -133,6 +133,24 @@ describe("TextFormatGroup — toggles/buttons preventDefault, color triggers kee
       expect(trigger.hasAttribute("data-text-edit-keepalive")).toBe(true);
     });
   }
+
+  // showStrikethrough / showHighlight flags drop the corresponding
+  // controls — slides text-edit toolbar uses both `false` overrides.
+  test("showStrikethrough={false} omits the strikethrough toggle", () => {
+    const el = render(
+      h(TextFormatGroup, { editor: makeEditor(), showStrikethrough: false }),
+    );
+    expect(el.querySelector(`[aria-label="Strikethrough"]`)).toBeNull();
+  });
+
+  test("showHighlight={false} omits the highlight color swatch", () => {
+    const el = render(
+      h(TextFormatGroup, { editor: makeEditor(), showHighlight: false }),
+    );
+    expect(el.querySelector(`[aria-label="Highlight color"]`)).toBeNull();
+    // Sanity: text color stays.
+    expect(el.querySelector(`[aria-label="Text color"]`)).not.toBeNull();
+  });
 });
 
 describe("TextStyleGroup — block-style dropdown trigger keepalive", () => {

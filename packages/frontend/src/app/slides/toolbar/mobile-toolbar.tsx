@@ -9,9 +9,11 @@
  * - text-edit → +Slide · B/I/U · Aa Format (sheet) · ✓Done
  *
  * Each contextual sheet reuses the same desktop controls (ShapeControls,
- * ImageControls, TextElementControls, TextStyleGroup, TextFormatGroup,
+ * ImageControls, TextElementControls, TextFormatGroup,
  * TextParagraphGroup, ArrangeMenu, ShapePicker, LinePicker) so the
- * editing surface area stays in lockstep — no parallel mobile API.
+ * editing surface area stays in lockstep — no parallel mobile API. The
+ * block-style picker is intentionally omitted on both surfaces; see
+ * `text-edit-section.tsx` for the rationale.
  */
 
 import { useCallback, useState } from "react";
@@ -49,7 +51,6 @@ import {
 } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
 import {
-  TextStyleGroup,
   TextFormatGroup,
   TextParagraphGroup,
 } from "@/components/text-formatting";
@@ -461,14 +462,20 @@ function TextFormatSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-3 px-4 pb-4">
+          {/*
+           * Block-style picker + Strikethrough + Highlight intentionally
+           * omitted on slides surfaces — see text-edit-section.tsx for
+           * rationale (theme/layout owns block-level typography in
+           * slides; Strike and Highlight are not first-class needs in
+           * a deck). Keep this row mirrored with the desktop text-edit
+           * toolbar.
+           */}
           <div className="flex flex-wrap items-center gap-1">
-            <TextStyleGroup
+            <TextFormatGroup
               editor={textEditor}
-              allowedBlockTypes={["paragraph", "heading"]}
+              showStrikethrough={false}
+              showHighlight={false}
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-1">
-            <TextFormatGroup editor={textEditor} />
           </div>
           <div className="flex flex-wrap items-center gap-1">
             <TextParagraphGroup editor={textEditor} />

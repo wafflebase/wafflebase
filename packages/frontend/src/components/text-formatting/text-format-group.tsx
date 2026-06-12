@@ -37,10 +37,11 @@ interface TextFormatGroupProps {
   editor: TextFormattingEditor | null;
   disabled?: boolean;
   /**
-   * Whether to render the Strikethrough toggle. Defaults to `true` so the
-   * slides text-edit-state toolbar keeps it. The Docs body toolbar opts
-   * out by passing `false` to keep the inline-format row compact (B/I/U
-   * is the primary trio there; strike is rarely a first-class need).
+   * Whether to render the Strikethrough toggle. Defaults to `true` for
+   * surfaces that want the full B/I/U/S quartet. Both the Docs body
+   * toolbar and the Slides text-edit toolbar opt out by passing `false`
+   * to keep the inline-format row compact (B/I/U is the primary trio
+   * there; strike is rarely a first-class need on either surface).
    */
   showStrikethrough?: boolean;
   /**
@@ -50,6 +51,14 @@ interface TextFormatGroupProps {
    * `InsertLinkButton` in the Insert group beside Image/Table.
    */
   showLink?: boolean;
+  /**
+   * Whether to render the Highlight (background color) swatch. Defaults
+   * to `true`. The slides text-edit toolbar opts out by passing `false`
+   * — highlight backgrounds rarely read against themed slide
+   * backgrounds and the inline-format cluster stays compact without
+   * them.
+   */
+  showHighlight?: boolean;
   /**
    * CSS color string used by the Text color swatch when the current
    * selection has no explicit `color`. Lets docs preview the rendered
@@ -71,6 +80,7 @@ export function TextFormatGroup({
   disabled = false,
   showStrikethrough = true,
   showLink = true,
+  showHighlight = true,
   defaultTextColor,
   defaultHighlightColor,
 }: TextFormatGroupProps) {
@@ -250,33 +260,37 @@ export function TextFormatGroup({
       </DropdownMenu>
 
       {/* Highlight color */}
-      <DropdownMenu open={highlightOpen} onOpenChange={setHighlightOpen}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <ColorSwatchButton
-                icon={<IconHighlight size={14} />}
-                color={selectionStyle?.backgroundColor || defaultHighlightColor}
-                label="Highlight color"
-                disabled={isDisabled}
-                data-text-edit-keepalive
-              />
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Highlight color</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent
-          className="w-auto p-2"
-          data-text-edit-keepalive
-          onCloseAutoFocus={highlightMenu.onCloseAutoFocus}
-        >
-          <ColorPickerGrid
-            colors={BG_COLORS}
-            onSelect={handleHighlightColor}
-            onReset={() => handleHighlightColor("")}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {showHighlight && (
+        <DropdownMenu open={highlightOpen} onOpenChange={setHighlightOpen}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <ColorSwatchButton
+                  icon={<IconHighlight size={14} />}
+                  color={
+                    selectionStyle?.backgroundColor || defaultHighlightColor
+                  }
+                  label="Highlight color"
+                  disabled={isDisabled}
+                  data-text-edit-keepalive
+                />
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Highlight color</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent
+            className="w-auto p-2"
+            data-text-edit-keepalive
+            onCloseAutoFocus={highlightMenu.onCloseAutoFocus}
+          >
+            <ColorPickerGrid
+              colors={BG_COLORS}
+              onSelect={handleHighlightColor}
+              onReset={() => handleHighlightColor("")}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       {/* Link */}
       {showLink && (

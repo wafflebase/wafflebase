@@ -992,7 +992,7 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     id: "slides-toolbar-text-editing",
     title: "Toolbar — text editing active",
     description:
-      "Toolbar while a text-box editor is active (text-edit mode). Shows TextStyleGroup + TextFormatGroup + TextParagraphGroup with a stub SlidesTextBoxEditor. Done button appears in RightGlobals.",
+      "Toolbar while a text-box editor is active (text-edit mode). Shows FontSizePicker + TextFormatGroup (no strikethrough, no highlight) + TextParagraphGroup with a stub SlidesTextBoxEditor. Done button appears in RightGlobals.",
     render: () => <SlidesToolbarTextEditingScenario />,
   },
   {
@@ -1282,8 +1282,9 @@ function SlidesToolbarTextElementScenario() {
 
 /**
  * Minimal SlidesTextBoxEditor stub for the text-editing toolbar scenario.
- * Only the methods used by TextStyleGroup / TextFormatGroup / TextParagraphGroup
- * need to return sensible values; everything else is a no-op.
+ * Only the methods used by FontSizePicker / TextFormatGroup /
+ * TextParagraphGroup need to return sensible values; everything else
+ * is a no-op.
  */
 function makeStubTextBoxEditor(): SlidesTextBoxEditor {
   const noop = () => {};
@@ -1320,7 +1321,7 @@ function makeStubTextBoxEditor(): SlidesTextBoxEditor {
 /**
  * Scenario: toolbar while a text-box editor is active.
  * Exercises the TextEditSection path:
- * TextStyleGroup + TextFormatGroup + TextParagraphGroup + Done button.
+ * FontSizePicker + TextFormatGroup + TextParagraphGroup + Done button.
  */
 function SlidesToolbarTextEditingScenario() {
   const textEditor = useMemo(() => makeStubTextBoxEditor(), []);
