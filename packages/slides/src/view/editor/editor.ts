@@ -4332,7 +4332,7 @@ class SlidesEditorImpl implements SlidesEditor {
         frame: originalWorldFrames.get(el.id)!,
       } as Element));
 
-      this.paintMoveGhost(ghosts, handleElements, guides);
+      this.paintGhostPreview(ghosts, handleElements, guides);
     };
     const onUp = (ev: MouseEvent) => {
       document.removeEventListener('pointermove', onMove);
@@ -4398,7 +4398,7 @@ class SlidesEditorImpl implements SlidesEditor {
       });
       this.renderer.markDirty();
       this.render();
-      // Clear lingering snap-guide nodes from the last `paintMoveGhost`.
+      // Clear lingering snap-guide nodes from the last `paintGhostPreview`.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
@@ -4406,69 +4406,10 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * Scope-aware live paint. `worldFrames` holds the current world-space
-   * frames for each selected element id (regardless of scope depth).
-   *
-   * The canvas renderer gets a synthetic slide whose element tree has
-   * LOCAL frames updated in-place (via `patchElementFrames`) so that
-   * groups render their children correctly during the drag preview.
-   *
-   * The overlay gets elements with their WORLD frames so that selection
-   * handles appear at the positions the user actually sees, not at the
-   * raw stored (group-local) positions.
-   *
-   * Connectors are a special case: their `frame` is derived from
-   * world-coord endpoints, so patching the frame doesn't move the
-   * rendered line. The line therefore stays at its pre-drag position
-   * while the user is dragging — the overlay handles still translate
-   * to the live frame so the user has visible feedback that the
-   * connector will move on commit.
-   */
-  private paintLiveScoped(
-    worldFrames: Map<string, Frame>,
-    scope: readonly string[],
-    guides: readonly (SnapGuide | SmartGuide)[] = [],
-  ): void {
-    const slide = this.currentSlide();
-    if (!slide) return;
-
-    // Build a map of id → local frame for the canvas renderer.
-    const localFrames = new Map<string, Frame>();
-    for (const [id, worldFrame] of worldFrames) {
-      localFrames.set(id, fromWorldFrame(worldFrame, scope, slide));
-    }
-
-    const synthetic = {
-      ...slide,
-      elements: patchElementFrames(slide.elements, localFrames),
-    };
-    this.renderer.forceRender(synthetic, this.options.store.read());
-
-    // Build pseudo-elements with world frames for the overlay so handles
-    // are placed at the correct visual positions.
-    const selectedWorldElements = Array.from(worldFrames.entries()).map(([id, wf]) => {
-      const el = findElement(slide.elements, id);
-      if (!el) return null;
-      return { ...el, frame: wf } as Element;
-    }).filter((e): e is Element => e !== null);
-
-    renderOverlay(this.options.overlay, selectedWorldElements, {
-      scale: this.scale(),
-      slideWidth: SLIDE_WIDTH,
-      slideHeight: SLIDE_HEIGHT,
-      guides,
-      allElements: synthetic.elements,
-      connectorAffordance: this.connectorAffordance(),
-      permanentGuides: this.options.store.read().guides,
-      pendingGuide: this.pendingGuide,
-    });
-  }
-
-  /**
    * Outer-frame resize preview for tables. Paints the committed slide
    * untouched + a translucent ghost table at the proposed frame with
    * its `columnWidths` / `rows[].height` scaled proportionally — same
-   * channel as `paintMoveGhost` (canvas-level GHOST_ALPHA), so the
+   * channel as `paintGhostPreview` (canvas-level GHOST_ALPHA), so the
    * user sees their actual table content (cells, fills, text) ghosted
    * at the new size rather than a placeholder outline. Handles snap
    * to the ghost frame so the drag stays interactive. Commit on
@@ -4516,25 +4457,23 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * Drag-move preview: paint the slide unchanged + a translucent ghost
-   * of each selected element at its dragged position. Overlay handles
-   * render against the **original** frames so they stay anchored to the
-   * starting position (the user reads the ghost as "where it will land"
-   * and the handles as "where it started").
-   *
-   * Connectors are excluded from `ghosts` for v1; they keep rendering
-   * at their original endpoints during the drag preview. On commit, the
-   * connector's normal endpoint-lookup path re-routes them.
+   * Live-preview paint shared by move, rotate, and resize:
+   * - Renders the committed slide at full opacity.
+   * - Overlays `ghosts` at `GHOST_ALPHA`.
+   * - Anchors selection handles to `handleElements` — pass `ghosts`
+   *   for resize (the dragged handle must follow the cursor), pass
+   *   the originals for move and rotate (the gesture is by direction,
+   *   not position).
    */
-  private paintMoveGhost(
+  private paintGhostPreview(
     ghosts: readonly Element[],
-    selectedOriginals: readonly Element[],
+    handleElements: readonly Element[],
     guides: readonly (SnapGuide | SmartGuide)[] = [],
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
     this.renderer.forceRender(slide, this.options.store.read(), ghosts);
-    renderOverlay(this.options.overlay, selectedOriginals, {
+    renderOverlay(this.options.overlay, handleElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
@@ -5168,7 +5107,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const angle = Math.atan2(cur.y - pivotY, cur.x - pivotX);
       liveDelta = applyRotate(0, startAngle, angle, ev.shiftKey);
       const { ghosts } = buildLiveState(liveDelta);
-      this.paintMoveGhost(ghosts, handleElements);
+      this.paintGhostPreview(ghosts, handleElements);
       showTooltip(ev.clientX, ev.clientY, liveDelta);
     };
     const onUp = () => {
@@ -5352,8 +5291,11 @@ class SlidesEditorImpl implements SlidesEditor {
         );
         return;
       }
-      const livMap = new Map<string, Frame>([[elementId, live.worldFrame]]);
-      this.paintLiveScoped(livMap, scope, matched.guides);
+      // Single non-table resize: paint a ghost of the element at its new
+      // world frame on top of the committed slide. Handles render against
+      // the ghost so the dragged handle stays under the cursor.
+      const ghost: Element = { ...startEl, frame: live.worldFrame } as Element;
+      this.paintGhostPreview([ghost], [ghost], matched.guides);
     };
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
@@ -5366,7 +5308,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.render();
       // Clear lingering equal-size dashed outlines from the last
-      // paintLiveScoped guides arg. Mirrors the move-drag onUp at ~line 2568.
+      // paintGhostPreview guides arg. Mirrors the move-drag onUp at ~line 2568.
       this.repaintOverlay();
     };
     document.addEventListener('pointermove', onMove);
@@ -5382,39 +5324,6 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   // at this point so the only overlay output is the guides themselves.
   editor.markDirty();
   return editor;
-}
-
-/**
- * Recursively patch `elements` so that any element whose id appears in
- * `frames` gets its frame replaced. Returns a shallow copy of the array
- * (and a shallow copy of any group whose children were patched).
- *
- * WHY: `paintLive` builds a synthetic slide for the canvas renderer.
- * The canvas renderer handles group hierarchies natively (Task 5), so
- * we must update frames at the correct depth rather than just patching
- * the top-level array. Without this, dragging a drilled-in child would
- * show no movement on the canvas during the drag preview.
- */
-function patchElementFrames(
-  elements: readonly Element[],
-  frames: ReadonlyMap<string, Frame>,
-): Element[] {
-  return elements.map((el) => {
-    if (frames.has(el.id)) {
-      return { ...el, frame: frames.get(el.id)! };
-    }
-    if (el.type === 'group') {
-      const patched = patchElementFrames(el.data.children, frames);
-      // Only re-create the group object when something inside actually changed
-      // (reference equality check on the first changed child is sufficient
-      // because `patchElementFrames` always returns new arrays when patching).
-      const changed = patched.some((c, i) => c !== el.data.children[i]);
-      if (changed) {
-        return { ...el, data: { ...el.data, children: patched } };
-      }
-    }
-    return el;
-  });
 }
 
 /**
