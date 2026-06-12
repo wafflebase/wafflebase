@@ -363,11 +363,15 @@ by a new function:
   ghost.
 
 `paintMoveGhost` is renamed to `paintGhostPreview` and its existing
-single caller (the move drag) is updated. `paintLiveScoped` stays
-available — connector-endpoint drag and adjustment-handle drag use
-it elsewhere and are out of scope here. `paintTableResizeGhost` stays
-for single-table resize because of its cell-width / row-height
-scaling; it already follows the same handle-on-ghost convention.
+single caller (the move drag) is updated. `paintLiveScoped` and its
+module-private helper `patchElementFrames` are deleted outright: this
+design assumed connector-endpoint drag and adjustment-handle drag
+depended on `paintLiveScoped`, but inspection shows both call
+`this.renderer.forceRender(...)` directly. Once single-resize moves
+off `paintLiveScoped` (Task 3) the function has no remaining callers
+and is removed. `paintTableResizeGhost` stays for single-table resize
+because of its cell-width / row-height scaling; it already follows
+the same handle-on-ghost convention.
 
 Why migrate single non-table resize as well: the user's observation
 is that resize visually swaps the original in place, which feels
@@ -407,9 +411,12 @@ resize are refreshed in the same PR.
 - `packages/slides/src/view/editor/interactions/resize.ts`
   - New: `resizeMultiFrames` (pure).
   - Existing `resizeFrame` / `resizeFrameWorld` unchanged.
-- `packages/slides/src/view/editor/interactions/rotate.ts` (extend)
-  - New: `rotateMultiFrames` (pure). Reuses the existing `snapAngle`
-    helper (already exported from this file) for the Shift snap.
+- `packages/slides/src/view/editor/interactions/rotate.ts` (extend, **deferred**)
+  - Optional: `rotateMultiFrames` (pure). Multi-rotate is already
+    wired in `startRotate` via the `isMulti` branch in
+    `buildLiveState` (pre-existing), so extracting the math is a
+    symmetry refactor with no runtime effect. Deferred out of the
+    initial PR; runtime parity with the resize path is unchanged.
 - `packages/slides/src/view/editor/editor.ts`
   - `startResize`: drop length guard; add the `length > 1` branch
     that calls `resizeMultiFrames` (§5). Single math paths
