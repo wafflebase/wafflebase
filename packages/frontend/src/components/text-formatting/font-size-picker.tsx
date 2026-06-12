@@ -78,6 +78,12 @@ export function FontSizePicker({
   };
 
   const step = (delta: number) => {
+    // Refuse to step when the picker is rendering an empty input
+    // (mixed selection with no draft). Without this guard
+    // `value ?? Number("")` collapses to `0` and ± would commit
+    // FONT_SIZE_MIN to the entire selection, silently flattening the
+    // mixed runs to the smallest legal size.
+    if (value === undefined && draft.trim() === "") return;
     const base = value ?? Number(draft);
     if (!Number.isFinite(base)) return;
     const next = clamp(base + delta);

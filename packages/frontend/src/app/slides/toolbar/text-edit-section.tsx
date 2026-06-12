@@ -31,9 +31,7 @@
  * mode-scoped formatting controls.
  */
 
-import { useEffect, useState } from 'react';
 import type { SlidesEditor } from '@wafflebase/slides';
-import { DEFAULT_INLINE_STYLE } from '@wafflebase/docs';
 import type { ToolbarState } from './state';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -41,6 +39,7 @@ import {
   TextFormatGroup,
   TextParagraphGroup,
   FontSizePicker,
+  useResolvedFontSize,
 } from '@/components/text-formatting';
 
 export interface TextEditSectionProps {
@@ -50,27 +49,10 @@ export interface TextEditSectionProps {
 
 export function TextEditSection({ state, editor }: TextEditSectionProps) {
   const textEditor = state.textEditor;
-
-  // Mirror docs-formatting-toolbar.tsx: pull from getRangeStyleSummary,
-  // refresh on cursor moves, fall back to DEFAULT_INLINE_STYLE.fontSize
-  // when the run has no explicit size. A freshly typed Shape's text is
-  // seeded by emptyShapeTextBlock() in editor.ts with only
-  // `{ color: SHAPE_TEXT_SEED_COLOR }` — no fontSize — so a raw
-  // getSelectionStyle().fontSize read renders the picker empty even
-  // though the canvas paints at the docs default size.
-  type RangeSummary = ReturnType<typeof textEditor.getRangeStyleSummary>;
-  const [summary, setSummary] = useState<RangeSummary>(() =>
-    textEditor.getRangeStyleSummary(),
-  );
-  useEffect(() => {
-    const refresh = () => setSummary(textEditor.getRangeStyleSummary());
-    refresh();
-    return textEditor.onCursorMove(refresh);
-  }, [textEditor]);
-  const sizeValue =
-    summary.fontSize === 'mixed'
-      ? undefined
-      : (summary.fontSize ?? DEFAULT_INLINE_STYLE.fontSize);
+  // Three-case font-size resolution (uniform / mixed / unset → docs
+  // default). Shared with the mobile sheet via `useResolvedFontSize` so
+  // both surfaces follow the same rule.
+  const sizeValue = useResolvedFontSize(textEditor);
 
   return (
     <>

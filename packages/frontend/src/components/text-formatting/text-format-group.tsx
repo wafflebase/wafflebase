@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useState } from "react";
+import type { InlineStyle } from "@wafflebase/docs";
 import { useMenuCloseHandlers } from "@/components/menu-focus";
 import type { TextFormattingEditor } from "./types";
 import { Toggle } from "@/components/ui/toggle";
@@ -113,13 +114,11 @@ export function TextFormatGroup({
   // Controlled open state so the swatch click closes the palette — the
   // color swatches are plain <button>s, not DropdownMenuItem.
   const [textColorOpen, setTextColorOpen] = useState(false);
-  const [highlightOpen, setHighlightOpen] = useState(false);
 
   // Refocus the editor caret only when the palette was closed by a swatch
   // click. Outside-click / Esc fall through, so they don't steal focus
   // from wherever the user actually clicked next.
   const textColorMenu = useMenuCloseHandlers(() => editor?.focus());
-  const highlightMenu = useMenuCloseHandlers(() => editor?.focus());
 
   const handleTextColor = useCallback(
     (color: string) => {
@@ -129,16 +128,6 @@ export function TextFormatGroup({
       setTextColorOpen(false);
     },
     [editor, textColorMenu]
-  );
-
-  const handleHighlightColor = useCallback(
-    (backgroundColor: string) => {
-      if (!editor) return;
-      editor.applyStyle({ backgroundColor });
-      highlightMenu.markSwatchClicked();
-      setHighlightOpen(false);
-    },
-    [editor, highlightMenu]
   );
 
   const handleInsertLink = useCallback(() => {
@@ -259,37 +248,15 @@ export function TextFormatGroup({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Highlight color */}
+      {/* Highlight color — sub-component so its state + close-handler
+          hook are only allocated when the swatch is actually rendered. */}
       {showHighlight && (
-        <DropdownMenu open={highlightOpen} onOpenChange={setHighlightOpen}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <ColorSwatchButton
-                  icon={<IconHighlight size={14} />}
-                  color={
-                    selectionStyle?.backgroundColor || defaultHighlightColor
-                  }
-                  label="Highlight color"
-                  disabled={isDisabled}
-                  data-text-edit-keepalive
-                />
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Highlight color</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            className="w-auto p-2"
-            data-text-edit-keepalive
-            onCloseAutoFocus={highlightMenu.onCloseAutoFocus}
-          >
-            <ColorPickerGrid
-              colors={BG_COLORS}
-              onSelect={handleHighlightColor}
-              onReset={() => handleHighlightColor("")}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <HighlightSwatch
+          editor={editor}
+          disabled={isDisabled}
+          currentColor={selectionStyle?.backgroundColor}
+          defaultColor={defaultHighlightColor}
+        />
       )}
 
       {/* Link */}
@@ -314,5 +281,65 @@ export function TextFormatGroup({
         <TooltipContent>Clear formatting</TooltipContent>
       </Tooltip>
     </>
+  );
+}
+
+/**
+ * Highlight (background color) swatch — extracted so its `useState` and
+ * `useMenuCloseHandlers` allocations only happen when the parent renders
+ * it. Call sites that pass `showHighlight={false}` (slides text-edit
+ * toolbar, both desktop and mobile) pay zero hook cost for the absent
+ * swatch.
+ */
+function HighlightSwatch({
+  editor,
+  disabled,
+  currentColor,
+  defaultColor,
+}: {
+  editor: TextFormattingEditor | null;
+  disabled: boolean;
+  currentColor: InlineStyle["backgroundColor"] | undefined;
+  defaultColor: string | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const menu = useMenuCloseHandlers(() => editor?.focus());
+  const handleColor = useCallback(
+    (backgroundColor: string) => {
+      if (!editor) return;
+      editor.applyStyle({ backgroundColor });
+      menu.markSwatchClicked();
+      setOpen(false);
+    },
+    [editor, menu],
+  );
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <ColorSwatchButton
+              icon={<IconHighlight size={14} />}
+              color={currentColor || defaultColor}
+              label="Highlight color"
+              disabled={disabled}
+              data-text-edit-keepalive
+            />
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Highlight color</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        className="w-auto p-2"
+        data-text-edit-keepalive
+        onCloseAutoFocus={menu.onCloseAutoFocus}
+      >
+        <ColorPickerGrid
+          colors={BG_COLORS}
+          onSelect={handleColor}
+          onReset={() => handleColor("")}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

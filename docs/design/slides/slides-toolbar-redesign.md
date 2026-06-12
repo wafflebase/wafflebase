@@ -238,6 +238,10 @@ Rotate      90° clockwise
 
 The block-style dropdown (Normal / Title / Heading 1–3 — `text-style-group.tsx`) and the Font family picker are intentionally omitted on the slides text-edit surface. Block-level typography is owned by the deck's theme + layout tier (slide titles, body placeholders, headings), so promoting an arbitrary run inside a shape to "Heading 1" lacks the semantic anchor it has in a flowing document. The Font family picker is reachable from the object-level toolbar (`text-element-controls.tsx`) before entering text-edit. Strikethrough and Highlight are dropped to keep the in-edit row at the B/I/U/Color/Link essentials — Highlight backgrounds in particular rarely read against themed slide backgrounds.
 
+The corresponding mobile sheet (`mobile-toolbar.tsx` → `TextFormatSheet`) mirrors the same surface: FontSizePicker on top, then TextFormatGroup (`showStrikethrough={false}, showHighlight={false}`), then TextParagraphGroup. The shared `useResolvedFontSize(textEditor)` hook in `@/components/text-formatting` keeps the three-case font-size resolution (uniform / mixed / unset → docs default) consistent between desktop and mobile.
+
+The docs text-editor's Cmd/Ctrl+Shift+X strikethrough shortcut is suppressed inside `mountSlidesTextBox` via a capture-phase keydown listener on the textarea. Without that suppression the shortcut would still fire from muscle memory inside a slide text-box and apply strike with no UI to read or clear it.
+
 The Insert group is hidden in State 3 — adding a new shape mid-text-edit
 is a state-transition footgun. Esc / Done first, then insert.
 

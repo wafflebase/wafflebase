@@ -331,13 +331,26 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   let initialTextPending = initialText !== undefined && initialText !== '';
 
   // Multi-listener cursor-move fan-out. The underlying docs
-  // `TextBoxEditorAPI.onCursorMove` is single-callback, but multiple
-  // consumers register here (editor.ts cell-boundary navigation, the
-  // slides toolbar's inline-style refresh). The first registration
-  // installs the single docs-level callback that fans out to everyone.
+  // `TextBoxEditorAPI.onCursorMove` is single-callback (overwrites the
+  // slot), but multiple consumers register here (editor.ts cell-boundary
+  // navigation, the slides toolbar's inline-style refresh). We re-install
+  // the docs-level callback on every add so any external code that
+  // clobbers the docs slot is silently corrected on the next subscribe.
   type CursorMoveListener = Parameters<SlidesTextBoxEditor['onCursorMove']>[0];
   const cursorMoveListeners = new Set<CursorMoveListener>();
-  let cursorMoveBridgeInstalled = false;
+  const dispatchCursorMove: CursorMoveListener = (pos, selection) => {
+    // Snapshot listeners so a listener calling its own unsubscribe (or
+    // registering a new one) during dispatch can't loop or skip peers.
+    for (const listener of [...cursorMoveListeners]) {
+      try {
+        listener(pos, selection);
+      } catch (err) {
+        // One bad listener shouldn't DoS the others. Logged rather than
+        // swallowed so regressions surface in dev.
+        console.error('[SlidesTextBoxEditor] cursorMove listener threw', err);
+      }
+    }
+  };
 
   const handleCommit = (next: Block[]): void => {
     if (committedAlready) return;
@@ -434,6 +447,28 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     colorResolver,
     verticalAnchor,
   });
+
+  // The slides toolbar deliberately omits the Strikethrough toggle (see
+  // packages/frontend/src/app/slides/toolbar/text-edit-section.tsx and
+  // docs/design/slides/slides-toolbar-redesign.md). The underlying docs
+  // text-editor still binds Cmd/Ctrl+Shift+X to a strike toggle, which
+  // would apply the style with no UI to read or clear it. Swallow the
+  // shortcut at the capture phase before docs sees it. Matches the
+  // Escape-handler pattern used inside `initializeTextBox`.
+  const textareaEl = container.querySelector(
+    'textarea',
+  ) as HTMLTextAreaElement | null;
+  const swallowStrikeShortcut = (e: KeyboardEvent): void => {
+    if (!(e.key === 'x' || e.key === 'X')) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  if (textareaEl) {
+    textareaEl.addEventListener('keydown', swallowStrikeShortcut, true);
+  }
 
   return {
     isEditing(): boolean {
@@ -532,12 +567,10 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     },
     onCursorMove(cb): () => void {
       cursorMoveListeners.add(cb);
-      if (!cursorMoveBridgeInstalled) {
-        cursorMoveBridgeInstalled = true;
-        api.onCursorMove((pos, selection) => {
-          for (const listener of cursorMoveListeners) listener(pos, selection);
-        });
-      }
+      // Re-install on every add (idempotent at the docs side — just
+      // overwrites the single-slot callback). Cheap and protects against
+      // any external code that calls api.onCursorMove between subscribes.
+      api.onCursorMove(dispatchCursorMove);
       return () => {
         cursorMoveListeners.delete(cb);
       };

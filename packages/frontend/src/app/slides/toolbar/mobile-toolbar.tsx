@@ -53,6 +53,8 @@ import { Toggle } from "@/components/ui/toggle";
 import {
   TextFormatGroup,
   TextParagraphGroup,
+  FontSizePicker,
+  useResolvedFontSize,
 } from "@/components/text-formatting";
 import type { ToolbarState } from "./state";
 import { UndoRedoGroup } from "./global-controls";
@@ -440,6 +442,7 @@ function TextFormatSheet({
   textEditor: Extract<ToolbarState, { kind: "text-edit" }>["textEditor"];
 }) {
   const [open, setOpen] = useState(false);
+  const sizeValue = useResolvedFontSize(textEditor);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -457,8 +460,8 @@ function TextFormatSheet({
         <SheetHeader>
           <SheetTitle>Text formatting</SheetTitle>
           <SheetDescription className="sr-only">
-            Block style, font, size, color, list, and alignment controls
-            for the active text box.
+            Font size, inline format, color, link, list, and alignment
+            controls for the active text box.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-3 px-4 pb-4">
@@ -471,6 +474,13 @@ function TextFormatSheet({
            * toolbar.
            */}
           <div className="flex flex-wrap items-center gap-1">
+            <FontSizePicker
+              value={sizeValue}
+              onChange={(size) => {
+                textEditor.applyStyle({ fontSize: size });
+                textEditor.focus();
+              }}
+            />
             <TextFormatGroup
               editor={textEditor}
               showStrikethrough={false}

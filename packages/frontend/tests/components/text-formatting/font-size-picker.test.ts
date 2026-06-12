@@ -95,6 +95,24 @@ describe("FontSizePicker", () => {
     expect(onChange).toHaveBeenCalledWith(11);
   });
 
+  test("+ button is a no-op when value is undefined and input is empty (mixed selection)", () => {
+    // Regression: previously `value ?? Number("")` collapsed to 0 and ±
+    // committed FONT_SIZE_MIN, silently flattening every run in a mixed
+    // selection to the minimum size.
+    const onChange = vi.fn();
+    const el = render(
+      h(FontSizePicker, { value: undefined, onChange }),
+    );
+    act(() => {
+      (
+        el.querySelector(
+          '[aria-label="Increase font size"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   test("clamps to 1..400 on commit", () => {
     const onChange = vi.fn();
     const el = render(h(FontSizePicker, { value: 1, onChange }));
