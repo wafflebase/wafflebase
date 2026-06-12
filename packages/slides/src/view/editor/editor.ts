@@ -5163,10 +5163,17 @@ class SlidesEditorImpl implements SlidesEditor {
     // gets set on a re-acquired element — no stale-transform flicker.
     showTooltip(clientX, clientY, 0);
 
+    // For single-element rotate, hand `applyRotate` the shape's
+    // existing rotation so the cardinal soft-snap (and 15° shift snap)
+    // target the *final absolute* rotation, not the delta. For multi
+    // there's no group rotation, so the snap target is the gesture
+    // delta itself.
+    const snapStart = isMulti ? 0 : entries[0].startRotation;
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const angle = Math.atan2(cur.y - pivotY, cur.x - pivotX);
-      liveDelta = applyRotate(0, startAngle, angle, ev.shiftKey);
+      const next = applyRotate(snapStart, startAngle, angle, ev.shiftKey);
+      liveDelta = next - snapStart;
       const { ghosts } = buildLiveState(liveDelta);
       this.paintMoveGhost(ghosts, handleElements);
       showTooltip(ev.clientX, ev.clientY, liveDelta);
