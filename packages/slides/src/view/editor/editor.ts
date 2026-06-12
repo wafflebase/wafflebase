@@ -5396,13 +5396,17 @@ class SlidesEditorImpl implements SlidesEditor {
           matched.y !== raw.newBbox.y
         ) {
           // Translate the matched bbox back to the dx/dy that produced it.
+          // For 'e' / 's' handles: dx/dy is the size delta. For 'w' / 'n':
+          // dx/dy is the edge offset (resizeFrame does `left = start.x + dx`
+          // for 'w' and `top = start.y + dy` for 'n'), so the sign is the
+          // signed displacement of the moving edge, NOT the size delta.
           const matchedDx =
             handle.includes('e') ? matched.w - startBbox.w
-            : handle.includes('w') ? startBbox.x - matched.x
+            : handle.includes('w') ? matched.x - startBbox.x
             : 0;
           const matchedDy =
             handle.includes('s') ? matched.h - startBbox.h
-            : handle.includes('n') ? startBbox.y - matched.y
+            : handle.includes('n') ? matched.y - startBbox.y
             : 0;
           result = resizeMultiFrames(
             { scope, startBbox, snapshots },
