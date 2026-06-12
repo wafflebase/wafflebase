@@ -1,4 +1,5 @@
 import type { Frame } from '../../../model/element';
+import type { Endpoint } from '../../../model/connector';
 
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -166,4 +167,85 @@ function preserveAspect(
   const targetDx = scale * w * ((handle === 'nw' || handle === 'sw') ? -1 : 1);
   const targetDy = scale * h * ((handle === 'nw' || handle === 'ne') ? -1 : 1);
   return { dx: targetDx, dy: targetDy };
+}
+
+export type ElementSnapshot =
+  | { kind: 'frame'; id: string; worldFrame: Frame }
+  | {
+      kind: 'connector';
+      id: string;
+      worldFrame: Frame;
+      start: Endpoint;
+      end: Endpoint;
+    };
+
+export interface MultiResizeStart {
+  scope: readonly string[];
+  startBbox: Frame; // rotation === 0
+  snapshots: readonly ElementSnapshot[];
+}
+
+export interface MultiResizeResult {
+  newBbox: Frame;
+  frames: Map<string, Frame>;
+  connectorEndpoints: Map<string, { start: Endpoint; end: Endpoint }>;
+}
+
+/**
+ * Pure multi-resize math. Reuses `resizeFrame` for the bbox (it is
+ * always axis-aligned) and redistributes the new dimensions over
+ * per-child frames via a single affine map: a child's centre and
+ * size scale by (sx, sy) relative to the bbox anchor. Rotation is
+ * preserved per child (Google Slides / PowerPoint behaviour). Each
+ * child's `w` / `h` is clamped to `MIN_SIZE`.
+ */
+export function resizeMultiFrames(
+  start: MultiResizeStart,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  shift: boolean,
+): MultiResizeResult {
+  const newBbox = resizeFrame(start.startBbox, handle, worldDx, worldDy, shift);
+  const sx = start.startBbox.w > 0 ? newBbox.w / start.startBbox.w : 1;
+  const sy = start.startBbox.h > 0 ? newBbox.h / start.startBbox.h : 1;
+
+  const mapPoint = (px: number, py: number): { x: number; y: number } => ({
+    x: newBbox.x + (px - start.startBbox.x) * sx,
+    y: newBbox.y + (py - start.startBbox.y) * sy,
+  });
+
+  const frames = new Map<string, Frame>();
+  const connectorEndpoints = new Map<string, { start: Endpoint; end: Endpoint }>();
+
+  for (const snap of start.snapshots) {
+    const cx = snap.worldFrame.x + snap.worldFrame.w / 2;
+    const cy = snap.worldFrame.y + snap.worldFrame.h / 2;
+    const c2 = mapPoint(cx, cy);
+    const w2 = Math.max(snap.worldFrame.w * sx, MIN_SIZE);
+    const h2 = Math.max(snap.worldFrame.h * sy, MIN_SIZE);
+    const nextFrame: Frame = {
+      x: c2.x - w2 / 2,
+      y: c2.y - h2 / 2,
+      w: w2,
+      h: h2,
+      rotation: snap.worldFrame.rotation,
+    };
+    frames.set(snap.id, nextFrame);
+
+    if (snap.kind === 'connector') {
+      const mapEp = (ep: Endpoint): Endpoint => {
+        if (ep.kind === 'attached') return ep;
+        const p = mapPoint(ep.x, ep.y);
+        return { kind: 'free', x: p.x, y: p.y };
+      };
+      const writeStart = snap.start.kind === 'free' ? mapEp(snap.start) : snap.start;
+      const writeEnd   = snap.end.kind   === 'free' ? mapEp(snap.end)   : snap.end;
+      if (snap.start.kind === 'free' || snap.end.kind === 'free') {
+        connectorEndpoints.set(snap.id, { start: writeStart, end: writeEnd });
+      }
+    }
+  }
+
+  return { newBbox, frames, connectorEndpoints };
 }
