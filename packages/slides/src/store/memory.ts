@@ -39,6 +39,7 @@ import {
   applyGroupTransform,
   applyInverseMatrix,
   applyInversePoint,
+  bakeGroupScale,
   buildElementWorldLookup,
   composeAncestorTransform,
   findElementPath,
@@ -999,6 +1000,42 @@ export class MemSlidesStore implements SlidesStore {
         }
       }
     }
+  }
+
+  bakeGroupResize(slideId: string, groupId: string): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const path = findElementPath(slide.elements, groupId);
+    if (!path) return; // Stale group id — tolerate.
+    const group = path[path.length - 1];
+    if (group.type !== 'group') return;
+    if (group.data.children.length === 0) {
+      // No children to bake; just sync refSize to the current frame so
+      // subsequent renders read scale=1.
+      group.data.refSize = { w: group.frame.w, h: group.frame.h };
+      return;
+    }
+
+    const { children, refSize } = bakeGroupScale(group);
+    if (children === group.data.children) {
+      // bakeGroupScale returned identity (scale was already 1) — sync
+      // refSize defensively in case it was undefined.
+      group.data.refSize = refSize;
+      return;
+    }
+    // Mutate children in place (preserve object identity per ungroup /
+    // refitGroup convention so Yorkie path stability holds inside a
+    // batch).
+    for (let i = 0; i < group.data.children.length; i++) {
+      const next = children[i];
+      const cur = group.data.children[i];
+      cur.frame = { ...next.frame };
+      if (cur.type === 'connector' && next.type === 'connector') {
+        cur.start = next.start;
+        cur.end = next.end;
+      }
+    }
+    group.data.refSize = refSize;
   }
 
   // --- text bridges ---

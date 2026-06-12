@@ -463,3 +463,65 @@ function walkWorld(
     out.set(el.id, { ...el, frame: applyMatrix(el.frame, accum) });
   }
 }
+
+/**
+ * Bake a group's render-scale into its children, so the renderer no
+ * longer applies `scale(scaleX, scaleY)` to draw children. Used at the
+ * commit point of a group resize so non-uniform scale stops distorting
+ * text glyphs and any other content drawn at fixed sizes. Matches
+ * Google Slides / PowerPoint behavior, where resizing a group never
+ * leaves text squished.
+ *
+ * Math: with `sx = group.frame.w / refSize.w` and
+ * `sy = group.frame.h / refSize.h`, each child's local frame scales by
+ * `(sx, sy)` (position and dimensions both). Rotation is preserved.
+ * Connector children's free endpoints scale the same way; attached
+ * endpoints are unchanged (the target shape is the source of truth).
+ *
+ * Returns the next `children` array and the new `refSize`. If both
+ * scale factors are already 1 (or `refSize` is unset and equals
+ * `frame.w/h` by default), returns the inputs untouched.
+ *
+ * The transform is NOT recursive: a child group keeps its own
+ * `refSize`. Its descendants are scaled later when that inner group is
+ * itself resized (or its resize is baked). This matches OOXML grouped
+ * geometry, where each level owns its scale.
+ */
+export function bakeGroupScale(group: GroupElement): {
+  children: Element[];
+  refSize: { w: number; h: number };
+} {
+  const { w, h } = group.frame;
+  const refW = group.data.refSize?.w ?? w;
+  const refH = group.data.refSize?.h ?? h;
+  const sx = refW > 0 ? w / refW : 1;
+  const sy = refH > 0 ? h / refH : 1;
+  if (sx === 1 && sy === 1) {
+    return { children: group.data.children, refSize: { w: refW, h: refH } };
+  }
+
+  const scaleFrame = (f: Frame): Frame => ({
+    x: f.x * sx,
+    y: f.y * sy,
+    w: f.w * sx,
+    h: f.h * sy,
+    rotation: f.rotation,
+  });
+
+  const children: Element[] = group.data.children.map((child) => {
+    if (child.type === 'connector') {
+      const start =
+        child.start.kind === 'free'
+          ? { kind: 'free' as const, x: child.start.x * sx, y: child.start.y * sy }
+          : child.start;
+      const end =
+        child.end.kind === 'free'
+          ? { kind: 'free' as const, x: child.end.x * sx, y: child.end.y * sy }
+          : child.end;
+      return { ...child, frame: scaleFrame(child.frame), start, end };
+    }
+    return { ...child, frame: scaleFrame(child.frame) } as Element;
+  });
+
+  return { children, refSize: { w, h } };
+}

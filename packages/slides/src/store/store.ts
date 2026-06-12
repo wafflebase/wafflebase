@@ -126,6 +126,18 @@ export interface SlidesStore {
    */
   refitGroup(slideId: string, groupId: string): void;
 
+  /**
+   * Bake a group's render-scale into its children, then reset `refSize`
+   * to the group's current `frame.{w,h}`. Called at the commit point of
+   * a group resize so the renderer no longer scales children at paint
+   * time — text glyphs and any fixed-size content stop being distorted
+   * under non-uniform group resizes. Matches Google Slides / PowerPoint
+   * behaviour. No-op when the group has no children or when the scale
+   * factors are already 1 (the gesture did not actually change size,
+   * or `refSize` was unset).
+   */
+  bakeGroupResize(slideId: string, groupId: string): void;
+
   // --- connector-level ---
 
   /** Update an endpoint of an existing connector. */
