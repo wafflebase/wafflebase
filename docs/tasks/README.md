@@ -18,11 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides connector bend handles (2026-06-12) | [20260612-slides-connector-bend-handles-todo.md](./active/20260612-slides-connector-bend-handles-todo.md) | - |
-| slides shape text edit font size (2026-06-12) | [20260612-slides-shape-text-edit-font-size-todo.md](./active/20260612-slides-shape-text-edit-font-size-todo.md) | [20260612-slides-shape-text-edit-font-size-lessons.md](./active/20260612-slides-shape-text-edit-font-size-lessons.md) |
-| pptx slide21 roadmap fix (2026-06-11) | [20260611-pptx-slide21-roadmap-fix-todo.md](./active/20260611-pptx-slide21-roadmap-fix-todo.md) | - |
-| docs pending summary merge (2026-06-08) | [20260608-docs-pending-summary-merge-todo.md](./active/20260608-docs-pending-summary-merge-todo.md) | [20260608-docs-pending-summary-merge-lessons.md](./active/20260608-docs-pending-summary-merge-lessons.md) |
-| release v0.4.4 (2026-06-08) | [20260608-release-v0.4.4-todo.md](./active/20260608-release-v0.4.4-todo.md) | - |
+| release v0.4.5 (2026-06-12) | [20260612-release-v0.4.5-todo.md](./active/20260612-release-v0.4.5-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
@@ -34,7 +30,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 265
+- Archived task count: 272
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides connector bend handles (2026-06-12)
+Latest active task: release v0.4.5 (2026-06-12)

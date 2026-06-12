@@ -6,16 +6,23 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 265
+Total archived tasks: 272
 
-## 2026/06 (20 tasks)
+## 2026/06 (27 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | multi select resize (2026-06-12) | [20260612-multi-select-resize-todo.md](./2026/06/20260612-multi-select-resize-todo.md) | [20260612-multi-select-resize-lessons.md](./2026/06/20260612-multi-select-resize-lessons.md) |
+| slides connector bend handles (2026-06-12) | [20260612-slides-connector-bend-handles-todo.md](./2026/06/20260612-slides-connector-bend-handles-todo.md) | - |
+| slides group resize bake (2026-06-12) | [20260612-slides-group-resize-bake-todo.md](./2026/06/20260612-slides-group-resize-bake-todo.md) | - |
 | slides grouped connector render (2026-06-12) | [20260612-slides-grouped-connector-render-todo.md](./2026/06/20260612-slides-grouped-connector-render-todo.md) | - |
+| slides rotation cardinal snap (2026-06-12) | [20260612-slides-rotation-cardinal-snap-todo.md](./2026/06/20260612-slides-rotation-cardinal-snap-todo.md) | - |
+| slides shape text edit font size (2026-06-12) | [20260612-slides-shape-text-edit-font-size-todo.md](./2026/06/20260612-slides-shape-text-edit-font-size-todo.md) | [20260612-slides-shape-text-edit-font-size-lessons.md](./2026/06/20260612-slides-shape-text-edit-font-size-lessons.md) |
+| pptx slide21 roadmap fix (2026-06-11) | [20260611-pptx-slide21-roadmap-fix-todo.md](./2026/06/20260611-pptx-slide21-roadmap-fix-todo.md) | - |
 | pptx korean font fallback (2026-06-10) | [20260610-pptx-korean-font-fallback-todo.md](./2026/06/20260610-pptx-korean-font-fallback-todo.md) | - |
 | slides pasteboard (2026-06-10) | [20260610-slides-pasteboard-todo.md](./2026/06/20260610-slides-pasteboard-todo.md) | [20260610-slides-pasteboard-lessons.md](./2026/06/20260610-slides-pasteboard-lessons.md) |
+| docs pending summary merge (2026-06-08) | [20260608-docs-pending-summary-merge-todo.md](./2026/06/20260608-docs-pending-summary-merge-todo.md) | [20260608-docs-pending-summary-merge-lessons.md](./2026/06/20260608-docs-pending-summary-merge-lessons.md) |
+| release v0.4.4 (2026-06-08) | [20260608-release-v0.4.4-todo.md](./2026/06/20260608-release-v0.4.4-todo.md) | - |
 | slides dark theme on create (2026-06-08) | [20260608-slides-dark-theme-on-create-todo.md](./2026/06/20260608-slides-dark-theme-on-create-todo.md) | [20260608-slides-dark-theme-on-create-lessons.md](./2026/06/20260608-slides-dark-theme-on-create-lessons.md) |
 | cmd slash shortcuts help (2026-06-07) | [20260607-cmd-slash-shortcuts-help-todo.md](./2026/06/20260607-cmd-slash-shortcuts-help-todo.md) | [20260607-cmd-slash-shortcuts-help-lessons.md](./2026/06/20260607-cmd-slash-shortcuts-help-lessons.md) |
 | color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |

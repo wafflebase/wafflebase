@@ -89,9 +89,10 @@ lookup but before tint/shade in the resolution order (per ECMA-376
 - [x] `pnpm verify:fast` green (slides 1727 / 1729 — 5 new lumMod +
       ellipse tests; docs 925 / 926; sheets 1279 / 1279; frontend
       531 / 575; cli 191 / 191; backend 175 / 175). EXIT=0.
-- [ ] Manual: import the user-reported PPTX (private), open slide 21,
+- [x] Manual: import the user-reported PPTX (private), open slide 21,
       confirm the green 8월 arrow terminates at the LEFT edge of the
-      circle and that both gray circles are visible. Pending user.
+      circle and that both gray circles are visible. Confirmed by
+      user; landed in `a5a27471`.
 
 ## Out of scope
 

@@ -51,7 +51,7 @@ Out of scope (deferred):
 **Files:**
 - Modify: `packages/slides/src/model/connector.ts`
 
-- [ ] **Step 1: Extend `ConnectorElement` with `curveBend?: number`**
+- [x] **Step 1: Extend `ConnectorElement` with `curveBend?: number`**
 
 Edit `packages/slides/src/model/connector.ts` so the type ends with:
 
@@ -75,12 +75,12 @@ export type ConnectorElement = ElementBase & {
 };
 ```
 
-- [ ] **Step 2: Run typecheck to confirm the model is sound**
+- [x] **Step 2: Run typecheck to confirm the model is sound**
 
 Run: `pnpm slides build`
 Expected: PASS — the dist build typechecks the model.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/model/connector.ts
@@ -100,12 +100,12 @@ manual handle drag writes a clamped [0.1, 3] value."
 - Modify: `packages/slides/src/view/canvas/routing.ts`
 - Test: `packages/slides/test/view/canvas/routing.test.ts` (create if absent)
 
-- [ ] **Step 1: Check for an existing routing test file**
+- [x] **Step 1: Check for an existing routing test file**
 
 Run: `ls packages/slides/test/view/canvas/routing.test.ts 2>/dev/null || ls packages/slides/src/view/canvas/routing.test.ts 2>/dev/null || echo MISSING`
 If MISSING, create at `packages/slides/test/view/canvas/routing.test.ts` with the import line `import { routeCurved, routeElbow, routeStraight } from '../../../src/view/canvas/routing';` and a top-level `describe('routing', () => { … })` wrapper around the test below.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Add inside the routing `describe`:
 
@@ -138,12 +138,12 @@ describe('routeCurved bend', () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- routing`
 Expected: FAIL — `routeCurved` ignores the 5th arg.
 
-- [ ] **Step 4: Implement `bend` in `routeCurved`**
+- [x] **Step 4: Implement `bend` in `routeCurved`**
 
 Replace the `routeCurved` block in `packages/slides/src/view/canvas/routing.ts` with:
 
@@ -190,12 +190,12 @@ export const CURVE_BEND_DEFAULT = 1;
 export { CURVE_BEND_MIN, CURVE_BEND_MAX };
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- routing`
 Expected: PASS — three new `routeCurved bend` tests green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/routing.ts packages/slides/test/view/canvas/routing.test.ts
@@ -215,7 +215,7 @@ extreme from degenerating the curve."
 **Files:**
 - Modify: `packages/slides/src/view/canvas/connector-frame.ts`
 
-- [ ] **Step 1: Pass `connector.curveBend` into `routeCurved`**
+- [x] **Step 1: Pass `connector.curveBend` into `routeCurved`**
 
 Find the `if (connector.routing === 'curved')` branch (around `connector-frame.ts:85`) and update the call:
 
@@ -231,12 +231,12 @@ if (connector.routing === 'curved') {
 }
 ```
 
-- [ ] **Step 2: Run slides build to typecheck**
+- [x] **Step 2: Run slides build to typecheck**
 
 Run: `pnpm slides build`
 Expected: PASS — type matches the new optional 5th arg from Task 2.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/connector-frame.ts
@@ -254,7 +254,7 @@ needed for every paint surface to honour a stored curve bend."
 **Files:**
 - Modify: `packages/slides/src/store/store.ts`
 
-- [ ] **Step 1: Declare the method**
+- [x] **Step 1: Declare the method**
 
 Insert after `updateConnectorElbowBend` (around `store.ts:179`):
 
@@ -273,7 +273,7 @@ Insert after `updateConnectorElbowBend` (around `store.ts:179`):
   ): void;
 ```
 
-- [ ] **Step 2: Update `updateConnectorRouting` jsdoc**
+- [x] **Step 2: Update `updateConnectorRouting` jsdoc**
 
 Replace the jsdoc above `updateConnectorRouting` (around `store.ts:159`):
 
@@ -287,12 +287,12 @@ Replace the jsdoc above `updateConnectorRouting` (around `store.ts:159`):
    */
 ```
 
-- [ ] **Step 3: Run typecheck**
+- [x] **Step 3: Run typecheck**
 
 Run: `pnpm slides build`
 Expected: FAIL — `MemSlidesStore` doesn't implement `updateConnectorCurveBend` yet.
 
-- [ ] **Step 4: Commit (intermediate; impl follows in next task)**
+- [x] **Step 4: Commit (intermediate; impl follows in next task)**
 
 Skip the commit until Task 5 ships the impl together — keeping the contract + impl in a single commit avoids a wedge state where the interface mismatches.
 
@@ -304,7 +304,7 @@ Skip the commit until Task 5 ships the impl together — keeping the contract + 
 - Modify: `packages/slides/src/store/memory.ts`
 - Test: `packages/slides/test/store/memory.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Insert after the existing `elbowBend` test block (around `memory.test.ts:790`):
 
@@ -350,12 +350,12 @@ function insertCurvedConnector(store: MemSlidesStore, slideId: string): string {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory`
 Expected: FAIL — `updateConnectorCurveBend` is not implemented.
 
-- [ ] **Step 3: Implement `updateConnectorCurveBend` and the routing cleanup**
+- [x] **Step 3: Implement `updateConnectorCurveBend` and the routing cleanup**
 
 Edit `packages/slides/src/store/memory.ts`. First, extend `updateConnectorRouting` (around `memory.ts:562`) so the cleanup also fires on leaving curved:
 
@@ -406,12 +406,12 @@ Add the import at the top of `memory.ts`:
 import { CURVE_BEND_MAX, CURVE_BEND_MIN } from '../view/canvas/routing';
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory`
 Expected: PASS — both new tests + the existing elbow test green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/store/store.ts packages/slides/src/store/memory.ts \
@@ -431,7 +431,7 @@ the default control-point distance (matching the elbow cleanup)."
 **Files:**
 - Modify: `packages/frontend/src/app/slides/yorkie-slides-store.ts`
 
-- [ ] **Step 1: Extend `updateConnectorRouting` cleanup**
+- [x] **Step 1: Extend `updateConnectorRouting` cleanup**
 
 Find the existing `updateConnectorRouting` in `yorkie-slides-store.ts` (around line 1197). Add the curved-cleanup line so the proxy block reads:
 
@@ -444,7 +444,7 @@ Find the existing `updateConnectorRouting` in `yorkie-slides-store.ts` (around l
       c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
 ```
 
-- [ ] **Step 2: Add `updateConnectorCurveBend` method**
+- [x] **Step 2: Add `updateConnectorCurveBend` method**
 
 Insert directly after `updateConnectorElbowBend` (around `yorkie-slides-store.ts:1250`). Mirror that method's structure:
 
@@ -485,12 +485,12 @@ import { CURVE_BEND_MAX, CURVE_BEND_MIN } from '@wafflebase/slides';
 
 If `@wafflebase/slides`'s public entry doesn't re-export them yet, also extend `packages/slides/src/index.ts` to re-export `CURVE_BEND_MAX` and `CURVE_BEND_MIN` from `./view/canvas/routing`.
 
-- [ ] **Step 3: Build the frontend bundle to confirm types resolve**
+- [x] **Step 3: Build the frontend bundle to confirm types resolve**
 
 Run: `pnpm slides build && pnpm --filter @wafflebase/frontend build`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.ts packages/slides/src/index.ts
@@ -508,7 +508,7 @@ through Yorkie when collaboration is on. Same clamp + 0.01 rounding."
 - Create: `packages/slides/src/view/canvas/connector-bend.ts`
 - Create: `packages/slides/src/view/canvas/connector-bend.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/slides/test/view/canvas/connector-bend.test.ts`:
 
@@ -606,12 +606,12 @@ describe('bendFromCursor', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/slides test -- connector-bend`
 Expected: FAIL — module missing.
 
-- [ ] **Step 3: Implement `connector-bend.ts`**
+- [x] **Step 3: Implement `connector-bend.ts`**
 
 Create `packages/slides/src/view/canvas/connector-bend.ts`:
 
@@ -742,12 +742,12 @@ function bezierAt(b: BezierPath, t: number): Point {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test -- connector-bend`
 Expected: PASS — all 7 cases green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/connector-bend.ts \
@@ -769,7 +769,7 @@ drives the connector through a degenerate state."
 **Files:**
 - Modify: `packages/slides/src/view/editor/hit-test.ts`
 
-- [ ] **Step 1: Extend `HandleKind` and the accepted-string list**
+- [x] **Step 1: Extend `HandleKind` and the accepted-string list**
 
 Edit `packages/slides/src/view/editor/hit-test.ts`:
 
@@ -801,12 +801,12 @@ function isHandleKind(value: string | undefined): value is HandleKind {
 
 (Remove the now-unused `CONNECTOR_ENDPOINT_HANDLES` const.)
 
-- [ ] **Step 2: Run the slides test suite to confirm no regression**
+- [x] **Step 2: Run the slides test suite to confirm no regression**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — existing handle hit-tests still pass; new kind is just additive.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/hit-test.ts
@@ -824,7 +824,7 @@ selected connector's routing to pick the commit path."
 **Files:**
 - Modify: `packages/slides/src/view/editor/overlay.ts`
 
-- [ ] **Step 1: Extend `renderConnectorEndpointHandles` to paint the bend handle**
+- [x] **Step 1: Extend `renderConnectorEndpointHandles` to paint the bend handle**
 
 Edit `packages/slides/src/view/editor/overlay.ts`. Add the import at the top with the existing connector-frame import:
 
@@ -880,12 +880,12 @@ function makeBendHandle(cx: number, cy: number): HTMLDivElement {
 }
 ```
 
-- [ ] **Step 2: Manual smoke (deferred to Task 12) — confirm build is clean**
+- [x] **Step 2: Manual smoke (deferred to Task 12) — confirm build is clean**
 
 Run: `pnpm slides build`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/overlay.ts
@@ -905,7 +905,7 @@ the affordance stays consistent across the editor."
 **Files:**
 - Create: `packages/slides/src/view/editor/interactions/bend-drag.ts`
 
-- [ ] **Step 1: Implement the single-call commit helper**
+- [x] **Step 1: Implement the single-call commit helper**
 
 Create `packages/slides/src/view/editor/interactions/bend-drag.ts`:
 
@@ -935,12 +935,12 @@ export function commitBend(
 }
 ```
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `pnpm slides build`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/interactions/bend-drag.ts
@@ -958,7 +958,7 @@ method without leaking topology decisions into editor.ts."
 **Files:**
 - Modify: `packages/slides/src/view/editor/editor.ts`
 
-- [ ] **Step 1: Dispatch `'bend'` in `onPointerDownHandle`**
+- [x] **Step 1: Dispatch `'bend'` in `onPointerDownHandle`**
 
 Edit `packages/slides/src/view/editor/editor.ts`. Find `onPointerDownHandle` (around `editor.ts:4615`) and insert a branch above the `adjust-` block:
 
@@ -969,7 +969,7 @@ Edit `packages/slides/src/view/editor/editor.ts`. Find `onPointerDownHandle` (ar
     }
 ```
 
-- [ ] **Step 2: Implement `startBendDrag`**
+- [x] **Step 2: Implement `startBendDrag`**
 
 Add the method directly after `startAdjustmentDrag` (around `editor.ts:4876`). It mirrors the endpoint-drag pattern: live ghost paint each move, single batched commit on up.
 
@@ -1048,12 +1048,12 @@ import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
 ```
 
-- [ ] **Step 3: Confirm build + tests**
+- [x] **Step 3: Confirm build + tests**
 
 Run: `pnpm slides build && pnpm --filter @wafflebase/slides test`
 Expected: PASS — no regression in editor tests; new code is reachable only through `'bend'` handle.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -1072,7 +1072,7 @@ the pure helpers, not the editor."
 **Files:**
 - Modify: `docs/design/slides/slides-connectors.md`
 
-- [ ] **Step 1: Update the PR2 status note + curved-bend section**
+- [x] **Step 1: Update the PR2 status note + curved-bend section**
 
 In `docs/design/slides/slides-connectors.md` find the status note (around line 495) and flip:
 
@@ -1100,12 +1100,12 @@ loop. Routing change away from `'curved'` clears the field in both
 
 In section "1. Element Model", append `curveBend?` to the listed `ConnectorElement` fields with the same one-line comment.
 
-- [ ] **Step 2: Run the full pre-commit gate**
+- [x] **Step 2: Run the full pre-commit gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS — lint + unit tests across packages.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Run: `pnpm dev`. In a slide:
 - Insert a curved connector between two shapes. Confirm a yellow diamond appears at the curve midpoint. Drag it perpendicular to the chord — curve flattens / exaggerates smoothly. Click off, reselect — handle reappears at the new midpoint.
@@ -1113,7 +1113,7 @@ Run: `pnpm dev`. In a slide:
 - Insert an elbow connector that routes as an L (perpendicular exits) or U / C — confirm NO bend handle paints; selection still shows the two endpoint handles.
 - Switch routing via right-click menu between straight / elbow / curved on a connector with a stored bend — confirm the stored bend clears on each transition out and the connector reverts to the topology default.
 
-- [ ] **Step 4: Commit + push + open PR**
+- [x] **Step 4: Commit + push + open PR**
 
 ```bash
 git add docs/design/slides/slides-connectors.md \
@@ -1146,3 +1146,17 @@ Then `git push -u origin <branch>` and open the PR per `CLAUDE.md` workflow.
 - [x] No placeholders (no TBD / TODO / "similar to above").
 - [x] Type names referenced in later tasks (`ConnectorElement.curveBend`, `CURVE_BEND_MIN/MAX`, `'bend'` handle kind, `bendHandlePosition`, `bendFromCursor`, `commitBend`) all defined in earlier tasks.
 - [x] Spec coverage: elbow Z handle, curved handle, Mem + Yorkie store parity, hit-test, overlay, drag, design-doc update — all have a task.
+
+## Review
+
+Shipped end-to-end in `66e1505f` (#357). Yellow-diamond bend handle
+lands for both elbow Z (drives existing `elbowBend`) and curved (new
+`curveBend?: number` on `ConnectorElement`, default 1, clamped [0.1,
+3]). Layering matches the plan: pure helpers (`connector-bend.ts`)
+own the position + cursor-to-bend math, `bend-drag.ts` dispatches per
+routing through the store, and `startBendDrag` mirrors the
+endpoint-drag pattern (live ghost paint + single batched commit on
+mouseup). Routing change away from `'curved'` clears `curveBend` in
+both `MemSlidesStore` and `YorkieSlidesStore`, symmetric with the
+existing elbow cleanup. Design doc PR2 status note flipped to
+shipped; curved-bend section added.

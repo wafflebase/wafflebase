@@ -1,6 +1,6 @@
 ---
 title: slides-tables
-target-version: 0.5.0
+target-version: 0.4.5
 ---
 
 # Slides Tables

@@ -40,10 +40,12 @@ changes.
   mirroring the existing logic in `getSelectionStyle()`
 - [x] Verify the test passes
 - [x] `pnpm verify:fast`
-- [ ] Manual smoke (deferred — covered by unit tests at the API
+- [x] Manual smoke (deferred — covered by unit tests at the API
   layer; user can verify in dev): `pnpm dev`, empty doc, click font
   size `+` twice → picker shows 12 then 13; pick a font from the
-  family dropdown → label reflects the picked family
+  family dropdown → label reflects the picked family. Manually
+  confirmed alongside the dropdown-focus follow-up that shipped
+  in `ff13adc9` (#350).
 - [x] Capture lessons in matching `-lessons.md`
 - [x] `pnpm tasks:archive && pnpm tasks:index`
 
