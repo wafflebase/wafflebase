@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
+  evaluateWithSpill,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
@@ -158,6 +159,42 @@ describe('Formula', () => {
   it('should use array literals with AVERAGE and COUNT', () => {
     expect(evaluate('=AVERAGE({2,4,6})')).toBe('4');
     expect(evaluate('=COUNT({1,2,3})')).toBe('3');
+  });
+
+  it('should use boolean array products with SUMPRODUCT', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'North' } as Cell);
+    grid.set('A2', { v: 'South' } as Cell);
+    grid.set('A3', { v: 'North' } as Cell);
+    grid.set('B1', { v: '10' } as Cell);
+    grid.set('B2', { v: '20' } as Cell);
+    grid.set('B3', { v: '30' } as Cell);
+
+    expect(evaluate('=SUMPRODUCT((A1:A3="North")*B1:B3)', grid)).toBe('40');
+  });
+
+  it('should compare array literal cell references by value', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '5' } as Cell);
+    grid.set('B1', { v: '10' } as Cell);
+
+    expect(evaluate('={A1,B1}=10', grid)).toBe('FALSE');
+    expect(evaluateWithSpill('={A1,B1}=10', grid)).toBe('FALSE');
+    expect(evaluate('=SUMPRODUCT({A1,B1}=10,{1,1})', grid)).toBe('1');
+  });
+
+  it('should use array literal reference comparisons with SUMPRODUCT', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'North' } as Cell);
+    grid.set('A2', { v: 'South' } as Cell);
+    grid.set('B1', { v: '10' } as Cell);
+    grid.set('B2', { v: '20' } as Cell);
+
+    expect(evaluate('=SUMPRODUCT(({A1,A2}="North")*{B1,B2})', grid)).toBe('10');
+  });
+
+  it('should reject SUMPRODUCT arrays with different shapes', () => {
+    expect(evaluate('=SUMPRODUCT({1,2,3,4},{1,2;3,4})')).toBe('#VALUE!');
   });
 
   it('should use array literals in arithmetic', () => {

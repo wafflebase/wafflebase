@@ -1413,16 +1413,34 @@ export function sumproductFunc(
   const exprs = ctx.args()?.expr() ?? [];
 
   const arrays: number[][] = [];
+  let expectedRows: number | undefined;
+  let expectedCols: number | undefined;
   for (const expr of exprs) {
-    const refs = getRefsFromExpression(expr, visit, grid);
-    if (refs.t === 'err') {
-      return refs;
+    const matrix = getReferenceMatrixFromExpression(expr, visit, grid);
+    if ('t' in matrix && matrix.t === 'err') {
+      return matrix;
     }
 
+    const rows = matrix.t === 'arrmat' ? matrix.rowCount : matrix.v.rowCount;
+    const cols = matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount;
+    if (
+      expectedRows !== undefined &&
+      (rows !== expectedRows || cols !== expectedCols)
+    ) {
+      return ErrNode.VALUE;
+    }
+    expectedRows ??= rows;
+    expectedCols ??= cols;
+
     const values: number[] = [];
-    for (const ref of refs.v) {
-      const cellVal = grid?.get(ref)?.v || '';
-      values.push(cellVal !== '' && !isNaN(Number(cellVal)) ? Number(cellVal) : 0);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const value = getMatrixVal(matrix, row, col, grid);
+        if (typeof value !== 'number') {
+          return value;
+        }
+        values.push(value);
+      }
     }
     arrays.push(values);
   }
