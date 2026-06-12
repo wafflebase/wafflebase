@@ -736,6 +736,50 @@ describe('initialize', () => {
     expect(editor.getCurrentSlideId()).toBe(secondId);
     expect(editor.getSelection()).toEqual([]);
   });
+
+  it('multi-select SE-handle drag is currently a no-op (baseline; flipped in multi-resize task)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 100, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 200, y: 100, w: 80, h: 60, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    editor.render();
+
+    // Snapshot the current frames before the drag.
+    const before = store.read().slides[0].elements.map((e) => ({ id: e.id, frame: e.frame }));
+
+    // Find the SE handle for the bbox: a spans x ∈ [0, 100], y ∈ [0, 50];
+    // b spans x ∈ [200, 280], y ∈ [100, 160]; combined bbox is x ∈ [0, 280], y ∈ [0, 160].
+    // The SE corner is at logical (280, 160).
+    const seHandle = overlay.querySelector<HTMLDivElement>('[data-handle="se"]');
+    expect(seHandle).not.toBeNull();
+    const seLeft = parseFloat(seHandle!.style.left);
+    const seTop = parseFloat(seHandle!.style.top);
+    // Dispatch pointerdown on the handle (with HANDLE_SIZE/2 = 4 px offset from handle centre).
+    const startX = seLeft + 4;
+    const startY = seTop + 4;
+    dispatchMouseDown(canvas, startX, startY);
+    // Drag the SE handle by (40, 30) px.
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: startX + 40, clientY: startY + 30, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: startX + 40, clientY: startY + 30, bubbles: true }));
+
+    // No frames should have been mutated — startResize early-returns on length !== 1.
+    const after = store.read().slides[0].elements.map((e) => ({ id: e.id, frame: e.frame }));
+    expect(after).toEqual(before);
+  });
 });
 
 describe('initialize with readOnly: true', () => {
