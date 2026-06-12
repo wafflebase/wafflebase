@@ -1280,7 +1280,7 @@ describe('z-order and rotate', () => {
         requestLink: () => {},
         undo: () => {},
         redo: () => {},
-        onCursorMove: () => {},
+        onCursorMove: () => () => {},
       };
     }
     return mount;

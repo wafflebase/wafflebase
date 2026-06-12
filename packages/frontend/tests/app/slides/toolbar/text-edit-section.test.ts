@@ -39,7 +39,8 @@ function makeTextBoxEditor(): SlidesTextBoxEditor {
     requestLink: () => {},
     undo: () => {},
     redo: () => {},
-    onCursorMove: () => {},
+    onCursorMove: () => () => {},
+    getRangeStyleSummary: () => ({}),
   } as unknown as SlidesTextBoxEditor;
 }
 

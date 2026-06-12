@@ -233,7 +233,26 @@ export interface SlidesTextBoxEditor {
   requestLink(): void;
   undo(): void;
   redo(): void;
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
+  /**
+   * Register a cursor-move listener. Returns an unsubscribe function.
+   *
+   * Multi-listener at the slides wrapper layer (the underlying docs
+   * `TextBoxEditorAPI.onCursorMove` is single-callback). Slides
+   * editor.ts uses this for cell-boundary navigation; the slides
+   * toolbar uses it to refresh inline-style controls. A single-callback
+   * delegate would clobber whichever consumer registered second.
+   */
+  onCursorMove(
+    cb: (
+      pos: { blockId: string; offset: number },
+      selection?:
+        | {
+            anchor: { blockId: string; offset: number };
+            focus: { blockId: string; offset: number };
+          }
+        | null,
+    ) => void,
+  ): () => void;
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
@@ -310,6 +329,28 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   // a long-lived edit session (e.g. focus toggling during a toolbar
   // click) doesn't re-inject the same character.
   let initialTextPending = initialText !== undefined && initialText !== '';
+
+  // Multi-listener cursor-move fan-out. The underlying docs
+  // `TextBoxEditorAPI.onCursorMove` is single-callback (overwrites the
+  // slot), but multiple consumers register here (editor.ts cell-boundary
+  // navigation, the slides toolbar's inline-style refresh). We re-install
+  // the docs-level callback on every add so any external code that
+  // clobbers the docs slot is silently corrected on the next subscribe.
+  type CursorMoveListener = Parameters<SlidesTextBoxEditor['onCursorMove']>[0];
+  const cursorMoveListeners = new Set<CursorMoveListener>();
+  const dispatchCursorMove: CursorMoveListener = (pos, selection) => {
+    // Snapshot listeners so a listener calling its own unsubscribe (or
+    // registering a new one) during dispatch can't loop or skip peers.
+    for (const listener of [...cursorMoveListeners]) {
+      try {
+        listener(pos, selection);
+      } catch (err) {
+        // One bad listener shouldn't DoS the others. Logged rather than
+        // swallowed so regressions surface in dev.
+        console.error('[SlidesTextBoxEditor] cursorMove listener threw', err);
+      }
+    }
+  };
 
   const handleCommit = (next: Block[]): void => {
     if (committedAlready) return;
@@ -407,6 +448,28 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     verticalAnchor,
   });
 
+  // The slides toolbar deliberately omits the Strikethrough toggle (see
+  // packages/frontend/src/app/slides/toolbar/text-edit-section.tsx and
+  // docs/design/slides/slides-toolbar-redesign.md). The underlying docs
+  // text-editor still binds Cmd/Ctrl+Shift+X to a strike toggle, which
+  // would apply the style with no UI to read or clear it. Swallow the
+  // shortcut at the capture phase before docs sees it. Matches the
+  // Escape-handler pattern used inside `initializeTextBox`.
+  const textareaEl = container.querySelector(
+    'textarea',
+  ) as HTMLTextAreaElement | null;
+  const swallowStrikeShortcut = (e: KeyboardEvent): void => {
+    if (!(e.key === 'x' || e.key === 'X')) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  if (textareaEl) {
+    textareaEl.addEventListener('keydown', swallowStrikeShortcut, true);
+  }
+
   return {
     isEditing(): boolean {
       return mounted;
@@ -502,8 +565,15 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     redo(): void {
       api.redo();
     },
-    onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void {
-      api.onCursorMove(cb);
+    onCursorMove(cb): () => void {
+      cursorMoveListeners.add(cb);
+      // Re-install on every add (idempotent at the docs side — just
+      // overwrites the single-slot callback). Cheap and protects against
+      // any external code that calls api.onCursorMove between subscribes.
+      api.onCursorMove(dispatchCursorMove);
+      return () => {
+        cursorMoveListeners.delete(cb);
+      };
     },
   };
 }

@@ -47,7 +47,7 @@ function makeCapturingMount(captured: { frame?: Frame }) {
       requestLink: () => {},
       undo: () => {},
       redo: () => {},
-      onCursorMove: () => {},
+      onCursorMove: () => () => {},
     };
   };
 }
