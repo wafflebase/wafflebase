@@ -82,6 +82,10 @@ const scenarioIds = [
   "shapes-adjustments-p3b-basics",
   "shapes-adjustments-p3b-arrows",
   "shapes-action-buttons",
+  "slides-multi-resize-basic",
+  "slides-multi-resize-with-rotated-child",
+  "slides-resize-ghost-mid-drag",
+  "slides-multi-resize-ghost-mid-drag",
 ];
 
 const visualTargets = [
