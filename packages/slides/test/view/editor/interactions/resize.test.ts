@@ -189,6 +189,30 @@ describe('resizeMultiFrames', () => {
     expect(a.h).toBeCloseTo(100);
   });
 
+  it('preserves flipH / flipV on mirrored children', () => {
+    const snapshots: ElementSnapshot[] = [
+      {
+        kind: 'frame',
+        id: 'a',
+        worldFrame: {
+          x: 0, y: 0, w: 100, h: 50,
+          rotation: Math.PI / 4,
+          flipH: true,
+          flipV: false,
+        },
+      },
+    ];
+    const startBbox = { x: 0, y: 0, w: 100, h: 50, rotation: 0 };
+    const result = resizeMultiFrames(
+      { scope: [], startBbox, snapshots },
+      'se', 100, 50, false,
+    );
+    const a = result.frames.get('a')!;
+    expect(a.flipH).toBe(true);
+    expect(a.flipV).toBe(false);
+    expect(a.rotation).toBeCloseTo(Math.PI / 4);
+  });
+
   it('connector free endpoints scale; attached endpoints are unchanged', () => {
     const snapshots: ElementSnapshot[] = [
       {

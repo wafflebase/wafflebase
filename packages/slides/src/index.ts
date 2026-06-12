@@ -137,7 +137,7 @@ export type { SlidesStore } from './store/store';
 export { MemSlidesStore } from './store/memory';
 
 // View — Canvas renderers (Phase 2)
-export { SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';
+export { GHOST_ALPHA, SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';
 export { drawElement } from './view/canvas/element-renderer';
 export { drawShape } from './view/canvas/shape-renderer';
 export { drawText } from './view/canvas/text-renderer';

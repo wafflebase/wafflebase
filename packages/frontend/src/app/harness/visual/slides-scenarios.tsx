@@ -3,6 +3,7 @@ import {
   BUILT_IN_LAYOUTS,
   BUILT_IN_THEMES,
   DEFAULT_MASTER,
+  GHOST_ALPHA,
   MemSlidesStore,
   SlideRenderer,
   defaultLight,
@@ -1171,9 +1172,6 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
 //                  w: w*sx, h: h*sy, rotation }
 // ---------------------------------------------------------------------------
 
-/** GHOST_ALPHA matches the constant in slide-renderer.ts (0.4). */
-const GHOST_ALPHA_VALUE = 0.4;
-
 /**
  * Canvas component that calls SlideRenderer.forceRender so we can supply
  * an optional ghosts array on top of the committed slide elements.
@@ -1385,7 +1383,7 @@ function SlideCanvasResizeGhost() {
   );
   // Use a data-attribute to expose the ghost-alpha value for test readers.
   return (
-    <div data-ghost-alpha={GHOST_ALPHA_VALUE}>
+    <div data-ghost-alpha={GHOST_ALPHA}>
       <SlideCanvasWithGhost doc={doc} ghostElements={ghostElements} />
     </div>
   );
@@ -1456,7 +1454,7 @@ function SlideCanvasMultiResizeGhost() {
     [],
   );
   return (
-    <div data-ghost-alpha={GHOST_ALPHA_VALUE}>
+    <div data-ghost-alpha={GHOST_ALPHA}>
       <SlideCanvasWithGhost doc={doc} ghostElements={ghostElements} />
     </div>
   );

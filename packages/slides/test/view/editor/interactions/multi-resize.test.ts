@@ -31,8 +31,9 @@ function makeFixture() {
 /**
  * Drag a resize handle by firing pointerdown → pointermove → pointerup.
  * `handle` is a data-handle attribute value (e.g. 'se', 'w').
- * Returns early (no-op) if the handle element is not found, which would
- * cause the assertions to fail and surface the problem explicitly.
+ * Asserts that the handle element exists via `expect(handleEl).not.toBeNull()`;
+ * the test fails loudly if the handle is missing rather than silently
+ * skipping the gesture.
  */
 function dragHandle(
   canvas: HTMLCanvasElement,

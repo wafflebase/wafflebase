@@ -230,6 +230,8 @@ export function resizeMultiFrames(
       w: w2,
       h: h2,
       rotation: snap.worldFrame.rotation,
+      flipH: snap.worldFrame.flipH,
+      flipV: snap.worldFrame.flipV,
     };
     frames.set(snap.id, nextFrame);
 

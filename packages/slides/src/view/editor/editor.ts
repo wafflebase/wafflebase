@@ -5247,8 +5247,9 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!startEl) return;
     // Migrate legacy groups that pre-date the refSize field BEFORE the
     // drag begins, so the live preview also reflects proportional child
-    // scaling (otherwise refSize would still be undefined while paintLive
-    // is running, and only the post-commit render would scale).
+    // scaling (otherwise refSize would still be undefined while
+    // paintGhostPreview is running, and only the post-commit render
+    // would scale).
     if (startEl.type === 'group' && startEl.data.refSize === undefined) {
       const captured = { w: startEl.frame.w, h: startEl.frame.h };
       this.options.store.batch(() => {
@@ -5256,6 +5257,14 @@ class SlidesEditorImpl implements SlidesEditor {
           refSize: captured,
         });
       });
+      // Patch the in-memory snapshot too. The migration batch writes to
+      // the store, but `startEl` was captured before the batch and the
+      // subsequent ghost paint (`paintGhostPreview([ghost], ...)`) builds
+      // the ghost from this in-memory copy. Without this line, the first
+      // frame of the drag preview would still render the children at the
+      // pre-migration scale (= 1 against the new frame dims), which makes
+      // the legacy migration invisible to the user mid-drag.
+      startEl.data.refSize = captured;
     }
     // Resize operates in world space so the handles stay fixed in the
     // positions the user sees. Convert the stored local frame to world
@@ -5332,6 +5341,36 @@ class SlidesEditorImpl implements SlidesEditor {
     scope: readonly string[],
     selectedIds: readonly string[],
   ): void {
+    // Migrate any legacy groups in the selection so refSize is set
+    // before the first ghost paint. Without this, a group whose
+    // refSize is undefined would render with scaleX/scaleY = 1 in the
+    // ghost (since the renderer falls back to `refSize?.w ?? w` and
+    // would equal w/h), making the children look static while the
+    // group's frame stretches.
+    const groupsToMigrate: { id: string; refSize: { w: number; h: number } }[] = [];
+    for (const id of selectedIds) {
+      const el = findElement(startSlide.elements, id);
+      if (el && el.type === 'group' && el.data.refSize === undefined) {
+        groupsToMigrate.push({
+          id,
+          refSize: { w: el.frame.w, h: el.frame.h },
+        });
+      }
+    }
+    if (groupsToMigrate.length > 0) {
+      this.options.store.batch(() => {
+        for (const { id, refSize } of groupsToMigrate) {
+          this.options.store.updateElementData(startSlide.id, id, { refSize });
+        }
+      });
+      // Patch the in-memory copies so the ghost snapshots below pick up
+      // the migrated refSize for the first frame of the live preview.
+      for (const { id, refSize } of groupsToMigrate) {
+        const el = findElement(startSlide.elements, id);
+        if (el && el.type === 'group') el.data.refSize = refSize;
+      }
+    }
+
     // Build immutable snapshots in world space. Group `worldFrame`
     // uses worldTightFrame so the bbox matches the overlay handles.
     const snapshots: ElementSnapshot[] = [];
@@ -5424,6 +5463,15 @@ class SlidesEditorImpl implements SlidesEditor {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       const { frames, connectorEndpoints } = live.result;
+      // Skip the batch entirely when no `pointermove` produced any frame
+      // updates — click-and-release on a handle would otherwise create an
+      // empty undo step. The initial `live.result` holds empty Maps, so a
+      // genuinely no-op gesture sees `frames.size === 0` here. (Move-drag
+      // takes the same shortcut, see ~line 4406.)
+      if (frames.size === 0 && connectorEndpoints.size === 0) {
+        this.repaintOverlay();
+        return;
+      }
       this.options.store.batch(() => {
         for (const snap of snapshots) {
           const wf = frames.get(snap.id);
