@@ -22,6 +22,8 @@ import {
   type TextElement,
   type Theme,
   BUILT_IN_LAYOUTS,
+  CURVE_BEND_MAX,
+  CURVE_BEND_MIN,
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
   applyGroupTransformMatrix,
@@ -164,7 +166,7 @@ function yorkieToPlain<T>(value: unknown): T {
  * `yorkieToPlain` in one shot, which is correct for every element kind:
  * text/image/shape all have `id` + `type` + `frame` + `data`; connectors
  * have `id` + `type` + `frame` + `routing` + `start` + `end` + `arrowheads`
- * + optional `stroke` + optional `elbowBend`.
+ * + optional `stroke` + optional `elbowBend` / `curveBend`.
  */
 function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
@@ -453,6 +455,7 @@ export class YorkieSlidesStore implements SlidesStore {
         arrowheads: ConnectorElement['arrowheads'];
         stroke?: ConnectorElement['stroke'];
         elbowBend?: number;
+        curveBend?: number;
       };
       return {
         id: el.id,
@@ -468,6 +471,7 @@ export class YorkieSlidesStore implements SlidesStore {
           ? yorkieToPlain<ConnectorElement['stroke']>(c.stroke)
           : undefined,
         elbowBend: c.elbowBend,
+        curveBend: c.curveBend,
       } as ModelElement;
     }
     if (el.type === 'group') {
@@ -1212,13 +1216,16 @@ export class YorkieSlidesStore implements SlidesStore {
       const c = e as unknown as {
         routing: ConnectorRouting;
         elbowBend?: number;
+        curveBend?: number;
         frame: Frame;
       };
       if (c.routing === routing) return;
       c.routing = routing;
-      // Persisted bend is only meaningful for elbow routing; drop it on
-      // the way out so a future return to elbow starts from the default.
+      // Persisted bend is only meaningful for its own routing kind;
+      // drop the stored value on the way out so a future return to
+      // that routing starts from the default.
       if (routing !== 'elbow') delete c.elbowBend;
+      if (routing !== 'curved') delete c.curveBend;
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
     });
@@ -1239,12 +1246,54 @@ export class YorkieSlidesStore implements SlidesStore {
       if (e.type !== 'connector') {
         throw new Error(`Element ${elementId} is not a connector`);
       }
-      const c = e as unknown as { elbowBend?: number; frame: Frame };
-      if (bend === undefined) {
+      const c = e as unknown as {
+        routing: ConnectorRouting;
+        elbowBend?: number;
+        frame: Frame;
+      };
+      // Race-safety in collaborative sessions: a routing-change away
+      // from elbow during the drag already cleared elbowBend via
+      // `updateConnectorRouting`; silently drop this late write so the
+      // last-write-wins routing change is preserved.
+      if (c.routing !== 'elbow') return;
+      if (bend === undefined || !Number.isFinite(bend)) {
         delete c.elbowBend;
       } else {
         // Round to 0.01 to keep the CRDT payload tidy under drag updates.
         c.elbowBend = Math.round(bend * 100) / 100;
+      }
+      const plain = unwrapElement(e) as unknown as ConnectorElement;
+      c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));
+    });
+  }
+
+  updateConnectorCurveBend(
+    slideId: string,
+    elementId: string,
+    bend: number | undefined,
+  ): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
+      if (!path) throw new Error(`Element not found: ${elementId}`);
+      const e = path[path.length - 1];
+      if (e.type !== 'connector') {
+        throw new Error(`Element ${elementId} is not a connector`);
+      }
+      const c = e as unknown as {
+        routing: ConnectorRouting;
+        curveBend?: number;
+        frame: Frame;
+      };
+      // Same race-safety as updateConnectorElbowBend.
+      if (c.routing !== 'curved') return;
+      if (bend === undefined || !Number.isFinite(bend)) {
+        delete c.curveBend;
+      } else {
+        const rounded = Math.round(bend * 100) / 100;
+        c.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
       }
       const plain = unwrapElement(e) as unknown as ConnectorElement;
       c.frame = computeConnectorFrame(plain, this.slideElementsLookup(s));

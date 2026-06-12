@@ -792,6 +792,7 @@ describe('MemSlidesStore — connector methods', () => {
 
   it('updateConnectorElbowBend rounds to 0.01 and clears on undefined', () => {
     const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'elbow'));
     store.batch(() => store.updateConnectorElbowBend(slideId, connectorId, 0.123456));
     let c = store.read().slides
       .find((s) => s.id === slideId)!.elements
@@ -802,6 +803,61 @@ describe('MemSlidesStore — connector methods', () => {
       .find((s) => s.id === slideId)!.elements
       .find((e) => e.id === connectorId);
     if (c?.type === 'connector') expect(c.elbowBend).toBeUndefined();
+  });
+
+  it('updateConnectorElbowBend silently no-ops when routing is not elbow', () => {
+    // Race-safety: in a collaborative session a routing-change away
+    // from elbow may have already cleared elbowBend before our drag's
+    // mouseup commit lands. The store drops the late write so the
+    // last-write-wins routing change is preserved.
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorElbowBend(slideId, connectorId, 0.4));
+    const c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.elbowBend).toBeUndefined();
+  });
+
+  it('updateConnectorCurveBend silently no-ops when routing is not curved', () => {
+    // Symmetric with the elbow race-safety case.
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorCurveBend(slideId, connectorId, 1.5));
+    const c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.curveBend).toBeUndefined();
+  });
+
+  it('updateConnectorRouting clears curveBend when leaving curved routing', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'curved'));
+    store.batch(() => store.updateConnectorCurveBend(slideId, connectorId, 1.5));
+    let c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.curveBend).toBe(1.5);
+
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'straight'));
+    c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.curveBend).toBeUndefined();
+  });
+
+  it('updateConnectorCurveBend rounds and clears via undefined', () => {
+    const { store, slideId, connectorId } = setup();
+    store.batch(() => store.updateConnectorRouting(slideId, connectorId, 'curved'));
+    store.batch(() => store.updateConnectorCurveBend(slideId, connectorId, 1.234));
+    let c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.curveBend).toBe(1.23);
+
+    store.batch(() => store.updateConnectorCurveBend(slideId, connectorId, undefined));
+    c = store.read().slides
+      .find((s) => s.id === slideId)!.elements
+      .find((e) => e.id === connectorId);
+    if (c?.type === 'connector') expect(c.curveBend).toBeUndefined();
   });
 });
 

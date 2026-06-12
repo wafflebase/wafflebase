@@ -108,6 +108,11 @@ export {
   computeConnectorFrame,
   resolveEndpoint,
 } from './view/canvas/connector-frame';
+export {
+  CURVE_BEND_DEFAULT,
+  CURVE_BEND_MAX,
+  CURVE_BEND_MIN,
+} from './view/canvas/routing';
 
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';

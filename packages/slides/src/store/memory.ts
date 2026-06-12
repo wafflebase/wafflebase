@@ -33,6 +33,7 @@ import {
   computeConnectorFrame,
   resolveEndpoint,
 } from '../view/canvas/connector-frame';
+import { CURVE_BEND_MAX, CURVE_BEND_MIN } from '../view/canvas/routing';
 import {
   IDENTITY_GROUP_TRANSFORM,
   applyGroupTransform,
@@ -570,9 +571,11 @@ export class MemSlidesStore implements SlidesStore {
     }
     if (e.routing === routing) return;
     e.routing = routing;
-    // A persisted bend is only meaningful for elbow routing; drop it on
-    // the way out so a future return to elbow starts from the default.
+    // A persisted bend is only meaningful for its own routing kind;
+    // drop the stored value on the way out so a future return to that
+    // routing starts from the default.
     if (routing !== 'elbow') delete e.elbowBend;
+    if (routing !== 'curved') delete e.curveBend;
     e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
   }
 
@@ -585,11 +588,38 @@ export class MemSlidesStore implements SlidesStore {
     if (e.type !== 'connector') {
       throw new Error(`Element ${elementId} is not a connector`);
     }
-    if (bend === undefined) {
+    // Race-safety in collaborative sessions: if routing changed away
+    // from elbow between drag-start and commit, the elbowBend field
+    // was already cleared by `updateConnectorRouting` — silently drop
+    // this late write so last-write-wins on routing is preserved.
+    if (e.routing !== 'elbow') return;
+    if (bend === undefined || !Number.isFinite(bend)) {
       delete e.elbowBend;
     } else {
       // Round to 0.01 so the CRDT payload stays tidy under drag updates.
       e.elbowBend = Math.round(bend * 100) / 100;
+    }
+    e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
+  }
+
+  updateConnectorCurveBend(
+    slideId: string, elementId: string, bend: number | undefined,
+  ): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const e = this.requireElement(slide, elementId);
+    if (e.type !== 'connector') {
+      throw new Error(`Element ${elementId} is not a connector`);
+    }
+    // Same race-safety as updateConnectorElbowBend: a routing change
+    // mid-drag already cleared the field; silently drop the late commit.
+    if (e.routing !== 'curved') return;
+    if (bend === undefined || !Number.isFinite(bend)) {
+      delete e.curveBend;
+    } else {
+      // Round to 0.01 so the CRDT payload stays tidy under drag updates.
+      const rounded = Math.round(bend * 100) / 100;
+      e.curveBend = Math.min(CURVE_BEND_MAX, Math.max(CURVE_BEND_MIN, rounded));
     }
     e.frame = computeConnectorFrame(e, this.elementsLookup(slideId));
   }

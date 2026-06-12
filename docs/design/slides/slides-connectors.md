@@ -93,6 +93,7 @@ export type ConnectorElement = ElementBase & {
   arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
   stroke?: ShapeStroke;
   elbowBend?: number;  // [0, 1]; only present when user manually adjusted
+  curveBend?: number;  // [0.1, 3]; only present when user manually adjusted
 };
 ```
 
@@ -330,6 +331,14 @@ longest non-endpoint segment. Dragging updates `elbowBend` in [0, 1]
 along the perpendicular-to-exit axis. The drag rounds to the nearest
 0.01 to keep CRDT payload tidy.
 
+**Curved handle**: single yellow-diamond handle at the bezier midpoint
+(t=0.5). Dragging perpendicular to the chord updates `curveBend`, a
+scalar multiplier on the auto control-point distance. Default 1,
+stored only when the user has dragged the handle, clamped to [0.1, 3]
+so an extreme value cannot blow the curve into a self-intersecting
+loop. Routing change away from `'curved'` clears the field in both
+`MemSlidesStore` and `YorkieSlidesStore`, matching the elbow cleanup.
+
 **Insertion flow** (single tool, four variants from toolbar):
 
 1. User clicks `Line` / `Arrow` / `Elbow connector` / `Curved
@@ -492,10 +501,13 @@ Three PRs sized for independent review and verification:
   excluded — 3-site OOXML cxnLst doesn't match the importer's 4-site
   rect remap; needs a per-shape ooxml→waffle index table first.
 
-> Status (2026-06-01): see `docs/tasks/active/20260601-slides-
-> connector-elbow-curved-routing-todo.md`. The yellow-diamond bend
-> drag interaction (overlay + handler) is the only meaningful PR2
-> item still TODO; data/store/routing already support it.
+> Status (2026-06-12): elbow yellow-diamond bend handle shipped for
+> the Z (parallel-opposite-facing) topology. L / U / C topologies
+> currently expose no routing parameter to drive — bend handle is
+> suppressed there. Curved-routing bend handle shipped in parallel
+> with a `curveBend` field on `ConnectorElement` that scales the
+> control-point distance symmetrically (default 1, clamped [0.1, 3]).
+> Tracking: `docs/tasks/active/20260612-slides-connector-bend-handles-todo.md`.
 
 **PR3 — Polish + Coverage** (`feat/slides-connectors-polish`)
 - Per-`ShapeKind` overrides for the remaining shapes (callouts, block

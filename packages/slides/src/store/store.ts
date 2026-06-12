@@ -159,8 +159,9 @@ export interface SlidesStore {
   /**
    * Switch the routing topology of an existing connector (straight /
    * elbow / curved). Clears any persisted `elbowBend` on the way out of
-   * elbow routing so a future return to elbow starts from the default
-   * mid-cross position.
+   * elbow routing, and any persisted `curveBend` on the way out of
+   * curved routing, so a future return to that topology starts from
+   * its default cross-leg / control-distance.
    */
   updateConnectorRouting(
     slideId: string,
@@ -173,6 +174,19 @@ export interface SlidesStore {
    * to clear it and fall back to the default cross-leg position.
    */
   updateConnectorElbowBend(
+    slideId: string,
+    elementId: string,
+    bend: number | undefined,
+  ): void;
+
+  /**
+   * Persist a user-dragged curve bend factor on a curved-routed
+   * connector. Pass `undefined` to clear it and fall back to the
+   * default 1 (auto-routed control-point distance). Implementations
+   * must clamp to `[CURVE_BEND_MIN, CURVE_BEND_MAX]` and round to keep
+   * the CRDT payload tidy.
+   */
+  updateConnectorCurveBend(
     slideId: string,
     elementId: string,
     bend: number | undefined,
