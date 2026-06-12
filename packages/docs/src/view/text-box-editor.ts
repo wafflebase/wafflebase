@@ -590,6 +590,24 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     }
   };
 
+  // Fire the cursor-move callback after a style mutation. The caret and
+  // selection didn't move, but the styles under them did — toolbar pickers
+  // (font size, bold, list state, …) drive off `onCursorMove` to refresh
+  // from `getRangeStyleSummary` / `getBlockStyle`. Without this, the next
+  // `renderNow` dedupes against `lastCursorMoveKey` (which only encodes
+  // cursor + selection) and skips the dispatch — leaving the picker stuck
+  // on the pre-mutation value. Mirrors `notifyStyleApplied` in the full
+  // docs editor (`view/editor.ts`).
+  const notifyStyleApplied = (): void => {
+    if (!cursorMoveCallback) return;
+    const selRange = selection.hasSelection() && selection.range
+      ? { anchor: selection.range.anchor, focus: selection.range.focus }
+      : null;
+    // Sync the dedupe key so the imminent renderNow doesn't double-fire.
+    lastCursorMoveKey = JSON.stringify({ cur: cursor.position, sel: selRange });
+    cursorMoveCallback(cursor.position, selRange);
+  };
+
   // TextEditor wiring. The editor is positionally identical to the one
   // `initialize` constructs, except every page-aware getter is replaced
   // with a shim:
@@ -767,6 +785,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       layoutCache = undefined;
     }
     requestRender();
+    notifyStyleApplied();
   };
 
   const api: TextBoxEditorAPI = {
@@ -971,6 +990,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       });
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number } {
@@ -998,6 +1018,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       doc.setBlockType(cursor.position.blockId, type, opts);
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     toggleList(kind: 'ordered' | 'unordered'): void {
@@ -1014,6 +1035,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       });
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     indent(): void {
@@ -1036,6 +1058,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       });
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     outdent(): void {
@@ -1059,6 +1082,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       });
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     insertLink(url: string): void {
@@ -1068,6 +1092,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         doc.applyInlineStyle(range, { href: url });
         layoutCache = undefined;
         requestRender();
+        notifyStyleApplied();
       } else {
         docStore.snapshot();
         const pos = cursor.position;
@@ -1080,6 +1105,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
         layoutCache = undefined;
         requestRender();
+        notifyStyleApplied();
       }
     },
 
@@ -1110,6 +1136,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       doc.applyInlineStyle(range, { href: undefined });
       layoutCache = undefined;
       requestRender();
+      notifyStyleApplied();
     },
 
     getLinkAtCursor(): string | undefined {
