@@ -392,6 +392,7 @@ describe('TextBoxEditorAPI — formatting surface', () => {
     api.detach();
   });
 
+
   it('onLinkRequest fires when requestLink is called', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -721,5 +722,56 @@ describe('initializeTextBox — verticalAnchor', () => {
       });
       api.detach();
     }).not.toThrow();
+  });
+
+  /**
+   * Regression test for the slides FontSizePicker bug.
+   *
+   * Toolbar pickers (FontSizePicker, format toggles) refresh their
+   * value off `onCursorMove`. A style apply doesn't move the caret or
+   * selection, so `renderNow`'s dedupe key stayed the same and the
+   * callback never fired. The picker's `value` then stayed pinned to
+   * the pre-mutation size; the second + click re-issued the same size
+   * and the user saw no further growth.
+   *
+   * After the fix, every style-mutating path also calls
+   * `notifyStyleApplied()` so subscribers see each apply. Reuses this
+   * describe's canvas shim (real-ish ctx + measureText stub) because
+   * the regression requires non-empty content to acquire a real
+   * selection range.
+   */
+  it('fires onCursorMove after applyStyle so toolbar pickers refresh (regression: slides font-size +)', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [makeBlock('hello')],
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+    const cb = vi.fn();
+    api.onCursorMove(cb);
+    // Cmd/Ctrl+A on the textarea selects all so applyStyle has a real range.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        metaKey: true,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await new Promise<void>((r) => queueMicrotask(r));
+    const before = cb.mock.calls.length;
+    api.applyStyle({ fontSize: 12 });
+    expect(cb.mock.calls.length).toBeGreaterThan(before);
+    api.detach();
   });
 });
