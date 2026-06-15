@@ -64,3 +64,17 @@ editor). Exported `maskEditingElement` and added
 `mask-editing-element.test.ts` (6 tests; verified red against the old
 drop-entirely behavior, green after). Full slides suite (1785) +
 `verify:fast` green.
+
+### Follow-up: background lagged behind live auto-grow
+
+When an auto-grow text box grew during editing, the fill/border stayed at
+the enter-time height. Root cause: `onContentHeightChange` only stored
+`lastEditingContentHeight` (read at commit); the underlay was never
+repainted, and `maskEditingElement` used the stored `frame.h`.
+
+Fix: track `editingGrowApplicable` (text element, no transformed
+ancestor — same gate as the commit fit), repaint the underlay from
+`onContentHeightChange`, and have `maskEditingElement` override the
+masked element's `frame.h` with the live height (floored at
+`MIN_TEXT_BOX_H`). Added 3 live-height tests. Full slides suite (1788) +
+`verify:fast` green.

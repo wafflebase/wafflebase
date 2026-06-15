@@ -65,6 +65,22 @@ describe('maskEditingElement — text element', () => {
     expect(out).toHaveLength(2);
     expect((out[1] as TextElement).data.blocks).toHaveLength(1);
   });
+
+  it('grows the frame height to the live editor height while editing', () => {
+    // Box starts at h=100; the live editor reports 180 as content grows.
+    const out = maskEditingElement([textEl()], 't1', null, 180);
+    expect((out[0] as TextElement).frame.h).toBe(180);
+  });
+
+  it('floors the live height at the minimum text-box height', () => {
+    const out = maskEditingElement([textEl()], 't1', null, 5);
+    expect((out[0] as TextElement).frame.h).toBe(24);
+  });
+
+  it('keeps the stored height when no live height is supplied', () => {
+    const out = maskEditingElement([textEl()], 't1', null);
+    expect((out[0] as TextElement).frame.h).toBe(100);
+  });
 });
 
 describe('maskEditingElement — shape element (regression)', () => {
