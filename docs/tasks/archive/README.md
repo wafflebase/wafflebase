@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 272
+Total archived tasks: 273
 
-## 2026/06 (27 tasks)
+## 2026/06 (28 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | multi select resize (2026-06-12) | [20260612-multi-select-resize-todo.md](./2026/06/20260612-multi-select-resize-todo.md) | [20260612-multi-select-resize-lessons.md](./2026/06/20260612-multi-select-resize-lessons.md) |
+| release v0.4.5 (2026-06-12) | [20260612-release-v0.4.5-todo.md](./2026/06/20260612-release-v0.4.5-todo.md) | - |
 | slides connector bend handles (2026-06-12) | [20260612-slides-connector-bend-handles-todo.md](./2026/06/20260612-slides-connector-bend-handles-todo.md) | - |
 | slides group resize bake (2026-06-12) | [20260612-slides-group-resize-bake-todo.md](./2026/06/20260612-slides-group-resize-bake-todo.md) | - |
 | slides grouped connector render (2026-06-12) | [20260612-slides-grouped-connector-render-todo.md](./2026/06/20260612-slides-grouped-connector-render-todo.md) | - |
