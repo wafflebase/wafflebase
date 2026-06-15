@@ -19,6 +19,7 @@ import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
 import { resolveColor, resolveFont } from '../../model/theme';
 import type { FrameSize } from './shapes/builder';
+import { dashArray, resolveStrokeColor } from './render-context';
 
 /**
  * Module-scope measurer reused across every text-element render. Owning
@@ -98,6 +99,12 @@ export function drawText(
     fontScale?: number;
   },
 ): void {
+  // Box decorations (background fill + border) paint first and
+  // unconditionally — a bordered text box with no text must still show
+  // its border. Mirrors how `drawShape` paints `data.fill`/`data.stroke`
+  // for shapes; without this the toolbar's border/fill pickers write to
+  // the model but nothing renders.
+  paintTextBoxDecorations(ctx, size, data, theme);
   // "All inlines empty" mirrors `isElementEmpty` for text elements:
   // a placeholder seeded by `buildInsertElement` typically has one
   // block with one inline whose `text === ''`, so the cheaper-to-detect
@@ -119,6 +126,34 @@ export function drawText(
     return;
   }
   paintTextBody(ctx, size, data, theme, { fontScale: options?.fontScale });
+}
+
+/**
+ * Paint a text element's box-level background fill and border into
+ * element-local coordinates (top-left at 0,0). Mirrors the fill/stroke
+ * branch of `drawShape` so a text box decorated via the toolbar's
+ * background / border pickers renders identically to a shape. No-op when
+ * the box carries neither a fill nor a stroke.
+ */
+function paintTextBoxDecorations(
+  ctx: CanvasRenderingContext2D,
+  { w, h }: FrameSize,
+  data: TextElement['data'],
+  theme: Theme,
+): void {
+  if (data.fill) {
+    ctx.fillStyle = resolveColor(data.fill, theme);
+    ctx.fillRect(0, 0, w, h);
+  }
+  if (data.stroke) {
+    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
+    ctx.lineWidth = data.stroke.width;
+    ctx.setLineDash(dashArray(data.stroke.dash));
+    ctx.strokeRect(0, 0, w, h);
+    // Reset so the dash pattern does not leak into anything painted
+    // afterward under the same ctx save scope.
+    ctx.setLineDash([]);
+  }
 }
 
 /**

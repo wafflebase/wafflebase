@@ -6,26 +6,22 @@ import type {
   Stroke,
   Theme,
   ThemeColor,
-  ThemeFont,
 } from '@wafflebase/slides';
-import { resolveColor, resolveFont } from '@wafflebase/slides';
+import { resolveColor } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ToolbarSeparator } from '@/components/ui/toolbar';
 import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
-import { ThemedFontPicker } from '../themed-font-picker';
 import { BorderPicker } from './border-picker';
 import {
   releaseFocusToBody,
   useMenuCloseHandlers,
 } from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
-import { FontSizePicker } from '@/components/text-formatting';
 
 export interface TextElementControlsProps {
   editor: SlidesEditor | null;
@@ -41,11 +37,12 @@ export interface TextElementControlsProps {
  * not double-click to enter text edit). Applies to the whole box:
  *   - Background fill
  *   - Border (color / weight / dash)
- *   - Font family — writes fontFamily across all inlines in all blocks
- *   - Font size — writes fontSize across all inlines in all blocks
  *
- * Per-run text editing (bold, italic, etc.) happens in the text-editing
- * toolbar state, after double-click enters the box.
+ * Matches the shape toolbar (ShapeControls), which also shows only
+ * fill + border for the object-level selection. Font family / size and
+ * per-run text editing (bold, italic, etc.) happen in the text-editing
+ * toolbar state, after double-click enters the box — text boxes and
+ * text-bearing shapes share that path.
  */
 export function TextElementControls({ editor, store, theme, ids }: TextElementControlsProps) {
   const slideId = editor?.getCurrentSlideId();
@@ -96,50 +93,6 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
     [store, slideId, slide, ids],
   );
 
-  const onFontFamily = useCallback(
-    (font: ThemeFont) => {
-      if (!store || !slideId || !theme) return;
-      const family = resolveFont(font, theme);
-      store.batch(() => {
-        for (const id of ids) {
-          store.withTextElement(slideId, id, (blocks) =>
-            blocks.map((b) => ({
-              ...b,
-              inlines: b.inlines.map((run) => ({
-                ...run,
-                style: { ...run.style, fontFamily: family },
-              })),
-            })),
-          );
-        }
-      });
-    },
-    [store, slideId, theme, ids],
-  );
-
-  const onFontSize = useCallback(
-    (size: number) => {
-      if (!store || !slideId) return;
-      store.batch(() => {
-        for (const id of ids) {
-          store.withTextElement(slideId, id, (blocks) =>
-            blocks.map((b) => ({
-              ...b,
-              inlines: b.inlines.map((run) => ({
-                ...run,
-                style: { ...run.style, fontSize: size },
-              })),
-            })),
-          );
-        }
-      });
-    },
-    [store, slideId, ids],
-  );
-
-  const buttonClass =
-    'inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50';
-
   const currentTextBoxFill =
     firstElement?.data.fill && theme
       ? resolveColor(firstElement.data.fill, theme)
@@ -155,12 +108,12 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
               <ColorSwatchButton
                 icon={<IconBucketDroplet size={14} />}
                 color={currentTextBoxFill}
-                label="Text box background"
+                label="Fill color"
                 disabled={!store || !theme}
               />
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Text box background</TooltipContent>
+          <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent
           align="start"
@@ -183,52 +136,6 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         onChange={onStrokeChange}
         disabled={!store || !slideId}
       />
-
-      <ToolbarSeparator className="mx-1" />
-
-      {/* Font family — themed font picker */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Font"
-                disabled={!store || !theme}
-                className={buttonClass}
-              >
-                Aa
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Font</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" className="w-auto p-2">
-          {theme && (
-            <ThemedFontPicker value={undefined} theme={theme} onChange={onFontFamily} />
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Font size — input + ± steppers + click-to-open preset list */}
-      <FontSizePicker
-        value={firstRunFontSize(firstElement)}
-        onChange={(size) => onFontSize(size)}
-        disabled={!store || !slideId}
-      />
     </>
   );
-}
-
-/**
- * Probe the first text run's `fontSize` for the box-level stepper. The
- * box may legitimately have many runs at different sizes; for the
- * stepper baseline we follow the same rule the existing Font picker
- * does (first run wins) so the up / down steps feel like extensions of
- * the dropdown selection. Returns `undefined` if no run is present;
- * the stepper then falls back to its default of 11pt.
- */
-function firstRunFontSize(el: TextElement | undefined): number | undefined {
-  const firstRun = el?.data.blocks?.[0]?.inlines?.[0];
-  return firstRun?.style?.fontSize;
 }

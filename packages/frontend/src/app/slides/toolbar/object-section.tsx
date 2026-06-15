@@ -24,7 +24,7 @@ export interface ObjectSectionProps {
  * Routes on `state.selectionType`:
  * - `shape` / `connector` → ShapeControls (Fill + Border)
  * - `image` → ImageControls (Replace / Crop placeholder / Reset crop / Alt)
- * - `text-element` → TextElementControls (Background fill + Border + Font family + Font size)
+ * - `text-element` → TextElementControls (Background fill + Border)
  * - `mixed` → contextual format zone left empty
  *
  * Arrange menu always appears at the end regardless of selection type.

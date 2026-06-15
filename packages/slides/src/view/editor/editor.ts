@@ -693,6 +693,14 @@ class SlidesEditorImpl implements SlidesEditor {
    * editor has not reported yet. Read at commit to fit the frame height.
    */
   private lastEditingContentHeight: number | null = null;
+  /**
+   * True while editing an auto-grow text element whose frame height may
+   * be driven live by `lastEditingContentHeight`. Set at enter-edit
+   * (text element, no transformed ancestor) and reset on exit. Gates the
+   * underlay re-render so the box fill/border grows in lockstep with the
+   * live editor; matches the grow condition the commit path applies.
+   */
+  private editingGrowApplicable = false;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -1141,6 +1149,7 @@ class SlidesEditorImpl implements SlidesEditor {
           slide.elements,
           editingId,
           this.editingCellCoords,
+          this.editingGrowApplicable ? this.lastEditingContentHeight : null,
         ),
       };
       this.renderer.forceRender(visible, doc);
@@ -3109,6 +3118,11 @@ class SlidesEditorImpl implements SlidesEditor {
       worldFrame.h !== localFrame.h ||
       worldFrame.rotation !== localFrame.rotation;
     this.lastEditingContentHeight = null;
+    // Auto-grow only applies to text elements without a transformed
+    // ancestor — the same gate the commit path uses before writing the
+    // grown height back. Drives the live underlay re-render so the box
+    // fill/border tracks the growing editor.
+    this.editingGrowApplicable = target.kind === 'text' && !ancestorHasTransform;
 
     // Make sure the selection is on the editing element so the rest of
     // the editor (toolbar etc.) reflects the active target. Drop any
@@ -3170,7 +3184,15 @@ class SlidesEditorImpl implements SlidesEditor {
       // other entry path (dblclick, F2/Enter, click on empty placeholder).
       initialText: options?.initialText,
       onContentHeightChange: (h: number): void => {
+        const changed = this.lastEditingContentHeight !== h;
         this.lastEditingContentHeight = h;
+        // Repaint the underlay so the box fill/border grows in lockstep
+        // with the live editor height. Without this the decoration stays
+        // at the enter-time height until commit. Gated to grow-eligible
+        // text edits so shape/cell/fixed boxes never repaint here.
+        if (changed && this.editingGrowApplicable) {
+          this.render();
+        }
       },
       onCommit: (next) => {
         // Persist via the kind-appropriate bridge and exit edit mode.
@@ -3637,6 +3659,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.editingElementId = null;
     this.editingCellCoords = null;
     this.lastEditingContentHeight = null;
+    this.editingGrowApplicable = false;
     this.activeTextEditor = null;
     for (const cb of this.textEditingListeners) cb();
     if (tb !== null) {
@@ -5678,7 +5701,9 @@ function replaceShapeAdjustments(
 
 /**
  * Rebuild a slide's element tree with the in-edit element masked: a
- * text element is dropped entirely, a shape element keeps its
+ * text element keeps its box decorations (fill + border) but has its
+ * text body cleared (and `placeholderRef` dropped so the ghost hint
+ * doesn't show behind the active editor), a shape element keeps its
  * fill/stroke but has `data.text` stripped so the renderer doesn't
  * paint the body that the in-place text-box editor now owns. For a
  * table being edited at the cell level, only the targeted cell's
@@ -5686,11 +5711,16 @@ function replaceShapeAdjustments(
  * other cells' content) keeps painting. Groups are walked recursively
  * so the mask applies regardless of nesting depth. Shallow clones
  * only; block arrays are aliased.
+ *
+ * `liveHeight` (when non-null) overrides the edited text element's frame
+ * height so the box fill/border tracks an auto-growing editor live;
+ * callers pass it only for grow-eligible text edits.
  */
-function maskEditingElement(
+export function maskEditingElement(
   elements: readonly Element[],
   editingId: string,
   cellCoords: { row: number; col: number } | null,
+  liveHeight: number | null = null,
 ): Element[] {
   const out: Element[] = [];
   for (const el of elements) {
@@ -5700,8 +5730,25 @@ function maskEditingElement(
         out.push({ ...el, data: rest } as typeof el);
       } else if (el.type === 'table' && cellCoords !== null) {
         out.push(maskTableCellBody(el, cellCoords));
+      } else if (el.type === 'text') {
+        // Keep the box fill + border painting under the overlay editor,
+        // but clear the text body so it isn't double-painted (once from
+        // `drawText`, once from the editor's own `paintLayout`). Drop
+        // `placeholderRef` too: with empty blocks the renderer would
+        // otherwise paint the placeholder ghost hint behind the active
+        // editor. Grow the frame to the live editor height when supplied
+        // so the box decoration tracks an auto-growing box.
+        const frame =
+          liveHeight !== null
+            ? { ...el.frame, h: Math.max(MIN_TEXT_BOX_H, liveHeight) }
+            : el.frame;
+        out.push({
+          ...el,
+          frame,
+          placeholderRef: undefined,
+          data: { ...el.data, blocks: [] },
+        });
       }
-      // TextElement → drop entirely; the overlay editor owns it now.
       continue;
     }
     if (el.type === 'group') {
@@ -5709,7 +5756,12 @@ function maskEditingElement(
         ...el,
         data: {
           ...el.data,
-          children: maskEditingElement(el.data.children, editingId, cellCoords),
+          children: maskEditingElement(
+            el.data.children,
+            editingId,
+            cellCoords,
+            liveHeight,
+          ),
         },
       });
       continue;

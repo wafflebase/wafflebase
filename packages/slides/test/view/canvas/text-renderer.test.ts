@@ -166,6 +166,58 @@ describe('drawText', () => {
   });
 });
 
+describe('drawText box decorations (fill + border)', () => {
+  it('strokes the frame rect from data.stroke (color + width)', () => {
+    const ctx = createCtxSpy();
+    const d: TextElement['data'] = {
+      blocks: [paragraph('Hi')],
+      stroke: { color: '#ff0000', width: 3 },
+    };
+    drawText(asCtx(ctx), size, d, THEME);
+    expect(ctx.strokeRect).toHaveBeenCalledWith(0, 0, size.w, size.h);
+    expect(ctx.strokeStyle).toBe('#ff0000');
+    expect(ctx.lineWidth).toBe(3);
+  });
+
+  it('fills the frame rect from data.fill', () => {
+    const ctx = createCtxSpy();
+    const d: TextElement['data'] = {
+      blocks: [paragraph('Hi')],
+      fill: { kind: 'srgb', value: '#00ff00' },
+    };
+    drawText(asCtx(ctx), size, d, THEME);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, size.w, size.h);
+  });
+
+  it('paints the border even when the text body is empty', () => {
+    const ctx = createCtxSpy();
+    // A bordered text box with no text must still show its border —
+    // otherwise the user draws a box, sets a border, and sees nothing.
+    const d: TextElement['data'] = {
+      blocks: [paragraph('')],
+      stroke: { color: '#0000ff', width: 2 },
+    };
+    drawText(asCtx(ctx), size, d, THEME);
+    expect(ctx.strokeRect).toHaveBeenCalledWith(0, 0, size.w, size.h);
+  });
+
+  it('does not stroke when no border is set', () => {
+    const ctx = createCtxSpy();
+    drawText(asCtx(ctx), size, data([paragraph('Hi')]), THEME);
+    expect(ctx.strokeRect).not.toHaveBeenCalled();
+  });
+
+  it('applies a dashed line pattern when stroke.dash="dashed"', () => {
+    const ctx = createCtxSpy();
+    const d: TextElement['data'] = {
+      blocks: [paragraph('Hi')],
+      stroke: { color: '#000', width: 1, dash: 'dashed' },
+    };
+    drawText(asCtx(ctx), size, d, THEME);
+    expect(ctx.setLineDash).toHaveBeenCalledWith([6, 4]);
+  });
+});
+
 describe('drawText placeholder hint', () => {
   it('paints the hint when blocks are empty and a hint is supplied', () => {
     const ctx = createCtxSpy();
