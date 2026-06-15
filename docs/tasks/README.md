@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./active/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./active/20260616-slides-cell-edit-shrink-lessons.md) |
+| slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./active/20260615-slides-textbox-border-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
@@ -32,4 +34,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 273
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides tables (2026-06-08)
+Latest active task: slides cell edit shrink (2026-06-16)

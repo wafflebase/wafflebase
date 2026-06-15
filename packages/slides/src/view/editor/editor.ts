@@ -3162,13 +3162,16 @@ class SlidesEditorImpl implements SlidesEditor {
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
       // wrapper gates onContentHeightChange so shrink/none never auto-grow.
       autofit: target.autofit,
-      // Shapes keep the editor canvas at the inner-frame height so the
-      // middle vertical anchor in the editor agrees with the renderer's
-      // middle anchor inside the original frame. Without this the docs
+      // Shapes and table cells keep the editor canvas at the inner-frame
+      // height so the vertical anchor in the editor agrees with the
+      // renderer's anchor inside the original frame. Without this the docs
       // editor would shrink the canvas to text height and anchor at
       // originY=0, producing a visible jump between edit and committed
-      // positions. Text elements keep the default auto-grow behavior.
-      growMode: target.kind === 'shape' ? 'never' : 'auto',
+      // positions — for cells this reads as the box collapsing to the text
+      // height on entry. Cell rows auto-grow only on commit via the
+      // renderer, so the box must stay fixed while editing, just like a
+      // shape. Only text elements keep the default auto-grow behavior.
+      growMode: target.kind === 'text' ? 'auto' : 'never',
       // Mirror the slide canvas offset so in-place editing keeps the
       // caret and text glyphs aligned with the committed render.
       verticalAnchor: target.verticalAnchor,

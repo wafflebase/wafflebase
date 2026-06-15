@@ -76,6 +76,11 @@ function makeFakeCanvasCtx(): unknown {
     ellipse: noop,
     rect: noop,
 
+    // Table borders draw dashed segments; the renderer toggles the dash
+    // pattern around each stroke. jsdom has neither method.
+    setLineDash: noop,
+    getLineDash: (): number[] => [],
+
     fillRect: noop,
     strokeRect: noop,
     clearRect: noop,
