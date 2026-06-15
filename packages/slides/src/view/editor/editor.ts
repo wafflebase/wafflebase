@@ -5678,7 +5678,9 @@ function replaceShapeAdjustments(
 
 /**
  * Rebuild a slide's element tree with the in-edit element masked: a
- * text element is dropped entirely, a shape element keeps its
+ * text element keeps its box decorations (fill + border) but has its
+ * text body cleared (and `placeholderRef` dropped so the ghost hint
+ * doesn't show behind the active editor), a shape element keeps its
  * fill/stroke but has `data.text` stripped so the renderer doesn't
  * paint the body that the in-place text-box editor now owns. For a
  * table being edited at the cell level, only the targeted cell's
@@ -5687,7 +5689,7 @@ function replaceShapeAdjustments(
  * so the mask applies regardless of nesting depth. Shallow clones
  * only; block arrays are aliased.
  */
-function maskEditingElement(
+export function maskEditingElement(
   elements: readonly Element[],
   editingId: string,
   cellCoords: { row: number; col: number } | null,
@@ -5700,8 +5702,19 @@ function maskEditingElement(
         out.push({ ...el, data: rest } as typeof el);
       } else if (el.type === 'table' && cellCoords !== null) {
         out.push(maskTableCellBody(el, cellCoords));
+      } else if (el.type === 'text') {
+        // Keep the box fill + border painting under the overlay editor,
+        // but clear the text body so it isn't double-painted (once from
+        // `drawText`, once from the editor's own `paintLayout`). Drop
+        // `placeholderRef` too: with empty blocks the renderer would
+        // otherwise paint the placeholder ghost hint behind the active
+        // editor.
+        out.push({
+          ...el,
+          placeholderRef: undefined,
+          data: { ...el.data, blocks: [] },
+        });
       }
-      // TextElement → drop entirely; the overlay editor owns it now.
       continue;
     }
     if (el.type === 'group') {

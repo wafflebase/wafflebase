@@ -48,3 +48,19 @@ rotates with the box.
 
 5 new unit tests in `text-renderer.test.ts`; full slides suite
 (1779 passing) and `pnpm verify:fast` green.
+
+### Follow-up: decorations disappeared in text-edit mode
+
+After the render fix, entering text-edit mode made the border/fill vanish
+(shapes were fine). Root cause: `maskEditingElement` (editor.ts) dropped
+the whole TextElement during edit — harmless before, but now it also
+dropped the new fill/border. Shapes only strip `data.text`, keeping
+fill/stroke.
+
+Fix: mask the editing text element like a shape — keep the element, clear
+`data.blocks` (so the body isn't double-painted), and drop
+`placeholderRef` (so the ghost hint doesn't paint behind the active
+editor). Exported `maskEditingElement` and added
+`mask-editing-element.test.ts` (6 tests; verified red against the old
+drop-entirely behavior, green after). Full slides suite (1785) +
+`verify:fast` green.
