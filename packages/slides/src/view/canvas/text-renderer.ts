@@ -11,7 +11,6 @@ import {
 import { computeAutofitScale, scaleBlocks } from '../../model/autofit';
 import {
   isBlocksEmpty,
-  type Stroke,
   type TextBody,
   type TextElement,
   type VerticalAnchorMode,
@@ -20,7 +19,7 @@ import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
 import { resolveColor, resolveFont } from '../../model/theme';
 import type { FrameSize } from './shapes/builder';
-import { resolveStrokeColor } from './render-context';
+import { dashArray, resolveStrokeColor } from './render-context';
 
 /**
  * Module-scope measurer reused across every text-element render. Owning
@@ -149,23 +148,12 @@ function paintTextBoxDecorations(
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
-    ctx.setLineDash(strokeDashPattern(data.stroke.dash));
+    ctx.setLineDash(dashArray(data.stroke.dash));
     ctx.strokeRect(0, 0, w, h);
     // Reset so the dash pattern does not leak into anything painted
     // afterward under the same ctx save scope.
     ctx.setLineDash([]);
   }
-}
-
-/**
- * Map a {@link Stroke} `dash` style to a canvas line-dash array. Matches
- * the table renderer's `dashPattern` so dashed/dotted borders look the
- * same across surfaces. Absent / `'solid'` ⇒ a continuous line.
- */
-function strokeDashPattern(dash: Stroke['dash']): number[] {
-  if (dash === 'dashed') return [6, 4];
-  if (dash === 'dotted') return [2, 2];
-  return [];
 }
 
 /**

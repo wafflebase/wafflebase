@@ -13,6 +13,17 @@ export function resolveStrokeColor(color: Stroke['color'], theme: Theme): string
 }
 
 /**
+ * Map a stroke dash style to a canvas line-dash array. Shared by the
+ * text-box and table renderers so dashed / dotted strokes look identical
+ * across surfaces. Absent / `'solid'` ⇒ a continuous line.
+ */
+export function dashArray(dash: Stroke['dash']): number[] {
+  if (dash === 'dashed') return [6, 4];
+  if (dash === 'dotted') return [2, 2];
+  return [];
+}
+
+/**
  * Render-time context bundle threaded through every canvas painter so
  * each `ctx.fillStyle` / `ctx.strokeStyle` site can resolve a
  * `ThemeColor` against the deck's active theme. Currently a thin pair;

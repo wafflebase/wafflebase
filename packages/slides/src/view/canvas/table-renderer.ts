@@ -6,7 +6,7 @@ import {
   type TableElement,
 } from '../../model/element';
 import type { Theme } from '../../model/theme';
-import { resolveStrokeColor } from './render-context';
+import { dashArray, resolveStrokeColor } from './render-context';
 import type { FrameSize } from './shapes/builder';
 import { measureTextBodyHeight, paintTextBody } from './text-renderer';
 
@@ -261,7 +261,7 @@ function paintCellBorders(
     for (const edge of edges.values()) {
       ctx.strokeStyle = resolveStrokeColor(edge.stroke.color, theme);
       ctx.lineWidth = edge.stroke.width;
-      ctx.setLineDash(dashPattern(edge.stroke.dash));
+      ctx.setLineDash(dashArray(edge.stroke.dash));
       ctx.beginPath();
       if (edge.axis === 'h') {
         ctx.moveTo(edge.a, edge.p);
@@ -341,12 +341,6 @@ function luminance(color: CellBorder['color'], theme: Theme): number {
   const g = parseInt(h.slice(2, 4), 16) / 255;
   const b = parseInt(h.slice(4, 6), 16) / 255;
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function dashPattern(dash: CellBorder['dash']): number[] {
-  if (dash === 'dashed') return [6, 4];
-  if (dash === 'dotted') return [2, 2];
-  return [];
 }
 
 function isCovered(cell: TableCell): boolean {
