@@ -674,15 +674,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
-  if (!doc || !activeTabId) {
-    return <Loader />;
-  }
-
-  const root = doc.getRoot();
-  const tabs: TabMeta[] = root.tabOrder
-    .map((id: string) => root.tabs[id])
-    .filter(Boolean);
-  const activeTab = root.tabs[activeTabId];
+  // Render the chrome (sidebar + header) immediately and show the loader
+  // inside the content area only — matching the docs/slides layouts, where
+  // the spinner is scoped to the content slot rather than the whole route.
+  const ready = Boolean(doc && activeTabId);
+  const root = doc && activeTabId ? doc.getRoot() : null;
+  const tabs: TabMeta[] = root
+    ? root.tabOrder.map((id: string) => root.tabs[id]).filter(Boolean)
+    : [];
+  const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
   return (
     <SidebarProvider>
@@ -742,7 +742,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             <div className="@container/main flex flex-1 flex-col gap-2">
               <div className="flex flex-col h-full">
                 <Suspense fallback={<Loader />}>
-                  {activeTab?.type === "datasource" ? (
+                  {!ready || !activeTabId ? (
+                    <Loader />
+                  ) : activeTab?.type === "datasource" ? (
                     <DataSourceView tabId={activeTabId} />
                   ) : (
                     <SheetView
@@ -757,15 +759,17 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 </Suspense>
               </div>
             </div>
-            <TabBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              onSelectTab={setActiveTabId}
-              onAddTab={handleAddTab}
-              onRenameTab={handleRenameTab}
-              onDeleteTab={handleDeleteTab}
-              onMoveTab={handleMoveTab}
-            />
+            {ready && activeTabId && (
+              <TabBar
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onSelectTab={setActiveTabId}
+                onAddTab={handleAddTab}
+                onRenameTab={handleRenameTab}
+                onDeleteTab={handleDeleteTab}
+                onMoveTab={handleMoveTab}
+              />
+            )}
           </div>
           {commentsPanelOpen && (
             <CommentSidePanel<SheetCellAnchor>
