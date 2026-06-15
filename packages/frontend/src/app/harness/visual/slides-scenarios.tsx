@@ -1577,7 +1577,7 @@ function SlidesToolbarImageScenario() {
 /**
  * Scenario: toolbar with one text element selected (not in text-edit mode).
  * Exercises the ObjectSection/TextElementControls path:
- * Background fill + Border + Font family + Font size + Arrange.
+ * Background fill + Border + Arrange.
  */
 function SlidesToolbarTextElementScenario() {
   const elements = useMemo<Element[]>(
