@@ -155,12 +155,12 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
               <ColorSwatchButton
                 icon={<IconBucketDroplet size={14} />}
                 color={currentTextBoxFill}
-                label="Text box background"
+                label="Fill color"
                 disabled={!store || !theme}
               />
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Text box background</TooltipContent>
+          <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent
           align="start"
