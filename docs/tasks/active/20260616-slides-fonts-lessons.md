@@ -42,6 +42,37 @@ authoritative source is the `google/fonts` repo: the top-level dir
 `license:` field. Build-time generation captures it; runtime API calls
 cannot.
 
+## The exposed surface, not the data, was the real Slides gap
+
+The catalog expansion (P0) added 104 families, but the Slides text-edit
+toolbar had no font-family picker at all — only size/format/paragraph.
+So "rich fonts" was invisible in Slides until the picker was wired in.
+Lesson: when a feature spans data + UI, verify the UI actually exposes
+it on every target surface (desktop + mobile) before calling it done.
+
+## One IntersectionObserver rooted on the scroll container, not per-row
+
+The dialog loads each row's web font on scroll-into-view. A single
+observer (root = scroll container, `data-font-row` attribute → family)
+recreated on `[open, results]` is simpler and cheaper than per-row
+observers, and composes with `content-visibility: auto` (CSS paint
+virtualization) to handle ~1,900 rows without a windowing library.
+
+## Persist-across-open state in an always-mounted dialog
+
+Radix unmounts `DialogContent` on close, but the dialog *component*
+stays mounted, so its `useState` (search/filters) survives close. Reset
+on the open transition or stale state leaks into the next open.
+
+## Avoid the weight footgun without fetching 1,900 files
+
+For the full library, fontsource's `google-font-metadata` gives the
+exact weight array per family in one request, so the css2 `:wght@` spec
+is derived (not guessed) for all 1,900 families. License (absent there
+and from the REST API) comes from the google/fonts git-trees in four
+requests. Per-family `<link>`s also contain any weight mistake to a
+single family rather than poisoning a shared link.
+
 ## Frontend has no `tsc` gate — don't trust a raw `tsc -p`
 
 `pnpm frontend` validates via `eslint` + `vitest` (esbuild transpile);
