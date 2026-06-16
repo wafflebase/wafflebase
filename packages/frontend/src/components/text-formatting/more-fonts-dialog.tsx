@@ -102,6 +102,18 @@ export function MoreFontsDialog({
     return () => clearTimeout(t);
   }, [query]);
 
+  // Reset search + filters each time the dialog opens. The component
+  // stays mounted across open/close (only Radix's DialogContent
+  // unmounts), so without this a prior session's query/filters would
+  // persist into the next open.
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    setDebounced("");
+    setCategory("All");
+    setScript("All");
+  }, [open]);
+
   const results = useMemo(
     () => filterFonts(catalog, { query: debounced, category, script }),
     [catalog, debounced, category, script],
