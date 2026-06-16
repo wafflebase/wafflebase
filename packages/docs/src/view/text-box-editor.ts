@@ -76,6 +76,21 @@ export interface TextBoxEditorOptions {
   contentHeight: number;
 
   /**
+   * Logical-pixel offset applied to ALL painting (runs, selection,
+   * cursor) so the content's top-left lands at `(paintOriginX,
+   * paintOriginY)` within the canvas instead of `(0, 0)`. Lets the
+   * caller mount a canvas that is LARGER than the content box and place
+   * the box anywhere inside it — used by slides to paint text that
+   * overflows a fixed box (shape / table cell) into the surrounding
+   * canvas area in every direction. Layout, wrapping (`contentWidth`),
+   * the vertical anchor (`contentHeight`), and all pointer math (which
+   * is driven off `container`, not the canvas) are unaffected. Both
+   * default to 0 — the standard "canvas == content box" path.
+   */
+  paintOriginX?: number;
+  paintOriginY?: number;
+
+  /**
    * Called on blur / Escape with the final `Block[]` snapshot. Slides
    * applies the snapshot through `store.withTextElement` to commit it
    * into the Yorkie root.
@@ -390,6 +405,8 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   let contentHeight = opts.contentHeight;
   const dpr = opts.dpr ?? 1;
   const scale = opts.scale ?? 1;
+  const paintOriginX = opts.paintOriginX ?? 0;
+  const paintOriginY = opts.paintOriginY ?? 0;
   const colorResolver = opts.colorResolver;
 
   // Seed an in-memory store with the supplied blocks. Empty input gets
@@ -556,7 +573,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     // (text, cursor, selection rects) by the vertical anchor offset. The
     // cursor and selectionRects coords above are already in layout-local
     // space; paintLayout adds originY to them internally.
-    paintLayout(ctx, layout, 0, currentOriginY, {
+    paintLayout(ctx, layout, paintOriginX, paintOriginY + currentOriginY, {
       cursor: cursorOpt,
       selectionRects,
       requestRender,

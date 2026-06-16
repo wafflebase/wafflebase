@@ -2,6 +2,7 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import type { TableElement } from '../../../src/model/element';
+import { SLIDE_WIDTH, SLIDE_HEIGHT } from '../../../src/model/presentation';
 import { MemSlidesStore } from '../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
 import type {
@@ -114,5 +115,40 @@ describe('table cell text-edit entry — box sizing', () => {
     // editFrame height ≈ cell height (100) minus top/bottom padding;
     // a shrunk box would be far smaller than this.
     expect(captured.opts!.frame.h).toBeGreaterThan(50);
+  });
+
+  it('extends the paint surface to the slide bounds so overflow shows', () => {
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      store.addElement(sid, {
+        type: 'table',
+        frame: { x: 200, y: 200, w: 200, h: 200, rotation: 0 },
+        data: tableData(),
+      });
+    });
+
+    const captured: { opts?: MountSlidesTextBoxOptions } = {};
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeCapturingMount(captured),
+    });
+
+    canvas.dispatchEvent(
+      new MouseEvent('dblclick', { clientX: 250, clientY: 250, bubbles: true }),
+    );
+
+    const opts = captured.opts!;
+    expect(opts.overflowBounds).toBeDefined();
+    // The editing canvas mirrors the committed slide canvas: a full-slide
+    // surface with the cell positioned at its slide coordinates, so
+    // overflow paints in every direction exactly where the committed
+    // renderer puts it.
+    expect(opts.overflowBounds!.width).toBe(SLIDE_WIDTH);
+    expect(opts.overflowBounds!.height).toBe(SLIDE_HEIGHT);
+    expect(opts.overflowBounds!.left).toBe(opts.frame.x);
+    expect(opts.overflowBounds!.top).toBe(opts.frame.y);
   });
 });
