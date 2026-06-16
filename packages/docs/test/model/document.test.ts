@@ -438,6 +438,35 @@ describe('Doc', () => {
       expect(doc.document.blocks).toHaveLength(1);
     });
 
+    it('should convert an empty first/only list-item to paragraph on Backspace (exit list)', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'list-item', {
+        listKind: 'unordered',
+        listLevel: 0,
+      });
+      const pos = doc.deleteBackward({ blockId, offset: 0 });
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks).toHaveLength(1);
+      expect(pos).toEqual({ blockId, offset: 0 });
+    });
+
+    it('should convert a non-first empty list-item to paragraph on Backspace (not merge)', () => {
+      const doc = Doc.create();
+      const firstId = doc.document.blocks[0].id;
+      doc.insertText({ blockId: firstId, offset: 0 }, 'A');
+      const secondId = doc.splitBlock(firstId, 1);
+      doc.setBlockType(secondId, 'list-item', {
+        listKind: 'unordered',
+        listLevel: 0,
+      });
+      expect(doc.document.blocks).toHaveLength(2);
+      const pos = doc.deleteBackward({ blockId: secondId, offset: 0 });
+      expect(doc.document.blocks).toHaveLength(2);
+      expect(doc.document.blocks[1].type).toBe('paragraph');
+      expect(pos).toEqual({ blockId: secondId, offset: 0 });
+    });
+
     it('should create paragraph after horizontal-rule', () => {
       const doc = Doc.create();
       const blockId = doc.document.blocks[0].id;
