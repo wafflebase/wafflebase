@@ -3186,6 +3186,20 @@ class SlidesEditorImpl implements SlidesEditor {
       // so the wrapper can inject it on first focus(). Absent for every
       // other entry path (dblclick, F2/Enter, click on empty placeholder).
       initialText: options?.initialText,
+      // Fixed boxes (shape / cell) don't auto-grow, so text can overflow
+      // the box. The committed slide renderer paints that overflow with no
+      // per-box clip (bounded only by the slide edge), but the editing
+      // canvas would otherwise clip it at the box. Enlarge the editing
+      // paint surface to the slide's right/bottom edge so live editing
+      // matches the committed render. Text elements auto-grow instead, so
+      // they never overflow and keep the frame-sized canvas.
+      overflowBounds:
+        target.kind === 'text'
+          ? undefined
+          : {
+              width: Math.max(target.editFrame.w, SLIDE_WIDTH - target.editFrame.x),
+              height: Math.max(target.editFrame.h, SLIDE_HEIGHT - target.editFrame.y),
+            },
       onContentHeightChange: (h: number): void => {
         const changed = this.lastEditingContentHeight !== h;
         this.lastEditingContentHeight = h;

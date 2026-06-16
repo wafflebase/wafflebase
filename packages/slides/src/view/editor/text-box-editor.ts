@@ -175,6 +175,21 @@ export interface MountSlidesTextBoxOptions {
    * See docs/design/slides/slides-hover-and-text-edit-entry.md § P2.6.
    */
   initialText?: string;
+  /**
+   * Paint surface size (logical px) for fixed boxes whose text can
+   * overflow — shapes and table cells (`growMode: 'never'`). When set
+   * and larger than `frame`, the editing canvas is enlarged to this
+   * size so overflowing text is painted live exactly as the committed
+   * slide renderer paints it (neither clips the overflow; the committed
+   * canvas is bounded only by the slide edge). The interactive box stays
+   * `frame`-sized: the container keeps the outline + mouse listeners, and
+   * the enlarged canvas is `pointer-events: none` so clicks past the box
+   * still fall through to "click-outside-to-commit". `contentWidth/Height`
+   * stay `frame.w/h`, so wrapping and vertical anchor are unaffected —
+   * only the surface grows (to the right / bottom). Omitted for
+   * auto-growing text elements, which never overflow.
+   */
+  overflowBounds?: { width: number; height: number };
 }
 
 export interface SlidesTextBoxEditor {
@@ -256,7 +271,7 @@ export interface SlidesTextBoxEditor {
 }
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
-  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode, initialText } = opts;
+  const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode, initialText, overflowBounds } = opts;
   // Deck-level font pre-scale (from `deckFontScale(meta)`). Composed
   // ahead of shrink-autofit so the editor reads the same effective
   // font size the committed canvas paints. Defaults to `1` so existing
@@ -305,21 +320,47 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   }
   overlay.appendChild(container);
 
+  // Paint surface size (logical px). For auto-growing text elements this
+  // is exactly the frame. For fixed boxes (shape / cell) the caller may
+  // pass `overflowBounds` to enlarge the canvas past the frame so text
+  // that overflows the box is painted live — matching the committed slide
+  // renderer, which paints cell/shape overflow with no per-box clip. We
+  // only grow to the right / bottom (origin stays at the frame top-left);
+  // `contentWidth/Height` below stay `frame.w/h` so wrapping and the
+  // vertical anchor are unchanged.
+  const canvasLogicalW = overflowBounds
+    ? Math.max(frame.w, overflowBounds.width)
+    : frame.w;
+  const canvasLogicalH = overflowBounds
+    ? Math.max(frame.h, overflowBounds.height)
+    : frame.h;
+  const overflowing = canvasLogicalW > frame.w || canvasLogicalH > frame.h;
+
   const canvas = document.createElement('canvas');
-  // CSS size (host pixels) = frame * scale; bitmap pixel size also
+  // CSS size (host pixels) = surface * scale; bitmap pixel size also
   // accounts for devicePixelRatio so high-DPI displays paint at native
   // resolution instead of being upscaled by the browser (which would
   // produce blurry text). The text-box editor's paint path then scales
   // its draws by `dpr` so logical text-box coords still map 1:1 to host
   // CSS pixels.
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-  const cssW = Math.max(1, Math.round(frame.w * scale));
-  const cssH = Math.max(1, Math.round(frame.h * scale));
+  const cssW = Math.max(1, Math.round(canvasLogicalW * scale));
+  const cssH = Math.max(1, Math.round(canvasLogicalH * scale));
   canvas.width = Math.max(1, Math.round(cssW * dpr));
   canvas.height = Math.max(1, Math.round(cssH * dpr));
   canvas.style.width = `${cssW}px`;
   canvas.style.height = `${cssH}px`;
   canvas.style.display = 'block';
+  if (overflowing) {
+    // The canvas now extends past the cell/shape box (the container). Let
+    // clicks in that overflow region fall through to the slide canvas so
+    // "click outside the box to commit" still fires; the container (still
+    // frame-sized) keeps the mouse listeners for in-box cursor placement.
+    // The container also carries the I-beam now — the docs editor sets the
+    // text cursor on the canvas, which no longer receives pointer events.
+    canvas.style.pointerEvents = 'none';
+    container.style.cursor = 'text';
+  }
   container.appendChild(canvas);
 
   let mounted = true;
