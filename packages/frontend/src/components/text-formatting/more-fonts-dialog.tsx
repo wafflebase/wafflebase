@@ -188,7 +188,17 @@ export function MoreFontsDialog({
               {results.map((entry) => {
                 const selected = entry.family === value;
                 return (
-                  <li key={entry.family}>
+                  // content-visibility lets the browser skip layout/paint
+                  // for off-screen rows, so the full ~1,900-family list
+                  // stays responsive without a windowing library. The
+                  // intrinsic-size hint keeps the scrollbar accurate.
+                  <li
+                    key={entry.family}
+                    style={{
+                      contentVisibility: "auto",
+                      containIntrinsicSize: "auto 40px",
+                    }}
+                  >
                     <button
                       type="button"
                       data-font-row={entry.family}

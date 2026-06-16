@@ -62,8 +62,19 @@ Slides is the driving surface.
 
 ## Phase P2 — full library
 
-- [ ] Dialog consumes lazy-imported `font-catalog.full.json` (~1,800).
-- [ ] Chunk-gate check for the lazy chunk.
+- [x] `scripts/build-font-catalog-full.mjs` — fontsource metadata
+      (names/category/subsets/exact weights, one request) + google/fonts
+      git-trees (license dir) → `font-catalog.full.ts` (1,908 families:
+      OFL 1868 / Apache 35 / UFL 5). Run via `pnpm frontend
+      build:font-catalog-full`.
+- [x] `font-catalog-full-loader.ts` — memoized `import()` so the library
+      is a separate 272 kB chunk, downloaded only when the dialog opens.
+      The picker loads it on first open and swaps it into the dialog
+      (curated fallback until resolved).
+- [x] Chunk gate: 99/100 chunks, full-library chunk 272 kB < 710 kB cap
+      (`node scripts/verify-frontend-chunks.mjs` green).
+- [x] Row paint scales via `content-visibility: auto` (no windowing lib);
+      IO still lazy-loads each visible row's web font.
 
 ## Phase P3 — export embed + notices
 

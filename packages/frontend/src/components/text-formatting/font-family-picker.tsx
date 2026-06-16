@@ -8,7 +8,7 @@
  * `value` renders the em-dash placeholder used for mixed selections.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +26,7 @@ import { IconChevronDown } from "@tabler/icons-react";
 import { FONT_CATALOG, type FontEntry, type FontGroup } from "./font-catalog";
 import { MoreFontsDialog } from "./more-fonts-dialog";
 import { getRecentFonts, addRecentFont } from "./font-recents";
+import { loadFullFontCatalog } from "./font-catalog-full-loader";
 
 const GROUP_ORDER: readonly FontGroup[] = [
   "Korean",
@@ -70,6 +71,27 @@ export function FontFamilyPicker({
   const [open, setOpen] = useState(false);
   const [recents, setRecents] = useState<string[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Full ~1,900-family library, lazy-loaded the first time the dialog
+  // opens. Until it resolves the dialog browses the curated catalog
+  // (its default), then swaps in the full list.
+  const [fullCatalog, setFullCatalog] = useState<readonly FontEntry[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!moreOpen || fullCatalog) return;
+    let cancelled = false;
+    loadFullFontCatalog()
+      .then((c) => {
+        if (!cancelled) setFullCatalog(c);
+      })
+      .catch(() => {
+        /* keep the curated fallback on load failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [moreOpen, fullCatalog]);
 
   // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
   // rather than firing `onChange` directly from the item's onClick. The
@@ -205,6 +227,7 @@ export function FontFamilyPicker({
         onOpenChange={setMoreOpen}
         value={value}
         onPick={applyPick}
+        catalog={fullCatalog ?? undefined}
       />
     </>
   );
