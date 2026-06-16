@@ -16,6 +16,7 @@ import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
@@ -46,6 +47,12 @@ const SlidesView = lazy(() =>
 const SlidesToolbar = lazy(() =>
   import("@/app/slides/toolbar").then((module) => ({
     default: module.SlidesToolbar,
+  })),
+);
+
+const MobileSlidesView = lazy(() =>
+  import("@/app/slides/mobile-slides-view").then((module) => ({
+    default: module.MobileSlidesView,
   })),
 );
 
@@ -228,7 +235,29 @@ function SharedSlidesLayout({ resolved }: { resolved: ResolvedShareLink }) {
   // pointer/keyboard handler suppressed. Interaction gating lives in
   // `SlidesView` (which forwards `readOnly` to `initializeEditor`,
   // `mountThumbnailPanel`, and `mountNotesPanel`).
+  const isMobile = useIsMobile();
   const readOnly = resolved.role === "viewer";
+
+  // Phones (<768px) get the same mobile shell the owner route uses
+  // (`slides-detail.tsx`): a full-height canvas with swipe nav and a
+  // thumbnail strip instead of the desktop side panel. Read-only
+  // viewers map to `mode="view"` (read-only SlideRenderer); editors map
+  // to `mode="edit"`. Without this branch a viewer on a phone got the
+  // cramped desktop `SlidesView` layout.
+  if (isMobile) {
+    return <SharedMobileSlidesLayout resolved={resolved} readOnly={readOnly} />;
+  }
+
+  return <SharedDesktopSlidesLayout resolved={resolved} readOnly={readOnly} />;
+}
+
+function SharedDesktopSlidesLayout({
+  resolved,
+  readOnly,
+}: {
+  resolved: ResolvedShareLink;
+  readOnly: boolean;
+}) {
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   const [currentThemeId, setCurrentThemeId] = useState("default-light");
@@ -279,6 +308,76 @@ function SharedSlidesLayout({ resolved }: { resolved: ResolvedShareLink }) {
           )}
           <SlidesView
             readOnly={readOnly}
+            onEditorReady={setEditor}
+            onStoreReady={setStore}
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * SharedMobileSlidesLayout — phone shell for a shared slides link.
+ * Reuses `MobileSlidesView` (the same component the owner route mounts
+ * on phones): `mode="view"` for read-only viewers, `mode="edit"` for
+ * share-link editors. The toolbar only appears in edit mode, matching
+ * both the desktop shared layout and the owner mobile layout.
+ */
+function SharedMobileSlidesLayout({
+  resolved,
+  readOnly,
+}: {
+  resolved: ResolvedShareLink;
+  readOnly: boolean;
+}) {
+  const [editor, setEditor] = useState<SlidesEditor | null>(null);
+  const [store, setStore] = useState<YorkieSlidesStore | null>(null);
+  const [currentThemeId, setCurrentThemeId] = useState("default-light");
+
+  useEffect(() => {
+    if (!store) return;
+    setCurrentThemeId(store.read().meta.themeId);
+    return store.onChange(() => {
+      setCurrentThemeId(store.read().meta.themeId);
+    });
+  }, [store]);
+
+  const activeTheme = useMemo<Theme | null>(() => {
+    if (!store) return null;
+    const doc = store.read();
+    return doc.themes.find((t) => t.id === currentThemeId) ?? null;
+  }, [store, currentThemeId]);
+
+  const handleImagePick = useCallback(() => {
+    toast.info("Image upload isn't available in shared editing.");
+  }, []);
+
+  return (
+    <div className="flex h-screen w-full flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="truncate text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence />
+      </header>
+      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        <Suspense fallback={<Loader />}>
+          {!readOnly && (
+            <SlidesToolbar
+              editor={editor}
+              store={store}
+              theme={activeTheme}
+              onImagePick={handleImagePick}
+            />
+          )}
+          <MobileSlidesView
+            mode={readOnly ? "view" : "edit"}
             onEditorReady={setEditor}
             onStoreReady={setStore}
           />

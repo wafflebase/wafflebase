@@ -20,6 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | slides cell edit overflow (2026-06-16) | [20260616-slides-cell-edit-overflow-todo.md](./active/20260616-slides-cell-edit-overflow-todo.md) | [20260616-slides-cell-edit-overflow-lessons.md](./active/20260616-slides-cell-edit-overflow-lessons.md) |
 | slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./active/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./active/20260616-slides-cell-edit-shrink-lessons.md) |
+| slides shared mobile view (2026-06-16) | [20260616-slides-shared-mobile-view-todo.md](./active/20260616-slides-shared-mobile-view-todo.md) | - |
 | slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./active/20260615-slides-textbox-border-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
