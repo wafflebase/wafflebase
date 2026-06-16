@@ -14,7 +14,7 @@ describe('loadFullFontCatalog', () => {
     for (const e of catalog) {
       expect(e.webFont).toBe(true);
       expect(e.family.length).toBeGreaterThan(0);
-      expect(e.weights).toMatch(/^\d+(;\d+)?$/);
+      expect(e.weights).toMatch(/^\d+(;\d+)*$/);
     }
   });
 

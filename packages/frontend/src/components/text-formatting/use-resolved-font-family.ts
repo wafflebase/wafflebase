@@ -31,7 +31,12 @@ export function useResolvedFontFamily(
     () => (editor ? editor.getRangeStyleSummary() : {}),
   );
   useEffect(() => {
-    if (!editor) return;
+    if (!editor) {
+      // Reset so the picker reverts to the default/unset family instead
+      // of showing the previous editor's stale value.
+      setSummary({});
+      return;
+    }
     const refresh = (): void => setSummary(editor.getRangeStyleSummary());
     refresh();
     return editor.onCursorMove(refresh);

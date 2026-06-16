@@ -50,6 +50,12 @@ describe('font-recents', () => {
     expect(getRecentFonts()).toEqual([]);
   });
 
+  test('caps on read when storage holds an over-long array', () => {
+    const tooMany = Array.from({ length: RECENT_FONTS_MAX + 5 }, (_, i) => `F${i}`);
+    localStorage.setItem(KEY, JSON.stringify(tooMany));
+    expect(getRecentFonts()).toHaveLength(RECENT_FONTS_MAX);
+  });
+
   test('returns [] (no throw) when storage holds non-JSON garbage', () => {
     localStorage.setItem(KEY, '{not valid json');
     expect(getRecentFonts()).toEqual([]);

@@ -223,6 +223,8 @@ function weightsSpec({ staticWeights, wghtRange }) {
 async function build() {
   /** @type {any[]} */
   const entries = [];
+  /** @type {string[]} */
+  const missing = [];
 
   // Google families (sequential-ish with a small concurrency pool).
   const pool = 8;
@@ -232,7 +234,7 @@ async function build() {
       chunk.map(async (seed) => {
         const md = await fetchMetadata(seed.family);
         if (!md) {
-          console.warn(`! not found on google/fonts: ${seed.family}`);
+          missing.push(seed.family);
           return null;
         }
         const parsed = parseMetadata(md.text);
@@ -255,6 +257,13 @@ async function build() {
       }),
     );
     for (const r of results) if (r) entries.push(r);
+  }
+
+  // A curated seed is hand-picked (some are eager bootstrap fonts), so a
+  // miss silently shrinks the menu. Fail loudly instead of emitting a
+  // catalog that's quietly missing entries.
+  if (missing.length > 0) {
+    throw new Error(`curated families not found on google/fonts: ${missing.join(", ")}`);
   }
 
   for (const seed of SYSTEM_SEED) {

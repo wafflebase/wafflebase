@@ -38,7 +38,11 @@ export function getRecentFonts(): string[] {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === 'string');
+    // Cap on read too: a stale/hand-edited value could exceed the cap and
+    // make the Recent section unbounded despite the write-side limit.
+    return parsed
+      .filter((x): x is string => typeof x === 'string')
+      .slice(0, RECENT_FONTS_MAX);
   } catch {
     return [];
   }

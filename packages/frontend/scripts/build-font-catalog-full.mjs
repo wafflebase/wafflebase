@@ -54,20 +54,28 @@ function weightsSpec(weights) {
 
 /** Map google/fonts dir slug → license, via the git-trees API. One root
  *  request + one per license dir. Returns a Map; empty on any failure. */
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+  return res.json();
+}
+
 async function fetchLicenseMap() {
   const map = new Map();
-  try {
-    const root = await (await fetch(`${GH_TREES}/main`)).json();
-    for (const node of root.tree ?? []) {
-      const license = LICENSE_OF[node.path];
-      if (!license || node.type !== "tree") continue;
-      const sub = await (await fetch(`${GH_TREES}/${node.sha}`)).json();
-      for (const fam of sub.tree ?? []) {
-        if (fam.type === "tree") map.set(fam.path, license);
-      }
+  const root = await fetchJson(`${GH_TREES}/main`);
+  for (const node of root.tree ?? []) {
+    const license = LICENSE_OF[node.path];
+    if (!license || node.type !== "tree") continue;
+    const sub = await fetchJson(`${GH_TREES}/${node.sha}`);
+    for (const fam of sub.tree ?? []) {
+      if (fam.type === "tree") map.set(fam.path, license);
     }
-  } catch (err) {
-    console.warn(`! license map fetch failed, defaulting to OFL: ${err.message}`);
+  }
+  // A total failure would otherwise mislabel all 35 Apache + 5 UFL
+  // families as OFL. Refuse rather than emit silently-wrong licenses;
+  // individual long-tail slug mismatches still fall back to OFL below.
+  if (map.size === 0) {
+    throw new Error("license map is empty — google/fonts trees unavailable");
   }
   return map;
 }
@@ -77,6 +85,7 @@ async function build() {
   const licenseMap = await fetchLicenseMap();
 
   const entries = [];
+  let unresolved = 0;
   for (const id of Object.keys(data)) {
     const f = data[id];
     const subsets = (f.subsets ?? []).filter((s) => s !== "menu");
@@ -85,13 +94,15 @@ async function build() {
       : (CATEGORY_TO_GROUP[f.category] ?? "Sans-serif");
     // fontsource id ("noto-sans-kr") → google/fonts dir ("notosanskr").
     const ghSlug = id.replace(/-/g, "");
+    const license = licenseMap.get(ghSlug);
+    if (!license) unresolved++;
     entries.push({
       label: f.family,
       family: f.family,
       group,
       webFont: true,
       weights: weightsSpec(f.weights ?? [400]),
-      license: licenseMap.get(ghSlug) ?? "OFL",
+      license: license ?? "OFL",
       scripts: subsets,
     });
   }
@@ -100,7 +111,7 @@ async function build() {
   await writeFile(OUT, emit(entries), "utf8");
   console.log(
     `wrote ${entries.length} families → ${OUT} ` +
-      `(${licenseMap.size} licenses resolved from google/fonts)`,
+      `(${licenseMap.size} licenses in map; ${unresolved} families fell back to OFL)`,
   );
 }
 
