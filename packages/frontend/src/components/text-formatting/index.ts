@@ -14,3 +14,4 @@ export { LineSpacingPicker } from "./line-spacing-picker.tsx";
 export { ClearFormattingButton } from "./clear-formatting-button.tsx";
 export { InsertLinkButton } from "./insert-link-button.tsx";
 export { useResolvedFontSize } from "./use-resolved-font-size";
+export { useResolvedFontFamily } from "./use-resolved-font-family";

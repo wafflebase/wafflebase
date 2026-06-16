@@ -33,7 +33,13 @@ Slides is the driving surface.
       tail lazy-loads. Docs toolbar `ensureFont` calls it before load.
 - [x] Picker shows the new groups; tests updated (eager bootstrap, lazy
       non-eager catalog font, system/eager skips).
-- [ ] (follow-up) Slides `themed-font-picker` lazy-load wiring.
+- [x] Slides toolbar font family: the Slides text-edit toolbar had NO
+      font-family picker (only size/format/paragraph), so the catalog was
+      not exposed in Slides at all. Added `FontFamilyPicker` to desktop
+      `text-edit-section.tsx` + mobile `TextFormatSheet`, wired through a
+      shared `applySlideFontFamily` helper (lazy `ensureFontLink` +
+      `document.fonts.load().then(markDirty/render)` for the dirty-gated
+      canvas) and a new `useResolvedFontFamily` value hook.
 - [ ] (follow-up) docs `resolveFontFamily` serif/mono classification for
       the new families (currently unknown → sans-serif generic fallback
       during load; real face still loads). Known limitation, low impact.

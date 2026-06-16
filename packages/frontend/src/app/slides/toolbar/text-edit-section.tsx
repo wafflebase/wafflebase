@@ -38,9 +38,13 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import {
   TextFormatGroup,
   TextParagraphGroup,
+  FontFamilyPicker,
   FontSizePicker,
   useResolvedFontSize,
+  useResolvedFontFamily,
+  ensureFontLink,
 } from '@/components/text-formatting';
+import { applySlideFontFamily } from './apply-font-family';
 
 export interface TextEditSectionProps {
   state: Extract<ToolbarState, { kind: 'text-edit' }>;
@@ -49,13 +53,20 @@ export interface TextEditSectionProps {
 
 export function TextEditSection({ state, editor }: TextEditSectionProps) {
   const textEditor = state.textEditor;
-  // Three-case font-size resolution (uniform / mixed / unset → docs
-  // default). Shared with the mobile sheet via `useResolvedFontSize` so
-  // both surfaces follow the same rule.
+  // Three-case font-size / family resolution (uniform / mixed / unset →
+  // docs default). Shared with the mobile sheet via the `useResolved*`
+  // hooks so both surfaces follow the same rule.
   const sizeValue = useResolvedFontSize(textEditor);
+  const familyValue = useResolvedFontFamily(textEditor);
 
   return (
     <>
+      <FontFamilyPicker
+        value={familyValue}
+        onChange={(family) => applySlideFontFamily(textEditor, family, editor)}
+        onPrefetch={ensureFontLink}
+      />
+      <ToolbarSeparator className="mx-1" />
       <FontSizePicker
         value={sizeValue}
         onChange={(size) => {
