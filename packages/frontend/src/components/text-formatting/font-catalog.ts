@@ -30,6 +30,15 @@ export interface FontEntry {
    * requested, and a single bad family poisons the whole `<link>`.
    */
   weights?: string;
+  /**
+   * Whether this family is loaded eagerly in the bootstrap CSS link
+   * (`true`/absent) or only on demand via `ensureFontLink` (`false`).
+   * Absent means curated — every family in today's catalog is curated,
+   * so the bootstrap link is unchanged. As the catalog grows past a
+   * single network request, the long tail is marked `curated: false`
+   * and lazy-loaded the first time a user picks or previews it.
+   */
+  curated?: boolean;
 }
 
 export const FONT_CATALOG: readonly FontEntry[] = [
@@ -69,19 +78,84 @@ export const LINE_SPACING_PRESETS = [1.0, 1.15, 1.5, 2.0] as const;
 export const LINE_SPACING_MIN = 0.5;
 export const LINE_SPACING_MAX = 10.0;
 
-/** Build the `<link href="…">` URL for the Google Fonts CSS request.
- *  Returns an empty string when no entries have `webFont: true` — callers
- *  should skip injecting the link in that case. */
+/** Case-sensitive index of catalog entries by canonical family name.
+ *  Used by `ensureFontLink` to decide whether a family needs a network
+ *  load (web vs system) and whether the bootstrap link already covers it. */
+const CATALOG_INDEX: ReadonlyMap<string, FontEntry> = new Map(
+  FONT_CATALOG.map((entry) => [entry.family, entry]),
+);
+
+const DEFAULT_WEIGHTS = '400;700';
+
+/** A single `family=Name:wght@…` query segment for the css2 endpoint. */
+function familyParam(family: string, weights?: string): string {
+  return `family=${encodeURIComponent(family)}:wght@${weights ?? DEFAULT_WEIGHTS}`;
+}
+
+/** Assemble a css2 URL from one or more `family=…` segments. */
+function css2Url(params: readonly string[]): string {
+  return `https://fonts.googleapis.com/css2?${params.join('&')}&display=swap`;
+}
+
+/** Build the `<link href="…">` URL for the bootstrap Google Fonts CSS
+ *  request — the curated web fonts shown in the picker menu. Returns an
+ *  empty string when no curated entries have `webFont: true` (callers
+ *  skip injecting the link in that case). The long tail (`curated:
+ *  false`) is excluded here and loaded on demand via `ensureFontLink`. */
 export function buildGoogleFontsHref(): string {
-  const webEntries = FONT_CATALOG.filter((f) => f.webFont);
+  const webEntries = FONT_CATALOG.filter(
+    (f) => f.webFont && f.curated !== false,
+  );
   if (webEntries.length === 0) return '';
-  const params = webEntries
-    .map(
-      (entry) =>
-        `family=${encodeURIComponent(entry.family)}:wght@${entry.weights ?? '400;700'}`,
-    )
-    .join('&');
-  return `https://fonts.googleapis.com/css2?${params}&display=swap`;
+  return css2Url(webEntries.map((entry) => familyParam(entry.family, entry.weights)));
+}
+
+/** Find an already-injected per-family link, matching by the
+ *  `data-wafflebase-font` attribute rather than an id so the lookup is
+ *  robust for any family-name charset (Korean families included) and
+ *  survives HMR module reloads (the DOM, not module state, is the
+ *  source of truth). */
+function findFontLink(family: string): HTMLLinkElement | null {
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font]',
+  );
+  for (const link of links) {
+    if (link.dataset.wafflebaseFont === family) return link;
+  }
+  return null;
+}
+
+/**
+ * On-demand counterpart to `ensureGoogleFontsLink`: inject a per-family
+ * Google Fonts CSS `<link>` the first time a non-bootstrap family is
+ * needed (picker hover, selection, or in-view preview in the "More
+ * fonts…" dialog). After the CSS link resolves, `FontRegistry.ensureFont`
+ * (`@wafflebase/docs`) can `document.fonts.load()` the face and trigger
+ * a Canvas re-layout.
+ *
+ * No-ops when:
+ *   - running under SSR (no `document`);
+ *   - the family is a known SYSTEM font (`webFont: false`) — there is no
+ *     web face to fetch;
+ *   - the family is a curated web font already in the bootstrap link —
+ *     a second request would be redundant;
+ *   - a link for this family is already present (idempotent / HMR-safe).
+ *
+ * Unknown families (e.g. an arbitrary Google Font chosen from the full
+ * library) load with their provided `weights`, or `400;700` by default.
+ */
+export function ensureFontLink(family: string, weights?: string): void {
+  if (typeof document === 'undefined') return;
+  const entry = CATALOG_INDEX.get(family);
+  if (entry && !entry.webFont) return; // system font: nothing to fetch
+  if (entry && entry.curated !== false) return; // already in bootstrap link
+  if (findFontLink(family)) return;
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.dataset.wafflebaseFont = family;
+  link.href = css2Url([familyParam(family, weights ?? entry?.weights)]);
+  document.head.appendChild(link);
 }
 
 /**
