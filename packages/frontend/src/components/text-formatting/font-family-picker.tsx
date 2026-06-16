@@ -1,9 +1,9 @@
 /**
  * Shared font-family dropdown. Stateless: the caller owns the current
  * value and reacts to `onChange`. Items are grouped by `FontGroup`
- * (Korean / Sans-serif / Serif / Monospace) and each label previews in
- * its own family. An undefined `value` renders the em-dash placeholder
- * used for mixed selections.
+ * (Korean / Sans-serif / Serif / Monospace / Display / Handwriting) and
+ * each label previews in its own family. An undefined `value` renders
+ * the em-dash placeholder used for mixed selections.
  */
 
 import { useMemo, useRef } from "react";
