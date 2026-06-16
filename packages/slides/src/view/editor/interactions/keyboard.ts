@@ -251,10 +251,24 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     ),
 
     // --- T2: clipboard / duplicate / z-order ---
+    //
+    // The clipboard / duplicate rules below operate on the SELECTED
+    // element(s). While the user is typing in a text-box, the editing
+    // element is in `selection`, so an unguarded rule would copy / cut /
+    // duplicate the whole element instead of the selected text — and the
+    // `e.preventDefault()` would also swallow the textarea's own native
+    // cut/copy/paste. Cmd+X in particular would delete the text-box the
+    // user is editing. Every rule therefore gates on
+    // `!isEditableTarget(e.target)` so the shortcut falls through to the
+    // textarea default while editing, matching the nudge / delete rules.
 
     // Cmd+C — copy selected elements via custom MIME.
     {
-      match: (e) => keyEquals(e.key, 'c') && isModPressed(e) && !e.shiftKey,
+      match: (e) =>
+        keyEquals(e.key, 'c') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
       run: async (e) => {
         const ids = ctx.selection.get();
         if (ids.length === 0) return;
@@ -269,7 +283,11 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
 
     // Cmd+X — cut: copy then remove.
     {
-      match: (e) => keyEquals(e.key, 'x') && isModPressed(e) && !e.shiftKey,
+      match: (e) =>
+        keyEquals(e.key, 'x') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
       run: async (e) => {
         const ids = ctx.selection.get();
         if (ids.length === 0) return;
@@ -288,7 +306,10 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     // Cmd+V — paste from clipboard. Offsets each pasted element by
     // (10, 10) so the copy doesn't overlap the source exactly.
     {
-      match: (e) => keyEquals(e.key, 'v') && isModPressed(e),
+      match: (e) =>
+        keyEquals(e.key, 'v') &&
+        isModPressed(e) &&
+        !isEditableTarget(e.target),
       run: async (e) => {
         const slide = currentSlide(ctx);
         if (!slide) return;
@@ -313,7 +334,11 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
     // Cmd+D — duplicate selected elements (or the current slide if no
     // element is selected).
     {
-      match: (e) => keyEquals(e.key, 'd') && isModPressed(e) && !e.shiftKey,
+      match: (e) =>
+        keyEquals(e.key, 'd') &&
+        isModPressed(e) &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target),
       run: (e) => {
         e.preventDefault();
         const slide = currentSlide(ctx);
@@ -342,9 +367,16 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
 
     // z-order: Cmd+↑ bring forward, Cmd+↓ send backward,
     //          Cmd+Shift+↑ bring to front, Cmd+Shift+↓ send to back.
+    // Skipped while typing in a text-box: reordering repaints the
+    // overlay (clearing its children), which blurs the focused textarea
+    // and commits/exits text-edit. Without the guard, Cmd+Arrow inside
+    // a text-box kicks the user out of edit mode instead of moving the
+    // caret to the document start/end (the macOS default).
     {
       match: (e) =>
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown') && isModPressed(e),
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        isModPressed(e) &&
+        !isEditableTarget(e.target),
       run: (e) => {
         const ids = ctx.selection.get();
         if (ids.length === 0) return;
