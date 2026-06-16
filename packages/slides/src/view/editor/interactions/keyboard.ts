@@ -342,9 +342,16 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
 
     // z-order: Cmd+↑ bring forward, Cmd+↓ send backward,
     //          Cmd+Shift+↑ bring to front, Cmd+Shift+↓ send to back.
+    // Skipped while typing in a text-box: reordering repaints the
+    // overlay (clearing its children), which blurs the focused textarea
+    // and commits/exits text-edit. Without the guard, Cmd+Arrow inside
+    // a text-box kicks the user out of edit mode instead of moving the
+    // caret to the document start/end (the macOS default).
     {
       match: (e) =>
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown') && isModPressed(e),
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        isModPressed(e) &&
+        !isEditableTarget(e.target),
       run: (e) => {
         const ids = ctx.selection.get();
         if (ids.length === 0) return;
