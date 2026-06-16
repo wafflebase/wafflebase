@@ -28,6 +28,8 @@ const GROUP_ORDER: readonly FontGroup[] = [
   "Sans-serif",
   "Serif",
   "Monospace",
+  "Display",
+  "Handwriting",
 ];
 
 interface FontFamilyPickerProps {

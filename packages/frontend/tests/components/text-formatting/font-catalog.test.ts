@@ -16,14 +16,24 @@ import {
 } from '../../../src/components/text-formatting/font-catalog.ts';
 
 describe('font-catalog', () => {
-  test('Google Fonts href encodes every webFont entry', () => {
+  test('bootstrap href encodes every eager web font, and only those', () => {
     const href = buildGoogleFontsHref();
     expect(href.startsWith('https://fonts.googleapis.com/css2?')).toBe(true);
     for (const entry of FONT_CATALOG) {
-      if (!entry.webFont) continue;
-      // The family name must appear URL-encoded somewhere in the link.
-      expect(href).toContain(encodeURIComponent(entry.family));
+      const encoded = `family=${encodeURIComponent(entry.family)}:`;
+      if (entry.webFont && entry.eager) {
+        // Eager web fonts are in the bootstrap link.
+        expect(href).toContain(encoded);
+      } else {
+        // System fonts and the lazy long tail are not — they load on
+        // demand via ensureFontLink.
+        expect(href).not.toContain(encoded);
+      }
     }
+  });
+
+  test('the catalog marks at least one family eager for the bootstrap link', () => {
+    expect(FONT_CATALOG.some((f) => f.webFont && f.eager)).toBe(true);
   });
 
   test('entry weights override the default 400;700 spec', () => {

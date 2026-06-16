@@ -18,14 +18,25 @@ Slides is the driving surface.
   from the `google/fonts` repo (`ofl/`,`apache/`,`ufl/` dirs +
   `METADATA.pb`), optionally via `fontsource/google-font-metadata`.
 
-## Phase P0 — generated curated catalog + lazy loading
+## Phase P0 — generated catalog + lazy loading
 
-- [ ] `scripts/build-font-catalog.ts` — read google/fonts metadata, emit
-      `font-catalog.curated.json` (~100, `license` field) + `.full.json`.
-- [ ] `font-catalog.ts` — source data from JSON; keep existing exports/types.
-- [ ] `fonts.ts` — `ensureFontLink(family, weights)` per-family CSS link
-      injector (idempotent, id-keyed); bootstrap loads curated menu only.
-- [ ] Verify Korean fallback + `resolveFontFamily` unchanged.
+- [x] `scripts/build-font-catalog.mjs` — fetch google/fonts `METADATA.pb`
+      per family, derive license/weights(incl. variable `axes`)/scripts,
+      emit typed `font-catalog.data.ts` (104 families: 94 web, 8 eager).
+      Run via `pnpm frontend build:font-catalog`.
+- [x] `font-catalog.ts` — source `FONT_CATALOG` from the generated data
+      module; add `license`/`scripts`/`eager` to `FontEntry`; add
+      `Display`/`Handwriting` groups; keep existing exports/contract.
+- [x] `ensureFontLink(family, weights?)` per-family CSS link injector
+      (idempotent via `data-wafflebase-font`, HMR/charset-safe); bootstrap
+      link loads only `eager` web fonts (the pre-expansion set) — the long
+      tail lazy-loads. Docs toolbar `ensureFont` calls it before load.
+- [x] Picker shows the new groups; tests updated (eager bootstrap, lazy
+      non-eager catalog font, system/eager skips).
+- [ ] (follow-up) Slides `themed-font-picker` lazy-load wiring.
+- [ ] (follow-up) docs `resolveFontFamily` serif/mono classification for
+      the new families (currently unknown → sans-serif generic fallback
+      during load; real face still loads). Known limitation, low impact.
 
 ## Phase P1 — "More fonts…" dialog + accumulation
 
