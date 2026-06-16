@@ -5,12 +5,13 @@ import type { Block } from '@wafflebase/docs';
 import { mountSlidesTextBox } from '../../../src/view/editor/text-box-editor';
 
 /**
- * `overflowBounds` enlarges the editing paint surface past the box so
- * text that overflows a fixed box (shape / table cell) is painted live,
- * matching the committed slide renderer (which clips only at the slide
- * edge). The interactive box stays frame-sized: the container keeps its
- * size + mouse listeners, and the enlarged canvas is `pointer-events:
- * none` so clicks past the box still fall through to commit-outside.
+ * `overflowBounds` mounts a LARGER editing canvas with the box positioned
+ * `left`/`top` px inside it, so text that overflows a fixed box (shape /
+ * table cell) is painted live in every direction — matching the committed
+ * slide renderer (which clips only at the slide edge). The interactive box
+ * stays frame-sized: the container keeps its size + mouse listeners, and
+ * the enlarged canvas is `pointer-events: none` so clicks past the box
+ * still fall through to commit-outside.
  */
 function block(text: string): Block {
   return {
@@ -31,7 +32,7 @@ describe('mountSlidesTextBox overflow paint surface', () => {
 
   const FRAME = { x: 200, y: 150, w: 100, h: 80, rotation: 0 };
 
-  it('enlarges the canvas and disables its pointer events when overflowBounds is set', () => {
+  it('mounts a full-slide canvas offset so the box content lands at the origin', () => {
     const tb = mountSlidesTextBox({
       overlay,
       frame: FRAME,
@@ -39,14 +40,19 @@ describe('mountSlidesTextBox overflow paint surface', () => {
       blocks: [block('Long overflowing text')],
       onCommit: (): void => {},
       onCancel: (): void => {},
-      // Slide-bounds extent the editor would compute for a cell at (200,150).
-      overflowBounds: { width: 1720, height: 930 },
+      // Full slide rect the editor passes for a box at (200,150).
+      overflowBounds: { left: 200, top: 150, width: 1920, height: 1080 },
     });
 
     const canvas = tb.container.querySelector('canvas')!;
-    // Canvas grows to the overflow extent (logical * scale).
-    expect(canvas.style.width).toBe('1720px');
-    expect(canvas.style.height).toBe('930px');
+    // Canvas spans the whole slide (logical * scale).
+    expect(canvas.style.width).toBe('1920px');
+    expect(canvas.style.height).toBe('1080px');
+    // Positioned so the box sits left/top px inside it — extends up/left
+    // (and down/right) of the box for overflow in every direction.
+    expect(canvas.style.position).toBe('absolute');
+    expect(canvas.style.left).toBe('-200px');
+    expect(canvas.style.top).toBe('-150px');
     // Clicks over the overflow region must fall through to the slide.
     expect(canvas.style.pointerEvents).toBe('none');
     // The interactive box (container) stays frame-sized and keeps the I-beam.
@@ -70,13 +76,14 @@ describe('mountSlidesTextBox overflow paint surface', () => {
     const canvas = tb.container.querySelector('canvas')!;
     expect(canvas.style.width).toBe('100px');
     expect(canvas.style.height).toBe('80px');
-    // No overflow → canvas keeps default pointer events (captured by container).
+    // No overflow → canvas keeps default flow + pointer events.
+    expect(canvas.style.position).toBe('');
     expect(canvas.style.pointerEvents).toBe('');
 
     tb.detach();
   });
 
-  it('does not shrink the canvas below the frame for small overflowBounds', () => {
+  it('does not offset the canvas when the box already fills the bounds', () => {
     const tb = mountSlidesTextBox({
       overlay,
       frame: FRAME,
@@ -84,14 +91,15 @@ describe('mountSlidesTextBox overflow paint surface', () => {
       blocks: [block('hi')],
       onCommit: (): void => {},
       onCancel: (): void => {},
-      // A box flush against the slide edge: bounds == frame, no growth.
-      overflowBounds: { width: 100, height: 80 },
+      // A box whose bounds equal its own size with no margin: no growth.
+      overflowBounds: { left: 0, top: 0, width: 100, height: 80 },
     });
 
     const canvas = tb.container.querySelector('canvas')!;
     expect(canvas.style.width).toBe('100px');
     expect(canvas.style.height).toBe('80px');
-    // Not overflowing → pointer events stay on the canvas.
+    // Not overflowing → canvas stays in flow with pointer events.
+    expect(canvas.style.position).toBe('');
     expect(canvas.style.pointerEvents).toBe('');
 
     tb.detach();

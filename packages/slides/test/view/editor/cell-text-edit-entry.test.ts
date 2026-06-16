@@ -142,11 +142,13 @@ describe('table cell text-edit entry — box sizing', () => {
 
     const opts = captured.opts!;
     expect(opts.overflowBounds).toBeDefined();
-    // Editing text that overflows the cell must paint up to the slide
-    // edge — exactly where the committed renderer clips it.
-    expect(opts.overflowBounds!.width).toBe(SLIDE_WIDTH - opts.frame.x);
-    expect(opts.overflowBounds!.height).toBe(SLIDE_HEIGHT - opts.frame.y);
-    // And the surface is strictly larger than the cell box.
-    expect(opts.overflowBounds!.width).toBeGreaterThan(opts.frame.w);
+    // The editing canvas mirrors the committed slide canvas: a full-slide
+    // surface with the cell positioned at its slide coordinates, so
+    // overflow paints in every direction exactly where the committed
+    // renderer puts it.
+    expect(opts.overflowBounds!.width).toBe(SLIDE_WIDTH);
+    expect(opts.overflowBounds!.height).toBe(SLIDE_HEIGHT);
+    expect(opts.overflowBounds!.left).toBe(opts.frame.x);
+    expect(opts.overflowBounds!.top).toBe(opts.frame.y);
   });
 });
