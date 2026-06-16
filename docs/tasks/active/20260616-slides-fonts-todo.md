@@ -46,10 +46,19 @@ Slides is the driving surface.
 
 ## Phase P1 — "More fonts…" dialog + accumulation
 
-- [ ] Dialog component: search (debounced) + category/script filters.
-- [ ] Virtualized list + IntersectionObserver in-view preview loading.
-- [ ] Per-doc `usedFonts` on Yorkie meta; local `recent` in localStorage.
-- [ ] Wire dropdown to show curated + used + recent; "More fonts…" entry.
+- [x] `more-fonts-dialog.tsx`: search (debounced 150ms) + category +
+      script (All/Korean/Latin) filters. Pure `filterFonts` extracted to
+      `more-fonts-filter.ts` (unit-tested).
+- [x] IntersectionObserver in-view preview loading (single observer
+      rooted on the scroll container; `data-font-row` → `ensureFontLink`).
+      Windowing deferred to P2 where the row count jumps to ~1,800.
+- [x] `font-recents.ts` — localStorage recents (cap 8, dedup, defensive).
+      Per-doc Yorkie `usedFonts` deferred as an app-specific follow-up;
+      recents cover the picker's accumulation need.
+- [x] `FontFamilyPicker`: Recent section + "More fonts…" entry opening
+      the dialog; every pick records a recent. Focus deferral mirrors the
+      dropdown across the menu→dialog hop.
+- [ ] (follow-up) Per-doc `usedFonts` on Yorkie meta (Slides + Docs).
 
 ## Phase P2 — full library
 
