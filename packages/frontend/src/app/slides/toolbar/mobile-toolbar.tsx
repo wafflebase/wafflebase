@@ -53,9 +53,13 @@ import { Toggle } from "@/components/ui/toggle";
 import {
   TextFormatGroup,
   TextParagraphGroup,
+  FontFamilyPicker,
   FontSizePicker,
   useResolvedFontSize,
+  useResolvedFontFamily,
+  ensureFontLink,
 } from "@/components/text-formatting";
+import { applySlideFontFamily } from "./apply-font-family";
 import type { ToolbarState } from "./state";
 import { UndoRedoGroup } from "./global-controls";
 import { ShapeControls } from "./shape-controls";
@@ -219,7 +223,7 @@ function TextEditMobileBar({
         <IconUnderline size={16} />
       </Toggle>
       <ToolbarSeparator className="mx-1" />
-      <TextFormatSheet textEditor={textEditor} />
+      <TextFormatSheet textEditor={textEditor} editor={editor} />
       <div className="flex-1" />
       <button
         type="button"
@@ -438,11 +442,14 @@ function FormatSheet({
 
 function TextFormatSheet({
   textEditor,
+  editor,
 }: {
   textEditor: Extract<ToolbarState, { kind: "text-edit" }>["textEditor"];
+  editor: SlidesEditor | null;
 }) {
   const [open, setOpen] = useState(false);
   const sizeValue = useResolvedFontSize(textEditor);
+  const familyValue = useResolvedFontFamily(textEditor);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -460,8 +467,8 @@ function TextFormatSheet({
         <SheetHeader>
           <SheetTitle>Text formatting</SheetTitle>
           <SheetDescription className="sr-only">
-            Font size, inline format, color, link, list, and alignment
-            controls for the active text box.
+            Font family, size, inline format, color, link, list, and
+            alignment controls for the active text box.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-3 px-4 pb-4">
@@ -474,6 +481,13 @@ function TextFormatSheet({
            * toolbar.
            */}
           <div className="flex flex-wrap items-center gap-1">
+            <FontFamilyPicker
+              value={familyValue}
+              onChange={(family) =>
+                applySlideFontFamily(textEditor, family, editor)
+              }
+              onPrefetch={ensureFontLink}
+            />
             <FontSizePicker
               value={sizeValue}
               onChange={(size) => {

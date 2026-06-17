@@ -1,14 +1,29 @@
 /**
- * Single source of truth for the Docs font-family picker and size presets.
+ * Single source of truth for the shared font-family picker and size
+ * presets (Docs + Slides).
  *
- * v1 keeps the catalog small (14 families) so the picker stays readable
- * and the Google Fonts CSS payload stays under one network request.
- * Future "More fonts…" work extends `FONT_CATALOG` without breaking the
- * picker contract (`value: string`, not a closed union).
+ * The catalog itself lives in `font-catalog.data.ts`, generated from the
+ * authoritative `google/fonts` repo metadata by
+ * `scripts/build-font-catalog.mjs` (re-run on demand, output committed).
+ * The picker contract stays open (`value: string`, not a closed union)
+ * so the future "More fonts…" dialog can write any Google Fonts family.
+ *
+ * Loading model: only `eager` web fonts are requested in the bootstrap
+ * CSS link; the long tail lazy-loads via `ensureFontLink` the first time
+ * a family is picked, hovered, or previewed.
  */
 import { useEffect } from 'react';
+import { FONT_CATALOG_DATA } from './font-catalog.data';
 
-export type FontGroup = 'Korean' | 'Sans-serif' | 'Serif' | 'Monospace';
+export type FontGroup =
+  | 'Korean'
+  | 'Sans-serif'
+  | 'Serif'
+  | 'Monospace'
+  | 'Display'
+  | 'Handwriting';
+
+export type FontLicense = 'OFL' | 'APACHE2' | 'UFL';
 
 export interface FontEntry {
   /** Display label shown in the picker. */
@@ -18,46 +33,37 @@ export interface FontEntry {
   /** Section header in the picker. */
   group: FontGroup;
   /**
-   * Whether the family needs the Google Fonts CSS link at bootstrap and
-   * `FontRegistry.ensureFont()` before paint. Local/system fonts skip both.
+   * Whether the family is served from Google Fonts (needs a CSS link +
+   * `FontRegistry.ensureFont()` before paint) vs a local/system face.
    */
   webFont: boolean;
   /**
-   * Google Fonts `wght@…` axis values to request. Defaults to `'400;700'`
-   * for two-weight families. Display fonts that only ship a single
-   * weight (e.g. `Jua`, `Black Han Sans`) must override this — Google
-   * Fonts returns an error CSS payload when an unavailable weight is
-   * requested, and a single bad family poisons the whole `<link>`.
+   * Google Fonts `wght@…` axis values to request. Defaults to `'400;700'`.
+   * Single-cut faces (e.g. `Lobster`, `Pacifico`, `Black Han Sans`) must
+   * narrow this — Google Fonts returns an error CSS payload when an
+   * unavailable weight is requested, and a single bad family poisons the
+   * whole `<link>`. The generator derives it from real font metadata.
    */
   weights?: string;
+  /**
+   * Open-source license the family ships under (sourced from the
+   * `google/fonts` repo — the webfonts REST API does not expose it). All
+   * three permit web serving and document embedding; carried for the
+   * export-embed notices and per-font display, not for filtering.
+   */
+  license?: FontLicense;
+  /** Google Fonts "subsets" (scripts) the family covers, minus `menu`. */
+  scripts?: string[];
+  /**
+   * Loaded eagerly in the bootstrap CSS link (`true`) vs on demand via
+   * `ensureFontLink` (absent/`false`). Only the small set the editors
+   * shipped before the catalog expansion is eager, so the bootstrap
+   * request stays small while the catalog grows.
+   */
+  eager?: boolean;
 }
 
-export const FONT_CATALOG: readonly FontEntry[] = [
-  // Korean — body text faces (display faces deferred to a later catalog
-  // pass; today's priority is broader coverage for imported PPTX/DOCX
-  // decks, which lean on text bodies, not headlines).
-  { label: '맑은 고딕', family: '맑은 고딕', group: 'Korean', webFont: false },
-  { label: '바탕', family: '바탕', group: 'Korean', webFont: false },
-  { label: 'Noto Sans KR', family: 'Noto Sans KR', group: 'Korean', webFont: true },
-  { label: 'Noto Serif KR', family: 'Noto Serif KR', group: 'Korean', webFont: true },
-  { label: '나눔고딕', family: 'Nanum Gothic', group: 'Korean', webFont: true },
-  { label: '나눔명조', family: 'Nanum Myeongjo', group: 'Korean', webFont: true },
-  { label: 'Gothic A1', family: 'Gothic A1', group: 'Korean', webFont: true },
-  { label: 'Gowun Dodum', family: 'Gowun Dodum', group: 'Korean', webFont: true, weights: '400' },
-  { label: 'Gowun Batang', family: 'Gowun Batang', group: 'Korean', webFont: true },
-  // Sans-serif
-  { label: 'Arial', family: 'Arial', group: 'Sans-serif', webFont: false },
-  { label: 'Helvetica', family: 'Helvetica', group: 'Sans-serif', webFont: false },
-  { label: 'Roboto', family: 'Roboto', group: 'Sans-serif', webFont: true },
-  { label: 'Tahoma', family: 'Tahoma', group: 'Sans-serif', webFont: false },
-  { label: 'Verdana', family: 'Verdana', group: 'Sans-serif', webFont: false },
-  // Serif
-  { label: 'Times New Roman', family: 'Times New Roman', group: 'Serif', webFont: false },
-  { label: 'Georgia', family: 'Georgia', group: 'Serif', webFont: false },
-  { label: 'Cambria', family: 'Cambria', group: 'Serif', webFont: false },
-  // Monospace
-  { label: 'Courier New', family: 'Courier New', group: 'Monospace', webFont: false },
-];
+export const FONT_CATALOG: readonly FontEntry[] = FONT_CATALOG_DATA;
 
 export const FONT_SIZE_PRESETS = [8, 10, 12, 14, 16, 18, 20, 24, 32, 48, 64, 96] as const;
 export type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
@@ -69,19 +75,82 @@ export const LINE_SPACING_PRESETS = [1.0, 1.15, 1.5, 2.0] as const;
 export const LINE_SPACING_MIN = 0.5;
 export const LINE_SPACING_MAX = 10.0;
 
-/** Build the `<link href="…">` URL for the Google Fonts CSS request.
- *  Returns an empty string when no entries have `webFont: true` — callers
- *  should skip injecting the link in that case. */
+/** Case-sensitive index of catalog entries by canonical family name.
+ *  Used by `ensureFontLink` to decide whether a family needs a network
+ *  load (web vs system) and whether the bootstrap link already covers it. */
+const CATALOG_INDEX: ReadonlyMap<string, FontEntry> = new Map(
+  FONT_CATALOG.map((entry) => [entry.family, entry]),
+);
+
+const DEFAULT_WEIGHTS = '400;700';
+
+/** A single `family=Name:wght@…` query segment for the css2 endpoint. */
+function familyParam(family: string, weights?: string): string {
+  return `family=${encodeURIComponent(family)}:wght@${weights ?? DEFAULT_WEIGHTS}`;
+}
+
+/** Assemble a css2 URL from one or more `family=…` segments. */
+function css2Url(params: readonly string[]): string {
+  return `https://fonts.googleapis.com/css2?${params.join('&')}&display=swap`;
+}
+
+/** Build the `<link href="…">` URL for the bootstrap Google Fonts CSS
+ *  request — only the `eager` web fonts (the small set existing
+ *  documents render with). Returns an empty string when none are eager
+ *  (callers skip injecting the link). The long tail loads on demand via
+ *  `ensureFontLink`. */
 export function buildGoogleFontsHref(): string {
-  const webEntries = FONT_CATALOG.filter((f) => f.webFont);
+  const webEntries = FONT_CATALOG.filter((f) => f.webFont && f.eager);
   if (webEntries.length === 0) return '';
-  const params = webEntries
-    .map(
-      (entry) =>
-        `family=${encodeURIComponent(entry.family)}:wght@${entry.weights ?? '400;700'}`,
-    )
-    .join('&');
-  return `https://fonts.googleapis.com/css2?${params}&display=swap`;
+  return css2Url(webEntries.map((entry) => familyParam(entry.family, entry.weights)));
+}
+
+/** Find an already-injected per-family link, matching by the
+ *  `data-wafflebase-font` attribute rather than an id so the lookup is
+ *  robust for any family-name charset (Korean families included) and
+ *  survives HMR module reloads (the DOM, not module state, is the
+ *  source of truth). */
+function findFontLink(family: string): HTMLLinkElement | null {
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font]',
+  );
+  for (const link of links) {
+    if (link.dataset.wafflebaseFont === family) return link;
+  }
+  return null;
+}
+
+/**
+ * On-demand counterpart to `ensureGoogleFontsLink`: inject a per-family
+ * Google Fonts CSS `<link>` the first time a non-bootstrap family is
+ * needed (picker hover, selection, or in-view preview in the "More
+ * fonts…" dialog). After the CSS link resolves, `FontRegistry.ensureFont`
+ * (`@wafflebase/docs`) can `document.fonts.load()` the face and trigger
+ * a Canvas re-layout.
+ *
+ * No-ops when:
+ *   - running under SSR (no `document`);
+ *   - the family is a known SYSTEM font (`webFont: false`) — there is no
+ *     web face to fetch;
+ *   - the family is an `eager` web font already in the bootstrap link —
+ *     a second request would be redundant;
+ *   - a link for this family is already present (idempotent / HMR-safe).
+ *
+ * Unknown families (e.g. an arbitrary Google Font chosen from the full
+ * library) load with their provided `weights`, or `400;700` by default.
+ */
+export function ensureFontLink(family: string, weights?: string): void {
+  if (typeof document === 'undefined') return;
+  const entry = CATALOG_INDEX.get(family);
+  if (entry && !entry.webFont) return; // system font: nothing to fetch
+  if (entry && entry.eager) return; // already in bootstrap link
+  if (findFontLink(family)) return;
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.dataset.wafflebaseFont = family;
+  link.href = css2Url([familyParam(family, weights ?? entry?.weights)]);
+  document.head.appendChild(link);
 }
 
 /**

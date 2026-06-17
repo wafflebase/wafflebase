@@ -59,6 +59,7 @@ import {
   FontSizePicker,
   LineSpacingPicker,
   InsertLinkButton,
+  ensureFontLink,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { isMac, modKey } from "@/components/text-formatting/platform";
@@ -337,6 +338,10 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
   // adding a typing dependency on a yet-to-be-wired field.
   const ensureFont = (family: string) => {
     if (!editor) return;
+    // Inject the per-family Google Fonts <link> first so the @font-face
+    // exists before the registry's document.fonts.load(). No-ops for
+    // curated/system families already covered by the bootstrap link.
+    ensureFontLink(family);
     const store = editor.getStore() as unknown as {
       fonts?: { ensureFont?: (f: string) => void };
     };
