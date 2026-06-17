@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import type { Theme, ThemeColor } from "@wafflebase/slides";
 import {
   PICKER_THEME_ROLES,
@@ -17,7 +17,31 @@ interface ThemedColorPickerProps {
   value: ThemeColor | undefined;
   /** Active document theme; supplies the twelve role swatch colors. */
   theme: Theme;
-  onChange: (color: ThemeColor) => void;
+  /**
+   * Emits the chosen color. Two independent flags qualify the emission:
+   *
+   *   - `commit`  a discrete final pick (swatch click) — the call site
+   *               closes the popover. Custom-input changes never set it,
+   *               so dragging / typing in the native `<input type="color">`
+   *               (which fires `onChange` continuously) keeps the palette
+   *               open until the user clicks away.
+   *   - `record`  the color should be added to recent colors. Set on
+   *               swatch clicks and on the custom input's `onBlur` (the
+   *               "done" signal). Recording is decoupled from `commit` so
+   *               the custom path records without closing — closing on
+   *               blur would race the click of any swatch tapped next.
+   *
+   * Only srgb colors are actually recorded; call sites skip role colors.
+   */
+  onChange: (
+    color: ThemeColor,
+    opts?: { commit?: boolean; record?: boolean },
+  ) => void;
+  /**
+   * Recently used srgb hex colors, most-recent-first. Rendered as a
+   * "Recent" row above Standard when non-empty. Defaults to none.
+   */
+  recentColors?: readonly string[];
   /**
    * Optional advisory shown above the swatches when the picker can't
    * apply to anything (e.g. no element selected). The picker still
@@ -41,12 +65,19 @@ export function ThemedColorPicker({
   value,
   theme,
   onChange,
+  recentColors,
   hint,
 }: ThemedColorPickerProps) {
   // `useId()` so two pickers (e.g. nested popovers, harness scenarios
   // that render Color and Font side by side) don't generate duplicate
   // DOM ids.
   const customColorId = useId();
+  // The native `<input type="color">` fires `onBlur` whenever focus leaves,
+  // even if the OS dialog was opened and cancelled without a pick. Re-applying
+  // its value then would clobber a role/theme fill with the input's default
+  // `#000000`. Track whether a live change actually happened since focus, and
+  // only record on blur when it did.
+  const customDirty = useRef(false);
   const isSrgbSelected = (hex: string) =>
     value?.kind === "srgb" && value.value.toLowerCase() === hex.toLowerCase();
 
@@ -71,7 +102,9 @@ export function ThemedColorPicker({
               aria-label={role}
               aria-pressed={selected}
               title={role}
-              onClick={() => onChange(makeRoleColor(role))}
+              onClick={() =>
+                onChange(makeRoleColor(role), { commit: true, record: true })
+              }
               className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
                 selected
                   ? "border-foreground ring-2 ring-ring/50"
@@ -82,6 +115,40 @@ export function ThemedColorPicker({
           );
         })}
       </div>
+
+      {recentColors && recentColors.length > 0 && (
+        <>
+          <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Recent
+          </p>
+          <div className="mb-2 grid grid-cols-8 gap-1">
+            {recentColors.map((hex) => {
+              const selected = isSrgbSelected(hex);
+              return (
+                <button
+                  key={hex}
+                  type="button"
+                  aria-label={`Recent color ${hex}`}
+                  aria-pressed={selected}
+                  title={hex}
+                  onClick={() =>
+                    onChange(makeSrgbColor(hex), {
+                      commit: true,
+                      record: true,
+                    })
+                  }
+                  className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
+                    selected
+                      ? "border-foreground ring-2 ring-ring/50"
+                      : "border-border"
+                  }`}
+                  style={{ backgroundColor: hex }}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         Standard
@@ -96,7 +163,9 @@ export function ThemedColorPicker({
               aria-label={`Color ${hex}`}
               aria-pressed={selected}
               title={hex}
-              onClick={() => onChange(makeSrgbColor(hex))}
+              onClick={() =>
+                onChange(makeSrgbColor(hex), { commit: true, record: true })
+              }
               className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
                 selected
                   ? "border-foreground ring-2 ring-ring/50"
@@ -125,7 +194,26 @@ export function ThemedColorPicker({
           type="color"
           aria-label="Custom color"
           value={value?.kind === "srgb" ? value.value : "#000000"}
-          onChange={(e) => onChange(makeSrgbColor(e.target.value))}
+          // `onChange` fires continuously while the user drags / types in
+          // the native picker — apply it live (no commit, no record) so the
+          // palette stays open. `onFocus` arms the dirty flag per OS-dialog
+          // session; `onBlur` is the "done" signal: record the recent color
+          // only if a live change actually happened (so cancelling the OS
+          // dialog can't clobber a role fill), and never close here —
+          // closing would race the click of any swatch tapped next, so
+          // outside-click closes instead.
+          onFocus={() => {
+            customDirty.current = false;
+          }}
+          onChange={(e) => {
+            customDirty.current = true;
+            onChange(makeSrgbColor(e.target.value));
+          }}
+          onBlur={(e) => {
+            if (!customDirty.current) return;
+            customDirty.current = false;
+            onChange(makeSrgbColor(e.target.value), { record: true });
+          }}
           className="h-7 w-full cursor-pointer rounded border border-border bg-transparent"
         />
       </div>

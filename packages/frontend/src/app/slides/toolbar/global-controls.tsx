@@ -137,27 +137,38 @@ export function RightGlobals({
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const backgroundMenu = useMenuCloseHandlers(releaseFocusToBody);
   const onBackgroundChange = useCallback(
-    (color: ThemeColor) => {
+    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId) return;
-      store.batch(() => store.updateSlideBackground(slideId, { fill: color }));
-      backgroundMenu.markSwatchClicked();
-      setBackgroundOpen(false);
+      store.batch(() => {
+        store.updateSlideBackground(slideId, { fill: color });
+        if (opts?.record && color.kind === 'srgb') {
+          store.pushRecentColor(color.value);
+        }
+      });
+      // Only a discrete swatch pick closes the palette; live custom-input
+      // changes (and the custom blur, which records only) keep it open.
+      if (opts?.commit) {
+        backgroundMenu.markSwatchClicked();
+        setBackgroundOpen(false);
+      }
     },
     [store, slideId, backgroundMenu],
   );
 
   const hasSlideStyleGroup = !!store;
 
-  // Resolve the current slide's background fill to a CSS color string so
-  // the swatch button's stripe always reflects what the user is about to
-  // change. Falls back to undefined (renders as the empty outlined slot)
-  // when nothing is known yet.
-  const currentBackground = useMemo(() => {
+  // Read the current slide's background fill once: the raw ThemeColor drives
+  // the picker's "active" swatch marker, and its resolved CSS string drives
+  // the swatch button's stripe. Both fall back to undefined (empty outlined
+  // slot / no marker) when nothing is known yet.
+  const backgroundFill = useMemo(() => {
     if (!store || !slideId || !theme) return undefined;
     const slide = store.read().slides.find((s) => s.id === slideId);
-    const fill = slide?.background?.fill;
-    return fill ? resolveColor(fill, theme) : undefined;
+    return slide?.background?.fill;
   }, [store, slideId, theme]);
+  const currentBackground = backgroundFill
+    ? resolveColor(backgroundFill, theme!)
+    : undefined;
 
   return (
     <div
@@ -186,9 +197,10 @@ export function RightGlobals({
           >
             {theme && (
               <ThemedColorPicker
-                value={undefined}
+                value={backgroundFill}
                 theme={theme}
                 onChange={onBackgroundChange}
+                recentColors={store?.read().meta.recentColors}
               />
             )}
           </DropdownMenuContent>

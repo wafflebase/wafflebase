@@ -22,7 +22,7 @@ import type {
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
-import { DEFAULT_BACKGROUND } from '../model/presentation';
+import { DEFAULT_BACKGROUND, pushRecent } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
@@ -288,6 +288,14 @@ export class MemSlidesStore implements SlidesStore {
       throw new Error(`[slides] invalid unit '${unit}'`);
     }
     this.doc.meta.unit = unit;
+  }
+
+  pushRecentColor(hex: string): void {
+    this.requireBatch();
+    this.doc.meta.recentColors = pushRecent(
+      this.doc.meta.recentColors ?? [],
+      hex,
+    );
   }
 
   applyLayout(slideId: string, layoutId: string): void {

@@ -134,12 +134,31 @@ export function TableControls({
   );
 
   const applyFill = useCallback(
-    (color: ThemeColor) => {
-      applyStyle({ fill: color });
-      fillMenu.markSwatchClicked();
-      setFillOpen(false);
+    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
+      if (!store || !slideId) return;
+      const cells = targetCells();
+      if (cells.length === 0) return;
+      // Single batch so the fill and the recent-color push share one
+      // undo unit (can't call pushRecentColor after applyStyle's batch
+      // closes — pushRecentColor itself requires an open batch).
+      store.batch(() => {
+        for (const { row, col } of cells) {
+          store.updateTableCellStyle(slideId, tableId, row, col, {
+            fill: color,
+          });
+        }
+        if (opts?.record && color.kind === 'srgb') {
+          store.pushRecentColor(color.value);
+        }
+      });
+      // Only a discrete swatch pick closes the palette; live custom-input
+      // changes (and the custom blur, which records only) keep it open.
+      if (opts?.commit) {
+        fillMenu.markSwatchClicked();
+        setFillOpen(false);
+      }
     },
-    [applyStyle, fillMenu],
+    [store, slideId, tableId, targetCells, fillMenu],
   );
 
   /**
@@ -235,6 +254,7 @@ export function TableControls({
                     : undefined
                 }
                 onChange={applyFill}
+                recentColors={store?.read().meta.recentColors}
               />
               <DropdownMenuItem
                 onSelect={() => {

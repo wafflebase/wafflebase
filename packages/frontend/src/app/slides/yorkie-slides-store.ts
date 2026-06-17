@@ -42,6 +42,7 @@ import {
   groupToTransform,
   migrateDocument,
   normalizeToGroupLocal,
+  pushRecent,
   resolveEndpoint,
   seedPlaceholderBlocks,
   slotRefsForLayout,
@@ -838,6 +839,23 @@ export class YorkieSlidesStore implements SlidesStore {
     }
     this.doc.update((r) => {
       r.meta.unit = unit;
+    });
+  }
+
+  pushRecentColor(hex: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const meta = r.meta as { recentColors?: ArrayLike<string> };
+      // Read the existing entries by index rather than `yorkieToPlain`:
+      // a live CRDT array proxy inside `doc.update` throws on `toJSON`
+      // (it only serializes cleanly outside a mutation context). Index
+      // access / `.length` mirror how guides are read in `removeGuide`.
+      const existing: string[] = [];
+      const arr = meta.recentColors;
+      if (arr) {
+        for (let i = 0; i < arr.length; i++) existing.push(String(arr[i]));
+      }
+      meta.recentColors = pushRecent(existing, hex);
     });
   }
 

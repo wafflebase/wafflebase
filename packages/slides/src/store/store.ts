@@ -57,6 +57,14 @@ export interface SlidesStore {
    */
   setUnit(unit: 'in' | 'cm'): void;
 
+  /**
+   * Record a recently used srgb color (hex) on `meta.recentColors`,
+   * most-recent-first, de-duped and capped at `MAX_RECENT_COLORS`.
+   * Persisted per document so collaborators share the same recents.
+   * Only srgb colors are recorded — role colors are theme-relative.
+   */
+  pushRecentColor(hex: string): void;
+
   // --- element-level ---
 
   /**

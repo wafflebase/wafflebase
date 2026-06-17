@@ -58,7 +58,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
   const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
 
   const onFillChange = useCallback(
-    (color: ThemeColor) => {
+    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
       store.batch(() => {
         for (const id of ids) {
@@ -67,15 +67,22 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
             store.updateElementData(slideId, id, { fill: color });
           }
         }
+        if (opts?.record && color.kind === 'srgb') {
+          store.pushRecentColor(color.value);
+        }
       });
-      fillMenu.markSwatchClicked();
-      setFillOpen(false);
+      // Only a discrete swatch pick closes the palette; live custom-input
+      // changes (and the custom blur, which records only) keep it open.
+      if (opts?.commit) {
+        fillMenu.markSwatchClicked();
+        setFillOpen(false);
+      }
     },
     [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
-    (stroke: Stroke | undefined) => {
+    (stroke: Stroke | undefined, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
       store.batch(() => {
         for (const id of ids) {
@@ -86,6 +93,13 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           } else if (el.type === 'connector') {
             store.updateConnectorStroke(slideId, id, stroke);
           }
+        }
+        if (
+          opts?.record &&
+          typeof stroke?.color === 'object' &&
+          stroke.color.kind === 'srgb'
+        ) {
+          store.pushRecentColor(stroke.color.value);
         }
       });
     },
@@ -139,6 +153,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
                 }
                 theme={theme}
                 onChange={onFillChange}
+                recentColors={store?.read().meta.recentColors}
               />
             )}
           </DropdownMenuContent>
@@ -148,6 +163,7 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         value={firstStroke}
         theme={theme}
         onChange={onStrokeChange}
+        recentColors={store?.read().meta.recentColors}
         disabled={!store || !slideId}
       />
     </>

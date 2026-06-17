@@ -21,7 +21,13 @@ export type {
   Slide,
   SlidesDocument,
 } from './model/presentation';
-export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentation';
+export {
+  DEFAULT_BACKGROUND,
+  MAX_RECENT_COLORS,
+  pushRecent,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+} from './model/presentation';
 
 export type {
   Theme,

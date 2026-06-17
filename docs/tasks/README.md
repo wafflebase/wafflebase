@@ -18,9 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides rich fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | - |
+| slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./active/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./active/20260617-slides-color-picker-recent-lessons.md) |
 | slides cell edit overflow (2026-06-16) | [20260616-slides-cell-edit-overflow-todo.md](./active/20260616-slides-cell-edit-overflow-todo.md) | [20260616-slides-cell-edit-overflow-lessons.md](./active/20260616-slides-cell-edit-overflow-lessons.md) |
 | slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./active/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./active/20260616-slides-cell-edit-shrink-lessons.md) |
+| slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
 | slides shared mobile view (2026-06-16) | [20260616-slides-shared-mobile-view-todo.md](./active/20260616-slides-shared-mobile-view-todo.md) | - |
 | slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./active/20260615-slides-textbox-border-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
@@ -37,4 +38,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 273
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides cell edit overflow (2026-06-16)
+Latest active task: slides color picker recent (2026-06-17)

@@ -112,4 +112,53 @@ describe('migrateDocument', () => {
     const twice = migrateDocument(once);
     expect(twice).toEqual(once);
   });
+
+  it('preserves recentColors, normalizing case/dupes/cap on read', () => {
+    const doc = {
+      meta: {
+        title: 'Old',
+        // mixed case + duplicate + non-string + 11 entries (over the cap)
+        recentColors: [
+          '#FF0000',
+          '#ff0000',
+          42,
+          '#00ff00',
+          '#0000ff',
+          '#111111',
+          '#222222',
+          '#333333',
+          '#444444',
+          '#555555',
+          '#666666',
+        ],
+      },
+      slides: [],
+      layouts: [],
+    } as any;
+    const out = migrateDocument(doc);
+    expect(out.meta.recentColors).toEqual([
+      '#ff0000',
+      '#00ff00',
+      '#0000ff',
+      '#111111',
+      '#222222',
+      '#333333',
+      '#444444',
+      '#555555',
+    ]);
+  });
+
+  it('omits recentColors when absent or empty', () => {
+    expect(
+      migrateDocument({ meta: { title: 'x' }, slides: [], layouts: [] } as any)
+        .meta.recentColors,
+    ).toBeUndefined();
+    expect(
+      migrateDocument({
+        meta: { title: 'x', recentColors: [] },
+        slides: [],
+        layouts: [],
+      } as any).meta.recentColors,
+    ).toBeUndefined();
+  });
 });

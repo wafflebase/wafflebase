@@ -62,7 +62,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
 
   const onBackgroundFill = useCallback(
-    (color: ThemeColor) => {
+    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
       store.batch(() => {
         for (const id of ids) {
@@ -71,15 +71,22 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
             store.updateElementData(slideId, id, { fill: color });
           }
         }
+        if (opts?.record && color.kind === 'srgb') {
+          store.pushRecentColor(color.value);
+        }
       });
-      fillMenu.markSwatchClicked();
-      setFillOpen(false);
+      // Only a discrete swatch pick closes the palette; live custom-input
+      // changes (and the custom blur, which records only) keep it open.
+      if (opts?.commit) {
+        fillMenu.markSwatchClicked();
+        setFillOpen(false);
+      }
     },
     [store, slideId, slide, ids, fillMenu],
   );
 
   const onStrokeChange = useCallback(
-    (stroke: Stroke | undefined) => {
+    (stroke: Stroke | undefined, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
       store.batch(() => {
         for (const id of ids) {
@@ -87,6 +94,13 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
           if (el?.type === 'text') {
             store.updateElementData(slideId, id, { stroke });
           }
+        }
+        if (
+          opts?.record &&
+          typeof stroke?.color === 'object' &&
+          stroke.color.kind === 'srgb'
+        ) {
+          store.pushRecentColor(stroke.color.value);
         }
       });
     },
@@ -125,6 +139,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
               value={firstElement?.data.fill}
               theme={theme}
               onChange={onBackgroundFill}
+              recentColors={store?.read().meta.recentColors}
             />
           )}
         </DropdownMenuContent>
@@ -134,6 +149,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
         value={firstElement?.data.stroke}
         theme={theme}
         onChange={onStrokeChange}
+        recentColors={store?.read().meta.recentColors}
         disabled={!store || !slideId}
       />
     </>
