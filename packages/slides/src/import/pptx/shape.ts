@@ -479,6 +479,11 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   // `<a:blipFill>` is handled by the image branch above.)
   const custGeom = spPr ? child(spPr, 'custGeom') : undefined;
   if (custGeom) {
+    // Only emit when there's actual geometry. A custGeom with an empty /
+    // unparseable `<a:pathLst>` has nothing to render; emitting a path-less
+    // freeform would resurrect the "phantom shape" the blipFill-fallback
+    // path deliberately drops (see shape-blipfill.test.ts). Shapes with a
+    // real path are kept — that is the silent-loss bug this branch fixes.
     const path = parseCustGeomPath(custGeom);
     if (path) {
       const shape = buildFreeformElement(elementId, frame, sp, path, ctx);

@@ -109,6 +109,10 @@ export function parseCustGeomPath(custGeom: Element): FreeformPath | undefined {
           if (wR == null || hR == null || stAngRaw == null || swAngRaw == null) {
             break;
           }
+          // A non-positive radius is malformed and would make
+          // `Path2D.ellipse` throw at render time (negative radius), so
+          // skip the segment rather than poison the whole shape's paint.
+          if (wR <= 0 || hR <= 0) break;
           const start = angToRad(stAngRaw);
           const sweep = angToRad(swAngRaw);
           // Derive the ellipse centre so it passes through the current

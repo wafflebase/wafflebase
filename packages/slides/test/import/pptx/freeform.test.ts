@@ -53,6 +53,7 @@ describe('parseCustGeomPath', () => {
         </a:path>
       </a:pathLst>`);
     const path = parseCustGeomPath(el);
+    expect(path).toBeDefined();
     expect(path!.commands).toEqual([
       { c: 'M', x: 0, y: 0 },
       { c: 'Q', x1: 0.5, y1: 1, x: 1, y: 0 },
