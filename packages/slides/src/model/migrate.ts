@@ -1,4 +1,5 @@
 import type { Guide, GuideAxis, SlidesDocument } from './presentation';
+import { MAX_RECENT_COLORS } from './presentation';
 import type { ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
 import { generateId } from './element';
@@ -29,6 +30,24 @@ export function migrateDocument(input: unknown): SlidesDocument {
     raw.meta.pxPerPt > 0
   ) {
     meta.pxPerPt = raw.meta.pxPerPt;
+  }
+  // Preserve recent colors. Like unit/pxPerPt, `migrateDocument` runs on
+  // every Yorkie read, so without the copy the list would be dropped each
+  // time. Re-enforce the same normalization `pushRecent` applies on write
+  // (lower-case, de-dupe most-recent-first, cap at MAX_RECENT_COLORS) so an
+  // externally-authored or pre-cap deck can't surface a malformed list.
+  if (Array.isArray(raw?.meta?.recentColors)) {
+    const seen = new Set<string>();
+    const colors: string[] = [];
+    for (const c of raw.meta.recentColors) {
+      if (typeof c !== 'string') continue;
+      const norm = c.toLowerCase();
+      if (seen.has(norm)) continue;
+      seen.add(norm);
+      colors.push(norm);
+      if (colors.length >= MAX_RECENT_COLORS) break;
+    }
+    if (colors.length > 0) meta.recentColors = colors;
   }
   const themes = Array.isArray(raw?.themes) && raw.themes.length > 0
     ? raw.themes

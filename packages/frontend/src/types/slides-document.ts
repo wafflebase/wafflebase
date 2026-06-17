@@ -48,6 +48,13 @@ export interface YorkieSlidesRoot {
      * docs default (96 DPI), preserving prior visuals.
      */
     pxPerPt?: number;
+    /**
+     * Recently used srgb colors (hex), most-recent-first, capped at
+     * `MAX_RECENT_COLORS`. Matches `Meta.recentColors` in
+     * @wafflebase/slides. Persisted per document so collaborators share
+     * the same recents. Absent on documents authored before this landed.
+     */
+    recentColors?: string[];
   };
   slides: YorkieSlide[];
   layouts: YorkieLayout[];

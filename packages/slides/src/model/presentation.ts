@@ -68,7 +68,31 @@ export type Meta = {
    * fallback means none of them visually shift after this lands.
    */
   pxPerPt?: number;
+  /**
+   * Recently used custom/standard colors as srgb hex strings, most
+   * recent first, capped at {@link MAX_RECENT_COLORS}. Persisted per
+   * document so collaborators share the same recents. Role colors are
+   * intentionally excluded — they are theme-relative, so pinning one as
+   * a "recent color" would lose its meaning when the theme changes.
+   */
+  recentColors?: string[];
 };
+
+/** Maximum number of {@link Meta.recentColors} entries kept. */
+export const MAX_RECENT_COLORS = 8;
+
+/**
+ * Return `list` with `hex` moved to the front as the most-recently-used
+ * color: case-insensitive de-dupe, then cap at {@link MAX_RECENT_COLORS}.
+ * Pure — callers assign the result onto `meta.recentColors`.
+ */
+export function pushRecent(list: readonly string[], hex: string): string[] {
+  const norm = hex.toLowerCase();
+  return [norm, ...list.filter((c) => c.toLowerCase() !== norm)].slice(
+    0,
+    MAX_RECENT_COLORS,
+  );
+}
 
 /**
  * docs `paintLayout` uses `pt × 96/72` to convert points to px. Slides
