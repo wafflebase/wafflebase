@@ -1,5 +1,6 @@
 import type {
   Element as SlideElement,
+  FreeformPath,
   GroupElement,
   ImageElement,
   PlaceholderRef,
@@ -30,6 +31,7 @@ import {
   IDENTITY_TRANSFORM,
   type GroupTransform,
 } from './group';
+import { parseCustGeomPath } from './freeform';
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { ImportReport } from './report';
 import { parseTable } from './table';
@@ -469,6 +471,25 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
     return [shape];
   }
 
+  // Shape with `<a:custGeom>` — a freeform/path shape. PowerPoint exports
+  // decorative blobs, doodles, and silhouettes as custom geometry; without
+  // a branch here they match nothing below and are silently dropped. Emit
+  // a `freeform` ShapeElement carrying the normalized vector path so the
+  // fill/stroke (and any inline text) render. (custGeom that also has a
+  // `<a:blipFill>` is handled by the image branch above.)
+  const custGeom = spPr ? child(spPr, 'custGeom') : undefined;
+  if (custGeom) {
+    const path = parseCustGeomPath(custGeom);
+    if (path) {
+      const shape = buildFreeformElement(elementId, frame, sp, path, ctx);
+      if (hasText) {
+        shape.data.text = buildTextBody(txBody!, ctx, placeholderRef, layoutSizeKey);
+      }
+      if (placeholderRef) shape.placeholderRef = placeholderRef;
+      return [shape];
+    }
+  }
+
   // No prstGeom but has text — treat as plain text box.
   if (txBody) {
     return [buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey)];
@@ -669,6 +690,30 @@ function buildShapeElement(
     data: {
       kind,
       ...(adjustments ? { adjustments } : {}),
+      ...(fill ? { fill } : {}),
+      ...(stroke ? { stroke } : {}),
+    },
+  };
+}
+
+function buildFreeformElement(
+  id: string,
+  frame: SlideElement['frame'],
+  sp: Element,
+  path: FreeformPath,
+  ctx: SlideParseContext,
+): ShapeElement {
+  const spPr = child(sp, 'spPr');
+  const fill = parseShapeFill(spPr, ctx);
+  const stroke = parseShapeStroke(spPr, ctx);
+
+  return {
+    id,
+    type: 'shape',
+    frame,
+    data: {
+      kind: 'freeform',
+      path,
       ...(fill ? { fill } : {}),
       ...(stroke ? { stroke } : {}),
     },

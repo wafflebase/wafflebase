@@ -81,7 +81,36 @@ export type ShapeKind =
   | 'actionButtonEnd' | 'actionButtonHome'
   | 'actionButtonInformation' | 'actionButtonReturn'
   | 'actionButtonMovie' | 'actionButtonSound'
-  | 'actionButtonDocument' | 'actionButtonHelp';
+  | 'actionButtonDocument' | 'actionButtonHelp'
+  // Freeform — arbitrary vector path imported from OOXML `<a:custGeom>`.
+  // Unlike every other kind it has no parametric `PathBuilder`; its
+  // geometry lives in `ShapeElement.data.path` (see {@link FreeformPath}).
+  | 'freeform';
+
+/**
+ * One command of a {@link FreeformPath}, mirroring an OOXML
+ * `<a:custGeom>/<a:path>` segment. All coordinates are **normalized to
+ * `[0, 1]`** of the path's own viewBox (the `<a:path w h>` extents) so the
+ * renderer can scale a single stored path to any frame size, exactly the
+ * way parametric builders scale to `FrameSize`.
+ *
+ * - `M` moveTo · `L` lineTo · `Q` quadratic Bézier · `C` cubic Bézier
+ * - `A` elliptical arc (`<a:arcTo>` reduced to a centre-parametrised arc:
+ *   centre `cx,cy`, radii `rx,ry`, `start`/`sweep` in radians)
+ * - `Z` closePath
+ */
+export type FreeformCommand =
+  | { c: 'M'; x: number; y: number }
+  | { c: 'L'; x: number; y: number }
+  | { c: 'Q'; x1: number; y1: number; x: number; y: number }
+  | { c: 'C'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { c: 'A'; cx: number; cy: number; rx: number; ry: number; start: number; sweep: number }
+  | { c: 'Z' };
+
+/** Normalized vector geometry backing a `'freeform'` ShapeElement. */
+export type FreeformPath = {
+  commands: FreeformCommand[];
+};
 
 /**
  * Stroke descriptor shared by ShapeElement, TextElement, and ConnectorElement.
@@ -203,6 +232,14 @@ export type ShapeElement = ElementBase & {
      * thousandths of the relevant dimension).
      */
     adjustments?: number[];
+    /**
+     * Vector geometry for `kind === 'freeform'` shapes (OOXML
+     * `<a:custGeom>`). Absent for every parametric kind, which derives
+     * its path from `kind` + `adjustments` via a `PathBuilder`. Stored
+     * normalized to `[0, 1]` so it scales with the frame. See
+     * {@link FreeformPath}.
+     */
+    path?: FreeformPath;
     fill?: ThemeColor;
     stroke?: Stroke;
     /**
