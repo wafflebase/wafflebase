@@ -101,6 +101,40 @@ describe('drawShape — unknown kind fallback', () => {
   });
 });
 
+describe('drawShape — freeform', () => {
+  const triangle = {
+    commands: [
+      { c: 'M' as const, x: 0, y: 0 },
+      { c: 'L' as const, x: 1, y: 1 },
+      { c: 'L' as const, x: 0, y: 1 },
+      { c: 'Z' as const },
+    ],
+  };
+
+  it('fills the freeform path with the given fill', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({ kind: 'freeform', path: triangle, fill: srgb('#4b6bf5') }), THEME);
+    expect(ctx.fillStyle).toBe('#4b6bf5');
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
+  });
+
+  it('strokes the freeform path when stroke is set', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({
+      kind: 'freeform', path: triangle, stroke: { color: srgb('#000'), width: 2 },
+    }), THEME);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    expect(ctx.stroke.mock.calls[0][0]).toBeInstanceOf(Path2D);
+  });
+
+  it('falls back to a placeholder rect when path is missing', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({ kind: 'freeform', fill: srgb('#abc') }), THEME);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+  });
+});
+
 describe('drawShape — donut (evenodd fill rule)', () => {
   it('passes the evenodd fill rule to ctx.fill so the hole shows', () => {
     const ctx = createCtxSpy();

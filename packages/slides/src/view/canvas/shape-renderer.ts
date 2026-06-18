@@ -5,6 +5,7 @@ import { resolveStrokeColor } from './render-context';
 import { PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
+import { buildFreeformPath } from './shapes/freeform';
 import { paintTextBody } from './text-renderer';
 
 export type { FrameSize } from './shapes/builder';
@@ -86,6 +87,19 @@ export function drawShape(
     return;
   }
 
+  // Freeform (`<a:custGeom>`) — geometry is data-driven, not parametric.
+  // Fall back to a placeholder rect if the path is somehow missing so the
+  // slide still renders something at the frame. Filled with the default
+  // nonzero winding rule, matching PowerPoint's custGeom rendering.
+  if (data.kind === 'freeform') {
+    if (!data.path) {
+      drawPlaceholderRect(ctx, size, data, theme);
+      return;
+    }
+    paintFillStroke(ctx, buildFreeformPath(size, data.path), data, theme);
+    return;
+  }
+
   const builder = PATH_BUILDERS.get(data.kind);
   if (!builder) {
     if (!placeholderWarned.has(data.kind)) {
@@ -98,17 +112,35 @@ export function drawShape(
     drawPlaceholderRect(ctx, size, data, theme);
     return;
   }
-  const path = builder(size, data.adjustments);
-  if (data.fill && !OPEN_PATH_KINDS.has(data.kind)) {
+  paintFillStroke(ctx, builder(size, data.adjustments), data, theme, {
+    skipFill: OPEN_PATH_KINDS.has(data.kind),
+    fillRule: EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero',
+  });
+}
+
+/**
+ * Paint a path's fill + stroke from a shape's `data`, the one place that
+ * maps `data.fill`/`data.stroke` onto the canvas for every Path2D-based
+ * kind (parametric and freeform). `skipFill` suppresses the auto-closing
+ * fill for open-path kinds (brackets/braces); `fillRule` selects even-odd
+ * winding for kinds with real holes (donut/noSmoking). Round joins keep
+ * concave corners (e.g. plus / mathPlus inner notches) from sprouting
+ * miter spikes.
+ */
+function paintFillStroke(
+  ctx: CanvasRenderingContext2D,
+  path: Path2D,
+  data: ShapeElement['data'],
+  theme: Theme,
+  opts?: { skipFill?: boolean; fillRule?: CanvasFillRule },
+): void {
+  if (data.fill && !opts?.skipFill) {
     ctx.fillStyle = resolveColor(data.fill, theme);
-    ctx.fill(path, EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero');
+    ctx.fill(path, opts?.fillRule ?? 'nonzero');
   }
   if (data.stroke) {
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
-    // Round joins so concave corners (e.g. plus / mathPlus inner
-    // notches) don't sprout miter spikes that look like a small
-    // square at the cross's centre.
     ctx.lineJoin = 'round';
     ctx.stroke(path);
   }
