@@ -328,6 +328,14 @@ Key semantics:
   to the caller. `MemSlidesStore` stores blocks directly without a
   Tree, mirroring how docs' in-memory store works.
 
+  > **Implementation status (diverges from the above).** As shipped,
+  > text/shape/table-cell bodies and `Slide.notes` are stored as plain
+  > `Block[]` and written last-write-wins on commit (blur), **not** as
+  > Yorkie Trees — so concurrent edits to the same text body clobber
+  > rather than merge. See
+  > [slides-collaboration.md](slides-collaboration.md) for the current
+  > state and the remaining Tree-migration work.
+
 #### Undo grouping (batch boundaries)
 
 `store.batch(fn)` defines exactly one undo entry. The editor uses
@@ -344,6 +352,12 @@ these batch boundaries:
   elements) wrap their inner mutations in a single `batch`.
 
 ### Presence
+
+> **Implementation status.** The shape below is design intent. As
+> shipped, presence broadcasts only `activeSlideId` +
+> `selectedElementIds`; `textCursor` / live drag frames are not
+> broadcast, and no peer cursors or selection rings render yet. See
+> [slides-collaboration.md](slides-collaboration.md) (Gap 3).
 
 ```ts
 type SlidesPresence = {

@@ -7,6 +7,7 @@ import {
   SLIDE_HEIGHT,
   type SlidesEditor,
   type ThumbnailPanelHandle,
+  type NotesPanelHandle,
 } from "@wafflebase/slides";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
@@ -581,6 +582,7 @@ export function SlidesView({
     // that closure read whichever value the assignment below has
     // installed by the time the event arrives.
     let thumbHandle: ThumbnailPanelHandle | null = null;
+    let notesHandle: NotesPanelHandle | null = null;
     const editor = initializeEditor({
       canvas,
       overlay,
@@ -876,7 +878,9 @@ export function SlidesView({
       editor,
       { readOnly: readOnlyMount },
     );
-    mountNotesPanel(notesHost, store, editor, { readOnly: readOnlyMount });
+    notesHandle = mountNotesPanel(notesHost, store, editor, {
+      readOnly: readOnlyMount,
+    });
 
     // Re-render on ANY store change — local batch commits OR remote
     // changes pushed in by another peer.
@@ -951,6 +955,7 @@ export function SlidesView({
       offSlide();
       offChange();
       thumbHandle?.dispose();
+      notesHandle?.dispose();
       editor.detach();
       store.dispose();
       editorRef.current = null;

@@ -64,12 +64,25 @@ export function mountNotesPanel(
   ta.style.fontSize = '14px';
   container.appendChild(ta);
 
-  const sync = (): void => {
+  const sync = (opts: { fromRemote?: boolean } = {}): void => {
+    // The focus guard applies ONLY to remote (store.onChange) syncs: a
+    // peer's commit fires mid-keystroke, and overwriting `ta.value`
+    // here would reset the caret and drop the local user's in-progress
+    // text. Notes are whole-array LWW (see `withNotes`), so the local
+    // input listener already owns the field while focused; we reconcile
+    // on the next unfocused sync (e.g. blur). Selection/slide-change
+    // syncs must NOT be guarded — they rebind the textarea to a
+    // possibly-different slide and have to run even while focused, or
+    // the box would show (and accept edits into) the wrong slide.
+    // Checked before the `store.read()` clone below so the typing hot
+    // path (input → batch → onChange) bails without cloning the deck.
+    if (opts.fromRemote && document.activeElement === ta) return;
     const id = editor.getCurrentSlideId();
     if (!id) { ta.value = ''; return; }
     const slide = store.read().slides.find((s) => s.id === id);
     if (!slide) { ta.value = ''; return; }
-    ta.value = blocksToText(slide.notes);
+    const next = blocksToText(slide.notes);
+    if (ta.value !== next) ta.value = next;
   };
 
   if (!readOnly) {
@@ -89,12 +102,19 @@ export function mountNotesPanel(
   // so onSelectionChange alone misses some setCurrentSlide calls).
   const offSelection = editor.onSelectionChange(() => sync());
   const offSlide = editor.onCurrentSlideChange(() => sync());
+  // Also re-sync on ANY store change — crucially, remote Yorkie edits
+  // from a collaborator. Without this the textarea only refreshed on
+  // local selection/slide changes, so a peer's note edit stayed
+  // invisible until the user navigated away and back. `fromRemote`
+  // applies the focus guard so this can't clobber the local caret.
+  const offChange = store.onChange?.(() => sync({ fromRemote: true })) ?? (() => {});
   sync();
 
   return {
     dispose: () => {
       offSelection();
       offSlide();
+      offChange();
     },
   };
 }
