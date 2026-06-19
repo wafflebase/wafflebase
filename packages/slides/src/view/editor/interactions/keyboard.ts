@@ -1,4 +1,4 @@
-import type { Element, ElementInit } from '../../../model/element';
+import type { Element } from '../../../model/element';
 import type { SlidesStore } from '../../../store/store';
 import type { InsertKind } from '../editor';
 import type { Selection } from '../selection';
@@ -25,6 +25,7 @@ import {
   deserializeElements,
 } from './clipboard';
 import { commitTranslate } from './drag';
+import { pasteElements } from './paste';
 
 export interface KeyboardContext {
   store: SlidesStore;
@@ -313,18 +314,12 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       run: async (e) => {
         const slide = currentSlide(ctx);
         if (!slide) return;
-        const inits = await readClipboard();
-        if (inits === null) return;
+        const sources = await readClipboard();
+        if (sources === null) return;
         e.preventDefault();
-        const newIds: string[] = [];
+        let newIds: string[] = [];
         ctx.store.batch(() => {
-          for (const init of inits) {
-            const offsetInit = {
-              ...init,
-              frame: { ...init.frame, x: init.frame.x + 10, y: init.frame.y + 10 },
-            } as ElementInit;
-            newIds.push(ctx.store.addElement(slide.id, offsetInit));
-          }
+          newIds = pasteElements(ctx.store, slide.id, sources, 10, 10);
         });
         ctx.selection.set(newIds);
         ctx.requestRender();
@@ -348,16 +343,9 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
           ctx.store.batch(() => ctx.store.duplicateSlide(slide.id));
         } else {
           const selected = slide.elements.filter((el) => ids.includes(el.id));
-          const newIds: string[] = [];
+          let newIds: string[] = [];
           ctx.store.batch(() => {
-            for (const el of selected) {
-              const { id: _drop, ...rest } = el;
-              const offsetInit = {
-                ...rest,
-                frame: { ...rest.frame, x: rest.frame.x + 10, y: rest.frame.y + 10 },
-              } as ElementInit;
-              newIds.push(ctx.store.addElement(slide.id, offsetInit));
-            }
+            newIds = pasteElements(ctx.store, slide.id, selected, 10, 10);
           });
           ctx.selection.set(newIds);
         }
@@ -767,7 +755,7 @@ async function writeClipboard(elements: readonly Element[]): Promise<void> {
  * which a sibling slides instance using writeText would also produce).
  * Returns `null` when the clipboard is empty or holds non-slides text.
  */
-async function readClipboard(): Promise<ElementInit[] | null> {
+async function readClipboard(): Promise<Element[] | null> {
   // Path 1: rich clipboard read (custom MIME).
   try {
     const items = await navigator.clipboard.read();
@@ -801,7 +789,7 @@ async function readClipboard(): Promise<ElementInit[] | null> {
   }
 }
 
-function tryDeserialize(json: string): ElementInit[] | null {
+function tryDeserialize(json: string): Element[] | null {
   try {
     return deserializeElements(json);
   } catch {

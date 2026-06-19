@@ -1,4 +1,4 @@
-import type { Element, ElementInit } from '../../../model/element';
+import type { Element } from '../../../model/element';
 
 /**
  * Custom MIME type used for slides element clipboard payloads. Phase 4's
@@ -15,19 +15,19 @@ const MAGIC = 'wafflebase/slides@v1';
 
 interface Payload {
   magic: string;
-  elements: ElementInit[];
+  elements: Element[];
 }
 
 /**
- * JSON-encode the given elements for the custom MIME type. The `id`
- * field is stripped from each element — paste assigns fresh ids.
+ * JSON-encode the given elements for the custom MIME type.
+ *
+ * Each element's `id` is preserved so the paste path can build a source→new
+ * id map and remap attached connector endpoints onto the pasted copies (see
+ * {@link pasteElements}). The id is otherwise harmless on paste: `addElement`
+ * always overwrites the incoming id with a freshly generated one.
  */
 export function serializeElements(elements: readonly Element[]): string {
-  const stripped: ElementInit[] = elements.map((e) => {
-    const { id: _drop, ...rest } = e;
-    return rest as ElementInit;
-  });
-  const payload: Payload = { magic: MAGIC, elements: stripped };
+  const payload: Payload = { magic: MAGIC, elements: [...elements] };
   return JSON.stringify(payload);
 }
 
@@ -35,7 +35,7 @@ export function serializeElements(elements: readonly Element[]): string {
  * Parse a JSON payload produced by {@link serializeElements}. Throws if
  * the payload is not JSON or is missing the slides magic.
  */
-export function deserializeElements(json: string): ElementInit[] {
+export function deserializeElements(json: string): Element[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
