@@ -515,6 +515,68 @@ export function createTableBlock(rows: number, cols: number): Block {
   };
 }
 
+/**
+ * Repair a table's merge invariant in place. The layout
+ * (`view/table-layout.ts`) trusts that:
+ *  - an anchor (`colSpan`/`rowSpan` > 1) stays within the grid and has every
+ *    cell it covers marked `colSpan: 0`;
+ *  - a covered cell (`colSpan: 0`) is reachable from such an anchor.
+ *
+ * Table cell paste copies merge metadata verbatim, so a pasted block can
+ * carry an anchor whose span overruns the grid, or a covered marker whose
+ * anchor was left behind. This walks the grid in row-major order and repairs
+ * both: anchors are clamped to the bounds and re-mark their covered cells;
+ * orphaned covered markers are restored to normal cells; on overlap the first
+ * anchor in row-major order wins.
+ */
+export function normalizeTableMerges(td: TableData): void {
+  const numRows = td.rows.length;
+  if (numRows === 0) return;
+  const numCols = td.rows[0].cells.length;
+
+  // coverage[r][c] — true once an accepted anchor claims this cell.
+  const coverage: boolean[][] = Array.from({ length: numRows }, () =>
+    new Array<boolean>(numCols).fill(false),
+  );
+
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      const cell = td.rows[r].cells[c];
+      if (!cell) continue;
+
+      if (coverage[r][c]) {
+        // Claimed by an earlier anchor — force it covered and drop any span
+        // it carried (this is how overlapping anchors are resolved).
+        cell.colSpan = 0;
+        cell.rowSpan = undefined;
+        continue;
+      }
+
+      const cs = cell.colSpan ?? 1;
+      const rs = cell.rowSpan ?? 1;
+      if (cs <= 1 && rs <= 1) {
+        // Normal cell, or an orphaned `colSpan: 0` marker with no anchor —
+        // either way it owns its single cell, so clear any span markers.
+        cell.colSpan = undefined;
+        cell.rowSpan = undefined;
+        continue;
+      }
+
+      // Anchor: clamp the span to the grid, then claim its covered cells.
+      const clampedCols = Math.min(cs, numCols - c);
+      const clampedRows = Math.min(rs, numRows - r);
+      cell.colSpan = clampedCols > 1 ? clampedCols : undefined;
+      cell.rowSpan = clampedRows > 1 ? clampedRows : undefined;
+      for (let dr = 0; dr < clampedRows; dr++) {
+        for (let dc = 0; dc < clampedCols; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          coverage[r + dr][c + dc] = true;
+        }
+      }
+    }
+  }
+}
+
 // --- Search ---
 
 export interface SearchOptions {

@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
@@ -3435,6 +3435,9 @@ export class TextEditor {
           td.rows[r].cells[c] = cloned;
         }
       }
+      // Copied cells carry merge spans verbatim; repair the grid invariant
+      // before the table is inserted (see normalizeTableMerges).
+      normalizeTableMerges(td);
       const blockIdx = this.doc.getBlockIndex(pos.blockId);
       this.doc.insertBlockAt(blockIdx + 1, tableBlock);
       this.invalidateLayout();
@@ -3464,6 +3467,9 @@ export class TextEditor {
         td.rows[targetRow].cells[targetCol] = cloned;
       }
     }
+    // Pasting a range that touches a merge can overrun the grid or leave an
+    // orphaned covered cell; repair the merge invariant before persisting.
+    normalizeTableMerges(td);
     this.doc.updateBlockDirect(tableBlockId, tableBlock);
 
     this.invalidateLayout();
