@@ -474,7 +474,17 @@ The library is delivered incrementally:
 | P1 — Foundation | 35 | 2 lines + 15 basic + 8 block arrows + 4 callouts + 6 equation | defaults only | shipped |
 | P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only | shipped |
 | P3 — Handles + GS parity | 128 | + 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons + 7 arrow callouts + 4 brackets/braces; `homePlate` import alias | drag handles for all parametric shapes (4 axis types incl. `angular` for arc-based shapes) | shipped |
+| P3.5 — PPT-parity catalog | ~144 | + 2 explosions (`irregularSeal1/2`) + 2 waves (`wave`, `doubleWave`) + 4 high-point stars (`star12/16/24/32`) + 2 double brackets (`bracketPair`, `bracePair`) + 10 remaining flowchart shapes + line-callout variants | drag handles where parametric | planned |
 | P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) | planned |
+| P5 — Freeform drawing | — | promote import-only `freeform` to a user-authored Curve / Scribble / Freeform tool (editor pointer-capture → `FreeformPath` commands) | new insert interaction | planned |
+
+Gap analysis vs PowerPoint / Google Slides (which presets these phases
+close) is tracked in
+`docs/tasks/active/20260620-slides-shape-gaps-todo.md`. The catalog is at
+**Google Slides parity** today; P3.5/P5 close the PowerPoint-side
+extensions (explosions, waves, high-point stars, double brackets, full
+flowchart set) and the user-drawable freeform tool — the one reference-product
+shape capability `freeform` currently covers for *import only*.
 
 Each phase is tracked as a task pair in `docs/tasks/` (search
 `slides-shapes` in the archive index). Architectural decisions
