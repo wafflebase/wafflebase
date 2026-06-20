@@ -7,6 +7,8 @@ import type {
   Master,
   PlaceholderRef,
   ShapeKind,
+  SlideAnimation,
+  SlideTransition,
   Theme,
   ThemeColor,
 } from '@wafflebase/slides';
@@ -95,6 +97,10 @@ export interface YorkieSlide {
   };
   elements: YorkieElement[];
   notes: Block[];
+  /** Slide transition effect. Absent ⇒ hard cut. */
+  transition?: SlideTransition;
+  /** Object animation sequence for this slide. Absent ⇒ no animations. */
+  animations?: SlideAnimation[];
 }
 
 export type YorkieElement =

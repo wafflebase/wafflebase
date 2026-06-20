@@ -14,8 +14,11 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type ObjectAnimation,
   type PlaceholderRef,
   type Slide as ModelSlide,
+  type SlideAnimation,
+  type SlideTransition,
   type SlidesDocument,
   type SlidesStore,
   type Stroke,
@@ -384,7 +387,18 @@ export class YorkieSlidesStore implements SlidesStore {
         (e) => this.readElement(e),
       );
       const notes = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
-      return { id, layoutId, background, elements, notes };
+      const sAny = s as { transition?: unknown; animations?: unknown };
+      const transition = yorkieToPlain<SlideTransition | undefined>(sAny.transition);
+      const animations = yorkieToPlain<SlideAnimation[] | undefined>(sAny.animations);
+      return {
+        id,
+        layoutId,
+        background,
+        elements,
+        notes,
+        ...(transition !== undefined && transition !== null ? { transition } : {}),
+        ...(animations !== undefined && animations !== null ? { animations } : {}),
+      };
     });
     const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
     const rootAny = root as {
@@ -806,6 +820,86 @@ export class YorkieSlidesStore implements SlidesStore {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       s.background = clone(bg);
+    });
+  }
+
+  // --- transition / animation ops ---
+
+  setSlideTransition(slideId: string, transition: SlideTransition | undefined): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      if (transition === undefined) {
+        delete (s as { transition?: SlideTransition }).transition;
+      } else {
+        (s as { transition?: SlideTransition }).transition = clone(transition);
+      }
+    });
+  }
+
+  addAnimation(slideId: string, anim: SlideAnimation): string {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: SlideAnimation[] };
+      if (sAny.animations == null) sAny.animations = [];
+      sAny.animations.push(clone(anim));
+    });
+    return anim.id;
+  }
+
+  updateAnimation(slideId: string, animId: string, patch: Partial<ObjectAnimation>): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string; [k: string]: unknown }> };
+      const a = sAny.animations?.find((x) => x.id === animId);
+      if (!a) throw new Error(`[slides] animation '${animId}' not on slide '${slideId}'`);
+      const cloned = clone(patch) as { id?: string; [k: string]: unknown };
+      delete cloned.id;
+      const rest = cloned;
+      for (const [k, v] of Object.entries(rest)) {
+        a[k] = v;
+      }
+    });
+  }
+
+  removeAnimation(slideId: string, animId: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string }> };
+      if (!sAny.animations) return;
+      const idx = sAny.animations.findIndex((x) => x.id === animId);
+      if (idx !== -1) {
+        (sAny.animations as unknown as { splice(i: number, d: number): void }).splice(idx, 1);
+      }
+      if (sAny.animations.length === 0) {
+        delete sAny.animations;
+      }
+    });
+  }
+
+  reorderAnimation(slideId: string, animId: string, toIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string }> };
+      if (!sAny.animations) return;
+      const from = sAny.animations.findIndex((x) => x.id === animId);
+      if (from < 0) return;
+      const arr = sAny.animations as unknown as {
+        splice(i: number, d: number): Array<{ id: string }>;
+        length: number;
+      } & Array<{ id: string }>;
+      const [moved] = arr.splice(from, 1);
+      const clamped = Math.max(0, Math.min(toIndex, arr.length));
+      arr.splice(clamped, 0, moved);
     });
   }
 
