@@ -20,6 +20,26 @@
 - Commit subjects ≤70 chars; body explains why; end body with the Co-Authored-By trailer from CLAUDE.md. Land via PR on a feature branch, not direct push to `main`.
 - After new `index.ts` exports, rebuild slides (`pnpm slides build`) before frontend tests resolve them (memory: slides exports require build).
 
+### Confirmed codebase conventions (override any task text that disagrees)
+
+- **Slides test location:** tests live in `packages/slides/test/` mirroring the
+  `src/` path — e.g. plan text "Test: `src/model/animation.test.ts`" means
+  **`packages/slides/test/model/animation.test.ts`**; "`src/anim/easing.test.ts`"
+  means **`packages/slides/test/anim/easing.test.ts`**, etc. Import the unit
+  under test via a relative `../../src/...` path (e.g.
+  `import { MemSlidesStore } from '../../src/store/memory'`). Do NOT colocate
+  `*.test.ts` inside `src/`.
+- **MemSlidesStore construction:** `new MemSlidesStore()` starts with an EMPTY
+  presentation (no slides). To get a slide id, create one inside a batch:
+  `let id!: string; store.batch(() => { id = store.addSlide('blank'); });`.
+  There is no `MemSlidesStore.empty()` factory and no slide at index 0 on a
+  fresh store. (Task 2's test sketch is wrong on this point — use this idiom.)
+- **Frontend slides tests:** there is no existing frontend slides test harness.
+  Task 3 must stand up its own test (confirm the frontend Vitest runner picks
+  up a new `*.test.ts` under `packages/frontend/src/app/slides/` and how
+  `YorkieSlidesStore` is constructed in isolation) rather than "mirroring an
+  existing one".
+
 ---
 
 ## Phase 0 — Data model, CRDT, Store ops, Motion panel (no playback)
