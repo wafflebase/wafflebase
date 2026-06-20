@@ -5,6 +5,7 @@ import {
   IconArrowForwardUp,
   IconBackground,
   IconPalette,
+  IconSparkles,
 } from "@tabler/icons-react";
 import type {
   SlidesEditor,
@@ -108,6 +109,8 @@ export interface RightGlobalsProps {
   themePanelOpen?: boolean;
   onToggleFormatPanel?: () => void;
   formatPanelOpen?: boolean;
+  onToggleMotionPanel?: () => void;
+  motionPanelOpen?: boolean;
 }
 
 /**
@@ -130,6 +133,8 @@ export function RightGlobals({
   themePanelOpen,
   onToggleFormatPanel,
   formatPanelOpen,
+  onToggleMotionPanel,
+  motionPanelOpen,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
   // Controlled open state so the swatch click closes the palette — the
@@ -234,6 +239,21 @@ export function RightGlobals({
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Format options</TooltipContent>
+        </Tooltip>
+      )}
+      {onToggleMotionPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!motionPanelOpen}
+              onPressedChange={() => onToggleMotionPanel()}
+              aria-label="Toggle motion panel"
+            >
+              <IconSparkles size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Motion</TooltipContent>
         </Tooltip>
       )}
     </div>

@@ -26,6 +26,7 @@ import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
+import { MotionPanel } from "./motion-panel";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
 import {
   createZoomController,
@@ -139,7 +140,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  type RightPanel = "theme" | "format" | null;
+  type RightPanel = "theme" | "format" | "motion" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   // Session-scoped zoom controller shared between SlidesView (drives
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
@@ -345,6 +346,10 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               setRightPanel((p) => (p === "format" ? null : "format"))
             }
             formatPanelOpen={rightPanel === "format"}
+            onToggleMotionPanel={() =>
+              setRightPanel((p) => (p === "motion" ? null : "motion"))
+            }
+            motionPanelOpen={rightPanel === "motion"}
             zoomController={zoomControllerRef.current}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -364,6 +369,13 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             )}
             {rightPanel === "format" && store && editor && (
               <FormatPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "motion" && store && editor && (
+              <MotionPanel
                 store={store}
                 editor={editor}
                 onClose={() => setRightPanel(null)}
