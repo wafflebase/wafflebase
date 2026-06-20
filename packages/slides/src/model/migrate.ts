@@ -101,13 +101,17 @@ function migrateLayout(layout: any): any {
 
 function migrateSlide(slide: any): any {
   const layoutId = LAYOUT_ID_MIGRATIONS[slide?.layoutId] ?? slide?.layoutId ?? 'blank';
-  return {
+  const migrated: any = {
     id: slide?.id,
     layoutId,
     background: migrateBackground(slide?.background ?? { fill: '#ffffff' }),
     elements: Array.isArray(slide?.elements) ? slide.elements.map(migrateElement) : [],
     notes: slide?.notes ?? [],
   };
+  // Preserve optional transition and animations fields.
+  if (slide?.transition != null) migrated.transition = slide.transition;
+  if (slide?.animations != null) migrated.animations = slide.animations;
+  return migrated;
 }
 
 function migrateBackground(bg: any): { fill: ThemeColor; image?: any } {
