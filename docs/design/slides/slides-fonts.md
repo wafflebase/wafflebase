@@ -1,6 +1,6 @@
 ---
 title: slides-fonts
-target-version: 0.5.0
+target-version: 0.4.6
 ---
 
 <!-- Make sure to append document link in design README.md after creating the document. -->

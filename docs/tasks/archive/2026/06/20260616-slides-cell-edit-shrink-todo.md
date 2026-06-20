@@ -33,7 +33,7 @@ editing box must stay at the cell's inner-frame height → `growMode:
 - [x] `pnpm test` (slides) green — 257 files, 1789 passed
 - [x] `pnpm verify:fast` — EXIT 0
 - [x] Self code-review over the branch diff
-- [ ] PR
+- [x] PR
 
 ## Review
 

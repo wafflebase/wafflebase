@@ -27,7 +27,7 @@ The write path is correct: `text-element-controls.tsx` →
       before the empty-body early return; reuse `resolveStrokeColor`
 - [x] `pnpm verify:fast` (exit 0)
 - [x] Self code review over branch diff
-- [ ] Manual smoke in `pnpm dev`
+- [x] Manual smoke in `pnpm dev`
 
 ## Review
 

@@ -18,15 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides notes live sync (2026-06-20) | [20260620-slides-notes-live-sync-todo.md](./active/20260620-slides-notes-live-sync-todo.md) | [20260620-slides-notes-live-sync-lessons.md](./active/20260620-slides-notes-live-sync-lessons.md) |
-| table paste merge (2026-06-19) | [20260619-table-paste-merge-todo.md](./active/20260619-table-paste-merge-todo.md) | [20260619-table-paste-merge-lessons.md](./active/20260619-table-paste-merge-lessons.md) |
-| slides freeform custgeom (2026-06-18) | [20260618-slides-freeform-custgeom-todo.md](./active/20260618-slides-freeform-custgeom-todo.md) | [20260618-slides-freeform-custgeom-lessons.md](./active/20260618-slides-freeform-custgeom-lessons.md) |
-| slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./active/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./active/20260617-slides-color-picker-recent-lessons.md) |
-| slides cell edit overflow (2026-06-16) | [20260616-slides-cell-edit-overflow-todo.md](./active/20260616-slides-cell-edit-overflow-todo.md) | [20260616-slides-cell-edit-overflow-lessons.md](./active/20260616-slides-cell-edit-overflow-lessons.md) |
-| slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./active/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./active/20260616-slides-cell-edit-shrink-lessons.md) |
+| release v0.4.6 (2026-06-20) | [20260620-release-v0.4.6-todo.md](./active/20260620-release-v0.4.6-todo.md) | - |
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
-| slides shared mobile view (2026-06-16) | [20260616-slides-shared-mobile-view-todo.md](./active/20260616-slides-shared-mobile-view-todo.md) | - |
-| slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./active/20260615-slides-textbox-border-todo.md) | - |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
@@ -38,7 +31,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 273
+- Archived task count: 282
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides notes live sync (2026-06-20)
+Latest active task: release v0.4.6 (2026-06-20)

@@ -16,18 +16,18 @@ persist per-document via Yorkie (`meta.recentColors`).
 
 ## Tasks
 
-- [ ] Model: `Meta.recentColors?: string[]`, `MAX_RECENT_COLORS`, `pushRecent()` helper in `presentation.ts`
-- [ ] Store interface: `pushRecentColor(hex)` in `store.ts`
-- [ ] MemStore impl (`memory.ts`)
-- [ ] YorkieStore impl (`yorkie-slides-store.ts`)
-- [ ] `ThemedColorPicker`: `onChange(color, opts?: {commit})`, `recentColors` prop + Recent row, custom-input live + blur commit
-- [ ] Call sites (commit-gated close + recent push + recentColors prop):
+- [x] Model: `Meta.recentColors?: string[]`, `MAX_RECENT_COLORS`, `pushRecent()` helper in `presentation.ts`
+- [x] Store interface: `pushRecentColor(hex)` in `store.ts`
+- [x] MemStore impl (`memory.ts`)
+- [x] YorkieStore impl (`yorkie-slides-store.ts`)
+- [x] `ThemedColorPicker`: `onChange(color, opts?: {commit})`, `recentColors` prop + Recent row, custom-input live + blur commit
+- [x] Call sites (commit-gated close + recent push + recentColors prop):
       shape-controls, text-element-controls, global-controls, table-controls(×2),
       border-picker, text-edit-section
-- [ ] Unit tests: `pushRecent` dedupe/cap/MRU; MemStore `pushRecentColor` persistence
-- [ ] `pnpm verify:fast` green
-- [ ] Self code review over branch diff
-- [ ] Manual smoke in `pnpm dev`
+- [x] Unit tests: `pushRecent` dedupe/cap/MRU; MemStore `pushRecentColor` persistence
+- [x] `pnpm verify:fast` green
+- [x] Self code review over branch diff
+- [x] Manual smoke in `pnpm dev`
 
 ## Review
 

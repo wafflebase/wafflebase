@@ -32,7 +32,7 @@ mobile branch into `SharedSlidesLayout`.
       owner mobile).
 - [x] Remove / update the now-resolved TODO in `mobile-slides-view.tsx`.
 - [x] `pnpm verify:fast` green.
-- [ ] Manual smoke: `pnpm dev`, open a viewer share link at 375px.
+- [x] Manual smoke: `pnpm dev`, open a viewer share link at 375px.
 
 ## Review
 

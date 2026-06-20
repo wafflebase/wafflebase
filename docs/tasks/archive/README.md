@@ -6,12 +6,21 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 273
+Total archived tasks: 282
 
-## 2026/06 (28 tasks)
+## 2026/06 (37 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| connector paste remap (2026-06-20) | [20260620-connector-paste-remap-todo.md](./2026/06/20260620-connector-paste-remap-todo.md) | - |
+| slides notes live sync (2026-06-20) | [20260620-slides-notes-live-sync-todo.md](./2026/06/20260620-slides-notes-live-sync-todo.md) | [20260620-slides-notes-live-sync-lessons.md](./2026/06/20260620-slides-notes-live-sync-lessons.md) |
+| table paste merge (2026-06-19) | [20260619-table-paste-merge-todo.md](./2026/06/20260619-table-paste-merge-todo.md) | [20260619-table-paste-merge-lessons.md](./2026/06/20260619-table-paste-merge-lessons.md) |
+| slides freeform custgeom (2026-06-18) | [20260618-slides-freeform-custgeom-todo.md](./2026/06/20260618-slides-freeform-custgeom-todo.md) | [20260618-slides-freeform-custgeom-lessons.md](./2026/06/20260618-slides-freeform-custgeom-lessons.md) |
+| slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./2026/06/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./2026/06/20260617-slides-color-picker-recent-lessons.md) |
+| slides cell edit overflow (2026-06-16) | [20260616-slides-cell-edit-overflow-todo.md](./2026/06/20260616-slides-cell-edit-overflow-todo.md) | [20260616-slides-cell-edit-overflow-lessons.md](./2026/06/20260616-slides-cell-edit-overflow-lessons.md) |
+| slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./2026/06/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./2026/06/20260616-slides-cell-edit-shrink-lessons.md) |
+| slides shared mobile view (2026-06-16) | [20260616-slides-shared-mobile-view-todo.md](./2026/06/20260616-slides-shared-mobile-view-todo.md) | - |
+| slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./2026/06/20260615-slides-textbox-border-todo.md) | - |
 | multi select resize (2026-06-12) | [20260612-multi-select-resize-todo.md](./2026/06/20260612-multi-select-resize-todo.md) | [20260612-multi-select-resize-lessons.md](./2026/06/20260612-multi-select-resize-lessons.md) |
 | release v0.4.5 (2026-06-12) | [20260612-release-v0.4.5-todo.md](./2026/06/20260612-release-v0.4.5-todo.md) | - |
 | slides connector bend handles (2026-06-12) | [20260612-slides-connector-bend-handles-todo.md](./2026/06/20260612-slides-connector-bend-handles-todo.md) | - |
