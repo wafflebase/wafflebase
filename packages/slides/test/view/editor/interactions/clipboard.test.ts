@@ -16,8 +16,10 @@ describe('clipboard serialization', () => {
     expect(parsed).toHaveLength(2);
     expect(parsed[0].frame.x).toBe(10);
     expect(parsed[1].frame.x).toBe(20);
-    // Ids are stripped — paste assigns fresh ones.
-    expect((parsed[0] as { id?: string }).id).toBeUndefined();
+    // Ids are preserved so paste can remap connector endpoints onto the
+    // pasted copies; addElement still assigns fresh ids on insert.
+    expect(parsed[0].id).toBe('a');
+    expect(parsed[1].id).toBe('b');
   });
 
   it('rejects non-slides JSON', () => {
