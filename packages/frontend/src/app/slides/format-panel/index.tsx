@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  Effects,
   Element,
   Frame,
   ImageElement,
@@ -12,8 +13,11 @@ import { findElementPath } from '@wafflebase/slides';
 import { pickSections, type PanelSelection } from './pick-sections';
 import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
+import { RecolorSection } from './recolor-section';
 import { TextFittingSection } from './text-fitting-section';
 import { SizePositionSection } from './size-position-section';
+import { DropShadowSection } from './drop-shadow-section';
+import { ReflectionSection } from './reflection-section';
 import type { DisplayUnit } from './units';
 
 export interface FormatPanelProps {
@@ -146,6 +150,33 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
     [store, selection],
   );
 
+  // Effects are merged per-element so editing one effect (shadow) preserves
+  // any other (reflection) already on that element. A `undefined` value in
+  // the patch removes that effect; the whole `effects` key is dropped when
+  // nothing remains so empty `{}` cruft never reaches storage.
+  const commitEffects = useCallback(
+    (ids: readonly string[], patch: Partial<Effects>) => {
+      if (selection.kind !== 'object') return;
+      store.batch(() => {
+        for (const id of ids) {
+          const el = selection.elements.find((e) => e.id === id);
+          if (!el) continue;
+          const existing = (el as { data?: { effects?: Effects } }).data
+            ?.effects;
+          const merged: Record<string, unknown> = { ...existing };
+          for (const [k, v] of Object.entries(patch)) {
+            if (v === undefined) delete merged[k];
+            else merged[k] = v;
+          }
+          const next = merged as Effects;
+          const effects = next.shadow || next.reflection ? next : undefined;
+          store.updateElementData(selection.slideId, id, { effects });
+        }
+      });
+    },
+    [store, selection],
+  );
+
   const lockedResize = useCallback(
     (elems: readonly Element[], axis: 'w' | 'h', newPx: number) => {
       if (selection.kind !== 'object') return;
@@ -219,13 +250,39 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                     }
                   />
                 );
+              case 'recolor':
+                return (
+                  <RecolorSection
+                    key={id}
+                    elements={selection.elements as readonly ImageElement[]}
+                    onCommit={(ids, recolor) =>
+                      commitElementData(ids, { recolor })
+                    }
+                  />
+                );
               case 'image-adjustments':
                 return (
                   <ImageAdjustmentsSection
                     key={id}
                     elements={selection.elements as readonly ImageElement[]}
-                    onCommit={(ids, opacity) =>
-                      commitElementData(ids, { opacity })
+                    onCommit={(ids, patch) => commitElementData(ids, patch)}
+                  />
+                );
+              case 'drop-shadow':
+                return (
+                  <DropShadowSection
+                    key={id}
+                    elements={selection.elements}
+                    onCommit={(ids, shadow) => commitEffects(ids, { shadow })}
+                  />
+                );
+              case 'reflection':
+                return (
+                  <ReflectionSection
+                    key={id}
+                    elements={selection.elements}
+                    onCommit={(ids, reflection) =>
+                      commitEffects(ids, { reflection })
                     }
                   />
                 );
@@ -233,7 +290,7 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                 return (
                   <AltTextSection
                     key={id}
-                    elements={selection.elements as readonly ImageElement[]}
+                    elements={selection.elements}
                     onCommit={(ids, alt) => commitElementData(ids, { alt })}
                   />
                 );

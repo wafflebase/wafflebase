@@ -129,6 +129,50 @@ export type Stroke = {
 /** @deprecated Use {@link Stroke} instead. Kept for type-level compatibility with ConnectorElement. */
 export type ShapeStroke = Stroke;
 
+/**
+ * Outer drop shadow. Mirrors OOXML `<a:effectLst><a:outerShdw>`. Absent
+ * ⇒ no shadow. Applied at paint time via `ctx.shadow*` around the
+ * element's geometry pass.
+ */
+export type DropShadow = {
+  /** Shadow color; resolved against the theme like fills/strokes. */
+  color: ThemeColor | string;
+  /** Opacity `[0, 1]` ↔ `<a:outerShdw><a:srgbClr><a:alpha>`. */
+  opacity: number;
+  /** Direction in radians ↔ `<a:outerShdw dir>` (OOXML 60000ths/deg). */
+  angle: number;
+  /** Offset distance in slide-logical px ↔ `<a:outerShdw dist>` (EMU). */
+  distance: number;
+  /** Gaussian blur radius in px ↔ `<a:outerShdw blurRad>` (EMU). */
+  blur: number;
+};
+
+/**
+ * Mirror reflection below the element. Mirrors OOXML `<a:reflection>`.
+ * Absent ⇒ no reflection. Painted as a vertically-flipped copy with a
+ * top-down alpha gradient.
+ */
+export type Reflection = {
+  /** Start alpha `[0, 1]` at the top of the reflection ↔ `stA`. */
+  opacity: number;
+  /** Gap between element bottom and reflection top, in px ↔ `dist`. */
+  distance: number;
+  /** Reflection length as a fraction `[0, 1]` of frame height ↔ `endPos`. */
+  size: number;
+};
+
+/**
+ * Paint-time effects shared by shape / image / text / table / group
+ * elements. Each field optional; absent ⇒ that effect is off. Grouping
+ * them in one bag lets the renderer apply every effect from a single
+ * `element.data.effects` read and keeps the per-element `data` schema
+ * additive (no migration — older documents simply lack the key).
+ */
+export type Effects = {
+  shadow?: DropShadow;
+  reflection?: Reflection;
+};
+
 export type PlaceholderType =
   | 'title'
   | 'subtitle'
@@ -201,8 +245,20 @@ export type TextElement = ElementBase & {
   data: TextBody & {
     stroke?: Stroke;
     fill?: ThemeColor;
+    /** Paint-time effects (drop shadow / reflection). See {@link Effects}. */
+    effects?: Effects;
+    /** Screen-reader description ↔ `<p:cNvPr descr>`. Absent ⇒ none. */
+    alt?: string;
   };
 };
+
+/**
+ * Preset recolor applied to an image via `ctx.filter`. Mirrors the
+ * common Google Slides Recolor presets. `'duotone'` (theme-tinted) is a
+ * follow-up — it needs offscreen color compositing, not a CSS filter.
+ * Absent / `'none'` ⇒ original colors.
+ */
+export type ImageRecolor = 'none' | 'grayscale' | 'sepia';
 
 export type ImageElement = ElementBase & {
   type: 'image';
@@ -216,6 +272,20 @@ export type ImageElement = ElementBase & {
      * `undefined` / `1` paint at full opacity (no save/restore cost).
      */
     opacity?: number;
+    /** Preset recolor filter ↔ `<a:duotone>` / `<a:grayscl>`. */
+    recolor?: ImageRecolor;
+    /**
+     * Brightness adjustment, range `[-1, 1]` (0 = unchanged). Applied as
+     * `ctx.filter = brightness(1 + value)`. Mirrors OOXML `<a:lum bright>`.
+     */
+    brightness?: number;
+    /**
+     * Contrast adjustment, range `[-1, 1]` (0 = unchanged). Applied as
+     * `ctx.filter = contrast(1 + value)`. Mirrors OOXML `<a:lum contrast>`.
+     */
+    contrast?: number;
+    /** Paint-time effects (drop shadow / reflection). See {@link Effects}. */
+    effects?: Effects;
   };
 };
 
@@ -250,6 +320,10 @@ export type ShapeElement = ElementBase & {
      * OOXML `<p:sp>/<p:txBody>` for PPTX round-trip.
      */
     text?: TextBody;
+    /** Paint-time effects (drop shadow / reflection). See {@link Effects}. */
+    effects?: Effects;
+    /** Screen-reader description ↔ `<p:cNvPr descr>`. Absent ⇒ none. */
+    alt?: string;
   };
 };
 
@@ -269,6 +343,11 @@ export type GroupElement = ElementBase & {
      * { w: frame.w, h: frame.h } (scale = 1, identical to prior behavior).
      */
     refSize?: { w: number; h: number };
+    /**
+     * Paint-time effects applied to the group as a whole (drop shadow).
+     * See {@link Effects}.
+     */
+    effects?: Effects;
   };
   // Note: `placeholderRef` (inherited from ElementBase) is invalid on groups
   // and will be rejected at runtime by MemSlidesStore.group(). Placeholders
@@ -408,6 +487,10 @@ export type TableElement = ElementBase & {
      * fills/borders are baked at import time.
      */
     tableStyleId?: string;
+    /** Paint-time effects (drop shadow). See {@link Effects}. */
+    effects?: Effects;
+    /** Screen-reader description ↔ `<p:cNvPr descr>`. Absent ⇒ none. */
+    alt?: string;
   };
 };
 

@@ -26,6 +26,11 @@ export interface CtxSpy {
   textAlign: CanvasTextAlign;
   textBaseline: CanvasTextBaseline;
   globalAlpha: number;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  filter: string;
 
   // transforms
   save: SpyFn;
@@ -75,6 +80,11 @@ export function createCtxSpy(): CtxSpy {
     textAlign: 'start',
     textBaseline: 'alphabetic',
     globalAlpha: 1,
+    shadowColor: 'transparent',
+    shadowBlur: 0,
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    filter: 'none',
 
     save: vi.fn(),
     restore: vi.fn(),

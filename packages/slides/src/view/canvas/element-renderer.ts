@@ -15,6 +15,7 @@ import { drawShape, paintShapeText } from './shape-renderer';
 import { drawTable } from './table-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
+import { applyShadow, clearShadow, paintReflection } from './effects-renderer';
 
 const EMPTY_LOOKUP: ReadonlyMap<string, Element> = new Map();
 
@@ -195,16 +196,40 @@ export function drawElement(
       // expects. Decks without `meta.pxPerPt` (everything in-app
       // authored before this change) keep `1` here — no regression.
       const fontScale = deckFontScale(doc.meta);
+      // Drop shadow is applied to single-silhouette leaves only
+      // (shape / image / text). Multi-draw elements (table, group) would
+      // cast a separate shadow per cell / child with `ctx.shadow*`, so
+      // they are excluded here and in the panel's section routing.
+      const shadow = element.data.effects?.shadow;
+      // Reflection is a separate faded mirror painted below the element
+      // (single-silhouette leaves only — shape / image / text).
+      const reflection = element.data.effects?.reflection;
       switch (element.type) {
         case 'shape':
           // Geometry paints under the accumulated flip transform — fills,
           // strokes, and path outlines are supposed to mirror. Text inside
           // the shape is then painted under a centred counter-flip so
           // glyphs stay readable (PowerPoint / Google Slides behavior).
+          if (shadow) applyShadow(ctx, shadow, theme);
           drawShape(ctx, size, element.data, theme);
+          // Clear before the text pass so glyphs aren't double-shadowed
+          // on top of the already-shadowed fill.
+          if (shadow) clearShadow(ctx);
           withCounterFlip(ctx, size, totalFlip, () => {
             paintShapeText(ctx, size, element.data, theme, fontScale);
           });
+          if (reflection) {
+            paintReflection(ctx, size, reflection, (t) => {
+              drawShape(t, size, element.data, theme);
+              // Match the main pass: geometry mirrors with the element's
+              // flip (applied when the mirror is blitted), text stays
+              // readable via counter-flip. No-op when the element isn't
+              // flipped.
+              withCounterFlip(t, size, totalFlip, () => {
+                paintShapeText(t, size, element.data, theme, fontScale);
+              });
+            });
+          }
           break;
         case 'text': {
           // Only ref-bearing elements get a ghost hint — user-added text
@@ -232,18 +257,37 @@ export function drawElement(
           // Text glyphs are never mirrored; counter-flip the accumulated
           // flip so the box position still mirrors (via the surrounding
           // transform) but the text inside reads left-to-right.
+          if (shadow) applyShadow(ctx, shadow, theme);
           withCounterFlip(ctx, size, totalFlip, () => {
             drawText(ctx, size, element.data, theme, {
               placeholderHint,
               fontScale,
             });
           });
+          if (reflection) {
+            paintReflection(ctx, size, reflection, (t) => {
+              // Mirror the main pass's counter-flip so reflected text keeps
+              // the same orientation as the element under flipH / flipV.
+              withCounterFlip(t, size, totalFlip, () => {
+                drawText(t, size, element.data, theme, {
+                  placeholderHint,
+                  fontScale,
+                });
+              });
+            });
+          }
           break;
         }
         case 'image':
           // Images intentionally mirror with flipH/flipV — the user is
           // flipping a picture, so no counter-flip is applied.
+          if (shadow) applyShadow(ctx, shadow, theme);
           drawImage(ctx, size, element.data, onAssetLoad);
+          if (reflection) {
+            paintReflection(ctx, size, reflection, (t) => {
+              drawImage(t, size, element.data, onAssetLoad);
+            });
+          }
           break;
         case 'table':
           // P1 paints the whole table (fills, borders, AND cell text)
