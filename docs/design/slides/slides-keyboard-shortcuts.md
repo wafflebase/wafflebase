@@ -61,7 +61,7 @@ mid-drag updates the constraint immediately. For connector draw and
 endpoint drag, Shift wins over connection-site snap.
 
 Full design and per-interaction matrix:
-[slides-shift-modifiers.md](./slides-shift-modifiers.md).
+[slides-shift-modifiers.md](../archive/slides-shift-modifiers.md).
 
 ### Architecture
 
