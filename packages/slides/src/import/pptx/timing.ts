@@ -142,8 +142,11 @@ function parseEffectPar(
 
   // --- Duration ---
   const durRaw = attr(cTn, 'dur');
-  const durationMs =
-    durRaw === 'indefinite' || durRaw === undefined ? 500 : (parseInt(durRaw, 10) || 500);
+  // Treat absent and 'indefinite' as NaN so they fall back to 500ms.
+  // parseInt('0') === 0 which is falsy, so we must not use `|| 500` — that
+  // would swallow a legitimate instant-effect dur="0".
+  const parsed = durRaw === undefined || durRaw === 'indefinite' ? NaN : parseInt(durRaw, 10);
+  const durationMs = Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
 
   // --- Easing ---
   const accel = attrInt(cTn, 'accel') ?? 0;

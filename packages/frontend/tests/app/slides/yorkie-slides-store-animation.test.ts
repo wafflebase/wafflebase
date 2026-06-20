@@ -209,6 +209,93 @@ describe('YorkieSlidesStore — setSlideTransition', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// removeElement / removeElements — animation pruning
+// ---------------------------------------------------------------------------
+
+function makeShapeInYorkie(store: YorkieSlidesStore, slideId: string): string {
+  let id = '';
+  store.batch(() => {
+    id = store.addElement(slideId, {
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { kind: 'rect' },
+    });
+  });
+  return id;
+}
+
+describe('YorkieSlidesStore — removeElement prunes animations', () => {
+  it('removes the animations entry when the targeted element is deleted', () => {
+    const { store, slideId } = makeStore();
+    const elemId = makeShapeInYorkie(store, slideId);
+    store.batch(() => store.addAnimation(slideId, { ...makeAnim('a1'), elementId: elemId }));
+    // Verify animation is present.
+    expect(
+      store.read().slides.find((s) => s.id === slideId)!.animations,
+    ).toHaveLength(1);
+    store.batch(() => store.removeElement(slideId, elemId));
+    expect(
+      store.read().slides.find((s) => s.id === slideId)!.animations,
+    ).toBeUndefined();
+  });
+
+  it('leaves unrelated animations intact after removeElement', () => {
+    const { store, slideId } = makeStore();
+    const e1 = makeShapeInYorkie(store, slideId);
+    const e2 = makeShapeInYorkie(store, slideId);
+    store.batch(() => {
+      store.addAnimation(slideId, { ...makeAnim('a1'), elementId: e1 });
+      store.addAnimation(slideId, { ...makeAnim('a2'), elementId: e2 });
+    });
+    store.batch(() => store.removeElement(slideId, e1));
+    const anims = store.read().slides.find((s) => s.id === slideId)!.animations;
+    expect(anims).toHaveLength(1);
+    expect(anims![0].elementId).toBe(e2);
+  });
+
+  it('removeElements prunes animations for all removed elements', () => {
+    const { store, slideId } = makeStore();
+    const e1 = makeShapeInYorkie(store, slideId);
+    const e2 = makeShapeInYorkie(store, slideId);
+    store.batch(() => {
+      store.addAnimation(slideId, { ...makeAnim('a1'), elementId: e1 });
+      store.addAnimation(slideId, { ...makeAnim('a2'), elementId: e2 });
+    });
+    store.batch(() => store.removeElements(slideId, [e1, e2]));
+    expect(
+      store.read().slides.find((s) => s.id === slideId)!.animations,
+    ).toBeUndefined();
+  });
+
+  it('removeElement prunes animations targeting group-nested children', () => {
+    const { store, slideId } = makeStore();
+    let groupId = '';
+    let childId = '';
+    store.batch(() => {
+      childId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      const s2 = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 80, y: 80, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      ({ groupId } = store.group(slideId, [childId, s2]));
+      store.addAnimation(slideId, { ...makeAnim('a-child'), elementId: childId });
+    });
+    expect(
+      store.read().slides.find((s) => s.id === slideId)!.animations,
+    ).toHaveLength(1);
+    store.batch(() => store.removeElement(slideId, groupId));
+    expect(
+      store.read().slides.find((s) => s.id === slideId)!.animations,
+    ).toBeUndefined();
+  });
+});
+
 describe('YorkieSlidesStore — full animation sequence', () => {
   it('add → reorder → update → remove in sequence', () => {
     const { store, slideId } = makeStore();

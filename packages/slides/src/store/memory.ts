@@ -401,6 +401,17 @@ export class MemSlidesStore implements SlidesStore {
     return id;
   }
 
+  /**
+   * Remove any `slide.animations` entries whose `elementId` is in
+   * `removedIds`. Deletes the `animations` key entirely when the array
+   * becomes empty, mirroring the `removeAnimation` behaviour.
+   */
+  private pruneAnimationsFor(slide: Slide, removedIds: Set<string>): void {
+    if (!slide.animations) return;
+    slide.animations = slide.animations.filter((a) => !removedIds.has(a.elementId));
+    if (slide.animations.length === 0) delete slide.animations;
+  }
+
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
@@ -413,9 +424,14 @@ export class MemSlidesStore implements SlidesStore {
     // We compute the world position *before* removing the source from the
     // lookup so attached siteWorldPos still resolves.
     this.detachConnectorsTargeting(slide, elementId);
+    // Collect ids of the element and all its group descendants BEFORE
+    // splicing so the subtree is still reachable.
+    const removed = path[path.length - 1];
+    const removedIds = new Set(flattenElements([removed]).map((e) => e.id));
     const parentArray = this.resolveParentArray(slide, path);
     const i = parentArray.findIndex((e) => e.id === elementId);
     parentArray.splice(i, 1);
+    this.pruneAnimationsFor(slide, removedIds);
     this.pruneEmptyAncestorGroups(slide, path);
   }
 
@@ -435,9 +451,17 @@ export class MemSlidesStore implements SlidesStore {
     for (const id of set) {
       this.detachConnectorsTargeting(slide, id);
     }
+    // Union the ids of each removed element and its group descendants so
+    // animations targeting any nested element are also pruned.
+    const removedIds = new Set<string>();
+    for (const path of paths.values()) {
+      const leaf = path[path.length - 1];
+      for (const e of flattenElements([leaf])) removedIds.add(e.id);
+    }
     // Remove from deepest leaves first to avoid stale path references.
     // Group by parent array and splice all at once per parent.
     this.removeElementsByPaths(slide, [...paths.values()]);
+    this.pruneAnimationsFor(slide, removedIds);
   }
 
   /**

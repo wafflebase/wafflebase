@@ -399,6 +399,58 @@ describe('parseTiming', () => {
     expect(anims[0].durationMs).toBe(500);
   });
 
+  it('dur="0" → durationMs 0 (instant effect, NOT treated as missing)', () => {
+    const timingEl = buildTiming(
+      clickGroup({ spid: '3', presetID: 10, dur: 0 }),
+    );
+    const report = new ImportReport();
+    const ctx = { spidToElementId: new Map([['3', 'e3']]), report };
+    const anims = parseTiming(timingEl, ctx);
+    expect(anims[0].durationMs).toBe(0);
+  });
+
+  it('absent dur → durationMs 500 fallback', () => {
+    // Build a timing element without a dur attribute on the cTn node.
+    const xml = `<p:timing ${P_NS}>
+      <p:tnLst>
+        <p:par>
+          <p:cTn nodeType="tmRoot">
+            <p:childTnLst>
+              <p:seq>
+                <p:cTn nodeType="mainSeq">
+                  <p:childTnLst>
+                    <p:par>
+                      <p:cTn>
+                        <p:childTnLst>
+                          <p:par>
+                            <p:cTn nodeType="clickEffect" presetClass="entr" presetID="10">
+                              <p:stCondLst><p:cond evt="onNext" delay="indefinite"/></p:stCondLst>
+                              <p:childTnLst>
+                                <p:animEffect>
+                                  <p:cBhvr><p:tgtEl><p:spTgt spid="3"/></p:tgtEl></p:cBhvr>
+                                </p:animEffect>
+                              </p:childTnLst>
+                            </p:cTn>
+                          </p:par>
+                        </p:childTnLst>
+                      </p:cTn>
+                    </p:par>
+                  </p:childTnLst>
+                </p:cTn>
+              </p:seq>
+            </p:childTnLst>
+          </p:cTn>
+        </p:par>
+      </p:tnLst>
+    </p:timing>`;
+    const doc = parseXml(xml);
+    const timingEl = doc.documentElement;
+    const report = new ImportReport();
+    const ctx = { spidToElementId: new Map([['3', 'e3']]), report };
+    const anims = parseTiming(timingEl, ctx);
+    expect(anims[0].durationMs).toBe(500);
+  });
+
   it('sets byParagraph true when txEl with pRg is present in spTgt', () => {
     const timingEl = buildTiming(
       clickGroup({ spid: '3', presetID: 10, withTxEl: true }),

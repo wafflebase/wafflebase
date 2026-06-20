@@ -38,6 +38,7 @@ import {
   computeConnectorFrame,
   defaultDark,
   defaultLight,
+  flattenElements,
   generateId,
   getLayout,
   bakeGroupScale,
@@ -1054,6 +1055,28 @@ export class YorkieSlidesStore implements SlidesStore {
     return id;
   }
 
+  /**
+   * Prune `slide.animations` entries whose `elementId` is in `removedIds`.
+   * Deletes the `animations` key when the array becomes empty, mirroring
+   * the `removeAnimation` pattern.
+   */
+  private pruneYorkieAnimationsFor(
+    s: YorkieSlide,
+    removedIds: Set<string>,
+  ): void {
+    const sAny = s as unknown as { animations?: Array<{ id: string; elementId: string }> };
+    if (!sAny.animations) return;
+    // Iterate from back to front so splice indices remain stable.
+    for (let i = sAny.animations.length - 1; i >= 0; i--) {
+      if (removedIds.has(sAny.animations[i].elementId)) {
+        (sAny.animations as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+      }
+    }
+    if (sAny.animations.length === 0) {
+      delete sAny.animations;
+    }
+  }
+
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
     this.doc.update((r) => {
@@ -1065,9 +1088,14 @@ export class YorkieSlidesStore implements SlidesStore {
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
       if (!path) throw new Error(`Element not found: ${elementId}`);
       this.detachConnectorsTargeting(s, elementId);
+      // Collect ids of the element + all group descendants BEFORE splicing
+      // so the subtree is still reachable for id extraction.
+      const removed = path[path.length - 1] as unknown as ModelElement;
+      const removedIds = new Set(flattenElements([removed]).map((e) => e.id));
       const parentArray = this.resolveYorkieParentArray(s, path);
       const i = parentArray.findIndex((e) => e.id === elementId);
       (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+      this.pruneYorkieAnimationsFor(s as unknown as YorkieSlide, removedIds);
       this.pruneEmptyYorkieAncestorGroups(s, path);
     });
   }
@@ -1089,6 +1117,12 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const id of set) {
         this.detachConnectorsTargeting(s, id);
       }
+      // Union ids of each removed element + its group descendants for animation pruning.
+      const removedIds = new Set<string>();
+      for (const path of paths.values()) {
+        const leaf = path[path.length - 1] as unknown as ModelElement;
+        for (const e of flattenElements([leaf])) removedIds.add(e.id);
+      }
       // Remove from deepest leaves first (longest path first) to avoid stale
       // parent refs. Group by parent and splice all at once per parent array.
       type ParentEntry = { parentArray: ProxyArray; ids: Set<string>; repPath: ProxyArray[] };
@@ -1109,6 +1143,7 @@ export class YorkieSlidesStore implements SlidesStore {
         }
         this.pruneEmptyYorkieAncestorGroups(s, repPath);
       }
+      this.pruneYorkieAnimationsFor(s as unknown as YorkieSlide, removedIds);
     });
   }
 

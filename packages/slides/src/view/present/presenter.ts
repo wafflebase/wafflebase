@@ -2,6 +2,7 @@ import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { SlideRenderer } from '../canvas/slide-renderer';
 import { AnimationPlayer, buildParagraphCounts, compileTimeline, sampleTransition } from '../../anim';
+import { flattenElements } from '../../model/group';
 
 /**
  * Options for `startPresenter`. The presenter mounts a canvas inside
@@ -319,7 +320,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
    * renderer's forceRender so each tick repaints with animStates.
    */
   function buildPlayerFor(slide: Slide): AnimationPlayer {
-    const existingElementIds = new Set(slide.elements.map((e) => e.id));
+    const existingElementIds = new Set(flattenElements(slide.elements).map((e) => e.id));
     const paragraphCounts = buildParagraphCounts(slide);
     const steps = compileTimeline(slide, { existingElementIds, paragraphCounts });
     return new AnimationPlayer(

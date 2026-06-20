@@ -528,6 +528,97 @@ describe('presenter — entrance elements hidden on mount', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suite 5c: Animations targeting group-nested elements play in present mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a deck where slide A has a GROUP element containing a child, and
+ * slide.animations has an entry targeting that child by id.
+ */
+function makeDocWithGroupAnimation(): {
+  doc: SlidesDocument;
+  aId: string;
+  childId: string;
+} {
+  const store = new MemSlidesStore();
+  let aId = '';
+  let childId = '';
+
+  store.batch(() => {
+    aId = store.addSlide('blank');
+
+    // Add two shapes so we can group them.
+    const s1 = store.addElement(aId, {
+      type: 'shape',
+      frame: { x: 10, y: 10, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect' },
+    });
+    const s2 = store.addElement(aId, {
+      type: 'shape',
+      frame: { x: 80, y: 80, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect' },
+    });
+    childId = s1;
+    store.group(aId, [s1, s2]);
+
+    // Add an entrance animation targeting the group-nested child.
+    store.addAnimation(aId, {
+      id: 'anim-group-child',
+      category: 'entrance',
+      effect: 'appear',
+      start: 'onClick',
+      durationMs: 200,
+      elementId: childId,
+    });
+  });
+
+  return { doc: store.read(), aId, childId };
+}
+
+describe('presenter — group-nested element animations play in present mode', () => {
+  it('player built for a slide with group-nested animation has steps (not filtered out)', () => {
+    const { doc, aId, childId } = makeDocWithGroupAnimation();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      const player = testApi(presenter).getAnimPlayer();
+      expect(player).not.toBeNull();
+      // restingState() at index=-1: all steps are future → entrance element hidden.
+      // If the group-nested child's animation was filtered out by the top-level-only
+      // existingElementIds set, the map would be empty and this check would fail.
+      const rs = player!.restingState();
+      const childState = rs.get(childId);
+      expect(childState).toBeDefined();
+      expect(childState?.hidden).toBe(true);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('first next() on a slide with group-nested animation stays on the slide', () => {
+    const { doc, aId } = makeDocWithGroupAnimation();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // The group-nested animation is an onClick step, so the slide should not
+      // advance yet on the first next().
+      testApi(presenter).next();
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+    } finally {
+      presenter.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Suite 5b: Player resets correctly when navigating backward
 // ---------------------------------------------------------------------------
 
