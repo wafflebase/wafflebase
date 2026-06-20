@@ -1,7 +1,7 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { SlideRenderer } from '../canvas/slide-renderer';
-import { AnimationPlayer, compileTimeline } from '../../anim';
+import { AnimationPlayer, compileTimeline, sampleTransition } from '../../anim';
 
 /**
  * Options for `startPresenter`. The presenter mounts a canvas inside
@@ -99,6 +99,17 @@ export function startPresenter(options: PresenterOptions): Presenter {
   let animPlayer: AnimationPlayer | null = null;
   let rafHandle: number | null = null;
 
+  // Transition RAF handle — separate from the object-animation handle so
+  // the two loops can be cancelled independently. Both must be cancelled
+  // on dispose() and before any slide change.
+  let transitionRafHandle: number | null = null;
+
+  // Current CSS size of the canvas slot. Updated by applyFit() and read
+  // by playTransition() to build offscreen SlideRenderers at the same
+  // scale as the main renderer.
+  let currentCssWidth = 0;
+  let currentCssHeight = 0;
+
   // Remember the container's inline styles so Task 6's dispose() can
   // restore them — the React shell hands us a host element it expects
   // to look unchanged once presentation ends.
@@ -135,6 +146,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     canvas.height = Math.round(fit.height * dpr);
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
+    // Persist so playTransition() can build offscreen renderers at the
+    // same scale without needing a scale accessor on SlideRenderer.
+    currentCssWidth = cssWidth;
+    currentCssHeight = cssHeight;
     renderer = new SlideRenderer(ctx, {
       hostWidth: cssWidth,
       hostHeight: cssHeight,
@@ -183,14 +198,111 @@ export function startPresenter(options: PresenterOptions): Presenter {
   }
 
   /**
-   * Cancel any in-flight RAF loop and null the handle. Safe to call when
-   * no RAF is running (handle is already null) or after dispose.
+   * Cancel the object-animation RAF loop. Safe to call when no loop is
+   * running (handle is already null) or after dispose.
    */
   function cancelRaf(): void {
     if (rafHandle !== null) {
       cancelAnimationFrame(rafHandle);
       rafHandle = null;
     }
+  }
+
+  /**
+   * Cancel any in-flight transition RAF loop. Safe to call when no
+   * transition is running.
+   */
+  function cancelTransitionRaf(): void {
+    if (transitionRafHandle !== null) {
+      cancelAnimationFrame(transitionRafHandle);
+      transitionRafHandle = null;
+    }
+  }
+
+  /**
+   * Play a cross-paint slide transition from `fromSlide` to `toSlide`
+   * over `transition.durationMs` milliseconds. Each frame composites
+   * pre-rendered offscreen bitmaps of the two slides onto the main canvas
+   * using the CrossPaint values from `sampleTransition`. When the
+   * animation completes, `onDone()` is called so the caller can settle
+   * the new slide state and build its object-animation player.
+   *
+   * KEY INSIGHT: `sampleTransition` receives the CANVAS PIXEL size (not
+   * logical slide size) so the dx/dy offsets are already in device pixels
+   * and `drawImage` composites at the identity transform — no scale
+   * conversion needed.
+   */
+  function playTransition(
+    fromSlide: Slide,
+    toSlide: Slide,
+    transition: import('../../model/presentation').SlideTransition,
+    onDone: () => void,
+  ): void {
+    // Build offscreen canvases the same pixel size as the main canvas.
+    const pw = canvas.width;
+    const ph = canvas.height;
+
+    const offA = document.createElement('canvas');
+    offA.width = pw;
+    offA.height = ph;
+    const ctxA = offA.getContext('2d')!;
+
+    const offB = document.createElement('canvas');
+    offB.width = pw;
+    offB.height = ph;
+    const ctxB = offB.getContext('2d')!;
+
+    // Render outgoing and incoming slides to offscreen canvases once.
+    // Use the same CSS dimensions (hostWidth/Height) as the main renderer
+    // so text and element sizes match exactly.
+    const offOpts = { hostWidth: currentCssWidth, hostHeight: currentCssHeight, dpr };
+    const rendA = new SlideRenderer(ctxA, offOpts);
+    rendA.forceRender(fromSlide, state.doc);
+    const rendB = new SlideRenderer(ctxB, offOpts);
+    rendB.forceRender(toSlide, state.doc);
+
+    const startMs = performance.now();
+    const durationMs = transition.durationMs > 0 ? transition.durationMs : 1;
+
+    function transitionFrame(): void {
+      if (disposed) {
+        transitionRafHandle = null;
+        return;
+      }
+      const elapsed = performance.now() - startMs;
+      const progress = Math.min(1, elapsed / durationMs);
+
+      const cp = sampleTransition(transition, progress, { w: pw, h: ph });
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, pw, ph);
+
+      // Draw outgoing slide.
+      ctx.globalAlpha = cp.prevAlpha;
+      ctx.drawImage(offA, cp.prevDx, cp.prevDy);
+
+      // Draw incoming slide with optional clip region.
+      ctx.save();
+      if (cp.clipNext) {
+        ctx.beginPath();
+        ctx.rect(cp.clipNext.x, cp.clipNext.y, cp.clipNext.w, cp.clipNext.h);
+        ctx.clip();
+      }
+      ctx.globalAlpha = cp.nextAlpha;
+      ctx.drawImage(offB, cp.nextDx, cp.nextDy);
+      ctx.restore();
+
+      ctx.globalAlpha = 1;
+
+      if (progress < 1) {
+        transitionRafHandle = requestAnimationFrame(transitionFrame);
+      } else {
+        transitionRafHandle = null;
+        onDone();
+      }
+    }
+
+    transitionRafHandle = requestAnimationFrame(transitionFrame);
   }
 
   /**
@@ -263,17 +375,35 @@ export function startPresenter(options: PresenterOptions): Presenter {
 
     // No more animation steps — advance to the next slide.
     if (idx < state.slides.length - 1) {
-      state.currentSlideId = state.slides[idx + 1].id;
+      const fromSlide = state.slides[idx];
       const nextSlide = state.slides[idx + 1];
+      state.currentSlideId = nextSlide.id;
       cancelRaf();
-      animPlayer = buildPlayerFor(nextSlide);
+      cancelTransitionRaf();
+      animPlayer = null;
+
+      const t = nextSlide.transition;
+      if (t && t.type !== 'none' && t.durationMs > 0) {
+        // Play the cross-paint transition, then settle on the new slide
+        // and arm its object-animation player.
+        playTransition(fromSlide, nextSlide, t, () => {
+          if (disposed) return;
+          animPlayer = buildPlayerFor(nextSlide);
+          paint();
+        });
+      } else {
+        // No transition — instant cut (original behavior).
+        animPlayer = buildPlayerFor(nextSlide);
+        paint();
+      }
     } else {
       state.atEndScreen = true;
       state.currentSlideId = null;
       cancelRaf();
+      cancelTransitionRaf();
       animPlayer = null;
+      paint();
     }
-    paint();
   }
 
   function prev(): void {
@@ -528,9 +658,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     disposed = true;
 
     // Cancel any in-flight animation RAF before cleaning up other
-    // resources. The disposed flag guard in frame() ensures no
-    // further ticks fire even if cancelAnimationFrame races.
+    // resources. The disposed flag guards in frame() and transitionFrame()
+    // ensure no further ticks fire even if cancelAnimationFrame races.
     cancelRaf();
+    cancelTransitionRaf();
     animPlayer = null;
 
     // Detach the fullscreenchange listener FIRST so the
@@ -602,6 +733,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
       getLastPaintKind: () => lastPaintKind,
       getResources: () => ({ canvas, ctx, prevCssText, resizeObserver, mountMode }),
       getAnimPlayer: () => animPlayer,
+      getTransitionRafHandle: () => transitionRafHandle,
     },
   });
 
