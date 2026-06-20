@@ -14,6 +14,7 @@ export class AnimationPlayer {
     private readonly onFrame: (s: Map<string, AnimState>) => void,
   ) {}
 
+  get isAnimating(): boolean { return this.playing; }
   get isLastStep(): boolean { return this.index >= this.steps.length - 1; }
   get done(): boolean { return this.index >= this.steps.length - 1 && this.finishedCurrent; }
 

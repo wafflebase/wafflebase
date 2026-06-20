@@ -214,20 +214,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
   /**
    * Start the RAF loop that ticks the current player until the current
    * step finishes. Called whenever advance() returns true (a step was
-   * started). The loop stops as soon as the step's duration elapses.
-   *
-   * We detect step completion by diffing `player.done` before and after
-   * the tick. For the last step, `done` flips from false → true once the
-   * step finishes, and we stop. For non-last steps `done` stays false
-   * before AND after, so we stop using `isLastStep` to distinguish: if
-   * not the last step, one extra tick may run as a no-op, but the loop
-   * exits because we track a local `stepDone` flag set when `isLastStep`
-   * was false and `done` hasn't changed to true yet — simplest: just
-   * keep a frame-count budget. Actually the simplest correct approach:
-   * run until the player's `done` is true (last step fully played), then
-   * stop. For non-last steps the loop stays alive but tick() is a no-op
-   * (playing=false). This is bounded: next advance() or cancel() stops it.
-   * In practice the user presses next quickly so the no-op window is tiny.
+   * started). The loop stops as soon as `animPlayer.isAnimating` becomes
+   * false (i.e. the step's duration elapses and tick() sets playing=false).
+   * This prevents idle spinning between steps and after the last step —
+   * the next advance() call restarts a fresh loop via this function.
    */
   function startRafLoop(): void {
     cancelRaf();
@@ -237,15 +227,12 @@ export function startPresenter(options: PresenterOptions): Presenter {
         return;
       }
       animPlayer.tick(performance.now());
-      if (animPlayer.done) {
-        // Last step finished — stop the loop.
-        rafHandle = null;
-      } else {
-        // Either still mid-step OR between steps (waiting for next advance).
-        // Keep the loop alive; tick() no-ops when not playing so CPU cost
-        // between steps is negligible. The next cancelRaf() from advance()
-        // or dispose() will clean it up.
+      if (animPlayer.isAnimating) {
+        // Step still in progress — keep ticking.
         rafHandle = requestAnimationFrame(frame);
+      } else {
+        // Step has settled — stop the loop until next advance().
+        rafHandle = null;
       }
     }
     rafHandle = requestAnimationFrame(frame);
