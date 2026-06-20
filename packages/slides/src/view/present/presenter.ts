@@ -177,7 +177,16 @@ export function startPresenter(options: PresenterOptions): Presenter {
     // SlideRenderer's dirty flag is per-slide-state, so it would skip
     // the repaint after a slide switch without an explicit markDirty.
     renderer.markDirty();
-    renderer.render(slide, state.doc);
+    // Paint with the player's resting state so entrance elements are hidden
+    // until their step plays. This covers mount, prev, goToFirst/Last,
+    // setDocument, and resize — all paths that call paint() directly.
+    // Slides with no animation steps fall through to the normal render path so
+    // existing render-spy tests and non-animated slides are unaffected.
+    if (animPlayer && animPlayer.hasSteps) {
+      renderer.forceRender(slide, state.doc, undefined, animPlayer.restingState());
+    } else {
+      renderer.render(slide, state.doc);
+    }
     lastPaintKind = 'slide';
   }
 
