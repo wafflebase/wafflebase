@@ -24,6 +24,33 @@ export type Frame = {
 /** Crop rectangle in image-relative coordinates (0..1 on each axis). */
 export type Crop = { x: number; y: number; w: number; h: number };
 
+export type AnimCategory = 'entrance' | 'exit' | 'emphasis';
+export type AnimStart = 'onClick' | 'withPrev' | 'afterPrev';
+export type AnimEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+export type AnimDirection = 'up' | 'down' | 'left' | 'right';
+
+export type AnimEffect =
+  | 'appear' | 'fadeIn' | 'flyIn' | 'zoomIn' | 'spin'   // entrance
+  | 'disappear' | 'fadeOut' | 'flyOut' | 'zoomOut'      // exit
+  | 'pulse' | 'grow';                                   // emphasis
+
+/** One object-animation effect attached to an element on a slide. */
+export type ObjectAnimation = {
+  id: string;
+  category: AnimCategory;
+  effect: AnimEffect;
+  start: AnimStart;
+  direction?: AnimDirection;          // fly effects
+  durationMs: number;
+  delayMs?: number;
+  easing?: AnimEasing;                // absent ⇒ easeInOut
+  byParagraph?: boolean;              // text elements only
+  /** PPTX round-trip preservation; present ⇒ effect may be preview-only. */
+  pptxPreset?: { class: string; id: number; subtype?: number };
+  /** Normalized <p:animMotion> path. Preserved on import; not played in v1. */
+  motionPath?: string;
+};
+
 export type ShapeKind =
   // Basic shapes (15 P1 + 3 regular polys + 4 sector/arc + 8 linear)
   | 'rect' | 'roundRect' | 'ellipse'
