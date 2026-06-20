@@ -25,28 +25,31 @@ describe('pickSections', () => {
     expect(pickSections({ kind: 'idle' })).toEqual([]);
   });
 
-  it('shape → [size-position, drop-shadow, alt-text]', () => {
+  it('shape → [size-position, drop-shadow, reflection, alt-text]', () => {
     expect(pickSections(objSel('shape'))).toEqual([
       'size-position',
       'drop-shadow',
+      'reflection',
       'alt-text',
     ]);
   });
 
-  it('image → [size-position, image-adjustments, drop-shadow, alt-text]', () => {
+  it('image → [size-position, image-adjustments, drop-shadow, reflection, alt-text]', () => {
     expect(pickSections(objSel('image'))).toEqual([
       'size-position',
       'image-adjustments',
       'drop-shadow',
+      'reflection',
       'alt-text',
     ]);
   });
 
-  it('text-element → [size-position, text-fitting, drop-shadow, alt-text]', () => {
+  it('text-element → [size-position, text-fitting, drop-shadow, reflection, alt-text]', () => {
     expect(pickSections(objSel('text-element'))).toEqual([
       'size-position',
       'text-fitting',
       'drop-shadow',
+      'reflection',
       'alt-text',
     ]);
   });

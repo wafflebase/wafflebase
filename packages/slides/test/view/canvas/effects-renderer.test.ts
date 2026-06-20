@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest';
 import type { Theme } from '../../../src/model/theme';
-import type { DropShadow } from '../../../src/model/element';
+import type { DropShadow, Reflection } from '../../../src/model/element';
 import {
   applyShadow,
   clearShadow,
   colorWithAlpha,
+  paintReflection,
 } from '../../../src/view/canvas/effects-renderer';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
 
@@ -96,5 +98,72 @@ describe('applyShadow / clearShadow', () => {
     expect(ctx.shadowBlur).toBe(0);
     expect(ctx.shadowOffsetX).toBe(0);
     expect(ctx.shadowOffsetY).toBe(0);
+  });
+});
+
+describe('paintReflection', () => {
+  const reflection: Reflection = { opacity: 0.4, distance: 5, size: 0.5 };
+
+  it('no-ops gracefully when no offscreen 2D context is available', () => {
+    // jsdom without the `canvas` package returns null from getContext, so
+    // the reflection is skipped rather than crashing.
+    const ctx = createCtxSpy();
+    let bodyCalls = 0;
+    paintReflection(asCtx(ctx), { w: 100, h: 60 }, reflection, () => {
+      bodyCalls++;
+    });
+    expect(bodyCalls).toBe(0);
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
+
+  it('skips when reflection size is zero', () => {
+    const ctx = createCtxSpy();
+    let bodyCalls = 0;
+    paintReflection(
+      asCtx(ctx),
+      { w: 100, h: 60 },
+      { ...reflection, size: 0 },
+      () => {
+        bodyCalls++;
+      },
+    );
+    expect(bodyCalls).toBe(0);
+  });
+
+  it('renders the body offscreen, fades it, and draws it flipped below', () => {
+    const grad = { addColorStop: vi.fn() };
+    const offCtx = {
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+      fillStyle: '' as string | CanvasGradient,
+      createLinearGradient: vi.fn(() => grad),
+      fillRect: vi.fn(),
+    };
+    const fakeCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => offCtx),
+    };
+    const create = vi
+      .spyOn(document, 'createElement')
+      .mockReturnValue(fakeCanvas as unknown as HTMLCanvasElement);
+    try {
+      const ctx = createCtxSpy();
+      let bodyTarget: unknown;
+      paintReflection(asCtx(ctx), { w: 100, h: 60 }, reflection, (t) => {
+        bodyTarget = t;
+      });
+      // Body painted into the offscreen ctx.
+      expect(bodyTarget).toBe(offCtx);
+      // Faded with a destination-out linear gradient.
+      expect(offCtx.globalCompositeOperation).toBe('destination-out');
+      expect(offCtx.createLinearGradient).toHaveBeenCalled();
+      expect(offCtx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+      // Mirror drawn below, vertically flipped.
+      expect(ctx.globalAlpha).toBeCloseTo(0.4);
+      expect(ctx.scale).toHaveBeenCalledWith(1, -1);
+      expect(ctx.drawImage).toHaveBeenCalledWith(fakeCanvas, 0, 0, 100, 60);
+    } finally {
+      create.mockRestore();
+    }
   });
 });

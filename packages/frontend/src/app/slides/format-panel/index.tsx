@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
-  DropShadow,
   Effects,
   Element,
   Frame,
@@ -17,6 +16,7 @@ import { ImageAdjustmentsSection } from './image-adjustments-section';
 import { TextFittingSection } from './text-fitting-section';
 import { SizePositionSection } from './size-position-section';
 import { DropShadowSection } from './drop-shadow-section';
+import { ReflectionSection } from './reflection-section';
 import type { DisplayUnit } from './units';
 
 export interface FormatPanelProps {
@@ -149,11 +149,12 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
     [store, selection],
   );
 
-  // Shadow is committed per-element so a co-existing reflection on any
-  // selected element is preserved (the same shadow value is written to
-  // all, but each element keeps its own other effects).
-  const commitShadow = useCallback(
-    (ids: readonly string[], shadow: DropShadow | undefined) => {
+  // Effects are merged per-element so editing one effect (shadow) preserves
+  // any other (reflection) already on that element. A `undefined` value in
+  // the patch removes that effect; the whole `effects` key is dropped when
+  // nothing remains so empty `{}` cruft never reaches storage.
+  const commitEffects = useCallback(
+    (ids: readonly string[], patch: Partial<Effects>) => {
       if (selection.kind !== 'object') return;
       store.batch(() => {
         for (const id of ids) {
@@ -161,9 +162,12 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
           if (!el) continue;
           const existing = (el as { data?: { effects?: Effects } }).data
             ?.effects;
-          const next: Effects = {};
-          if (shadow) next.shadow = shadow;
-          if (existing?.reflection) next.reflection = existing.reflection;
+          const merged: Record<string, unknown> = { ...existing };
+          for (const [k, v] of Object.entries(patch)) {
+            if (v === undefined) delete merged[k];
+            else merged[k] = v;
+          }
+          const next = merged as Effects;
           const effects = next.shadow || next.reflection ? next : undefined;
           store.updateElementData(selection.slideId, id, { effects });
         }
@@ -260,7 +264,17 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                   <DropShadowSection
                     key={id}
                     elements={selection.elements}
-                    onCommit={commitShadow}
+                    onCommit={(ids, shadow) => commitEffects(ids, { shadow })}
+                  />
+                );
+              case 'reflection':
+                return (
+                  <ReflectionSection
+                    key={id}
+                    elements={selection.elements}
+                    onCommit={(ids, reflection) =>
+                      commitEffects(ids, { reflection })
+                    }
                   />
                 );
               case 'alt-text':

@@ -5,6 +5,7 @@ export type SectionId =
   | 'text-fitting'
   | 'image-adjustments'
   | 'drop-shadow'
+  | 'reflection'
   | 'alt-text';
 
 export type ObjectSelectionType =
@@ -31,13 +32,25 @@ export function pickSections(
   if (selection.kind === 'idle') return [];
   switch (selection.selectionType) {
     case 'shape':
-      // Drop shadow paints a single silhouette via `ctx.shadow*`; shapes
-      // qualify. Reflection / recolor land in later sections.
-      return ['size-position', 'drop-shadow', 'alt-text'];
+      // Drop shadow / reflection paint a single silhouette via the
+      // effects renderer; shapes qualify. Recolor lands in PR 2.
+      return ['size-position', 'drop-shadow', 'reflection', 'alt-text'];
     case 'image':
-      return ['size-position', 'image-adjustments', 'drop-shadow', 'alt-text'];
+      return [
+        'size-position',
+        'image-adjustments',
+        'drop-shadow',
+        'reflection',
+        'alt-text',
+      ];
     case 'text-element':
-      return ['size-position', 'text-fitting', 'drop-shadow', 'alt-text'];
+      return [
+        'size-position',
+        'text-fitting',
+        'drop-shadow',
+        'reflection',
+        'alt-text',
+      ];
     case 'table':
       // Tables render as multi-draw grids — a per-cell `ctx.shadow*` would
       // shadow every border, so Drop shadow is excluded here (v1).

@@ -10,17 +10,18 @@ Design doc: `docs/design/slides/slides-format-effects.md`
 
 - [x] Model: `DropShadow`, `Reflection`, `Effects` types; `effects?` on
       shape/image/text/table/group `data`; `alt?` on shape/text/table `data`.
-- [x] Renderer: `applyShadow`/`clearShadow` around shape/image/text paint
-      in `element-renderer.ts`. (Reflection offscreen mirror — next.)
-- [x] Panel: `pick-sections.ts` routing → `drop-shadow`, `alt-text`
-      (extended to shape/text/table). (Reflection routing — next.)
-- [x] Sections: `drop-shadow-section.tsx`; `alt-text-section.tsx`
-      generalized to all object types. (`reflection-section.tsx` — next.)
-- [ ] Reflection: model wired; renderer + section + routing remaining.
+- [x] Renderer: `applyShadow`/`clearShadow` + `paintReflection`
+      (offscreen mirror, graceful no-op without a 2D ctx) around
+      shape/image/text paint in `element-renderer.ts`.
+- [x] Panel: `pick-sections.ts` routing → `drop-shadow`, `reflection`,
+      `alt-text` (alt extended to shape/text/table).
+- [x] Sections: `drop-shadow-section.tsx`, `reflection-section.tsx`;
+      `alt-text-section.tsx` generalized to all object types.
 - [ ] Import: PPTX `<a:outerShdw>` / `<a:reflection>` → effects;
-      `<p:cNvPr descr>` → alt.
-- [x] Tests: pick-sections routing, drop-shadow section commit/toggle,
-      effects-renderer units, element-renderer shadow integration.
+      `<p:cNvPr descr>` → alt. (follow-up slice)
+- [x] Tests: pick-sections routing, drop-shadow + reflection section
+      commit/toggle, effects-renderer units (shadow + reflection),
+      element-renderer shadow integration.
 
 ## PR 2 — Image-only adjustments (Recolor · Brightness/Contrast)
 

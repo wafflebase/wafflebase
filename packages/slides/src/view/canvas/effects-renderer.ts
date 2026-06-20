@@ -1,4 +1,4 @@
-import type { DropShadow } from '../../model/element';
+import type { DropShadow, Reflection } from '../../model/element';
 import type { Theme } from '../../model/theme';
 import { resolveStrokeColor } from './render-context';
 
@@ -63,4 +63,72 @@ export function clearShadow(ctx: CanvasRenderingContext2D): void {
   ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
+}
+
+/**
+ * Allocate a same-document `<canvas>` for the offscreen reflection pass.
+ * Returns `null` when no DOM / 2D context is available (Node, or the
+ * jsdom test env without the `canvas` package) so callers can skip the
+ * reflection gracefully rather than crash.
+ */
+function createOffscreen(
+  w: number,
+  h: number,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(w));
+  canvas.height = Math.max(1, Math.ceil(h));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  return { canvas, ctx };
+}
+
+/**
+ * Paint a fading mirror of the element below it. Mirrors OOXML
+ * `<a:reflection>`: the copy is most opaque at the element's bottom
+ * edge (`reflection.opacity`) and fades to transparent over
+ * `reflection.size × h`, offset down by `reflection.distance`.
+ *
+ * The body is rendered to an offscreen canvas in element-local
+ * coordinates, faded with a `destination-out` gradient, then drawn
+ * vertically flipped beneath the element. No-op when the offscreen
+ * canvas is unavailable (Node / jsdom).
+ */
+export function paintReflection(
+  ctx: CanvasRenderingContext2D,
+  size: { w: number; h: number },
+  reflection: Reflection,
+  paintBody: (target: CanvasRenderingContext2D) => void,
+): void {
+  const { w, h } = size;
+  if (w <= 0 || h <= 0) return;
+  const fade = Math.max(0, Math.min(1, reflection.size)) * h;
+  if (fade <= 0) return;
+
+  const off = createOffscreen(w, h);
+  if (!off) return;
+
+  // 1) Render the element body into the offscreen, in local coords.
+  paintBody(off.ctx);
+
+  // 2) Fade: keep the bottom edge (y = h, adjacent to the element once
+  //    mirrored), erase toward the top over `fade` px. The gradient
+  //    clamps to its end color above `h - fade`, fully erasing the far
+  //    part of the reflection.
+  off.ctx.globalCompositeOperation = 'destination-out';
+  const grad = off.ctx.createLinearGradient(0, h, 0, Math.max(0, h - fade));
+  grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 1)');
+  off.ctx.fillStyle = grad;
+  off.ctx.fillRect(0, 0, w, h);
+
+  // 3) Draw the faded copy vertically flipped, just below the element.
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, reflection.opacity));
+  ctx.translate(0, h + reflection.distance);
+  ctx.scale(1, -1);
+  ctx.translate(0, -h);
+  ctx.drawImage(off.canvas, 0, 0, w, h);
+  ctx.restore();
 }
