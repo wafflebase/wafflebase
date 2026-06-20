@@ -56,4 +56,49 @@ pan the image under a fixed window, commit as one undo step.
 
 ## Review
 
-(to fill in after implementation)
+Implemented and self-reviewed (high-effort multi-agent pass). Status:
+
+- **Math core** ✅ `model/image-crop.ts` + 14 unit tests (round-trip, clamp,
+  handle, pan, normalize, reset). Renderer-natural-size-agnostic.
+- **Renderer** ✅ `drawCropPreview` (dimmed-full + clipped bright window),
+  threaded `cropPreview?` through `drawSlide`/`forceRender`, masks the
+  cropping element. ctx-spy test (`clip` added to the spy).
+- **Editor session** ✅ `enterImageCrop` / `exitImageCrop` /
+  `finishCropSession` / `resetImageCrop`, double-click + toolbar entry,
+  `onPointerDownCrop` (trim / pan / outside-commit), modal capture-phase
+  key handler (Enter=commit, Esc=cancel), single batched undo, mutual
+  exclusion with text edit. 6 jsdom interaction tests.
+- **Overlay** ✅ `cropWindow` option → white border + 8 black handles,
+  short-circuits selection chrome.
+- **Toolbar** ✅ Crop button enabled (pressed-state via `onCropChange`);
+  Reset crop restores proportions through `editor.resetImageCrop`.
+- `pnpm verify:fast` green (frontend/slides/sheets/docs/backend all pass).
+
+### Review fixes applied
+
+- Added `disposed` guard to `repaintOverlay` (was unguarded vs `render`),
+  fixing a paint-into-detached-overlay leak on detach-mid-drag.
+- DRY'd the two crop-drag loops into `runCropDrag`, which also guards
+  against a session that ends mid-drag (`this.cropSession !== session`).
+  New test locks this in.
+- Removed dead `cropSession.before` snapshot (cancel is a pure no-op) and
+  the now-unused `Crop` import; removed dead test scaffolding.
+
+### Deviations from the design doc
+
+- Pure crop math lives in `model/image-crop.ts` (model layer, reusable)
+  rather than `view/editor/interactions/crop.ts` — the geometry is
+  renderer-agnostic data math, so the model layer is the right home.
+- **Visual harness scenario deferred.** Harness image loading is async /
+  flaky; jsdom interaction tests cover the session end-to-end. Follow-up:
+  add a crop-mode scenario to `slides-scenarios.tsx` +
+  `verify-visual-browser.mjs` (kept in lockstep) once a deterministic
+  image-load hook exists.
+
+### Known limitations (P1)
+
+- Rectangular crop only — no crop-to-shape / aspect presets / Fill-Fit.
+- Crop entry gated to top-level, non-rotated images.
+- Modal key handler swallows editor shortcuts during crop but does not
+  `preventDefault` browser-native ones (Ctrl+S/P/F) — intentional;
+  revisit if it annoys.
