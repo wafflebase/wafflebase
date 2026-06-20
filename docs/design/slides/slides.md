@@ -45,8 +45,8 @@ documents) are explicitly out of scope and listed at the end.
 
 ### Non-Goals (v1)
 
-- Animations, slide transitions (including simple fade — adding even
-  one transition forces the underlying transition system).
+- ~~Animations, slide transitions~~ — shipped in v0.5.0; see
+  [slides-animation.md](slides-animation.md).
 - Global theme system and master slides (only per-slide background fill
   in v1; layouts are a fixed code-defined set, see "Layouts").
 - PPTX import/export (PDF only). PPTX export is a likely v2 ask given

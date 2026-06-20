@@ -366,6 +366,30 @@ One design, delivered in stages (each its own commit / verify-green):
 - **P3** — PPTX import of `<p:transition>` / `<p:timing>`, preset mapping,
   preservation of unmapped presets + motion paths.
 
+## Implementation status (v0.5.0)
+
+All four phases shipped on the `slides-animation-design` branch. Object
+animations and slide transitions play in both presentation mode and the
+editor **Play** preview; the Motion panel authors transitions + object
+animations (category/effect/start/direction/delay/easing/by-paragraph);
+PPTX `<p:transition>` and `<p:timing>` import best-effort.
+
+Known limitations / deviations (tracked for follow-up):
+
+- **Unmapped imported presets** are preserved (`pptxPreset` + `motionPath`)
+  and play as `appear` (an instant show) rather than being skipped
+  "preview-only". The data round-trips; only the fallback playback differs
+  from the original intent.
+- **Transition direction** is honored by the engine (push/slide) and by
+  import, but the Motion panel does not yet expose a direction control
+  (in-app authored transitions use the default "from right"). `wipe`
+  ignores direction in the renderer.
+- **Motion paths** are preserved on import but not authored or played in
+  v1 (cross-fade/cut fallback).
+- **Triggers** (`interactiveSeq`) and audio/video timeline nodes are
+  dropped on import, surfaced via import-report counters.
+- `entr:3` (blinds) imports as `flyIn` (lossy — raw preset not preserved).
+
 ## Risks and Mitigation
 
 - **Render regression for existing decks.** Optional `animStates` arg
