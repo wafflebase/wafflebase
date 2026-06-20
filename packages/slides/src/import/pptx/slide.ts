@@ -10,6 +10,7 @@ import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
 import { parseSpTree, type SlideParseContext } from './shape';
 import { parseTextBody } from './text';
+import { parseTiming } from './timing';
 import { parseTransition } from './transition-map';
 import type { PptxArchive } from './unzip';
 import type { UploadImage } from './index';
@@ -98,6 +99,10 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
 
   const transition = parseTransition(child(slideEl, 'transition'), opts.report);
 
+  const spidToElementId = new Map<string, string>();
+  for (const [pptxId, elId] of ctx.idMap) spidToElementId.set(String(pptxId), elId);
+  const animations = parseTiming(child(slideEl, 'timing'), { spidToElementId, report: opts.report });
+
   return {
     id: opts.partPath, // stable id keyed on source part path
     layoutId,
@@ -105,6 +110,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     elements,
     notes,
     ...(transition !== undefined && { transition }),
+    ...(animations.length > 0 && { animations }),
   };
 }
 
