@@ -1,5 +1,6 @@
 import type {
   AutofitMode,
+  Crop,
   Element,
   Frame,
   ShapeKind,
@@ -17,7 +18,9 @@ import {
   applyCropHandle,
   panFull,
   normalizeCrop,
-  resetFrameForUncrop,
+  rotateVec,
+  frameToLocalWindow,
+  windowToFrame,
   type Rect,
   type CropHandle,
 } from '../../model/image-crop';
@@ -744,19 +747,26 @@ class SlidesEditorImpl implements SlidesEditor {
   private textEditingListeners = new Set<() => void>();
   /**
    * Active image crop session, or null when not cropping. Mutually
-   * exclusive with text edit. `full` is the whole-bitmap rect at the
-   * current display scale; `window` is the bright crop window (the
-   * element frame). Both in slide-logical world coords — crop is only
-   * entered on top-level, non-rotated images, so no scope/rotation
-   * transform is needed. A cancel is a pure no-op: drags mutate only the
-   * in-memory `full`/`window`, and the store is written once on commit,
-   * so the store already holds the pre-session frame/crop.
+   * exclusive with text edit. Crop is edited in the element's CENTRED-
+   * LOCAL space (origin at the frame centre, rotation removed): `full`
+   * is the whole-bitmap rect, `window` is the bright crop window, both
+   * centred on the origin. `center` is the fixed world rotation centre
+   * and `rotation`/`cos`/`sin` its angle — applied when rendering, when
+   * placing handles, and when projecting pointer deltas, so a rotated
+   * image crops in its own rotated frame. Entry is top-level only (scope
+   * transforms would otherwise be needed). A cancel is a pure no-op:
+   * drags mutate only the in-memory `full`/`window`, and the store is
+   * written once on commit.
    */
   private cropSession:
     | {
         slideId: string;
         elementId: string;
         src: string;
+        center: { x: number; y: number };
+        rotation: number;
+        cos: number;
+        sin: number;
         full: Rect;
         window: Rect;
       }
@@ -950,13 +960,17 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     // Crop session owns the overlay: paint only the crop window + black
-    // handles (no selection / guide chrome).
+    // handles (no selection / guide chrome). The window is the live
+    // committed-equivalent frame so its handles render rotated for a
+    // rotated image.
     if (this.cropSession) {
+      const s = this.cropSession;
+      const f = windowToFrame(s.window, s.center, s.cos, s.sin);
       renderOverlay(this.options.overlay, [], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: SLIDE_HEIGHT,
-        cropWindow: { ...this.cropSession.window, rotation: 0 },
+        cropWindow: { ...f, rotation: s.rotation },
       });
       return;
     }
@@ -1985,19 +1999,25 @@ class SlidesEditorImpl implements SlidesEditor {
     // mirrors the table-cell-edit guard.
     const el = slide.elements.find((e) => e.id === elementId);
     if (!el || el.type !== 'image') return;
-    // P0: rectangular crop on axis-aligned images only.
-    if (el.frame.rotation !== 0) return;
     // Mutually exclusive with text edit — commit any in-flight text.
     if (this.editingElementId !== null) this.exitEditMode('commit');
     if (this.cropSession !== null) this.exitImageCrop(true);
 
+    // Work in the element's centred-local frame so a rotated image crops
+    // in its own rotated space; the math is the same axis-aligned rect
+    // math, only the render / handles / pointer apply the rotation.
     const frame = el.frame;
-    const window: Rect = { x: frame.x, y: frame.y, w: frame.w, h: frame.h };
+    const window = frameToLocalWindow(frame);
     const full = cropToFull(window, el.data.crop);
+    const basis = frameRotationBasis(frame);
     this.cropSession = {
       slideId: slide.id,
       elementId,
       src: el.data.src,
+      center: basis.center,
+      rotation: frame.rotation,
+      cos: basis.cos,
+      sin: basis.sin,
       full,
       window,
     };
@@ -2036,18 +2056,13 @@ class SlidesEditorImpl implements SlidesEditor {
     if (!session) return;
     if (commit) {
       const crop = normalizeCrop(windowToCrop(session.full, session.window));
-      const w = session.window;
-      this.options.store.batch(() => {
-        this.options.store.updateElementFrame(session.slideId, session.elementId, {
-          x: w.x,
-          y: w.y,
-          w: w.w,
-          h: w.h,
-        });
-        this.options.store.updateElementData(session.slideId, session.elementId, {
-          crop,
-        });
-      });
+      this.commitCropFrame(
+        session.slideId,
+        session.elementId,
+        session.window,
+        session,
+        crop,
+      );
     }
     this.finishCropSession();
   }
@@ -2060,28 +2075,46 @@ class SlidesEditorImpl implements SlidesEditor {
     // Discard any live crop session on this element first.
     if (this.cropSession?.elementId === elementId) this.exitImageCrop(false);
     if (!el.data.crop) return;
-    const restoreFrame = el.frame.rotation === 0;
+    // Restore proportions: the uncropped frame is the full bitmap, placed
+    // (via the centred-local math) so the visible image does not shift.
+    // Works uniformly for rotated images — rotation is preserved.
     const frame = el.frame;
-    this.options.store.batch(() => {
-      if (restoreFrame) {
-        const next = resetFrameForUncrop(
-          { x: frame.x, y: frame.y, w: frame.w, h: frame.h },
-          el.data.crop,
-        );
-        this.options.store.updateElementFrame(slide.id, elementId, {
-          x: next.x,
-          y: next.y,
-          w: next.w,
-          h: next.h,
-        });
-      }
-      this.options.store.updateElementData(slide.id, elementId, {
-        crop: undefined,
-      });
-    });
+    const full = cropToFull(frameToLocalWindow(frame), el.data.crop);
+    this.commitCropFrame(
+      slide.id,
+      elementId,
+      full,
+      frameRotationBasis(frame),
+      undefined,
+    );
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+  }
+
+  /**
+   * Convert a centred-local crop window back to a stored frame and write
+   * the frame + crop in one undo step. Shared by crop-commit and reset.
+   * The frame's `rotation` is left untouched (only `x/y/w/h` change), so
+   * a rotated image stays rotated.
+   */
+  private commitCropFrame(
+    slideId: string,
+    elementId: string,
+    window: Rect,
+    basis: { center: { x: number; y: number }; cos: number; sin: number },
+    crop: Crop | undefined,
+  ): void {
+    const frame = windowToFrame(window, basis.center, basis.cos, basis.sin);
+    this.options.store.batch(() => {
+      this.options.store.updateElementFrame(slideId, elementId, {
+        x: frame.x,
+        y: frame.y,
+        w: frame.w,
+        h: frame.h,
+      });
+      this.options.store.updateElementData(slideId, elementId, { crop });
+    });
   }
 
   private finishCropSession(): void {
@@ -2107,6 +2140,8 @@ class SlidesEditorImpl implements SlidesEditor {
     return {
       elementId: s.elementId,
       src: s.src,
+      center: s.center,
+      rotation: s.rotation,
       full: s.full,
       window: s.window,
     };
@@ -2125,9 +2160,16 @@ class SlidesEditorImpl implements SlidesEditor {
       this.startCropHandleDrag(handle, e.clientX, e.clientY);
       return;
     }
-    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    // Pan hit-test in the element's centred-local frame (handles rotation).
+    const world = this.clientToLogical(e.clientX, e.clientY);
+    const p = rotateVec(
+      world.x - session.center.x,
+      world.y - session.center.y,
+      session.cos,
+      -session.sin,
+    );
     const w = session.window;
-    if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) {
+    if (p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h) {
       this.startCropPan(e.clientX, e.clientY);
       return;
     }
@@ -2157,11 +2199,12 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * Shared pointer-drag loop for crop trim / pan. `onDelta` updates the
-   * session geometry from the logical-space delta; we repaint after each
-   * move and tear the listeners down on pointerup. If the session is
-   * ended mid-drag (Esc, detach, slide switch) the move is ignored so a
-   * stale session is never mutated or painted.
+   * Shared pointer-drag loop for crop trim / pan. `onDelta` receives the
+   * delta already projected into the element's centred-local space (so
+   * the same axis-aligned math works for rotated images); we repaint
+   * after each move and tear the listeners down on pointerup. If the
+   * session is ended mid-drag (Esc, detach, slide switch) the move is
+   * ignored so a stale session is never mutated or painted.
    */
   private runCropDrag(
     session: NonNullable<typeof this.cropSession>,
@@ -2173,7 +2216,14 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMove = (ev: MouseEvent): void => {
       if (this.cropSession !== session) return;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
-      onDelta(cur.x - start.x, cur.y - start.y);
+      // World delta → centred-local delta via R(-θ) (rotation only).
+      const d = rotateVec(
+        cur.x - start.x,
+        cur.y - start.y,
+        session.cos,
+        -session.sin,
+      );
+      onDelta(d.x, d.y);
       this.render();
       this.repaintOverlay();
     };
@@ -3334,10 +3384,8 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     if (el.type === 'image') {
-      // Double-click an image enters crop (Google Slides parity).
-      // `enterImageCrop` re-checks top-level + non-rotated and no-ops
-      // otherwise, so the guards here only avoid a wasted call.
-      if (el.frame.rotation !== 0) return;
+      // Double-click an image enters crop (Google Slides parity), rotated
+      // or not. Top-level only — grouped images have parent-local frames.
       if (!slide.elements.some((e) => e.id === el.id)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -5993,6 +6041,19 @@ const CROP_HANDLE_KINDS: ReadonlySet<string> = new Set([
 /** Narrow a `HandleKind` to the 8 crop/resize directions. */
 function isCropHandle(handle: string): handle is CropHandle {
   return CROP_HANDLE_KINDS.has(handle);
+}
+
+/** Rotation basis of a frame: world centre + cos/sin of its rotation. */
+function frameRotationBasis(frame: Frame): {
+  center: { x: number; y: number };
+  cos: number;
+  sin: number;
+} {
+  return {
+    center: { x: frame.x + frame.w / 2, y: frame.y + frame.h / 2 },
+    cos: Math.cos(frame.rotation),
+    sin: Math.sin(frame.rotation),
+  };
 }
 
 function findElement(elements: readonly Element[], id: string): Element | undefined {

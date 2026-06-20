@@ -95,10 +95,21 @@ Implemented and self-reviewed (high-effort multi-agent pass). Status:
   `verify-visual-browser.mjs` (kept in lockstep) once a deterministic
   image-load hook exists.
 
+### Rotation support (follow-up to the first cut)
+
+Rotated images now crop too: the rect math runs in the element's
+centred-local frame, and only render / handles / pointer apply the
+`(center, θ)` transform (`drawCropPreview` translate+rotate,
+`localToWorld` handles, `R(-θ)` pointer deltas; `windowToFrame` on
+commit preserves rotation). `θ=0` is the same code path. Added
+`rotateVec` / `frameToLocalWindow` / `windowToFrame` to `image-crop.ts`
+(+ tests) and a rotated-image interaction test.
+
 ### Known limitations (P1)
 
 - Rectangular crop only — no crop-to-shape / aspect presets / Fill-Fit.
-- Crop entry gated to top-level, non-rotated images.
+- Crop entry gated to **top-level** images (grouped images carry
+  parent-local frames → would need a scope transform).
 - Modal key handler swallows editor shortcuts during crop but does not
   `preventDefault` browser-native ones (Ctrl+S/P/F) — intentional;
   revisit if it annoys.

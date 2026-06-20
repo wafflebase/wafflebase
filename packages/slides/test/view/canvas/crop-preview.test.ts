@@ -26,8 +26,10 @@ describe('drawCropPreview', () => {
       {
         elementId: 'e1',
         src: 'x.png',
-        full: { x: 0, y: 0, w: 400, h: 300 },
-        window: { x: 50, y: 40, w: 200, h: 150 },
+        center: { x: 400, y: 350 },
+        rotation: 0,
+        full: { x: -200, y: -150, w: 400, h: 300 },
+        window: { x: -150, y: -110, w: 200, h: 150 },
       },
       () => undefined,
     );
@@ -42,20 +44,43 @@ describe('drawCropPreview', () => {
       {
         elementId: 'e1',
         src: 'x.png',
-        full: { x: 0, y: 0, w: 400, h: 300 },
-        window: { x: 50, y: 40, w: 200, h: 150 },
+        center: { x: 400, y: 350 },
+        rotation: 0,
+        full: { x: -200, y: -150, w: 400, h: 300 },
+        window: { x: -150, y: -110, w: 200, h: 150 },
         dimAlpha: 0.4,
       },
       () => undefined,
     );
 
-    // Both passes draw the whole bitmap into the `full` rect.
+    // Translates into the centred-local frame before drawing.
+    expect(ctx.translate).toHaveBeenCalledWith(400, 350);
+    // Both passes draw the whole bitmap into the centred-local `full` rect.
     expect(ctx.drawImage).toHaveBeenCalledTimes(2);
-    expect(ctx.drawImage).toHaveBeenNthCalledWith(1, fakeImg, 0, 0, 400, 300);
-    expect(ctx.drawImage).toHaveBeenNthCalledWith(2, fakeImg, 0, 0, 400, 300);
+    expect(ctx.drawImage).toHaveBeenNthCalledWith(1, fakeImg, -200, -150, 400, 300);
+    expect(ctx.drawImage).toHaveBeenNthCalledWith(2, fakeImg, -200, -150, 400, 300);
 
     // Bright pass clips to the crop window.
-    expect(ctx.rect).toHaveBeenCalledWith(50, 40, 200, 150);
+    expect(ctx.rect).toHaveBeenCalledWith(-150, -110, 200, 150);
     expect(ctx.clip).toHaveBeenCalledTimes(1);
+  });
+
+  it('rotates into the element frame when rotation is non-zero', () => {
+    getOrLoadImage.mockReturnValue(fakeImg);
+    const ctx = createCtxSpy();
+    drawCropPreview(
+      asCtx(ctx),
+      {
+        elementId: 'e1',
+        src: 'x.png',
+        center: { x: 400, y: 350 },
+        rotation: Math.PI / 2,
+        full: { x: -200, y: -150, w: 400, h: 300 },
+        window: { x: -200, y: -150, w: 400, h: 300 },
+      },
+      () => undefined,
+    );
+    expect(ctx.translate).toHaveBeenCalledWith(400, 350);
+    expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 2);
   });
 });

@@ -126,11 +126,52 @@ export function normalizeCrop(crop: Crop, eps = 1e-4): Crop | undefined {
   };
 }
 
+// --- rotation support ---------------------------------------------------
+//
+// Crop is edited in the element's LOCAL frame (rotation removed), centred
+// on the frame centre, so the rect math above is reused verbatim. Only
+// the editor's pointer input, the renderer preview, and the overlay
+// handles apply the rotation transform. These helpers convert between
+// that centred-local space and stored world frames.
+
+/** Rotate the vector `(x, y)` by the angle whose cos/sin are given. */
+export function rotateVec(
+  x: number,
+  y: number,
+  cos: number,
+  sin: number,
+): { x: number; y: number } {
+  return { x: x * cos - y * sin, y: x * sin + y * cos };
+}
+
+/** The centred-local crop window for an element's frame (rotation aside). */
+export function frameToLocalWindow(frame: {
+  w: number;
+  h: number;
+}): Rect {
+  return { x: -frame.w / 2, y: -frame.h / 2, w: frame.w, h: frame.h };
+}
+
 /**
- * Frame to restore when clearing a crop ("Reset crop"): the full-bitmap
- * rect, so the image returns to its true proportions instead of being
- * re-stretched into the stale cropped frame.
+ * Convert a centred-local crop window back to a stored frame (world
+ * axis-aligned `x/y/w/h`; the caller re-attaches `rotation`). `center` is
+ * the session's fixed world rotation centre; `cos`/`sin` are of the
+ * rotation angle. For an unrotated frame (`cos=1, sin=0`) this reduces to
+ * `x = center.x + window.x` etc.
  */
-export function resetFrameForUncrop(frame: Rect, crop: Crop | undefined): Rect {
-  return cropToFull(frame, crop);
+export function windowToFrame(
+  window: Rect,
+  center: { x: number; y: number },
+  cos: number,
+  sin: number,
+): Rect {
+  const lcx = window.x + window.w / 2;
+  const lcy = window.y + window.h / 2;
+  const wc = rotateVec(lcx, lcy, cos, sin);
+  return {
+    x: center.x + wc.x - window.w / 2,
+    y: center.y + wc.y - window.h / 2,
+    w: window.w,
+    h: window.h,
+  };
 }

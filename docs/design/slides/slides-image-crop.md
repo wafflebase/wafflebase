@@ -109,6 +109,30 @@ the bitmap), and a degenerate near-`{0,0,1,1}` result is normalized to
 > frame/crop pair, but P0 never produces one; proportional Fill/Fit
 > handling is P1.
 
+#### Rotated images
+
+Crop works on rotated images too, by running the **exact same rect math
+in the element's centred-local frame** (origin at the frame centre,
+rotation removed). The session fixes `center = frame centre` and the
+angle `θ = frame.rotation`; `full`/`window` are axis-aligned rects in
+that local frame. Only three places apply the rotation:
+
+- **Render** — `drawCropPreview` does `translate(center); rotate(θ)`
+  before painting the dimmed-full + clipped-window (centred-local coords).
+- **Handles** — the overlay places the eight handles + border at the
+  rotated screen positions (`localToWorld`, same as `renderRotatedHandles`).
+- **Pointer** — a world drag delta is projected into local space via
+  `R(-θ)` before feeding `applyCropHandle` / `panFull`; the pan hit-test
+  maps the cursor into local space the same way.
+
+On commit, `windowToFrame(window, center, cosθ, sinθ)` converts the
+centred-local window back to a stored `frame` (world `x/y/w/h`) with
+`rotation = θ` preserved — a `Frame` rotates about its own centre, so the
+visible pixels never jump. `θ = 0` reduces to the axis-aligned path
+(`center + window`), so there is a single code path, not a special case.
+Entry stays **top-level only** (grouped elements carry parent-local
+frames, which would need a scope transform).
+
 ### Crop session state (editor)
 
 Mirror the existing text-edit session machinery in
@@ -238,6 +262,7 @@ Update `packages/slides/README.md` image section.
 | Crop math drift between editor (full/window) and renderer (source-rect) | Single shared helper converts `(frame, crop) ↔ full`; both the overlay and the commit derive from it; round-trip unit test guards it. |
 | Mode collision with text-edit / resize / drag | Crop session is mutually exclusive: entering commits any text edit; resize/rotate/drag handlers early-return while `croppingElementId` is set. |
 | Non-proportional frame produces visible distortion | P0 free-crop keeps `full` proportional to `NW:NH`; non-proportional Fill/Fit deferred to P1. |
+| Rotated-image crop math drift between render / handles / pointer | All three derive from the same centred-local `(center, θ)` session: `translate+rotate` to render, `localToWorld` for handles, `R(-θ)` for pointer deltas. `θ=0` is the same path, so the axis-aligned case continuously exercises it; a rotated interaction test asserts the committed `frame`/`crop`. |
 | Double-click ambiguity (drill-in groups vs crop) | Reuse the existing drill-in state machine; only a **leaf** image triggers crop, exactly where text-edit would have for a leaf text/shape. |
 
 ## Future work (P1+, out of scope here)

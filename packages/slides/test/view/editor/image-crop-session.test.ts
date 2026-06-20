@@ -137,15 +137,34 @@ describe('image crop session', () => {
     expect(img.data.crop).toBeUndefined();
   });
 
-  it('does not enter crop on a rotated image', () => {
+  it('crops a rotated image in its own local frame', () => {
     const { canvas, overlay, store } = setup();
     let sid = '';
     store.batch(() => { sid = store.addSlide('blank'); });
-    const id = addImage(store, sid, { x: 200, y: 200, w: 400, h: 300, rotation: 0.5 });
+    // 90° rotation: centre (400,350), cos=0, sin=1.
+    const id = addImage(store, sid, {
+      x: 200, y: 200, w: 400, h: 300, rotation: Math.PI / 2,
+    });
     editor = makeEditor(store, canvas, overlay);
 
     editor.enterImageCrop(id);
-    expect(editor.isCropping()).toBe(false);
+    expect(editor.isCropping()).toBe(true);
+    // The 'e' handle sits at the rotated east edge: world (400, 550).
+    const e = handleCenter(overlay, 'e');
+    expect(e.x).toBeCloseTo(400);
+    expect(e.y).toBeCloseTo(550);
+    // Pull it 100px toward the centre (world -y) → local east edge in 100.
+    drag(overlay, e, { x: e.x, y: e.y - 100 });
+    key('Enter');
+
+    const img = image(store, sid, id);
+    expect(img.frame.rotation).toBeCloseTo(Math.PI / 2);
+    expect(img.frame.w).toBeCloseTo(300);
+    expect(img.frame.h).toBeCloseTo(300);
+    // Trimming the width by 100/400 leaves crop.w = 0.75.
+    expect(img.data.crop).toBeDefined();
+    expect(img.data.crop!.w).toBeCloseTo(0.75);
+    expect(img.data.crop!.h).toBeCloseTo(1);
   });
 
   it('ignores a pointermove after the session ends mid-drag', () => {

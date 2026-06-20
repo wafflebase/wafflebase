@@ -6,8 +6,10 @@ import {
   applyCropHandle,
   panFull,
   normalizeCrop,
-  resetFrameForUncrop,
   effectiveCrop,
+  rotateVec,
+  frameToLocalWindow,
+  windowToFrame,
   type Rect,
 } from '../../src/model/image-crop';
 
@@ -116,10 +118,43 @@ describe('normalizeCrop', () => {
   });
 });
 
-describe('resetFrameForUncrop', () => {
-  it('returns the full-bitmap rect so proportions restore', () => {
-    const frame = r(100, 100, 200, 200);
-    const crop: Crop = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
-    expect(resetFrameForUncrop(frame, crop)).toEqual(cropToFull(frame, crop));
+describe('rotation helpers', () => {
+  it('rotateVec rotates by the given cos/sin', () => {
+    // 90°: cos=0, sin=1 → (1,0) -> (0,1)
+    const v = rotateVec(1, 0, 0, 1);
+    expect(v.x).toBeCloseTo(0);
+    expect(v.y).toBeCloseTo(1);
+  });
+
+  it('frameToLocalWindow centres the window on the origin', () => {
+    expect(frameToLocalWindow({ w: 400, h: 300 })).toEqual(
+      r(-200, -150, 400, 300),
+    );
+  });
+
+  it('windowToFrame reduces to the world frame when unrotated', () => {
+    // Original frame (200,200,400,300): centre (400,350), local window
+    // centred at origin → windowToFrame must recover the frame.
+    const center = { x: 400, y: 350 };
+    const win = frameToLocalWindow({ w: 400, h: 300 });
+    expect(windowToFrame(win, center, 1, 0)).toEqual(r(200, 200, 400, 300));
+  });
+
+  it('windowToFrame round-trips a rotated, trimmed window', () => {
+    // A rotated session: centre C0, 90° rotation. Trim the local window
+    // and confirm the recovered frame, rotated about its own centre,
+    // places the window centre back where the local centre maps to.
+    const center = { x: 500, y: 500 };
+    const cos = 0;
+    const sin = 1; // 90°
+    const win = r(-100, -150, 200, 200); // off-centre local window
+    const frame = windowToFrame(win, center, cos, sin);
+    // The frame centre in world must equal C0 + R(θ)·(local window centre).
+    const lc = { x: win.x + win.w / 2, y: win.y + win.h / 2 }; // (0,-50)
+    const wc = rotateVec(lc.x, lc.y, cos, sin); // (50, 0)
+    expect(frame.x + frame.w / 2).toBeCloseTo(center.x + wc.x); // 550
+    expect(frame.y + frame.h / 2).toBeCloseTo(center.y + wc.y); // 500
+    expect(frame.w).toBe(200);
+    expect(frame.h).toBe(200);
   });
 });
