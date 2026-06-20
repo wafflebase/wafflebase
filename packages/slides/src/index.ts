@@ -174,6 +174,10 @@ export {
   type SlidesRulerViewport,
 } from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
+export {
+  SLIDES_DEFAULT_TEXT_SIZE,
+  makeDefaultSlidesTextBlock,
+} from './view/editor/default-text';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)

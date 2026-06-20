@@ -12,7 +12,7 @@ import type {
 } from '../../model/element';
 import { DEFAULT_CELL_BORDER, DEFAULT_CELL_PADDING } from '../../model/element';
 import type { Block } from '@wafflebase/docs';
-import { DEFAULT_BLOCK_STYLE, clearMeasureCache } from '@wafflebase/docs';
+import { clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
 import {
   computeTableLayout,
@@ -54,6 +54,7 @@ import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
+import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
 import { dragEndpoint } from './interactions/connector-endpoint-drag';
@@ -5866,7 +5867,7 @@ function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
   };
   return {
     kind: 'shape',
-    blocks: body?.blocks ?? [emptyShapeTextBlock()],
+    blocks: body?.blocks ?? [makeDefaultSlidesTextBlock()],
     autofit: body?.autofit ?? 'none',
     verticalAnchor: body?.verticalAnchor ?? 'middle',
     editFrame: innerFrame,
@@ -5930,7 +5931,7 @@ function buildCellEditTarget(
 
   return {
     kind: 'cell',
-    blocks: cell.body.blocks.length > 0 ? cell.body.blocks : [emptyShapeTextBlock()],
+    blocks: cell.body.blocks.length > 0 ? cell.body.blocks : [makeDefaultSlidesTextBlock()],
     // Cell content never shrinks (the row auto-grows instead — see
     // CR#5 / slides-tables.md). 'none' mirrors what paintCellContents
     // forwards to paintTextBody at render time.
@@ -5956,25 +5957,6 @@ function cellPadding(cell: TableCell): {
     left: p?.left ?? DEFAULT_CELL_PADDING.left,
   };
 }
-
-/**
- * Seed block for a shape whose `data.text` is absent at edit-entry.
- * Mirrors the seed `buildInsertElement` writes for a fresh text element
- * — fully-populated `style` so `computeLayout` reads non-undefined
- * `marginTop` / `marginBottom`, and an inline bound to the deck's
- * `text` color role so newly-typed runs inherit the theme (matches
- * `interactions/insert.ts`'s text-element seed exactly).
- */
-function emptyShapeTextBlock(): Block {
-  return {
-    id: 'placeholder',
-    type: 'paragraph',
-    inlines: [{ text: '', style: { color: SHAPE_TEXT_SEED_COLOR } }],
-    style: { ...DEFAULT_BLOCK_STYLE },
-  } as Block;
-}
-
-const SHAPE_TEXT_SEED_COLOR = { kind: 'role' as const, role: 'text' as const };
 
 /**
  * Given a hit result and the current selection scope, return the element id

@@ -5,6 +5,7 @@ import type { TableElement } from '../../../src/model/element';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from '../../../src/model/presentation';
 import { MemSlidesStore } from '../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import { SLIDES_DEFAULT_TEXT_SIZE } from '../../../src/view/editor/default-text';
 import type {
   MountSlidesTextBoxOptions,
   SlidesTextBoxEditor,
@@ -115,6 +116,36 @@ describe('table cell text-edit entry — box sizing', () => {
     // editFrame height ≈ cell height (100) minus top/bottom padding;
     // a shrunk box would be far smaller than this.
     expect(captured.opts!.frame.h).toBeGreaterThan(50);
+  });
+
+  it('seeds an empty cell at the slides default font size (18pt), not docs 11pt', () => {
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      store.addElement(sid, {
+        type: 'table',
+        frame: { x: 200, y: 200, w: 200, h: 200, rotation: 0 },
+        data: tableData(),
+      });
+    });
+
+    const captured: { opts?: MountSlidesTextBoxOptions } = {};
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: makeCapturingMount(captured),
+    });
+
+    canvas.dispatchEvent(
+      new MouseEvent('dblclick', { clientX: 250, clientY: 250, bubbles: true }),
+    );
+
+    // The empty cell's edit body is seeded with the slides default run so
+    // the first keystroke renders at SLIDES_DEFAULT_TEXT_SIZE rather than
+    // falling through to the docs 11pt DEFAULT_INLINE_STYLE.
+    const seed = captured.opts!.blocks[0]?.inlines[0];
+    expect(seed?.style.fontSize).toBe(SLIDES_DEFAULT_TEXT_SIZE);
   });
 
   it('extends the paint surface to the slide bounds so overflow shows', () => {

@@ -9,10 +9,12 @@ import type {
   ThemeColor,
   VerticalAnchorMode,
 } from '@wafflebase/slides';
+import { DEFAULT_CELL_PADDING } from '@wafflebase/slides';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -23,7 +25,9 @@ import {
   IconAlignBoxLeftMiddle,
   IconAlignBoxLeftBottom,
   IconBorderAll,
+  IconBoxPadding,
   IconBucketDroplet,
+  IconCheck,
 } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
@@ -33,6 +37,15 @@ import {
 } from '@/components/menu-focus';
 
 const BORDER_PRESET_DEFAULT: CellBorder = { color: '#000000', width: 1 };
+
+/**
+ * Uniform cell-padding presets (px), applied to all four sides. Mirrors
+ * Google Slides' single "Cell padding" control rather than per-side
+ * margins — per-side editing belongs in the Format options panel.
+ */
+const PADDING_PRESETS = [0, 2, 5, 10] as const;
+const PADDING_MIN = 0;
+const PADDING_MAX = 100;
 
 export interface TableControlsProps {
   editor: SlidesEditor | null;
@@ -83,6 +96,10 @@ export function TableControls({
 
   const [fillOpen, setFillOpen] = useState(false);
   const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
+
+  const [paddingOpen, setPaddingOpen] = useState(false);
+  const [paddingCustom, setPaddingCustom] = useState(false);
+  const [paddingDraft, setPaddingDraft] = useState('');
 
   /**
    * Resolve the target cell coordinates: explicit range when set,
@@ -209,6 +226,25 @@ export function TableControls({
     [store, slideId, tableId, table, targetCells],
   );
 
+  /** Set uniform padding on all four sides of every target cell. */
+  const applyPadding = useCallback(
+    (px: number) => {
+      applyStyle({ padding: { top: px, right: px, bottom: px, left: px } });
+    },
+    [applyStyle],
+  );
+
+  const commitPaddingCustom = useCallback(() => {
+    const n = Number(paddingDraft);
+    // Guard the blank input: `Number('')` is 0 (finite), so without this
+    // a blur of an untouched Custom field would silently zero the padding.
+    if (paddingDraft.trim() !== '' && Number.isFinite(n)) {
+      applyPadding(Math.max(PADDING_MIN, Math.min(PADDING_MAX, Math.round(n))));
+    }
+    setPaddingOpen(false);
+    setPaddingCustom(false);
+  }, [paddingDraft, applyPadding]);
+
   // The vAlign group reflects the FIRST cell in the target set —
   // mixed ranges show no toggle pressed (sampleVAlign === undefined).
   const sampleCell = (() => {
@@ -222,6 +258,22 @@ export function TableControls({
   const setVAlign = (anchor: VerticalAnchorMode): void => {
     applyStyle({ verticalAlign: anchor });
   };
+
+  // Current padding, sampled from the first target cell with the
+  // renderer's DEFAULT_CELL_PADDING fallback. A check mark / custom
+  // default only shows when all four sides match (the uniform control
+  // can't represent an asymmetric value — e.g. the 4/8/4/8 default).
+  const sampleUniformPadding: number | undefined = (() => {
+    if (!sampleCell) return undefined;
+    const p = sampleCell.style.padding;
+    const sides = [
+      p?.top ?? DEFAULT_CELL_PADDING.top,
+      p?.right ?? DEFAULT_CELL_PADDING.right,
+      p?.bottom ?? DEFAULT_CELL_PADDING.bottom,
+      p?.left ?? DEFAULT_CELL_PADDING.left,
+    ];
+    return sides.every((s) => s === sides[0]) ? sides[0] : undefined;
+  })();
 
   return (
     <>
@@ -341,6 +393,80 @@ export function TableControls({
           <DropdownMenuItem onSelect={() => applyBorderPreset('clear')}>
             Clear borders
           </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Cell padding — uniform on all four sides */}
+      <DropdownMenu
+        open={paddingOpen}
+        onOpenChange={(o) => {
+          setPaddingOpen(o);
+          if (!o) setPaddingCustom(false);
+        }}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Cell padding"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
+              >
+                <IconBoxPadding size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Cell padding</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent className="w-[140px]">
+          {paddingCustom ? (
+            <form
+              className="flex items-center gap-1 p-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                commitPaddingCustom();
+              }}
+            >
+              <input
+                autoFocus
+                type="number"
+                step={1}
+                min={PADDING_MIN}
+                max={PADDING_MAX}
+                value={paddingDraft}
+                onChange={(e) => setPaddingDraft(e.target.value)}
+                onBlur={commitPaddingCustom}
+                className="h-7 w-full rounded border border-border bg-background px-2 text-sm outline-none"
+              />
+              <span className="pr-1 text-xs text-muted-foreground">px</span>
+            </form>
+          ) : (
+            <>
+              {PADDING_PRESETS.map((p) => (
+                <DropdownMenuItem
+                  key={p}
+                  onSelect={() => {
+                    applyPadding(p);
+                    setPaddingOpen(false);
+                  }}
+                  className="flex items-center justify-between"
+                >
+                  <span>{p} px</span>
+                  {sampleUniformPadding === p && <IconCheck size={14} />}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setPaddingCustom(true);
+                  setPaddingDraft(String(sampleUniformPadding ?? ''));
+                }}
+              >
+                Custom…
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
