@@ -27,6 +27,19 @@ export interface YorkieCommentStoreOptions {
   now?: () => number;
 }
 
+/**
+ * Thrown by `addThread` when the paths captured at compose time no longer
+ * resolve to a position in the tree — a collaborator deleted the anchored
+ * text between opening the composer and submitting. Lets the caller show a
+ * graceful toast instead of leaking a raw Yorkie SDK error.
+ */
+export class StaleCommentAnchorError extends Error {
+  constructor() {
+    super('Comment anchor range no longer resolves');
+    this.name = 'StaleCommentAnchorError';
+  }
+}
+
 function defaultId(): string {
   return Math.random().toString(36).slice(2);
 }
@@ -144,7 +157,16 @@ export class YorkieCommentStore
 
     this.doc.update((root) => {
       const tree = root.content;
-      const posRange = tree.pathRangeToPosRange([input.startPath, input.endPath]);
+      // Re-resolve the compose-time paths against the current tree. A
+      // concurrent delete can shrink the tree so the stored paths point
+      // out of bounds; `pathRangeToPosRange` then throws. Translate that
+      // into a typed error the controller can turn into a toast.
+      let posRange: ReturnType<typeof tree.pathRangeToPosRange>;
+      try {
+        posRange = tree.pathRangeToPosRange([input.startPath, input.endPath]);
+      } catch {
+        throw new StaleCommentAnchorError();
+      }
       // New docs seed `comments` at bootstrap (see `initialDocsRoot`), so the
       // container is shared across replicas and concurrent inserts merge. This
       // guard only fires for legacy docs created before that seeding; on those,

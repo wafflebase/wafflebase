@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { IconMessage2Plus } from "@tabler/icons-react";
 import type { EditorAPI } from "@wafflebase/docs";
+
+import { InsertCommentMenuItem } from "./InsertCommentMenuItem";
 
 interface Props {
   editor: EditorAPI | null;
@@ -96,17 +97,13 @@ export function DocsCommentContextMenu({
       className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
     >
-      <button
+      <InsertCommentMenuItem
         className="flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
-        onClick={() => {
+        onSelect={() => {
           onInsertComment();
           close();
         }}
-      >
-        <IconMessage2Plus size={16} className="text-muted-foreground" />
-        Insert comment
-        <span className="ml-auto text-xs text-muted-foreground">⌘⌥M</span>
-      </button>
+      />
     </div>
   );
 }

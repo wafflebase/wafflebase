@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, MoreHorizontal } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -53,7 +54,32 @@ export function CommentThreadCard<A extends CommentAnchor>({
   onDelete,
 }: Props<A>) {
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
   const [rootComment, ...replyComments] = thread.comments;
+
+  const handleResolveToggle = async () => {
+    if (resolving) return;
+    setResolving(true);
+    try {
+      await onResolveToggle();
+    } catch {
+      toast.error(
+        thread.resolved
+          ? "Couldn't reopen this thread. Please try again."
+          : "Couldn't resolve this thread. Please try again.",
+      );
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleDelete = async (commentId: string) => {
+    try {
+      await onDelete(commentId);
+    } catch {
+      toast.error("Couldn't delete this comment. Please try again.");
+    }
+  };
 
   const renderComment = (c: Comment, isRoot: boolean) => {
     const canEditOrDelete =
@@ -80,8 +106,9 @@ export function CommentThreadCard<A extends CommentAnchor>({
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0"
+                disabled={resolving}
                 onClick={() => {
-                  void onResolveToggle();
+                  void handleResolveToggle();
                 }}
                 aria-label={thread.resolved ? "Reopen thread" : "Resolve thread"}
                 title={thread.resolved ? "Reopen" : "Resolve"}
@@ -112,7 +139,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => {
-                        void onDelete(c.id);
+                        void handleDelete(c.id);
                       }}
                     >
                       Delete
