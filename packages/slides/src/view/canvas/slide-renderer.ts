@@ -3,6 +3,7 @@ import type { BackgroundImage, Slide, SlidesDocument } from '../../model/present
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
 import { resolveColor } from '../../model/theme';
+import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage } from './image-renderer';
 import { getActiveTheme } from './render-context';
@@ -107,9 +108,10 @@ export class SlideRenderer {
     slide: Slide,
     doc: SlidesDocument,
     ghosts?: readonly Element[],
+    animStates?: ReadonlyMap<string, AnimState>,
   ): void {
     this.dirty = true;
-    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts);
+    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts, animStates);
     this.dirty = false;
   }
 }
@@ -127,6 +129,7 @@ export function drawSlide(
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
   ghosts?: readonly Element[],
+  animStates?: ReadonlyMap<string, AnimState>,
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
@@ -200,7 +203,7 @@ export function drawSlide(
   // once per slide-render so each connector doesn't rebuild it.
   const elementsLookup = buildElementWorldLookup(slide.elements);
   for (const element of slide.elements) {
-    drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
+    drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup, undefined, undefined, animStates?.get(element.id));
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {
