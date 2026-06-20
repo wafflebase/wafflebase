@@ -128,6 +128,14 @@ export interface OverlayOptions {
     y1: number;
   };
   /**
+   * Map of elementId → 1-based playback position(s) in the slide's
+   * animation sequence. When present and a selected element has an entry,
+   * `renderOverlay` appends a small badge at the element's top-left corner
+   * showing the order number(s) (e.g. "1" or "1,3"). Badge only shows while
+   * the element is selected (this value is omitted on ghost/drag overlays).
+   */
+  animationOrder?: Map<string, number[]>;
+  /**
    * Active image crop session. When present, the overlay paints ONLY the
    * crop chrome — a white window border plus eight BLACK resize handles
    * on the crop window (distinct from the blue selection handles, GS/PPT
@@ -339,6 +347,22 @@ export function renderOverlay(
     options.onAutofitToggle
   ) {
     renderAutofitToggle(overlay, selectedElements[0], options);
+  }
+
+  // Animation order badges. One small rounded badge per selected element
+  // that has at least one animation. Positioned at the element's top-left
+  // world corner, pixel-constant size. Shows the 1-based sequence
+  // position(s) joined by commas when an element appears multiple times.
+  // Only rendered when `animationOrder` is passed (steady-state selection
+  // path); omitted for ghost/drag overlays.
+  if (options.animationOrder && options.animationOrder.size > 0) {
+    for (const el of selectedElements) {
+      const positions = options.animationOrder.get(el.id);
+      if (!positions || positions.length === 0) continue;
+      overlay.appendChild(
+        makeAnimationBadge(el.frame, positions, options.scale),
+      );
+    }
   }
 
   // Snap guide lines (drag-time visual feedback). Rendered last so they
@@ -1305,4 +1329,53 @@ function renderAutofitToggle(
     options.onAutofitToggle?.(element.id, next);
   });
   overlay.appendChild(btn);
+}
+
+// Badge sizing — pixel-constant, independent of slide scale.
+const ANIM_BADGE_SIZE = 20; // host px (height; width expands with text)
+const ANIM_BADGE_OFFSET_X = 2; // host px right-offset from element top-left
+const ANIM_BADGE_OFFSET_Y = 2; // host px down-offset from element top-left
+
+/**
+ * Small rounded badge placed at the top-left of an element's world frame,
+ * showing the element's 1-based animation sequence position(s) joined by
+ * commas when the element participates in multiple animations.
+ *
+ * Matches the dark-pill style used by `makeSmartGuideLabel` (dark background,
+ * white text, `system-ui` font) so the badge stays visually coherent with
+ * the rest of the overlay chrome.
+ *
+ * Pointer events are disabled — the badge is informational only. The element
+ * selection frame and resize handles remain fully interactive beneath it.
+ */
+function makeAnimationBadge(
+  frame: Frame,
+  positions: number[],
+  scale: number,
+): HTMLDivElement {
+  const badge = document.createElement('div');
+  badge.className = 'wfb-slides-anim-badge';
+  badge.dataset.slidesAnimBadge = 'true';
+  badge.textContent = positions.join(',');
+  badge.style.position = 'absolute';
+  // Anchor badge at element top-left in screen space, slightly inset so
+  // it sits inside (not overlapping) the 1-px selection frame border.
+  badge.style.left = `${frame.x * scale + ANIM_BADGE_OFFSET_X}px`;
+  badge.style.top = `${frame.y * scale + ANIM_BADGE_OFFSET_Y}px`;
+  badge.style.minWidth = `${ANIM_BADGE_SIZE}px`;
+  badge.style.height = `${ANIM_BADGE_SIZE}px`;
+  badge.style.padding = '0 5px';
+  badge.style.fontSize = '11px';
+  badge.style.lineHeight = `${ANIM_BADGE_SIZE}px`;
+  badge.style.fontFamily = 'system-ui, sans-serif';
+  badge.style.fontWeight = '600';
+  badge.style.color = '#fff';
+  badge.style.background = 'rgba(0, 0, 0, 0.75)';
+  badge.style.borderRadius = '4px';
+  badge.style.boxSizing = 'border-box';
+  badge.style.textAlign = 'center';
+  badge.style.whiteSpace = 'nowrap';
+  badge.style.pointerEvents = 'none';
+  badge.style.userSelect = 'none';
+  return badge;
 }

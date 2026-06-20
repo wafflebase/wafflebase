@@ -4,6 +4,8 @@ import type {
   Guide,
   GuideAxis,
   Slide,
+  SlideAnimation,
+  SlideTransition,
   SlidesDocument,
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
@@ -12,7 +14,7 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../model/connector';
-import type { Stroke } from '../model/element';
+import type { ObjectAnimation, Stroke } from '../model/element';
 import type {
   Element,
   ElementInit,
@@ -315,6 +317,50 @@ export class MemSlidesStore implements SlidesStore {
     );
   }
 
+  setSlideTransition(slideId: string, transition: SlideTransition | undefined): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (transition === undefined) delete slide.transition;
+    else slide.transition = clone(transition);
+  }
+
+  addAnimation(slideId: string, anim: SlideAnimation): string {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (!slide.animations) slide.animations = [];
+    slide.animations.push(clone(anim));
+    return anim.id;
+  }
+
+  updateAnimation(slideId: string, animId: string, patch: Partial<ObjectAnimation>): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const a = slide.animations?.find((x) => x.id === animId);
+    if (!a) throw new Error(`[slides] animation '${animId}' not on slide '${slideId}'`);
+    const { id: _ignoredId, ...rest } = clone(patch);
+    Object.assign(a, rest);
+  }
+
+  removeAnimation(slideId: string, animId: string): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (!slide.animations) return;
+    slide.animations = slide.animations.filter((x) => x.id !== animId);
+    if (slide.animations.length === 0) delete slide.animations;
+  }
+
+  reorderAnimation(slideId: string, animId: string, toIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const list = slide.animations;
+    if (!list) return;
+    const from = list.findIndex((x) => x.id === animId);
+    if (from < 0) return;
+    const [moved] = list.splice(from, 1);
+    const clamped = Math.max(0, Math.min(toIndex, list.length));
+    list.splice(clamped, 0, moved);
+  }
+
   // --- element ops ---
 
   addElement(slideId: string, init: ElementInit, parentGroupId?: string): string {
@@ -355,6 +401,17 @@ export class MemSlidesStore implements SlidesStore {
     return id;
   }
 
+  /**
+   * Remove any `slide.animations` entries whose `elementId` is in
+   * `removedIds`. Deletes the `animations` key entirely when the array
+   * becomes empty, mirroring the `removeAnimation` behaviour.
+   */
+  private pruneAnimationsFor(slide: Slide, removedIds: Set<string>): void {
+    if (!slide.animations) return;
+    slide.animations = slide.animations.filter((a) => !removedIds.has(a.elementId));
+    if (slide.animations.length === 0) delete slide.animations;
+  }
+
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
@@ -367,9 +424,14 @@ export class MemSlidesStore implements SlidesStore {
     // We compute the world position *before* removing the source from the
     // lookup so attached siteWorldPos still resolves.
     this.detachConnectorsTargeting(slide, elementId);
+    // Collect ids of the element and all its group descendants BEFORE
+    // splicing so the subtree is still reachable.
+    const removed = path[path.length - 1];
+    const removedIds = new Set(flattenElements([removed]).map((e) => e.id));
     const parentArray = this.resolveParentArray(slide, path);
     const i = parentArray.findIndex((e) => e.id === elementId);
     parentArray.splice(i, 1);
+    this.pruneAnimationsFor(slide, removedIds);
     this.pruneEmptyAncestorGroups(slide, path);
   }
 
@@ -389,9 +451,17 @@ export class MemSlidesStore implements SlidesStore {
     for (const id of set) {
       this.detachConnectorsTargeting(slide, id);
     }
+    // Union the ids of each removed element and its group descendants so
+    // animations targeting any nested element are also pruned.
+    const removedIds = new Set<string>();
+    for (const path of paths.values()) {
+      const leaf = path[path.length - 1];
+      for (const e of flattenElements([leaf])) removedIds.add(e.id);
+    }
     // Remove from deepest leaves first to avoid stale path references.
     // Group by parent array and splice all at once per parent.
     this.removeElementsByPaths(slide, [...paths.values()]);
+    this.pruneAnimationsFor(slide, removedIds);
   }
 
   /**

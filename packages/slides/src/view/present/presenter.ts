@@ -1,6 +1,8 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { SlideRenderer } from '../canvas/slide-renderer';
+import { AnimationPlayer, buildParagraphCounts, compileTimeline, sampleTransition } from '../../anim';
+import { flattenElements } from '../../model/group';
 
 /**
  * Options for `startPresenter`. The presenter mounts a canvas inside
@@ -94,6 +96,21 @@ export function startPresenter(options: PresenterOptions): Presenter {
   let disposed = false;
   let lastPaintKind: 'slide' | 'end' | null = null;
 
+  // Animation state — one player per slide, built fresh on slide entry.
+  let animPlayer: AnimationPlayer | null = null;
+  let rafHandle: number | null = null;
+
+  // Transition RAF handle — separate from the object-animation handle so
+  // the two loops can be cancelled independently. Both must be cancelled
+  // on dispose() and before any slide change.
+  let transitionRafHandle: number | null = null;
+
+  // Current CSS size of the canvas slot. Updated by applyFit() and read
+  // by playTransition() to build offscreen SlideRenderers at the same
+  // scale as the main renderer.
+  let currentCssWidth = 0;
+  let currentCssHeight = 0;
+
   // Remember the container's inline styles so Task 6's dispose() can
   // restore them — the React shell hands us a host element it expects
   // to look unchanged once presentation ends.
@@ -130,6 +147,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     canvas.height = Math.round(fit.height * dpr);
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
+    // Persist so playTransition() can build offscreen renderers at the
+    // same scale without needing a scale accessor on SlideRenderer.
+    currentCssWidth = cssWidth;
+    currentCssHeight = cssHeight;
     renderer = new SlideRenderer(ctx, {
       hostWidth: cssWidth,
       hostHeight: cssHeight,
@@ -157,7 +178,16 @@ export function startPresenter(options: PresenterOptions): Presenter {
     // SlideRenderer's dirty flag is per-slide-state, so it would skip
     // the repaint after a slide switch without an explicit markDirty.
     renderer.markDirty();
-    renderer.render(slide, state.doc);
+    // Paint with the player's resting state so entrance elements are hidden
+    // until their step plays. This covers mount, prev, goToFirst/Last,
+    // setDocument, and resize — all paths that call paint() directly.
+    // Slides with no animation steps fall through to the normal render path so
+    // existing render-spy tests and non-animated slides are unaffected.
+    if (animPlayer && animPlayer.hasSteps) {
+      renderer.forceRender(slide, state.doc, undefined, animPlayer.restingState());
+    } else {
+      renderer.render(slide, state.doc);
+    }
     lastPaintKind = 'slide';
   }
 
@@ -177,6 +207,160 @@ export function startPresenter(options: PresenterOptions): Presenter {
     lastPaintKind = 'end';
   }
 
+  /**
+   * Cancel the object-animation RAF loop. Safe to call when no loop is
+   * running (handle is already null) or after dispose.
+   */
+  function cancelRaf(): void {
+    if (rafHandle !== null) {
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+  }
+
+  /**
+   * Cancel any in-flight transition RAF loop. Safe to call when no
+   * transition is running.
+   */
+  function cancelTransitionRaf(): void {
+    if (transitionRafHandle !== null) {
+      cancelAnimationFrame(transitionRafHandle);
+      transitionRafHandle = null;
+    }
+  }
+
+  /**
+   * Play a cross-paint slide transition from `fromSlide` to `toSlide`
+   * over `transition.durationMs` milliseconds. Each frame composites
+   * pre-rendered offscreen bitmaps of the two slides onto the main canvas
+   * using the CrossPaint values from `sampleTransition`. When the
+   * animation completes, `onDone()` is called so the caller can settle
+   * the new slide state and build its object-animation player.
+   *
+   * KEY INSIGHT: `sampleTransition` receives the CANVAS PIXEL size (not
+   * logical slide size) so the dx/dy offsets are already in device pixels
+   * and `drawImage` composites at the identity transform — no scale
+   * conversion needed.
+   */
+  function playTransition(
+    fromSlide: Slide,
+    toSlide: Slide,
+    transition: import('../../model/presentation').SlideTransition,
+    onDone: () => void,
+  ): void {
+    // Build offscreen canvases the same pixel size as the main canvas.
+    const pw = canvas.width;
+    const ph = canvas.height;
+
+    const offA = document.createElement('canvas');
+    offA.width = pw;
+    offA.height = ph;
+    const ctxA = offA.getContext('2d')!;
+
+    const offB = document.createElement('canvas');
+    offB.width = pw;
+    offB.height = ph;
+    const ctxB = offB.getContext('2d')!;
+
+    // Render outgoing and incoming slides to offscreen canvases once.
+    // Use the same CSS dimensions (hostWidth/Height) as the main renderer
+    // so text and element sizes match exactly.
+    const offOpts = { hostWidth: currentCssWidth, hostHeight: currentCssHeight, dpr };
+    const rendA = new SlideRenderer(ctxA, offOpts);
+    rendA.forceRender(fromSlide, state.doc);
+    const rendB = new SlideRenderer(ctxB, offOpts);
+    rendB.forceRender(toSlide, state.doc);
+
+    const startMs = performance.now();
+    const durationMs = transition.durationMs > 0 ? transition.durationMs : 1;
+
+    function transitionFrame(): void {
+      if (disposed) {
+        transitionRafHandle = null;
+        return;
+      }
+      const elapsed = performance.now() - startMs;
+      const progress = Math.min(1, elapsed / durationMs);
+
+      const cp = sampleTransition(transition, progress, { w: pw, h: ph });
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, pw, ph);
+
+      // Draw outgoing slide.
+      ctx.globalAlpha = cp.prevAlpha;
+      ctx.drawImage(offA, cp.prevDx, cp.prevDy);
+
+      // Draw incoming slide with optional clip region.
+      ctx.save();
+      if (cp.clipNext) {
+        ctx.beginPath();
+        ctx.rect(cp.clipNext.x, cp.clipNext.y, cp.clipNext.w, cp.clipNext.h);
+        ctx.clip();
+      }
+      ctx.globalAlpha = cp.nextAlpha;
+      ctx.drawImage(offB, cp.nextDx, cp.nextDy);
+      ctx.restore();
+
+      ctx.globalAlpha = 1;
+
+      if (progress < 1) {
+        transitionRafHandle = requestAnimationFrame(transitionFrame);
+      } else {
+        transitionRafHandle = null;
+        onDone();
+      }
+    }
+
+    transitionRafHandle = requestAnimationFrame(transitionFrame);
+  }
+
+  /**
+   * Build an AnimationPlayer for the given slide and bind it to the
+   * renderer's forceRender so each tick repaints with animStates.
+   */
+  function buildPlayerFor(slide: Slide): AnimationPlayer {
+    const existingElementIds = new Set(flattenElements(slide.elements).map((e) => e.id));
+    const paragraphCounts = buildParagraphCounts(slide);
+    const steps = compileTimeline(slide, { existingElementIds, paragraphCounts });
+    return new AnimationPlayer(
+      steps,
+      { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      (states) => {
+        if (disposed) return;
+        renderer.forceRender(slide, state.doc, undefined, states);
+        lastPaintKind = 'slide';
+      },
+    );
+  }
+
+  /**
+   * Start the RAF loop that ticks the current player until the current
+   * step finishes. Called whenever advance() returns true (a step was
+   * started). The loop stops as soon as `animPlayer.isAnimating` becomes
+   * false (i.e. the step's duration elapses and tick() sets playing=false).
+   * This prevents idle spinning between steps and after the last step —
+   * the next advance() call restarts a fresh loop via this function.
+   */
+  function startRafLoop(): void {
+    cancelRaf();
+    function frame(): void {
+      if (disposed || animPlayer === null) {
+        rafHandle = null;
+        return;
+      }
+      animPlayer.tick(performance.now());
+      if (animPlayer.isAnimating) {
+        // Step still in progress — keep ticking.
+        rafHandle = requestAnimationFrame(frame);
+      } else {
+        // Step has settled — stop the loop until next advance().
+        rafHandle = null;
+      }
+    }
+    rafHandle = requestAnimationFrame(frame);
+  }
+
   function indexOfCurrent(): number {
     if (state.currentSlideId === null) return -1;
     return state.slides.findIndex((s) => s.id === state.currentSlideId);
@@ -187,43 +371,102 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (state.atEndScreen) return;
     const idx = indexOfCurrent();
     if (idx < 0) return;
+
+    // If the current slide has a player, try to consume an animation step
+    // first. advance() returns true if a step was consumed (we stay on
+    // this slide and let the RAF loop play it). advance() returns false
+    // when there are no more steps — fall through to slide navigation.
+    if (animPlayer !== null) {
+      const consumed = animPlayer.advance();
+      if (consumed) {
+        startRafLoop();
+        return;
+      }
+    }
+
+    // No more animation steps — advance to the next slide.
     if (idx < state.slides.length - 1) {
-      state.currentSlideId = state.slides[idx + 1].id;
+      const fromSlide = state.slides[idx];
+      const nextSlide = state.slides[idx + 1];
+      state.currentSlideId = nextSlide.id;
+      cancelRaf();
+      cancelTransitionRaf();
+      animPlayer = null;
+
+      const t = nextSlide.transition;
+      if (t && t.type !== 'none' && t.durationMs > 0) {
+        // Play the cross-paint transition, then settle on the new slide
+        // and arm its object-animation player.
+        playTransition(fromSlide, nextSlide, t, () => {
+          if (disposed) return;
+          animPlayer = buildPlayerFor(nextSlide);
+          paint();
+        });
+      } else {
+        // No transition — instant cut (original behavior).
+        animPlayer = buildPlayerFor(nextSlide);
+        paint();
+      }
     } else {
       state.atEndScreen = true;
       state.currentSlideId = null;
+      cancelRaf();
+      cancelTransitionRaf();
+      animPlayer = null;
+      paint();
     }
-    paint();
   }
 
   function prev(): void {
     if (disposed) return;
+    cancelRaf();
+    cancelTransitionRaf();
     if (state.atEndScreen) {
       state.atEndScreen = false;
-      state.currentSlideId = state.slides[state.slides.length - 1].id;
+      const targetSlide = state.slides[state.slides.length - 1];
+      state.currentSlideId = targetSlide.id;
+      // Going backward: build the player but don't auto-play animations.
+      // The slide is painted in its static final state. The player is
+      // ready so a subsequent next() can advance its steps normally
+      // (though going back and then forward is an unusual path).
+      animPlayer = buildPlayerFor(targetSlide);
       paint();
       return;
     }
     const idx = indexOfCurrent();
     if (idx < 0) return;
     const targetIdx = Math.max(0, idx - 1);
-    state.currentSlideId = state.slides[targetIdx].id;
+    const targetSlide = state.slides[targetIdx];
+    state.currentSlideId = targetSlide.id;
+    // Build player for the target slide in its initial state (not yet
+    // played). Going backward does NOT replay forward animations — we
+    // simply render the slide statically. If the user presses next from
+    // here, they'll advance through steps in order.
+    animPlayer = buildPlayerFor(targetSlide);
     paint();
   }
 
   function goToFirst(): void {
     if (disposed) return;
     if (state.slides.length === 0) return;
-    state.currentSlideId = state.slides[0].id;
+    cancelRaf();
+    cancelTransitionRaf();
+    const targetSlide = state.slides[0];
+    state.currentSlideId = targetSlide.id;
     state.atEndScreen = false;
+    animPlayer = buildPlayerFor(targetSlide);
     paint();
   }
 
   function goToLast(): void {
     if (disposed) return;
     if (state.slides.length === 0) return;
-    state.currentSlideId = state.slides[state.slides.length - 1].id;
+    cancelRaf();
+    cancelTransitionRaf();
+    const targetSlide = state.slides[state.slides.length - 1];
+    state.currentSlideId = targetSlide.id;
     state.atEndScreen = false;
+    animPlayer = buildPlayerFor(targetSlide);
     paint();
   }
 
@@ -265,6 +508,14 @@ export function startPresenter(options: PresenterOptions): Presenter {
       state.currentSlideId !== null &&
       state.slides.some((s) => s.id === state.currentSlideId);
     if (stillThere) {
+      // Rebuild the player for the current slide since its elements may
+      // have changed (theme/element edits can affect animation targets).
+      // Cancel any in-flight RAF (including transition) first to avoid a
+      // stale-player tick or stale transition onDone firing.
+      cancelRaf();
+      cancelTransitionRaf();
+      const currentSlide = state.slides.find((s) => s.id === state.currentSlideId)!;
+      animPlayer = buildPlayerFor(currentSlide);
       paint();
       return;
     }
@@ -278,6 +529,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
       state.slides.length - 1,
     );
     state.currentSlideId = state.slides[targetIndex].id;
+    cancelRaf();
+    cancelTransitionRaf();
+    const fallbackSlide = state.slides[targetIndex];
+    animPlayer = buildPlayerFor(fallbackSlide);
     paint();
   }
 
@@ -419,6 +674,13 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (disposed) return;
     disposed = true;
 
+    // Cancel any in-flight animation RAF before cleaning up other
+    // resources. The disposed flag guards in frame() and transitionFrame()
+    // ensure no further ticks fire even if cancelAnimationFrame races.
+    cancelRaf();
+    cancelTransitionRaf();
+    animPlayer = null;
+
     // Detach the fullscreenchange listener FIRST so the
     // exitFullscreen() call below can't loop back into our handler
     // → onExit → caller dispose → infinite recursion.
@@ -451,6 +713,13 @@ export function startPresenter(options: PresenterOptions): Presenter {
   }
 
   // Seed the initial paint after all closures are set up.
+  // Also build the animation player for the starting slide so the first
+  // next() is already wired up. The starting slide is always a real slide
+  // (the empty-deck guard above ensures this).
+  const startSlide = state.slides.find((s) => s.id === state.currentSlideId);
+  if (startSlide) {
+    animPlayer = buildPlayerFor(startSlide);
+  }
   applyFit();
 
   const presenter: Presenter = {
@@ -480,6 +749,8 @@ export function startPresenter(options: PresenterOptions): Presenter {
       getCanvas: () => canvas,
       getLastPaintKind: () => lastPaintKind,
       getResources: () => ({ canvas, ctx, prevCssText, resizeObserver, mountMode }),
+      getAnimPlayer: () => animPlayer,
+      getTransitionRafHandle: () => transitionRafHandle,
     },
   });
 

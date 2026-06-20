@@ -54,7 +54,9 @@ and the dual-screen presenter view stay in v2.
 - **Speaker notes display.** Notes are stored and edited via the
   existing notes panel; rendering them in present mode (single-screen
   overlay or dual-screen presenter view) is v2.
-- **Slide transitions.** Cuts only.
+- ~~**Slide transitions.** Cuts only.~~ — slide transitions and object
+  animations now play in present mode; see
+  [slides-animation.md](slides-animation.md).
 - **Touch / swipe.** Presenting from mobile is out of scope; the
   click-to-advance handler covers tap.
 - **Laser pointer, ink annotations, blackout (`B`) / whiteout (`W`)

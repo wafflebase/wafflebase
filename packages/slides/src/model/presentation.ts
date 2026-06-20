@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { Crop, Element, ElementInit, PlaceholderType } from './element';
+import type { AnimDirection, Crop, Element, ElementInit, ObjectAnimation, PlaceholderType } from './element';
 import type { Theme, ThemeColor } from './theme';
 import type { Master } from './master';
 
@@ -22,12 +22,24 @@ export type Background = {
   image?: BackgroundImage;
 };
 
+export type SlideTransition = {
+  type: 'none' | 'fade' | 'dissolve' | 'slide' | 'flip' | 'cube' | 'wipe' | 'push';
+  direction?: AnimDirection;
+  durationMs: number;
+};
+
+export type SlideAnimation = ObjectAnimation & { elementId: string };
+
 export type Slide = {
   id: string;
   layoutId: string;
   background: Background;
   elements: Element[];
   notes: Block[];
+  /** Absent ⇒ hard cut (current behavior). */
+  transition?: SlideTransition;
+  /** Playback order = array order. Absent ⇒ no object animations. */
+  animations?: SlideAnimation[];
 };
 
 export type PlaceholderSpec = ElementInit & {

@@ -3,6 +3,7 @@ import type { BackgroundImage, Slide, SlidesDocument } from '../../model/present
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
 import { resolveColor } from '../../model/theme';
+import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
 import { getActiveTheme } from './render-context';
@@ -107,6 +108,7 @@ export class SlideRenderer {
     slide: Slide,
     doc: SlidesDocument,
     ghosts?: readonly Element[],
+    animStates?: ReadonlyMap<string, AnimState>,
     cropPreview?: CropPreview,
   ): void {
     this.dirty = true;
@@ -117,6 +119,7 @@ export class SlideRenderer {
       this.options,
       () => this.markDirty(),
       ghosts,
+      animStates,
       cropPreview,
     );
     this.dirty = false;
@@ -136,6 +139,7 @@ export function drawSlide(
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
   ghosts?: readonly Element[],
+  animStates?: ReadonlyMap<string, AnimState>,
   cropPreview?: CropPreview,
 ): void {
   const theme = getActiveTheme(doc);
@@ -214,7 +218,10 @@ export function drawSlide(
     // preview below (dimmed full bitmap + bright window), not as a
     // normal cropped element, so mask it here.
     if (cropPreview && element.id === cropPreview.elementId) continue;
-    drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
+    drawElement(
+      ctx, element, doc, theme, onAssetLoad, elementsLookup,
+      undefined, undefined, animStates?.get(element.id),
+    );
   }
 
   if (ghosts !== undefined && ghosts.length > 0) {

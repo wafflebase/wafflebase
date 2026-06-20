@@ -14,8 +14,11 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type ObjectAnimation,
   type PlaceholderRef,
   type Slide as ModelSlide,
+  type SlideAnimation,
+  type SlideTransition,
   type SlidesDocument,
   type SlidesStore,
   type Stroke,
@@ -35,6 +38,7 @@ import {
   computeConnectorFrame,
   defaultDark,
   defaultLight,
+  flattenElements,
   generateId,
   getLayout,
   bakeGroupScale,
@@ -384,7 +388,18 @@ export class YorkieSlidesStore implements SlidesStore {
         (e) => this.readElement(e),
       );
       const notes = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
-      return { id, layoutId, background, elements, notes };
+      const sAny = s as { transition?: unknown; animations?: unknown };
+      const transition = yorkieToPlain<SlideTransition | undefined>(sAny.transition);
+      const animations = yorkieToPlain<SlideAnimation[] | undefined>(sAny.animations);
+      return {
+        id,
+        layoutId,
+        background,
+        elements,
+        notes,
+        ...(transition !== undefined && transition !== null ? { transition } : {}),
+        ...(animations !== undefined && animations !== null ? { animations } : {}),
+      };
     });
     const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
     const rootAny = root as {
@@ -809,6 +824,86 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  // --- transition / animation ops ---
+
+  setSlideTransition(slideId: string, transition: SlideTransition | undefined): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      if (transition === undefined) {
+        delete (s as { transition?: SlideTransition }).transition;
+      } else {
+        (s as { transition?: SlideTransition }).transition = clone(transition);
+      }
+    });
+  }
+
+  addAnimation(slideId: string, anim: SlideAnimation): string {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: SlideAnimation[] };
+      if (sAny.animations == null) sAny.animations = [];
+      sAny.animations.push(clone(anim));
+    });
+    return anim.id;
+  }
+
+  updateAnimation(slideId: string, animId: string, patch: Partial<ObjectAnimation>): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string; [k: string]: unknown }> };
+      const a = sAny.animations?.find((x) => x.id === animId);
+      if (!a) throw new Error(`[slides] animation '${animId}' not on slide '${slideId}'`);
+      const cloned = clone(patch) as { id?: string; [k: string]: unknown };
+      delete cloned.id;
+      const rest = cloned;
+      for (const [k, v] of Object.entries(rest)) {
+        a[k] = v;
+      }
+    });
+  }
+
+  removeAnimation(slideId: string, animId: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string }> };
+      if (!sAny.animations) return;
+      const idx = sAny.animations.findIndex((x) => x.id === animId);
+      if (idx !== -1) {
+        (sAny.animations as unknown as { splice(i: number, d: number): void }).splice(idx, 1);
+      }
+      if (sAny.animations.length === 0) {
+        delete sAny.animations;
+      }
+    });
+  }
+
+  reorderAnimation(slideId: string, animId: string, toIndex: number): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) throw new Error(`Slide not found: ${slideId}`);
+      const sAny = s as { animations?: Array<{ id: string }> };
+      if (!sAny.animations) return;
+      const from = sAny.animations.findIndex((x) => x.id === animId);
+      if (from < 0) return;
+      const arr = sAny.animations as unknown as {
+        splice(i: number, d: number): Array<{ id: string }>;
+        length: number;
+      } & Array<{ id: string }>;
+      const [moved] = arr.splice(from, 1);
+      const clamped = Math.max(0, Math.min(toIndex, arr.length));
+      arr.splice(clamped, 0, moved);
+    });
+  }
+
   // --- theme ops ---
 
   addTheme(theme: Theme): void {
@@ -960,6 +1055,28 @@ export class YorkieSlidesStore implements SlidesStore {
     return id;
   }
 
+  /**
+   * Prune `slide.animations` entries whose `elementId` is in `removedIds`.
+   * Deletes the `animations` key when the array becomes empty, mirroring
+   * the `removeAnimation` pattern.
+   */
+  private pruneYorkieAnimationsFor(
+    s: YorkieSlide,
+    removedIds: Set<string>,
+  ): void {
+    const sAny = s as unknown as { animations?: Array<{ id: string; elementId: string }> };
+    if (!sAny.animations) return;
+    // Iterate from back to front so splice indices remain stable.
+    for (let i = sAny.animations.length - 1; i >= 0; i--) {
+      if (removedIds.has(sAny.animations[i].elementId)) {
+        (sAny.animations as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+      }
+    }
+    if (sAny.animations.length === 0) {
+      delete sAny.animations;
+    }
+  }
+
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
     this.doc.update((r) => {
@@ -971,9 +1088,14 @@ export class YorkieSlidesStore implements SlidesStore {
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
       if (!path) throw new Error(`Element not found: ${elementId}`);
       this.detachConnectorsTargeting(s, elementId);
+      // Collect ids of the element + all group descendants BEFORE splicing
+      // so the subtree is still reachable for id extraction.
+      const removed = path[path.length - 1] as unknown as ModelElement;
+      const removedIds = new Set(flattenElements([removed]).map((e) => e.id));
       const parentArray = this.resolveYorkieParentArray(s, path);
       const i = parentArray.findIndex((e) => e.id === elementId);
       (parentArray as unknown as { splice(i: number, d: number): void }).splice(i, 1);
+      this.pruneYorkieAnimationsFor(s as unknown as YorkieSlide, removedIds);
       this.pruneEmptyYorkieAncestorGroups(s, path);
     });
   }
@@ -995,6 +1117,12 @@ export class YorkieSlidesStore implements SlidesStore {
       for (const id of set) {
         this.detachConnectorsTargeting(s, id);
       }
+      // Union ids of each removed element + its group descendants for animation pruning.
+      const removedIds = new Set<string>();
+      for (const path of paths.values()) {
+        const leaf = path[path.length - 1] as unknown as ModelElement;
+        for (const e of flattenElements([leaf])) removedIds.add(e.id);
+      }
       // Remove from deepest leaves first (longest path first) to avoid stale
       // parent refs. Group by parent and splice all at once per parent array.
       type ParentEntry = { parentArray: ProxyArray; ids: Set<string>; repPath: ProxyArray[] };
@@ -1015,6 +1143,7 @@ export class YorkieSlidesStore implements SlidesStore {
         }
         this.pruneEmptyYorkieAncestorGroups(s, repPath);
       }
+      this.pruneYorkieAnimationsFor(s as unknown as YorkieSlide, removedIds);
     });
   }
 

@@ -19,6 +19,8 @@ export type {
   Meta,
   PlaceholderSpec,
   Slide,
+  SlideAnimation,
+  SlideTransition,
   SlidesDocument,
 } from './model/presentation';
 export {
@@ -49,6 +51,11 @@ export { DEFAULT_MASTER } from './model/master';
 export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
 export type {
+  AnimCategory,
+  AnimDirection,
+  AnimEasing,
+  AnimEffect,
+  AnimStart,
   AutofitMode,
   CellBorder,
   CellStyle,
@@ -64,6 +71,7 @@ export type {
   ImageRecolor,
   Reflection,
   ImageElement,
+  ObjectAnimation,
   PlaceholderRef,
   PlaceholderType,
   ShapeElement,
@@ -198,3 +206,6 @@ export {
   type Presenter,
   type PresenterOptions,
 } from './view/present';
+
+// Anim engine
+export * from './anim';

@@ -1,4 +1,5 @@
 import type { Element } from '../../model/element';
+import type { AnimState } from '../../anim/state';
 import type { PlaceholderStyle } from '../../model/master';
 import { placeholderHintFor } from '../../model/placeholder-hints';
 import type { SlidesDocument } from '../../model/presentation';
@@ -74,8 +75,60 @@ function withCounterFlip(
  * `onAssetLoad` is invoked the first time an async resource (currently
  * only images) finishes loading. The slide-renderer wires this to a
  * re-render request so the slide repaints once the asset arrives.
+ *
+ * `anim` is the optional animation transform (opacity / translate / scale
+ * / rotation in slide-space) applied around the element centre before the
+ * static paint. When absent or identity the render path is byte-identical
+ * to the un-animated path. `anim.hidden` skips the paint entirely. The
+ * static body lives in `drawElementBody`; this wrapper only layers the
+ * animation transform so #387's effect rendering stays untouched.
  */
 export function drawElement(
+  ctx: CanvasRenderingContext2D,
+  element: Element,
+  doc: SlidesDocument,
+  theme: Theme,
+  onAssetLoad: () => void,
+  elementsLookup: ReadonlyMap<string, Element> = EMPTY_LOOKUP,
+  parentFlip: FlipState = NO_FLIP,
+  parentTransform: GroupTransform = IDENTITY_GROUP_TRANSFORM,
+  anim?: AnimState,
+): void {
+  if (anim?.hidden) return;
+  const hasAnim =
+    !!anim &&
+    (anim.opacity !== 1 ||
+      anim.scale !== 1 ||
+      anim.dx !== 0 ||
+      anim.dy !== 0 ||
+      anim.rotation !== 0);
+  if (!hasAnim) {
+    drawElementBody(
+      ctx, element, doc, theme, onAssetLoad,
+      elementsLookup, parentFlip, parentTransform,
+    );
+    return;
+  }
+  ctx.save();
+  try {
+    ctx.globalAlpha *= anim!.opacity;
+    ctx.translate(anim!.dx, anim!.dy);
+    const cx = element.frame.x + element.frame.w / 2;
+    const cy = element.frame.y + element.frame.h / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(anim!.scale, anim!.scale);
+    ctx.rotate(anim!.rotation);
+    ctx.translate(-cx, -cy);
+    drawElementBody(
+      ctx, element, doc, theme, onAssetLoad,
+      elementsLookup, parentFlip, parentTransform,
+    );
+  } finally {
+    ctx.restore();
+  }
+}
+
+function drawElementBody(
   ctx: CanvasRenderingContext2D,
   element: Element,
   doc: SlidesDocument,

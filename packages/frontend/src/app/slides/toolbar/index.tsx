@@ -24,6 +24,8 @@ export interface SlidesToolbarProps {
   themePanelOpen?: boolean;
   onToggleFormatPanel?: () => void;
   formatPanelOpen?: boolean;
+  onToggleMotionPanel?: () => void;
+  motionPanelOpen?: boolean;
   zoomController?: ZoomController | null;
 }
 
@@ -48,6 +50,8 @@ export function SlidesToolbar({
   themePanelOpen,
   onToggleFormatPanel,
   formatPanelOpen,
+  onToggleMotionPanel,
+  motionPanelOpen,
   zoomController,
 }: SlidesToolbarProps) {
   const isMobile = useIsMobile();
@@ -129,6 +133,8 @@ export function SlidesToolbar({
         themePanelOpen={themePanelOpen}
         onToggleFormatPanel={onToggleFormatPanel}
         formatPanelOpen={formatPanelOpen}
+        onToggleMotionPanel={onToggleMotionPanel}
+        motionPanelOpen={motionPanelOpen}
       />
     </Toolbar>
   );
