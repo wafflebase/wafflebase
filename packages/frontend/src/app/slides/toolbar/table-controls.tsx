@@ -236,7 +236,9 @@ export function TableControls({
 
   const commitPaddingCustom = useCallback(() => {
     const n = Number(paddingDraft);
-    if (Number.isFinite(n)) {
+    // Guard the blank input: `Number('')` is 0 (finite), so without this
+    // a blur of an untouched Custom field would silently zero the padding.
+    if (paddingDraft.trim() !== '' && Number.isFinite(n)) {
       applyPadding(Math.max(PADDING_MIN, Math.min(PADDING_MAX, Math.round(n))));
     }
     setPaddingOpen(false);

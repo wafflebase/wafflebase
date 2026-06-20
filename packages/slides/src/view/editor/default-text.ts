@@ -21,9 +21,9 @@ const DEFAULT_TEXT_COLOR: ThemeColor = { kind: 'role', role: 'text' };
 /**
  * A single empty paragraph carrying the slides default inline style
  * (theme `text` color + {@link SLIDES_DEFAULT_TEXT_SIZE}). Seeds new
- * text boxes (`insert.ts`) and the in-place editor for empty cell /
- * shape bodies (`mountSlidesTextBox`) so the first keystroke renders at
- * the slide default instead of the docs 11 pt fallback.
+ * text boxes (`insert.ts`) and the edit-target builders for empty cell /
+ * shape bodies (`editor.ts`) so the first keystroke renders at the slide
+ * default instead of the docs 11 pt fallback.
  *
  * Cast through `Block`: `style.color` carries a `ThemeColor` that the
  * text-renderer's color resolver maps to a concrete color at paint time
