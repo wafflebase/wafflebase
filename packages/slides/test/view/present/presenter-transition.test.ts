@@ -464,3 +464,143 @@ describe("presenter — transition type 'none' instant cut", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite 4: Regression — navigating away during an in-flight transition must
+// cancel the transition so its onDone callback never fires for the wrong slide.
+// ---------------------------------------------------------------------------
+
+describe('presenter — cancel in-flight transition on back/jump navigation', () => {
+  it('prev() during in-flight transition cancels the transition RAF', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // Advance from slide A to slide B — transition RAF goes in-flight.
+      testApi(presenter).next();
+      expect(testApi(presenter).getTransitionRafHandle()).not.toBeNull();
+
+      // Navigate back BEFORE the transition completes.
+      testApi(presenter).prev();
+
+      // The transition RAF must have been cancelled.
+      expect(testApi(presenter).getTransitionRafHandle()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('goToFirst() during in-flight transition cancels the transition RAF', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // transition A→B in flight
+      expect(testApi(presenter).getTransitionRafHandle()).not.toBeNull();
+
+      testApi(presenter).goToFirst();
+
+      expect(testApi(presenter).getTransitionRafHandle()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('prev() during in-flight transition: presenter ends on the slide prev() navigated to (not the transition target)', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // next() updates currentSlideId to bId eagerly AND starts transition RAF.
+      testApi(presenter).next();
+      // prev() should bring us back to aId and cancel the transition.
+      testApi(presenter).prev();
+
+      // After prev(), the presenter must be on slide A.
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+
+      // Flush any remaining RAF frames (the transition was cancelled so
+      // no callbacks should be pending, but drive the clock to be sure).
+      flushRaf(600); // well past the 400ms transition duration
+
+      // Still on slide A — the stale onDone did NOT fire to arm slide B.
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('stale transition onDone does NOT arm an animPlayer for slide B after prev()', () => {
+    const { doc, aId, bId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // starts transition A→B
+      testApi(presenter).prev(); // cancels transition; moves back to A
+
+      // Capture the animPlayer immediately after prev() (built for slide A).
+      const playerAfterPrev = testApi(presenter).getAnimPlayer();
+      expect(playerAfterPrev).not.toBeNull();
+
+      // Flush frames well past durationMs — the stale transition onDone must
+      // NOT run because cancelAnimationFrame cleared the pending queue.
+      flushRaf(600);
+
+      // animPlayer must still be the one for slide A, not replaced by a
+      // buildPlayerFor(bId) call from a stale onDone.
+      const playerAfterFlush = testApi(presenter).getAnimPlayer();
+
+      // The presenter stays on slide A and has not been overwritten.
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+      // The animPlayer identity must be the same object (not replaced by B's player).
+      expect(playerAfterFlush).toBe(playerAfterPrev);
+
+      // Also verify bId is never the current slide.
+      expect(presenter.getCurrentSlideId()).not.toBe(bId);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('goToFirst() during in-flight transition: presenter ends on first slide and transition onDone does not fire', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // transition A→B in flight
+      testApi(presenter).goToFirst(); // cancel + jump to slide A
+
+      const playerAfterJump = testApi(presenter).getAnimPlayer();
+      expect(playerAfterJump).not.toBeNull();
+
+      // Flush past the transition duration.
+      flushRaf(600);
+
+      // Must still be on slide A; stale onDone must not have overwritten state.
+      expect(presenter.getCurrentSlideId()).toBe(aId);
+      expect(testApi(presenter).getAnimPlayer()).toBe(playerAfterJump);
+    } finally {
+      presenter.dispose();
+    }
+  });
+});

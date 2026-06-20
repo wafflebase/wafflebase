@@ -409,6 +409,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
   function prev(): void {
     if (disposed) return;
     cancelRaf();
+    cancelTransitionRaf();
     if (state.atEndScreen) {
       state.atEndScreen = false;
       const targetSlide = state.slides[state.slides.length - 1];
@@ -438,6 +439,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (disposed) return;
     if (state.slides.length === 0) return;
     cancelRaf();
+    cancelTransitionRaf();
     const targetSlide = state.slides[0];
     state.currentSlideId = targetSlide.id;
     state.atEndScreen = false;
@@ -449,6 +451,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (disposed) return;
     if (state.slides.length === 0) return;
     cancelRaf();
+    cancelTransitionRaf();
     const targetSlide = state.slides[state.slides.length - 1];
     state.currentSlideId = targetSlide.id;
     state.atEndScreen = false;
@@ -496,8 +499,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (stillThere) {
       // Rebuild the player for the current slide since its elements may
       // have changed (theme/element edits can affect animation targets).
-      // Cancel any in-flight RAF first to avoid a stale-player tick.
+      // Cancel any in-flight RAF (including transition) first to avoid a
+      // stale-player tick or stale transition onDone firing.
       cancelRaf();
+      cancelTransitionRaf();
       const currentSlide = state.slides.find((s) => s.id === state.currentSlideId)!;
       animPlayer = buildPlayerFor(currentSlide);
       paint();
@@ -514,6 +519,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
     );
     state.currentSlideId = state.slides[targetIndex].id;
     cancelRaf();
+    cancelTransitionRaf();
     const fallbackSlide = state.slides[targetIndex];
     animPlayer = buildPlayerFor(fallbackSlide);
     paint();
