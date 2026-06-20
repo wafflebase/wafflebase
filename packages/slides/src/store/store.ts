@@ -43,6 +43,21 @@ export interface SlidesStore {
   updateSlideBackground(slideId: string, bg: Background): void;
   applyLayout(slideId: string, layoutId: string): void;
 
+  /** Set (or clear, with undefined) a slide's transition effect. */
+  setSlideTransition(slideId: string, transition: import('../model/presentation').SlideTransition | undefined): void;
+
+  /** Append an object animation to a slide's sequence. Returns its id. */
+  addAnimation(slideId: string, anim: import('../model/presentation').SlideAnimation): string;
+
+  /** LWW-patch a single animation's scalar fields. */
+  updateAnimation(slideId: string, animId: string, patch: Partial<import('../model/element').ObjectAnimation>): void;
+
+  /** Remove an animation from the slide's sequence. */
+  removeAnimation(slideId: string, animId: string): void;
+
+  /** Move an animation to `toIndex` within the slide's sequence (0 = first). */
+  reorderAnimation(slideId: string, animId: string, toIndex: number): void;
+
   // --- theme-level ---
 
   /** Add a theme to the document. Idempotent on `theme.id`. */

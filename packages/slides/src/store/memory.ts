@@ -4,6 +4,8 @@ import type {
   Guide,
   GuideAxis,
   Slide,
+  SlideAnimation,
+  SlideTransition,
   SlidesDocument,
 } from '../model/presentation';
 import type { Block } from '@wafflebase/docs';
@@ -12,7 +14,7 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../model/connector';
-import type { Stroke } from '../model/element';
+import type { ObjectAnimation, Stroke } from '../model/element';
 import type {
   Element,
   ElementInit,
@@ -313,6 +315,49 @@ export class MemSlidesStore implements SlidesStore {
       getLayout(layoutId),
       master && theme ? { master, theme } : undefined,
     );
+  }
+
+  setSlideTransition(slideId: string, transition: SlideTransition | undefined): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (transition === undefined) delete slide.transition;
+    else slide.transition = clone(transition);
+  }
+
+  addAnimation(slideId: string, anim: SlideAnimation): string {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (!slide.animations) slide.animations = [];
+    slide.animations.push(clone(anim));
+    return anim.id;
+  }
+
+  updateAnimation(slideId: string, animId: string, patch: Partial<ObjectAnimation>): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const a = slide.animations?.find((x) => x.id === animId);
+    if (!a) throw new Error(`[slides] animation '${animId}' not on slide '${slideId}'`);
+    Object.assign(a, clone(patch));
+  }
+
+  removeAnimation(slideId: string, animId: string): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    if (!slide.animations) return;
+    slide.animations = slide.animations.filter((x) => x.id !== animId);
+    if (slide.animations.length === 0) delete slide.animations;
+  }
+
+  reorderAnimation(slideId: string, animId: string, toIndex: number): void {
+    this.requireBatch();
+    const slide = this.requireSlide(slideId);
+    const list = slide.animations;
+    if (!list) return;
+    const from = list.findIndex((x) => x.id === animId);
+    if (from < 0) return;
+    const [moved] = list.splice(from, 1);
+    const clamped = Math.max(0, Math.min(toIndex, list.length));
+    list.splice(clamped, 0, moved);
   }
 
   // --- element ops ---
