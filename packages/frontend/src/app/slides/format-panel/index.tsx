@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  DropShadow,
+  Effects,
   Element,
   Frame,
   ImageElement,
@@ -14,6 +16,7 @@ import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
 import { TextFittingSection } from './text-fitting-section';
 import { SizePositionSection } from './size-position-section';
+import { DropShadowSection } from './drop-shadow-section';
 import type { DisplayUnit } from './units';
 
 export interface FormatPanelProps {
@@ -146,6 +149,29 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
     [store, selection],
   );
 
+  // Shadow is committed per-element so a co-existing reflection on any
+  // selected element is preserved (the same shadow value is written to
+  // all, but each element keeps its own other effects).
+  const commitShadow = useCallback(
+    (ids: readonly string[], shadow: DropShadow | undefined) => {
+      if (selection.kind !== 'object') return;
+      store.batch(() => {
+        for (const id of ids) {
+          const el = selection.elements.find((e) => e.id === id);
+          if (!el) continue;
+          const existing = (el as { data?: { effects?: Effects } }).data
+            ?.effects;
+          const next: Effects = {};
+          if (shadow) next.shadow = shadow;
+          if (existing?.reflection) next.reflection = existing.reflection;
+          const effects = next.shadow || next.reflection ? next : undefined;
+          store.updateElementData(selection.slideId, id, { effects });
+        }
+      });
+    },
+    [store, selection],
+  );
+
   const lockedResize = useCallback(
     (elems: readonly Element[], axis: 'w' | 'h', newPx: number) => {
       if (selection.kind !== 'object') return;
@@ -229,11 +255,19 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                     }
                   />
                 );
+              case 'drop-shadow':
+                return (
+                  <DropShadowSection
+                    key={id}
+                    elements={selection.elements}
+                    onCommit={commitShadow}
+                  />
+                );
               case 'alt-text':
                 return (
                   <AltTextSection
                     key={id}
-                    elements={selection.elements as readonly ImageElement[]}
+                    elements={selection.elements}
                     onCommit={(ids, alt) => commitElementData(ids, { alt })}
                   />
                 );

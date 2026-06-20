@@ -167,6 +167,49 @@ describe('drawElement — frame transform', () => {
   });
 });
 
+describe('drawElement — drop shadow', () => {
+  it('activates the shadow during the shape fill, then clears it', () => {
+    const ctx = createCtxSpy();
+    // Record the shadowColor in effect at the moment fill() is called.
+    let shadowAtFill: string | undefined;
+    ctx.fill.mockImplementation(() => {
+      shadowAtFill = ctx.shadowColor;
+    });
+    const el: Element = {
+      id: 'e-shadow',
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 100, h: 60, rotation: 0 },
+      data: {
+        kind: 'rect',
+        fill: { kind: 'srgb', value: '#abc' },
+        effects: {
+          shadow: {
+            color: '#000000',
+            opacity: 0.5,
+            angle: 0,
+            distance: 8,
+            blur: 4,
+          },
+        },
+      },
+    };
+    drawElement(asCtx(ctx), el, DOC, THEME, () => undefined);
+    expect(shadowAtFill).toBe('rgba(0, 0, 0, 0.5)');
+    // Cleared after the geometry pass (before any text paint).
+    expect(ctx.shadowColor).toBe('transparent');
+  });
+
+  it('leaves the shadow unset when no effects are present', () => {
+    const ctx = createCtxSpy();
+    let shadowAtFill: string | undefined;
+    ctx.fill.mockImplementation(() => {
+      shadowAtFill = ctx.shadowColor;
+    });
+    drawElement(asCtx(ctx), shapeAt(0, 0), DOC, THEME, () => undefined);
+    expect(shadowAtFill).toBe('transparent');
+  });
+});
+
 describe('drawElement — counter-flip for text', () => {
   const block = (text: string) => ({
     id: 'b1', type: 'paragraph',

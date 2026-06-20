@@ -25,22 +25,29 @@ describe('pickSections', () => {
     expect(pickSections({ kind: 'idle' })).toEqual([]);
   });
 
-  it('shape → [size-position]', () => {
-    expect(pickSections(objSel('shape'))).toEqual(['size-position']);
-  });
-
-  it('image → [size-position, image-adjustments, alt-text]', () => {
-    expect(pickSections(objSel('image'))).toEqual([
+  it('shape → [size-position, drop-shadow, alt-text]', () => {
+    expect(pickSections(objSel('shape'))).toEqual([
       'size-position',
-      'image-adjustments',
+      'drop-shadow',
       'alt-text',
     ]);
   });
 
-  it('text-element → [size-position, text-fitting]', () => {
+  it('image → [size-position, image-adjustments, drop-shadow, alt-text]', () => {
+    expect(pickSections(objSel('image'))).toEqual([
+      'size-position',
+      'image-adjustments',
+      'drop-shadow',
+      'alt-text',
+    ]);
+  });
+
+  it('text-element → [size-position, text-fitting, drop-shadow, alt-text]', () => {
     expect(pickSections(objSel('text-element'))).toEqual([
       'size-position',
       'text-fitting',
+      'drop-shadow',
+      'alt-text',
     ]);
   });
 
@@ -56,11 +63,16 @@ describe('pickSections', () => {
     expect(pickSections(objSel('mixed'))).toEqual(['size-position']);
   });
 
-  it('table → [size-position]', () => {
+  it('table → [size-position, alt-text]', () => {
     // Regression guard: before adding 'table' to ObjectSelectionType,
     // derivePanelSelection mapped single-table selections to 'mixed', and
     // pickSections('mixed') + SizePositionSection's `kind !== 'mixed'`
     // gate hid W/H/Rotation from a single-table selection.
-    expect(pickSections(objSel('table'))).toEqual(['size-position']);
+    // Drop shadow is excluded for tables (per-cell ctx.shadow would
+    // shadow every border); alt-text applies.
+    expect(pickSections(objSel('table'))).toEqual([
+      'size-position',
+      'alt-text',
+    ]);
   });
 });
