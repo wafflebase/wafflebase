@@ -48,9 +48,20 @@ PowerPoint-side extensions plus the freeform drawing tool.
       `magneticTape`
 
 ### P3 — variants, low impact
-- [ ] Callout variants: plain / accent / accentBorder line-callout families
-      (`callout1/2/3`, `accentCallout1/2/3`, `accentBorderCallout1/2/3`)
-- [ ] Curved up/down ribbon banners
+- [x] Curved up/down ribbon banners (`ellipseRibbon`, `ellipseRibbon2`)
+      — simplified parabolic band + folded end tabs (consistent with the
+      V0 straight `ribbon` simplification), body-height drag handle.
+- [~] Callout variants (`callout1/2/3`, `accentCallout1/2/3`,
+      `accentBorderCallout1/2/3`) — **deferred by decision.** In our
+      single-Path2D fill+stroke model the plain `calloutN` family is
+      *geometrically identical* to the shipped `borderCalloutN` (the only
+      OOXML delta is whether the body rect strokes, which the Stroke
+      picker already controls); shipping them would be pure duplicates,
+      which `slides-shapes.md` explicitly warns against ("keep this list
+      small"). The accent variants add only a cosmetic inner bar that
+      would need path-splitting to render without a fill artifact. The
+      existing `borderCallout1/2/3` already cover the line-callout need;
+      revisit if/when the renderer gains multi-subpath fill control.
 
 ### Already planned (no action here)
 - Remaining ~130 OOXML presets (`gear6/9`, `chartX/Plus/Star`, `funnel`, …)

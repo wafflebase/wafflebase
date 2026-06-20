@@ -49,10 +49,11 @@ export type ShapeKind =
   | 'circularArrow'
   | 'curvedRightArrow' | 'curvedLeftArrow'
   | 'curvedUpArrow' | 'curvedDownArrow'
-  // Banners (5 P3-B T5 + 2 waves P3.5)
+  // Banners (5 P3-B T5 + 2 waves + 2 curved ribbons P3.5)
   | 'ribbon' | 'ribbon2' | 'horizontalScroll' | 'verticalScroll'
   | 'leftRightRibbon'
   | 'wave' | 'doubleWave'
+  | 'ellipseRibbon' | 'ellipseRibbon2'
   // Callouts (4 P1 + 3 line callouts + 7 arrow callouts)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'

@@ -136,6 +136,8 @@ export const SHAPE_PICKER_CATEGORIES: readonly Category[] = [
       { kind: "leftRightRibbon", label: "Left-right ribbon" },
       { kind: "wave", label: "Wave" },
       { kind: "doubleWave", label: "Double wave" },
+      { kind: "ellipseRibbon", label: "Curved up ribbon" },
+      { kind: "ellipseRibbon2", label: "Curved down ribbon" },
     ],
   },
   {

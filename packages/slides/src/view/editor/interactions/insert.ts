@@ -120,8 +120,12 @@ const DEFAULT_INSERT_SIZE: ReadonlyMap<ShapeKind, Size> = new Map<
   ['leftRightRibbon', BANNER],
   ['horizontalScroll', SCROLL_H],
   ['verticalScroll', SCROLL_V],
+  ['wave', BANNER],
+  ['doubleWave', BANNER],
+  ['ellipseRibbon', BANNER],
+  ['ellipseRibbon2', BANNER],
 
-  // Flowchart (all 14)
+  // Flowchart (all 24)
   ...(([
     'flowChartTerminator', 'flowChartPredefinedProcess',
     'flowChartInternalStorage', 'flowChartDocument',
@@ -130,6 +134,11 @@ const DEFAULT_INSERT_SIZE: ReadonlyMap<ShapeKind, Size> = new Map<
     'flowChartPunchedCard', 'flowChartPunchedTape',
     'flowChartSummingJunction', 'flowChartOr',
     'flowChartDelay', 'flowChartDisplay',
+    'flowChartPreparation', 'flowChartConnector',
+    'flowChartCollate', 'flowChartSort',
+    'flowChartExtract', 'flowChartMerge',
+    'flowChartOnlineStorage', 'flowChartMagneticDisk',
+    'flowChartMagneticDrum', 'flowChartMagneticTape',
   ] as ShapeKind[]).map((k) => [k, FLOWCHART] as const)),
 
   // Callouts
@@ -147,10 +156,16 @@ const DEFAULT_INSERT_SIZE: ReadonlyMap<ShapeKind, Size> = new Map<
     'mathDivide', 'mathEqual', 'mathNotEqual',
   ] as ShapeKind[]).map((k) => [k, SHAPE_SQUARE] as const)),
 
-  // Stars
+  // Stars + explosions
   ...(([
     'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
+    'star12', 'star16', 'star24', 'star32',
+    'irregularSeal1', 'irregularSeal2',
   ] as ShapeKind[]).map((k) => [k, SHAPE_SQUARE_L] as const)),
+
+  // Double brackets / braces — tall like the single brackets
+  ['bracketPair', SHAPE_SQUARE],
+  ['bracePair', SHAPE_SQUARE],
 
   // Action buttons
   ...(([
@@ -212,13 +227,18 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
       'curvedUpArrow', 'curvedDownArrow',
       'ribbon', 'ribbon2', 'horizontalScroll', 'verticalScroll',
       'leftRightRibbon',
+      'wave', 'doubleWave', 'ellipseRibbon', 'ellipseRibbon2',
       'mathPlus', 'mathMinus', 'mathMultiply',
       'mathDivide', 'mathEqual', 'mathNotEqual',
       'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
+      'star12', 'star16', 'star24', 'star32',
+      'irregularSeal1', 'irregularSeal2',
     ] as ShapeKind[]
   ).map((k) => [k, 'filled' as ShapeStyle] as const)),
-  // Arc → stroke-only (open path).
+  // Arc + double brackets/braces → stroke-only (open path).
   ['arc', 'lineSpecial'],
+  ['bracketPair', 'lineSpecial'],
+  ['bracePair', 'lineSpecial'],
   // Callouts → outlined
   ['wedgeRectCallout', 'outlined'],
   ['wedgeRoundRectCallout', 'outlined'],
@@ -242,6 +262,16 @@ const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
   ['flowChartOr', 'outlined'],
   ['flowChartDelay', 'outlined'],
   ['flowChartDisplay', 'outlined'],
+  ['flowChartPreparation', 'outlined'],
+  ['flowChartConnector', 'outlined'],
+  ['flowChartCollate', 'outlined'],
+  ['flowChartSort', 'outlined'],
+  ['flowChartExtract', 'outlined'],
+  ['flowChartMerge', 'outlined'],
+  ['flowChartOnlineStorage', 'outlined'],
+  ['flowChartMagneticDisk', 'outlined'],
+  ['flowChartMagneticDrum', 'outlined'],
+  ['flowChartMagneticTape', 'outlined'],
   // Action buttons → outlined. `drawActionButton` interprets
   // `data.fill` as the body background and `data.stroke.color` as
   // both the bevel outline and the inner-glyph fill, so the

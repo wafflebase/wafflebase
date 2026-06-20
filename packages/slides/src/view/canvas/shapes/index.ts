@@ -348,6 +348,12 @@ import {
   DOUBLE_WAVE_HANDLES,
 } from './banners/double-wave';
 import {
+  buildEllipseRibbon,
+  buildEllipseRibbon2,
+  ELLIPSE_RIBBON_ADJUSTMENTS,
+  ELLIPSE_RIBBON_HANDLES,
+} from './banners/ellipse-ribbon';
+import {
   buildBracketPair,
   BRACKET_PAIR_ADJUSTMENTS,
   BRACKET_PAIR_HANDLES,
@@ -702,6 +708,8 @@ PATH_BUILDERS.set('irregularSeal1', buildIrregularSeal1);
 PATH_BUILDERS.set('irregularSeal2', buildIrregularSeal2);
 PATH_BUILDERS.set('wave', buildWave);
 PATH_BUILDERS.set('doubleWave', buildDoubleWave);
+PATH_BUILDERS.set('ellipseRibbon', buildEllipseRibbon);
+PATH_BUILDERS.set('ellipseRibbon2', buildEllipseRibbon2);
 PATH_BUILDERS.set('bracketPair', buildBracketPair);
 PATH_BUILDERS.set('bracePair', buildBracePair);
 PATH_BUILDERS.set('flowChartPreparation', buildFlowChartPreparation);
@@ -721,6 +729,8 @@ ADJUSTMENT_SPECS.set('star24', STAR_24_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('star32', STAR_32_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('wave', WAVE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('doubleWave', DOUBLE_WAVE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('ellipseRibbon', ELLIPSE_RIBBON_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('ellipseRibbon2', ELLIPSE_RIBBON_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('bracketPair', BRACKET_PAIR_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('bracePair', BRACE_PAIR_ADJUSTMENTS);
 
@@ -730,5 +740,7 @@ ADJUSTMENT_HANDLES.set('star24', STAR_24_HANDLES);
 ADJUSTMENT_HANDLES.set('star32', STAR_32_HANDLES);
 ADJUSTMENT_HANDLES.set('wave', WAVE_HANDLES);
 ADJUSTMENT_HANDLES.set('doubleWave', DOUBLE_WAVE_HANDLES);
+ADJUSTMENT_HANDLES.set('ellipseRibbon', ELLIPSE_RIBBON_HANDLES);
+ADJUSTMENT_HANDLES.set('ellipseRibbon2', ELLIPSE_RIBBON_HANDLES);
 ADJUSTMENT_HANDLES.set('bracketPair', BRACKET_PAIR_HANDLES);
 ADJUSTMENT_HANDLES.set('bracePair', BRACE_PAIR_HANDLES);

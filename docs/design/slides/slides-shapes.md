@@ -8,13 +8,16 @@ target-version: 0.4.1
 ## Summary
 
 The `@wafflebase/slides` package ships an OOXML-aligned shape library:
-**128 `ShapeKind` values** rendered through a single path-builder
-registry (plus a special-cased dispatcher for `line` / `arrow` /
-action buttons), with per-shape adjustments stored as
-`data.adjustments?: number[]` and edited via yellow-diamond drag
-handles on the canvas. The catalog matches Google Slides' shape
-menu, with naming chosen to map 1:1 onto OOXML `prstGeom` presets
-for forward-compatible PPTX import.
+**136 closed-path `ShapeKind` builders** rendered through a single
+path-builder registry, plus a special-cased dispatcher for connectors
+(`line` / `arrow`, now `ConnectorElement`), the 12 action buttons, and
+the data-driven `freeform` (`<a:custGeom>` / scribble) kind. Per-shape
+adjustments are stored as `data.adjustments?: number[]` and edited via
+yellow-diamond drag handles on the canvas. The catalog now exceeds the
+Google Slides shape menu (full PowerPoint Stars & Banners, the complete
+flowchart set, double brackets) and a freehand scribble tool, with
+naming chosen to map 1:1 onto OOXML `prstGeom` presets for
+forward-compatible PPTX import.
 
 This document covers the architectural contract — data model,
 renderer dispatch, adjustments abstraction, picker UX, OOXML alignment
@@ -474,7 +477,7 @@ The library is delivered incrementally:
 | P1 — Foundation | 35 | 2 lines + 15 basic + 8 block arrows + 4 callouts + 6 equation | defaults only | shipped |
 | P2 — Practical | 55 | + 14 flowchart + 6 stars | defaults only | shipped |
 | P3 — Handles + GS parity | 128 | + 22 basic + 7 snip/round rects + 13 block arrows + 5 banners + 3 line callouts + 12 action buttons + 7 arrow callouts + 4 brackets/braces; `homePlate` import alias | drag handles for all parametric shapes (4 axis types incl. `angular` for arc-based shapes) | shipped |
-| P3.5 — PPT-parity catalog | ~144 | + 2 explosions (`irregularSeal1/2`) + 2 waves (`wave`, `doubleWave`) + 4 high-point stars (`star12/16/24/32`) + 2 double brackets (`bracketPair`, `bracePair`) + 10 remaining flowchart shapes + line-callout variants | drag handles where parametric | planned |
+| P3.5 — PPT-parity catalog | 154 | + 2 explosions (`irregularSeal1/2`) + 2 waves (`wave`, `doubleWave`) + 2 curved ribbons (`ellipseRibbon/2`) + 4 high-point stars (`star12/16/24/32`) + 2 double brackets (`bracketPair`, `bracePair`) + 10 remaining flowchart shapes. Plain/accent line-callout variants deferred (duplicate geometry in the single-path model) | drag handles where parametric | shipped |
 | P4 — OOXML full | 187 | remaining presets via DrawingML formula evaluator | (no new UX) | planned |
 | P5 — Freeform drawing | — | promote import-only `freeform` to a user-authored Scribble tool (toolbar toggle → `startScribbleInsert` pointer-capture → normalized `FreeformPath`); click-vertex polyline + curve smoothing deferred | new insert interaction | shipped (scribble) |
 

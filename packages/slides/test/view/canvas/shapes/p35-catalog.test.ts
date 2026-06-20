@@ -10,6 +10,10 @@ import { buildWave } from '../../../../src/view/canvas/shapes/banners/wave';
 import { buildDoubleWave } from '../../../../src/view/canvas/shapes/banners/double-wave';
 import { buildBracePair } from '../../../../src/view/canvas/shapes/basic/brace-pair';
 import { buildBracketPair } from '../../../../src/view/canvas/shapes/basic/bracket-pair';
+import {
+  buildEllipseRibbon,
+  buildEllipseRibbon2,
+} from '../../../../src/view/canvas/shapes/banners/ellipse-ribbon';
 
 const ctx = createTestCanvas(200, 200).getContext('2d');
 
@@ -27,6 +31,21 @@ describe('P3.5 catalog — closed shapes', () => {
       expect(ctx.isPointInPath(path, 50, 50)).toBe(true);
       expect(ctx.isPointInPath(path, -1, -1)).toBe(false);
       expect(ctx.isPointInPath(path, 101, 101)).toBe(false);
+    }
+  });
+
+  it('curved ribbons contain the band centre and build at varied frames', () => {
+    for (const build of [buildEllipseRibbon, buildEllipseRibbon2]) {
+      const path = build({ w: 400, h: 140 }, undefined);
+      // The band passes through the vertical centre at mid-width.
+      expect(ctx.isPointInPath(path, 200, 70)).toBe(true);
+      for (const size of [
+        { w: 100, h: 100 },
+        { w: 480, h: 80 },
+        { w: 1, h: 1 },
+      ]) {
+        expect(() => build(size, undefined)).not.toThrow();
+      }
     }
   });
 
@@ -69,6 +88,8 @@ describe('P3.5 catalog — registry coverage', () => {
     'irregularSeal2',
     'wave',
     'doubleWave',
+    'ellipseRibbon',
+    'ellipseRibbon2',
     'bracketPair',
     'bracePair',
     'flowChartPreparation',
