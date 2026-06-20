@@ -100,18 +100,22 @@ const DEFAULT_INSERT_SIZE: ReadonlyMap<ShapeKind, Size> = new Map<
     'rightArrow', 'leftArrow', 'leftRightArrow',
     'notchedRightArrow', 'stripedRightArrow',
     'chevron', 'pentagonArrow', 'swooshArrow',
-    'curvedRightArrow', 'curvedLeftArrow', 'bentArrow',
+    'bentArrow',
   ] as ShapeKind[]).map((k) => [k, ARROW_H] as const)),
 
   // Block arrows — vertical
   ...(([
     'upArrow', 'downArrow', 'upDownArrow',
-    'curvedUpArrow', 'curvedDownArrow', 'bentUpArrow',
+    'bentUpArrow',
   ] as ShapeKind[]).map((k) => [k, ARROW_V] as const)),
 
-  // Block arrows — multi-directional / circular
+  // Block arrows — multi-directional / circular / curved. The curved
+  // arrows follow the ECMA-376 geometry, which only reads correctly
+  // near a square aspect (a wide/tall box distorts the swept band into
+  // a thin sliver — same as PowerPoint), so they default to a square.
   ...(([
     'quadArrow', 'uturnArrow', 'circularArrow', 'leftRightUpArrow',
+    'curvedRightArrow', 'curvedLeftArrow', 'curvedUpArrow', 'curvedDownArrow',
   ] as ShapeKind[]).map((k) => [k, SHAPE_SQUARE_L] as const)),
 
   // Banners
