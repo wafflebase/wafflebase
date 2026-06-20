@@ -38,6 +38,31 @@ Trees (the design doc's "per-cell body Tree" is aspirational). The
 integration test therefore asserts disjoint-cell convergence and
 structural-op convergence, NOT same-cell character merge.
 
+## Some "deferred" items are UI-only gaps over finished infra
+
+The P3 "cell padding control" looked like a feature but the model
+(`CellStyle.padding`), renderer (`paddingOf` with `DEFAULT_CELL_PADDING`
+fallback in `table-renderer.ts`), and store (`updateTableCellStyle`
+takes an arbitrary `Partial<CellStyle>` patch) already supported it
+end-to-end. Only the toolbar control was missing. Before estimating a
+deferred item, grep the model/renderer/store for the field — the
+"feature" may be a 30-line dropdown over a fully-built pipeline.
+
+Conversely, the per-side border picker is genuinely deferred to the
+Format options panel (`slides-format-options-panel.md`); building a
+standalone toolbar version now would be thrown away. Respect the
+stated home for a deferred item.
+
+## Radix dropdowns in jsdom need a pointer sequence, not `.click()`
+
+Component tests that open a Radix `DropdownMenu` must dispatch
+`pointerdown` -> `pointerup` -> `click` (a synthetic `.click()` no-ops).
+Pattern lifted from `line-spacing-picker.test.ts`. The menu content is
+portalled into `document.body`, so query `[role="menuitem"]` off
+`document.body`, not the render host. Mock only the store/editor read
+surface the component actually touches (`read`, `batch`,
+`updateTableCellStyle`, `getCurrentSlideId`) and cast through `unknown`.
+
 ## Test conventions
 
 - Integration tests are auto-discovered by `tests/**/*.integration.ts`

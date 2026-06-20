@@ -99,10 +99,15 @@ What landed (in commit order):
 - [x] Contextual toolbar: Table mode (TableControls component)
 - [x] Cell-style toolbar: fill, vertical-align, border preset
       dropdown (All / Outer / Clear)
-- [ ] Cell padding control (deferred — not needed for benchmark deck;
-      add when a user asks)
+- [x] Cell padding control — uniform-padding dropdown in
+      `TableControls` (presets 0/2/5/10 px + Custom), patches every
+      target cell's `style.padding` via the existing
+      `updateTableCellStyle` path. Model/renderer/store already
+      supported `padding`; this was a UI-only gap. Behavioral test:
+      `tests/app/slides/toolbar/table-controls.test.ts`.
 - [ ] Per-side border picker (current is preset-only; per-side comes
-      with the Format options panel work)
+      with the Format options panel work — deferred there, not built
+      standalone)
 
 ## P4 — Structural edits
 
