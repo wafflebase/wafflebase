@@ -346,14 +346,15 @@ describe('parseTiming', () => {
     expect(anims[0].easing).toBe('easeOut');
   });
 
-  it('easing: neither accel nor decel → linear', () => {
+  it('easing: neither accel nor decel → easing field absent (undefined)', () => {
     const timingEl = buildTiming(
       clickGroup({ spid: '3', presetID: 10 }),
     );
     const report = new ImportReport();
     const ctx = { spidToElementId: new Map([['3', 'e3']]), report };
     const anims = parseTiming(timingEl, ctx);
-    expect(anims[0].easing).toBe('linear');
+    expect(anims[0].easing).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(anims[0], 'easing')).toBe(false);
   });
 
   it('generates a unique id for each animation', () => {
@@ -406,6 +407,111 @@ describe('parseTiming', () => {
     const ctx = { spidToElementId: new Map([['3', 'e3']]), report };
     const anims = parseTiming(timingEl, ctx);
     expect(anims[0].byParagraph).toBe(true);
+  });
+
+  it('unmapped animMotion effect preserves motionPath on SlideAnimation', () => {
+    // presetID 9999 is unmapped; withMotionPath supplies a <p:animMotion path="..."> node
+    const timingEl = buildTiming(
+      clickGroup({ presetClass: 'entr', presetID: 9999, spid: '3', withMotionPath: 'M0,0 L1,1' }),
+    );
+    const report = new ImportReport();
+    const ctx = { spidToElementId: new Map([['3', 'e3']]), report };
+    const anims = parseTiming(timingEl, ctx);
+    expect(anims).toHaveLength(1);
+    expect(anims[0].motionPath).toBe('M0,0 L1,1');
+  });
+
+  it('audio/video node in timing tree bumps animationMediaDropped', () => {
+    // Wrap audio and video nodes inside the timing element's tree.
+    const timingWithMedia = `<p:timing ${P_NS}>
+      <p:tnLst>
+        <p:par>
+          <p:cTn nodeType="tmRoot">
+            <p:childTnLst>
+              <p:seq>
+                <p:cTn nodeType="mainSeq">
+                  <p:childTnLst/>
+                </p:cTn>
+              </p:seq>
+              <p:audio/>
+              <p:video/>
+            </p:childTnLst>
+          </p:cTn>
+        </p:par>
+      </p:tnLst>
+    </p:timing>`;
+    const doc = parseXml(timingWithMedia);
+    const timingEl = doc.documentElement;
+    const report = new ImportReport();
+    const ctx = { spidToElementId: new Map<string, string>(), report };
+    parseTiming(timingEl, ctx);
+    expect(report.animationMediaDropped).toBe(2);
+  });
+
+  it('easing: no accel/decel → field absent; accel only → easeIn; decel only → easeOut; both → easeInOut', () => {
+    const spidMap = new Map([['3', 'e3']]);
+
+    // No accel/decel → easing absent
+    const noEasingEl = buildTiming(clickGroup({ spid: '3', presetID: 10 }));
+    const r0 = new ImportReport();
+    const a0 = parseTiming(noEasingEl, { spidToElementId: spidMap, report: r0 });
+    expect(a0[0].easing).toBeUndefined();
+
+    // accel only → easeIn
+    const accelOnlyEl = buildTiming(clickGroup({ spid: '3', presetID: 10, accel: 10000 }));
+    const r1 = new ImportReport();
+    const a1 = parseTiming(accelOnlyEl, { spidToElementId: spidMap, report: r1 });
+    expect(a1[0].easing).toBe('easeIn');
+
+    // decel only → easeOut
+    const decelOnlyEl = buildTiming(clickGroup({ spid: '3', presetID: 10, decel: 10000 }));
+    const r2 = new ImportReport();
+    const a2 = parseTiming(decelOnlyEl, { spidToElementId: spidMap, report: r2 });
+    expect(a2[0].easing).toBe('easeOut');
+
+    // both → easeInOut
+    const bothEl = buildTiming(clickGroup({ spid: '3', presetID: 10, accel: 10000, decel: 10000 }));
+    const r3 = new ImportReport();
+    const a3 = parseTiming(bothEl, { spidToElementId: spidMap, report: r3 });
+    expect(a3[0].easing).toBe('easeInOut');
+  });
+
+  it('whole build does NOT set byParagraph; pRg build sets byParagraph true', () => {
+    // Build a timing with <p:txEl><p:whole/></p:txEl> — should NOT set byParagraph.
+    const wholeXml = `<p:par>
+      <p:cTn>
+        <p:childTnLst>
+          <p:par>
+            <p:cTn nodeType="clickEffect" presetClass="entr" presetID="10" dur="500">
+              <p:stCondLst><p:cond evt="onNext" delay="indefinite"/></p:stCondLst>
+              <p:childTnLst>
+                <p:animEffect>
+                  <p:cBhvr>
+                    <p:tgtEl>
+                      <p:spTgt spid="3">
+                        <p:txEl><p:whole/></p:txEl>
+                      </p:spTgt>
+                    </p:tgtEl>
+                  </p:cBhvr>
+                </p:animEffect>
+              </p:childTnLst>
+            </p:cTn>
+          </p:par>
+        </p:childTnLst>
+      </p:cTn>
+    </p:par>`;
+    const timingWholeEl = buildTiming(wholeXml);
+    const spidMap = new Map([['3', 'e3']]);
+    const rWhole = new ImportReport();
+    const animsWhole = parseTiming(timingWholeEl, { spidToElementId: spidMap, report: rWhole });
+    expect(animsWhole).toHaveLength(1);
+    expect(animsWhole[0].byParagraph).toBeFalsy();
+
+    // pRg build (existing withTxEl helper) → byParagraph true
+    const timingPRgEl = buildTiming(clickGroup({ spid: '3', presetID: 10, withTxEl: true }));
+    const rPRg = new ImportReport();
+    const animsPRg = parseTiming(timingPRgEl, { spidToElementId: spidMap, report: rPRg });
+    expect(animsPRg[0].byParagraph).toBe(true);
   });
 
   it('summary() reports animation counters when non-zero', () => {

@@ -19,7 +19,7 @@
  *   accel > 0 && decel > 0  → easeInOut
  *   accel > 0 only          → easeIn
  *   decel > 0 only          → easeOut
- *   neither                 → linear
+ *   neither                 → UNSET (absent ⇒ model default easeInOut applies)
  * (These match the OOXML `<p:cTn accel decel>` hundredths-of-percent attrs.)
  *
  * Start condition resolution (in priority order):
@@ -155,9 +155,8 @@ function parseEffectPar(
     easing = 'easeIn';
   } else if (decel > 0) {
     easing = 'easeOut';
-  } else {
-    easing = 'linear';
   }
+  // Neither accel nor decel → leave easing UNSET; model default (easeInOut) applies.
 
   // --- Start condition ---
   const start = resolveStart(cTn, nodeType, isFirstInGroup);
@@ -258,8 +257,6 @@ function resolveStart(cTn: Element, nodeType: string, isFirstInGroup: boolean): 
       if (evt === 'onNext' || delay === 'indefinite') return 'onClick';
       if (evt === 'onEnd') return 'afterPrev';
       if (delay === '0' && !evt) return 'withPrev';
-      // delay=0 with no evt is also withPrev
-      if (delay === '0') return 'withPrev';
     }
   }
 
@@ -302,14 +299,14 @@ function findTxEl(effectPar: Element): Element | undefined {
 }
 
 /**
- * True if the txEl element contains a `<p:pRg>` (paragraph range) or any
- * other build-by-paragraph indicator.
+ * True if the txEl element contains a `<p:pRg>` (paragraph range build).
+ * `<p:whole>` means animate the whole text body at once — NOT per-paragraph —
+ * so it must NOT trigger byParagraph.
  */
 function hasParagraphBuild(txEl: Element): boolean {
   const all = txEl.getElementsByTagName('*');
   for (let i = 0; i < all.length; i++) {
-    const ln = all[i].localName;
-    if (ln === 'pRg' || ln === 'whole') return true;
+    if (all[i].localName === 'pRg') return true;
   }
   return false;
 }
