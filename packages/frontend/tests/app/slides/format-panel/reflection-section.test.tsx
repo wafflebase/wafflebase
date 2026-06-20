@@ -18,8 +18,8 @@ describe('ReflectionSection', () => {
   it('renders the toggle off with no controls when absent', () => {
     const onCommit = vi.fn();
     render(<ReflectionSection elements={[shape('a')]} onCommit={onCommit} />);
-    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(
-      false,
+    expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe(
+      'false',
     );
     expect(screen.queryByLabelText('Reflection size')).toBeNull();
   });

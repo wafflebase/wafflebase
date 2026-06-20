@@ -24,8 +24,8 @@ describe('DropShadowSection', () => {
   it('renders the toggle off with no shadow controls when absent', () => {
     const onCommit = vi.fn();
     render(<DropShadowSection elements={[shape('a')]} onCommit={onCommit} />);
-    const toggle = screen.getByRole('checkbox') as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
+    const toggle = screen.getByRole('checkbox');
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
     expect(screen.queryByLabelText('Shadow transparency')).toBeNull();
   });
 
@@ -49,8 +49,8 @@ describe('DropShadowSection', () => {
     render(
       <DropShadowSection elements={[shape('a', SHADOW)]} onCommit={onCommit} />,
     );
-    const toggle = screen.getByRole('checkbox') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByRole('checkbox');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
     fireEvent.click(toggle);
     expect(onCommit).toHaveBeenCalledWith(['a'], undefined);
   });

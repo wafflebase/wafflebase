@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Element, Reflection } from '@wafflebase/slides';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 export interface ReflectionSectionProps {
   /** Selected shape / image / text elements (all carry `data.effects`). */
@@ -69,16 +71,22 @@ export function ReflectionSection({
 
   return (
     <section aria-labelledby="format-reflection-label" className="p-3">
-      <label className="mb-2 flex items-center gap-2 text-xs font-semibold">
-        <input
-          type="checkbox"
+      <div className="mb-2 flex items-center gap-2">
+        <Checkbox
+          id="format-reflection-toggle"
           checked={enabled}
-          onChange={(e) =>
-            commit(e.target.checked ? DEFAULT_REFLECTION : undefined)
+          onCheckedChange={(c) =>
+            commit(c === true ? DEFAULT_REFLECTION : undefined)
           }
         />
-        <span id="format-reflection-label">Reflection</span>
-      </label>
+        <Label
+          htmlFor="format-reflection-toggle"
+          id="format-reflection-label"
+          className="text-xs font-semibold"
+        >
+          Reflection
+        </Label>
+      </div>
 
       {enabled && (
         <div className="flex flex-col gap-2">

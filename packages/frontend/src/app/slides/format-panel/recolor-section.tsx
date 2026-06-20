@@ -1,4 +1,5 @@
 import type { ImageElement, ImageRecolor } from '@wafflebase/slides';
+import { Button } from '@/components/ui/button';
 import { getCommonValue } from './units';
 
 export interface RecolorSectionProps {
@@ -27,19 +28,17 @@ export function RecolorSection({ elements, onCommit }: RecolorSectionProps) {
         {PRESETS.map((preset) => {
           const selected = common === preset.value;
           return (
-            <button
+            <Button
               key={preset.value}
               type="button"
+              size="sm"
+              variant={selected ? 'secondary' : 'outline'}
               aria-pressed={selected}
               onClick={() => onCommit(ids, preset.value)}
-              className={`rounded border px-2 py-1 text-xs ${
-                selected
-                  ? 'border-ring bg-muted font-semibold'
-                  : 'border-input hover:bg-muted'
-              }`}
+              className="h-7 px-2 text-xs"
             >
               {preset.label}
-            </button>
+            </Button>
           );
         })}
       </div>

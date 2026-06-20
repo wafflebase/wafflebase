@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DropShadow, Element } from '@wafflebase/slides';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 export interface DropShadowSectionProps {
   /** Selected shape / image / text elements (all carry `data.effects`). */
@@ -77,14 +79,20 @@ export function DropShadowSection({
 
   return (
     <section aria-labelledby="format-drop-shadow-label" className="p-3">
-      <label className="mb-2 flex items-center gap-2 text-xs font-semibold">
-        <input
-          type="checkbox"
+      <div className="mb-2 flex items-center gap-2">
+        <Checkbox
+          id="format-drop-shadow-toggle"
           checked={enabled}
-          onChange={(e) => commit(e.target.checked ? DEFAULT_SHADOW : undefined)}
+          onCheckedChange={(c) => commit(c === true ? DEFAULT_SHADOW : undefined)}
         />
-        <span id="format-drop-shadow-label">Drop shadow</span>
-      </label>
+        <Label
+          htmlFor="format-drop-shadow-toggle"
+          id="format-drop-shadow-label"
+          className="text-xs font-semibold"
+        >
+          Drop shadow
+        </Label>
+      </div>
 
       {enabled && (
         <div className="flex flex-col gap-2">
