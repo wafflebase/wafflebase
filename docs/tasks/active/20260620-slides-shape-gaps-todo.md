@@ -79,4 +79,39 @@ PowerPoint-side extensions plus the freeform drawing tool.
 
 ## Review
 
-(to fill in after implementation)
+**Outcome.** All P0/P1/P2/P3 gaps closed (callout variants resolved by
+documented decision). The catalog grew by 22 closed-path builders +
+the freehand scribble tool. PATH_BUILDERS: 114 → 136.
+
+Shipped across three commits:
+1. **PPT-parity catalog** — 4 high-point stars, 2 explosions, 2 waves,
+   2 double brackets, 10 flowchart symbols. Vertices/defaults
+   transcribed from the ECMA-376 preset geometry (pulled from the
+   LibreOffice `presetShapeDefinitions.xml`).
+2. **Freehand scribble** — toolbar Scribble toggle →
+   `startScribbleInsert` pointer capture → normalized `FreeformPath`.
+3. **Curved ribbons + insert defaults backfill** — `ellipseRibbon/2`,
+   plus per-kind size/style for every new shape.
+
+**Verification.**
+- `@wafflebase/slides`: typecheck clean, 264 test files green
+  (added `p35-catalog.test.ts`, `insert-freeform.test.ts`, and
+  importer-resolution + registry-snapshot coverage).
+- Frontend picker test updated 115 → 137 entries; eslint clean on
+  touched files.
+- PPTX importer resolves all 22 new presets with zero translation
+  (`prstToShapeKind` checks `PATH_BUILDERS`), asserted in
+  `geometry.test.ts`.
+
+**Known limitations.**
+- Curved ribbons + straight ribbon are simplified V0 approximations of
+  the OOXML parabolic presets (recognizable, not pixel-exact).
+- Scribble is freehand only; click-vertex polyline + curve smoothing
+  deferred.
+- Plain/accent line-callout variants intentionally not shipped
+  (duplicate geometry in the single-path model — see P3 above).
+- Wave `adj2` (pitch/skew) stored for round-trip but not rendered.
+
+**Not done (out of scope by design):** P4 — the remaining ~33 OOXML
+presets behind the DrawingML formula evaluator (`gear6/9`, `chartX`,
+`funnel`, …) remain planned, gated on `kind: 'preset'`.
