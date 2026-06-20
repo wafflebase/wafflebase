@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LINE_PICKER_ENTRIES,
   isLinePickerKind,
+  isLineToolKind,
 } from "@/app/slides/line-picker-helpers.ts";
 
 /**
@@ -22,19 +23,21 @@ import {
  */
 
 describe("line-picker entries", () => {
-  it("exposes the four connector tools in Google Slides order", () => {
-    expect(LINE_PICKER_ENTRIES.length).toBe(4);
+  it("exposes the four connector tools plus scribble in Google Slides order", () => {
+    expect(LINE_PICKER_ENTRIES.length).toBe(5);
     expect(LINE_PICKER_ENTRIES.map((e) => e.kind)).toEqual([
       "connector:line",
       "connector:arrow",
       "connector:elbow",
       "connector:curved",
+      "freeform",
     ]);
     expect(LINE_PICKER_ENTRIES.map((e) => e.label)).toEqual([
       "Line",
       "Arrow",
       "Elbow connector",
       "Curved connector",
+      "Scribble",
     ]);
   });
 
@@ -61,12 +64,30 @@ describe("isLinePickerKind", () => {
     expect(isLinePickerKind("connector:curved")).toBe(true);
   });
 
-  it("returns false for shape kinds, text, and null", () => {
+  it("returns false for shape kinds, text, scribble, and null", () => {
     expect(isLinePickerKind("rect")).toBe(false);
     expect(isLinePickerKind("ellipse")).toBe(false);
     expect(isLinePickerKind("rightArrow")).toBe(false);
     expect(isLinePickerKind("text")).toBe(false);
+    expect(isLinePickerKind("freeform")).toBe(false);
     expect(isLinePickerKind(null)).toBe(false);
     expect(isLinePickerKind(undefined)).toBe(false);
+  });
+});
+
+describe("isLineToolKind", () => {
+  it("returns true for connector kinds and the scribble", () => {
+    expect(isLineToolKind("connector:line")).toBe(true);
+    expect(isLineToolKind("connector:arrow")).toBe(true);
+    expect(isLineToolKind("connector:elbow")).toBe(true);
+    expect(isLineToolKind("connector:curved")).toBe(true);
+    expect(isLineToolKind("freeform")).toBe(true);
+  });
+
+  it("returns false for shape kinds, text, and null", () => {
+    expect(isLineToolKind("rect")).toBe(false);
+    expect(isLineToolKind("text")).toBe(false);
+    expect(isLineToolKind(null)).toBe(false);
+    expect(isLineToolKind(undefined)).toBe(false);
   });
 });

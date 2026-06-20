@@ -138,6 +138,21 @@ describe('prstToShapeKind', () => {
     expect(prstToShapeKind('rightBrace')).toBe('rightBrace');
   });
 
+  it('resolves the P3.5 PPT-parity presets directly (zero translation)', () => {
+    for (const prst of [
+      'star12', 'star16', 'star24', 'star32',
+      'irregularSeal1', 'irregularSeal2',
+      'wave', 'doubleWave', 'ellipseRibbon', 'ellipseRibbon2',
+      'bracketPair', 'bracePair',
+      'flowChartPreparation', 'flowChartConnector', 'flowChartCollate',
+      'flowChartSort', 'flowChartExtract', 'flowChartMerge',
+      'flowChartOnlineStorage', 'flowChartMagneticDisk',
+      'flowChartMagneticDrum', 'flowChartMagneticTape',
+    ] as const) {
+      expect(prstToShapeKind(prst)).toBe(prst);
+    }
+  });
+
   it('aliases homePlate to pentagonArrow', () => {
     // Yorkie 캐즘 deck slide 31 — PPTX uses the historical name
     // `homePlate` for what we call `pentagonArrow`.

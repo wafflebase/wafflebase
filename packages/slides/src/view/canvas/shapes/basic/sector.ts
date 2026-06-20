@@ -14,9 +14,9 @@
 //
 // Sweep direction: OOXML pie/chord/arc/blockArc always sweep
 // **clockwise** from `start` to `end`. When `end < start` we wrap by
-// adding 360° to `end`, so a default pie (start = 270°, end = 0°)
-// renders a 1/4 slice in the NE quadrant rather than a 3/4 slice
-// the other way around.
+// adding 360° to `end`. The ECMA-376 default pie (start = 0°,
+// end = 270°) therefore renders a 3/4 slice with the bite in the
+// top-right quadrant — matching PowerPoint / Google Slides.
 
 import { polylineArc } from '../curves';
 import type { FrameSize } from '../builder';

@@ -67,6 +67,7 @@ import {
   buildInsertElement,
   type ShapeOrTextInsertKind,
 } from './interactions/insert';
+import { buildFreeformInit } from './interactions/insert-freeform';
 import { makeDefaultSlidesTextBlock } from './default-text';
 import { bendFromCursor } from '../canvas/connector-bend';
 import { commitBend } from './interactions/bend-drag';
@@ -4112,7 +4113,9 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private onInsertHoverMove(e: MouseEvent): void {
     const kind = this.insertKind;
-    if (kind === null || kind === 'text') return;
+    // Freeform has no fixed-size ghost — the scribble preview is driven
+    // by the live capture in `startScribbleInsert`, not a hover preview.
+    if (kind === null || kind === 'text' || kind === 'freeform') return;
     // Connector insert modes: no shape-style hover ghost, but DO drive
     // the Task 13 connection-points affordance so the user sees where
     // their connector will attach before they even click. The live
@@ -4465,6 +4468,11 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
 
+    if (kind === 'freeform') {
+      this.startScribbleInsert(slide, start);
+      return;
+    }
+
     // Drag-to-size for shapes. Mark insertDragging so the hover-ghost
     // listener stops repainting; the drag preview below owns the
     // canvas until mouseup. The preview is rendered through the same
@@ -4609,6 +4617,75 @@ class SlidesEditorImpl implements SlidesEditor {
       // mousemove vanish (otherwise they linger until the next
       // overlay repaint).
       this.repaintOverlay();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey, true);
+  }
+
+  /**
+   * Freehand-scribble flow for the `'freeform'` insert kind. Captures
+   * pointer positions from mousedown to mouseup, paints a live ghost of
+   * the in-progress polyline through the same `forceRender` channel as
+   * the shape/connector previews, and commits a stroke-only freeform
+   * ShapeElement on release. ESC cancels (capture-phase pre-emption so
+   * the editor's own Esc keyrule doesn't also fire).
+   *
+   * Points are decimated by a small distance threshold so a slow drag
+   * doesn't accumulate hundreds of near-duplicate vertices in the
+   * stored path.
+   */
+  private startScribbleInsert(
+    slide: Slide,
+    start: { x: number; y: number },
+  ): void {
+    this.insertDragging = true;
+    this.hoverPreview = null;
+    const points: { x: number; y: number }[] = [start];
+    let cancelled = false;
+    // Square of the minimum logical distance between retained points.
+    const MIN_POINT_DISTANCE_SQ = 4;
+    const onMove = (ev: MouseEvent) => {
+      const p = this.clientToLogical(ev.clientX, ev.clientY);
+      const last = points[points.length - 1];
+      const dx = p.x - last.x;
+      const dy = p.y - last.y;
+      if (dx * dx + dy * dy < MIN_POINT_DISTANCE_SQ) return;
+      points.push(p);
+      const init = buildFreeformInit(points);
+      if (!init) return;
+      const ghost = { ...init, id: '__preview__' } as Element;
+      this.renderer.forceRender(slide, this.options.store.read(), [ghost]);
+    };
+    const cleanup = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('keydown', onKey, true);
+      this.insertDragging = false;
+    };
+    const onUp = () => {
+      cleanup();
+      if (cancelled) return; // ESC pressed mid-draw — discard.
+      const init = buildFreeformInit(points);
+      if (init) {
+        this.options.store.batch(() => {
+          const id = this.options.store.addElement(slide.id, init);
+          this.selection.set([id]);
+        });
+      }
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      cancelled = true;
+      cleanup();
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
