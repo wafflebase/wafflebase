@@ -37,8 +37,6 @@ export function showContextMenu(
   const menu = document.createElement('ul');
   menu.className = 'wfb-slides-context-menu';
   menu.style.position = 'fixed';
-  menu.style.left = `${anchorX}px`;
-  menu.style.top = `${anchorY}px`;
   menu.style.background = '#2a2a2a';
   menu.style.border = '1px solid #444';
   menu.style.borderRadius = '4px';
@@ -94,6 +92,34 @@ export function showContextMenu(
   }
 
   host.appendChild(menu);
+
+  // Keep the menu inside the viewport. It mounts with `position:
+  // fixed`, so its coordinates are viewport-relative. When the anchor
+  // sits near the right/bottom edge there isn't room to open down-right
+  // and the menu would be clipped, so flip it to open up/left of the
+  // anchor; if it still spills (menu taller/wider than the available
+  // space), clamp it to the opposite edge.
+  const margin = 8;
+  const rect = menu.getBoundingClientRect();
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  let left = anchorX;
+  let top = anchorY;
+  if (left + rect.width > viewportW - margin) {
+    left = anchorX - rect.width;
+  }
+  if (left < margin) {
+    left = Math.max(margin, viewportW - rect.width - margin);
+  }
+  if (top + rect.height > viewportH - margin) {
+    top = anchorY - rect.height;
+  }
+  if (top < margin) {
+    top = Math.max(margin, viewportH - rect.height - margin);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
 
   // Dismiss on outside click or Escape.
   const onOutside = (e: MouseEvent) => {
