@@ -78,6 +78,15 @@ describe('applyCropHandle', () => {
     expect(next.w).toBe(20);
     expect(next.x).toBe(0);
   });
+
+  it('keeps the window inside a bitmap smaller than min', () => {
+    // full.w (10) < min (20): the edge must not escape the bitmap.
+    const tiny = r(0, 0, 10, 10);
+    const next = applyCropHandle(tiny, tiny, 'e', -1000, 0, 20);
+    expect(next.x).toBe(0);
+    expect(next.w).toBeGreaterThan(0);
+    expect(next.x + next.w).toBeLessThanOrEqual(10);
+  });
 });
 
 describe('panFull', () => {

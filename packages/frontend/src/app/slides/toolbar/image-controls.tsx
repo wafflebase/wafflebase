@@ -87,7 +87,7 @@ export function ImageControls({
   }, [store, slideId, firstId, upload]);
 
   const onCrop = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !firstId) return;
     if (editor.isCropping()) {
       editor.exitImageCrop(true);
     } else {
@@ -130,7 +130,7 @@ export function ImageControls({
             onClick={onCrop}
             aria-label="Crop image"
             aria-pressed={cropping}
-            disabled={!editor}
+            disabled={!editor || !firstId || !image}
             className={`inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50 ${
               cropping ? 'bg-muted text-foreground' : ''
             }`}

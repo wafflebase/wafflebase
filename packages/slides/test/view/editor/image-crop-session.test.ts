@@ -196,6 +196,24 @@ describe('image crop session', () => {
     expect(img.data.crop).toBeUndefined();
   });
 
+  it('does not enter crop on a flipped image', () => {
+    const { canvas, overlay, store } = setup();
+    let sid = '';
+    store.batch(() => { sid = store.addSlide('blank'); });
+    let id = '';
+    store.batch(() => {
+      id = store.addElement(sid, {
+        type: 'image',
+        frame: { x: 200, y: 200, w: 400, h: 300, rotation: 0, flipH: true },
+        data: { src: 'data:image/png;base64,AAAA' },
+      });
+    });
+    editor = makeEditor(store, canvas, overlay);
+
+    editor.enterImageCrop(id);
+    expect(editor.isCropping()).toBe(false);
+  });
+
   it('resetImageCrop clears crop and restores proportions', () => {
     const { canvas, overlay, store } = setup();
     let sid = '';

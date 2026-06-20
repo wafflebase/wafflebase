@@ -82,16 +82,21 @@ export function applyCropHandle(
   let bottom = window.y + window.h;
   const fullRight = full.x + full.w;
   const fullBottom = full.y + full.h;
+  // A bitmap smaller than `min` on an axis would otherwise invert the
+  // clamp range (`left + min > fullRight`) and let the edge escape the
+  // bitmap. Cap the min size to the available extent.
+  const minW = Math.min(min, full.w);
+  const minH = Math.min(min, full.h);
 
   const movesLeft = handle === 'nw' || handle === 'w' || handle === 'sw';
   const movesRight = handle === 'ne' || handle === 'e' || handle === 'se';
   const movesTop = handle === 'nw' || handle === 'n' || handle === 'ne';
   const movesBottom = handle === 'sw' || handle === 's' || handle === 'se';
 
-  if (movesLeft) left = clamp(left + dx, full.x, right - min);
-  if (movesRight) right = clamp(right + dx, left + min, fullRight);
-  if (movesTop) top = clamp(top + dy, full.y, bottom - min);
-  if (movesBottom) bottom = clamp(bottom + dy, top + min, fullBottom);
+  if (movesLeft) left = clamp(left + dx, full.x, right - minW);
+  if (movesRight) right = clamp(right + dx, left + minW, fullRight);
+  if (movesTop) top = clamp(top + dy, full.y, bottom - minH);
+  if (movesBottom) bottom = clamp(bottom + dy, top + minH, fullBottom);
 
   return { x: left, y: top, w: right - left, h: bottom - top };
 }

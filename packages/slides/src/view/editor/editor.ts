@@ -381,10 +381,12 @@ export interface SlidesEditor {
   exitTextEditing(): void;
   /**
    * Enter interactive crop on an image element. The element must be a
-   * top-level, non-rotated `image` on the current slide; no-op
-   * otherwise. Equivalent to double-clicking the image. Drag the black
-   * handles to trim, drag the image to pan; Enter / click-outside
-   * commits, Esc cancels. Safe to call from toolbar buttons and tests.
+   * top-level `image` on the current slide; no-op otherwise. Rotated
+   * images are supported (crop runs in the element's local frame);
+   * flipped images (`flipH`/`flipV`) are not yet and are rejected.
+   * Equivalent to double-clicking the image. Drag the black handles to
+   * trim, drag the image to pan; Enter / click-outside commits, Esc
+   * cancels. Safe to call from toolbar buttons and tests.
    */
   enterImageCrop(elementId: string): void;
   /**
@@ -398,8 +400,8 @@ export interface SlidesEditor {
   /**
    * Clear an image's crop and restore its true proportions (the
    * uncropped frame), in one undo step. No-op for non-image elements or
-   * images with no crop. Rotated images keep their frame (only the crop
-   * is cleared) to avoid a centre-pivot shift.
+   * images with no crop. Works for rotated images too — rotation is
+   * preserved and the visible image does not shift.
    */
   resetImageCrop(elementId: string): void;
   /**
@@ -773,6 +775,13 @@ class SlidesEditorImpl implements SlidesEditor {
     | null = null;
   /** Capture-phase keydown handler installed while a crop session runs. */
   private cropKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /**
+   * Teardown for an in-flight crop trim/pan drag (removes the document
+   * pointermove/up/cancel listeners). Called on pointerup/cancel and also
+   * from `finishCropSession` / `detach` so an abandoned drag (session
+   * ended or editor torn down before release) cannot leak listeners.
+   */
+  private cropDragCleanup: (() => void) | null = null;
   /** Listeners for crop-session state changes (enter + exit). */
   private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
@@ -1999,6 +2008,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // mirrors the table-cell-edit guard.
     const el = slide.elements.find((e) => e.id === elementId);
     if (!el || el.type !== 'image') return;
+    // Flipped frames aren't threaded through the preview / handle / pointer
+    // projection yet, so a flip would crop against the wrong visual edge.
+    // Reject until flip support lands (P1).
+    if (el.frame.flipH || el.frame.flipV) return;
     // Mutually exclusive with text edit — commit any in-flight text.
     if (this.editingElementId !== null) this.exitEditMode('commit');
     if (this.cropSession !== null) this.exitImageCrop(true);
@@ -2054,17 +2067,23 @@ class SlidesEditorImpl implements SlidesEditor {
   exitImageCrop(commit: boolean): void {
     const session = this.cropSession;
     if (!session) return;
-    if (commit) {
-      const crop = normalizeCrop(windowToCrop(session.full, session.window));
-      this.commitCropFrame(
-        session.slideId,
-        session.elementId,
-        session.window,
-        session,
-        crop,
-      );
+    // Always tear the session down, even if the commit write throws (e.g.
+    // the image was removed by a concurrent collaborative edit) — leaving
+    // the capture key handler + session installed would wedge the editor.
+    try {
+      if (commit) {
+        const crop = normalizeCrop(windowToCrop(session.full, session.window));
+        this.commitCropFrame(
+          session.slideId,
+          session.elementId,
+          session.window,
+          session,
+          crop,
+        );
+      }
+    } finally {
+      this.finishCropSession();
     }
-    this.finishCropSession();
   }
 
   resetImageCrop(elementId: string): void {
@@ -2118,6 +2137,7 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private finishCropSession(): void {
+    this.cropDragCleanup?.();
     if (this.cropKeyHandler) {
       document.removeEventListener('keydown', this.cropKeyHandler, true);
       this.cropKeyHandler = null;
@@ -2212,6 +2232,9 @@ class SlidesEditorImpl implements SlidesEditor {
     clientY: number,
     onDelta: (dx: number, dy: number) => void,
   ): void {
+    // A new drag supersedes any previous one (shouldn't happen, but keeps
+    // the single-cleanup invariant honest).
+    this.cropDragCleanup?.();
     const start = this.clientToLogical(clientX, clientY);
     const onMove = (ev: MouseEvent): void => {
       if (this.cropSession !== session) return;
@@ -2227,12 +2250,16 @@ class SlidesEditorImpl implements SlidesEditor {
       this.render();
       this.repaintOverlay();
     };
-    const onUp = (): void => {
+    const cleanup = (): void => {
       document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointerup', cleanup);
+      document.removeEventListener('pointercancel', cleanup);
+      this.cropDragCleanup = null;
     };
+    this.cropDragCleanup = cleanup;
     document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointerup', cleanup);
+    document.addEventListener('pointercancel', cleanup);
   }
 
   markDirty(): void {
@@ -2255,8 +2282,9 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox = null;
       this.editingElementId = null;
     }
-    // Drop any active crop session and its capture-phase key listener so
-    // a SlidesView remount starts clean and the listener doesn't leak.
+    // Drop any active crop session, its in-flight drag listeners, and its
+    // capture-phase key listener so a SlidesView remount starts clean.
+    this.cropDragCleanup?.();
     if (this.cropKeyHandler !== null) {
       document.removeEventListener('keydown', this.cropKeyHandler, true);
       this.cropKeyHandler = null;
@@ -3300,6 +3328,13 @@ class SlidesEditorImpl implements SlidesEditor {
     // (canvas wrap, rulers, corner) are owned by those elements'
     // dedicated handlers.
     if (e.target !== this.options.bodyHost) return;
+
+    // Mirror the canvas branch: a body click while cropping commits +
+    // exits the crop session (and must NOT fall through to deselect).
+    if (this.cropSession !== null) {
+      this.exitImageCrop(true);
+      return;
+    }
 
     // Inert during paint / insert modes: missing the slide canvas
     // shouldn't apply a paint or place a shape, and silently
