@@ -49,7 +49,7 @@ export interface SlidesStore {
   /** Append an object animation to a slide's sequence. Returns its id. */
   addAnimation(slideId: string, anim: import('../model/presentation').SlideAnimation): string;
 
-  /** LWW-patch a single animation's scalar fields. */
+  /** LWW-patch a single animation's scalar fields. The `id` field in `patch` is ignored — an animation's id is immutable. */
   updateAnimation(slideId: string, animId: string, patch: Partial<import('../model/element').ObjectAnimation>): void;
 
   /** Remove an animation from the slide's sequence. */

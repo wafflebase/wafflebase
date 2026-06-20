@@ -40,4 +40,23 @@ describe('MemSlidesStore animation ops', () => {
     store.batch(() => store.setSlideTransition(slideId, undefined));
     expect(store.read().slides[0].transition).toBeUndefined();
   });
+
+  it('guards animation id immutability in updateAnimation', () => {
+    const { store, slideId } = newStore();
+    store.batch(() => {
+      store.addAnimation(slideId, anim('a1', 'e1'));
+    });
+
+    // Attempt to change the id in the patch
+    store.batch(() => {
+      store.updateAnimation(slideId, 'a1', { id: 'hacked', effect: 'zoomIn' });
+    });
+
+    // Assert the animation is still found by id 'a1'
+    const animation = store.read().slides[0].animations?.find((a) => a.id === 'a1');
+    expect(animation).toBeDefined();
+    expect(animation?.id).toBe('a1');
+    // Assert the effect was patched but the id was not
+    expect(animation?.effect).toBe('zoomIn');
+  });
 });

@@ -337,7 +337,8 @@ export class MemSlidesStore implements SlidesStore {
     const slide = this.requireSlide(slideId);
     const a = slide.animations?.find((x) => x.id === animId);
     if (!a) throw new Error(`[slides] animation '${animId}' not on slide '${slideId}'`);
-    Object.assign(a, clone(patch));
+    const { id: _ignoredId, ...rest } = clone(patch);
+    Object.assign(a, rest);
   }
 
   removeAnimation(slideId: string, animId: string): void {
