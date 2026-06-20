@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SlidesEditor, SlidesStore } from '@wafflebase/slides';
+import { AnimationSection } from './animation-section';
 import { TransitionSection } from './transition-section';
 
 export interface MotionPanelProps {
@@ -23,6 +24,7 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
   void tick;
 
   const slideId = editor.getCurrentSlideId();
+  const selectedElementIds = editor.getSelection();
 
   return (
     <aside
@@ -46,7 +48,15 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
             <TransitionSection store={store} slideId={slideId} />
           )}
         </section>
-        <section data-testid="motion-animation-section" />
+        <section data-testid="motion-animation-section">
+          {slideId !== undefined && (
+            <AnimationSection
+              store={store}
+              slideId={slideId}
+              selectedElementIds={selectedElementIds}
+            />
+          )}
+        </section>
       </div>
     </aside>
   );
