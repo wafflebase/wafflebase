@@ -149,20 +149,21 @@ PR #248.
 ## Smaller polish from PR #248 review
 
 These items were noted in code review but deferred to keep the
-landing PR scoped.
+landing PR scoped. **All four done** in
+`20260620-docs-comments-polish-todo.md`.
 
-- [ ] Right-click "Insert comment" menu inside table cells
+- [x] Right-click "Insert comment" menu inside table cells
   (currently suppressed because the table context menu has priority;
   table menu has no comment item).
-- [ ] Replace `as unknown as SharedThread<SheetCellAnchor>` casts in
+- [x] Replace `as unknown as SharedThread<SheetCellAnchor>` casts in
   `app/spreadsheet/components/comments/CommentPopover.tsx` and
   `app/documents/document-detail.tsx` by re-exporting `Thread<A>`
   from `@wafflebase/sheets` (or migrating sheets fully to the shared
   type).
-- [ ] Re-resolve `pendingRangeRef` paths just before `addThread`
+- [x] Re-resolve `pendingRangeRef` paths just before `addThread`
   fires, so a stale-after-remote-delete compose surfaces a graceful
   toast instead of a Yorkie SDK error.
-- [ ] Promise rejection handling on the Resolve / Reply icon buttons
+- [x] Promise rejection handling on the Resolve / Reply icon buttons
   (currently `void onResolveToggle()` — fire-and-forget). Add a
   pending state + error toast once the failure paths are exercised
   end-to-end.

@@ -1,47 +1,48 @@
 import type { TreePosStructRange } from '@yorkie-js/sdk';
+import type {
+  CommentAnchor as SheetCellAnchorBase,
+  Thread as BaseThread,
+} from '@wafflebase/sheets';
 
-export type CommentAuthor = {
-  userId: string;
-  username: string;
-  photo?: string;
+// `Comment`/`CommentAuthor` and the base `Thread` shape are owned by
+// `@wafflebase/sheets` (the lowest package in the dependency graph). The
+// frontend re-exports them and only adds the anchor variants its richer
+// consumers (docs ranges) need, so there is a single thread declaration
+// rather than two coincidentally-identical ones.
+export type { Comment, CommentAuthor } from '@wafflebase/sheets';
+
+/**
+ * Sheet-cell anchor — owned by `@wafflebase/sheets`; positions survive
+ * row/column shifts because `rowId` / `colId` are stable axis ids, not
+ * numeric indices.
+ */
+export type SheetCellAnchor = SheetCellAnchorBase;
+
+/**
+ * Docs text-range anchor. `posRange` is the authoritative CRDT-stable
+ * position from Yorkie Tree; `blockId` is a hint captured at creation
+ * (may go stale after structural edits); `quotedText` is an immutable
+ * snapshot of the anchored text, used by the side-panel orphan card when
+ * the range no longer resolves.
+ */
+export type DocsRangeAnchor = {
+  kind: 'docs-range';
+  blockId: string;
+  posRange: TreePosStructRange;
+  quotedText: string;
 };
 
 /**
  * Discriminated union of all supported comment anchor types. New
- * consumers add their variant alongside the existing ones — the
- * shared comment helpers stay anchor-generic.
- *
- * - `sheet-cell` — anchored to a cell in a specific tab; positions
- *   survive row/column shifts because `rowId` / `colId` are stable
- *   axis ids, not numeric indices.
- * - `docs-range` — anchored to a text range. `posRange` is the
- *   authoritative CRDT-stable position from Yorkie Tree; `blockId` is
- *   a hint captured at creation (may go stale after structural edits);
- *   `quotedText` is an immutable snapshot of the anchored text, used by
- *   the side-panel orphan card when the range no longer resolves.
+ * consumers add their variant alongside the existing ones — the shared
+ * comment helpers stay anchor-generic.
  */
-export type CommentAnchor =
-  | { kind: 'sheet-cell'; tabId: string; rowId: string; colId: string }
-  | {
-      kind: 'docs-range';
-      blockId: string;
-      posRange: TreePosStructRange;
-      quotedText: string;
-    };
-
-export type DocsRangeAnchor = Extract<CommentAnchor, { kind: 'docs-range' }>;
-export type SheetCellAnchor = Extract<CommentAnchor, { kind: 'sheet-cell' }>;
-
-export type Comment = {
-  id: string;
-  author: CommentAuthor;
-  body: string;
-  createdAt: number;
-  editedAt?: number;
-};
+export type CommentAnchor = SheetCellAnchor | DocsRangeAnchor;
 
 /**
- * Comment thread.
+ * Comment thread — aliases the base shape owned by `@wafflebase/sheets`
+ * so the sheets store's `Thread` and this shared type are literally the
+ * same type (no bridging casts needed).
  *
  * Invariants enforced by every store implementation:
  * - `comments.length >= 1` — deleting `comments[0]` deletes the whole
@@ -53,12 +54,4 @@ export type Comment = {
  *   reopening clears both.
  * - `editedAt > createdAt` when present.
  */
-export type Thread<A extends CommentAnchor = CommentAnchor> = {
-  id: string;
-  anchor: A;
-  comments: Comment[];
-  resolved: boolean;
-  resolvedAt?: number;
-  resolvedBy?: CommentAuthor;
-  createdAt: number;
-};
+export type Thread<A extends CommentAnchor = CommentAnchor> = BaseThread<A>;

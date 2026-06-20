@@ -571,6 +571,10 @@ export function DocsView({
       <DocsTableContextMenu
         editor={mountedEditor}
         containerRef={containerRef}
+        readOnly={readOnly}
+        onInsertComment={() => {
+          comments.beginCompose();
+        }}
       />
       <DocsCommentContextMenu
         editor={mountedEditor}

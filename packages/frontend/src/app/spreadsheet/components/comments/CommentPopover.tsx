@@ -2,11 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { CommentComposer } from "@/components/comments/components/CommentComposer";
 import { CommentThreadCard } from "@/components/comments/components/CommentThreadCard";
-import type {
-  CommentAuthor,
-  SheetCellAnchor,
-  Thread as SharedThread,
-} from "@/types/comments";
+import type { CommentAuthor } from "@/types/comments";
 import type { Thread } from "@wafflebase/sheets";
 
 type Props = {
@@ -88,7 +84,7 @@ export function CommentPopover({
           className="first:pt-0 [&:not(:first-child)]:border-t [&:not(:first-child)]:pt-3"
         >
           <CommentThreadCard
-            thread={thread as unknown as SharedThread<SheetCellAnchor>}
+            thread={thread}
             currentUserId={currentUser?.userId}
             readOnly={isReadOnly}
             autoFocusReply={threadIdx === 0}

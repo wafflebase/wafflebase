@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { Document } from "@yorkie-js/react";
 import type { EditorAPI } from "@wafflebase/docs";
 
@@ -16,6 +17,7 @@ import {
 } from "./docs-anchor";
 import { computeCommentMarkers } from "./decorations";
 import {
+  StaleCommentAnchorError,
   YorkieCommentStore,
   copyDocsThread,
 } from "./yorkie-comment-store";
@@ -249,7 +251,20 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
       // Close the composer only on success. If addThread throws, leave
       // it open so the user can retry; CommentComposer already logs the
       // error and keeps the body intact (it clears only on resolve).
-      await store.addThread(pending, body, currentUser);
+      try {
+        await store.addThread(pending, body, currentUser);
+      } catch (err) {
+        // A collaborator deleted the anchored text between compose and
+        // submit. The range can't be re-anchored, so retrying is futile —
+        // dismiss the composer with a toast instead of leaving it stuck.
+        if (err instanceof StaleCommentAnchorError) {
+          toast.error("That text was changed by a collaborator. Try selecting the text again.");
+          pendingRangeRef.current = null;
+          setComposeOpen(false);
+          return;
+        }
+        throw err;
+      }
       pendingRangeRef.current = null;
       setComposeOpen(false);
     },

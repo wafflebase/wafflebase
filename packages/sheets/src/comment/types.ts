@@ -19,9 +19,16 @@ export type Comment = {
   editedAt?: number;
 };
 
-export type Thread = {
+/**
+ * Comment thread. Generic over the anchor so this same shape is the
+ * canonical base for every consumer (sheets cells, docs ranges, …): the
+ * frontend's shared `Thread<A>` aliases this type, keeping the two in
+ * lockstep instead of relying on coincidentally-identical declarations.
+ * Sheets itself only ever uses the default `sheet-cell` anchor.
+ */
+export type Thread<A extends { kind: string } = CommentAnchor> = {
   id: string;
-  anchor: CommentAnchor;
+  anchor: A;
   comments: Comment[];
   resolved: boolean;
   resolvedAt?: number;

@@ -3,7 +3,10 @@ import yorkie from '@yorkie-js/sdk';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '@wafflebase/docs';
 import type { Block } from '@wafflebase/docs';
 
-import { YorkieCommentStore } from '../../../../src/app/docs/comments/yorkie-comment-store.ts';
+import {
+  StaleCommentAnchorError,
+  YorkieCommentStore,
+} from '../../../../src/app/docs/comments/yorkie-comment-store.ts';
 import { resolveDocsAnchor } from '../../../../src/app/docs/comments/docs-anchor.ts';
 import type { YorkieDocsRoot } from '../../../../src/types/docs-document.ts';
 import type { CommentAuthor } from '../../../../src/types/comments.ts';
@@ -100,6 +103,25 @@ describe('YorkieCommentStore — addThread', () => {
     const stored = doc.getRoot().comments?.[t.id];
     expect(stored, 'thread must be persisted under root.comments').toBeTruthy();
     expect(stored?.comments[0].body).toBe('is this right?');
+  });
+
+  it('throws StaleCommentAnchorError when the paths no longer resolve', async () => {
+    // Block index 5 is out of bounds (only one block exists) — mimics a
+    // collaborator deleting the anchored text between compose and submit.
+    await expect(
+      store.addThread(
+        {
+          startPath: [5, 0, 0],
+          endPath: [5, 0, 1],
+          blockId: block.id,
+          quotedText: 'gone',
+        },
+        'orphaned compose',
+        alice,
+      ),
+    ).rejects.toBeInstanceOf(StaleCommentAnchorError);
+    // Nothing was persisted — the failed update did not leak a partial thread.
+    expect(doc.getRoot().comments ?? {}).toEqual({});
   });
 
   it('round-trips: anchor resolves back to the original path range', async () => {

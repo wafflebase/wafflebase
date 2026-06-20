@@ -20,10 +20,17 @@ import {
   IconPalette,
   IconTableOff,
 } from "@tabler/icons-react";
+import { InsertCommentMenuItem } from "./comments/InsertCommentMenuItem";
 
 interface DocsTableContextMenuProps {
   editor: EditorAPI | null;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  readOnly?: boolean;
+  /**
+   * Called when the user picks "Insert comment" on a selection inside a
+   * table cell. Runs `beginCompose`. Omitted / read-only hides the item.
+   */
+  onInsertComment?: () => void;
 }
 
 interface MenuPosition {
@@ -40,10 +47,16 @@ interface MenuPosition {
 export function DocsTableContextMenu({
   editor,
   containerRef,
+  readOnly = false,
+  onInsertComment,
 }: DocsTableContextMenuProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const [showColors, setShowColors] = useState(false);
   const [mergeCtx, setMergeCtx] = useState<TableMergeContext>({ state: 'none' });
+  // Whether a non-empty selection existed when the menu opened — comments
+  // need a text range to anchor to (`getActiveSelection` is null for a
+  // collapsed caret), so the item only appears when there's text selected.
+  const [hasSelection, setHasSelection] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleContextMenu = useCallback(
@@ -52,6 +65,7 @@ export function DocsTableContextMenu({
       e.preventDefault();
       setPosition({ x: e.clientX, y: e.clientY });
       setMergeCtx(editor.getTableMergeContext());
+      setHasSelection(!!editor.getActiveSelection());
       setShowColors(false);
     },
     [editor],
@@ -226,6 +240,19 @@ export function DocsTableContextMenu({
             ))}
           </div>
         </div>
+      )}
+
+      {onInsertComment && !readOnly && hasSelection && (
+        <>
+          <div className={sep} />
+          <InsertCommentMenuItem
+            className={item}
+            onSelect={() => {
+              onInsertComment();
+              close();
+            }}
+          />
+        </>
       )}
 
       <div className={sep} />
