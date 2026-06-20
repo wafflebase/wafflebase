@@ -58,7 +58,7 @@ describe('ImageAdjustmentsSection', () => {
     const slider = screen.getByLabelText(/transparency/i);
     fireEvent.change(slider, { target: { value: '40' } });
     fireEvent.pointerUp(slider);
-    expect(onCommit).toHaveBeenCalledWith(['a', 'b'], 0.6);
+    expect(onCommit).toHaveBeenCalledWith(['a', 'b'], { opacity: 0.6 });
   });
 
   it('commits opacity on keyup so keyboard adjustments (arrow / Home / End) reach the store', () => {
@@ -73,6 +73,6 @@ describe('ImageAdjustmentsSection', () => {
     // Keyboard adjustment fires onChange then keyup — no pointer event.
     fireEvent.change(slider, { target: { value: '25' } });
     fireEvent.keyUp(slider, { key: 'ArrowUp' });
-    expect(onCommit).toHaveBeenCalledWith(['a'], 0.75);
+    expect(onCommit).toHaveBeenCalledWith(['a'], { opacity: 0.75 });
   });
 });

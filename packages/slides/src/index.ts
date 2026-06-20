@@ -61,6 +61,7 @@ export type {
   ElementType,
   Frame,
   GroupElement,
+  ImageRecolor,
   Reflection,
   ImageElement,
   PlaceholderRef,

@@ -3,6 +3,7 @@ import type { Element } from '@wafflebase/slides';
 export type SectionId =
   | 'size-position'
   | 'text-fitting'
+  | 'recolor'
   | 'image-adjustments'
   | 'drop-shadow'
   | 'reflection'
@@ -38,6 +39,7 @@ export function pickSections(
     case 'image':
       return [
         'size-position',
+        'recolor',
         'image-adjustments',
         'drop-shadow',
         'reflection',

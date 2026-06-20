@@ -252,6 +252,14 @@ export type TextElement = ElementBase & {
   };
 };
 
+/**
+ * Preset recolor applied to an image via `ctx.filter`. Mirrors the
+ * common Google Slides Recolor presets. `'duotone'` (theme-tinted) is a
+ * follow-up — it needs offscreen color compositing, not a CSS filter.
+ * Absent / `'none'` ⇒ original colors.
+ */
+export type ImageRecolor = 'none' | 'grayscale' | 'sepia';
+
 export type ImageElement = ElementBase & {
   type: 'image';
   data: {
@@ -264,6 +272,18 @@ export type ImageElement = ElementBase & {
      * `undefined` / `1` paint at full opacity (no save/restore cost).
      */
     opacity?: number;
+    /** Preset recolor filter ↔ `<a:duotone>` / `<a:grayscl>`. */
+    recolor?: ImageRecolor;
+    /**
+     * Brightness adjustment, range `[-1, 1]` (0 = unchanged). Applied as
+     * `ctx.filter = brightness(1 + value)`. Mirrors OOXML `<a:lum bright>`.
+     */
+    brightness?: number;
+    /**
+     * Contrast adjustment, range `[-1, 1]` (0 = unchanged). Applied as
+     * `ctx.filter = contrast(1 + value)`. Mirrors OOXML `<a:lum contrast>`.
+     */
+    contrast?: number;
     /** Paint-time effects (drop shadow / reflection). See {@link Effects}. */
     effects?: Effects;
   };

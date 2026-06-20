@@ -30,6 +30,7 @@ export interface CtxSpy {
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+  filter: string;
 
   // transforms
   save: SpyFn;
@@ -83,6 +84,7 @@ export function createCtxSpy(): CtxSpy {
     shadowBlur: 0,
     shadowOffsetX: 0,
     shadowOffsetY: 0,
+    filter: 'none',
 
     save: vi.fn(),
     restore: vi.fn(),

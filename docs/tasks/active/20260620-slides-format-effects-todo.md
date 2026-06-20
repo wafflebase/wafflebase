@@ -25,13 +25,17 @@ Design doc: `docs/design/slides/slides-format-effects.md`
 
 ## PR 2 — Image-only adjustments (Recolor · Brightness/Contrast)
 
-- [ ] Model: `image.recolor`, `image.brightness`, `image.contrast`.
-- [ ] Renderer: duotone composite + `ctx.filter` pipeline.
-- [ ] Panel: `recolor-section.tsx`; extend image Adjustments with
-      brightness/contrast sliders alongside transparency.
+- [x] Model: `image.recolor` (`none`/`grayscale`/`sepia`),
+      `image.brightness`, `image.contrast` (`-1..1`).
+- [x] Renderer: `imageFilter()` → composed `ctx.filter` (grayscale/sepia
+      + brightness/contrast). Duotone (theme-tinted) deferred — needs
+      offscreen color compositing.
+- [x] Panel: `recolor-section.tsx` (None/Grayscale/Sepia presets);
+      image Adjustments extended with Brightness + Contrast sliders.
 - [ ] Import: `<a:duotone>`/`<a:clrChange>` → recolor; `<a:lum>` →
-      brightness/contrast.
-- [ ] Tests.
+      brightness/contrast. (follow-up slice, with shadow/reflection import)
+- [x] Tests: imageFilter units, recolor section, adjustments patch
+      commits, pick-sections image routing.
 
 ## Review / smoke
 

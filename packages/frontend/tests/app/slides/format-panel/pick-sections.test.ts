@@ -34,9 +34,10 @@ describe('pickSections', () => {
     ]);
   });
 
-  it('image → [size-position, image-adjustments, drop-shadow, reflection, alt-text]', () => {
+  it('image → [size-position, recolor, image-adjustments, drop-shadow, reflection, alt-text]', () => {
     expect(pickSections(objSel('image'))).toEqual([
       'size-position',
+      'recolor',
       'image-adjustments',
       'drop-shadow',
       'reflection',

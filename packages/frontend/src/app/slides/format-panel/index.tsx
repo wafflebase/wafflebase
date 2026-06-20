@@ -13,6 +13,7 @@ import { findElementPath } from '@wafflebase/slides';
 import { pickSections, type PanelSelection } from './pick-sections';
 import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
+import { RecolorSection } from './recolor-section';
 import { TextFittingSection } from './text-fitting-section';
 import { SizePositionSection } from './size-position-section';
 import { DropShadowSection } from './drop-shadow-section';
@@ -249,14 +250,22 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                     }
                   />
                 );
+              case 'recolor':
+                return (
+                  <RecolorSection
+                    key={id}
+                    elements={selection.elements as readonly ImageElement[]}
+                    onCommit={(ids, recolor) =>
+                      commitElementData(ids, { recolor })
+                    }
+                  />
+                );
               case 'image-adjustments':
                 return (
                   <ImageAdjustmentsSection
                     key={id}
                     elements={selection.elements as readonly ImageElement[]}
-                    onCommit={(ids, opacity) =>
-                      commitElementData(ids, { opacity })
-                    }
+                    onCommit={(ids, patch) => commitElementData(ids, patch)}
                   />
                 );
               case 'drop-shadow':
