@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { DropShadow, Element } from '@wafflebase/slides';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 
 export interface DropShadowSectionProps {
   /** Selected shape / image / text elements (all carry `data.effects`). */
@@ -67,9 +68,14 @@ export function DropShadowSection({
     onCommit(ids, next);
   };
 
-  const update = (patch: Partial<DropShadow>): void => {
-    const base = shadow ?? DEFAULT_SHADOW;
-    commit({ ...base, ...patch });
+  // Live drag preview — update local state only, no store write per tick.
+  const preview = (patch: Partial<DropShadow>): void => {
+    setShadow({ ...(shadow ?? DEFAULT_SHADOW), ...patch });
+  };
+
+  // Persist a discrete change (or slider release) to the store.
+  const persist = (patch: Partial<DropShadow>): void => {
+    commit({ ...(shadow ?? DEFAULT_SHADOW), ...patch });
   };
 
   const transparency = Math.round((1 - (shadow?.opacity ?? 0)) * 100);
@@ -102,78 +108,70 @@ export function DropShadowSection({
               aria-label="Shadow color"
               type="color"
               value={colorValue}
-              onChange={(e) => update({ color: e.target.value })}
+              onChange={(e) => persist({ color: e.target.value })}
               className="h-6 w-10 rounded border bg-transparent"
             />
           </label>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Transparency</span>
-            <input
+            <Slider
               aria-label="Shadow transparency"
-              type="range"
               min={0}
               max={100}
               step={1}
-              value={transparency}
-              onChange={(e) =>
-                update({ opacity: 1 - Number(e.target.value) / 100 })
-              }
-              className="w-full"
+              value={[transparency]}
+              onValueChange={([v]) => preview({ opacity: 1 - v / 100 })}
+              onValueCommit={([v]) => persist({ opacity: 1 - v / 100 })}
             />
             <span className="text-muted-foreground">{transparency}%</span>
-          </label>
+          </div>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Angle</span>
-            <input
+            <Slider
               aria-label="Shadow angle"
-              type="range"
               min={0}
               max={359}
               step={1}
-              value={angleDeg}
-              onChange={(e) =>
-                update({ angle: Number(e.target.value) * DEG_TO_RAD })
-              }
-              className="w-full"
+              value={[angleDeg]}
+              onValueChange={([v]) => preview({ angle: v * DEG_TO_RAD })}
+              onValueCommit={([v]) => persist({ angle: v * DEG_TO_RAD })}
             />
             <span className="text-muted-foreground">{angleDeg}°</span>
-          </label>
+          </div>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Distance</span>
-            <input
+            <Slider
               aria-label="Shadow distance"
-              type="range"
               min={0}
               max={50}
               step={1}
-              value={Math.round(shadow?.distance ?? 0)}
-              onChange={(e) => update({ distance: Number(e.target.value) })}
-              className="w-full"
+              value={[Math.round(shadow?.distance ?? 0)]}
+              onValueChange={([v]) => preview({ distance: v })}
+              onValueCommit={([v]) => persist({ distance: v })}
             />
             <span className="text-muted-foreground">
               {Math.round(shadow?.distance ?? 0)} px
             </span>
-          </label>
+          </div>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Blur</span>
-            <input
+            <Slider
               aria-label="Shadow blur"
-              type="range"
               min={0}
               max={50}
               step={1}
-              value={Math.round(shadow?.blur ?? 0)}
-              onChange={(e) => update({ blur: Number(e.target.value) })}
-              className="w-full"
+              value={[Math.round(shadow?.blur ?? 0)]}
+              onValueChange={([v]) => preview({ blur: v })}
+              onValueCommit={([v]) => persist({ blur: v })}
             />
             <span className="text-muted-foreground">
               {Math.round(shadow?.blur ?? 0)} px
             </span>
-          </label>
+          </div>
         </div>
       )}
     </section>

@@ -58,10 +58,11 @@ describe('ReflectionSection', () => {
         onCommit={onCommit}
       />,
     );
-    fireEvent.change(screen.getByLabelText('Reflection size'), {
-      target: { value: '80' },
+    // size 0.5 ⇒ 50%; ArrowRight ⇒ 51% ⇒ size 0.51.
+    fireEvent.keyDown(screen.getByLabelText('Reflection size'), {
+      key: 'ArrowRight',
     });
     const [, reflection] = onCommit.mock.calls.at(-1)!;
-    expect(reflection.size).toBeCloseTo(0.8);
+    expect(reflection.size).toBeCloseTo(0.51);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ImageElement } from '@wafflebase/slides';
+import { Slider } from '@/components/ui/slider';
 import { getCommonValue } from './units';
 
 /** Patch of the adjustable image data fields committed by this section. */
@@ -60,56 +61,47 @@ export function ImageAdjustmentsSection({
         Adjustments
       </h3>
 
-      <label className="block text-xs">
+      <div className="block text-xs">
         <span className="mb-1 block">Transparency</span>
-        <input
+        <Slider
           aria-label="Transparency"
-          type="range"
           min={0}
           max={100}
           step={1}
-          value={transparency}
-          onChange={(e) => setTransparency(Number(e.target.value))}
-          onPointerUp={() => onCommit(ids, { opacity: 1 - transparency / 100 })}
-          onKeyUp={() => onCommit(ids, { opacity: 1 - transparency / 100 })}
-          className="w-full"
+          value={[transparency]}
+          onValueChange={([v]) => setTransparency(v)}
+          onValueCommit={([v]) => onCommit(ids, { opacity: 1 - v / 100 })}
         />
         <span className="text-muted-foreground">{transparency}%</span>
-      </label>
+      </div>
 
-      <label className="mt-2 block text-xs">
+      <div className="mt-2 block text-xs">
         <span className="mb-1 block">Brightness</span>
-        <input
+        <Slider
           aria-label="Brightness"
-          type="range"
           min={-100}
           max={100}
           step={1}
-          value={brightness}
-          onChange={(e) => setBrightness(Number(e.target.value))}
-          onPointerUp={() => onCommit(ids, { brightness: brightness / 100 })}
-          onKeyUp={() => onCommit(ids, { brightness: brightness / 100 })}
-          className="w-full"
+          value={[brightness]}
+          onValueChange={([v]) => setBrightness(v)}
+          onValueCommit={([v]) => onCommit(ids, { brightness: v / 100 })}
         />
         <span className="text-muted-foreground">{brightness}%</span>
-      </label>
+      </div>
 
-      <label className="mt-2 block text-xs">
+      <div className="mt-2 block text-xs">
         <span className="mb-1 block">Contrast</span>
-        <input
+        <Slider
           aria-label="Contrast"
-          type="range"
           min={-100}
           max={100}
           step={1}
-          value={contrast}
-          onChange={(e) => setContrast(Number(e.target.value))}
-          onPointerUp={() => onCommit(ids, { contrast: contrast / 100 })}
-          onKeyUp={() => onCommit(ids, { contrast: contrast / 100 })}
-          className="w-full"
+          value={[contrast]}
+          onValueChange={([v]) => setContrast(v)}
+          onValueCommit={([v]) => onCommit(ids, { contrast: v / 100 })}
         />
         <span className="text-muted-foreground">{contrast}%</span>
-      </label>
+      </div>
     </section>
   );
 }

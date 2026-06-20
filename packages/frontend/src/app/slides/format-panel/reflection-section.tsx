@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Element, Reflection } from '@wafflebase/slides';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 
 export interface ReflectionSectionProps {
   /** Selected shape / image / text elements (all carry `data.effects`). */
@@ -61,9 +62,12 @@ export function ReflectionSection({
     onCommit(ids, next);
   };
 
-  const update = (patch: Partial<Reflection>): void => {
-    const base = reflection ?? DEFAULT_REFLECTION;
-    commit({ ...base, ...patch });
+  // Live drag preview — local state only; persist writes to the store.
+  const preview = (patch: Partial<Reflection>): void => {
+    setReflection({ ...(reflection ?? DEFAULT_REFLECTION), ...patch });
+  };
+  const persist = (patch: Partial<Reflection>): void => {
+    commit({ ...(reflection ?? DEFAULT_REFLECTION), ...patch });
   };
 
   const transparency = Math.round((1 - (reflection?.opacity ?? 0)) * 100);
@@ -90,54 +94,49 @@ export function ReflectionSection({
 
       {enabled && (
         <div className="flex flex-col gap-2">
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Transparency</span>
-            <input
+            <Slider
               aria-label="Reflection transparency"
-              type="range"
               min={0}
               max={100}
               step={1}
-              value={transparency}
-              onChange={(e) =>
-                update({ opacity: 1 - Number(e.target.value) / 100 })
-              }
-              className="w-full"
+              value={[transparency]}
+              onValueChange={([v]) => preview({ opacity: 1 - v / 100 })}
+              onValueCommit={([v]) => persist({ opacity: 1 - v / 100 })}
             />
             <span className="text-muted-foreground">{transparency}%</span>
-          </label>
+          </div>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Distance</span>
-            <input
+            <Slider
               aria-label="Reflection distance"
-              type="range"
               min={0}
               max={50}
               step={1}
-              value={Math.round(reflection?.distance ?? 0)}
-              onChange={(e) => update({ distance: Number(e.target.value) })}
-              className="w-full"
+              value={[Math.round(reflection?.distance ?? 0)]}
+              onValueChange={([v]) => preview({ distance: v })}
+              onValueCommit={([v]) => persist({ distance: v })}
             />
             <span className="text-muted-foreground">
               {Math.round(reflection?.distance ?? 0)} px
             </span>
-          </label>
+          </div>
 
-          <label className="block text-xs">
+          <div className="block text-xs">
             <span className="mb-1 block">Size</span>
-            <input
+            <Slider
               aria-label="Reflection size"
-              type="range"
               min={0}
               max={100}
               step={1}
-              value={sizePct}
-              onChange={(e) => update({ size: Number(e.target.value) / 100 })}
-              className="w-full"
+              value={[sizePct]}
+              onValueChange={([v]) => preview({ size: v / 100 })}
+              onValueCommit={([v]) => persist({ size: v / 100 })}
             />
             <span className="text-muted-foreground">{sizePct}%</span>
-          </label>
+          </div>
         </div>
       )}
     </section>

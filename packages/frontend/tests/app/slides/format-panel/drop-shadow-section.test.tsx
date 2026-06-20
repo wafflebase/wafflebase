@@ -60,10 +60,11 @@ describe('DropShadowSection', () => {
     render(
       <DropShadowSection elements={[shape('a', SHADOW)]} onCommit={onCommit} />,
     );
-    fireEvent.change(screen.getByLabelText('Shadow transparency'), {
-      target: { value: '75' },
+    // opacity 0.4 ⇒ transparency 60; ArrowRight ⇒ 61 ⇒ opacity 0.39.
+    fireEvent.keyDown(screen.getByLabelText('Shadow transparency'), {
+      key: 'ArrowRight',
     });
     const [, shadow] = onCommit.mock.calls.at(-1)!;
-    expect(shadow.opacity).toBeCloseTo(0.25);
+    expect(shadow.opacity).toBeCloseTo(0.39);
   });
 });
