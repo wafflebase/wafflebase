@@ -127,6 +127,16 @@ export interface OverlayOptions {
     x1: number;
     y1: number;
   };
+  /**
+   * Active image crop session. When present, the overlay paints ONLY the
+   * crop chrome — a white window border plus eight BLACK resize handles
+   * on the crop window (distinct from the blue selection handles, GS/PPT
+   * parity) — and skips all normal selection / guide chrome. The window
+   * is the element frame in world coords; handles carry the usual
+   * `data-handle` kinds so the editor's crop branch reuses
+   * `handleHitTest`.
+   */
+  cropWindow?: Frame;
 }
 
 /**
@@ -148,6 +158,13 @@ export function renderOverlay(
   options: OverlayOptions,
 ): void {
   overlay.innerHTML = '';
+
+  // Crop session owns the overlay entirely: paint the crop window +
+  // black handles and skip all other chrome.
+  if (options.cropWindow) {
+    renderCropHandles(overlay, options.cropWindow, options.scale);
+    return;
+  }
 
   // Build a set of permanent-guide ids that are currently the active
   // snap target. The snap engine reports `guideId` on its winning
@@ -461,23 +478,106 @@ function renderAxisAlignedHandles(
   }
 }
 
+/**
+ * Crop chrome: a white window border plus eight black resize handles on
+ * the crop window (`frame`, world coords, may be rotated). Handle kinds
+ * match the normal `ResizeHandle` set so the editor's crop branch can
+ * reuse `handleHitTest`; the editor disambiguates resize-vs-crop by its
+ * active crop session, not by the handle kind. The rotation path mirrors
+ * `renderRotatedHandles` and reduces to axis-aligned when rotation is 0.
+ */
+/**
+ * Map a frame-local point (top-left origin, `0..w`/`0..h`) to world
+ * coords, honouring the frame's rotation about its centre. Shared by the
+ * rotated selection handles and the crop handles so the (subtle) sign
+ * convention lives in one place.
+ */
+function frameLocalToWorld(
+  frame: Frame,
+): (lx: number, ly: number) => { x: number; y: number } {
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const cos = Math.cos(frame.rotation);
+  const sin = Math.sin(frame.rotation);
+  return (lx, ly) => {
+    const dx = lx - frame.w / 2;
+    const dy = ly - frame.h / 2;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+}
+
+/** The eight resize-handle anchors in frame-local coords (nw…w order). */
+function handleLocalPositions(
+  frame: Frame,
+): ReadonlyArray<[string, number, number]> {
+  return [
+    ['nw', 0,           0],
+    ['n',  frame.w / 2, 0],
+    ['ne', frame.w,     0],
+    ['e',  frame.w,     frame.h / 2],
+    ['se', frame.w,     frame.h],
+    ['s',  frame.w / 2, frame.h],
+    ['sw', 0,           frame.h],
+    ['w',  0,           frame.h / 2],
+  ];
+}
+
+function renderCropHandles(
+  overlay: HTMLDivElement,
+  frame: Frame,
+  scale: number,
+): void {
+  const localToWorld = frameLocalToWorld(frame);
+
+  // Window border — axis-aligned div CSS-rotated about its centre.
+  const border = document.createElement('div');
+  border.className = 'wfb-slides-crop-frame';
+  border.style.position = 'absolute';
+  border.style.left = `${frame.x * scale}px`;
+  border.style.top = `${frame.y * scale}px`;
+  border.style.width = `${frame.w * scale}px`;
+  border.style.height = `${frame.h * scale}px`;
+  if (frame.rotation !== 0) {
+    border.style.transform = `rotate(${frame.rotation}rad)`;
+    border.style.transformOrigin = 'center';
+  }
+  border.style.pointerEvents = 'none';
+  border.style.boxSizing = 'border-box';
+  border.style.border = '1px solid #fff';
+  border.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.4)';
+  overlay.appendChild(border);
+
+  for (const [kind, lx, ly] of handleLocalPositions(frame)) {
+    const w = localToWorld(lx, ly);
+    overlay.appendChild(makeCropHandle(kind, w.x * scale, w.y * scale));
+  }
+}
+
+function makeCropHandle(kind: string, cx: number, cy: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.handle = kind;
+  el.className = `wfb-slides-handle wfb-slides-crop-handle ${kind}`;
+  el.style.position = 'absolute';
+  el.style.left = `${cx - HANDLE_SIZE / 2}px`;
+  el.style.top = `${cy - HANDLE_SIZE / 2}px`;
+  el.style.width = `${HANDLE_SIZE}px`;
+  el.style.height = `${HANDLE_SIZE}px`;
+  el.style.background = '#000';
+  el.style.border = '1px solid #fff';
+  el.style.boxSizing = 'border-box';
+  el.style.cursor = RESIZE_HANDLE_CURSORS[kind as ResizeHandle] ?? 'default';
+  return el;
+}
+
 function renderRotatedHandles(
   overlay: HTMLDivElement,
   frame: Frame,
   options: OverlayOptions,
 ): void {
   const { scale } = options;
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
   const cos = Math.cos(frame.rotation);
   const sin = Math.sin(frame.rotation);
-
-  // Map a local-coords point to world coords (logical slide space).
-  const localToWorld = (lx: number, ly: number) => {
-    const dx = lx - frame.w / 2;
-    const dy = ly - frame.h / 2;
-    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
-  };
+  const localToWorld = frameLocalToWorld(frame);
 
   // Rotated outline — draw an axis-aligned div and CSS-rotate around
   // its centre so the rendered rectangle aligns with the rotated frame.
@@ -496,17 +596,7 @@ function renderRotatedHandles(
   overlay.appendChild(outline);
 
   // Eight resize handles at the rotated corners / edge midpoints.
-  const localPositions: Array<[string, number, number]> = [
-    ['nw', 0,           0],
-    ['n',  frame.w / 2, 0],
-    ['ne', frame.w,     0],
-    ['e',  frame.w,     frame.h / 2],
-    ['se', frame.w,     frame.h],
-    ['s',  frame.w / 2, frame.h],
-    ['sw', 0,           frame.h],
-    ['w',  0,           frame.h / 2],
-  ];
-  for (const [kind, lx, ly] of localPositions) {
+  for (const [kind, lx, ly] of handleLocalPositions(frame)) {
     const w = localToWorld(lx, ly);
     overlay.appendChild(makeHandle(kind, w.x * scale, w.y * scale));
   }
