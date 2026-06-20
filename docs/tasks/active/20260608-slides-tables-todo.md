@@ -8,11 +8,31 @@ import path (`packages/slides/src/import/pptx/table.ts`) which loses
 merges, per-side borders, and structural fidelity. Benchmark deck:
 the Yorkie 캐즘 deck (tables on slides 24–27, 33–35).
 
-## Status (2026-06-09)
+## Status (2026-06-20)
 
-P1–P4 are done; P5's granular Yorkie ops are done but presence and
-the two-user integration test are deferred; P6 (PDF export) is not
-started.
+P1–P4 are done. P5's granular Yorkie ops AND the two-user integration
+test are done; presence is deferred (see note below). P6 (PDF export)
+is blocked — slides has no PDF export module yet at all.
+
+Discovered while picking up P5/P6 (2026-06-20):
+
+- **Presence is a bigger feature than it looks.** The slides editor
+  renders NO peer-presence overlays today — `YorkieSlidesStore.getPeers()`
+  exists but nothing in `view/` consumes it, and there is no existing
+  `textCursor` presence field (the design doc's "extend existing
+  textCursor" premise does not hold). Adding `selectedTableCells` /
+  `textCursorCell` / `resizingTableEdge` is net-new peer-overlay
+  rendering for slides, not a field add. Deferred until slides grows a
+  peer-presence rendering layer (tracked in slides-collaboration.md).
+- **P6 PDF export is blocked.** `packages/slides/src/export/pdf.ts`
+  does not exist — slides PDF export is itself an unstarted "Phase 5b"
+  item (see the comment in `frontend/src/app/slides/slides-view.tsx`).
+  The table PDF case can only land once that module exists.
+- **Cell body is LWW JSON, not a Tree.** Despite the design doc saying
+  "per-cell `body` Tree", `withTableCellBody` stores `cell.body.blocks`
+  as a plain JSON value (last-writer-wins per cell). Same-cell
+  concurrent edits resolve LWW; different-cell edits both survive. The
+  integration test covers the different-cell / structural cases.
 
 What landed (in commit order):
 
@@ -108,10 +128,13 @@ What landed (in commit order):
       updateTableColumnWidths, updateTableRowHeights,
       updateTableCellStyle, withTableCellBody)
 - [ ] Presence: `selectedTableCells`, `textCursorCell`,
-      `resizingTableEdge`
-- [ ] `two-user-slides-table-yorkie.ts` integration test (concurrent
-      cell edits, concurrent row insert, concurrent col insert,
-      concurrent merge + cell edit)
+      `resizingTableEdge` (deferred — needs a slides peer-presence
+      rendering layer that does not exist yet; see Status note)
+- [x] Two-user integration test — landed as
+      `frontend/tests/app/slides/yorkie-slides-table-concurrent.integration.ts`
+      (concurrent disjoint-cell edits, concurrent row insert,
+      concurrent col insert, concurrent merge + disjoint-cell edit).
+      4/4 green against a live Yorkie server.
 
 ## P6 — PDF export
 
