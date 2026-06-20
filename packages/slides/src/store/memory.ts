@@ -123,6 +123,7 @@ export class MemSlidesStore implements SlidesStore {
   private undoStack: SlidesDocument[] = [];
   private redoStack: SlidesDocument[] = [];
   private batchDepth = 0;
+  private changeListeners = new Set<() => void>();
 
   constructor(doc?: SlidesDocument) {
     // Migrate at construction so mutators like `addTheme` / `applyTheme`
@@ -1516,6 +1517,23 @@ export class MemSlidesStore implements SlidesStore {
 
   // --- transactions ---
 
+  /**
+   * Subscribe to committed changes. Mirrors `YorkieSlidesStore.onChange`
+   * so UI panels can refresh on any mutation regardless of which store
+   * backs them. The in-memory store has no remote peer, so this fires
+   * only for local commits (top-level `batch()`, `undo`, `redo`).
+   */
+  onChange(cb: () => void): () => void {
+    this.changeListeners.add(cb);
+    return () => { this.changeListeners.delete(cb); };
+  }
+
+  private notifyChange(): void {
+    for (const cb of this.changeListeners) {
+      try { cb(); } catch { /* swallow listener errors */ }
+    }
+  }
+
   batch(fn: () => void): void {
     if (this.batchDepth === 0) {
       this.undoStack.push(clone(this.doc));
@@ -1527,18 +1545,23 @@ export class MemSlidesStore implements SlidesStore {
     } finally {
       this.batchDepth--;
     }
+    // Notify once per top-level batch commit, after the depth unwinds,
+    // so a single user gesture produces a single change notification.
+    if (this.batchDepth === 0) this.notifyChange();
   }
 
   undo(): void {
     if (!this.canUndo()) return;
     this.redoStack.push(clone(this.doc));
     this.doc = this.undoStack.pop()!;
+    this.notifyChange();
   }
 
   redo(): void {
     if (!this.canRedo()) return;
     this.undoStack.push(clone(this.doc));
     this.doc = this.redoStack.pop()!;
+    this.notifyChange();
   }
 
   canUndo(): boolean { return this.undoStack.length > 0; }

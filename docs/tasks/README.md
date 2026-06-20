@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides notes live sync (2026-06-20) | [20260620-slides-notes-live-sync-todo.md](./active/20260620-slides-notes-live-sync-todo.md) | [20260620-slides-notes-live-sync-lessons.md](./active/20260620-slides-notes-live-sync-lessons.md) |
 | table paste merge (2026-06-19) | [20260619-table-paste-merge-todo.md](./active/20260619-table-paste-merge-todo.md) | [20260619-table-paste-merge-lessons.md](./active/20260619-table-paste-merge-lessons.md) |
 | slides freeform custgeom (2026-06-18) | [20260618-slides-freeform-custgeom-todo.md](./active/20260618-slides-freeform-custgeom-todo.md) | [20260618-slides-freeform-custgeom-lessons.md](./active/20260618-slides-freeform-custgeom-lessons.md) |
 | slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./active/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./active/20260617-slides-color-picker-recent-lessons.md) |
@@ -40,4 +41,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 273
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: table paste merge (2026-06-19)
+Latest active task: slides notes live sync (2026-06-20)

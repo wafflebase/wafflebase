@@ -56,6 +56,56 @@ describe('mountNotesPanel', () => {
     expect((store.read().slides[0].notes[0]?.inlines?.[0] as { text: string }).text).toBe('first slide notes');
   });
 
+  it('reflects an external (remote) notes edit while the textarea is unfocused', () => {
+    const { notes, store, editor } = makeFixture();
+    mountNotesPanel(notes, store, editor);
+    const ta = notes.querySelector<HTMLTextAreaElement>('textarea')!;
+    const id = editor.getCurrentSlideId()!;
+    // Simulate a remote peer editing the notes — not through this
+    // textarea. This commits via batch and fires store.onChange.
+    store.batch(() => {
+      store.withNotes(id, () => [
+        { id: 'n0', type: 'paragraph', inlines: [{ text: 'from peer', style: {} }], style: {} } as never,
+      ]);
+    });
+    expect(ta.value).toBe('from peer');
+  });
+
+  it('does not clobber the local value while the textarea is focused', () => {
+    const { notes, store, editor } = makeFixture();
+    mountNotesPanel(notes, store, editor);
+    const ta = notes.querySelector<HTMLTextAreaElement>('textarea')!;
+    const id = editor.getCurrentSlideId()!;
+    // User is mid-typing in this textarea (focused) — a concurrent
+    // remote commit must not overwrite their in-progress caret/value.
+    ta.focus();
+    ta.value = 'local in progress';
+    store.batch(() => {
+      store.withNotes(id, () => [
+        { id: 'n0', type: 'paragraph', inlines: [{ text: 'from peer', style: {} }], style: {} } as never,
+      ]);
+    });
+    expect(ta.value).toBe('local in progress');
+  });
+
+  it('rebinds to the new slide even when the textarea is focused', () => {
+    const { notes, store, editor } = makeFixture();
+    let secondId = '';
+    store.batch(() => { secondId = store.addSlide('blank'); });
+    mountNotesPanel(notes, store, editor);
+    const ta = notes.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = 'slide one notes';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    // Focus stays in the textarea while the user navigates to slide 2
+    // (e.g. clicking a non-focusable thumbnail doesn't blur it). The
+    // box MUST rebind to slide 2's notes — the focus guard is only for
+    // remote edits, never for a local slide change. Otherwise typing
+    // would write slide 1's stale text into slide 2.
+    ta.focus();
+    editor.setCurrentSlide(secondId);
+    expect(ta.value).toBe('');
+  });
+
   it('readOnly: true marks textarea read-only and ignores input', () => {
     const { notes, store, editor } = makeFixture();
     mountNotesPanel(notes, store, editor, { readOnly: true });
