@@ -31,8 +31,9 @@ PowerPoint-side extensions plus the freeform drawing tool.
 - [x] Waves: `wave`, `doubleWave`
 - [x] High-point stars: `star12`, `star16`, `star24`, `star32`
 - [x] **Freeform / Scribble drawing tool** — promoted import-only
-      `freeform` to a user-authored tool. Toolbar Scribble toggle arms
-      `setInsertMode('freeform')`; `startScribbleInsert` captures the
+      `freeform` to a user-authored tool. The Line ▾ picker's Scribble
+      entry arms `setInsertMode('freeform')`; `startScribbleInsert`
+      captures the
       pointer stream (distance-decimated), live-previews via the shared
       `forceRender` ghost channel, and commits a stroke-only freeform
       ShapeElement whose `data.path` is normalized to the captured bbox.
@@ -88,7 +89,7 @@ Shipped across three commits:
    2 double brackets, 10 flowchart symbols. Vertices/defaults
    transcribed from the ECMA-376 preset geometry (pulled from the
    LibreOffice `presetShapeDefinitions.xml`).
-2. **Freehand scribble** — toolbar Scribble toggle →
+2. **Freehand scribble** — Line ▾ picker Scribble entry →
    `startScribbleInsert` pointer capture → normalized `FreeformPath`.
 3. **Curved ribbons + insert defaults backfill** — `ellipseRibbon/2`,
    plus per-kind size/style for every new shape.

@@ -6,15 +6,10 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip';
-import {
-  IconPointer,
-  IconLetterT,
-  IconPhoto,
-  IconScribble,
-} from '@tabler/icons-react';
+import { IconPointer, IconLetterT, IconPhoto } from '@tabler/icons-react';
 import { ShapePicker } from '../shape-picker';
 import { LinePicker } from '../line-picker';
-import { isLinePickerKind } from '../line-picker-helpers';
+import { isLineToolKind } from '../line-picker-helpers';
 import { TablePicker } from '../table-picker';
 
 export interface InsertGroupProps {
@@ -95,14 +90,13 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         <TooltipContent>Insert image</TooltipContent>
       </Tooltip>
 
-      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, not
-          connector, not the freeform scribble which has its own button) */}
+      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
+          not a line-tool kind: connectors / scribble live in Line ▾) */}
       <ShapePicker
         activeKind={
           insertMode &&
           insertMode !== 'text' &&
-          insertMode !== 'freeform' &&
-          !isLinePickerKind(insertMode)
+          !isLineToolKind(insertMode)
             ? insertMode
             : null
         }
@@ -110,31 +104,12 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         disabled={disabled || !editor}
       />
 
-      {/* Line ▾ — active when insertMode is a ConnectorInsertKind */}
+      {/* Line ▾ — connectors + the freehand scribble */}
       <LinePicker
-        activeKind={isLinePickerKind(insertMode) ? insertMode : null}
+        activeKind={isLineToolKind(insertMode) ? insertMode : null}
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
-
-      {/* Scribble — freehand freeform draw. Google Slides groups this
-          under the Line menu; we surface it as its own toggle. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={insertMode === 'freeform'}
-            onPressedChange={(pressed) =>
-              editor?.setInsertMode(pressed ? 'freeform' : null)
-            }
-            aria-label="Scribble"
-            disabled={disabled || !editor}
-          >
-            <IconScribble size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Scribble</TooltipContent>
-      </Tooltip>
 
       {/* Table ▾ — Google-Slides-style grid picker; clicking a cell
           (rows, cols) inserts a default-sized table on the current

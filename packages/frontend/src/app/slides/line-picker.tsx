@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { LINE_PICKER_ENTRIES } from "./line-picker-helpers";
+import { LINE_PICKER_ENTRIES, type LineToolKind } from "./line-picker-helpers";
 
 /**
  * Paint a tiny connector preview onto a 24×24 canvas. The line shape
@@ -80,11 +80,37 @@ function drawConnectorIcon(
   ctx.fill();
 }
 
+/**
+ * Paint a freehand-scribble preview — a small squiggle — onto a 24×24
+ * canvas. Scribble isn't a connector, so it has its own icon path.
+ */
+function drawScribbleIcon(
+  ctx: CanvasRenderingContext2D,
+  size: { w: number; h: number },
+): void {
+  const pad = 4;
+  const x0 = pad;
+  const x1 = size.w - pad;
+  const midY = size.h / 2;
+  const amp = (size.h - pad * 2) / 2.4;
+  ctx.beginPath();
+  ctx.moveTo(x0, midY + amp);
+  const steps = 24;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = x0 + (x1 - x0) * t;
+    // 1.5 periods of a sine wave reads clearly as a scribble at 24px.
+    const y = midY - Math.sin(t * Math.PI * 3) * amp;
+    ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
 interface IconButtonProps {
-  kind: ConnectorInsertKind;
+  kind: LineToolKind;
   label: string;
   active: boolean;
-  onSelect: (kind: ConnectorInsertKind) => void;
+  onSelect: (kind: LineToolKind) => void;
 }
 
 /**
@@ -110,7 +136,8 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
     // surface. Resolve the cascaded color from the canvas element so
     // the stroke follows `text-foreground` for both light and dark modes.
     ctx.strokeStyle = window.getComputedStyle(canvas).color || "#000";
-    drawConnectorIcon(ctx, kind, { w: 24, h: 24 });
+    if (kind === "freeform") drawScribbleIcon(ctx, { w: 24, h: 24 });
+    else drawConnectorIcon(ctx, kind, { w: 24, h: 24 });
   }, [kind]);
   return (
     <button
@@ -128,13 +155,13 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
 }
 
 export interface LinePickerProps {
-  /** Currently-active connector insert kind, or `null` when no line
-   * insert is armed. Used to highlight the matching entry and to
-   * toggle the trigger's pressed visual. */
-  activeKind: ConnectorInsertKind | null;
+  /** Currently-active line-tool kind (connector or scribble), or `null`
+   * when no line insert is armed. Used to highlight the matching entry
+   * and to toggle the trigger's pressed visual. */
+  activeKind: LineToolKind | null;
   /** Called when the user picks an entry. Caller is responsible for
    * arming insert mode (`editor.setInsertMode(kind)`). */
-  onSelect: (kind: ConnectorInsertKind) => void;
+  onSelect: (kind: LineToolKind) => void;
   /** Disables the trigger button when the editor isn't ready yet. */
   disabled?: boolean;
   /** Override the default toolbar trigger button — used by the mobile
