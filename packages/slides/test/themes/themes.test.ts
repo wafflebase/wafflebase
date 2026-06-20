@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { BUILT_IN_THEMES, defaultLight, getBuiltInTheme } from '../../src/themes/index';
 
 describe('BUILT_IN_THEMES', () => {
-  it('contains five themes with stable ids', () => {
+  it('contains six themes with stable ids', () => {
     expect(BUILT_IN_THEMES.map((t) => t.id)).toEqual([
       'default-light',
       'default-dark',
       'streamline',
       'focus',
       'material',
+      'wafflebase',
     ]);
   });
 

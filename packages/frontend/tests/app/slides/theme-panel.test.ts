@@ -17,13 +17,13 @@ import { applyBuiltInTheme } from '@/app/slides/theme-panel-helpers.ts';
  */
 
 describe('ThemePanel — applyBuiltInTheme helper', () => {
-  it('exposes exactly five built-in themes (panel surface contract)', () => {
+  it('exposes exactly six built-in themes (panel surface contract)', () => {
     // The panel renders one thumbnail per built-in theme, so the count
     // here is the same number the user sees in the picker. If a future
     // PR adds/removes a theme, this test fails as a forcing function
     // to update the panel snapshot/screenshot in the same change.
-    expect(BUILT_IN_THEMES.length).toBe(5);
-    expect(BUILT_IN_THEMES.map((t) => t.id)).toEqual(['default-light', 'default-dark', 'streamline', 'focus', 'material']);
+    expect(BUILT_IN_THEMES.length).toBe(6);
+    expect(BUILT_IN_THEMES.map((t) => t.id)).toEqual(['default-light', 'default-dark', 'streamline', 'focus', 'material', 'wafflebase']);
   });
 
   it('applying a built-in theme sets meta.themeId', () => {

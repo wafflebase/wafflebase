@@ -4,8 +4,9 @@ import { defaultDark } from './default-dark';
 import { streamline } from './streamline';
 import { focus } from './focus';
 import { material } from './material';
+import { wafflebase } from './wafflebase';
 
-export { defaultLight, defaultDark, streamline, focus, material };
+export { defaultLight, defaultDark, streamline, focus, material, wafflebase };
 
 /**
  * Built-in theme registry. Order is the order they appear in the theme
@@ -18,6 +19,7 @@ export const BUILT_IN_THEMES: Theme[] = [
   streamline,
   focus,
   material,
+  wafflebase,
 ];
 
 /**
