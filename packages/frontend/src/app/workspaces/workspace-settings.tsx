@@ -249,6 +249,7 @@ export default function WorkspaceSettings() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="max-w-sm"
+            aria-label="Workspace name"
           />
           {name.trim() !== workspace.name && name.trim() !== "" && (
             <Button type="submit" disabled={updateMutation.isPending}>
@@ -282,6 +283,7 @@ export default function WorkspaceSettings() {
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             className="max-w-sm"
+            aria-label="Workspace URL slug"
           />
           {slug.trim() !== workspace.slug && slug.trim() !== "" && (
             <Button type="submit" disabled={updateMutation.isPending}>
@@ -325,6 +327,7 @@ export default function WorkspaceSettings() {
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
+                        aria-label="Remove member"
                         onClick={() =>
                           removeMemberMutation.mutate(member.user.id)
                         }
@@ -386,6 +389,7 @@ export default function WorkspaceSettings() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label="Copy invite link"
                         onClick={() => copyInviteLink(invite.token)}
                       >
                         <Copy className="h-4 w-4" />
@@ -394,6 +398,7 @@ export default function WorkspaceSettings() {
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
+                        aria-label="Revoke invite"
                         onClick={() =>
                           revokeInviteMutation.mutate(invite.id)
                         }
@@ -465,6 +470,7 @@ export default function WorkspaceSettings() {
                             variant="ghost"
                             size="sm"
                             className="text-destructive hover:text-destructive"
+                            aria-label="Revoke API key"
                             onClick={() =>
                               revokeApiKeyMutation.mutate(apiKey.id)
                             }
@@ -532,10 +538,14 @@ export default function WorkspaceSettings() {
               deleteMutation.mutate();
             }}
           >
-            <label className="text-sm text-muted-foreground">
+            <label
+              htmlFor="delete-confirm"
+              className="text-sm text-muted-foreground"
+            >
               Type <strong>{workspace.name}</strong> to confirm:
             </label>
             <Input
+              id="delete-confirm"
               value={deleteConfirmName}
               onChange={(e) => setDeleteConfirmName(e.target.value)}
               className="mt-2"
@@ -595,6 +605,7 @@ export default function WorkspaceSettings() {
               value={keyName}
               onChange={(e) => setKeyName(e.target.value)}
               placeholder="e.g. CI pipeline"
+              aria-label="API key name"
               autoFocus
             />
             <DialogFooter className="mt-4">
@@ -643,6 +654,7 @@ export default function WorkspaceSettings() {
             <Button
               variant="ghost"
               size="sm"
+              aria-label="Copy API key"
               onClick={() => {
                 if (revealedKey) {
                   navigator.clipboard.writeText(revealedKey.key);

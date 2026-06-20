@@ -104,6 +104,7 @@ function SortableTab({
       {isEditing ? (
         <input
           ref={inputRef}
+          aria-label="Rename tab"
           className="w-20 bg-transparent border-b border-primary text-sm outline-none"
           value={editValue}
           onChange={(e) => onEditValueChange(e.target.value)}
@@ -268,7 +269,10 @@ export function TabBar({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="shrink-0 flex items-center justify-center size-7 ml-1 rounded hover:bg-muted/50 text-muted-foreground cursor-pointer">
+            <button
+              aria-label="Add tab"
+              className="shrink-0 flex items-center justify-center size-7 ml-1 rounded hover:bg-muted/50 text-muted-foreground cursor-pointer"
+            >
               <IconPlus className="size-4" />
             </button>
           </DropdownMenuTrigger>

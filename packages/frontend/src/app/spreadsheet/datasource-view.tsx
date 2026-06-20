@@ -147,6 +147,7 @@ export function DataSourceView({
       {/* SQL Editor */}
       <div className="border-b p-2 shrink-0">
         <textarea
+          aria-label="SQL query"
           className="w-full h-24 p-2 font-mono text-sm border rounded resize-y bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="SELECT * FROM users LIMIT 100"
           value={query}
@@ -177,7 +178,9 @@ export function DataSourceView({
           </span>
         )}
         {queryError && (
-          <span className="text-xs text-destructive truncate">{queryError}</span>
+          <span role="alert" className="text-xs text-destructive truncate">
+            {queryError}
+          </span>
         )}
       </div>
 

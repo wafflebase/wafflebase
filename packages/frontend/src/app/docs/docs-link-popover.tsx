@@ -209,6 +209,7 @@ export function DocsLinkPopover({
           <input
             ref={inputRef}
             type="url"
+            aria-label="Link URL"
             className="h-7 flex-1 rounded border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
             placeholder="Enter URL"
             value={editUrl}

@@ -456,6 +456,7 @@ export function DocumentList({
       <div className="flex items-center justify-between py-4">
         <Input
           placeholder="Filter by title..."
+          aria-label="Filter documents by title"
           value={(table.getColumn("title")?.getFilterValue() as string) ?? ""}
           onChange={(e) =>
             table.getColumn("title")?.setFilterValue(e.target.value)
@@ -550,11 +551,22 @@ export function DocumentList({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="cursor-pointer hover:bg-muted"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open ${String(row.getValue("title") ?? "document")}`}
+                  className="cursor-pointer hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     if ((e.target as HTMLElement).closest("input, button")) {
                       return;
                     }
+                    navigate(getDocumentPath(row.original));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    if ((e.target as HTMLElement).closest("input, button")) {
+                      return;
+                    }
+                    e.preventDefault();
                     navigate(getDocumentPath(row.original));
                   }}
                 >
