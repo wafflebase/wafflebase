@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import type { SlidesEditor, SlidesStore } from '@wafflebase/slides';
+import { TransitionSection } from './transition-section';
 
 export interface MotionPanelProps {
   store: SlidesStore;
@@ -6,7 +8,22 @@ export interface MotionPanelProps {
   onClose: () => void;
 }
 
-export function MotionPanel({ onClose }: MotionPanelProps) {
+export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const u1 = store.onChange?.(() => setTick((t) => t + 1));
+    const u2 = editor.onSelectionChange(() => setTick((t) => t + 1));
+    return () => {
+      u1?.();
+      u2();
+    };
+  }, [store, editor]);
+
+  // tick gates re-derivation; the store/editor reads are the source of truth.
+  void tick;
+
+  const slideId = editor.getCurrentSlideId();
+
   return (
     <aside
       aria-label="Motion"
@@ -24,7 +41,11 @@ export function MotionPanel({ onClose }: MotionPanelProps) {
         </button>
       </header>
       <div className="flex-1 overflow-y-auto">
-        <section data-testid="motion-transition-section" />
+        <section data-testid="motion-transition-section">
+          {slideId !== undefined && (
+            <TransitionSection store={store} slideId={slideId} />
+          )}
+        </section>
         <section data-testid="motion-animation-section" />
       </div>
     </aside>
