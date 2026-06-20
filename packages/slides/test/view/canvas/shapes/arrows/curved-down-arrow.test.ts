@@ -12,7 +12,7 @@ describe('buildCurvedDownArrow', () => {
 });
 
 describe('CURVED_DOWN_ARROW_HANDLES', () => {
-  it('exposes two handles', () => {
-    expect(CURVED_DOWN_ARROW_HANDLES.length).toBe(2);
+  it('exposes one handle', () => {
+    expect(CURVED_DOWN_ARROW_HANDLES.length).toBe(1);
   });
 });
