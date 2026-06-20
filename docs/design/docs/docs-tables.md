@@ -51,7 +51,7 @@ each have their own dedicated doc — see the cluster index below.
 | Doc | What it covers |
 |---|---|
 | **`docs-tables.md`** (this doc) | Data model, CRDT structure, cursor/navigation, layout, granular store ops, pagination basics |
-| [`tables/docs-table-ui.md`](tables/docs-table-ui.md) | Grid picker, context menu, IME cell routing |
+| [`docs-table-ui.md`](../archive/docs-table-ui.md) _(archived)_ | Grid picker, context menu, IME cell routing |
 | [`tables/docs-table-resize.md`](tables/docs-table-resize.md) | Column/row border drag handles, guideline rendering |
 | [`tables/docs-table-copy-paste.md`](tables/docs-table-copy-paste.md) | Cell-range clipboard, whole-table block, external HTML table paste |
 | [`tables/docs-table-row-splitting.md`](tables/docs-table-row-splitting.md) | Split tall table rows across pages; recursive nested-table support |

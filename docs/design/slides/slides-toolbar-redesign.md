@@ -373,6 +373,41 @@ mitigated are addressed instead by:
 
 No changes to `frame`, `Slide`, or `SlidesDocument`.
 
+### Tier 1 universal controls (v0.4.3, additive)
+
+Five universal controls layered on top of the morphing-toolbar shell
+without touching the state machine — each drops into an existing zone:
+
+1. **Format painter** — Global L, after Undo/Redo. `beginFormatPaint` /
+   `cancelFormatPaint` / `isPaintingFormat` on `SlidesEditor` snapshot the
+   source style at click time; the next pointer-down on a compatible
+   element writes it, then auto-cancels. v1 is homogeneous only
+   (shape→shape `{fill, stroke}`, text-run→text-run inline style); cross-type
+   is a no-op + toast. Esc cancels via the existing editor-mode path.
+2. **Zoom dropdown** — Global R, before Theme. Fit / 50 / 75 / 100 / 150 /
+   200 % plus `⌘+` / `⌘−`. View-level only: a `ZoomController`
+   (`get/set/subscribe`) owned by `slides-view.tsx`; `refitCanvas`
+   multiplies fit size by `userZoom`, clamped by `MAX_HOST_W`. Session-only,
+   resets to Fit on reload. The editor stays zoom-unaware.
+3. **Layout split-button** — right of `+ Slide ▾`. Reuses `showLayoutPicker`
+   + `store.applyLayout` to change the *current* slide's layout from the
+   toolbar (previously right-click only). See
+   [`slides-themes-layouts-import.md`](slides-themes-layouts-import.md) for
+   the placeholder-identity layout-change model it drives.
+4. **Clear formatting** — text-edit section. New
+   `clearInlineFormatting()` on the shared `TextFormattingEditor` interface;
+   strips run styles only (not layout-defaulted block styles, so the result
+   reads as "back to layout default"). Shared with the docs editor.
+5. **Font size steppers (A↑ / A↓)** — text-edit and text-element states.
+   Shared `text-size-stepper.tsx` bumps through Google-Slides `SIZE_STOPS`
+   via the existing `applyStyle({ fontSize })`; box-level reuses a
+   `setBoxFontSize` helper over every inline run.
+
+The controls shipped as one PR in five independent commits. Full
+per-control component map, capture/paste matrices, and risk table are
+preserved in git history (this doc absorbed the former
+`slides-toolbar-tier1.md`).
+
 ### Out-of-scope items (explicit)
 
 The following came up during design and are **not** in this redesign:

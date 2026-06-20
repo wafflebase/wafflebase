@@ -54,7 +54,7 @@ move drag and single-table-resize patterns; the in-place
 - **Multi-select bbox rotation around an arbitrary pivot.** Pivot is
   always the bbox centre (Google Slides and PowerPoint both do this).
 - **Alt / Ctrl = resize-from-centre.** Tracked under
-  [`slides-shift-modifiers.md`](slides-shift-modifiers.md) as an
+  [`slides-shift-modifiers.md`](../archive/slides-shift-modifiers.md) as an
   orthogonal modifier extension; same hook will apply to multi.
 - **Per-shape "lock aspect" setting from PowerPoint.** Wafflebase has
   no such setting today; corner without Shift always stretches
