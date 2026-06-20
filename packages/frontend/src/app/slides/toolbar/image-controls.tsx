@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ImageElement, SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import {
   Tooltip,
@@ -24,8 +24,11 @@ export interface ImageControlsProps {
  * Contextual toolbar controls for a selected image element.
  *
  * - Replace: opens a hidden file input, uploads, and swaps src + clears crop.
- * - Crop: disabled placeholder — full crop UI is deferred to a separate spec.
- * - Reset crop: clears the crop field (enabled only when a crop exists).
+ * - Crop: enters the interactive crop session (drag the black handles to
+ *   trim, drag the image to pan; Enter / click-outside commits, Esc cancels).
+ *   Toggles the session off when already cropping.
+ * - Reset crop: clears the crop and restores the image's proportions
+ *   (enabled only when a crop exists).
  *
  * Alt text moved to the Format panel's Alt text section — the panel is
  * the single home for image accessibility metadata.
@@ -36,6 +39,18 @@ export function ImageControls({
   ids,
   upload,
 }: ImageControlsProps) {
+  // Track the editor's crop-session state so the Crop button can show a
+  // pressed/active affordance while cropping.
+  const [cropping, setCropping] = useState(false);
+  useEffect(() => {
+    if (!editor) {
+      setCropping(false);
+      return;
+    }
+    setCropping(editor.isCropping());
+    return editor.onCropChange(() => setCropping(editor.isCropping()));
+  }, [editor]);
+
   const slideId = editor?.getCurrentSlideId();
   const firstId = ids[0];
 
@@ -71,12 +86,21 @@ export function ImageControls({
     input.click();
   }, [store, slideId, firstId, upload]);
 
+  const onCrop = useCallback(() => {
+    if (!editor) return;
+    if (editor.isCropping()) {
+      editor.exitImageCrop(true);
+    } else {
+      editor.enterImageCrop(firstId);
+    }
+  }, [editor, firstId]);
+
   const onResetCrop = useCallback(() => {
-    if (!store || !slideId) return;
-    store.batch(() =>
-      store.updateElementData(slideId, firstId, { crop: undefined }),
-    );
-  }, [store, slideId, firstId]);
+    // Clear the crop and restore proportions in one undo step. Routed
+    // through the editor so the frame is recomputed from the uncropped
+    // bitmap rather than re-stretching the stale cropped frame.
+    editor?.resetImageCrop(firstId);
+  }, [editor, firstId]);
 
   const hasCrop = !!image?.data.crop;
 
@@ -98,19 +122,23 @@ export function ImageControls({
         <TooltipContent>Replace image</TooltipContent>
       </Tooltip>
 
-      {/* Crop — disabled placeholder; full UI deferred to a separate spec */}
+      {/* Crop — enter / exit the interactive crop session */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            disabled
-            aria-label="Crop image (coming soon)"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            onClick={onCrop}
+            aria-label="Crop image"
+            aria-pressed={cropping}
+            disabled={!editor}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50 ${
+              cropping ? 'bg-muted text-foreground' : ''
+            }`}
           >
             <IconCrop size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Crop (coming soon)</TooltipContent>
+        <TooltipContent>{cropping ? 'Done cropping' : 'Crop'}</TooltipContent>
       </Tooltip>
 
       {/* Reset crop */}

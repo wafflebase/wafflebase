@@ -11,6 +11,16 @@ import type {
   VerticalAnchorMode,
 } from '../../model/element';
 import { DEFAULT_CELL_BORDER, DEFAULT_CELL_PADDING } from '../../model/element';
+import {
+  cropToFull,
+  windowToCrop,
+  applyCropHandle,
+  panFull,
+  normalizeCrop,
+  resetFrameForUncrop,
+  type Rect,
+  type CropHandle,
+} from '../../model/image-crop';
 import type { Block } from '@wafflebase/docs';
 import { clearMeasureCache } from '@wafflebase/docs';
 import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
@@ -367,6 +377,34 @@ export interface SlidesEditor {
    */
   exitTextEditing(): void;
   /**
+   * Enter interactive crop on an image element. The element must be a
+   * top-level, non-rotated `image` on the current slide; no-op
+   * otherwise. Equivalent to double-clicking the image. Drag the black
+   * handles to trim, drag the image to pan; Enter / click-outside
+   * commits, Esc cancels. Safe to call from toolbar buttons and tests.
+   */
+  enterImageCrop(elementId: string): void;
+  /**
+   * Exit an active crop session. `commit` writes the new frame + crop in
+   * one undo step; otherwise the pre-session state is restored. No-op
+   * when not cropping.
+   */
+  exitImageCrop(commit: boolean): void;
+  /** `true` while an image crop session is active. */
+  isCropping(): boolean;
+  /**
+   * Clear an image's crop and restore its true proportions (the
+   * uncropped frame), in one undo step. No-op for non-image elements or
+   * images with no crop. Rotated images keep their frame (only the crop
+   * is cleared) to avoid a centre-pivot shift.
+   */
+  resetImageCrop(elementId: string): void;
+  /**
+   * Subscribe to crop-session state changes (fires on enter and exit).
+   * Returns an unsubscribe function.
+   */
+  onCropChange(cb: () => void): () => void;
+  /**
    * Subscribe to current-slide changes. Fires whenever
    * `setCurrentSlide` actually changes the rendered slide id.
    * Distinct from `onSelectionChange` because element selection
@@ -704,6 +742,29 @@ class SlidesEditorImpl implements SlidesEditor {
   private editingGrowApplicable = false;
   /** Listeners for text-editing state changes (enter + exit). */
   private textEditingListeners = new Set<() => void>();
+  /**
+   * Active image crop session, or null when not cropping. Mutually
+   * exclusive with text edit. `full` is the whole-bitmap rect at the
+   * current display scale; `window` is the bright crop window (the
+   * element frame). Both in slide-logical world coords — crop is only
+   * entered on top-level, non-rotated images, so no scope/rotation
+   * transform is needed. A cancel is a pure no-op: drags mutate only the
+   * in-memory `full`/`window`, and the store is written once on commit,
+   * so the store already holds the pre-session frame/crop.
+   */
+  private cropSession:
+    | {
+        slideId: string;
+        elementId: string;
+        src: string;
+        full: Rect;
+        window: Rect;
+      }
+    | null = null;
+  /** Capture-phase keydown handler installed while a crop session runs. */
+  private cropKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Listeners for crop-session state changes (enter + exit). */
+  private cropListeners = new Set<() => void>();
   /** Listeners for table cell-range selection state changes. */
   private cellSelectionListeners = new Set<() => void>();
   /**
@@ -872,6 +933,7 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private repaintOverlay(): void {
+    if (this.disposed) return;
     const doc = this.options.store.read();
     const slide = this.currentId
       ? doc.slides.find((s) => s.id === this.currentId)
@@ -885,6 +947,17 @@ class SlidesEditorImpl implements SlidesEditor {
       pendingGuide: this.pendingGuide,
       });
       this.reattachEditingTextBox();
+      return;
+    }
+    // Crop session owns the overlay: paint only the crop window + black
+    // handles (no selection / guide chrome).
+    if (this.cropSession) {
+      renderOverlay(this.options.overlay, [], {
+        scale: this.scale(),
+        slideWidth: SLIDE_WIDTH,
+        slideHeight: SLIDE_HEIGHT,
+        cropWindow: { ...this.cropSession.window, rotation: 0 },
+      });
       return;
     }
     // Suppress selection handles for the element currently in edit
@@ -1157,6 +1230,14 @@ class SlidesEditorImpl implements SlidesEditor {
       this.paintRuler();
       return;
     }
+    // Crop session: the renderer masks the cropping element and paints
+    // the dimmed full bitmap + bright crop window from the live session.
+    const preview = this.cropPreview();
+    if (preview) {
+      this.renderer.forceRender(slide, doc, undefined, preview);
+      this.paintRuler();
+      return;
+    }
     this.renderer.render(slide, doc);
     this.paintRuler();
   }
@@ -1185,6 +1266,8 @@ class SlidesEditorImpl implements SlidesEditor {
 
   setCurrentSlide(id: string): void {
     if (this.currentId === id) return;
+    // Commit any in-flight crop before leaving its slide.
+    if (this.cropSession !== null) this.exitImageCrop(true);
     // Selection is per-slide; clear before switching so the overlay
     // doesn't render handles for elements that don't belong to the
     // newly-current slide.
@@ -1883,6 +1966,225 @@ class SlidesEditorImpl implements SlidesEditor {
     this.exitEditMode('commit');
   }
 
+  isCropping(): boolean {
+    return this.cropSession !== null;
+  }
+
+  onCropChange(cb: () => void): () => void {
+    this.cropListeners.add(cb);
+    return () => {
+      this.cropListeners.delete(cb);
+    };
+  }
+
+  enterImageCrop(elementId: string): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    // Top-level only: `slide.elements` is the root array. Grouped images
+    // have parent-local frames, so the world math below would be wrong —
+    // mirrors the table-cell-edit guard.
+    const el = slide.elements.find((e) => e.id === elementId);
+    if (!el || el.type !== 'image') return;
+    // P0: rectangular crop on axis-aligned images only.
+    if (el.frame.rotation !== 0) return;
+    // Mutually exclusive with text edit — commit any in-flight text.
+    if (this.editingElementId !== null) this.exitEditMode('commit');
+    if (this.cropSession !== null) this.exitImageCrop(true);
+
+    const frame = el.frame;
+    const window: Rect = { x: frame.x, y: frame.y, w: frame.w, h: frame.h };
+    const full = cropToFull(window, el.data.crop);
+    this.cropSession = {
+      slideId: slide.id,
+      elementId,
+      src: el.data.src,
+      full,
+      window,
+    };
+
+    // Modal key handling: Enter commits, Esc cancels, everything else is
+    // swallowed so global shortcuts (Delete, arrows, …) can't mutate the
+    // image mid-crop. Capture phase runs before the bubble-phase keyRules
+    // listener, so stopPropagation suppresses them.
+    const handler = (ev: KeyboardEvent): void => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.exitImageCrop(true);
+        return;
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.exitImageCrop(false);
+        return;
+      }
+      ev.stopPropagation();
+    };
+    this.cropKeyHandler = handler;
+    document.addEventListener('keydown', handler, true);
+
+    this.selection.set([elementId]);
+    this.notifyCropChange();
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  exitImageCrop(commit: boolean): void {
+    const session = this.cropSession;
+    if (!session) return;
+    if (commit) {
+      const crop = normalizeCrop(windowToCrop(session.full, session.window));
+      const w = session.window;
+      this.options.store.batch(() => {
+        this.options.store.updateElementFrame(session.slideId, session.elementId, {
+          x: w.x,
+          y: w.y,
+          w: w.w,
+          h: w.h,
+        });
+        this.options.store.updateElementData(session.slideId, session.elementId, {
+          crop,
+        });
+      });
+    }
+    this.finishCropSession();
+  }
+
+  resetImageCrop(elementId: string): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const el = slide.elements.find((e) => e.id === elementId);
+    if (!el || el.type !== 'image') return;
+    // Discard any live crop session on this element first.
+    if (this.cropSession?.elementId === elementId) this.exitImageCrop(false);
+    if (!el.data.crop) return;
+    const restoreFrame = el.frame.rotation === 0;
+    const frame = el.frame;
+    this.options.store.batch(() => {
+      if (restoreFrame) {
+        const next = resetFrameForUncrop(
+          { x: frame.x, y: frame.y, w: frame.w, h: frame.h },
+          el.data.crop,
+        );
+        this.options.store.updateElementFrame(slide.id, elementId, {
+          x: next.x,
+          y: next.y,
+          w: next.w,
+          h: next.h,
+        });
+      }
+      this.options.store.updateElementData(slide.id, elementId, {
+        crop: undefined,
+      });
+    });
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  private finishCropSession(): void {
+    if (this.cropKeyHandler) {
+      document.removeEventListener('keydown', this.cropKeyHandler, true);
+      this.cropKeyHandler = null;
+    }
+    this.cropSession = null;
+    this.notifyCropChange();
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+  }
+
+  private notifyCropChange(): void {
+    for (const cb of this.cropListeners) cb();
+  }
+
+  /** Build the crop preview descriptor for the renderer, or null. */
+  private cropPreview() {
+    const s = this.cropSession;
+    if (!s) return undefined;
+    return {
+      elementId: s.elementId,
+      src: s.src,
+      full: s.full,
+      window: s.window,
+    };
+  }
+
+  /**
+   * Pointer-down routing while a crop session is active: a black handle
+   * trims, the window body pans the image, and a click outside commits +
+   * exits.
+   */
+  private onPointerDownCrop(e: MouseEvent): void {
+    const session = this.cropSession;
+    if (!session) return;
+    const handle = this.handleAtClient(e.clientX, e.clientY);
+    if (handle !== null && isCropHandle(handle)) {
+      this.startCropHandleDrag(handle, e.clientX, e.clientY);
+      return;
+    }
+    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    const w = session.window;
+    if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) {
+      this.startCropPan(e.clientX, e.clientY);
+      return;
+    }
+    this.exitImageCrop(true);
+  }
+
+  private startCropHandleDrag(
+    handle: CropHandle,
+    clientX: number,
+    clientY: number,
+  ): void {
+    const session = this.cropSession;
+    if (!session) return;
+    const startWindow = session.window;
+    this.runCropDrag(session, clientX, clientY, (dx, dy) => {
+      session.window = applyCropHandle(session.full, startWindow, handle, dx, dy);
+    });
+  }
+
+  private startCropPan(clientX: number, clientY: number): void {
+    const session = this.cropSession;
+    if (!session) return;
+    const startFull = session.full;
+    this.runCropDrag(session, clientX, clientY, (dx, dy) => {
+      session.full = panFull(startFull, session.window, dx, dy);
+    });
+  }
+
+  /**
+   * Shared pointer-drag loop for crop trim / pan. `onDelta` updates the
+   * session geometry from the logical-space delta; we repaint after each
+   * move and tear the listeners down on pointerup. If the session is
+   * ended mid-drag (Esc, detach, slide switch) the move is ignored so a
+   * stale session is never mutated or painted.
+   */
+  private runCropDrag(
+    session: NonNullable<typeof this.cropSession>,
+    clientX: number,
+    clientY: number,
+    onDelta: (dx: number, dy: number) => void,
+  ): void {
+    const start = this.clientToLogical(clientX, clientY);
+    const onMove = (ev: MouseEvent): void => {
+      if (this.cropSession !== session) return;
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      onDelta(cur.x - start.x, cur.y - start.y);
+      this.render();
+      this.repaintOverlay();
+    };
+    const onUp = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
   markDirty(): void {
     this.renderer.markDirty();
     // External markDirty signals "the store changed in a way the editor
@@ -1903,6 +2205,13 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox = null;
       this.editingElementId = null;
     }
+    // Drop any active crop session and its capture-phase key listener so
+    // a SlidesView remount starts clean and the listener doesn't leak.
+    if (this.cropKeyHandler !== null) {
+      document.removeEventListener('keydown', this.cropKeyHandler, true);
+      this.cropKeyHandler = null;
+    }
+    this.cropSession = null;
     // A pending hover-ghost rAF would otherwise fire after teardown
     // and paint into a detached canvas. Cancel it and drop the
     // preview state so a remount starts clean.
@@ -2702,6 +3011,13 @@ class SlidesEditorImpl implements SlidesEditor {
     document.addEventListener('pointerup', onAnyUp, true);
     document.addEventListener('pointercancel', onAnyUp, true);
 
+    // Crop session is modal: route the gesture to the crop handlers and
+    // never fall through to select / drag / resize / lasso.
+    if (this.cropSession !== null) {
+      this.onPointerDownCrop(e);
+      return;
+    }
+
     // Format painter: the very first branch so a paint-mode click
     // can never accidentally trigger select / drag / lasso / insert.
     // Paint mode is suppressed while a text box is open — the user
@@ -2964,6 +3280,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // text container). For grouped elements, drill in one level first
     // so the user descends into groups the same way Google Slides does.
     // Clicks on other element kinds at the leaf level are ignored.
+    // A crop session owns its own pointer handling — ignore dblclicks.
+    if (this.cropSession !== null) return;
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -3013,6 +3331,17 @@ class SlidesEditorImpl implements SlidesEditor {
       e.preventDefault();
       e.stopPropagation();
       this.enterEditMode(slide.id, el.id, { cell });
+      return;
+    }
+    if (el.type === 'image') {
+      // Double-click an image enters crop (Google Slides parity).
+      // `enterImageCrop` re-checks top-level + non-rotated and no-ops
+      // otherwise, so the guards here only avoid a wasted call.
+      if (el.frame.rotation !== 0) return;
+      if (!slide.elements.some((e) => e.id === el.id)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterImageCrop(el.id);
       return;
     }
     if (el.type !== 'text' && el.type !== 'shape') return;
@@ -5655,6 +5984,15 @@ function sumPrefix(arr: readonly number[], n: number): number {
   let s = 0;
   for (let i = 0; i < n && i < arr.length; i++) s += arr[i];
   return s;
+}
+
+const CROP_HANDLE_KINDS: ReadonlySet<string> = new Set([
+  'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
+]);
+
+/** Narrow a `HandleKind` to the 8 crop/resize directions. */
+function isCropHandle(handle: string): handle is CropHandle {
+  return CROP_HANDLE_KINDS.has(handle);
 }
 
 function findElement(elements: readonly Element[], id: string): Element | undefined {

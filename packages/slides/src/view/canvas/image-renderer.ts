@@ -76,6 +76,50 @@ export function imageFilter(data: ImageElement['data']): string {
   return parts.length > 0 ? parts.join(' ') : 'none';
 }
 
+/**
+ * Crop-session preview, drawn in slide-logical coords (the caller has
+ * the deck transform applied). The `full` rect is the whole bitmap at
+ * the current display scale; the `window` rect is the bright crop
+ * window over it. The region of `full` outside `window` is dimmed so
+ * the user sees what is being trimmed away (Google-Slides crop mode).
+ */
+export interface CropPreview {
+  /** Element being cropped — masked from the normal element pass. */
+  elementId: string;
+  src: string;
+  full: { x: number; y: number; w: number; h: number };
+  window: { x: number; y: number; w: number; h: number };
+  /** Opacity of the dimmed (trimmed-away) region. Default 0.4. */
+  dimAlpha?: number;
+}
+
+/**
+ * Paint a crop-session preview: the full bitmap dimmed, then the crop
+ * window re-painted at full opacity through a clip. No-op while the
+ * image is still loading (caller re-renders on load).
+ */
+export function drawCropPreview(
+  ctx: CanvasRenderingContext2D,
+  preview: CropPreview,
+  onLoad: () => void,
+): void {
+  const img = getOrLoadImage(preview.src, onLoad);
+  if (!img) return;
+  const { full, window } = preview;
+  // 1. Dimmed full bitmap — the trimmed-away region shows through here.
+  ctx.save();
+  ctx.globalAlpha = ctx.globalAlpha * (preview.dimAlpha ?? 0.4);
+  ctx.drawImage(img, full.x, full.y, full.w, full.h);
+  ctx.restore();
+  // 2. Bright window — clip to the crop window, repaint the full bitmap.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(window.x, window.y, window.w, window.h);
+  ctx.clip();
+  ctx.drawImage(img, full.x, full.y, full.w, full.h);
+  ctx.restore();
+}
+
 function drawImageFailurePlaceholder(
   ctx: CanvasRenderingContext2D,
   w: number,

@@ -4,7 +4,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
 import { resolveColor } from '../../model/theme';
 import { drawElement } from './element-renderer';
-import { drawImage } from './image-renderer';
+import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
 import { getActiveTheme } from './render-context';
 
 /** Global alpha applied to the hover-ghost element so the user can see
@@ -107,9 +107,18 @@ export class SlideRenderer {
     slide: Slide,
     doc: SlidesDocument,
     ghosts?: readonly Element[],
+    cropPreview?: CropPreview,
   ): void {
     this.dirty = true;
-    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty(), ghosts);
+    drawSlide(
+      this.ctx,
+      slide,
+      doc,
+      this.options,
+      () => this.markDirty(),
+      ghosts,
+      cropPreview,
+    );
     this.dirty = false;
   }
 }
@@ -127,6 +136,7 @@ export function drawSlide(
   options: SlideRendererOptions,
   onAssetLoad: () => void = () => undefined,
   ghosts?: readonly Element[],
+  cropPreview?: CropPreview,
 ): void {
   const theme = getActiveTheme(doc);
   const { hostWidth, hostHeight, dpr } = options;
@@ -200,6 +210,10 @@ export function drawSlide(
   // once per slide-render so each connector doesn't rebuild it.
   const elementsLookup = buildElementWorldLookup(slide.elements);
   for (const element of slide.elements) {
+    // The element under an active crop session is painted by the crop
+    // preview below (dimmed full bitmap + bright window), not as a
+    // normal cropped element, so mask it here.
+    if (cropPreview && element.id === cropPreview.elementId) continue;
     drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup);
   }
 
@@ -214,6 +228,13 @@ export function drawSlide(
       drawElement(ctx, ghost, doc, theme, onAssetLoad, elementsLookup);
       ctx.restore();
     }
+  }
+
+  // Crop session preview on top: dimmed full bitmap + bright crop
+  // window. Drawn last so the dimmed band reads clearly over slide
+  // content and the bright window is never occluded by other elements.
+  if (cropPreview) {
+    drawCropPreview(ctx, cropPreview, onAssetLoad);
   }
 }
 

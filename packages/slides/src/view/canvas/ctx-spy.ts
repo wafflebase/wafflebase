@@ -50,6 +50,7 @@ export interface CtxSpy {
   arc: SpyFn;
   ellipse: SpyFn;
   rect: SpyFn;
+  clip: SpyFn;
 
   // fill / stroke / clear
   fillRect: SpyFn;
@@ -102,6 +103,7 @@ export function createCtxSpy(): CtxSpy {
     arc: vi.fn(),
     ellipse: vi.fn(),
     rect: vi.fn(),
+    clip: vi.fn(),
 
     fillRect: vi.fn(),
     strokeRect: vi.fn(),

@@ -127,6 +127,16 @@ export interface OverlayOptions {
     x1: number;
     y1: number;
   };
+  /**
+   * Active image crop session. When present, the overlay paints ONLY the
+   * crop chrome — a white window border plus eight BLACK resize handles
+   * on the crop window (distinct from the blue selection handles, GS/PPT
+   * parity) — and skips all normal selection / guide chrome. The window
+   * is the element frame in world coords; handles carry the usual
+   * `data-handle` kinds so the editor's crop branch reuses
+   * `handleHitTest`.
+   */
+  cropWindow?: Frame;
 }
 
 /**
@@ -148,6 +158,13 @@ export function renderOverlay(
   options: OverlayOptions,
 ): void {
   overlay.innerHTML = '';
+
+  // Crop session owns the overlay entirely: paint the crop window +
+  // black handles and skip all other chrome.
+  if (options.cropWindow) {
+    renderCropHandles(overlay, options.cropWindow, options.scale);
+    return;
+  }
 
   // Build a set of permanent-guide ids that are currently the active
   // snap target. The snap engine reports `guideId` on its winning
@@ -459,6 +476,67 @@ function renderAxisAlignedHandles(
   if (selectedElements.length === 1) {
     renderAdjustmentHandles(overlay, selectedElements[0], options);
   }
+}
+
+/**
+ * Crop chrome: a white window border plus eight black resize handles on
+ * the crop window (`frame`, world coords). Handle kinds match the normal
+ * `ResizeHandle` set so the editor's crop branch can reuse
+ * `handleHitTest`; the editor disambiguates resize-vs-crop by its active
+ * crop session, not by the handle kind.
+ */
+function renderCropHandles(
+  overlay: HTMLDivElement,
+  frame: Frame,
+  scale: number,
+): void {
+  const left = frame.x * scale;
+  const top = frame.y * scale;
+  const width = frame.w * scale;
+  const height = frame.h * scale;
+
+  const border = document.createElement('div');
+  border.className = 'wfb-slides-crop-frame';
+  border.style.position = 'absolute';
+  border.style.left = `${left}px`;
+  border.style.top = `${top}px`;
+  border.style.width = `${width}px`;
+  border.style.height = `${height}px`;
+  border.style.pointerEvents = 'none';
+  border.style.boxSizing = 'border-box';
+  border.style.border = '1px solid #fff';
+  border.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.4)';
+  overlay.appendChild(border);
+
+  const positions: Array<[string, number, number]> = [
+    ['nw', left,               top],
+    ['n',  left + width / 2,   top],
+    ['ne', left + width,       top],
+    ['e',  left + width,       top + height / 2],
+    ['se', left + width,       top + height],
+    ['s',  left + width / 2,   top + height],
+    ['sw', left,               top + height],
+    ['w',  left,               top + height / 2],
+  ];
+  for (const [kind, cx, cy] of positions) {
+    overlay.appendChild(makeCropHandle(kind, cx, cy));
+  }
+}
+
+function makeCropHandle(kind: string, cx: number, cy: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.handle = kind;
+  el.className = `wfb-slides-handle wfb-slides-crop-handle ${kind}`;
+  el.style.position = 'absolute';
+  el.style.left = `${cx - HANDLE_SIZE / 2}px`;
+  el.style.top = `${cy - HANDLE_SIZE / 2}px`;
+  el.style.width = `${HANDLE_SIZE}px`;
+  el.style.height = `${HANDLE_SIZE}px`;
+  el.style.background = '#000';
+  el.style.border = '1px solid #fff';
+  el.style.boxSizing = 'border-box';
+  el.style.cursor = RESIZE_HANDLE_CURSORS[kind as ResizeHandle] ?? 'default';
+  return el;
 }
 
 function renderRotatedHandles(
