@@ -54,6 +54,7 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
               store={store}
               slideId={slideId}
               selectedElementIds={selectedElementIds}
+              editor={editor}
             />
           )}
         </section>

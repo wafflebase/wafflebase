@@ -120,8 +120,10 @@ import { makeColorResolver } from '../canvas/text-renderer';
 import {
   buildElementWorldLookup,
   findElementPath,
+  flattenElements,
   worldTightFrame,
 } from '../../model/group';
+import { AnimationPlayer, compileTimeline } from '../../anim';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -553,6 +555,16 @@ export interface SlidesEditor {
    */
   getLastHoverCursor(): string;
 
+  /**
+   * Preview the current slide's animations on the editor canvas.
+   * Auto-plays every step back-to-back (unlike the presenter which
+   * waits for clicks). The canvas returns to static render when done.
+   *
+   * No-op when the current slide has no animations. If a preview is
+   * already running it is cancelled and a new one starts from step 0.
+   */
+  previewAnimations(): void;
+
   detach(): void;
 }
 
@@ -614,6 +626,8 @@ class SlidesEditorImpl implements SlidesEditor {
   private lastClickAt: number = 0;
   /** rAF handle so rapid mousemoves coalesce into one paint per frame. */
   private hoverRenderRaf: number | null = null;
+  /** rAF handle for the in-editor animation preview. Null when idle. */
+  private previewRafHandle: number | null = null;
   /** Suppress hover ghost during an active drag-to-size insert. */
   private insertDragging = false;
   /**
@@ -1901,6 +1915,71 @@ class SlidesEditorImpl implements SlidesEditor {
     this.repaintOverlay();
   }
 
+  /** Cancel any in-flight preview RAF loop. Safe to call when idle. */
+  private cancelPreviewRaf(): void {
+    if (this.previewRafHandle !== null) {
+      cancelAnimationFrame(this.previewRafHandle);
+      this.previewRafHandle = null;
+    }
+  }
+
+  previewAnimations(): void {
+    if (this.disposed) return;
+
+    // Cancel any existing preview and restart from step 0.
+    this.cancelPreviewRaf();
+
+    const doc = this.options.store.read();
+    const id = this.currentId;
+    const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
+    if (!slide) return;
+
+    // Build the set of element ids present on this slide (flattened to
+    // include group children so animations that target nested elements
+    // are not filtered out by compileTimeline's existingElementIds guard).
+    const existingElementIds = new Set(
+      flattenElements(slide.elements).map((e) => e.id),
+    );
+    const steps = compileTimeline(slide, { existingElementIds });
+    if (steps.length === 0) return;
+
+    const player = new AnimationPlayer(
+      steps,
+      { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      (states) => {
+        if (this.disposed) return;
+        this.renderer.forceRender(slide, doc, undefined, states);
+      },
+    );
+
+    // Auto-play: advance through every step back-to-back without waiting
+    // for user input (unlike the presenter which requires clicks).
+    player.advance(); // start step 0
+
+    const tick = (nowMs: number): void => {
+      if (this.disposed) {
+        this.previewRafHandle = null;
+        return;
+      }
+      player.tick(nowMs);
+      if (!player.isAnimating) {
+        // Current step has settled.
+        if (player.done) {
+          // All steps finished — return to static render.
+          this.previewRafHandle = null;
+          this.renderer.markDirty();
+          this.render();
+          return;
+        }
+        // Advance to the next step and keep the loop going.
+        player.advance();
+      }
+      this.previewRafHandle = requestAnimationFrame(tick);
+    };
+
+    this.previewRafHandle = requestAnimationFrame(tick);
+  }
+
   detach(): void {
     this.disposed = true;
     if (this.editingTextBox !== null) {
@@ -1915,6 +1994,9 @@ class SlidesEditorImpl implements SlidesEditor {
       cancelAnimationFrame(this.hoverRenderRaf);
       this.hoverRenderRaf = null;
     }
+    // Cancel any in-flight animation preview so it doesn't paint into
+    // a detached canvas after teardown.
+    this.cancelPreviewRaf();
     this.hoverPreview = null;
     this.connectorCursor = null;
     // Rotate-angle tooltip is attached to the overlay's parent, not the

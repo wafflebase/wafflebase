@@ -1,5 +1,6 @@
-import type { AnimEffect, AnimStart, SlideAnimation, SlidesStore } from '@wafflebase/slides';
+import type { AnimEffect, AnimStart, SlideAnimation, SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import { Button } from '@/components/ui/button';
+import { IconPlayerPlay } from '@tabler/icons-react';
 
 const ENTRANCE: AnimEffect[] = ['appear', 'fadeIn', 'flyIn', 'zoomIn', 'spin'];
 const STARTS: AnimStart[] = ['onClick', 'withPrev', 'afterPrev'];
@@ -25,10 +26,12 @@ export function AnimationSection(props: {
   store: SlidesStore;
   slideId: string;
   selectedElementIds: string[];
+  editor: SlidesEditor;
 }) {
   const slide = props.store.read().slides.find((s) => s.id === props.slideId);
   const list: SlideAnimation[] = slide?.animations ?? [];
   const target = props.selectedElementIds[0];
+  const hasAnimations = list.length > 0;
 
   const add = () => {
     if (!target) return;
@@ -49,16 +52,29 @@ export function AnimationSection(props: {
         Animation
       </h3>
       <div className="space-y-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 w-full px-2 text-xs"
-          disabled={!target}
-          onClick={add}
-        >
-          + Add animation
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 flex-1 px-2 text-xs"
+            disabled={!target}
+            onClick={add}
+          >
+            + Add animation
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Preview animations"
+            className="h-7 px-2"
+            disabled={!hasAnimations}
+            onClick={() => props.editor.previewAnimations()}
+          >
+            <IconPlayerPlay size={14} />
+          </Button>
+        </div>
         {list.length > 0 && (
           <ol data-testid="anim-list" className="space-y-2 pt-1">
             {list.map((a, i) => (
