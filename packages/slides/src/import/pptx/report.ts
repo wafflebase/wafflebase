@@ -20,6 +20,16 @@ export class ImportReport {
   // TableElement importer (P2 of slides-tables). Tables now round-trip
   // as a full structured element: there is no lossy path to count.
 
+  // Object animation counters (populated by parseTiming).
+  /** Animation presets with no known mapping — preserved as pptxPreset for round-trip. */
+  animationPresetsUnmapped = 0;
+  /** Effect targets whose spid could not be resolved to an element id — skipped. */
+  animationTargetsMissing = 0;
+  /** <p:seq nodeType="interactiveSeq"> trigger sequences — dropped entirely. */
+  animationTriggersDropped = 0;
+  /** <p:audio>/<p:video> media time-nodes — dropped entirely. */
+  animationMediaDropped = 0;
+
   summary(): string {
     const parts: string[] = [];
     if (this.groupsFlattened) parts.push(`${this.groupsFlattened} group(s) expanded`);
@@ -30,6 +40,14 @@ export class ImportReport {
     if (this.skippedImages) parts.push(`${this.skippedImages} image(s) skipped`);
     if (this.transitionsApproximated)
       parts.push(`${this.transitionsApproximated} transition(s) approximated`);
+    if (this.animationPresetsUnmapped)
+      parts.push(`${this.animationPresetsUnmapped} animation preset(s) unmapped`);
+    if (this.animationTargetsMissing)
+      parts.push(`${this.animationTargetsMissing} animation target(s) missing`);
+    if (this.animationTriggersDropped)
+      parts.push(`${this.animationTriggersDropped} animation trigger(s) dropped`);
+    if (this.animationMediaDropped)
+      parts.push(`${this.animationMediaDropped} animation media node(s) dropped`);
     if (parts.length === 0) return 'Imported with no fallbacks.';
     return `Imported with ${parts.join(', ')}.`;
   }
