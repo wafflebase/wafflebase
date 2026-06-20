@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/tokens",
   "private": true,
-  "version": "0.4.5",
+  "version": "0.4.6",
   "license": "Apache-2.0",
   "description": "Shared design tokens for Wafflebase (palette, semantic colors, radius, typography)",
   "type": "module",
