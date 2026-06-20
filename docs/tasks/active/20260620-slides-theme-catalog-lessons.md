@@ -24,8 +24,34 @@
   resolve. Keep planned/not-yet-existing files out of backtick
   `name.ext` form anyway, for honesty.
 
-## To fill at completion
+## Outcomes
 
-- Bundle-gate delta after 23 literals.
-- Any contrast failures found by the AA check and how palettes were
-  adjusted.
+- **Bundle gate:** passed unchanged. `verify:frontend:chunks` stayed
+  green after going 5 → 23 themes. Confirmed the pre-flight assumption:
+  thumbnails are live-rendered from the `Theme` literal, so themes are
+  pure data tree-shaken into the slides chunk — no PNG/SVG assets.
+- **Contrast:** all 23 themes passed WCAG-AA (text over both background
+  and backgroundAlt) on the first run — **no palette adjustment was
+  needed**. The hand-authored palettes were all dark-on-light or
+  light-on-dark with comfortable margin.
+
+## Plan gap caught during execution
+
+- The visual-scenario set is defined in **two** places that must stay in
+  lockstep: `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
+  (the scenario objects) **and** a hardcoded `scenarioIds` array in
+  `packages/frontend/scripts/verify-visual-browser.mjs`. The plan named
+  only the first. The Task 5 implementer caught the second; without it the
+  Docker baseline-update run would not cover the new scenarios. **Lesson:**
+  when retargeting harness visual scenarios, grep the whole `frontend`
+  package for the scenario ids — the runner keeps its own allow-list.
+  Beware the decoy id `slides-canvas-shapes-catalog-material` (a shapes
+  scenario, not the Material theme) — do not remove it.
+
+## Env note
+
+- The Docker visual lane image is amd64 under Rosetta on arm64, which
+  produces sub-pixel noise on unrelated scenarios; the overall
+  `verify:browser:docker` can exit non-zero from pre-existing drift even
+  when the changed scenarios match. Regenerate and commit only the
+  in-scope baselines; roll back unrelated churn with `git checkout --`.
