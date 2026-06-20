@@ -41,7 +41,7 @@ export const buildDiagStripe: PathBuilder = ({ w, h }, adjustments) => {
 export const DIAG_STRIPE_HANDLES: readonly AdjustmentHandle[] = [
   linearTopEdgeHandle({
     forward: (a, { w }) => (a / 100000) * w,
-    inverse: (x, { w }) => (x / w) * 100000,
+    inverse: (x, { w }) => (w > 0 ? (x / w) * 100000 : 0),
     spec: DIAG_STRIPE_ADJUSTMENTS[0],
   }),
 ];

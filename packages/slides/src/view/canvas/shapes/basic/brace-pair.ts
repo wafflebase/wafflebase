@@ -62,8 +62,11 @@ export const BRACE_PAIR_HANDLES: readonly AdjustmentHandle[] = [
     },
     apply: ({ w, h }, _start, pointer) => {
       const ss = Math.min(w, h);
-      const y = Math.max(0, Math.min(ss / 2, pointer.y));
-      const raw = ss > 0 ? Math.round((y / (ss / 2)) * 50000) : DEF_BRACE_PAIR_RADIUS;
+      // The radius (and thus the diamond) tops out at ss/4 (a = 25000),
+      // so map the drag over [0, ss/4] — clamping to ss/2 here would
+      // leave the upper half of the travel as a dead zone.
+      const y = Math.max(0, Math.min(ss / 4, pointer.y));
+      const raw = ss > 0 ? Math.round((y / (ss / 4)) * 25000) : DEF_BRACE_PAIR_RADIUS;
       return [Math.max(0, Math.min(25000, raw))];
     },
   },
