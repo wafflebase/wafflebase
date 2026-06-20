@@ -7,10 +7,12 @@
 // radially outward at the "head" end so the picker icon can
 // distinguish all four orientations.
 //
-// V0 caveat: the tip is a single point — the arrowhead does not
-// flare wider than the band's thickness. Adding a flare would push
-// the upper/lower shoulders outside the frame at high band radii.
-// A proper wide-arrowhead refinement is deferred (see lessons doc).
+// The shaft is a quarter annular band; at the head it terminates in a
+// triangular arrowhead that flares wider than the band (shoulders at
+// `outerR + flare` / `innerR - flare`) and points tangentially. The
+// band's `outerR = min(w,h) - headLen`, so the outer shoulder
+// (`outerR + flare`, with `flare = headLen`) lands exactly on the
+// frame edge and never clips.
 
 import type {
   AdjustmentHandle,
@@ -72,13 +74,31 @@ export function buildCurvedArrow(
   const pivot = spec.pivot(size);
   const outerR = Math.min(size.w, size.h) - headLen;
   const innerR = Math.max(0, outerR - shaft);
+  const centerR = (outerR + innerR) / 2;
+  // Arrowhead flares symmetrically about the band centreline: the
+  // shoulders sit `shaft` beyond each band edge (head width = 3×shaft),
+  // clamped into the frame. Symmetric flare avoids the inner shoulder
+  // collapsing onto the pivot for thin bands.
+  const headHalf = shaft;
+  const shoulderOuterR = Math.min(Math.min(size.w, size.h), centerR + shaft + headHalf);
+  const shoulderInnerR = Math.max(0, centerR - shaft - headHalf);
+  // Arrowhead occupies an angular slice `headSpan` of the quarter,
+  // capped at half the sweep so the shaft never vanishes.
+  const sweep = spec.headTheta - spec.tailTheta; // signed, |.| = π/2
+  const s = Math.sign(sweep) || 1;
+  const headSpan = Math.min(
+    Math.abs(sweep) * 0.5,
+    centerR > 0 ? headLen / centerR : 0,
+  );
+  const thetaBase = spec.headTheta - s * headSpan;
+
   const outer = polylineArc(
     pivot.x,
     pivot.y,
     outerR,
     outerR,
     spec.tailTheta,
-    spec.headTheta,
+    thetaBase,
     16,
   );
   const inner = polylineArc(
@@ -86,28 +106,25 @@ export function buildCurvedArrow(
     pivot.y,
     innerR,
     innerR,
-    spec.headTheta,
+    thetaBase,
     spec.tailTheta,
     16,
   );
-  const outerHead = outer[outer.length - 1];
-  const innerHead = inner[0];
-  // Tip extends radially outward from pivot through outer head end.
-  const dx = outerHead.x - pivot.x;
-  const dy = outerHead.y - pivot.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  const tipX = outerHead.x + (len > 0 ? (dx / len) * headLen : 0);
-  const tipY = outerHead.y + (len > 0 ? (dy / len) * headLen : 0);
+  const at = (r: number, theta: number): Point => ({
+    x: pivot.x + r * Math.cos(theta),
+    y: pivot.y + r * Math.sin(theta),
+  });
+  const shoulderOuter = at(shoulderOuterR, thetaBase);
+  const shoulderInner = at(shoulderInnerR, thetaBase);
+  const tip = at(centerR, spec.headTheta);
+
   const path = new Path2D();
   path.moveTo(outer[0].x, outer[0].y);
-  for (let i = 1; i < outer.length; i++) {
-    path.lineTo(outer[i].x, outer[i].y);
-  }
-  path.lineTo(tipX, tipY);
-  path.lineTo(innerHead.x, innerHead.y);
-  for (let i = 1; i < inner.length; i++) {
-    path.lineTo(inner[i].x, inner[i].y);
-  }
+  for (let i = 1; i < outer.length; i++) path.lineTo(outer[i].x, outer[i].y);
+  path.lineTo(shoulderOuter.x, shoulderOuter.y);
+  path.lineTo(tip.x, tip.y);
+  path.lineTo(shoulderInner.x, shoulderInner.y);
+  for (const p of inner) path.lineTo(p.x, p.y);
   path.closePath();
   return path;
 }

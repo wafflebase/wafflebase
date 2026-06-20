@@ -9,20 +9,21 @@ import { angularHandle } from '../handles';
 
 /**
  * `pie` — closed pie slice from `adj1` to `adj2`, swept clockwise
- * with wrap. Storage in OOXML 60000ths of a degree.
- * Default: 270° → 0° (a NE-quadrant 1/4 slice).
+ * with wrap. Storage in OOXML 60000ths of a degree. Defaults match
+ * the ECMA-376 preset: 0° → 270°, i.e. a 3/4 pie with the bite in the
+ * top-right quadrant (the PowerPoint/Google default).
  */
 export const PIE_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
     name: 'Start angle',
-    defaultValue: 16200000, // 270°
+    defaultValue: 0, // 0°
     min: 0,
     max: 21600000,
     axisLabel: 'start',
   },
   {
     name: 'End angle',
-    defaultValue: 0,
+    defaultValue: 16200000, // 270°
     min: 0,
     max: 21600000,
     axisLabel: 'end',
