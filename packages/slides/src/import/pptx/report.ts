@@ -13,6 +13,7 @@ export class ImportReport {
   unknownShapes = 0;
   unknownLayoutTypes = 0;
   skippedImages = 0;
+  transitionsApproximated = 0;
 
   // Note: `tablesFlattened`, `tableMergesIgnored`, and
   // `tableBordersApproximated` were retired alongside the structured
@@ -27,6 +28,8 @@ export class ImportReport {
     if (this.unknownShapes) parts.push(`${this.unknownShapes} unknown shape(s) → rect`);
     if (this.unknownLayoutTypes) parts.push(`${this.unknownLayoutTypes} unknown layout type(s)`);
     if (this.skippedImages) parts.push(`${this.skippedImages} image(s) skipped`);
+    if (this.transitionsApproximated)
+      parts.push(`${this.transitionsApproximated} transition(s) approximated`);
     if (parts.length === 0) return 'Imported with no fallbacks.';
     return `Imported with ${parts.join(', ')}.`;
   }
