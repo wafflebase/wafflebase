@@ -58,6 +58,47 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
     [resolveCell, onSelect],
   );
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const clamp = (n: number) => Math.max(0, Math.min(n, MAX_SIZE - 1));
+      // stopPropagation on handled keys so the enclosing Radix menu's
+      // arrow-key navigation doesn't also fire and steal focus.
+      switch (e.key) {
+        case "ArrowRight":
+          e.preventDefault();
+          e.stopPropagation();
+          setHoverCol((c) => clamp((c < 0 ? -1 : c) + 1));
+          if (hoverRow < 0) setHoverRow(0);
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          e.stopPropagation();
+          setHoverCol((c) => clamp(c - 1));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          e.stopPropagation();
+          setHoverRow((r) => clamp((r < 0 ? -1 : r) + 1));
+          if (hoverCol < 0) setHoverCol(0);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          e.stopPropagation();
+          setHoverRow((r) => clamp(r - 1));
+          break;
+        case "Enter":
+        case " ":
+          e.preventDefault();
+          e.stopPropagation();
+          if (hoverRow >= 0 && hoverCol >= 0) {
+            onSelect(hoverRow + 1, hoverCol + 1);
+          }
+          break;
+      }
+    },
+    [hoverRow, hoverCol, onSelect],
+  );
+
   const handleMouseLeave = useCallback((e: React.MouseEvent) => {
     const grid = gridRef.current;
     if (grid) {
@@ -101,10 +142,19 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
     <div className="p-2">
       <div
         ref={gridRef}
+        role="grid"
+        tabIndex={0}
+        aria-label={
+          hoverRow >= 0 && hoverCol >= 0
+            ? `Insert ${hoverRow + 1} by ${hoverCol + 1} table`
+            : "Insert table, use arrow keys to size"
+        }
+        className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
         style={{ width: gridW, height: gridH, position: "relative" }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
       >
         {cells}
       </div>

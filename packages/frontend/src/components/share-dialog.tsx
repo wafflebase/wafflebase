@@ -173,6 +173,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
+                          aria-label="Copy link"
                           onClick={() => handleCopy(link.token)}
                         >
                           <IconCopy className="h-3.5 w-3.5" />
@@ -181,6 +182,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
+                          aria-label="Revoke link"
                           onClick={() => handleDelete(link.id)}
                         >
                           <IconTrash className="h-3.5 w-3.5" />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { IconTable } from '@tabler/icons-react';
 import type { SlidesEditor } from '@wafflebase/slides';
 import {
@@ -40,6 +40,7 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
   // selection yet" so the legend reads `0 × 0`.
   const [hoverRow, setHoverRow] = useState(-1);
   const [hoverCol, setHoverCol] = useState(-1);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const commit = (rows: number, cols: number): void => {
     if (!editor || rows < 1 || cols < 1) return;
@@ -51,6 +52,43 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
 
   const rowsLabel = hoverRow + 1;
   const colsLabel = hoverCol + 1;
+
+  const handleGridKeyDown = (e: React.KeyboardEvent): void => {
+    const clampRow = (n: number) =>
+      Math.max(0, Math.min(n, PICKER_MAX_ROWS - 1));
+    const clampCol = (n: number) =>
+      Math.max(0, Math.min(n, PICKER_MAX_COLS - 1));
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault();
+        e.stopPropagation();
+        setHoverCol((c) => clampCol((c < 0 ? -1 : c) + 1));
+        if (hoverRow < 0) setHoverRow(0);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        e.stopPropagation();
+        setHoverCol((c) => clampCol(c - 1));
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        e.stopPropagation();
+        setHoverRow((r) => clampRow((r < 0 ? -1 : r) + 1));
+        if (hoverCol < 0) setHoverCol(0);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        e.stopPropagation();
+        setHoverRow((r) => clampRow(r - 1));
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        e.stopPropagation();
+        if (hoverRow >= 0 && hoverCol >= 0) commit(hoverRow + 1, hoverCol + 1);
+        break;
+    }
+  };
 
   return (
     <DropdownMenu
@@ -81,14 +119,24 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
       <DropdownMenuContent
         align="start"
         className="flex flex-col gap-1 p-2"
+        // Radix focuses the menu content container on open; redirect
+        // focus to the grid so its arrow-key handler is reachable.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          gridRef.current?.focus();
+        }}
         onMouseLeave={() => {
           setHoverRow(-1);
           setHoverCol(-1);
         }}
       >
         <div
+          ref={gridRef}
           role="grid"
-          aria-label={`Insert ${rowsLabel} by ${colsLabel} table`}
+          tabIndex={0}
+          aria-label={`Insert ${rowsLabel} by ${colsLabel} table, use arrow keys to size`}
+          onKeyDown={handleGridKeyDown}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
           style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${PICKER_MAX_COLS}, ${CELL_PX}px)`,

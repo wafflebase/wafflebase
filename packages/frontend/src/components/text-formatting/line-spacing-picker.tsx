@@ -95,6 +95,7 @@ export function LineSpacingPicker({
             <input
               autoFocus
               type="number"
+              aria-label="Custom line spacing"
               step={0.05}
               min={LINE_SPACING_MIN}
               max={LINE_SPACING_MAX}

@@ -430,6 +430,7 @@ export function TableControls({
               <input
                 autoFocus
                 type="number"
+                aria-label="Cell padding (px)"
                 step={1}
                 min={PADDING_MIN}
                 max={PADDING_MAX}
