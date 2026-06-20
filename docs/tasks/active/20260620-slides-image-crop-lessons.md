@@ -43,3 +43,13 @@
   multi-agent review surfaced the `disposed`-guard leak, the dead `before`
   state, and the duplicated drag loop — none of which the passing tests
   flagged. Worth running before pushing.
+
+- **The frontend has no `tsc` gate in `verify` — `vite build` uses esbuild
+  and strips types without checking them.** Adding methods to the
+  `SlidesEditor` interface didn't fail any local/CI gate, but the visual
+  harness's hand-written `makeStubEditor` (`slides-scenarios.tsx`) was
+  missing them, so `editor.isCropping()` threw at **browser runtime** and
+  only the `verify-browser` (Docker) job caught it. When extending the
+  `SlidesEditor` interface, update the harness stub in the same change,
+  and run `pnpm --filter @wafflebase/frontend exec tsc --noEmit` (manual)
+  + `pnpm verify:browser:docker` before pushing UI-touching changes.

@@ -803,6 +803,7 @@ function SlideCanvas({
  *   - onSelectionChange / onCurrentSlideChange / onTextEditingChange
  *   - getSelection() / getCurrentSlideId() / isTextEditing()
  *   - getEditingElementId() / getActiveTextEditor()
+ *   - isCropping() / onCropChange() (image controls' Crop button state)
  *
  * Every other method is a no-op so the toolbar renders in the desired
  * state without needing a real canvas + DOM overlay + mounted editor.
@@ -844,6 +845,11 @@ function makeStubEditor(opts: {
     getActiveTextEditor: () => textEditor,
     enterTextEditing: () => {},
     exitTextEditing: () => {},
+    enterImageCrop: () => {},
+    exitImageCrop: () => {},
+    isCropping: () => false,
+    onCropChange: noop,
+    resetImageCrop: () => {},
     setHostSize: () => {},
     setRulerScroll: () => {},
     align: () => {},
