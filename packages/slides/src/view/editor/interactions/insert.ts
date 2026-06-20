@@ -1,6 +1,6 @@
-import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import type { ElementInit, ShapeKind } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
+import { makeDefaultSlidesTextBlock } from '../default-text';
 
 /**
  * Subset of editor `InsertKind` that `buildInsertElement` handles —
@@ -322,23 +322,11 @@ export function buildInsertElement(
       frame: { x, y, w, h: TEXT_DEFAULT_H, rotation: 0 },
       data: {
         autofit: 'grow',
-        blocks: [{
-          id: 'placeholder',
-          type: 'paragraph',
-          // Bind the inline color to the deck's `text` role so the box
-          // renders in the active theme. The text-renderer's color
-          // resolver also remaps the docs default `'#000000'` to the
-          // `text` role (covers freshly typed runs that inherit
-          // `DEFAULT_INLINE_STYLE` instead of this explicit role).
-          inlines: [{ text: '', style: { color: DEFAULT_TEXT_COLOR } }],
-          // Fully-defaulted style — `computeLayout` reads `marginTop`
-          // and `marginBottom` without a fallback, so a sparse style
-          // would NaN the cumulative y and the slide canvas would
-          // paint at a different offset than the text-box editor
-          // (which seeds through `MemDocStore.setDocument`, which
-          // normalises). See `text-renderer.ts:drawText`.
-          style: { ...DEFAULT_BLOCK_STYLE },
-        } as Block],
+        // Seed the slides default inline style (theme `text` color +
+        // SLIDES_DEFAULT_TEXT_SIZE) so a new text box reads at the slide
+        // default rather than the docs 11 pt fallback. Shared with the
+        // empty-body cell / shape editor seed in `mountSlidesTextBox`.
+        blocks: [makeDefaultSlidesTextBlock()],
       },
     };
   }
