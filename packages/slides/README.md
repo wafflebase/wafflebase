@@ -45,6 +45,7 @@ in the package itself; the Yorkie adapter and React shell live in
 | `Layout` | Named placeholder geometry (Title slide, Section header, Big number, etc.); 11 Google-Slides-parity built-ins |
 | `Slide` | Picks one `layoutId`, owns its own `elements[]`, `background`, `notes` |
 | `Element` | `TextElement` \| `ShapeElement` \| `ImageElement` — all carry an `id` and a `Frame` (x/y/w/h/rotation) |
+| Image crop | `ImageElement.data.crop` is a normalized `0..1` source rect. Edit it interactively via `editor.enterImageCrop(id)` (double-click an image) — drag the black handles to trim, drag to pan, Enter/click-out commits, Esc cancels. `resetImageCrop(id)` clears it and restores proportions. P0 = rectangular; crop-to-shape is P1. See [docs/design/slides/slides-image-crop.md](../../docs/design/slides/slides-image-crop.md) |
 | `ThemeColor` | `{ kind: 'role', role, tint?, shade? }` \| `{ kind: 'srgb', value }` — hybrid binding so role colors follow theme switches |
 | `ThemeFont` | `{ kind: 'role', role: 'heading' \| 'body' }` \| `{ kind: 'family', family }` |
 | `Frame` | `{ x, y, w, h, rotation }` — logical 1920×1080 coordinates |

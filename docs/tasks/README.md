@@ -18,11 +18,16 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| a11y + Radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./active/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./active/20260620-a11y-radix-cleanup-lessons.md) |
 | design docs archive cleanup (2026-06-20) | [20260620-design-docs-archive-cleanup-todo.md](./active/20260620-design-docs-archive-cleanup-todo.md) | [20260620-design-docs-archive-cleanup-lessons.md](./active/20260620-design-docs-archive-cleanup-lessons.md) |
 | docs comments polish (2026-06-20) | [20260620-docs-comments-polish-todo.md](./active/20260620-docs-comments-polish-todo.md) | [20260620-docs-comments-polish-lessons.md](./active/20260620-docs-comments-polish-lessons.md) |
 | release v0.4.6 (2026-06-20) | [20260620-release-v0.4.6-todo.md](./active/20260620-release-v0.4.6-todo.md) | - |
+| slides format effects (2026-06-20) | [20260620-slides-format-effects-todo.md](./active/20260620-slides-format-effects-todo.md) | - |
+| slides image crop (2026-06-20) | [20260620-slides-image-crop-todo.md](./active/20260620-slides-image-crop-todo.md) | [20260620-slides-image-crop-lessons.md](./active/20260620-slides-image-crop-lessons.md) |
+| slides shape gaps (2026-06-20) | [20260620-slides-shape-gaps-todo.md](./active/20260620-slides-shape-gaps-todo.md) | [20260620-slides-shape-gaps-lessons.md](./active/20260620-slides-shape-gaps-lessons.md) |
+| slides theme catalog (2026-06-20) | [20260620-slides-theme-catalog-todo.md](./active/20260620-slides-theme-catalog-todo.md) | [20260620-slides-theme-catalog-lessons.md](./active/20260620-slides-theme-catalog-lessons.md) |
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
-| slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | - |
+| slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./active/20260608-slides-tables-lessons.md) |
 | slides hover text edit browser smoke (2026-06-07) | [20260607-slides-hover-text-edit-browser-smoke-todo.md](./active/20260607-slides-hover-text-edit-browser-smoke-todo.md) | - |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |

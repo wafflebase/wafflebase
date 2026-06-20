@@ -9,7 +9,7 @@ import {
 import { IconPointer, IconLetterT, IconPhoto } from '@tabler/icons-react';
 import { ShapePicker } from '../shape-picker';
 import { LinePicker } from '../line-picker';
-import { isLinePickerKind } from '../line-picker-helpers';
+import { isLineToolKind } from '../line-picker-helpers';
 import { TablePicker } from '../table-picker';
 
 export interface InsertGroupProps {
@@ -90,10 +90,13 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         <TooltipContent>Insert image</TooltipContent>
       </Tooltip>
 
-      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, not connector) */}
+      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
+          not a line-tool kind: connectors / scribble live in Line ▾) */}
       <ShapePicker
         activeKind={
-          insertMode && insertMode !== 'text' && !isLinePickerKind(insertMode)
+          insertMode &&
+          insertMode !== 'text' &&
+          !isLineToolKind(insertMode)
             ? insertMode
             : null
         }
@@ -101,9 +104,9 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         disabled={disabled || !editor}
       />
 
-      {/* Line ▾ — active when insertMode is a ConnectorInsertKind */}
+      {/* Line ▾ — connectors + the freehand scribble */}
       <LinePicker
-        activeKind={isLinePickerKind(insertMode) ? insertMode : null}
+        activeKind={isLineToolKind(insertMode) ? insertMode : null}
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />

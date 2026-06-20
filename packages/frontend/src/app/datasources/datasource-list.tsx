@@ -243,6 +243,7 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
       <div className="flex items-center justify-between py-4">
         <Input
           placeholder="Filter by name..."
+          aria-label="Filter data sources by name"
           value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
           onChange={(e) =>
             table.getColumn("name")?.setFilterValue(e.target.value)

@@ -9,6 +9,12 @@ import {
   IconLetterCase,
   IconRegex,
 } from "@tabler/icons-react";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DocsFindBarProps {
   editor: EditorAPI | null;
@@ -159,12 +165,8 @@ export function DocsFindBar({
 
   const iconBtnClass =
     "flex items-center justify-center w-6 h-6 rounded hover:bg-muted text-muted-foreground disabled:opacity-40";
-  const toggleBtnClass = (active: boolean) =>
-    `flex items-center justify-center w-6 h-6 rounded ${
-      active
-        ? "bg-primary/10 text-primary"
-        : "hover:bg-muted text-muted-foreground"
-    }`;
+  const toggleClass =
+    "w-6 h-6 min-w-6 p-0 rounded text-muted-foreground [&_svg:not([class*='size-'])]:size-3.5";
 
   const containerRect = containerRef.current?.getBoundingClientRect();
   const fixedTop = containerRect?.top ?? 0;
@@ -184,46 +186,83 @@ export function DocsFindBar({
           type="text"
           className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Find"
+          aria-label="Find"
           value={query}
           onChange={(e) => handleQueryChange(e.target.value)}
           onKeyDown={handleSearchKeyDown}
         />
-        <span className="min-w-[60px] text-center text-xs text-muted-foreground">
+        <span
+          className="min-w-[60px] text-center text-xs text-muted-foreground"
+          aria-live="polite"
+        >
           {query ? counterText : ""}
         </span>
-        <button
-          className={toggleBtnClass(caseSensitive)}
-          title="Match case"
-          onClick={() => setCaseSensitive(!caseSensitive)}
-        >
-          <IconLetterCase size={14} />
-        </button>
-        <button
-          className={toggleBtnClass(useRegex)}
-          title="Use regex"
-          onClick={() => setUseRegex(!useRegex)}
-        >
-          <IconRegex size={14} />
-        </button>
-        <button
-          className={iconBtnClass}
-          title="Previous (Shift+Enter)"
-          disabled={matchCount === 0}
-          onClick={handlePrevious}
-        >
-          <IconChevronUp size={14} />
-        </button>
-        <button
-          className={iconBtnClass}
-          title="Next (Enter)"
-          disabled={matchCount === 0}
-          onClick={handleNext}
-        >
-          <IconChevronDown size={14} />
-        </button>
-        <button className={iconBtnClass} title="Close (Esc)" onClick={handleClose}>
-          <IconX size={14} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              className={toggleClass}
+              aria-label="Match case"
+              pressed={caseSensitive}
+              onPressedChange={setCaseSensitive}
+            >
+              <IconLetterCase size={14} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Match case</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              className={toggleClass}
+              aria-label="Use regex"
+              pressed={useRegex}
+              onPressedChange={setUseRegex}
+            >
+              <IconRegex size={14} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Use regex</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={iconBtnClass}
+              aria-label="Previous match"
+              disabled={matchCount === 0}
+              onClick={handlePrevious}
+            >
+              <IconChevronUp size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Previous (Shift+Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={iconBtnClass}
+              aria-label="Next match"
+              disabled={matchCount === 0}
+              onClick={handleNext}
+            >
+              <IconChevronDown size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Next (Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={iconBtnClass}
+              aria-label="Close find bar"
+              onClick={handleClose}
+            >
+              <IconX size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Close (Esc)</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Replace row */}
@@ -233,6 +272,7 @@ export function DocsFindBar({
             type="text"
             className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             placeholder="Replace"
+            aria-label="Replace with"
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
             onKeyDown={handleReplaceKeyDown}

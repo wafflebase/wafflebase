@@ -803,6 +803,7 @@ function SlideCanvas({
  *   - onSelectionChange / onCurrentSlideChange / onTextEditingChange
  *   - getSelection() / getCurrentSlideId() / isTextEditing()
  *   - getEditingElementId() / getActiveTextEditor()
+ *   - isCropping() / onCropChange() (image controls' Crop button state)
  *
  * Every other method is a no-op so the toolbar renders in the desired
  * state without needing a real canvas + DOM overlay + mounted editor.
@@ -844,6 +845,11 @@ function makeStubEditor(opts: {
     getActiveTextEditor: () => textEditor,
     enterTextEditing: () => {},
     exitTextEditing: () => {},
+    enterImageCrop: () => {},
+    exitImageCrop: () => {},
+    isCropping: () => false,
+    onCropChange: noop,
+    resetImageCrop: () => {},
     setHostSize: () => {},
     setRulerScroll: () => {},
     align: () => {},
@@ -911,22 +917,28 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     render: () => <SlideCanvas doc={makeThemedDoc("default-dark")} />,
   },
   {
-    id: "slides-canvas-streamline",
-    title: "Theme — Streamline",
-    description: "Same slide under the streamline theme.",
-    render: () => <SlideCanvas doc={makeThemedDoc("streamline")} />,
-  },
-  {
     id: "slides-canvas-focus",
     title: "Theme — Focus",
     description: "Same slide under the focus theme (cream + warm accents).",
     render: () => <SlideCanvas doc={makeThemedDoc("focus")} />,
   },
   {
-    id: "slides-canvas-material",
-    title: "Theme — Material",
-    description: "Same slide under the material theme.",
-    render: () => <SlideCanvas doc={makeThemedDoc("material")} />,
+    id: "slides-canvas-pop",
+    title: "Theme — Pop",
+    description: "Same slide under the vibrant pop theme.",
+    render: () => <SlideCanvas doc={makeThemedDoc("pop")} />,
+  },
+  {
+    id: "slides-canvas-slate",
+    title: "Theme — Slate",
+    description: "Same slide under the dark slate theme — light text on a dark background.",
+    render: () => <SlideCanvas doc={makeThemedDoc("slate")} />,
+  },
+  {
+    id: "slides-canvas-wafflebase",
+    title: "Theme — Wafflebase",
+    description: "Same slide under the Wafflebase brand theme (syrup/butter/berry palette).",
+    render: () => <SlideCanvas doc={makeThemedDoc("wafflebase")} />,
   },
   // Layout coverage — three structurally diverse layouts to validate
   // placeholder geometry on the canvas pipeline.

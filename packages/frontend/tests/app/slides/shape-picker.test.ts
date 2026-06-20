@@ -39,7 +39,9 @@ import {
  * actionButtonBlank — infrastructure pilot, new "Action Buttons"
  * section at end) → 117 (T7b: 11 remaining action buttons —
  * final P3-B catalog) → 115 (lines moved out into
- * `<LinePicker />`, dropping 2 connector entries).
+ * `<LinePicker />`, dropping 2 connector entries) → 135 (P3.5
+ * PPT-parity: +2 double brackets, +2 waves, +10 flowchart, +4
+ * high-point stars, +2 explosions) → 137 (+2 curved ribbons).
  */
 
 describe("shape-picker categories", () => {
@@ -73,12 +75,12 @@ describe("shape-picker categories", () => {
     }
   });
 
-  it("contains exactly 115 ShapeKind entries across all categories", () => {
+  it("contains exactly 137 ShapeKind entries across all categories", () => {
     const total = SHAPE_PICKER_CATEGORIES.reduce(
       (sum: number, cat: Category) => sum + cat.kinds.length,
       0,
     );
-    expect(total).toBe(115);
+    expect(total).toBe(137);
   });
 
   it("each entry has a non-empty kind and label", () => {

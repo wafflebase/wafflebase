@@ -8,10 +8,15 @@ import {
 } from '../../../../../src/view/canvas/shapes/basic/diag-stripe';
 
 describe('buildDiagStripe', () => {
-  it('paints a triangular wedge at the NW corner', () => {
+  it('paints a diagonal stripe band (not a corner triangle)', () => {
     const path = buildDiagStripe({ w: 100, h: 100 });
     const ctx = createTestCanvas(200, 200).getContext('2d');
-    expect(ctx.isPointInPath(path, 10, 10)).toBe(true);
+    // Inside the band (between the two diagonals).
+    expect(ctx.isPointInPath(path, 40, 40)).toBe(true);
+    // Above the band's upper-left edge — now empty (was filled in the
+    // old triangular V0).
+    expect(ctx.isPointInPath(path, 10, 10)).toBe(false);
+    // Below the main diagonal — empty.
     expect(ctx.isPointInPath(path, 80, 80)).toBe(false);
   });
 

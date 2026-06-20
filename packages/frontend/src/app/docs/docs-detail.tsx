@@ -11,6 +11,12 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase, IconMessage } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
@@ -174,17 +180,24 @@ function DocsLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
-                commentsPanelOpen ? "bg-muted" : ""
-              }`}
-              aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
-              aria-pressed={commentsPanelOpen}
-              onClick={() => setCommentsPanelOpen((v) => !v)}
-            >
-              <IconMessage size={16} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-7 w-7 min-w-7 p-0"
+                  aria-label={
+                    commentsPanelOpen ? "Hide comments" : "Show comments"
+                  }
+                  pressed={commentsPanelOpen}
+                  onPressedChange={setCommentsPanelOpen}
+                >
+                  <IconMessage size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {commentsPanelOpen ? "Hide comments" : "Show comments"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence
               onSelectPeer={handleSelectPeer}

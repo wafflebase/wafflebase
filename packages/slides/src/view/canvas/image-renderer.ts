@@ -26,9 +26,13 @@ export function drawImage(
     // outer ghost/selection passes composing correctly.
     const opacity = data.opacity;
     const useAlpha = typeof opacity === 'number' && opacity < 1;
-    if (useAlpha) {
+    // Recolor + brightness/contrast compose into a single `ctx.filter`.
+    const filter = imageFilter(data);
+    const useFilter = filter !== 'none';
+    if (useAlpha || useFilter) {
       ctx.save();
-      ctx.globalAlpha = ctx.globalAlpha * opacity;
+      if (useAlpha) ctx.globalAlpha = ctx.globalAlpha * (opacity as number);
+      if (useFilter) ctx.filter = filter;
     }
     if (data.crop) {
       const sx = data.crop.x * img.naturalWidth;
@@ -39,7 +43,7 @@ export function drawImage(
     } else {
       ctx.drawImage(img, 0, 0, w, h);
     }
-    if (useAlpha) ctx.restore();
+    if (useAlpha || useFilter) ctx.restore();
     return true;
   }
   // Image failed to load — paint a placeholder so the user can see the
@@ -50,6 +54,82 @@ export function drawImage(
     return true;
   }
   return false;
+}
+
+/**
+ * Build the CSS `ctx.filter` string for an image's recolor + brightness
+ * + contrast adjustments, or `'none'` when no adjustment applies.
+ * Brightness / contrast are stored as `[-1, 1]` deltas; CSS expects a
+ * multiplier where `1` is unchanged, so each maps to `1 + clamp(v)`.
+ */
+export function imageFilter(data: ImageElement['data']): string {
+  const parts: string[] = [];
+  if (data.recolor === 'grayscale') parts.push('grayscale(1)');
+  else if (data.recolor === 'sepia') parts.push('sepia(1)');
+  const clamp = (v: number): number => Math.max(-1, Math.min(1, v));
+  if (typeof data.brightness === 'number' && data.brightness !== 0) {
+    parts.push(`brightness(${(1 + clamp(data.brightness)).toFixed(3)})`);
+  }
+  if (typeof data.contrast === 'number' && data.contrast !== 0) {
+    parts.push(`contrast(${(1 + clamp(data.contrast)).toFixed(3)})`);
+  }
+  return parts.length > 0 ? parts.join(' ') : 'none';
+}
+
+/**
+ * Crop-session preview. `full`/`window` are in the element's CENTRED-
+ * LOCAL space (origin at the frame centre, rotation removed); the
+ * preview applies `center` + `rotation` so a rotated image crops in its
+ * own rotated frame. The `full` rect is the whole bitmap at the current
+ * display scale; the `window` rect is the bright crop window over it.
+ * The region of `full` outside `window` is dimmed so the user sees what
+ * is being trimmed away (Google-Slides crop mode).
+ */
+export interface CropPreview {
+  /** Element being cropped — masked from the normal element pass. */
+  elementId: string;
+  src: string;
+  /** Fixed world rotation centre of the session. */
+  center: { x: number; y: number };
+  /** Frame rotation in radians (0 for axis-aligned images). */
+  rotation: number;
+  full: { x: number; y: number; w: number; h: number };
+  window: { x: number; y: number; w: number; h: number };
+  /** Opacity of the dimmed (trimmed-away) region. Default 0.4. */
+  dimAlpha?: number;
+}
+
+/**
+ * Paint a crop-session preview: the full bitmap dimmed, then the crop
+ * window re-painted at full opacity through a clip. No-op while the
+ * image is still loading (caller re-renders on load).
+ */
+export function drawCropPreview(
+  ctx: CanvasRenderingContext2D,
+  preview: CropPreview,
+  onLoad: () => void,
+): void {
+  const img = getOrLoadImage(preview.src, onLoad);
+  if (!img) return;
+  const { full, window, center, rotation } = preview;
+  ctx.save();
+  // Move into the element's rotated, centre-origin local frame so the
+  // centred-local full/window rects paint in the right place.
+  ctx.translate(center.x, center.y);
+  if (rotation !== 0) ctx.rotate(rotation);
+  // 1. Dimmed full bitmap — the trimmed-away region shows through here.
+  ctx.save();
+  ctx.globalAlpha = ctx.globalAlpha * (preview.dimAlpha ?? 0.4);
+  ctx.drawImage(img, full.x, full.y, full.w, full.h);
+  ctx.restore();
+  // 2. Bright window — clip to the crop window, repaint the full bitmap.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(window.x, window.y, window.w, window.h);
+  ctx.clip();
+  ctx.drawImage(img, full.x, full.y, full.w, full.h);
+  ctx.restore();
+  ctx.restore();
 }
 
 function drawImageFailurePlaceholder(

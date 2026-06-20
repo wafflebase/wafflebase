@@ -78,6 +78,7 @@ export function DataSourceSelector({
                   {datasources.map((ds) => (
                     <button
                       key={ds.id}
+                      aria-pressed={selectedId === ds.id}
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 rounded-md border text-sm text-left cursor-pointer",
                         "hover:bg-muted/50 transition-colors",

@@ -112,6 +112,64 @@ describe('showContextMenu', () => {
     expect(document.body.querySelector('.wfb-slides-context-menu')).toBeNull();
   });
 
+  it('flips up/left of the anchor when it would overflow the viewport', () => {
+    // jsdom defaults: window.innerWidth=1024, innerHeight=768 and
+    // getBoundingClientRect() returns zeros. Stub the rect so the menu
+    // reports a real size and the edge logic has something to react to.
+    const rectSpy = vi
+      .spyOn(HTMLUListElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({
+        width: 200,
+        height: 300,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+    // Anchor near the bottom-right corner: 1000px right, 700px down.
+    showContextMenu(document.body, [{ label: 'X', run: vi.fn() }], 1000, 700);
+    const menu = document.body.querySelector<HTMLUListElement>(
+      '.wfb-slides-context-menu',
+    )!;
+    // Flipped left: 1000 - 200 = 800; flipped up: 700 - 300 = 400.
+    expect(menu.style.left).toBe('800px');
+    expect(menu.style.top).toBe('400px');
+    rectSpy.mockRestore();
+  });
+
+  it('clamps to the edge when the menu is too large to flip', () => {
+    const rectSpy = vi
+      .spyOn(HTMLUListElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({
+        width: 200,
+        height: 300,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+    // Anchor near the right edge but with too little room to flip
+    // fully (1000 - 200 = 800 fits, so use a tighter anchor): pick
+    // an x where flipping would push left below the 8px margin.
+    showContextMenu(document.body, [{ label: 'X', run: vi.fn() }], 1020, 10);
+    const menu = document.body.querySelector<HTMLUListElement>(
+      '.wfb-slides-context-menu',
+    )!;
+    // 1020 + 200 = 1220 > 1024-8 → flip: 1020 - 200 = 820, still
+    // within viewport so stays 820. Top 10 fits (10 + 300 = 310 < 760).
+    expect(menu.style.left).toBe('820px');
+    expect(menu.style.top).toBe('10px');
+    rectSpy.mockRestore();
+  });
+
   it('disabled items do not run when clicked', () => {
     const run = vi.fn();
     showContextMenu(

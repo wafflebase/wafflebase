@@ -2,13 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { BUILT_IN_THEMES, defaultLight, getBuiltInTheme } from '../../src/themes/index';
 
 describe('BUILT_IN_THEMES', () => {
-  it('contains five themes with stable ids', () => {
+  it('contains twenty-three themes in the Google-Slides-parity order', () => {
     expect(BUILT_IN_THEMES.map((t) => t.id)).toEqual([
-      'default-light',
-      'default-dark',
-      'streamline',
-      'focus',
-      'material',
+      'default-light', 'default-dark', 'streamline', 'swiss', 'paradigm',
+      'material', 'shift', 'momentum', 'focus', 'luxe', 'modern-writer',
+      'coral', 'spearmint', 'pop', 'tropic', 'marina', 'geometric', 'plum',
+      'slate', 'forest', 'spotlight', 'beach-day', 'wafflebase',
     ]);
   });
 

@@ -7,6 +7,7 @@ import type { TextElement } from '../../../src/model/element';
 import { defaultDark } from '../../../src/themes';
 import { resolveColor } from '../../../src/model/theme';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import { SLIDES_DEFAULT_TEXT_SIZE } from '../../../src/view/editor/default-text';
 import type {
   MountSlidesTextBoxOptions,
   SlidesTextBoxEditor,
@@ -231,6 +232,29 @@ describe('slides text-box editor wiring', () => {
     dispatchDblClick(canvas, 150, 150);
     expect(editor.getEditingElementId()).toBe(shapeId);
     expect(current()).not.toBeNull();
+  });
+
+  it('fresh shape edit seeds the slides default font size (18pt), not docs 11pt', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const slideId = store.read().slides[0].id;
+    store.batch(() => {
+      store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 150, 150);
+    // A shape with no prior text body seeds its edit blocks with the
+    // slides default run so the first keystroke is 18pt.
+    const seed = current()!.opts.blocks[0]?.inlines[0];
+    expect(seed?.style.fontSize).toBe(SLIDES_DEFAULT_TEXT_SIZE);
   });
 
   it('shape edit-mode commits typed text into ShapeElement.data.text via withShapeText', () => {

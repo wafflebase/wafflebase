@@ -9,19 +9,20 @@ import { angularHandle } from '../handles';
 
 /**
  * `chord` — circular segment cut off by a straight chord from
- * `adj1` to `adj2`. Same angle storage as `pie`.
+ * `adj1` to `adj2`. Same angle storage as `pie`. Defaults match the
+ * ECMA-376 preset: 45° → 270° (a large segment).
  */
 export const CHORD_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
     name: 'Start angle',
-    defaultValue: 16200000,
+    defaultValue: 2700000, // 45°
     min: 0,
     max: 21600000,
     axisLabel: 'start',
   },
   {
     name: 'End angle',
-    defaultValue: 0,
+    defaultValue: 16200000, // 270°
     min: 0,
     max: 21600000,
     axisLabel: 'end',

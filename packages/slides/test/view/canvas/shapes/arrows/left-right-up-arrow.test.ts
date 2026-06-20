@@ -11,8 +11,12 @@ describe('buildLeftRightUpArrow', () => {
   it('produces a fillable 3-arm shape', () => {
     const path = buildLeftRightUpArrow({ w: 200, h: 200 });
     const ctx = createTestCanvas(400, 400).getContext('2d');
-    // Centre of horizontal shaft near the bottom — clearly inside.
-    expect(ctx.isPointInPath(path, 100, 175)).toBe(true);
+    // Centre of the horizontal bar (y4 = h − dx2 = 150 at defaults) —
+    // clearly inside.
+    expect(ctx.isPointInPath(path, 100, 150)).toBe(true);
+    // The up arrow rises to the top of the frame: a point just below
+    // the tip on the centre line is inside.
+    expect(ctx.isPointInPath(path, 100, 20)).toBe(true);
   });
 
   it('has three adjustments', () => {
@@ -26,11 +30,8 @@ describe('LEFT_RIGHT_UP_ARROW_HANDLES', () => {
   });
 
   it('head-width handle round-trips position → apply → position', () => {
-    // Regression for the doubling bug: position writes
-    // y = h − 2·headHalf; the earlier apply used headHalf = h − y,
-    // doubling the value on every drag.
     const headWidthIdx = 1;
-    const start = [35000, 50000, 35000]; // spec defaults
+    const start = [25000, 25000, 25000]; // spec defaults
     const frame = { w: 200, h: 200 };
     const p = LEFT_RIGHT_UP_ARROW_HANDLES[headWidthIdx].position(frame, start);
     const back = LEFT_RIGHT_UP_ARROW_HANDLES[headWidthIdx].apply(

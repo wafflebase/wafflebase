@@ -60,12 +60,16 @@ export type {
   CellBorder,
   CellStyle,
   Crop,
+  DropShadow,
+  Effects,
   Element,
   ElementBase,
   ElementInit,
   ElementType,
   Frame,
   GroupElement,
+  ImageRecolor,
+  Reflection,
   ImageElement,
   ObjectAnimation,
   PlaceholderRef,
@@ -182,6 +186,10 @@ export {
   type SlidesRulerViewport,
 } from './view/editor/ruler';
 export type { SlidesTextBoxEditor } from './view/editor/text-box-editor';
+export {
+  SLIDES_DEFAULT_TEXT_SIZE,
+  makeDefaultSlidesTextBlock,
+} from './view/editor/default-text';
 export type { AlignDirection, DistributeAxis, AlignReference } from './view/editor/align';
 
 // View — Editor (Phase 3b additions)

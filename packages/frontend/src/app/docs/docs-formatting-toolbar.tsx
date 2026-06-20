@@ -68,6 +68,7 @@ import { isMac, modKey } from "@/components/text-formatting/platform";
 
 function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   const [open, setOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -83,7 +84,19 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
         </TooltipTrigger>
         <TooltipContent>Insert table</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="start" sideOffset={4}>
+      <DropdownMenuContent
+        ref={contentRef}
+        align="start"
+        sideOffset={4}
+        // Radix focuses the menu content container on open; redirect
+        // focus to the grid so its arrow-key handler is reachable.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          contentRef.current
+            ?.querySelector<HTMLElement>('[role="grid"]')
+            ?.focus();
+        }}
+      >
         <TableGridPicker
           onSelect={(rows, cols) => {
             editor?.insertTable(rows, cols);

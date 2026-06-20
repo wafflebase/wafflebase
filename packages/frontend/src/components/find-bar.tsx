@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconChevronUp, IconChevronDown, IconX } from "@tabler/icons-react";
 import type { Spreadsheet } from "@wafflebase/sheets";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface FindBarProps {
   spreadsheet: Spreadsheet | undefined;
@@ -106,38 +111,57 @@ export function FindBar({ spreadsheet, onClose }: FindBarProps) {
         type="text"
         className="h-7 w-48 rounded border-none bg-transparent px-1 text-sm outline-none focus:ring-0"
         placeholder="Find..."
+        aria-label="Find in sheet"
         value={query}
         onChange={(e) => handleSearch(e.target.value)}
       />
-      <span className="min-w-[3.5rem] text-center text-xs text-muted-foreground">
+      <span
+        className="min-w-[3.5rem] text-center text-xs text-muted-foreground"
+        aria-live="polite"
+      >
         {query ? `${displayIndex}/${total}` : ""}
       </span>
-      <button
-        type="button"
-        className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-        onClick={handlePrevious}
-        disabled={total === 0}
-        title="Previous (Shift+Enter)"
-      >
-        <IconChevronUp size={16} />
-      </button>
-      <button
-        type="button"
-        className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-        onClick={handleNext}
-        disabled={total === 0}
-        title="Next (Enter)"
-      >
-        <IconChevronDown size={16} />
-      </button>
-      <button
-        type="button"
-        className="rounded p-0.5 hover:bg-muted"
-        onClick={handleClose}
-        title="Close (Esc)"
-      >
-        <IconX size={16} />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            onClick={handlePrevious}
+            disabled={total === 0}
+            aria-label="Previous match"
+          >
+            <IconChevronUp size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Previous (Shift+Enter)</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            onClick={handleNext}
+            disabled={total === 0}
+            aria-label="Next match"
+          >
+            <IconChevronDown size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Next (Enter)</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="rounded p-0.5 hover:bg-muted"
+            onClick={handleClose}
+            aria-label="Close find bar"
+          >
+            <IconX size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Close (Esc)</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
