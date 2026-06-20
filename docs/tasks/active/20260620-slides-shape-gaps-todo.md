@@ -30,10 +30,14 @@ PowerPoint-side extensions plus the freeform drawing tool.
 - [x] Explosions: `irregularSeal1`, `irregularSeal2` (Stars & Banners)
 - [x] Waves: `wave`, `doubleWave`
 - [x] High-point stars: `star12`, `star16`, `star24`, `star32`
-- [ ] **Freeform / Curve / Scribble drawing tool** — data model
-      (`FreeformPath`) and renderer already exist; only the editor input
-      path (pointer capture → command list) is missing. Promote
-      import-only `freeform` to a user-authored tool.
+- [x] **Freeform / Scribble drawing tool** — promoted import-only
+      `freeform` to a user-authored tool. Toolbar Scribble toggle arms
+      `setInsertMode('freeform')`; `startScribbleInsert` captures the
+      pointer stream (distance-decimated), live-previews via the shared
+      `forceRender` ghost channel, and commits a stroke-only freeform
+      ShapeElement whose `data.path` is normalized to the captured bbox.
+      (Click-vertex polyline + curve-smoothing variants deferred; the
+      freehand scribble is the high-value Google-Slides parity case.)
 
 ### P1 — small builders
 - [x] `bracketPair` (double bracket `[ ]`), `bracePair` (double brace `{ }`)

@@ -6,7 +6,12 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip';
-import { IconPointer, IconLetterT, IconPhoto } from '@tabler/icons-react';
+import {
+  IconPointer,
+  IconLetterT,
+  IconPhoto,
+  IconScribble,
+} from '@tabler/icons-react';
 import { ShapePicker } from '../shape-picker';
 import { LinePicker } from '../line-picker';
 import { isLinePickerKind } from '../line-picker-helpers';
@@ -90,10 +95,14 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         <TooltipContent>Insert image</TooltipContent>
       </Tooltip>
 
-      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, not connector) */}
+      {/* Shape ▾ — active when insertMode is a ShapeKind (not text, not
+          connector, not the freeform scribble which has its own button) */}
       <ShapePicker
         activeKind={
-          insertMode && insertMode !== 'text' && !isLinePickerKind(insertMode)
+          insertMode &&
+          insertMode !== 'text' &&
+          insertMode !== 'freeform' &&
+          !isLinePickerKind(insertMode)
             ? insertMode
             : null
         }
@@ -107,6 +116,25 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
+
+      {/* Scribble — freehand freeform draw. Google Slides groups this
+          under the Line menu; we surface it as its own toggle. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={insertMode === 'freeform'}
+            onPressedChange={(pressed) =>
+              editor?.setInsertMode(pressed ? 'freeform' : null)
+            }
+            aria-label="Scribble"
+            disabled={disabled || !editor}
+          >
+            <IconScribble size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Scribble</TooltipContent>
+      </Tooltip>
 
       {/* Table ▾ — Google-Slides-style grid picker; clicking a cell
           (rows, cols) inserts a default-sized table on the current
