@@ -104,4 +104,49 @@ describe('drawElement — anim injection', () => {
     expect(rotateCalls.some(([r]) => Math.abs(r - Math.PI / 4) < 1e-9)).toBe(true);
     expect(ctx.save.mock.calls.length).toBe(ctx.restore.mock.calls.length);
   });
+
+  // Transform order test: anim wrapper transforms must precede the element's
+  // own local frame rotate in the ctx call sequence.
+  //
+  // Render sequence when hasAnim=true and frame.rotation≠0:
+  //   outer: translate(dx, dy)  ← anim offset
+  //   outer: translate(cx, cy)  ← anim centre pivot
+  //   outer: scale(2, 2)        ← anim scale
+  //   outer: translate(-cx,-cy) ← anim centre inverse
+  //   inner: translate(frame.x + frame.w/2, frame.y + frame.h/2)
+  //   inner: rotate(frame.rotation)   ← element's own local rotate
+  //
+  // We verify that the first anim translate call (dx=10, dy=20) and the
+  // anim scale call (2, 2) each have a lower invocationCallOrder than the
+  // element's frame rotate call (Math.PI/4), proving the anim wrapper
+  // is applied before the element's local transform.
+  it('anim wrapper transforms (translate+scale) are applied BEFORE the element local rotate', () => {
+    // Use a shape with a non-zero frame rotation so the inner rotate fires.
+    const ROTATED_SHAPE: Element = {
+      id: 'e-rotated',
+      type: 'shape',
+      frame: { x: 50, y: 40, w: 100, h: 60, rotation: Math.PI / 4 },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+    };
+
+    const ctx = createCtxSpy();
+    const anim: AnimState = { opacity: 1, scale: 2, dx: 10, dy: 20, rotation: 0, hidden: false };
+    drawElement(asCtx(ctx), ROTATED_SHAPE, DOC, THEME, () => undefined, undefined, undefined, undefined, anim);
+
+    // Collect invocation call orders for each method.
+    const translateOrders = ctx.translate.mock.invocationCallOrder;
+    const scaleOrders = ctx.scale.mock.invocationCallOrder;
+    const rotateOrders = ctx.rotate.mock.invocationCallOrder;
+
+    // The anim translate(10, 20) is the FIRST translate call in the sequence.
+    // Its invocationCallOrder must be less than the frame rotate's order.
+    const firstTranslateOrder = Math.min(...translateOrders);
+    const firstScaleOrder = Math.min(...scaleOrders);
+    // The frame rotate(Math.PI/4) is the only rotate call here (anim.rotation=0).
+    const frameRotateOrder = rotateOrders[0];
+
+    expect(frameRotateOrder).toBeDefined();
+    expect(firstTranslateOrder).toBeLessThan(frameRotateOrder);
+    expect(firstScaleOrder).toBeLessThan(frameRotateOrder);
+  });
 });

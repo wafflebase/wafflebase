@@ -119,6 +119,55 @@ describe('drawSlide animStates passthrough', () => {
     expect(spy.scale.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  // Byte-identical guard: "no animStates" vs "animStates = empty Map" must
+  // produce identical ctx call sequences (method names in order). This proves
+  // that an empty Map introduces zero overhead into the render path.
+  it('empty animStates Map produces the same method-call sequence as no animStates arg', () => {
+    const { slide } = makeSlideWithElements();
+
+    // Record method call sequence as an ordered list of method names.
+    // We use invocationCallOrder from each spy fn to reconstruct the global call order.
+    function recordCallSequence(spy: ReturnType<typeof createCtxSpy>): string[] {
+      // Collect all (methodName, invocationCallOrder) pairs from spy methods.
+      const entries: { name: string; order: number }[] = [];
+      const methods = [
+        'save', 'restore', 'translate', 'rotate', 'scale',
+        'setTransform', 'transform', 'beginPath', 'closePath',
+        'moveTo', 'lineTo', 'bezierCurveTo', 'arc', 'ellipse',
+        'rect', 'fillRect', 'strokeRect', 'clearRect',
+        'fill', 'stroke', 'setLineDash', 'fillText', 'drawImage',
+      ] as const;
+      for (const name of methods) {
+        const orders: number[] = (spy[name] as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder;
+        for (const order of orders) {
+          entries.push({ name, order });
+        }
+      }
+      entries.sort((a, b) => a.order - b.order);
+      return entries.map((e) => e.name);
+    }
+
+    const spyNoArg = createCtxSpy();
+    drawSlide(asCtx(spyNoArg), slide, DOC, OPTS);
+
+    const spyEmptyMap = createCtxSpy();
+    drawSlide(asCtx(spyEmptyMap), slide, DOC, OPTS, () => undefined, undefined, new Map());
+
+    const seqNoArg = recordCallSequence(spyNoArg);
+    const seqEmptyMap = recordCallSequence(spyEmptyMap);
+
+    // The full method-name sequences must match exactly.
+    expect(seqEmptyMap).toEqual(seqNoArg);
+
+    // Additionally: no extra save/translate/scale/restore appear in the
+    // empty-Map path compared to the baseline (already guaranteed by sequence
+    // equality, but made explicit for documentation).
+    expect(spyEmptyMap.save.mock.calls.length).toBe(spyNoArg.save.mock.calls.length);
+    expect(spyEmptyMap.translate.mock.calls.length).toBe(spyNoArg.translate.mock.calls.length);
+    expect(spyEmptyMap.scale.mock.calls.length).toBe(spyNoArg.scale.mock.calls.length);
+    expect(spyEmptyMap.restore.mock.calls.length).toBe(spyNoArg.restore.mock.calls.length);
+  });
+
   it('ghost loop is not animated — ghosts always paint regardless of animStates', () => {
     const { slide, idA } = makeSlideWithElements();
 
