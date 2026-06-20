@@ -27,19 +27,19 @@ PowerPoint-side extensions plus the freeform drawing tool.
 ## Gap analysis
 
 ### P0 — high visibility, low cost (both PPT and GS expose)
-- [ ] Explosions: `irregularSeal1`, `irregularSeal2` (Stars & Banners)
-- [ ] Waves: `wave`, `doubleWave`
-- [ ] High-point stars: `star12`, `star16`, `star24`, `star32`
+- [x] Explosions: `irregularSeal1`, `irregularSeal2` (Stars & Banners)
+- [x] Waves: `wave`, `doubleWave`
+- [x] High-point stars: `star12`, `star16`, `star24`, `star32`
 - [ ] **Freeform / Curve / Scribble drawing tool** — data model
       (`FreeformPath`) and renderer already exist; only the editor input
       path (pointer capture → command list) is missing. Promote
       import-only `freeform` to a user-authored tool.
 
 ### P1 — small builders
-- [ ] `bracketPair` (double bracket `[ ]`), `bracePair` (double brace `{ }`)
+- [x] `bracketPair` (double bracket `[ ]`), `bracePair` (double brace `{ }`)
 
 ### P2 — PowerPoint-only (GS has no Flowchart category)
-- [ ] Flowchart remainder: `preparation`, `connector`, `collate`, `sort`,
+- [x] Flowchart remainder: `preparation`, `connector`, `collate`, `sort`,
       `extract`, `merge`, `onlineStorage`, `magneticDisk`, `magneticDrum`,
       `magneticTape`
 

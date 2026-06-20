@@ -49,9 +49,10 @@ export type ShapeKind =
   | 'circularArrow'
   | 'curvedRightArrow' | 'curvedLeftArrow'
   | 'curvedUpArrow' | 'curvedDownArrow'
-  // Banners (5, P3-B T5)
+  // Banners (5 P3-B T5 + 2 waves P3.5)
   | 'ribbon' | 'ribbon2' | 'horizontalScroll' | 'verticalScroll'
   | 'leftRightRibbon'
+  | 'wave' | 'doubleWave'
   // Callouts (4 P1 + 3 line callouts + 7 arrow callouts)
   | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
   | 'wedgeEllipseCallout' | 'cloudCallout'
@@ -59,14 +60,17 @@ export type ShapeKind =
   | 'rightArrowCallout' | 'leftArrowCallout'
   | 'upArrowCallout' | 'downArrowCallout'
   | 'leftRightArrowCallout' | 'upDownArrowCallout' | 'quadArrowCallout'
-  // Brackets / braces (4) — open-path, stroke-oriented
+  // Brackets / braces (4 + 2 pairs P3.5) — open-path, stroke-oriented
   | 'leftBracket' | 'rightBracket' | 'leftBrace' | 'rightBrace'
+  | 'bracketPair' | 'bracePair'
   // Equation (6)
   | 'mathPlus' | 'mathMinus' | 'mathMultiply'
   | 'mathDivide' | 'mathEqual' | 'mathNotEqual'
-  // Stars (6, P2)
+  // Stars (6 P2 + 4 high-point + 2 explosions P3.5)
   | 'star4' | 'star5' | 'star6' | 'star7' | 'star8' | 'star10'
-  // Flowchart (14, P2)
+  | 'star12' | 'star16' | 'star24' | 'star32'
+  | 'irregularSeal1' | 'irregularSeal2'
+  // Flowchart (14 P2 + 10 P3.5)
   | 'flowChartTerminator' | 'flowChartPredefinedProcess'
   | 'flowChartInternalStorage' | 'flowChartDocument'
   | 'flowChartMultidocument' | 'flowChartManualInput'
@@ -74,6 +78,11 @@ export type ShapeKind =
   | 'flowChartPunchedCard' | 'flowChartPunchedTape'
   | 'flowChartSummingJunction' | 'flowChartOr'
   | 'flowChartDelay' | 'flowChartDisplay'
+  | 'flowChartPreparation' | 'flowChartConnector'
+  | 'flowChartCollate' | 'flowChartSort'
+  | 'flowChartExtract' | 'flowChartMerge'
+  | 'flowChartOnlineStorage' | 'flowChartMagneticDisk'
+  | 'flowChartMagneticDrum' | 'flowChartMagneticTape'
   // Action buttons (12 — P3-B T7) — special-cased renderer
   // (drawActionButton); not entered in PATH_BUILDERS.
   | 'actionButtonBlank' | 'actionButtonBackPrevious'

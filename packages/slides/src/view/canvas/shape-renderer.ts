@@ -61,6 +61,8 @@ export const OPEN_PATH_KINDS: ReadonlySet<ShapeKind> = new Set([
   'rightBracket',
   'leftBrace',
   'rightBrace',
+  'bracketPair',
+  'bracePair',
 ]);
 
 /**

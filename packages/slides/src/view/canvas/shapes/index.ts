@@ -334,6 +334,39 @@ import { buildFlowChartSummingJunction } from './flowchart/summing-junction';
 import { buildFlowChartOr } from './flowchart/or';
 import { buildFlowChartDelay } from './flowchart/delay';
 import { buildFlowChartDisplay } from './flowchart/display';
+// P3.5 — PPT-parity catalog additions.
+import { buildStar12, STAR_12_ADJUSTMENTS, STAR_12_HANDLES } from './stars/star12';
+import { buildStar16, STAR_16_ADJUSTMENTS, STAR_16_HANDLES } from './stars/star16';
+import { buildStar24, STAR_24_ADJUSTMENTS, STAR_24_HANDLES } from './stars/star24';
+import { buildStar32, STAR_32_ADJUSTMENTS, STAR_32_HANDLES } from './stars/star32';
+import { buildIrregularSeal1 } from './stars/irregular-seal-1';
+import { buildIrregularSeal2 } from './stars/irregular-seal-2';
+import { buildWave, WAVE_ADJUSTMENTS, WAVE_HANDLES } from './banners/wave';
+import {
+  buildDoubleWave,
+  DOUBLE_WAVE_ADJUSTMENTS,
+  DOUBLE_WAVE_HANDLES,
+} from './banners/double-wave';
+import {
+  buildBracketPair,
+  BRACKET_PAIR_ADJUSTMENTS,
+  BRACKET_PAIR_HANDLES,
+} from './basic/bracket-pair';
+import {
+  buildBracePair,
+  BRACE_PAIR_ADJUSTMENTS,
+  BRACE_PAIR_HANDLES,
+} from './basic/brace-pair';
+import { buildFlowChartPreparation } from './flowchart/preparation';
+import { buildFlowChartConnector } from './flowchart/connector';
+import { buildFlowChartCollate } from './flowchart/collate';
+import { buildFlowChartSort } from './flowchart/sort';
+import { buildFlowChartExtract } from './flowchart/extract';
+import { buildFlowChartMerge } from './flowchart/merge';
+import { buildFlowChartOnlineStorage } from './flowchart/online-storage';
+import { buildFlowChartMagneticDisk } from './flowchart/magnetic-disk';
+import { buildFlowChartMagneticDrum } from './flowchart/magnetic-drum';
+import { buildFlowChartMagneticTape } from './flowchart/magnetic-tape';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -659,3 +692,43 @@ ADJUSTMENT_SPECS.set('borderCallout3', BORDER_CALLOUT_3_ADJUSTMENTS);
 ADJUSTMENT_HANDLES.set('borderCallout1', BORDER_CALLOUT_1_HANDLES);
 ADJUSTMENT_HANDLES.set('borderCallout2', BORDER_CALLOUT_2_HANDLES);
 ADJUSTMENT_HANDLES.set('borderCallout3', BORDER_CALLOUT_3_HANDLES);
+
+// --- P3.5 — PPT-parity catalog ---
+PATH_BUILDERS.set('star12', buildStar12);
+PATH_BUILDERS.set('star16', buildStar16);
+PATH_BUILDERS.set('star24', buildStar24);
+PATH_BUILDERS.set('star32', buildStar32);
+PATH_BUILDERS.set('irregularSeal1', buildIrregularSeal1);
+PATH_BUILDERS.set('irregularSeal2', buildIrregularSeal2);
+PATH_BUILDERS.set('wave', buildWave);
+PATH_BUILDERS.set('doubleWave', buildDoubleWave);
+PATH_BUILDERS.set('bracketPair', buildBracketPair);
+PATH_BUILDERS.set('bracePair', buildBracePair);
+PATH_BUILDERS.set('flowChartPreparation', buildFlowChartPreparation);
+PATH_BUILDERS.set('flowChartConnector', buildFlowChartConnector);
+PATH_BUILDERS.set('flowChartCollate', buildFlowChartCollate);
+PATH_BUILDERS.set('flowChartSort', buildFlowChartSort);
+PATH_BUILDERS.set('flowChartExtract', buildFlowChartExtract);
+PATH_BUILDERS.set('flowChartMerge', buildFlowChartMerge);
+PATH_BUILDERS.set('flowChartOnlineStorage', buildFlowChartOnlineStorage);
+PATH_BUILDERS.set('flowChartMagneticDisk', buildFlowChartMagneticDisk);
+PATH_BUILDERS.set('flowChartMagneticDrum', buildFlowChartMagneticDrum);
+PATH_BUILDERS.set('flowChartMagneticTape', buildFlowChartMagneticTape);
+
+ADJUSTMENT_SPECS.set('star12', STAR_12_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star16', STAR_16_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star24', STAR_24_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star32', STAR_32_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('wave', WAVE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('doubleWave', DOUBLE_WAVE_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('bracketPair', BRACKET_PAIR_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('bracePair', BRACE_PAIR_ADJUSTMENTS);
+
+ADJUSTMENT_HANDLES.set('star12', STAR_12_HANDLES);
+ADJUSTMENT_HANDLES.set('star16', STAR_16_HANDLES);
+ADJUSTMENT_HANDLES.set('star24', STAR_24_HANDLES);
+ADJUSTMENT_HANDLES.set('star32', STAR_32_HANDLES);
+ADJUSTMENT_HANDLES.set('wave', WAVE_HANDLES);
+ADJUSTMENT_HANDLES.set('doubleWave', DOUBLE_WAVE_HANDLES);
+ADJUSTMENT_HANDLES.set('bracketPair', BRACKET_PAIR_HANDLES);
+ADJUSTMENT_HANDLES.set('bracePair', BRACE_PAIR_HANDLES);
