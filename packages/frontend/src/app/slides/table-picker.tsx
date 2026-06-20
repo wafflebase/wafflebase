@@ -134,7 +134,11 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
           ref={gridRef}
           role="grid"
           tabIndex={0}
-          aria-label={`Insert ${rowsLabel} by ${colsLabel} table, use arrow keys to size`}
+          aria-label={
+            hoverRow >= 0 && hoverCol >= 0
+              ? `Insert ${rowsLabel} by ${colsLabel} table`
+              : 'Insert table, use arrow keys to size'
+          }
           onKeyDown={handleGridKeyDown}
           className="outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
           style={{

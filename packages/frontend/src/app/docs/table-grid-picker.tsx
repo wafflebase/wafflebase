@@ -122,6 +122,8 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
       cells.push(
         <div
           key={`${r}-${c}`}
+          role="gridcell"
+          aria-selected={isHighlighted}
           className={`absolute rounded-sm border transition-colors ${
             isHighlighted
               ? "bg-primary/20 border-primary"
