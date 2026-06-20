@@ -87,10 +87,10 @@ const PRESET_EFFECT: Record<string, AnimEffect> = {
  * Unknown values are handled in `mapPreset` with a `'left'` default.
  */
 const SUBTYPE_TO_DIRECTION: Record<number, AnimDirection> = {
-  1: 'right', // from left  → element moves rightward (source: left)
-  2: 'left',  // from right → element moves leftward (source: right)
-  4: 'up',    // from bottom → element moves upward (source: bottom)
-  8: 'down',  // from top   → element moves downward (source: top)
+  1: 'right', // enters from the right (OOXML subtype 1)
+  2: 'left',  // enters from the left  (OOXML subtype 2)
+  4: 'up',    // enters from the top   (OOXML subtype 4)
+  8: 'down',  // enters from the bottom (OOXML subtype 8)
 };
 
 const FLY_EFFECTS = new Set<AnimEffect>(['flyIn', 'flyOut']);

@@ -14,9 +14,11 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
   useEffect(() => {
     const u1 = store.onChange?.(() => setTick((t) => t + 1));
     const u2 = editor.onSelectionChange(() => setTick((t) => t + 1));
+    const u3 = editor.onCurrentSlideChange(() => setTick((t) => t + 1));
     return () => {
       u1?.();
       u2();
+      u3();
     };
   }, [store, editor]);
 

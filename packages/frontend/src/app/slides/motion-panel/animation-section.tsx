@@ -53,10 +53,10 @@ const START_LABELS: Record<AnimStart, string> = {
 };
 
 const DIRECTION_LABELS: Record<AnimDirection, string> = {
-  up: 'From Bottom',
-  down: 'From Top',
-  left: 'From Right',
-  right: 'From Left',
+  up: 'From Top',
+  down: 'From Bottom',
+  left: 'From Left',
+  right: 'From Right',
 };
 
 const EASING_LABELS: Record<AnimEasing, string> = {
