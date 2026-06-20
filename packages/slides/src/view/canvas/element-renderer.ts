@@ -221,7 +221,13 @@ export function drawElement(
           if (reflection) {
             paintReflection(ctx, size, reflection, (t) => {
               drawShape(t, size, element.data, theme);
-              paintShapeText(t, size, element.data, theme, fontScale);
+              // Match the main pass: geometry mirrors with the element's
+              // flip (applied when the mirror is blitted), text stays
+              // readable via counter-flip. No-op when the element isn't
+              // flipped.
+              withCounterFlip(t, size, totalFlip, () => {
+                paintShapeText(t, size, element.data, theme, fontScale);
+              });
             });
           }
           break;
@@ -260,9 +266,13 @@ export function drawElement(
           });
           if (reflection) {
             paintReflection(ctx, size, reflection, (t) => {
-              drawText(t, size, element.data, theme, {
-                placeholderHint,
-                fontScale,
+              // Mirror the main pass's counter-flip so reflected text keeps
+              // the same orientation as the element under flipH / flipV.
+              withCounterFlip(t, size, totalFlip, () => {
+                drawText(t, size, element.data, theme, {
+                  placeholderHint,
+                  fontScale,
+                });
               });
             });
           }

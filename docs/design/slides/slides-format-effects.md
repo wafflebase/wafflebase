@@ -29,9 +29,14 @@ PPTX is **import-only** in this package (no exporter exists), so
 | image | Size & rotation · Position · Recolor · Adjustments · Drop shadow · Reflection · Alt text |
 | text | Size & rotation · Position · Text fitting · Drop shadow · Reflection · Alt text |
 | connector | Size & rotation · Position |
-| table | Size & rotation · Position · Drop shadow · Alt text |
-| group | Size & rotation · Position · Drop shadow |
+| table | Size & rotation · Position · Alt text |
+| group | Size & rotation · Position |
 | mixed | Position |
+
+Drop shadow / reflection are routed to single-silhouette leaves only
+(shape / image / text). Tables and groups are multi-draw, so a per-cell
+/ per-child `ctx.shadow*` would shadow every border / child; they are
+excluded from those sections in v1.
 
 ## Data model
 
@@ -57,11 +62,13 @@ export type Effects = { shadow?: DropShadow; reflection?: Reflection };
 
 `effects?: Effects` is added to `ShapeElement.data`, `ImageElement.data`,
 `TextElement.data`, `TableElement.data`, `GroupElement.data`. `alt?: string`
-is promoted to `ElementBase` so every object type carries it.
+is added to the `data` of shape / text / table (image already had
+`data.alt`) so every object type the panel routes Alt text to carries it.
 
 All fields optional ⇒ no migration; absent ⇒ no effect.
 
-Image-only (PR 2): `image.recolor?: { kind; color? }`,
+Image-only (PR 2): `image.recolor?: 'none' | 'grayscale' | 'sepia'`
+(preset presets via `ctx.filter`; theme-tinted duotone deferred),
 `image.brightness?: number` (-1..1), `image.contrast?: number` (-1..1).
 
 ## Rendering

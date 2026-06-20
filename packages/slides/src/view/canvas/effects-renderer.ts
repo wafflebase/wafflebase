@@ -125,6 +125,12 @@ export function paintReflection(
 
   // 3) Draw the faded copy vertically flipped, just below the element.
   ctx.save();
+  // The reflection is a pure mirrored/faded copy. The caller may still
+  // have a drop shadow active on `ctx` (the text / image branches apply
+  // it before reaching here), and `drawImage` would otherwise cast that
+  // shadow onto the reflection bitmap. Clear it defensively so reflection
+  // never inherits the element's shadow, regardless of call site.
+  clearShadow(ctx);
   ctx.globalAlpha = Math.max(0, Math.min(1, reflection.opacity));
   ctx.translate(0, h + reflection.distance);
   ctx.scale(1, -1);

@@ -105,15 +105,23 @@ describe('paintReflection', () => {
   const reflection: Reflection = { opacity: 0.4, distance: 5, size: 0.5 };
 
   it('no-ops gracefully when no offscreen 2D context is available', () => {
-    // jsdom without the `canvas` package returns null from getContext, so
-    // the reflection is skipped rather than crashing.
-    const ctx = createCtxSpy();
-    let bodyCalls = 0;
-    paintReflection(asCtx(ctx), { w: 100, h: 60 }, reflection, () => {
-      bodyCalls++;
-    });
-    expect(bodyCalls).toBe(0);
-    expect(ctx.drawImage).not.toHaveBeenCalled();
+    // Force `getContext` to return null so the test is deterministic
+    // regardless of whether the `canvas` package is present.
+    const fakeCanvas = { width: 0, height: 0, getContext: vi.fn(() => null) };
+    const create = vi
+      .spyOn(document, 'createElement')
+      .mockReturnValue(fakeCanvas as unknown as HTMLCanvasElement);
+    try {
+      const ctx = createCtxSpy();
+      let bodyCalls = 0;
+      paintReflection(asCtx(ctx), { w: 100, h: 60 }, reflection, () => {
+        bodyCalls++;
+      });
+      expect(bodyCalls).toBe(0);
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+    }
   });
 
   it('skips when reflection size is zero', () => {
@@ -162,6 +170,39 @@ describe('paintReflection', () => {
       expect(ctx.globalAlpha).toBeCloseTo(0.4);
       expect(ctx.scale).toHaveBeenCalledWith(1, -1);
       expect(ctx.drawImage).toHaveBeenCalledWith(fakeCanvas, 0, 0, 100, 60);
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it('does not inherit the caller’s shadow when blitting the mirror', () => {
+    const grad = { addColorStop: vi.fn() };
+    const offCtx = {
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+      fillStyle: '' as string | CanvasGradient,
+      createLinearGradient: vi.fn(() => grad),
+      fillRect: vi.fn(),
+    };
+    const fakeCanvas = { width: 0, height: 0, getContext: vi.fn(() => offCtx) };
+    const create = vi
+      .spyOn(document, 'createElement')
+      .mockReturnValue(fakeCanvas as unknown as HTMLCanvasElement);
+    try {
+      const ctx = createCtxSpy();
+      // Simulate an active drop shadow on the caller's context (the text /
+      // image branches reach paintReflection right after applyShadow).
+      applyShadow(
+        asCtx(ctx),
+        { color: '#000000', opacity: 0.5, angle: 0, distance: 8, blur: 4 },
+        THEME,
+      );
+      // Capture the shadow state at the moment the mirror is blitted.
+      let shadowAtBlit: string | undefined;
+      ctx.drawImage.mockImplementation(() => {
+        shadowAtBlit = ctx.shadowColor;
+      });
+      paintReflection(asCtx(ctx), { w: 100, h: 60 }, reflection, () => {});
+      expect(shadowAtBlit).toBe('transparent');
     } finally {
       create.mockRestore();
     }
