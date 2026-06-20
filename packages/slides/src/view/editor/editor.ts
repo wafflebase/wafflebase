@@ -123,7 +123,7 @@ import {
   flattenElements,
   worldTightFrame,
 } from '../../model/group';
-import { AnimationPlayer, compileTimeline } from '../../anim';
+import { AnimationPlayer, buildParagraphCounts, compileTimeline } from '../../anim';
 
 /**
  * Connector insert-mode keys exposed by `setInsertMode`. Distinct from
@@ -1940,7 +1940,8 @@ class SlidesEditorImpl implements SlidesEditor {
     const existingElementIds = new Set(
       flattenElements(slide.elements).map((e) => e.id),
     );
-    const steps = compileTimeline(slide, { existingElementIds });
+    const paragraphCounts = buildParagraphCounts(slide);
+    const steps = compileTimeline(slide, { existingElementIds, paragraphCounts });
     if (steps.length === 0) return;
 
     const player = new AnimationPlayer(
