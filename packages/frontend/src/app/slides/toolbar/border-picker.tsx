@@ -14,7 +14,7 @@ import {
   useMenuCloseHandlers,
 } from '@/components/menu-focus';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
-import { IconBorderStyle2, IconChevronDown, IconLineDashed, IconLineHeight } from '@tabler/icons-react';
+import { IconBorderStyle2, IconChevronDown, IconLineHeight, IconPencil } from '@tabler/icons-react';
 
 export interface BorderPickerProps {
   value?: Stroke;
@@ -109,7 +109,7 @@ export function BorderPicker({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <ColorSwatchButton
-                icon={<IconBorderStyle2 size={14} />}
+                icon={<IconPencil size={14} />}
                 color={currentBorderColor}
                 label="Border color"
                 disabled={disabled}
@@ -162,7 +162,7 @@ export function BorderPicker({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <button type="button" aria-label="Border dash" disabled={disabled} className={btnClass}>
-                <IconLineDashed size={16} />
+                <IconBorderStyle2 size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
               </button>
             </DropdownMenuTrigger>
