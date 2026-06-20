@@ -100,6 +100,7 @@ import {
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
+import { computeAnimationOrder } from './animation-order';
 import { SlidesRuler } from './ruler/ruler';
 import {
   hitTestGuide,
@@ -1038,6 +1039,11 @@ class SlidesEditorImpl implements SlidesEditor {
       hoverHighlightFrame,
       cellRangeRects: cellRangeRects.length > 0 ? cellRangeRects : undefined,
       tableResizePreview,
+      // Animation order badges: shows the 1-based playback position(s) on
+      // each selected element that has at least one animation. Computed
+      // fresh from `slide.animations` on every overlay repaint so the
+      // badge stays in sync when animations are added/removed/reordered.
+      animationOrder: computeAnimationOrder(slide.animations),
       // Autofit mode toggle (GS-style bottom-left affordance on a single
       // selected text element). Patch only `data.autofit`, then request a
       // render so the canvas + overlay reflect the new mode immediately
