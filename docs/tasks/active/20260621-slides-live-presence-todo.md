@@ -103,10 +103,15 @@ tricky part:
   `remote-change` — hence the new `onPresenceChange` seam. Peers are also
   re-pushed on `store.onChange` so a peer's rings follow elements as they
   (or anyone) move.
-- During the local user's own gesture, `paintGhostPreview` repaints the
-  overlay without `peerOverlays`, so peer rings blink out for that frame and
-  return at the next steady-state repaint. Acceptable for v1; folds into the
-  P2 gesture-lifecycle work.
+- Gesture/peer repaint interaction (known v1 limitation, folds into P2's
+  gesture-lifecycle hook):
+  - During the local user's own gesture, `paintGhostPreview` repaints the
+    overlay without `peerOverlays`, so peer rings blink out for that frame
+    and return at the next steady-state repaint.
+  - Conversely, a peer-presence tick that lands mid-gesture calls
+    `setPeers` → `repaintOverlay`, which paints steady state over the local
+    ghost (the next pointermove restores it → brief flicker). The P2
+    gesture signal will defer the peer repaint while a gesture is live.
 
 ## Review
 

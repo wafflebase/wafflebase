@@ -754,6 +754,7 @@ function appendOutline(
   frame: Frame,
   scale: number,
   className: string,
+  border: string = OUTLINE_BORDER,
 ): void {
   const el = document.createElement('div');
   el.className = className;
@@ -769,7 +770,7 @@ function appendOutline(
     el.style.transformOrigin = 'center';
   }
   el.style.boxSizing = 'border-box';
-  el.style.border = OUTLINE_BORDER;
+  el.style.border = border;
   el.style.pointerEvents = 'none';
   overlay.appendChild(el);
 }
@@ -810,22 +811,15 @@ function renderPeerOverlays(
   }
 
   for (const ring of peers.rings) {
-    const { frame } = ring;
-    const el = document.createElement('div');
-    el.className = 'wfb-slides-peer-ring';
-    el.style.position = 'absolute';
-    el.style.left = `${frame.x * scale}px`;
-    el.style.top = `${frame.y * scale}px`;
-    el.style.width = `${frame.w * scale}px`;
-    el.style.height = `${frame.h * scale}px`;
-    el.style.boxSizing = 'border-box';
-    el.style.border = `2px solid ${ring.color}`;
-    el.style.pointerEvents = 'none';
-    if (frame.rotation !== 0) {
-      el.style.transform = `rotate(${frame.rotation}rad)`;
-      el.style.transformOrigin = 'center';
-    }
-    overlay.appendChild(el);
+    // Reuse the shared outline builder (same rotated-frame math as the
+    // member / context outlines) with a solid peer-coloured border.
+    appendOutline(
+      overlay,
+      ring.frame,
+      scale,
+      'wfb-slides-peer-ring',
+      `2px solid ${ring.color}`,
+    );
   }
 
   for (const label of peers.labels) {

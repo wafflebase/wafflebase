@@ -1152,10 +1152,14 @@ class SlidesEditorImpl implements SlidesEditor {
         }
       }
     }
-    // Peer presence rings / live frames / guide previews. Resolve each
-    // peer's selected element ids to absolute world frames via the same
-    // lookup the local selection path uses; `computePeerOverlays` filters
-    // to peers on the current slide and prefers their live `activeFrames`.
+    // Peer presence rings / live frames / guide previews.
+    // `buildElementWorldLookup` lifts every element (group children
+    // included) to an absolute world frame, so a peer's selected ids
+    // resolve to the same coordinates the local handles use. This is the
+    // same order of work as the `store.read()` deep clone at the top of
+    // this method, so it adds no new asymptotic cost.
+    // `computePeerOverlays` filters to peers on the current slide and
+    // prefers their live `activeFrames` over the static selection ring.
     let peerOverlays: PeerOverlays | undefined;
     if (this.peers.length > 0) {
       const peerLookup = buildElementWorldLookup(slide.elements);
@@ -1363,6 +1367,14 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.disposed) return;
     this.peers = peers;
     // Peers live only in the DOM overlay; no canvas markDirty needed.
+    //
+    // Known limitation: a peer-presence tick that lands mid-gesture
+    // repaints the steady-state overlay over the in-flight ghost preview
+    // (the gesture's own `paintGhostPreview` re-establishes it on the
+    // next pointermove, so it reads as a brief flicker). The proper fix
+    // is a gesture-lifecycle signal that defers this repaint while a
+    // gesture is live; it lands with the P2 live-frame broadcast work
+    // (see docs/tasks/active/20260621-slides-live-presence-todo.md).
     this.repaintOverlay();
   }
 
