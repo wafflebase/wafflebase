@@ -89,6 +89,8 @@ export function SlidesToolbar({
         onImagePick={onImagePick}
         upload={upload}
         onToggleThemePanel={onToggleThemePanel}
+        onToggleFormatPanel={onToggleFormatPanel}
+        onToggleMotionPanel={onToggleMotionPanel}
       />
     );
   }

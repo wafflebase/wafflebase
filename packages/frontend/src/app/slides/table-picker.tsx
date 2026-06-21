@@ -20,6 +20,16 @@ const CELL_GAP_PX = 2;
 interface TablePickerProps {
   editor: SlidesEditor | null;
   disabled?: boolean;
+  /**
+   * Optional custom trigger (mirrors `ShapePicker`/`LinePicker`). When
+   * provided it replaces the default 28px icon button — used by the
+   * mobile Insert sheet to render a full-width sheet-action button.
+   * Rendered `asChild`, so it must forward props/ref to a single DOM
+   * element.
+   */
+  trigger?: React.ReactNode;
+  /** Fired after a table is committed — lets a host sheet close. */
+  onInsert?: () => void;
 }
 
 /**
@@ -33,7 +43,12 @@ interface TablePickerProps {
  * tables can be built incrementally via the right-click "Insert
  * row / column" context menu after the initial insert.
  */
-export function TablePicker({ editor, disabled }: TablePickerProps) {
+export function TablePicker({
+  editor,
+  disabled,
+  trigger,
+  onInsert,
+}: TablePickerProps) {
   const [open, setOpen] = useState(false);
   // Hover position drives the highlight extent: cell (r, c) is
   // highlighted when r <= hoverRow && c <= hoverCol. -1 means "no
@@ -48,6 +63,7 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
     setOpen(false);
     setHoverRow(-1);
     setHoverCol(-1);
+    onInsert?.();
   };
 
   const rowsLabel = hoverRow + 1;
@@ -101,21 +117,25 @@ export function TablePicker({ editor, disabled }: TablePickerProps) {
         }
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled || !editor}
-              aria-label="Insert table"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-            >
-              <IconTable size={16} />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Insert table</TooltipContent>
-      </Tooltip>
+      {trigger ? (
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={disabled || !editor}
+                aria-label="Insert table"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              >
+                <IconTable size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Insert table</TooltipContent>
+        </Tooltip>
+      )}
       <DropdownMenuContent
         align="start"
         className="flex flex-col gap-1 p-2"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconAdjustmentsAlt,
   IconArrowBackUp,
@@ -7,13 +7,9 @@ import {
   IconPalette,
   IconSparkles,
 } from "@tabler/icons-react";
-import type {
-  SlidesEditor,
-  SlidesStore,
-  Theme,
-  ThemeColor,
-} from "@wafflebase/slides";
+import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { resolveColor } from "@wafflebase/slides";
+import { useSlideBackground } from "../use-slide-background";
 import { Toggle } from "@/components/ui/toggle";
 import {
   DropdownMenu,
@@ -141,36 +137,23 @@ export function RightGlobals({
   // color swatches are plain <button>s, not DropdownMenuItem.
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const backgroundMenu = useMenuCloseHandlers(releaseFocusToBody);
-  const onBackgroundChange = useCallback(
-    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
-      if (!store || !slideId) return;
-      store.batch(() => {
-        store.updateSlideBackground(slideId, { fill: color });
-        if (opts?.record && color.kind === 'srgb') {
-          store.pushRecentColor(color.value);
-        }
-      });
-      // Only a discrete swatch pick closes the palette; live custom-input
-      // changes (and the custom blur, which records only) keep it open.
-      if (opts?.commit) {
-        backgroundMenu.markSwatchClicked();
-        setBackgroundOpen(false);
-      }
+  // Only a discrete swatch pick closes the palette; live custom-input
+  // changes (and the custom blur, which records only) keep it open.
+  const { backgroundFill, onChange: onBackgroundChange } = useSlideBackground(
+    store,
+    slideId,
+    theme ?? null,
+    () => {
+      backgroundMenu.markSwatchClicked();
+      setBackgroundOpen(false);
     },
-    [store, slideId, backgroundMenu],
   );
 
   const hasSlideStyleGroup = !!store;
 
-  // Read the current slide's background fill once: the raw ThemeColor drives
-  // the picker's "active" swatch marker, and its resolved CSS string drives
-  // the swatch button's stripe. Both fall back to undefined (empty outlined
-  // slot / no marker) when nothing is known yet.
-  const backgroundFill = useMemo(() => {
-    if (!store || !slideId || !theme) return undefined;
-    const slide = store.read().slides.find((s) => s.id === slideId);
-    return slide?.background?.fill;
-  }, [store, slideId, theme]);
+  // The raw ThemeColor drives the picker's "active" swatch marker, and its
+  // resolved CSS string drives the swatch button's stripe. Both fall back to
+  // undefined (empty outlined slot / no marker) when nothing is known yet.
   const currentBackground = backgroundFill
     ? resolveColor(backgroundFill, theme!)
     : undefined;

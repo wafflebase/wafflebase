@@ -17,7 +17,12 @@
  */
 
 import { useCallback, useState } from "react";
-import type { InsertKind, SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
+import type {
+  InsertKind,
+  SlidesEditor,
+  SlidesStore,
+  Theme,
+} from "@wafflebase/slides";
 import { findElementPath } from "@wafflebase/slides";
 import {
   IconBold,
@@ -29,6 +34,7 @@ import {
   IconPhoto,
   IconPlus,
   IconShape,
+  IconTable,
   IconTrash,
   IconTypography,
   IconUnderline,
@@ -68,6 +74,9 @@ import { TextElementControls } from "./text-element-controls";
 import { ArrangeMenu } from "./arrange-menu";
 import { ShapePicker } from "../shape-picker";
 import { LinePicker } from "../line-picker";
+import { TablePicker } from "../table-picker";
+import { ThemedColorPicker } from "../themed-color-picker";
+import { useSlideBackground } from "../use-slide-background";
 
 export interface MobileSlidesToolbarProps {
   editor: SlidesEditor | null;
@@ -77,6 +86,8 @@ export interface MobileSlidesToolbarProps {
   onImagePick: () => void;
   upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
+  onToggleFormatPanel?: () => void;
+  onToggleMotionPanel?: () => void;
 }
 
 export function MobileSlidesToolbar(props: MobileSlidesToolbarProps) {
@@ -92,8 +103,11 @@ export function MobileSlidesToolbar(props: MobileSlidesToolbarProps) {
 function IdleMobileBar({
   editor,
   store,
+  theme,
   onImagePick,
   onToggleThemePanel,
+  onToggleFormatPanel,
+  onToggleMotionPanel,
 }: MobileSlidesToolbarProps) {
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
@@ -101,7 +115,14 @@ function IdleMobileBar({
       <ToolbarSeparator className="mx-1" />
       <InsertSheet editor={editor} onImagePick={onImagePick} />
       <div className="flex-1" />
-      <OverflowMenu onToggleThemePanel={onToggleThemePanel} />
+      <OverflowMenu
+        editor={editor}
+        store={store}
+        theme={theme}
+        onToggleThemePanel={onToggleThemePanel}
+        onToggleFormatPanel={onToggleFormatPanel}
+        onToggleMotionPanel={onToggleMotionPanel}
+      />
     </Toolbar>
   );
 }
@@ -118,6 +139,8 @@ function ObjectMobileBar({
   onImagePick,
   upload,
   onToggleThemePanel,
+  onToggleFormatPanel,
+  onToggleMotionPanel,
 }: MobileSlidesToolbarProps & {
   state: Extract<ToolbarState, { kind: "object" }>;
 }) {
@@ -166,7 +189,14 @@ function ObjectMobileBar({
       >
         <IconTrash size={16} />
       </button>
-      <OverflowMenu onToggleThemePanel={onToggleThemePanel} />
+      <OverflowMenu
+        editor={editor}
+        store={store}
+        theme={theme}
+        onToggleThemePanel={onToggleThemePanel}
+        onToggleFormatPanel={onToggleFormatPanel}
+        onToggleMotionPanel={onToggleMotionPanel}
+      />
     </Toolbar>
   );
 }
@@ -330,6 +360,22 @@ function InsertSheet({
               >
                 <IconLine size={20} />
                 Line
+              </button>
+            }
+          />
+          <TablePicker
+            editor={editor}
+            disabled={!editor}
+            onInsert={() => setOpen(false)}
+            trigger={
+              <button
+                type="button"
+                aria-label="Table"
+                disabled={!editor}
+                className={SHEET_ACTION_BUTTON_CLASS}
+              >
+                <IconTable size={20} />
+                Table
               </button>
             }
           />
@@ -515,34 +561,135 @@ function TextFormatSheet({
 // ---------------------------------------------------------------------------
 
 function OverflowMenu({
+  editor,
+  store,
+  theme,
   onToggleThemePanel,
+  onToggleFormatPanel,
+  onToggleMotionPanel,
 }: {
+  editor: SlidesEditor | null;
+  store: SlidesStore | null;
+  theme?: Theme | null;
   onToggleThemePanel?: () => void;
+  onToggleFormatPanel?: () => void;
+  onToggleMotionPanel?: () => void;
 }) {
+  // Only `backgroundOpen` is controlled — the DropdownMenu itself is
+  // uncontrolled and auto-closes on select. The background sheet lives
+  // outside the menu so it survives the dropdown unmount.
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const slideId = editor?.getCurrentSlideId();
+  const canBackground = !!store && !!slideId && !!theme;
+  // Theme reads the deck (store); Format/Motion panels need a live editor
+  // selection context. Gate the items on real readiness so a tap before
+  // the editor/store mounts can't open an empty header-only sheet — the
+  // `onToggle*` props are always-defined closures and never gate alone.
+  const canTheme = !!onToggleThemePanel && !!store;
+  const canPanels = !!store && !!editor;
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="More slide options"
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-        >
-          <IconDotsVertical size={16} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Design</DropdownMenuLabel>
-        <DropdownMenuItem
-          onClick={() => onToggleThemePanel?.()}
-          disabled={!onToggleThemePanel}
-        >
-          Theme…
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled>
-          Slide background… (coming soon)
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="More slide options"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+          >
+            <IconDotsVertical size={16} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Design</DropdownMenuLabel>
+          <DropdownMenuItem
+            onClick={() => onToggleThemePanel?.()}
+            disabled={!canTheme}
+          >
+            Theme…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => setBackgroundOpen(true)}
+            disabled={!canBackground}
+          >
+            Slide background…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onToggleFormatPanel?.()}
+            disabled={!onToggleFormatPanel || !canPanels}
+          >
+            Format options…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onToggleMotionPanel?.()}
+            disabled={!onToggleMotionPanel || !canPanels}
+          >
+            Motion…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {canBackground && (
+        <SlideBackgroundSheet
+          open={backgroundOpen}
+          onOpenChange={setBackgroundOpen}
+          store={store!}
+          theme={theme!}
+          slideId={slideId!}
+        />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slide background sheet (toolbar-local)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mobile bottom-sheet wrapper around `ThemedColorPicker`, mirroring the
+ * desktop `RightGlobals` slide-background dropdown. Writes through
+ * `store.updateSlideBackground` for the current slide; a discrete
+ * swatch pick closes the sheet, live custom-input changes keep it open.
+ */
+function SlideBackgroundSheet({
+  open,
+  onOpenChange,
+  store,
+  theme,
+  slideId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  store: SlidesStore;
+  theme: Theme;
+  slideId: string;
+}) {
+  const { backgroundFill, onChange } = useSlideBackground(
+    store,
+    slideId,
+    theme,
+    () => onOpenChange(false),
+  );
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom,8px)]">
+        <SheetHeader>
+          <SheetTitle>Slide background</SheetTitle>
+          <SheetDescription className="sr-only">
+            Pick a fill color for the current slide background.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="px-4 pb-4">
+          <ThemedColorPicker
+            value={backgroundFill}
+            theme={theme}
+            onChange={onChange}
+            recentColors={store.read().meta.recentColors}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

@@ -27,6 +27,13 @@ import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { YorkieSlidesStore } from "./yorkie-slides-store";
 import {
   createZoomController,
@@ -421,6 +428,22 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   );
 }
 
+/** Titles + sr-only descriptions for the mobile design/format bottom sheets. */
+const MOBILE_PANEL_META = {
+  theme: {
+    title: "Theme",
+    description: "Pick a built-in theme for the deck.",
+  },
+  format: {
+    title: "Format options",
+    description: "Edit size, position, and effects for the selected object.",
+  },
+  motion: {
+    title: "Motion",
+    description: "Configure slide transitions and object animations.",
+  },
+} as const;
+
 /**
  * MobileSlidesLayout — same chrome as `DesktopSlidesLayout` (sidebar
  * drawer + SiteHeader + SlidesToolbar) but mounts `MobileSlidesView`
@@ -442,6 +465,12 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
     "current" | "first" | null
   >(null);
   const [slideCount, setSlideCount] = useState(0);
+  // Which design/format panel is open as a bottom sheet. Mirrors the
+  // desktop `rightPanel` side-drawer state machine, but the panels render
+  // inside a `Sheet` instead of docking next to the canvas.
+  type RightPanel = "theme" | "format" | "motion" | null;
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const panelMeta = rightPanel ? MOBILE_PANEL_META[rightPanel] : null;
   // Mirror the active theme so the Format sheet's theme-bound pickers
   // (shape fill, text color, font family) get a non-null Theme to
   // resolve against. Without this they are gated behind a `!theme`
@@ -620,6 +649,18 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
             theme={activeTheme}
             onImagePick={handleImagePick}
             upload={uploadFn}
+            onToggleThemePanel={() =>
+              setRightPanel((p) => (p === "theme" ? null : "theme"))
+            }
+            themePanelOpen={rightPanel === "theme"}
+            onToggleFormatPanel={() =>
+              setRightPanel((p) => (p === "format" ? null : "format"))
+            }
+            formatPanelOpen={rightPanel === "format"}
+            onToggleMotionPanel={() =>
+              setRightPanel((p) => (p === "motion" ? null : "motion"))
+            }
+            motionPanelOpen={rightPanel === "motion"}
           />
           <MobileSlidesView
             mode="edit"
@@ -627,6 +668,48 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
             onEditorReady={setEditor}
           />
         </div>
+        <Sheet
+          open={rightPanel !== null}
+          onOpenChange={(o) => {
+            if (!o) setRightPanel(null);
+          }}
+        >
+          <SheetContent
+            side="bottom"
+            className="max-h-[80vh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
+          >
+            <SheetHeader className="border-b">
+              <SheetTitle>{panelMeta?.title}</SheetTitle>
+              <SheetDescription className="sr-only">
+                {panelMeta?.description}
+              </SheetDescription>
+            </SheetHeader>
+            {rightPanel === "theme" && store && (
+              <ThemePanel
+                variant="sheet"
+                store={store}
+                currentThemeId={currentThemeId}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "format" && store && editor && (
+              <FormatPanel
+                variant="sheet"
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "motion" && store && editor && (
+              <MotionPanel
+                variant="sheet"
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+          </SheetContent>
+        </Sheet>
       </SidebarInset>
       {presentingFrom &&
         store &&
