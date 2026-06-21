@@ -75,25 +75,43 @@ paragraph) describes that target shape, but Slides has not adopted it.
 Closing this gap is the largest piece of remaining collaboration work
 and should reuse the docs Tree bridge rather than inventing a new one.
 
-## Gap 3 — presence is half-wired
+## Gap 3 — presence is half-wired (PARTIALLY CLOSED)
 
 `SlidesPresence` (`packages/frontend/src/types/users.ts`) defines
 `activeSlideId`, `selectedElementIds`, `activeFrames` (live drag
-preview), and `draggingGuide`. In practice:
+preview), and `draggingGuide`.
 
-- `updatePresence` is called from exactly one place
-  (`slides-view.tsx`) and broadcasts only `activeSlideId` +
-  `selectedElementIds`.
-- `activeFrames` and `draggingGuide` are **never broadcast** — there is
-  no live drag/resize/rotate or guide-drag preview for peers, despite
-  `slides.md` listing "drag/resize/rotate broadcast intermediate frames
-  via presence."
-- `getPeers()` exists but is **never consumed**. Nothing renders peer
-  cursors, peer selection rings, live peer drag frames, or a per-slide
-  "who's editing here" indicator on the canvas or thumbnails.
+**Closed (peer selection rings + name tags).** `getPeers()` is now
+consumed. The editor exposes `setPeers(PeerView[])` and paints, in the
+DOM overlay, a coloured ring + name tag for every peer selecting an
+element on the local user's current slide. The plumbing:
+
+- `YorkieSlidesStore.onPresenceChange` subscribes the Yorkie `'others'`
+  channel (distinct from document `remote-change`).
+- `slides-view.tsx` maps `SlidesPresence` → `PeerView`
+  (`peer-view.ts`, colour via `getPeerCursorColor`) and calls
+  `editor.setPeers(...)` on every presence/document change.
+- `computePeerOverlays` (`view/editor/peers.ts`, pure) projects peers
+  to world-space rings/labels/guide-lines; the editor stays
+  presence-agnostic (`SlidesStore` has no presence methods).
+
+The consume side already prefers a peer's live `activeFrames` over the
+static ring and already renders peer guide lines, so the remaining work
+is broadcast-only.
+
+**Still open (live frames + guide previews — broadcast side).**
+
+- `activeFrames` and `draggingGuide` are **not yet broadcast** — no live
+  drag/resize/rotate or guide-drag preview for peers. All gesture
+  previews funnel through `paintGhostPreview` (a clean emit point), but
+  there is no single "gesture ended" hook to clear them symmetrically;
+  this needs an explicit gesture-lifecycle signal. Tracked in
+  [20260621-slides-live-presence-todo.md](../../tasks/active/20260621-slides-live-presence-todo.md)
+  P2/P3.
 - `slides.md` also references a `textCursor` presence field and peer
-  cursor labels (à la `docs/docs-presence.md`); neither exists. Docs
-  has `packages/docs/src/view/peer-cursor.ts`; Slides has no analogue.
+  text carets (à la `docs/docs-presence.md`); neither exists. Docs has
+  `packages/docs/src/view/peer-cursor.ts`; Slides has no analogue. This
+  is gated on Tree-backed text bodies (Gap 2).
 
 The avatar stack in the document header (`user-presence.tsx`) works —
 that is separate, document-level Yorkie presence, not in-canvas peer
@@ -123,7 +141,8 @@ spots in `slides.md` pointing here.
 1. Tree-backed text bodies (text elements, then shape/table cells)
    reusing the docs Tree bridge — closes Gap 2 and, by extension, the
    notes Tree migration in Gap 1.
-2. Broadcast `activeFrames` during drag/resize/rotate and render peer
-   drag previews — closes the live-feedback half of Gap 3.
-3. Render peer selection rings + a `textCursor`-based peer caret reusing
-   `docs/view/peer-cursor.ts` — closes the rest of Gap 3.
+2. ~~Render peer selection rings~~ ✅ shipped (see Gap 3). Next: broadcast
+   `activeFrames` / `draggingGuide` during drag/resize/rotate/guide-drag
+   and render peer live previews — closes the live-feedback half of Gap 3.
+3. A `textCursor`-based peer caret reusing `docs/view/peer-cursor.ts`,
+   gated on Tree-backed text bodies — closes the rest of Gap 3.
