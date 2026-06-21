@@ -103,15 +103,17 @@ tricky part:
   `remote-change` — hence the new `onPresenceChange` seam. Peers are also
   re-pushed on `store.onChange` so a peer's rings follow elements as they
   (or anyone) move.
-- Gesture/peer repaint interaction (known v1 limitation, folds into P2's
-  gesture-lifecycle hook):
-  - During the local user's own gesture, `paintGhostPreview` repaints the
-    overlay without `peerOverlays`, so peer rings blink out for that frame
-    and return at the next steady-state repaint.
-  - Conversely, a peer-presence tick that lands mid-gesture calls
-    `setPeers` → `repaintOverlay`, which paints steady state over the local
-    ghost (the next pointermove restores it → brief flicker). The P2
-    gesture signal will defer the peer repaint while a gesture is live.
+- Gesture/peer repaint interaction:
+  - Peer rings now render through the local user's own gesture too:
+    `paintGhostPreview` shares the `currentPeerOverlays(slide)` helper with
+    `repaintOverlay` (addressed a CodeRabbit review finding).
+  - Remaining (known v1 limitation, folds into P2's gesture-lifecycle
+    hook): a peer-presence tick that lands mid-gesture calls `setPeers` →
+    `repaintOverlay`, which paints steady state over the local ghost (the
+    next pointermove restores it → brief flicker). The P2 gesture signal
+    will defer the peer repaint while a gesture is live.
+- Peer ring colours re-push on a light↔dark theme toggle via a per-frame
+  theme compare in the rAF tick (addressed a CodeRabbit review finding).
 
 ## Review
 

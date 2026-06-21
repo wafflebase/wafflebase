@@ -948,8 +948,17 @@ export function SlidesView({
     // JSON-clone the whole presentation 60 times per second, scaling
     // linearly with deck size and stressing the GC at idle.
     let lastSlideCount = store.getSlideCount();
+    // Peer ring colours derive from the resolved theme; a light↔dark
+    // toggle alone fires no peer/document event, so re-push peers when the
+    // theme changes (cheap O(1) compare against the live ref each frame)
+    // to recolour them immediately instead of waiting for the next event.
+    let lastPeerTheme = resolvedThemeRef.current;
     let raf = 0;
     const tick = () => {
+      if (resolvedThemeRef.current !== lastPeerTheme) {
+        lastPeerTheme = resolvedThemeRef.current;
+        pushPeers();
+      }
       editor.render();
       const n = store.getSlideCount();
       if (n !== lastSlideCount) {

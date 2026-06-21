@@ -1152,28 +1152,11 @@ class SlidesEditorImpl implements SlidesEditor {
         }
       }
     }
-    // Peer presence rings / live frames / guide previews.
-    // `buildElementWorldLookup` lifts every element (group children
-    // included) to an absolute world frame, so a peer's selected ids
-    // resolve to the same coordinates the local handles use. This is the
-    // same order of work as the `store.read()` deep clone at the top of
-    // this method, so it adds no new asymptotic cost.
-    // `computePeerOverlays` filters to peers on the current slide and
-    // prefers their live `activeFrames` over the static selection ring.
-    let peerOverlays: PeerOverlays | undefined;
-    if (this.peers.length > 0) {
-      const peerLookup = buildElementWorldLookup(slide.elements);
-      peerOverlays = computePeerOverlays(
-        this.peers,
-        this.currentId,
-        (id) => peerLookup.get(id)?.frame,
-      );
-    }
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
-      peerOverlays,
+      peerOverlays: this.currentPeerOverlays(slide),
       // Pass the full slide so connector endpoint handles can resolve
       // `attached` endpoints to world positions via the host element's
       // frame. Free endpoints don't need this map but it's cheap to
@@ -5156,12 +5139,38 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      // Keep peer rings / name tags visible through the gesture preview —
+      // this path rebuilds the overlay DOM, so omitting peers would drop
+      // them on the first drag/resize/rotate repaint until the gesture ends.
+      peerOverlays: this.currentPeerOverlays(slide),
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: this.options.store.read().guides,
       pendingGuide: this.pendingGuide,
     });
+  }
+
+  /**
+   * Build the peer-presence overlays (selection rings / live frames /
+   * guide previews) for `slide`, or `undefined` when no peers are
+   * present. `buildElementWorldLookup` lifts every element (group
+   * children included) to an absolute world frame so a peer's selected
+   * ids resolve to the same coordinates the local handles use — the same
+   * order of work as the `store.read()` deep clone these repaint paths
+   * already do, so it adds no new asymptotic cost. `computePeerOverlays`
+   * filters to peers on `slide` and prefers their live `activeFrames`
+   * over the static selection ring. Shared by `repaintOverlay` and
+   * `paintGhostPreview` so peers render in every overlay path.
+   */
+  private currentPeerOverlays(slide: Slide): PeerOverlays | undefined {
+    if (this.peers.length === 0) return undefined;
+    const peerLookup = buildElementWorldLookup(slide.elements);
+    return computePeerOverlays(
+      this.peers,
+      slide.id,
+      (id) => peerLookup.get(id)?.frame,
+    );
   }
 
   private currentSlide() {
