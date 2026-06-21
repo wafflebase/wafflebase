@@ -1,7 +1,9 @@
-import type { Crop, ImageElement } from '../../model/element';
+import type { Crop, Effects, ImageElement, ImageRecolor } from '../../model/element';
 import { generateId } from '../../model/element';
+import type { ClrMap } from './color';
 import type { EmuScale } from './geometry';
 import { parseXfrm } from './geometry';
+import { parseEffects, parseImageAdjustments, readAltText } from './effects';
 import type { PptxArchive } from './unzip';
 import type { PptxRel } from './rels';
 import { resolveRelsTarget } from './rels';
@@ -26,6 +28,12 @@ export interface ImageParseContext {
   uploadImage?: UploadImage;
   scale: EmuScale;
   report: ImportReport;
+  /**
+   * Master `<p:clrMap>` for resolving `<a:schemeClr>` shadow colors on
+   * `<p:pic>` effects. Optional — background blip parsing (slide /
+   * master) builds this context without it and never reads effects.
+   */
+  clrMap?: ClrMap;
 }
 
 /**
@@ -36,6 +44,9 @@ export type ParsedBlip = {
   src: string;
   opacity?: number;
   crop?: Crop;
+  recolor?: ImageRecolor;
+  brightness?: number;
+  contrast?: number;
 };
 
 /**
@@ -91,10 +102,14 @@ export async function parseBlipFill(
     ? parseSrcRect(child(blipFill, 'srcRect')) ?? parseStretchFillRect(blipFill)
     : undefined;
   const opacity = blip ? parseAlphaModFix(child(blip, 'alphaModFix')) : undefined;
+  // Recolor / brightness / contrast live on `<a:blip>` itself, so both
+  // `<p:pic>` and shape-`blipFill` images inherit them through here.
+  const adjustments = parseImageAdjustments(blip);
   return {
     src,
     ...(crop ? { crop } : {}),
     ...(opacity !== undefined ? { opacity } : {}),
+    ...(adjustments ?? {}),
   };
 }
 
@@ -115,11 +130,20 @@ export async function parsePic(
   const blip = await parseBlipFill(blipFill, ctx);
   if (!blip) return undefined;
 
+  // Drop shadow / reflection live on the host `<p:spPr>`, alt text on the
+  // `<p:nvPicPr><p:cNvPr descr>` — not on the blip itself.
+  const effects: Effects | undefined = parseEffects(spPr, ctx.scale, ctx.clrMap);
+  const alt = readAltText(pic);
+
   return {
     id: generateId(),
     type: 'image',
     frame,
-    data: blip,
+    data: {
+      ...blip,
+      ...(effects ? { effects } : {}),
+      ...(alt ? { alt } : {}),
+    },
   };
 }
 

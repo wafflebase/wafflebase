@@ -1,4 +1,5 @@
 import type {
+  Effects,
   Element as SlideElement,
   FreeformPath,
   GroupElement,
@@ -21,6 +22,7 @@ import type {
   Endpoint,
 } from '../../model/connector';
 import { parseColorFromContainer, type ClrMap } from './color';
+import { parseEffects, readAltText } from './effects';
 import type { TxStylesMarkers, TxStylesSlot } from './master';
 import type { EmuScale } from './geometry';
 import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
@@ -192,6 +194,10 @@ async function parseGrpSp(
   }
 
   const groupId = generateId();
+  // No group-level effects import: the renderer paints drop shadow /
+  // reflection on single-silhouette leaves only (shape / image / text),
+  // and the Format panel doesn't expose group effects — importing
+  // `<p:grpSpPr><a:effectLst>` would be unrenderable, uneditable dead data.
   const groupElement: GroupElement = {
     id: groupId,
     type: 'group',
@@ -345,7 +351,14 @@ async function parseChild(
   switch (el.localName) {
     case 'sp': {
       const sps = await parseSp(el, ctx);
-      return sps.length > 0 ? sps : undefined;
+      if (sps.length === 0) return undefined;
+      const spPr = child(el, 'spPr');
+      const effects = parseEffects(spPr, ctx.scale, ctx.clrMap);
+      const alt = readAltText(el);
+      if (effects || alt) {
+        for (const s of sps) attachEffectsAndAlt(s, effects, alt);
+      }
+      return sps;
     }
     case 'pic': {
       const picCtx: ImageParseContext = {
@@ -355,6 +368,7 @@ async function parseChild(
         uploadImage: ctx.uploadImage,
         scale: ctx.scale,
         report: ctx.report,
+        clrMap: ctx.clrMap,
       };
       const img = await parsePic(el, picCtx);
       return img ? [withId(img, ctx, el)] : undefined;
@@ -387,6 +401,26 @@ function pptxIdOf(el: Element): number | undefined {
   return undefined;
 }
 
+/**
+ * Attach the host `<p:sp>`'s parsed effects / alt text to each element it
+ * produced. A `<p:sp>` is one element in all but the blip-fill-with-text
+ * case, where the picture and its caption both inherit the shape's effect
+ * — acceptable for the rare combined form. Connectors (no effects/alt in
+ * the model) and groups (no `alt`) are excluded by type.
+ */
+function attachEffectsAndAlt(
+  el: SlideElement,
+  effects: Effects | undefined,
+  alt: string | undefined,
+): void {
+  if (effects && el.type !== 'connector') {
+    (el.data as { effects?: Effects }).effects = effects;
+  }
+  if (alt && el.type !== 'connector' && el.type !== 'group') {
+    (el.data as { alt?: string }).alt = alt;
+  }
+}
+
 function withId(elem: SlideElement, ctx: SlideParseContext, sourceEl: Element): SlideElement {
   const pid = pptxIdOf(sourceEl);
   if (pid != null) {
@@ -412,11 +446,9 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   const placeholderRef = placeholderInfo?.ref;
   const layoutSizeKey = placeholderInfo?.ooxmlKey;
 
-  // Effects — only `outerShdw` is reported; for v1 we drop it.
-  const effectLst = spPr ? child(spPr, 'effectLst') : undefined;
-  if (effectLst && child(effectLst, 'outerShdw')) {
-    ctx.report.shadowsDropped += 1;
-  }
+  // Drop shadow / reflection (effects) and alt text are attached to every
+  // element this `<p:sp>` emits by `parseChild`, which has the source
+  // `<p:sp>` node and the slide clrMap in scope.
 
   // Pure text box — `txBox=1` shapes have no fill/stroke and exist only
   // as a host for `<p:txBody>`.
@@ -516,6 +548,7 @@ async function buildImageFromBlip(
     uploadImage: ctx.uploadImage,
     scale: ctx.scale,
     report: ctx.report,
+    clrMap: ctx.clrMap,
   };
   const blip = await parseBlipFill(blipFill, imageCtx);
   if (!blip) return undefined;

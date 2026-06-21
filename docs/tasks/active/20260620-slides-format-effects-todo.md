@@ -17,8 +17,16 @@ Design doc: `docs/design/slides/slides-format-effects.md`
       `alt-text` (alt extended to shape/text/table).
 - [x] Sections: `drop-shadow-section.tsx`, `reflection-section.tsx`;
       `alt-text-section.tsx` generalized to all object types.
-- [ ] Import: PPTX `<a:outerShdw>` / `<a:reflection>` → effects;
-      `<p:cNvPr descr>` → alt. (follow-up slice)
+- [x] Import: PPTX `<a:outerShdw>` / `<a:reflection>` → effects;
+      `<p:cNvPr descr>` → alt. (slice on `slides-format-effects-import`)
+  - New `src/import/pptx/effects.ts`: `parseEffects(spPr, scale, clrMap)`
+    (outerShdw → DropShadow via `rotEmuToRad`/`emuToStrokePx`/
+    `parseColorFromContainer`, alpha → `opacity`; reflection → Reflection),
+    `readAltText(el)` (nv*Pr → cNvPr@descr), `parseImageAdjustments(blip)`.
+  - Wire: `parseChild`'s `sp` branch attaches effects+alt to all emitted
+    elements; `parsePic` (host spPr/nv); `parseTable` (graphicFrame);
+    `parseGrpSp` (grpSpPr, effects only — group has no `alt`).
+  - Drop the now-stale `report.shadowsDropped` increment (shadows import).
 - [x] Tests: pick-sections routing, drop-shadow + reflection section
       commit/toggle, effects-renderer units (shadow + reflection),
       element-renderer shadow integration.
@@ -32,8 +40,14 @@ Design doc: `docs/design/slides/slides-format-effects.md`
       offscreen color compositing.
 - [x] Panel: `recolor-section.tsx` (None/Grayscale/Sepia presets);
       image Adjustments extended with Brightness + Contrast sliders.
-- [ ] Import: `<a:duotone>`/`<a:clrChange>` → recolor; `<a:lum>` →
-      brightness/contrast. (follow-up slice, with shadow/reflection import)
+- [x] Import: `<a:duotone>`/`<a:clrChange>` → recolor; `<a:lum>` →
+      brightness/contrast. (slice with shadow/reflection import)
+  - `parseImageAdjustments` in `effects.ts`: `<a:grayscl>` → grayscale,
+    `<a:duotone>` → sepia (warm srgbClr accent) else grayscale, `<a:lum
+    bright/contrast>` → brightness/contrast (/100000). `<a:clrChange>`
+    intentionally unmapped (arbitrary swap, no preset analog).
+  - Wire into `parseBlipFill` (adjustments live in `<a:blip>`, so both
+    `<p:pic>` and shape-`blipFill` images pick them up).
 - [x] Tests: imageFilter units, recolor section, adjustments patch
       commits, pick-sections image routing.
 
