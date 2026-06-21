@@ -142,6 +142,53 @@ describe('YorkieSlidesStore — undo/redo churn', () => {
 
     expect(churn).toBeLessThan(30);
   });
+
+  // A styled text box carries fill / stroke / effects / alt in `data`
+  // (set via the Format Options panel → updateElementData). The snapshot
+  // rebuild must carry those through, or an undo of an UNRELATED edit both
+  // loses the styling and churns the text element.
+  it('preserves styled text data and does not churn it on undo', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let sid = '';
+    let shapeId = '';
+    let textId = '';
+    store.batch(() => {
+      sid = store.addSlide('blank');
+      textId = store.addElement(sid, {
+        type: 'text',
+        frame: { x: 0, y: 0, w: 100, h: 40, rotation: 0 },
+        data: { blocks: [] },
+      });
+      shapeId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 5, y: 5, w: 10, h: 10, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#abc' } },
+      });
+    });
+    store.batch(() =>
+      store.updateElementData(sid, textId, {
+        fill: { kind: 'srgb', value: '#f00' },
+        alt: 'hello',
+      }),
+    );
+
+    // Move the shape (not the text), then undo. The untouched text must
+    // keep its fill / alt and must not churn.
+    store.batch(() => store.updateElementFrame(sid, shapeId, { x: 99 }));
+    const before = doc.getGarbageLen();
+    store.undo();
+    const churn = doc.getGarbageLen() - before;
+
+    const text = store
+      .read()
+      .slides[0].elements.find((e) => e.id === textId);
+    expect(text?.data).toMatchObject({
+      fill: { kind: 'srgb', value: '#f00' },
+      alt: 'hello',
+    });
+    expect(churn).toBeLessThan(30);
+  });
 });
 
 describe('YorkieSlidesStore — undo/redo correctness (reconcile)', () => {
@@ -190,7 +237,7 @@ describe('YorkieSlidesStore — undo/redo correctness (reconcile)', () => {
       added = store.addElement(slideIds[0], {
         type: 'shape',
         frame: { x: 1, y: 1, w: 10, h: 10, rotation: 0 },
-        data: { kind: 'rect', fill: '#def' },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#def' } },
       });
     });
     expect(store.read().slides[0].elements.map((e) => e.id)).toContain(added);
@@ -215,12 +262,12 @@ describe('YorkieSlidesStore — undo/redo correctness (reconcile)', () => {
       a = store.addElement(sid, {
         type: 'shape',
         frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#abc' } },
       });
       b = store.addElement(sid, {
         type: 'shape',
         frame: { x: 20, y: 20, w: 10, h: 10, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#abc' } },
       });
     });
     store.batch(() => {
