@@ -607,6 +607,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.8

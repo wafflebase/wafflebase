@@ -210,3 +210,11 @@ export {
 
 // Anim engine
 export * from './anim';
+
+// Export — PDF (browser-only raster pipeline)
+export {
+  exportSlidesPdf,
+  collectFontFamilies,
+  type ExportSlidesPdfOptions,
+  type SlidesImageFetcher,
+} from './export/pdf';

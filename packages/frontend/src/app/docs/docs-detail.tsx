@@ -24,6 +24,7 @@ import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { DocsPresence } from "@/types/users";
 import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
+import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
 
@@ -184,7 +185,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
               <TooltipTrigger asChild>
                 <Toggle
                   size="sm"
-                  className="h-7 w-7 min-w-7 p-0"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
                   aria-label={
                     commentsPanelOpen ? "Hide comments" : "Show comments"
                   }
@@ -198,6 +199,10 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 {commentsPanelOpen ? "Hide comments" : "Show comments"}
               </TooltipContent>
             </Tooltip>
+            <DocsExportButton
+              editor={editor}
+              title={documentData?.title ?? "document"}
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence
               onSelectPeer={handleSelectPeer}
@@ -206,11 +211,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <DocsFormattingToolbar
-            editor={editor}
-            editContext={editContext}
-            documentTitle={documentData?.title}
-          />
+          <DocsFormattingToolbar editor={editor} editContext={editContext} />
           <DocsView
             onEditorReady={setEditor}
             onJumpHandleReady={setJumpHandle}

@@ -63,7 +63,12 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 - [ ] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
 - [x] 5.4 Slide-canvas text painting via docs `paintLayout` — same baseline math + font path as the in-place editor. Slide-side CJK font registry shim was dropped because the editor itself relied on docs' `buildFont` and Korean rendered fine; if a missing-glyph case surfaces later, route through `resolveFontFamily` at the docs level so both surfaces benefit.
 - [x] 5.5 `view/present/presenter.ts` + `presentation-mode.tsx` — fullscreen, fit-to-screen, key nav
-- [ ] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping, delegate font/embedding to docs
+- [x] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping. **Shipped as P0
+      raster** (PR #395, [`20260621-slides-pdf-export-todo.md`](./20260621-slides-pdf-export-todo.md)):
+      reuses `drawSlide()` → high-DPI offscreen canvas → one bitmap/page,
+      rather than delegating vector font/embedding to docs (docs'
+      `PdfPainter` can't paint slide shapes/connectors/effects). Vector
+      text + docs font-embedding delegation deferred to P1.
 - [ ] 5.7 `packages/cli/src/commands/slides.ts` — list/create/delete/content/export-pdf
 - [ ] 5.8 `packages/backend/test/slides-cli-roundtrip.e2e-spec.ts`
 - [x] 5.9 `verify:browser:docker` adds slides scenario (thumbnails + present)
