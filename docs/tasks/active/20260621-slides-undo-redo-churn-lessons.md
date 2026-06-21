@@ -37,3 +37,14 @@
   compiles against `@wafflebase/docs/dist`, not its source. After pulling
   `main` (new docs exports), run `pnpm --filter @wafflebase/docs build`
   before `verify:fast`, or typecheck fails on unrelated missing exports.
+
+- Reusing a narrow rebuild mapping is a trap for an id-based reconcile.
+  The snapshot rebuild reconstructed text `data` as `{ blocks, autofit }`,
+  dropping `fill` / `stroke` / `effects` / `alt` (set via
+  `updateElementData`). With the old whole-array splice this was a hidden
+  data-loss-on-undo; with the reconcile it ALSO churned every styled text
+  element (rebuilt shape never deep-equals the stored one). A reconcile is
+  only as lossless as the desired tree it diffs against — the rebuild must
+  reproduce the stored shape field-for-field, or unchanged elements look
+  changed. Caught by CodeRabbit; reproduced with a styled-text test
+  (data → `{ blocks: [] }`) before fixing the mapping to clone whole `data`.
