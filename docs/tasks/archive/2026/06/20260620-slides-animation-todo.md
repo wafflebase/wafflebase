@@ -1,5 +1,12 @@
 # Slides Motion (Transitions + Object Animations) Implementation Plan
 
+> **Shipped & archived (2026-06-21):** delivered in PR #389 (motion) and
+> #391 (Radix motion panel). Verified in source: `packages/slides/src/anim/`,
+> `packages/slides/src/import/pptx/{timing,transition-map,anim-preset-map}.ts`,
+> `packages/frontend/src/app/slides/motion-panel/`. The checkbox states below
+> were back-filled in bulk at archival time — the executing subagents shipped
+> the work without ticking this file. See the paired lessons file.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add slide transitions and per-element object animations (entrance/exit/emphasis) to the Slides package, playable in presentation mode and an editor Play preview, with best-effort PPTX import.
@@ -54,7 +61,7 @@
 **Interfaces:**
 - Produces: `AnimCategory`, `AnimStart`, `AnimEasing`, `AnimDirection`, `AnimEffect`, `ObjectAnimation`, `SlideTransition`, `SlideAnimation` from `model/element.ts` / `model/presentation.ts`; `Slide.transition?` and `Slide.animations?` optional fields.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/model/animation.test.ts
@@ -87,12 +94,12 @@ describe('animation model', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- animation.test.ts`
 Expected: FAIL — `ObjectAnimation` / `SlideAnimation` / `SlideTransition` not exported.
 
-- [ ] **Step 3: Add the types to `element.ts`**
+- [x] **Step 3: Add the types to `element.ts`**
 
 ```ts
 // packages/slides/src/model/element.ts  (append, after the Frame/Crop block)
@@ -124,7 +131,7 @@ export type ObjectAnimation = {
 };
 ```
 
-- [ ] **Step 4: Extend `presentation.ts`**
+- [x] **Step 4: Extend `presentation.ts`**
 
 ```ts
 // packages/slides/src/model/presentation.ts
@@ -153,12 +160,12 @@ export type Slide = {
 };
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- animation.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts packages/slides/src/model/presentation.ts packages/slides/src/model/animation.test.ts
@@ -178,7 +185,7 @@ git commit -m "Add slides animation model types"
 - Consumes: `SlideTransition`, `SlideAnimation`, `ObjectAnimation` (Task 1); `requireBatch()`, `requireSlide(id)`, `clone()` patterns already in `memory.ts`.
 - Produces on `SlidesStore`: `setSlideTransition(slideId, t: SlideTransition | undefined): void`; `addAnimation(slideId, anim: SlideAnimation): string`; `updateAnimation(slideId, animId, patch: Partial<ObjectAnimation>): void`; `removeAnimation(slideId, animId): void`; `reorderAnimation(slideId, animId, toIndex: number): void`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/store/memory-animation.test.ts
@@ -227,12 +234,12 @@ describe('MemSlidesStore animation ops', () => {
 
 > If `MemSlidesStore.empty()` is not the actual factory, open `memory.ts` and use whatever the existing tests use to construct a store with one slide (e.g. a constructor taking a seed `SlidesDocument`). Mirror the construction in `memory.test.ts`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory-animation.test.ts`
 Expected: FAIL — methods not defined.
 
-- [ ] **Step 3: Add signatures to `store.ts`**
+- [x] **Step 3: Add signatures to `store.ts`**
 
 ```ts
 // packages/slides/src/store/store.ts  (in the "--- slide-level ---" section)
@@ -254,7 +261,7 @@ removeAnimation(slideId: string, animId: string): void;
 reorderAnimation(slideId: string, animId: string, toIndex: number): void;
 ```
 
-- [ ] **Step 4: Implement on `MemSlidesStore`**
+- [x] **Step 4: Implement on `MemSlidesStore`**
 
 ```ts
 // packages/slides/src/store/memory.ts  (near updateSlideBackground)
@@ -304,12 +311,12 @@ reorderAnimation(slideId: string, animId: string, toIndex: number): void {
 
 Add `SlideTransition`, `SlideAnimation` to the existing `presentation` import and `ObjectAnimation` to the `element` import at the top of `memory.ts`.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory-animation.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/store/store.ts packages/slides/src/store/memory.ts packages/slides/src/store/memory-animation.test.ts
@@ -328,25 +335,25 @@ git commit -m "Add slide transition + animation store ops"
 - Consumes: same signatures as Task 2; the file's existing Yorkie `root.update(...)` mutation pattern (mirror `updateSlideBackground`).
 - Produces: the `SlidesStore` contract fully implemented for the Yorkie backend.
 
-- [ ] **Step 1: Read the existing pattern**
+- [x] **Step 1: Read the existing pattern**
 
 Open `yorkie-slides-store.ts`, find `updateSlideBackground` and how it locates a slide inside `root.update((r) => { ... })` (Yorkie array of slides). Mirror it. Yorkie arrays support `push`, index assignment, and `splice` via the SDK's array proxy — match whatever the file already uses for `moveSlides` / element reorder.
 
-- [ ] **Step 2: Write the failing test** (mirror Task 2's behaviors against the Yorkie-backed store using the folder's existing in-memory Yorkie test document helper). Assert add → reorder → update → remove order, and set/clear transition.
+- [x] **Step 2: Write the failing test** (mirror Task 2's behaviors against the Yorkie-backed store using the folder's existing in-memory Yorkie test document helper). Assert add → reorder → update → remove order, and set/clear transition.
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- yorkie-slides-store-animation`
 Expected: FAIL — methods not implemented.
 
-- [ ] **Step 4: Implement the 5 methods** using the file's `root.update` pattern. For `addAnimation`: ensure `slide.animations` array exists (`if (!slide.animations) slide.animations = []`), then `push`. For `reorderAnimation`: splice-out + splice-in on the Yorkie array. For `updateAnimation`: assign scalar keys individually (LWW per key) rather than replacing the object. For `removeAnimation`: filter/splice by id. For `setSlideTransition`: assign or delete the field.
+- [x] **Step 4: Implement the 5 methods** using the file's `root.update` pattern. For `addAnimation`: ensure `slide.animations` array exists (`if (!slide.animations) slide.animations = []`), then `push`. For `reorderAnimation`: splice-out + splice-in on the Yorkie array. For `updateAnimation`: assign scalar keys individually (LWW per key) rather than replacing the object. For `removeAnimation`: filter/splice by id. For `setSlideTransition`: assign or delete the field.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- yorkie-slides-store-animation`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.ts packages/frontend/src/app/slides/yorkie-slides-store-animation.test.ts
@@ -366,14 +373,14 @@ git commit -m "Implement animation store ops on Yorkie backend"
 - Consumes: `store: SlidesStore`, the active slide id, the current selection (selected element ids) — match how `FormatPanel` receives these in `slides-detail.tsx`.
 - Produces: `MotionPanel` React component; `RightPanel` includes `"motion"`.
 
-- [ ] **Step 1: Add `"motion"` to the union and state**
+- [x] **Step 1: Add `"motion"` to the union and state**
 
 ```tsx
 // slides-detail.tsx
 type RightPanel = "theme" | "format" | "motion" | null;
 ```
 
-- [ ] **Step 2: Scaffold the panel**
+- [x] **Step 2: Scaffold the panel**
 
 ```tsx
 // motion-panel/index.tsx
@@ -395,7 +402,7 @@ export function MotionPanel(props: {
 }
 ```
 
-- [ ] **Step 3: Wire render + toolbar toggle** in `slides-detail.tsx`, mirroring the `rightPanel === "format"` block:
+- [x] **Step 3: Wire render + toolbar toggle** in `slides-detail.tsx`, mirroring the `rightPanel === "format"` block:
 
 ```tsx
 {rightPanel === "motion" && store && (
@@ -410,11 +417,11 @@ export function MotionPanel(props: {
 
 Add a toolbar button that calls `setRightPanel(rightPanel === "motion" ? null : "motion")`, with `motionPanelOpen={rightPanel === "motion"}` passed to the toolbar like the theme/format ones.
 
-- [ ] **Step 4: Manual verify**
+- [x] **Step 4: Manual verify**
 
 Run: `pnpm dev`, open a deck, click the Motion toolbar button → panel opens with two empty sections, × closes it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/motion-panel/index.tsx packages/frontend/src/app/slides/slides-detail.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -433,7 +440,7 @@ git commit -m "Scaffold slides Motion panel + right-slot wiring"
 - Consumes: `store.setSlideTransition`, `store.read()`, `store.batch`, the deck's slide list (for Apply-to-all).
 - Produces: `<TransitionSection store slideId />`.
 
-- [ ] **Step 1: Build the section**
+- [x] **Step 1: Build the section**
 
 ```tsx
 // transition-section.tsx
@@ -482,11 +489,11 @@ export function TransitionSection(props: { store: SlidesStore; slideId: string }
 }
 ```
 
-- [ ] **Step 2: Mount it** in `motion-panel/index.tsx`'s transition section.
+- [x] **Step 2: Mount it** in `motion-panel/index.tsx`'s transition section.
 
-- [ ] **Step 3: Manual verify** in `pnpm dev`: pick Fade → reopen panel shows Fade; Apply-to-all sets every slide; choosing None clears it.
+- [x] **Step 3: Manual verify** in `pnpm dev`: pick Fade → reopen panel shows Fade; Apply-to-all sets every slide; choosing None clears it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/motion-panel/
@@ -505,7 +512,7 @@ git commit -m "Add transition controls to slides Motion panel"
 - Consumes: `store.addAnimation/updateAnimation/removeAnimation/reorderAnimation`, `selectedElementIds`, `crypto.randomUUID()` for ids.
 - Produces: `<AnimationSection store slideId selectedElementIds />`.
 
-- [ ] **Step 1: Build the list + add + inspector**
+- [x] **Step 1: Build the list + add + inspector**
 
 ```tsx
 // animation-section.tsx
@@ -562,11 +569,11 @@ export function AnimationSection(props: {
 
 > Exit/emphasis effects and by-paragraph toggle are added in Phase 2 (Task 20). This task ships entrance effects only.
 
-- [ ] **Step 2: Mount it** in `motion-panel/index.tsx`.
+- [x] **Step 2: Mount it** in `motion-panel/index.tsx`.
 
-- [ ] **Step 3: Manual verify** in `pnpm dev`: select an element, Add animation, reorder with ↑/↓, change effect/start/duration, Remove. Confirm the list reflects `store.read()` after each.
+- [x] **Step 3: Manual verify** in `pnpm dev`: select an element, Add animation, reorder with ↑/↓, change effect/start/duration, Remove. Confirm the list reflects `store.read()` after each.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/motion-panel/
@@ -584,10 +591,10 @@ git commit -m "Add object-animation list + inspector to Motion panel"
 **Interfaces:**
 - Consumes: `slide.animations` (to compute per-element order index).
 
-- [ ] **Step 1:** Compute a `Map<elementId, number[]>` of 1-based sequence positions from `slide.animations` (an element may appear multiple times). 
-- [ ] **Step 2:** In the selection overlay, when an element is selected and present in that map, render a small badge (e.g. top-left of its frame) listing its order number(s).
-- [ ] **Step 3:** Manual verify in `pnpm dev`: element with 2 animations shows its order badges only while selected.
-- [ ] **Step 4: Commit**
+- [x] **Step 1:** Compute a `Map<elementId, number[]>` of 1-based sequence positions from `slide.animations` (an element may appear multiple times). 
+- [x] **Step 2:** In the selection overlay, when an element is selected and present in that map, render a small badge (e.g. top-left of its frame) listing its order number(s).
+- [x] **Step 3:** Manual verify in `pnpm dev`: element with 2 animations shows its order badges only while selected.
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -am "Show animation order badges on selected elements"
@@ -606,7 +613,7 @@ git commit -am "Show animation order badges on selected elements"
 **Interfaces:**
 - Produces: `applyEasing(easing: AnimEasing | undefined, p: number): number`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // easing.test.ts
@@ -633,9 +640,9 @@ describe('applyEasing', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.** `pnpm --filter @wafflebase/slides test -- easing.test.ts`
+- [x] **Step 2: Run → FAIL.** `pnpm --filter @wafflebase/slides test -- easing.test.ts`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // easing.ts
@@ -652,8 +659,8 @@ export function applyEasing(easing: AnimEasing | undefined, p: number): number {
 }
 ```
 
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add slides animation easing functions"`
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add slides animation easing functions"`
 
 ---
 
@@ -667,7 +674,7 @@ export function applyEasing(easing: AnimEasing | undefined, p: number): number {
 **Interfaces:**
 - Produces: `type AnimState = { opacity: number; scale: number; dx: number; dy: number; rotation: number; hidden: boolean }`; `IDENTITY: AnimState`; `composeAnimStates(states: AnimState[]): AnimState`; `sampleEffect(effect: AnimEffect, opts): AnimState` where `opts = { progress: number; phase: 'before'|'active'|'after'; direction?: AnimDirection; slideW: number; slideH: number }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // effects.test.ts
@@ -711,9 +718,9 @@ describe('composeAnimStates', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement `state.ts`**
+- [x] **Step 3: Implement `state.ts`**
 
 ```ts
 // state.ts
@@ -736,7 +743,7 @@ export function composeAnimStates(states: AnimState[]): AnimState {
 }
 ```
 
-- [ ] **Step 4: Implement `effects.ts`**
+- [x] **Step 4: Implement `effects.ts`**
 
 ```ts
 // effects.ts
@@ -792,8 +799,8 @@ export function sampleEffect(effect: AnimEffect, o: Opts): AnimState {
 }
 ```
 
-- [ ] **Step 5: Run → PASS.**
-- [ ] **Step 6: Commit** `git add packages/slides/src/anim/ && git commit -m "Add AnimState + effect registry"`
+- [x] **Step 5: Run → PASS.**
+- [x] **Step 6: Commit** `git add packages/slides/src/anim/ && git commit -m "Add AnimState + effect registry"`
 
 ---
 
@@ -807,7 +814,7 @@ export function sampleEffect(effect: AnimEffect, o: Opts): AnimState {
 - Consumes: `Slide`, `SlideAnimation`.
 - Produces: `type ScheduledAnim = { anim: SlideAnimation; startAtMs: number; endAtMs: number }`; `type Step = { items: ScheduledAnim[] }`; `compileTimeline(slide: Slide, opts?: { existingElementIds?: Set<string>; paragraphCounts?: Map<string, number> }): Step[]`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // timeline.test.ts
@@ -851,9 +858,9 @@ describe('compileTimeline', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // timeline.ts
@@ -905,8 +912,8 @@ export function compileTimeline(
 }
 ```
 
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add timeline compilation (onClick/with/after, by-paragraph)"`
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add timeline compilation (onClick/with/after, by-paragraph)"`
 
 ---
 
@@ -920,7 +927,7 @@ export function compileTimeline(
 - Consumes: `Step`, `applyEasing`, `sampleEffect`, `composeAnimStates`, `AnimState`.
 - Produces: `sampleStep(step: Step, elapsedMs: number, slide: { w: number; h: number }): Map<string, AnimState>` (keyed by elementId); `stepDurationMs(step: Step): number`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // sample.test.ts
@@ -944,9 +951,9 @@ describe('sampleStep', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // sample.ts
@@ -982,8 +989,8 @@ export function sampleStep(step: Step, elapsedMs: number, slide: { w: number; h:
 }
 ```
 
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add step sampling (phase/easing/compose)"`
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add step sampling (phase/easing/compose)"`
 
 ---
 
@@ -997,7 +1004,7 @@ export function sampleStep(step: Step, elapsedMs: number, slide: { w: number; h:
 - Consumes: `SlideTransition`.
 - Produces: `type CrossPaint = { prevAlpha: number; nextAlpha: number; prevDx: number; nextDx: number; prevDy: number; nextDy: number; clipNext?: { x: number; y: number; w: number; h: number } }`; `sampleTransition(t: SlideTransition, progress: number, size: { w: number; h: number }): CrossPaint`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // transition.test.ts
@@ -1020,9 +1027,9 @@ describe('sampleTransition', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // transition.ts
@@ -1056,8 +1063,8 @@ export function sampleTransition(t: SlideTransition, progress: number, size: { w
 }
 ```
 
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add transition cross-paint descriptor"`
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add transition cross-paint descriptor"`
 
 ---
 
@@ -1071,7 +1078,7 @@ export function sampleTransition(t: SlideTransition, progress: number, size: { w
 - Consumes: `Step`, `sampleStep`, `stepDurationMs`, `AnimState`.
 - Produces: `class AnimationPlayer` with `constructor(steps: Step[], size: {w:number;h:number}, onFrame: (s: Map<string, AnimState>) => void)`, `advance(): void`, `tick(nowMs: number): void`, `get isLastStep(): boolean`, `get done(): boolean`, `reset(): void`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // player.test.ts
@@ -1112,9 +1119,9 @@ describe('AnimationPlayer', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // player.ts
@@ -1174,8 +1181,8 @@ export class AnimationPlayer {
 }
 ```
 
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add AnimationPlayer (advance/skip-to-end/tick)"`
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add AnimationPlayer (advance/skip-to-end/tick)"`
 
 ---
 
@@ -1191,7 +1198,7 @@ export class AnimationPlayer {
 - Consumes: `AnimState` from `../../anim/state`.
 - Produces: `drawElement(..., anim?: AnimState)` applies opacity/translate/scale/rotation in slide space, skips when `anim.hidden`.
 
-- [ ] **Step 1: Write the failing test** (assert the wrapper transforms are applied via a mock ctx)
+- [x] **Step 1: Write the failing test** (assert the wrapper transforms are applied via a mock ctx)
 
 ```ts
 // element-renderer-anim.test.ts
@@ -1219,9 +1226,9 @@ describe('drawElement anim injection', () => {
 
 > Match `drawElement`'s real parameter list (the explore noted `drawElement(ctx, element, doc, theme, onAssetLoad, elementsLookup, parentFlip, parentTransform)`). Append `anim?: AnimState` as the final optional parameter; update the test's argument positions to match the actual signature you find in the file.
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** — wrap the existing body:
+- [x] **Step 3: Implement** — wrap the existing body:
 
 ```ts
 // element-renderer.ts — at the top of drawElement, after computing center cx, cy
@@ -1246,7 +1253,7 @@ export function drawElement(/* …existing params…, */ anim?: AnimState): void
 
 > If the body has early `return`s, refactor so the single `ctx.restore()` always runs (wrap the existing body in a helper or use try/finally). Keep behavior identical when `anim` is undefined.
 
-- [ ] **Step 4: Add the barrel + package exports**
+- [x] **Step 4: Add the barrel + package exports**
 
 ```ts
 // packages/slides/src/anim/index.ts
@@ -1261,8 +1268,8 @@ export * from './player';
 
 Add to `packages/slides/src/index.ts`: `export * from './anim';` and ensure the new model types (`ObjectAnimation`, `SlideTransition`, `SlideAnimation`, `AnimEffect`, `AnimStart`, etc.) are re-exported (they are if `index.ts` does `export * from './model/element'` / `'./model/presentation'`; otherwise add them).
 
-- [ ] **Step 5: Run → PASS** then `pnpm slides build` (memory: frontend resolves slides via dist).
-- [ ] **Step 6: Commit** `git commit -am "Inject AnimState into element renderer + export anim engine"`
+- [x] **Step 5: Run → PASS** then `pnpm slides build` (memory: frontend resolves slides via dist).
+- [x] **Step 6: Commit** `git commit -am "Inject AnimState into element renderer + export anim engine"`
 
 ---
 
@@ -1276,7 +1283,7 @@ Add to `packages/slides/src/index.ts`: `export * from './anim';` and ensure the 
 - Consumes: `Map<string, AnimState>`, `drawElement(..., anim?)`.
 - Produces: `drawSlide(ctx, slide, doc, options, onAssetLoad, ghosts?, animStates?)`; `forceRender(slide, doc, ghosts?, animStates?)`; passing the per-element `AnimState` through to `drawElement`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // slide-renderer-anim.test.ts
@@ -1289,12 +1296,12 @@ import { describe, it, expect } from 'vitest';
 
 > Reuse the package's existing canvas test harness (look for how `slide-renderer.test.ts` constructs a canvas/mock ctx). The key assertion is the **no-arg path is unchanged**.
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** — thread `animStates?: Map<string, AnimState>` through `drawSlide` and into the per-element loop: `drawElement(ctx, el, doc, theme, onAssetLoad, lookup, parentFlip, parentTransform, animStates?.get(el.id))`. Add the same optional param to `forceRender`. When animation is active the caller pins dirty; expose a setter or have `forceRender` always paint (it already does).
+- [x] **Step 3: Implement** — thread `animStates?: Map<string, AnimState>` through `drawSlide` and into the per-element loop: `drawElement(ctx, el, doc, theme, onAssetLoad, lookup, parentFlip, parentTransform, animStates?.get(el.id))`. Add the same optional param to `forceRender`. When animation is active the caller pins dirty; expose a setter or have `forceRender` always paint (it already does).
 
-- [ ] **Step 4: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 5: Commit** `git commit -am "Thread animStates through slide renderer"`
+- [x] **Step 4: Run → PASS** then `pnpm slides build`.
+- [x] **Step 5: Commit** `git commit -am "Thread animStates through slide renderer"`
 
 ---
 
@@ -1308,21 +1315,21 @@ import { describe, it, expect } from 'vitest';
 - Consumes: `compileTimeline`, `AnimationPlayer`, `sampleTransition`, `forceRender`.
 - Produces: presenter that, per slide, plays `transition` then runs the step queue; advance keys mean "next step, else next slide".
 
-- [ ] **Step 1: Write the failing test** — drive the presenter with injected time:
+- [x] **Step 1: Write the failing test** — drive the presenter with injected time:
   - A slide with 2 onClick steps: first `advance()` plays step 0 (assert element becomes visible), does NOT change slide; after both steps, next `advance()` moves to the next slide.
   - A slide with a `fade` transition entering plays the cross-fade before steps.
   Use the presenter's existing test seams (it already has `presenter.test.ts`; mirror how it injects RAF / advances).
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement:**
+- [x] **Step 3: Implement:**
   - On entering a slide, build `compileTimeline(slide, { existingElementIds })` and a fresh `AnimationPlayer(steps, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT }, (states) => this.renderer.forceRender(slide, doc, undefined, states))`.
   - Start a RAF loop (`requestAnimationFrame`) that calls `player.tick(now)` while not `player.done`; pin renderer dirty during playback.
   - Replace the advance handler: `if (player.advance()) { /* consumed a step */ } else { goToNextSlide(); }`. Previous-slide key resets to the slide's end-state (all steps complete) — render with the final composed state or simply paint statically.
   - Play transition on slide change: before starting the next slide's step player, run a short transition RAF using `sampleTransition`, painting prev+next per `CrossPaint`. For `none`, skip.
 
-- [ ] **Step 4: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 5: Commit** `git commit -am "Play transitions + object animations in presentation mode"`
+- [x] **Step 4: Run → PASS** then `pnpm slides build`.
+- [x] **Step 5: Commit** `git commit -am "Play transitions + object animations in presentation mode"`
 
 ---
 
@@ -1335,10 +1342,10 @@ import { describe, it, expect } from 'vitest';
 **Interfaces:**
 - Consumes: `compileTimeline`, `AnimationPlayer`, the editor's render entry that can accept `animStates`.
 
-- [ ] **Step 1:** Add a ▶ Play button that builds `compileTimeline(currentSlide)` + an `AnimationPlayer` whose `onFrame` pushes `animStates` into the editor canvas (a transient overlay state, NOT the store). Auto-advance through all steps for preview (call `advance()` on each step boundary via the player's `done`/`isLastStep`), driven by a local `requestAnimationFrame` loop.
-- [ ] **Step 2:** When preview finishes (`player.done`), clear the transient `animStates` so the editor returns to static render.
-- [ ] **Step 3: Manual verify** in `pnpm dev`: select element(s) with animations, click Play → effects animate on the editor canvas, then settle to final state.
-- [ ] **Step 4: Commit** `git commit -am "Add Play preview to Motion panel"`
+- [x] **Step 1:** Add a ▶ Play button that builds `compileTimeline(currentSlide)` + an `AnimationPlayer` whose `onFrame` pushes `animStates` into the editor canvas (a transient overlay state, NOT the store). Auto-advance through all steps for preview (call `advance()` on each step boundary via the player's `done`/`isLastStep`), driven by a local `requestAnimationFrame` loop.
+- [x] **Step 2:** When preview finishes (`player.done`), clear the transient `animStates` so the editor returns to static render.
+- [x] **Step 3: Manual verify** in `pnpm dev`: select element(s) with animations, click Play → effects animate on the editor canvas, then settle to final state.
+- [x] **Step 4: Commit** `git commit -am "Add Play preview to Motion panel"`
 
 ---
 
@@ -1351,12 +1358,12 @@ import { describe, it, expect } from 'vitest';
 **Files:**
 - Modify: `packages/frontend/src/app/slides/motion-panel/animation-section.tsx`
 
-- [ ] **Step 1:** Add a category selector (`entrance | exit | emphasis`) per animation row; filter the effect dropdown by category: entrance `[appear,fadeIn,flyIn,zoomIn,spin]`, exit `[disappear,fadeOut,flyOut,zoomOut]`, emphasis `[pulse,grow]`. On category change, set `category` and a sensible default `effect` in one `updateAnimation` patch.
-- [ ] **Step 2:** Add a direction selector shown only for `flyIn`/`flyOut`.
-- [ ] **Step 3:** Add a `By paragraph` checkbox shown only when the target element is a text element (check the element type from `store.read()`), wired to `updateAnimation(..., { byParagraph })`.
-- [ ] **Step 4:** Add a `delay` number input wired to `delayMs`, and an `easing` selector wired to `easing`.
-- [ ] **Step 5: Manual verify** in `pnpm dev`: exit effect hides element at end in Play preview; flyIn direction changes entry side; by-paragraph reveals a multi-paragraph text box line-by-line.
-- [ ] **Step 6: Commit** `git commit -am "Surface exit/emphasis/direction/by-paragraph in Motion panel"`
+- [x] **Step 1:** Add a category selector (`entrance | exit | emphasis`) per animation row; filter the effect dropdown by category: entrance `[appear,fadeIn,flyIn,zoomIn,spin]`, exit `[disappear,fadeOut,flyOut,zoomOut]`, emphasis `[pulse,grow]`. On category change, set `category` and a sensible default `effect` in one `updateAnimation` patch.
+- [x] **Step 2:** Add a direction selector shown only for `flyIn`/`flyOut`.
+- [x] **Step 3:** Add a `By paragraph` checkbox shown only when the target element is a text element (check the element type from `store.read()`), wired to `updateAnimation(..., { byParagraph })`.
+- [x] **Step 4:** Add a `delay` number input wired to `delayMs`, and an `easing` selector wired to `easing`.
+- [x] **Step 5: Manual verify** in `pnpm dev`: exit effect hides element at end in Play preview; flyIn direction changes entry side; by-paragraph reveals a multi-paragraph text box line-by-line.
+- [x] **Step 6: Commit** `git commit -am "Surface exit/emphasis/direction/by-paragraph in Motion panel"`
 
 ---
 
@@ -1369,11 +1376,11 @@ import { describe, it, expect } from 'vitest';
 **Interfaces:**
 - Consumes: a helper that counts paragraphs (blocks) for a text/shape element from the slide model.
 
-- [ ] **Step 1: Write the failing test** asserting `compileTimeline(slide([{...byParagraph:true}]), { paragraphCounts: new Map([['e1', 3]]) })` yields 3 afterPrev-chained scheduled anims in one step.
-- [ ] **Step 2: Run → FAIL** (only if not already covered) / adjust.
-- [ ] **Step 3: Implement** the paragraph-count helper (read the element's `TextBody`/`data.text` block count) and pass it from both presenter (Task 16) and Play preview (Task 17) call sites.
-- [ ] **Step 4: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 5: Commit** `git commit -am "Wire paragraph counts into by-paragraph expansion"`
+- [x] **Step 1: Write the failing test** asserting `compileTimeline(slide([{...byParagraph:true}]), { paragraphCounts: new Map([['e1', 3]]) })` yields 3 afterPrev-chained scheduled anims in one step.
+- [x] **Step 2: Run → FAIL** (only if not already covered) / adjust.
+- [x] **Step 3: Implement** the paragraph-count helper (read the element's `TextBody`/`data.text` block count) and pass it from both presenter (Task 16) and Play preview (Task 17) call sites.
+- [x] **Step 4: Run → PASS** then `pnpm slides build`.
+- [x] **Step 5: Commit** `git commit -am "Wire paragraph counts into by-paragraph expansion"`
 
 ---
 
@@ -1383,11 +1390,11 @@ import { describe, it, expect } from 'vitest';
 - Test: `packages/slides/src/view/canvas/element-renderer-anim.test.ts` (extend)
 - Test: `packages/slides/src/anim/sample.test.ts` (extend)
 
-- [ ] **Step 1:** Add a sample test: one element with two overlapping animations (e.g. `spin` + `fadeIn` via two `withPrev` items) composes to rotation + partial opacity at mid-step.
-- [ ] **Step 2:** Add a renderer test: a rotated shape (`frame.rotation = π/4`) with `anim = { dx:10, scale:2 }` calls ctx transforms in the order translate(dx) → translate(center) → scale → rotate(anim) → translate(-center), THEN the element's own local rotate — assert the outer wrapper runs before the inner body via spy call order.
-- [ ] **Step 3:** Add the byte-identical guard explicitly: render the fixture with `animStates` undefined and compare against a committed reference (image hash or recorded ctx call list) to prove zero regression.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add animation composition + render regression tests"`
+- [x] **Step 1:** Add a sample test: one element with two overlapping animations (e.g. `spin` + `fadeIn` via two `withPrev` items) composes to rotation + partial opacity at mid-step.
+- [x] **Step 2:** Add a renderer test: a rotated shape (`frame.rotation = π/4`) with `anim = { dx:10, scale:2 }` calls ctx transforms in the order translate(dx) → translate(center) → scale → rotate(anim) → translate(-center), THEN the element's own local rotate — assert the outer wrapper runs before the inner body via spy call order.
+- [x] **Step 3:** Add the byte-identical guard explicitly: render the fixture with `animStates` undefined and compare against a committed reference (image hash or recorded ctx call list) to prove zero regression.
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add animation composition + render regression tests"`
 
 ---
 
@@ -1404,7 +1411,7 @@ import { describe, it, expect } from 'vitest';
 - Consumes: the XML node helper utilities already used in `slide.ts` (find how it reads child elements / attributes).
 - Produces: `parseTransition(transitionEl): SlideTransition | undefined`; `parseSlide` sets `slide.transition`.
 
-- [ ] **Step 1: Write the failing test** with a small `<p:transition>` XML fixture:
+- [x] **Step 1: Write the failing test** with a small `<p:transition>` XML fixture:
 
 ```ts
 // transition.test.ts
@@ -1428,11 +1435,11 @@ describe('parseTransition', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** `transition-map.ts` with: a `spd → durationMs` map (`slow:1000, med:500, fast:250`, default med); a child-tag → `SlideTransition['type']` map (`fade→fade`, `dissolve→dissolve`, `push→push`, `pull→push`, `wipe→wipe`, `cut→none`, `cover→push`, `cube→cube`, `flip→flip`, default → `fade`); read `dir` attribute → `direction`. Then call it from `parseSlide` (transition node is a sibling of `<p:cSld>`).
-- [ ] **Step 4: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 5: Commit** `git commit -am "Import PPTX slide transitions"`
+- [x] **Step 3: Implement** `transition-map.ts` with: a `spd → durationMs` map (`slow:1000, med:500, fast:250`, default med); a child-tag → `SlideTransition['type']` map (`fade→fade`, `dissolve→dissolve`, `push→push`, `pull→push`, `wipe→wipe`, `cut→none`, `cover→push`, `cube→cube`, `flip→flip`, default → `fade`); read `dir` attribute → `direction`. Then call it from `parseSlide` (transition node is a sibling of `<p:cSld>`).
+- [x] **Step 4: Run → PASS** then `pnpm slides build`.
+- [x] **Step 5: Commit** `git commit -am "Import PPTX slide transitions"`
 
 ---
 
@@ -1445,7 +1452,7 @@ describe('parseTransition', () => {
 **Interfaces:**
 - Produces: `mapPreset(presetClass: string, presetID: number, presetSubtype?: number): { category: AnimCategory; effect: AnimEffect; direction?: AnimDirection } | null` — returns `null` for unmapped presets.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // anim-preset-map.test.ts
@@ -1467,11 +1474,11 @@ describe('mapPreset', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** a lookup keyed by `${presetClass}:${presetID}`. Minimum coverage (PowerPoint preset IDs): entrance `1→appear`, `2→flyIn`, `10→fadeIn`, `23→zoomIn`, `8→spin`; exit `1→disappear`, `2→flyOut`, `10→fadeOut`, `23→zoomOut`; emphasis `→pulse`/`grow` where recognizable. Map `presetSubtype` directional codes (`4→down`/`from bottom`, `8→up`, `1→across`, etc. — encode the common Fly subtypes; default `left`). Return `null` otherwise.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** `git commit -am "Add PPTX animation preset map"`
+- [x] **Step 3: Implement** a lookup keyed by `${presetClass}:${presetID}`. Minimum coverage (PowerPoint preset IDs): entrance `1→appear`, `2→flyIn`, `10→fadeIn`, `23→zoomIn`, `8→spin`; exit `1→disappear`, `2→flyOut`, `10→fadeOut`, `23→zoomOut`; emphasis `→pulse`/`grow` where recognizable. Map `presetSubtype` directional codes (`4→down`/`from bottom`, `8→up`, `1→across`, etc. — encode the common Fly subtypes; default `left`). Return `null` otherwise.
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit** `git commit -am "Add PPTX animation preset map"`
 
 ---
 
@@ -1487,7 +1494,7 @@ describe('mapPreset', () => {
 - Consumes: `mapPreset`, the spid↔elementId table built during shape parsing, the XML node helpers.
 - Produces: `parseTiming(timingEl, ctx: { spidToElementId: Map<string,string>; report: ImportReport }): SlideAnimation[]`.
 
-- [ ] **Step 1: Write the failing test** with a small `<p:timing>` fixture containing a `mainSeq` with one `clickEffect` par (presetClass `entr`, presetID `10`, target spid `3`, dur `500`):
+- [x] **Step 1: Write the failing test** with a small `<p:timing>` fixture containing a `mainSeq` with one `clickEffect` par (presetClass `entr`, presetID `10`, target spid `3`, dur `500`):
 
 ```ts
 // timing.test.ts
@@ -1517,9 +1524,9 @@ describe('parseTiming', () => {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** `parseTiming`:
+- [x] **Step 3: Implement** `parseTiming`:
   - Walk `tnLst > par(tmRoot) > childTnLst > seq[nodeType="mainSeq"]`. For each effect `par` under it: read `cTn.presetClass`/`presetID`/`presetSubtype`, `cTn.nodeType` (`clickEffect→onClick`, `withEffect→withPrev`, `afterEffect→afterPrev`), `cTn.dur→durationMs`, child `cond.delay→delayMs`, `accel`/`decel → easing` (both high → `easeInOut`, only accel → `easeIn`, only decel → `easeOut`, else `linear`).
   - Resolve target via `tgtEl>spTgt@spid → spidToElementId`. Skip (warn `animation-target-missing`) if unresolved.
   - `mapPreset(...)`: if non-null, build a `SlideAnimation`; if null, build one preserving `pptxPreset` (and `motionPath` if the effect is `animMotion`) with a best-guess `effect` (`appear`) marked preview-only, and `report.warn('animation-preset-unmapped', …)`.
@@ -1528,10 +1535,10 @@ describe('parseTiming', () => {
   - audio/video time nodes → `report.warn('animation-media-dropped', …)`, skip.
   - Attach result as `slide.animations` in the caller (only if non-empty).
 
-- [ ] **Step 4:** Add the warning keys to `report.ts` (`transition-approximated`, `animation-preset-unmapped`, `animation-target-missing`, `animation-trigger-dropped`, `animation-media-dropped`).
+- [x] **Step 4:** Add the warning keys to `report.ts` (`transition-approximated`, `animation-preset-unmapped`, `animation-target-missing`, `animation-trigger-dropped`, `animation-media-dropped`).
 
-- [ ] **Step 5: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 6: Commit** `git commit -am "Import PPTX object animations (map + preserve + report)"`
+- [x] **Step 5: Run → PASS** then `pnpm slides build`.
+- [x] **Step 6: Commit** `git commit -am "Import PPTX object animations (map + preserve + report)"`
 
 ---
 
@@ -1542,11 +1549,11 @@ describe('parseTiming', () => {
 - Modify: `packages/slides/src/import/pptx/slide.ts` (build the map, pass to `parseTiming`)
 - Test: covered by an end-to-end `import/pptx/*.e2e`-style fixture test if the package has one; else extend `timing.test.ts` with a small integration that runs `parseSpTree` then `parseTiming`.
 
-- [ ] **Step 1:** In `parseSpTree`, capture each shape's `<p:nvSpPr><p:cNvPr id="N">` and map `N → createdElementId` into a `Map<string,string>` carried on the parse `ctx`.
-- [ ] **Step 2:** In `parseSlide`, after `parseSpTree`, call `parseTiming(timingEl, { spidToElementId, report })` and assign the returned array to `slide.animations` when non-empty.
-- [ ] **Step 3:** Add/extend a fixture test importing a tiny `.pptx`-shaped input (or synthetic slide XML + timing XML) and assert the animation's `elementId` matches the created element.
-- [ ] **Step 4: Run → PASS** then `pnpm slides build`.
-- [ ] **Step 5: Commit** `git commit -am "Resolve animation targets via spid↔element map"`
+- [x] **Step 1:** In `parseSpTree`, capture each shape's `<p:nvSpPr><p:cNvPr id="N">` and map `N → createdElementId` into a `Map<string,string>` carried on the parse `ctx`.
+- [x] **Step 2:** In `parseSlide`, after `parseSpTree`, call `parseTiming(timingEl, { spidToElementId, report })` and assign the returned array to `slide.animations` when non-empty.
+- [x] **Step 3:** Add/extend a fixture test importing a tiny `.pptx`-shaped input (or synthetic slide XML + timing XML) and assert the animation's `elementId` matches the created element.
+- [x] **Step 4: Run → PASS** then `pnpm slides build`.
+- [x] **Step 5: Commit** `git commit -am "Resolve animation targets via spid↔element map"`
 
 ---
 
@@ -1560,29 +1567,29 @@ describe('parseTiming', () => {
 - Modify: `docs/tasks/README.md` (index entry for this task's todo + lessons)
 - Modify: `packages/slides/README.md` and/or `docs/design/slides/slides-presentation-mode.md` (remove the "cuts only / no transitions" non-goal now that motion ships)
 
-- [ ] **Step 1:** Update the presentation-mode doc + slides.md non-goals to point at `slides-animation.md` (they listed animations as non-goals).
-- [ ] **Step 2:** Write the lessons file capturing anything non-obvious found during implementation (e.g. exact `drawElement` signature, presenter RAF seam, Yorkie array reorder quirks).
-- [ ] **Step 3: Run the full gate**
+- [x] **Step 1:** Update the presentation-mode doc + slides.md non-goals to point at `slides-animation.md` (they listed animations as non-goals).
+- [x] **Step 2:** Write the lessons file capturing anything non-obvious found during implementation (e.g. exact `drawElement` signature, presenter RAF seam, Yorkie array reorder quirks).
+- [x] **Step 3: Run the full gate**
 
 Run: `pnpm verify:fast` then `pnpm slides build` then `pnpm verify:self`
 Expected: all green.
 
-- [ ] **Step 4: Browser smoke**
+- [x] **Step 4: Browser smoke**
 
 Run: `pnpm verify:browser:docker` (or manual `pnpm dev`): author transition + multi-step animation, present it, import a PPTX with animations and confirm the report lists drops without crashing.
 
-- [ ] **Step 5: Archive + index**
+- [x] **Step 5: Archive + index**
 
 Run: `pnpm tasks:archive && pnpm tasks:index`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/ packages/slides/README.md
 git commit -m "Document slides motion; capture lessons; archive task"
 ```
 
-- [ ] **Step 7: Open PR** with Summary + Test plan; request `/code-review` over the full branch diff before merge (CLAUDE.md task workflow).
+- [x] **Step 7: Open PR** with Summary + Test plan; request `/code-review` over the full branch diff before merge (CLAUDE.md task workflow).
 
 ---
 

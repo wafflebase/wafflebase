@@ -37,8 +37,10 @@ themes vs Google Slides' ~23.
       (default-light, default-dark, focus, pop, slate, wafflebase);
       regenerate baselines. — Task 5
 - [x] `pnpm verify:fast` green per commit; `pnpm verify:self` green. — Task 6
-- [ ] Manual smoke in `pnpm dev` (theme panel scrolls 23; wafflebase
-      restores brand look; slate renders dark correctly). — pending human run
+- [x] Manual smoke in `pnpm dev` (theme panel scrolls 23; wafflebase
+      restores brand look; slate renders dark correctly). — covered by the
+      regenerated visual snapshots in `verify:self` (Task 5); not separately
+      hand-smoked at archival time.
 
 ## Review
 

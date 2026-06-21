@@ -71,12 +71,14 @@ PowerPoint-side extensions plus the freeform drawing tool.
 
 ## Plan
 
-- [ ] Reflect gaps into `docs/design/slides/slides-shapes.md` phase roadmap
-      (new P3.5 = P0/P1 catalog additions, P5 = freeform drawing tool).
-- [ ] Land P0 catalog shapes as builder-only additions (one file per shape
+- [x] Reflect gaps into `docs/design/slides/slides-shapes.md` phase roadmap
+      (new P3.5 = P0/P1 catalog additions, P5 = freeform drawing tool). — #387
+- [x] Land P0 catalog shapes as builder-only additions (one file per shape
       in the matching `shapes/<category>/` dir + registry `.set()` + picker
-      category entry). No schema migration (adjustments are additive).
-- [ ] Freeform drawing tool is its own task (editor interaction work, larger).
+      category entry). No schema migration (adjustments are additive). — #387
+      (PATH_BUILDERS 114 → 136; see Review/Outcome)
+- [x] Freeform drawing tool is its own task (editor interaction work, larger).
+      — shipped as the freehand scribble tool in #387
 
 ## Review
 

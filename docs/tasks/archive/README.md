@@ -6,14 +6,26 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 282
+Total archived tasks: 294
 
-## 2026/06 (37 tasks)
+## 2026/06 (49 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| dependabot alerts (2026-06-21) | [20260621-dependabot-alerts-todo.md](./2026/06/20260621-dependabot-alerts-todo.md) | - |
+| slides mobile toolbar parity (2026-06-21) | [20260621-slides-mobile-toolbar-parity-todo.md](./2026/06/20260621-slides-mobile-toolbar-parity-todo.md) | - |
+| slides radix form controls (2026-06-21) | [20260621-slides-radix-form-controls-todo.md](./2026/06/20260621-slides-radix-form-controls-todo.md) | [20260621-slides-radix-form-controls-lessons.md](./2026/06/20260621-slides-radix-form-controls-lessons.md) |
+| slides undo redo churn (2026-06-21) | [20260621-slides-undo-redo-churn-todo.md](./2026/06/20260621-slides-undo-redo-churn-todo.md) | [20260621-slides-undo-redo-churn-lessons.md](./2026/06/20260621-slides-undo-redo-churn-lessons.md) |
+| a11y radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./2026/06/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./2026/06/20260620-a11y-radix-cleanup-lessons.md) |
 | connector paste remap (2026-06-20) | [20260620-connector-paste-remap-todo.md](./2026/06/20260620-connector-paste-remap-todo.md) | - |
+| design docs archive cleanup (2026-06-20) | [20260620-design-docs-archive-cleanup-todo.md](./2026/06/20260620-design-docs-archive-cleanup-todo.md) | [20260620-design-docs-archive-cleanup-lessons.md](./2026/06/20260620-design-docs-archive-cleanup-lessons.md) |
+| docs comments polish (2026-06-20) | [20260620-docs-comments-polish-todo.md](./2026/06/20260620-docs-comments-polish-todo.md) | [20260620-docs-comments-polish-lessons.md](./2026/06/20260620-docs-comments-polish-lessons.md) |
+| release v0.4.6 (2026-06-20) | [20260620-release-v0.4.6-todo.md](./2026/06/20260620-release-v0.4.6-todo.md) | - |
+| slides animation (2026-06-20) | [20260620-slides-animation-todo.md](./2026/06/20260620-slides-animation-todo.md) | [20260620-slides-animation-lessons.md](./2026/06/20260620-slides-animation-lessons.md) |
+| slides image crop (2026-06-20) | [20260620-slides-image-crop-todo.md](./2026/06/20260620-slides-image-crop-todo.md) | [20260620-slides-image-crop-lessons.md](./2026/06/20260620-slides-image-crop-lessons.md) |
 | slides notes live sync (2026-06-20) | [20260620-slides-notes-live-sync-todo.md](./2026/06/20260620-slides-notes-live-sync-todo.md) | [20260620-slides-notes-live-sync-lessons.md](./2026/06/20260620-slides-notes-live-sync-lessons.md) |
+| slides shape gaps (2026-06-20) | [20260620-slides-shape-gaps-todo.md](./2026/06/20260620-slides-shape-gaps-todo.md) | [20260620-slides-shape-gaps-lessons.md](./2026/06/20260620-slides-shape-gaps-lessons.md) |
+| slides theme catalog (2026-06-20) | [20260620-slides-theme-catalog-todo.md](./2026/06/20260620-slides-theme-catalog-todo.md) | [20260620-slides-theme-catalog-lessons.md](./2026/06/20260620-slides-theme-catalog-lessons.md) |
 | table paste merge (2026-06-19) | [20260619-table-paste-merge-todo.md](./2026/06/20260619-table-paste-merge-todo.md) | [20260619-table-paste-merge-lessons.md](./2026/06/20260619-table-paste-merge-lessons.md) |
 | slides freeform custgeom (2026-06-18) | [20260618-slides-freeform-custgeom-todo.md](./2026/06/20260618-slides-freeform-custgeom-todo.md) | [20260618-slides-freeform-custgeom-lessons.md](./2026/06/20260618-slides-freeform-custgeom-lessons.md) |
 | slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./2026/06/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./2026/06/20260617-slides-color-picker-recent-lessons.md) |

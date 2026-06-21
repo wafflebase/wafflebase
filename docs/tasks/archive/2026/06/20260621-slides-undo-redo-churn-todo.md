@@ -67,7 +67,7 @@ See incident: second-brain
 - [x] Green: churn test passes; all correctness assertions pass
 - [x] `pnpm verify:fast` green
 - [x] Self-review the branch diff
-- [ ] Open PR (English); capture lessons; archive task docs
+- [x] Open PR (English); capture lessons; archive task docs (PR #388 merged)
 
 ## Verification
 

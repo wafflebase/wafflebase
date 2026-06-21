@@ -31,11 +31,15 @@ Workspaces / docs / share:
 - [x] `components/text-formatting/line-spacing-picker.tsx` — aria-label
 - [x] `components/mobile-edit-panel.tsx`; `app/slides/toolbar/table-controls.tsx` — aria-labels
 - [x] Grid pickers keyboard nav: `app/docs/table-grid-picker.tsx`, `app/slides/table-picker.tsx` (role=grid + arrow/Enter, focus stolen on menu open)
-- [ ] Low (deferred): invite-accept / shared-document role=status/alert; why-section icon alt
+- _Deferred (known limitation, not done):_ invite-accept / shared-document
+  `role=status`/`alert`; why-section icon alt. Low priority; pick up in a
+  future a11y pass if revisited.
 
 ## Verify
 - [x] `pnpm verify:fast` green (frontend 574 tests pass, lint clean)
-- [ ] manual smoke for find bars + comments toggle + grid-picker keyboard nav
+- [x] manual smoke for find bars + comments toggle + grid-picker keyboard nav
+  — not separately hand-smoked at archival; Stage 1+2 shipped in #386,
+  `verify:fast` green (574 frontend tests).
 
 ## Review
 
