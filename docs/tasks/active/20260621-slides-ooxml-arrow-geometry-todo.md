@@ -68,11 +68,18 @@ itself is general (benefits the other 150+ shapes & PPTX import later).
 - [ ] Browser smoke: insert each shape, confirm arrowheads render (pre-merge).
 
 ## Known limitations / non-goals
-- Stroke seam on the body/head junction of curved arrows (single-Path2D
-  renderer fills the union but strokes subpath boundaries). Document.
 - Connection sites (`cxnLst`) and `ahPolar` exact drag inverse parity not
   ported beyond what the shapes need.
 - Engine not yet applied to the other 150+ shapes (future work).
+
+## Post-review fixes
+- arcTo angles are geometric (ray), not the ellipse parameter — fixed
+  with a ray–ellipse intersection (commit 2).
+- Curved-arrow bend looked broken / disconnected on rectangular frames:
+  the engine was flat-filling the `fill="darkenLess"` 3-D shading overlay
+  as if it were silhouette. Now only norm silhouette paths render; the
+  body path alone is the complete outline at every aspect ratio. Also
+  removes the body/head stroke seam (commit 3).
 
 ## Review
 (to fill in)

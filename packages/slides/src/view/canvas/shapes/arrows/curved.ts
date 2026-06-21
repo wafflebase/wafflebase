@@ -7,10 +7,12 @@
 // the band thickness `th` — the detail the old hand-rolled "single
 // point tip" approximation was missing).
 //
-// Each preset has three `<a:path>`s: the band body (`stroke="false"`),
-// the arrowhead (`fill="darkenLess"`), and a `fill="none"` outline.
-// The engine unions the two filled paths (nonzero) and skips the
-// outline, so the rendered fill is the full body + head silhouette.
+// Each preset has three `<a:path>`s: the silhouette body (`fill`
+// defaults to norm), a `fill="darkenLess"` 3-D shading overlay, and a
+// `fill="none"` outline. The body path alone is already the complete
+// band + arrowhead outline at every aspect ratio, so the engine
+// renders only it and skips the shading + outline paths (see
+// `buildPresetPath`).
 
 import type {
   AdjustmentHandle,

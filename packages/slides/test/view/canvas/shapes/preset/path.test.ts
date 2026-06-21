@@ -79,9 +79,10 @@ describe('buildPresetPath', () => {
     expect(end.y).toBeCloseTo(189.44, 0);
   });
 
-  it('skips fill="none" outline sub-paths', () => {
-    // Body square + a fill="none" outline that would, if included,
-    // add a second winding. The square alone must contain its centre.
+  it('renders only norm silhouette paths, skipping outline + shading', () => {
+    // Norm body square + a fill="none" outline and a fill="darkenLess"
+    // shading overlay covering a wrong region. If either were rendered
+    // they would distort the fill; only the body square should remain.
     const def: PresetShapeDef = {
       adj: {},
       guides: [],
@@ -102,9 +103,22 @@ describe('buildPresetPath', () => {
             { t: 'line', pt: { x: 'hc', y: 'vc' } },
           ],
         },
+        {
+          // A shading overlay far outside the body — must NOT paint.
+          fill: 'darkenLess',
+          cmds: [
+            { t: 'move', pt: { x: 'r', y: 't' } },
+            { t: 'line', pt: { x: 'r', y: 'vc' } },
+            { t: 'line', pt: { x: 'hc', y: 't' } },
+            { t: 'close' },
+          ],
+        },
       ],
     };
     const path = buildPresetPath(def, { w: 100, h: 100 });
+    const ops = (path as unknown as { ops: Array<unknown> }).ops;
+    // Exactly one rendered subpath (the body); shading/outline skipped.
+    expect(ops.length).toBe(1);
     const ctx = createTestCanvas(200, 200).getContext('2d');
     expect(ctx.isPointInPath(path, 50, 50)).toBe(true);
   });

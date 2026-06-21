@@ -41,11 +41,23 @@
 - **pdf-lib was uninstalled locally**, making two unrelated PDF tests
   fail; `pnpm install` fixed it. Not caused by this change.
 
+## `fill="darkenLess"` is shading, not silhouette
+
+The biggest visual bug came from treating DrawingML's multi-`<path>`
+shapes as a union of filled regions. The curved arrows carry a
+`fill="darkenLess"` (and `fill="none"` outline) path *in addition* to
+the norm body path. `darkenLess`/`lighten`/etc. are 3-D shading
+overlays drawn over a *sub-region* in a modified shade — NOT extra
+silhouette. Flat-filling them painted a big wrong blob and made the
+band look broken (worse on rectangular frames). Fix: render only `norm`
+(or fill-less) silhouette paths; skip `none` + all shading variants.
+The norm body path is already the complete outline, which also removed
+the earlier body/head stroke seam. User caught this ("square connects,
+rectangle disconnects") — aspect-ratio-dependent visual bugs point at
+the geometry/compositing, not the data.
+
 ## Known limitations (documented in the todo)
 
-- Single-`Path2D` renderer fills the body+head union correctly but
-  strokes each subpath boundary, so a faint seam can appear at the
-  body/head junction of curved arrows when a stroke is set.
 - The preset engine is wired only to these 7 shapes for now.
 - Existing saved shapes that stored custom `adjustments` reinterpret
   under OOXML semantics (accepted; they were broken before).

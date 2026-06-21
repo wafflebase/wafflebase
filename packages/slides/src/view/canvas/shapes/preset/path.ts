@@ -107,10 +107,18 @@ function appendCubic(
 
 /**
  * Build a `Path2D` from a preset definition for a given frame size and
- * adjustment array. `fill="none"` sub-paths (stroke-only outlines) are
- * skipped; the remaining closed sub-paths union into one Path2D and
- * fill with the nonzero rule — faithful to the body+head composition
- * PowerPoint uses for multi-path arrows.
+ * adjustment array.
+ *
+ * Only the *silhouette* sub-paths are rendered — those with no `fill`
+ * attribute or `fill="norm"`. DrawingML also carries:
+ *   - `fill="none"` — stroke-only outline (no fill), and
+ *   - `fill="darken" | "darkenLess" | "lighten" | "lightenLess"` —
+ *     3-D shading overlays drawn in a modified shade of the same fill
+ *     over a *sub-region* of the silhouette.
+ * Both are skipped: a flat renderer has no shading, and filling a
+ * shading overlay as if it were silhouette paints a spurious blob.
+ * For our arrows the `norm` body path is already the complete outline,
+ * so this also avoids any body/head seam.
  */
 export function buildPresetPath(
   def: PresetShapeDef,
@@ -120,7 +128,7 @@ export function buildPresetPath(
   const r = evalGuides(size, def, adjustments);
   const path = new Path2D();
   for (const sub of def.paths) {
-    if (sub.fill === 'none') continue;
+    if (sub.fill !== undefined && sub.fill !== 'norm') continue;
     let cur: Point = { x: 0, y: 0 };
     let start: Point = { x: 0, y: 0 };
     for (const cmd of sub.cmds) {
