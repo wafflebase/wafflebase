@@ -221,6 +221,20 @@ This task closes that gap:
   element is selected, the printable-key rule wins. This baseline is
   unchanged.
 
+> **Known limitation (2026-06-21): Korean/IME type-to-edit decomposes.**
+> Typing Korean to *enter* edit mode on a selected shape/text element
+> produces decomposed jamo (`하` → `ㅎㅏ`) because the triggering jamo is
+> force-injected as `initialText`, which commits a lone jamo and breaks
+> the OS composition. Composing inside an *already-open* text-box (entered
+> via double-click / Enter) is unaffected, as are Docs and Sheets. A first
+> fix attempt (IME-guard so the entry keystroke is not injected) was
+> reverted: it passed jsdom unit tests but had no effect in a real browser
+> because the entry keydown carried no IME signal on the test machine. The
+> real fix likely has to abandon `initialText` injection for this path in
+> favour of true Sheets-style parity (focus a real input, let the native
+> keystroke land). Tracked in
+> `docs/tasks/archive/2026/06/20260607-slides-hover-text-edit-browser-smoke-todo.md`.
+
 #### P2.7 Edge-zone resize cursor
 
 - When the cursor is within 4 logical px of the selected element's
