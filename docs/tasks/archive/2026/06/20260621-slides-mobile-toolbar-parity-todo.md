@@ -1,5 +1,11 @@
 # Slides mobile toolbar parity — surface omitted menu items
 
+> **Shipped & archived (2026-06-21):** delivered in PR #392. Verified in
+> source: `rightPanel` state + `onToggleFormatPanel` / `onToggleMotionPanel`
+> wiring in `packages/frontend/src/app/slides/slides-detail.tsx`. The checkbox
+> states below were back-filled in bulk at archival time. (No paired lessons
+> file was written for this task.)
+
 ## Problem
 
 On the Slides mobile view several toolbar menu items present on desktop
@@ -33,23 +39,23 @@ store + current slide + theme, all already passed to the mobile toolbar).
 
 ## Tasks
 
-- [ ] `ThemePanel`: add `variant` prop; `sheet` mode returns content-only.
-- [ ] `FormatPanel`: add `variant` prop; `sheet` mode returns content-only.
-- [ ] `MotionPanel`: add `variant` prop; `sheet` mode returns content-only.
-- [ ] `TablePicker`: add optional `trigger` prop (mirror `ShapePicker`).
-- [ ] `mobile-toolbar.tsx`:
-  - [ ] Extend `MobileSlidesToolbarProps` with `onToggleFormatPanel`,
+- [x] `ThemePanel`: add `variant` prop; `sheet` mode returns content-only.
+- [x] `FormatPanel`: add `variant` prop; `sheet` mode returns content-only.
+- [x] `MotionPanel`: add `variant` prop; `sheet` mode returns content-only.
+- [x] `TablePicker`: add optional `trigger` prop (mirror `ShapePicker`).
+- [x] `mobile-toolbar.tsx`:
+  - [x] Extend `MobileSlidesToolbarProps` with `onToggleFormatPanel`,
         `onToggleMotionPanel` (Theme already present).
-  - [ ] `OverflowMenu`: enable Theme; add Format options + Motion; wire
+  - [x] `OverflowMenu`: enable Theme; add Format options + Motion; wire
         Slide background via a toolbar-local `SlideBackgroundSheet`.
-  - [ ] Add `TablePicker` (custom trigger) to the Insert sheet grid.
-  - [ ] Thread new props through Idle/Object bars.
-- [ ] `toolbar/index.tsx`: forward `onToggleFormatPanel` /
+  - [x] Add `TablePicker` (custom trigger) to the Insert sheet grid.
+  - [x] Thread new props through Idle/Object bars.
+- [x] `toolbar/index.tsx`: forward `onToggleFormatPanel` /
       `onToggleMotionPanel` to `MobileSlidesToolbar`.
-- [ ] `slides-detail.tsx` `MobileSlidesLayout`:
-  - [ ] Add `rightPanel` state ("theme" | "format" | "motion" | null).
-  - [ ] Pass the three toggle callbacks + open flags to `SlidesToolbar`.
-  - [ ] Render the three panels inside a bottom `Sheet`.
+- [x] `slides-detail.tsx` `MobileSlidesLayout`:
+  - [x] Add `rightPanel` state ("theme" | "format" | "motion" | null).
+  - [x] Pass the three toggle callbacks + open flags to `SlidesToolbar`.
+  - [x] Render the three panels inside a bottom `Sheet`.
 - [x] `pnpm verify:fast` green.
 - [x] Self code-review over branch diff.
 
@@ -81,6 +87,8 @@ Deferred (known limitations):
 
 - `pnpm verify:fast` green (lint + unit, desktop global-controls included).
 - Manual smoke in `pnpm dev` at <768px: Theme/Format/Motion bottom sheets
-  open from overflow, Slide background applies, Table inserts. (pending)
+  open from overflow, Slide background applies, Table inserts. _(Not
+  separately hand-smoked at archival; the implementation + `verify:fast`
+  shipped in #392. The checklist above covers code, not this manual pass.)_
 - Desktop toolbar unchanged — panels still dock as drawers, background
   dropdown still works via the shared hook.

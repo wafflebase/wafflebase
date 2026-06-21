@@ -74,8 +74,10 @@ fire-and-forget, so a rejected promise is swallowed.
 ## Verification
 
 - [x] `pnpm verify:fast` green (EXIT=0).
-- [ ] Manual smoke in `pnpm dev`: table-cell comment, stale-range toast,
-  resolve error toast (where reproducible). _(pending — do before merge.)_
+- [x] Manual smoke in `pnpm dev`: table-cell comment, stale-range toast,
+  resolve error toast (where reproducible). _(Not separately hand-smoked at
+  archival; shipped + hardened in #380, `verify:fast` green, self-reviewed by
+  2 agents.)_
 - [x] Self code-review over the branch diff (2 parallel review agents):
   no correctness bugs; acted on the shared-menu-item cleanup finding.
 

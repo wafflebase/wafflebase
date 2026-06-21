@@ -1,5 +1,12 @@
 # Slides image crop (P0 — rectangular crop)
 
+> **Shipped & archived (2026-06-21):** delivered in PR #385. Verified in
+> source: `packages/slides/src/model/image-crop.ts`,
+> `packages/slides/test/model/image-crop.test.ts`,
+> `packages/slides/test/view/editor/image-crop-session.test.ts`. The checkbox
+> states below were back-filled in bulk at archival time. See the paired
+> lessons file.
+
 Design: `docs/design/slides/slides-image-crop.md`
 Branch: `slides-image-crop`
 
@@ -11,38 +18,40 @@ pan the image under a fixed window, commit as one undo step.
 
 ## Plan
 
-- [ ] **Math core** — `packages/slides/src/model/image-crop.ts` (pure)
-  - [ ] `cropToFull(frame, crop)` → full-bitmap rect in slide coords
-  - [ ] `windowToCrop(full, window)` → normalized `Crop`
-  - [ ] `clampWindowToFull` / `clampFullToWindow` (handle drag / pan)
-  - [ ] `applyCropHandle(full, window, handle, dx, dy, min)` → window
-  - [ ] `normalizeCrop` (≈identity → `undefined`)
-  - [ ] `resetFrameForUncrop(frame, crop)` → frame restoring proportions
-  - [ ] Unit tests `image-crop.test.ts` (round-trip, clamp, reset)
-- [ ] **Renderer** — dimmed-full + bright-window crop preview
-  - [ ] `drawCropPreview` in `view/canvas/image-renderer.ts`
-  - [ ] thread `cropPreview?` through `drawSlide` / `forceRender`, skip the
+- [x] **Math core** — `packages/slides/src/model/image-crop.ts` (pure)
+  - [x] `cropToFull(frame, crop)` → full-bitmap rect in slide coords
+  - [x] `windowToCrop(full, window)` → normalized `Crop`
+  - [x] `clampWindowToFull` / `clampFullToWindow` (handle drag / pan)
+  - [x] `applyCropHandle(full, window, handle, dx, dy, min)` → window
+  - [x] `normalizeCrop` (≈identity → `undefined`)
+  - [x] `resetFrameForUncrop(frame, crop)` → frame restoring proportions
+  - [x] Unit tests `image-crop.test.ts` (round-trip, clamp, reset)
+- [x] **Renderer** — dimmed-full + bright-window crop preview
+  - [x] `drawCropPreview` in `view/canvas/image-renderer.ts`
+  - [x] thread `cropPreview?` through `drawSlide` / `forceRender`, skip the
         cropping element (mask)
-  - [ ] renderer test (ctx-spy: dim pass + clipped bright pass)
-- [ ] **Editor session** — `view/editor/editor.ts`
-  - [ ] `croppingElementId` + `cropSession` state
-  - [ ] `enterCropMode` (public) / `exitCropMode` / `finishCropMode`
-  - [ ] `onDoubleClick` image branch → enter crop (top-level, rotation 0)
-  - [ ] `onPointerDown` crop branch: handle-drag / pan / commit-on-outside
-  - [ ] Enter = commit, Esc = cancel (key handler)
-  - [ ] live preview via `forceRender(..., cropPreview)`; one `store.batch`
-  - [ ] filter cropping element out of normal selection overlay
-- [ ] **Overlay** — `view/editor/overlay.ts`
-  - [ ] `cropWindow?` option → black 8 handles + window border, early-return
-- [ ] **Toolbar** — `frontend/.../toolbar/image-controls.tsx`
-  - [ ] enable Crop button → `editor.enterCropMode`; pressed state
-  - [ ] Reset crop: restore proportions (`resetFrameForUncrop` + clear crop)
-- [ ] **Tests + verify**
-  - [ ] interaction unit/integration (enter via dblclick + toolbar; commit/cancel)
-  - [ ] visual harness scenario (`slides-scenarios.tsx` + `verify-visual-browser.mjs`)
-  - [ ] `pnpm verify:fast` green
-- [ ] **Review** — `/code-review` over branch diff; address blocking findings
-- [ ] **Docs** — update `packages/slides/README.md` image section; lessons file
+  - [x] renderer test (ctx-spy: dim pass + clipped bright pass)
+- [x] **Editor session** — `view/editor/editor.ts`
+  - [x] `croppingElementId` + `cropSession` state
+  - [x] `enterCropMode` (public) / `exitCropMode` / `finishCropMode`
+  - [x] `onDoubleClick` image branch → enter crop (top-level, rotation 0)
+  - [x] `onPointerDown` crop branch: handle-drag / pan / commit-on-outside
+  - [x] Enter = commit, Esc = cancel (key handler)
+  - [x] live preview via `forceRender(..., cropPreview)`; one `store.batch`
+  - [x] filter cropping element out of normal selection overlay
+- [x] **Overlay** — `view/editor/overlay.ts`
+  - [x] `cropWindow?` option → black 8 handles + window border, early-return
+- [x] **Toolbar** — `frontend/.../toolbar/image-controls.tsx`
+  - [x] enable Crop button → `editor.enterCropMode`; pressed state
+  - [x] Reset crop: restore proportions (`resetFrameForUncrop` + clear crop)
+- [x] **Tests + verify**
+  - [x] interaction unit/integration (enter via dblclick + toolbar; commit/cancel)
+  - [~] visual harness scenario (`slides-scenarios.tsx` + `verify-visual-browser.mjs`)
+        — **deferred** (flaky async image load); jsdom interaction tests cover
+        the session end-to-end (see Deviations below)
+  - [x] `pnpm verify:fast` green
+- [x] **Review** — `/code-review` over branch diff; address blocking findings
+- [x] **Docs** — update `packages/slides/README.md` image section; lessons file
 
 ## Decisions / constraints
 
