@@ -1,5 +1,14 @@
 import type { SlidesStore, SlideTransition } from '@wafflebase/slides';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+const TRIGGER_CLASS = 'h-7 flex-1 px-2 text-xs';
 
 const TYPES: Array<SlideTransition['type'] | 'none'> = [
   'none',
@@ -48,41 +57,55 @@ export function TransitionSection(props: {
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-xs">
           <span className="w-20 shrink-0">Type</span>
-          <select
-            aria-label="Transition type"
+          <Select
             value={t?.type ?? 'none'}
-            onChange={(e) => {
-              const type = e.target.value as SlideTransition['type'] | 'none';
+            onValueChange={(value) => {
+              const type = value as SlideTransition['type'] | 'none';
               set(
                 type === 'none'
                   ? undefined
                   : { type, durationMs: t?.durationMs ?? SPEED_MS.med },
               );
             }}
-            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-7 flex-1 rounded-md border bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
           >
-            {TYPES.map((ty) => (
-              <option key={ty} value={ty}>
-                {TYPE_LABELS[ty]}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              size="sm"
+              aria-label="Transition type"
+              className={TRIGGER_CLASS}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TYPES.map((ty) => (
+                <SelectItem key={ty} value={ty}>
+                  {TYPE_LABELS[ty]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="flex items-center gap-2 text-xs">
           <span className="w-20 shrink-0">Speed</span>
-          <select
-            aria-label="Transition speed"
-            value={t?.durationMs ?? SPEED_MS.med}
+          <Select
+            value={String(t?.durationMs ?? SPEED_MS.med)}
             disabled={!t}
-            onChange={(e) =>
-              t && set({ ...t, durationMs: Number(e.target.value) })
+            onValueChange={(value) =>
+              t && set({ ...t, durationMs: Number(value) })
             }
-            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-7 flex-1 rounded-md border bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
           >
-            <option value={SPEED_MS.slow}>Slow</option>
-            <option value={SPEED_MS.med}>Medium</option>
-            <option value={SPEED_MS.fast}>Fast</option>
-          </select>
+            <SelectTrigger
+              size="sm"
+              aria-label="Transition speed"
+              className={TRIGGER_CLASS}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(SPEED_MS.slow)}>Slow</SelectItem>
+              <SelectItem value={String(SPEED_MS.med)}>Medium</SelectItem>
+              <SelectItem value={String(SPEED_MS.fast)}>Fast</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
         <div className="pt-1">
           <Button

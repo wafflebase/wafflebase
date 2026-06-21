@@ -18,10 +18,14 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| a11y + Radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./active/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./active/20260620-a11y-radix-cleanup-lessons.md) |
+| slides native undo migration (2026-06-21) | [20260621-slides-native-undo-migration-todo.md](./active/20260621-slides-native-undo-migration-todo.md) | [20260621-slides-native-undo-migration-lessons.md](./active/20260621-slides-native-undo-migration-lessons.md) |
+| slides radix form controls (2026-06-21) | [20260621-slides-radix-form-controls-todo.md](./active/20260621-slides-radix-form-controls-todo.md) | [20260621-slides-radix-form-controls-lessons.md](./active/20260621-slides-radix-form-controls-lessons.md) |
+| slides undo redo churn (2026-06-21) | [20260621-slides-undo-redo-churn-todo.md](./active/20260621-slides-undo-redo-churn-todo.md) | [20260621-slides-undo-redo-churn-lessons.md](./active/20260621-slides-undo-redo-churn-lessons.md) |
+| a11y radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./active/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./active/20260620-a11y-radix-cleanup-lessons.md) |
 | design docs archive cleanup (2026-06-20) | [20260620-design-docs-archive-cleanup-todo.md](./active/20260620-design-docs-archive-cleanup-todo.md) | [20260620-design-docs-archive-cleanup-lessons.md](./active/20260620-design-docs-archive-cleanup-lessons.md) |
 | docs comments polish (2026-06-20) | [20260620-docs-comments-polish-todo.md](./active/20260620-docs-comments-polish-todo.md) | [20260620-docs-comments-polish-lessons.md](./active/20260620-docs-comments-polish-lessons.md) |
 | release v0.4.6 (2026-06-20) | [20260620-release-v0.4.6-todo.md](./active/20260620-release-v0.4.6-todo.md) | - |
+| slides animation (2026-06-20) | [20260620-slides-animation-todo.md](./active/20260620-slides-animation-todo.md) | [20260620-slides-animation-lessons.md](./active/20260620-slides-animation-lessons.md) |
 | slides format effects (2026-06-20) | [20260620-slides-format-effects-todo.md](./active/20260620-slides-format-effects-todo.md) | - |
 | slides image crop (2026-06-20) | [20260620-slides-image-crop-todo.md](./active/20260620-slides-image-crop-todo.md) | [20260620-slides-image-crop-lessons.md](./active/20260620-slides-image-crop-lessons.md) |
 | slides shape gaps (2026-06-20) | [20260620-slides-shape-gaps-todo.md](./active/20260620-slides-shape-gaps-todo.md) | [20260620-slides-shape-gaps-lessons.md](./active/20260620-slides-shape-gaps-lessons.md) |
@@ -41,4 +45,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 282
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: design docs archive cleanup (2026-06-20)
+Latest active task: slides native undo migration (2026-06-21)

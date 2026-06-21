@@ -1,4 +1,5 @@
 import type { AutofitMode, TextElement } from '@wafflebase/slides';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getCommonValue } from './units';
 
 export interface TextFittingSectionProps {
@@ -29,25 +30,23 @@ export function TextFittingSection({
       >
         Text fitting
       </h3>
-      <div role="radiogroup" className="space-y-1.5">
+      <RadioGroup
+        className="space-y-1.5"
+        value={common ?? undefined}
+        onValueChange={(value) =>
+          onCommit(
+            elements.map((el) => el.id),
+            value as AutofitMode,
+          )
+        }
+      >
         {MODES.map(({ mode, label }) => (
           <label key={mode} className="flex items-center gap-2 text-xs">
-            <input
-              type="radio"
-              name="format-text-fitting"
-              aria-label={label}
-              checked={common === mode}
-              onChange={() =>
-                onCommit(
-                  elements.map((el) => el.id),
-                  mode,
-                )
-              }
-            />
+            <RadioGroupItem value={mode} aria-label={label} />
             {label}
           </label>
         ))}
-      </div>
+      </RadioGroup>
     </section>
   );
 }
