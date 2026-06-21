@@ -3,7 +3,7 @@ import type { Master, MasterBackground } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
-import { parseBlipFill, type ImageParseContext } from './image';
+import { parseBlipFill, toBackgroundImage, type ImageParseContext } from './image';
 import { attr, attrInt, child, descendant, parseXml } from './xml';
 
 /**
@@ -221,7 +221,7 @@ async function parseBackground(
     if (blipFill) {
       const blip = await parseBlipFill(blipFill, imageCtx);
       if (blip) {
-        return { fill: clone(DEFAULT_MASTER.background).fill, image: blip };
+        return { fill: clone(DEFAULT_MASTER.background).fill, image: toBackgroundImage(blip) };
       }
     }
     const solid = child(bgPr, 'solidFill');

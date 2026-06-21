@@ -114,6 +114,23 @@ export async function parseBlipFill(
 }
 
 /**
+ * Project a {@link ParsedBlip} down to the fields a slide / master
+ * background image carries (`src` / `opacity` / `crop`). Backgrounds
+ * deliberately drop the foreground-only recolor / brightness / contrast
+ * adjustments: they aren't in the `BackgroundImage` model, and the shared
+ * `drawImage` renderer would otherwise filter the whole-slide background.
+ */
+export function toBackgroundImage(
+  blip: ParsedBlip,
+): { src: string; opacity?: number; crop?: Crop } {
+  return {
+    src: blip.src,
+    ...(blip.opacity !== undefined ? { opacity: blip.opacity } : {}),
+    ...(blip.crop ? { crop: blip.crop } : {}),
+  };
+}
+
+/**
  * Parse `<p:pic>` into an `ImageElement`. Returns `undefined` and bumps
  * `report.skippedImages` when the blip is missing, the rel doesn't
  * resolve, or no `uploadImage` callback is configured.

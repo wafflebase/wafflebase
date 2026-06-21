@@ -355,9 +355,7 @@ async function parseChild(
       const spPr = child(el, 'spPr');
       const effects = parseEffects(spPr, ctx.scale, ctx.clrMap);
       const alt = readAltText(el);
-      if (effects || alt) {
-        for (const s of sps) attachEffectsAndAlt(s, effects, alt);
-      }
+      if (effects || alt) attachEffectsAndAlt(sps[0], effects, alt);
       return sps;
     }
     case 'pic': {
@@ -402,11 +400,12 @@ function pptxIdOf(el: Element): number | undefined {
 }
 
 /**
- * Attach the host `<p:sp>`'s parsed effects / alt text to each element it
- * produced. A `<p:sp>` is one element in all but the blip-fill-with-text
- * case, where the picture and its caption both inherit the shape's effect
- * — acceptable for the rare combined form. Connectors (no effects/alt in
- * the model) and groups (no `alt`) are excluded by type.
+ * Attach the host `<p:sp>`'s parsed effects / alt text to the element it
+ * produced. Applied to the first emitted element only: a `<p:sp>` is one
+ * element in every case but blip-fill-with-text, where the picture (first)
+ * is the silhouette that should carry the shadow / reflection / alt and the
+ * caption text overlay must NOT re-cast a duplicate effect. Connectors (no
+ * effects/alt in the model) and groups (no `alt`) are excluded by type.
  */
 function attachEffectsAndAlt(
   el: SlideElement,

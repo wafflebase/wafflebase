@@ -5,7 +5,7 @@ import {
   parseImageAdjustments,
   readAltText,
 } from '../../../src/import/pptx/effects';
-import { parsePic } from '../../../src/import/pptx/image';
+import { parsePic, toBackgroundImage } from '../../../src/import/pptx/image';
 import { parseSlide } from '../../../src/import/pptx/slide';
 import { ImportReport } from '../../../src/import/pptx/report';
 import {
@@ -171,6 +171,25 @@ describe('parsePic — effects, adjustments, alt', () => {
     expect(result?.data.alt).toBe('A cat');
     expect(result?.data.effects?.shadow?.opacity).toBe(0.4);
     expect(result?.data.effects?.shadow?.color).toEqual({ kind: 'srgb', value: '#000000' });
+  });
+});
+
+describe('toBackgroundImage', () => {
+  it('keeps src/opacity/crop and drops foreground-only adjustments', () => {
+    expect(
+      toBackgroundImage({
+        src: 'u',
+        opacity: 0.5,
+        crop: { x: 0, y: 0, w: 1, h: 1 },
+        recolor: 'grayscale',
+        brightness: 0.3,
+        contrast: -0.2,
+      }),
+    ).toEqual({ src: 'u', opacity: 0.5, crop: { x: 0, y: 0, w: 1, h: 1 } });
+  });
+
+  it('omits absent optional fields', () => {
+    expect(toBackgroundImage({ src: 'u' })).toEqual({ src: 'u' });
   });
 });
 

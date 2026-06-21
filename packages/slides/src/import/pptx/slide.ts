@@ -4,7 +4,7 @@ import { DEFAULT_BACKGROUND } from '../../model/presentation';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
-import { parseBlipFill, type ImageParseContext } from './image';
+import { parseBlipFill, toBackgroundImage, type ImageParseContext } from './image';
 import type { TxStylesMarkers } from './master';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
@@ -143,7 +143,7 @@ async function parseSlideBackground(
     if (blipFill) {
       const blip = await parseBlipFill(blipFill, imageCtx);
       if (blip) {
-        return { fill: clone(DEFAULT_BACKGROUND).fill, image: blip };
+        return { fill: clone(DEFAULT_BACKGROUND).fill, image: toBackgroundImage(blip) };
       }
       // Upload failed / blip unresolved — fall through so the slide
       // still gets the theme background instead of nothing.
