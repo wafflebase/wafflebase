@@ -5,6 +5,8 @@ import {
   serializeMention,
   extractMentionedUserIds,
   mentionBodyToPlainText,
+  detectMentionQuery,
+  applySelectedMentions,
 } from '../../../src/components/comments/mentions.ts';
 
 describe('serializeMention', () => {
@@ -110,5 +112,64 @@ describe('mentionBodyToPlainText', () => {
 
   it('leaves bodies without mentions unchanged', () => {
     expect(mentionBodyToPlainText('plain text')).toBe('plain text');
+  });
+});
+
+describe('detectMentionQuery', () => {
+  it('detects an in-progress query before the caret', () => {
+    expect(detectMentionQuery('hi @ki', 6)).toEqual({ query: 'ki', start: 3 });
+  });
+
+  it('detects a bare "@" as an empty query', () => {
+    expect(detectMentionQuery('@', 1)).toEqual({ query: '', start: 0 });
+  });
+
+  it('uses the caret position, not the end of the string', () => {
+    expect(detectMentionQuery('hi @kim', 5)).toEqual({ query: 'k', start: 3 });
+  });
+
+  it('returns null when "@" is not at a word boundary (email)', () => {
+    expect(detectMentionQuery('mail a@b', 8)).toBeNull();
+  });
+
+  it('returns null once the query contains whitespace', () => {
+    expect(detectMentionQuery('hi @kim now', 11)).toBeNull();
+  });
+
+  it('returns null when there is no "@" before the caret', () => {
+    expect(detectMentionQuery('hello ', 6)).toBeNull();
+  });
+});
+
+describe('applySelectedMentions', () => {
+  it('tokenizes a selected mention', () => {
+    expect(
+      applySelectedMentions('hi @kim', [{ username: 'kim', userId: 'u1' }]),
+    ).toBe('hi @[kim](u1)');
+  });
+
+  it('does not let a shorter username match inside a longer one', () => {
+    expect(
+      applySelectedMentions('@kim and @kimchi', [
+        { username: 'kim', userId: 'u1' },
+        { username: 'kimchi', userId: 'u2' },
+      ]),
+    ).toBe('@[kim](u1) and @[kimchi](u2)');
+  });
+
+  it('drops a mention whose text was edited after selection', () => {
+    expect(
+      applySelectedMentions('@kimX', [{ username: 'kim', userId: 'u1' }]),
+    ).toBe('@kimX');
+  });
+
+  it('tokenizes every occurrence of a selected user', () => {
+    expect(
+      applySelectedMentions('@kim @kim', [{ username: 'kim', userId: 'u1' }]),
+    ).toBe('@[kim](u1) @[kim](u1)');
+  });
+
+  it('leaves unselected "@words" as plain text', () => {
+    expect(applySelectedMentions('hi @bob', [])).toBe('hi @bob');
   });
 });

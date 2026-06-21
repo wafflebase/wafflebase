@@ -27,25 +27,31 @@ Scope decisions (locked in brainstorming):
 - [x] `mentions.test.ts` — round-trip, `@[` in prose, names with `]`/`)`,
   adjacent mentions, start/end, empty body. 14 tests pass.
 
-### 2. Member source — `useWorkspaceMembers(workspaceId)`
-- [ ] Hook reading `GET /workspaces/:id` → `{userId, username, photo}[]`.
-  Confirm where the existing workspace fetch lives; reuse it (don't add a
-  duplicate request) if one already caches the workspace.
-- [ ] Thread the member list from each consumer controller (docs + sheets)
-  into `CommentComposer` as a prop. Anonymous/share-link → empty list.
+### 2. Member source — `useWorkspaceMembers(workspaceId)` ✅
+- [x] Hook reading `GET /workspaces/:id` (existing `fetchWorkspace`) →
+  `{userId, username, photo}[]` via tanstack `useQuery` (5-min staleTime,
+  shared cache key). No new request type / endpoint.
+- [x] Threaded members from the views (docs: `docs-detail` → `DocsView` new
+  `workspaceId` prop → popover + new-thread composer; sheets: `sheet-view`
+  already had `workspaceId` → `CommentPopover`) into `CommentComposer`.
+  Anonymous/share-link (`shared-document`, read-only) → empty list, dropdown
+  disabled, existing chips still render.
 
-### 3. Input — `MentionTextarea` in `CommentComposer`
-- [ ] `@`-trigger detection (start-of-text or whitespace before `@`).
-- [ ] Member dropdown anchored at caret; reuse `AuthorAvatar`; username
-  case-insensitive match.
-- [ ] Keyboard ↑/↓/Enter/Tab/Esc intercepted **only when open**; existing
-  Cmd/Ctrl+Enter submit + Esc-cancel preserved when closed.
-- [ ] Mention map records `{matchedText, userId, username}` on select;
-  textarea shows clean `@username `.
-- [ ] On submit, rewrite still-matching `@username` → token; drop edited
-  ones to plain text.
-- [ ] IME: suppress trigger/keys during composition
-  (`compositionstart`/`compositionend`).
+### 3. Input — mention autocomplete in `CommentComposer` ✅
+- [x] `@`-trigger detection via `detectMentionQuery` (start-of-text or
+  whitespace before `@`; stops at whitespace; ignores `email@host`).
+- [x] Member dropdown (`role=listbox`/`option`) reusing `AuthorAvatar`;
+  username case-insensitive substring match, capped at 8.
+- [x] Keyboard ↑/↓/Enter/Tab/Esc intercepted **only when open**;
+  Cmd/Ctrl+Enter submit + Esc-cancel preserved (Cmd+Enter falls through
+  even with dropdown open).
+- [x] Mention map (`selectedRef`) records `{userId, username}` on select;
+  textarea shows clean `@username `; `onMouseDown` keeps focus.
+- [x] On submit, `applySelectedMentions` rewrites still-matching
+  `@username` → token (longest-first, boundary lookahead); edited mentions
+  drop to plain text.
+- [x] IME: `compositionstart`/`compositionend` suppress trigger/keys.
+- [x] 27 helper unit tests + 5 composer interaction tests pass.
 
 ### 4. Render — `CommentBody` in `CommentThreadCard` ✅
 - [x] Replace plain-text body output with `CommentBody`.

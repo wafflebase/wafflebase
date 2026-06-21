@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 
-import { CommentComposer } from "@/components/comments/components/CommentComposer";
+import {
+  CommentComposer,
+  type MentionMember,
+} from "@/components/comments/components/CommentComposer";
 import { CommentThreadCard } from "@/components/comments/components/CommentThreadCard";
 import type { CommentAuthor } from "@/types/comments";
 import type { Thread } from "@wafflebase/sheets";
@@ -8,6 +11,7 @@ import type { Thread } from "@wafflebase/sheets";
 type Props = {
   threads: Thread[];
   currentUser: CommentAuthor | null;
+  members?: MentionMember[];
   onAddThread: (body: string) => Promise<void>;
   onReply: (threadId: string, body: string) => Promise<void>;
   onResolve: (threadId: string) => Promise<void>;
@@ -32,6 +36,7 @@ type Props = {
 export function CommentPopover({
   threads,
   currentUser,
+  members,
   onAddThread,
   onReply,
   onResolve,
@@ -88,6 +93,7 @@ export function CommentPopover({
             currentUserId={currentUser?.userId}
             readOnly={isReadOnly}
             autoFocusReply={threadIdx === 0}
+            members={members}
             onReply={(body) => onReply(thread.id, body)}
             onResolveToggle={() => onResolve(thread.id)}
             onEdit={(commentId, body) => onEditComment(thread.id, commentId, body)}
@@ -101,6 +107,7 @@ export function CommentPopover({
           submitLabel="Comment"
           onSubmit={(body) => onAddThread(body)}
           autoFocus
+          members={members}
         />
       )}
 
