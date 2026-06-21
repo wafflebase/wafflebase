@@ -22,6 +22,7 @@ import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesToolbar } from "./toolbar";
 import { SlidesPresentationMode } from "./slides-presentation-mode";
 import { PresentButton } from "./slides-present-button";
+import { SlidesExportButton } from "./slides-export-button";
 import { uploadImageFile } from "../spreadsheet/image-upload";
 import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
@@ -334,6 +335,11 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               disabled={!store || slideCount === 0}
               onStart={handleStartPresentation}
             />
+            <SlidesExportButton
+              store={store}
+              title={documentData?.title ?? "presentation"}
+              disabled={!store || slideCount === 0}
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -637,6 +643,11 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
             <PresentButton
               disabled={!store || slideCount === 0}
               onStart={handleStartPresentation}
+            />
+            <SlidesExportButton
+              store={store}
+              title={documentData?.title ?? "presentation"}
+              disabled={!store || slideCount === 0}
             />
             <ShareDialog documentId={documentId} />
             <UserPresence />

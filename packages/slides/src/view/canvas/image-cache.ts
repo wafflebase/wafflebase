@@ -74,6 +74,22 @@ export function isImageFailed(src: string): boolean {
   return failedImages.has(src);
 }
 
+/**
+ * Drop specific `src` keys from the cache. Used by PDF export, which
+ * loads images under short-lived object-URL keys (to avoid cross-origin
+ * canvas tainting) and must release them once the export finishes —
+ * otherwise their decoded bitmaps leak for the process lifetime. Only
+ * ever called with the export's own unique object URLs, so it never
+ * evicts an image the editor is still rendering.
+ */
+export function evictImageSrcs(srcs: readonly string[]): void {
+  for (const src of srcs) {
+    imageCache.delete(src);
+    pendingCallbacks.delete(src);
+    failedImages.delete(src);
+  }
+}
+
 /** Test-only: drop every cached image and pending callback. */
 export function clearImageCacheForTests(): void {
   imageCache.clear();
