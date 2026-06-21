@@ -18,6 +18,7 @@ import type {
 } from "@/types/comments";
 
 import { AuthorAvatar } from "./AuthorAvatar";
+import { CommentBody } from "./CommentBody";
 import { CommentComposer } from "./CommentComposer";
 
 type Props<A extends CommentAnchor> = {
@@ -164,7 +165,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
             onCancel={() => setEditingCommentId(null)}
           />
         ) : (
-          <p className="whitespace-pre-wrap text-xs text-foreground">{c.body}</p>
+          <CommentBody body={c.body} />
         )}
       </div>
     );

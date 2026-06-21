@@ -4,6 +4,7 @@ import {
   parseMentionBody,
   serializeMention,
   extractMentionedUserIds,
+  mentionBodyToPlainText,
 } from '../../../src/components/comments/mentions.ts';
 
 describe('serializeMention', () => {
@@ -97,5 +98,17 @@ describe('extractMentionedUserIds', () => {
 
   it('returns an empty array when there are no mentions', () => {
     expect(extractMentionedUserIds('plain text')).toEqual([]);
+  });
+});
+
+describe('mentionBodyToPlainText', () => {
+  it('renders each mention as @username for previews', () => {
+    expect(mentionBodyToPlainText('Hi @[김철수](u_42), review?')).toBe(
+      'Hi @김철수, review?',
+    );
+  });
+
+  it('leaves bodies without mentions unchanged', () => {
+    expect(mentionBodyToPlainText('plain text')).toBe('plain text');
   });
 });

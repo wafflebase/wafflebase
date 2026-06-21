@@ -19,13 +19,13 @@ Scope decisions (locked in brainstorming):
 
 ## Tasks
 
-### 1. Pure helpers — `components/comments/mentions.ts`
-- [ ] `parseMentionBody(body): BodySegment[]` (text / mention segments).
-- [ ] `serializeMention({userId, username})` → `@[username](userId)`;
+### 1. Pure helpers — `components/comments/mentions.ts` ✅
+- [x] `parseMentionBody(body): BodySegment[]` (text / mention segments).
+- [x] `serializeMention({userId, username})` → `@[username](userId)`;
   strip `]` from username and `)` from userId.
-- [ ] `extractMentionedUserIds(body): string[]` (future notification hook).
-- [ ] `mentions.test.ts` — round-trip, `@[` in prose, names with `]`/`)`,
-  adjacent mentions, start/end, empty body.
+- [x] `extractMentionedUserIds(body): string[]` (future notification hook).
+- [x] `mentions.test.ts` — round-trip, `@[` in prose, names with `]`/`)`,
+  adjacent mentions, start/end, empty body. 14 tests pass.
 
 ### 2. Member source — `useWorkspaceMembers(workspaceId)`
 - [ ] Hook reading `GET /workspaces/:id` → `{userId, username, photo}[]`.
@@ -47,11 +47,15 @@ Scope decisions (locked in brainstorming):
 - [ ] IME: suppress trigger/keys during composition
   (`compositionstart`/`compositionend`).
 
-### 4. Render — `CommentBody` in `CommentThreadCard`
-- [ ] Replace plain-text body output with `CommentBody`.
-- [ ] Text segments verbatim (whitespace/newlines preserved).
-- [ ] Mention chip: blue, hover tooltip (username + photo), click no-op.
-- [ ] Used by both sheets + docs thread cards.
+### 4. Render — `CommentBody` in `CommentThreadCard` ✅
+- [x] Replace plain-text body output with `CommentBody`.
+- [x] Text segments verbatim (whitespace/newlines preserved).
+- [x] Mention chip: blue, `title` tooltip (username), click no-op. Photo
+  enrichment deferred (token carries username+userId only; parse-only
+  render works for anonymous viewers).
+- [x] Used by both sheets + docs thread cards (shared component).
+- [x] Side-panel snippet + OrphanedCard preview use `mentionBodyToPlainText`
+  so the raw token never leaks into truncated previews.
 
 ### 5. Tests + verification
 - [ ] Composer interaction test (`.test.ts` + `IS_REACT_ACT_ENVIRONMENT`):

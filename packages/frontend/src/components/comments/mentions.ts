@@ -58,6 +58,19 @@ export function parseMentionBody(body: string): BodySegment[] {
 }
 
 /**
+ * Flatten a body to readable plain text, rendering each mention as
+ * `@username`. For truncated previews (side-panel snippet) where chips
+ * cannot be shown but the raw token must not leak.
+ */
+export function mentionBodyToPlainText(body: string): string {
+  return parseMentionBody(body)
+    .map((segment) =>
+      segment.type === 'text' ? segment.value : `@${segment.username}`,
+    )
+    .join('');
+}
+
+/**
  * The userIds mentioned in a body, in first-seen order and de-duplicated.
  * Single integration point a future notification feature consumes.
  */

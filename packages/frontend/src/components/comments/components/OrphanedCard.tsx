@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { formatRelativeTime } from "@/lib/utils";
 import type { Comment } from "@/types/comments";
 
+import { mentionBodyToPlainText } from "../mentions.ts";
 import { AuthorAvatar } from "./AuthorAvatar";
 
 type Props = {
@@ -49,7 +50,9 @@ export function OrphanedCard({ quotedText, root, commentCount, trailing }: Props
           {quotedText}
         </blockquote>
       )}
-      <p className="line-clamp-2 text-xs text-foreground">{root.body}</p>
+      <p className="line-clamp-2 text-xs text-foreground">
+        {mentionBodyToPlainText(root.body)}
+      </p>
       {commentCount > 1 && (
         <span className="text-xs text-muted-foreground">
           {commentCount} comments

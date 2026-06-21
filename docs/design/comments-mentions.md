@@ -32,7 +32,9 @@ encoded inline in the existing plain-string `Comment.body`.
 - Typing `@` in the comment composer (new thread or reply) opens a member
   autocomplete; selecting a member inserts a mention.
 - A posted comment renders mentions as blue, non-editable chips with a hover
-  tooltip (username + photo). Click is a no-op for now.
+  tooltip (username). Click is a no-op for now. (Photo-in-tooltip is
+  deferred: the token carries only username + userId, and chips must render
+  parse-only for anonymous viewers without a member fetch.)
 - Mentions are stored stably (embedded `userId`) so a later username change
   or duplicate username never breaks rendering.
 - Zero change to `Comment`/`Thread` types, CRDT schema, or any store; the
@@ -99,6 +101,9 @@ function parseMentionBody(body: string): BodySegment[];
 // strips ']' from username and ')' from userId to keep the grammar safe.
 function serializeMention(ref: MentionRef): string;
 
+// "Hi @[김철수](u_42)" -> "Hi @김철수" (for truncated previews)
+function mentionBodyToPlainText(body: string): string;
+
 // extract userIds referenced in a body (for future notification work)
 function extractMentionedUserIds(body: string): string[];
 ```
@@ -157,9 +162,13 @@ with a shared `CommentBody` component:
 - Runs `parseMentionBody(body)`.
 - Renders `text` segments verbatim (preserving whitespace/newlines as today).
 - Renders `mention` segments as a styled chip: blue text, subtle background,
-  `@username`, `title`/tooltip showing username (+ photo via a lightweight
-  popover/tooltip). Click is a no-op (cursor default), leaving room for a
-  profile/jump action when notifications land.
+  `@username`, native `title` tooltip showing the username. Click is a no-op
+  (cursor default), leaving room for a profile/jump action when
+  notifications land. Photo-in-tooltip is deferred (parse-only render needs
+  no member list, so chips show for anonymous viewers too).
+- Truncated previews that cannot host chips (side-panel snippet,
+  `OrphanedCard`) use `mentionBodyToPlainText(body)` (mentions → `@username`)
+  so the raw `@[…](…)` token never leaks.
 - Used by both sheets and docs thread cards (single component).
 
 ### Wiring summary
