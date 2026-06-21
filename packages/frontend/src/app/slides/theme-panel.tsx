@@ -7,15 +7,46 @@ interface ThemePanelProps {
   store: SlidesStore;
   currentThemeId: string;
   onClose: () => void;
+  /**
+   * `drawer` (default) docks as a fixed-width `<aside>` column on the
+   * right of the desktop editor. `sheet` returns content-only — no
+   * width / border / own header — so a mobile bottom `Sheet` owns the
+   * chrome (title + built-in close).
+   */
+  variant?: "drawer" | "sheet";
 }
 
 /**
- * Right-docked side panel listing the five built-in themes. Clicking
- * a thumbnail batches `addTheme` + `applyTheme` so the change is one
- * undo step. Sized as a fixed-width column; the parent layout puts it
- * to the right of the slides editor.
+ * Side panel listing the built-in themes. Clicking a thumbnail batches
+ * `addTheme` + `applyTheme` so the change is one undo step. On desktop
+ * it docks as a fixed-width column (`variant="drawer"`); on mobile it
+ * renders inside a bottom sheet (`variant="sheet"`).
  */
-export function ThemePanel({ store, currentThemeId, onClose }: ThemePanelProps) {
+export function ThemePanel({
+  store,
+  currentThemeId,
+  onClose,
+  variant = "drawer",
+}: ThemePanelProps) {
+  const list = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {BUILT_IN_THEMES.map((t) => (
+        <ThemeThumbnail
+          key={t.id}
+          theme={t}
+          selected={t.id === currentThemeId}
+          onClick={() => applyBuiltInTheme(store, t.id)}
+        />
+      ))}
+    </div>
+  );
+
+  if (variant === "sheet") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{list}</div>
+    );
+  }
+
   return (
     <aside
       aria-label="Theme picker"
@@ -55,16 +86,7 @@ export function ThemePanel({ store, currentThemeId, onClose }: ThemePanelProps) 
           <IconX size={16} />
         </button>
       </header>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {BUILT_IN_THEMES.map((t) => (
-          <ThemeThumbnail
-            key={t.id}
-            theme={t}
-            selected={t.id === currentThemeId}
-            onClick={() => applyBuiltInTheme(store, t.id)}
-          />
-        ))}
-      </div>
+      {list}
     </aside>
   );
 }

@@ -24,6 +24,12 @@ export interface FormatPanelProps {
   store: SlidesStore;
   editor: SlidesEditor;
   onClose: () => void;
+  /**
+   * `drawer` (default) docks as a fixed-width column on desktop;
+   * `sheet` returns content-only for a mobile bottom `Sheet` that owns
+   * the chrome (title + built-in close).
+   */
+  variant?: 'drawer' | 'sheet';
 }
 
 function derivePanelSelection(
@@ -61,7 +67,12 @@ function derivePanelSelection(
   return { kind: 'object', selectionType, elements, slideId };
 }
 
-export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
+export function FormatPanel({
+  store,
+  editor,
+  onClose,
+  variant = 'drawer',
+}: FormatPanelProps) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const u1 = store.onChange?.(() => setTick((t) => t + 1));
@@ -194,24 +205,9 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
     [store, selection],
   );
 
-  return (
-    <aside
-      aria-label="Format options"
-      className="flex w-72 shrink-0 flex-col border-l bg-background"
-    >
-      <header className="flex items-center justify-between border-b p-2">
-        <h2 className="text-sm font-semibold">Format options</h2>
-        <button
-          type="button"
-          aria-label="Close format options"
-          onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
-        >
-          ×
-        </button>
-      </header>
-      <div className="flex-1 overflow-y-auto">
-        {selection.kind === 'idle' && (
+  const content = (
+    <>
+      {selection.kind === 'idle' && (
           <p className="p-4 text-xs text-muted-foreground">
             Select an object to edit its format.
           </p>
@@ -296,7 +292,30 @@ export function FormatPanel({ store, editor, onClose }: FormatPanelProps) {
                 );
             }
           })}
-      </div>
+    </>
+  );
+
+  if (variant === 'sheet') {
+    return <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>;
+  }
+
+  return (
+    <aside
+      aria-label="Format options"
+      className="flex w-72 shrink-0 flex-col border-l bg-background"
+    >
+      <header className="flex items-center justify-between border-b p-2">
+        <h2 className="text-sm font-semibold">Format options</h2>
+        <button
+          type="button"
+          aria-label="Close format options"
+          onClick={onClose}
+          className="rounded p-1 hover:bg-muted"
+        >
+          ×
+        </button>
+      </header>
+      <div className="flex-1 overflow-y-auto">{content}</div>
     </aside>
   );
 }

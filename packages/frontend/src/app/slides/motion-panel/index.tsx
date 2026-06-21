@@ -7,9 +7,20 @@ export interface MotionPanelProps {
   store: SlidesStore;
   editor: SlidesEditor;
   onClose: () => void;
+  /**
+   * `drawer` (default) docks as a fixed-width column on desktop;
+   * `sheet` returns content-only for a mobile bottom `Sheet` that owns
+   * the chrome (title + built-in close).
+   */
+  variant?: 'drawer' | 'sheet';
 }
 
-export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
+export function MotionPanel({
+  store,
+  editor,
+  onClose,
+  variant = 'drawer',
+}: MotionPanelProps) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const u1 = store.onChange?.(() => setTick((t) => t + 1));
@@ -28,6 +39,30 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
   const slideId = editor.getCurrentSlideId();
   const selectedElementIds = editor.getSelection();
 
+  const content = (
+    <>
+      <section data-testid="motion-transition-section">
+        {slideId !== undefined && (
+          <TransitionSection store={store} slideId={slideId} />
+        )}
+      </section>
+      <section data-testid="motion-animation-section">
+        {slideId !== undefined && (
+          <AnimationSection
+            store={store}
+            slideId={slideId}
+            selectedElementIds={selectedElementIds}
+            editor={editor}
+          />
+        )}
+      </section>
+    </>
+  );
+
+  if (variant === 'sheet') {
+    return <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>;
+  }
+
   return (
     <aside
       aria-label="Motion"
@@ -44,23 +79,7 @@ export function MotionPanel({ store, editor, onClose }: MotionPanelProps) {
           ×
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto">
-        <section data-testid="motion-transition-section">
-          {slideId !== undefined && (
-            <TransitionSection store={store} slideId={slideId} />
-          )}
-        </section>
-        <section data-testid="motion-animation-section">
-          {slideId !== undefined && (
-            <AnimationSection
-              store={store}
-              slideId={slideId}
-              selectedElementIds={selectedElementIds}
-              editor={editor}
-            />
-          )}
-        </section>
-      </div>
+      <div className="flex-1 overflow-y-auto">{content}</div>
     </aside>
   );
 }
