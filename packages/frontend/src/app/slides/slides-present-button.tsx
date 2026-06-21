@@ -38,7 +38,7 @@ export function PresentButton({ disabled, onStart }: PresentButtonProps) {
             onClick={() => onStart("current")}
             disabled={disabled}
             aria-label="Present from current slide"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconPlayerPlay size={16} />
           </button>
@@ -51,7 +51,7 @@ export function PresentButton({ disabled, onStart }: PresentButtonProps) {
             type="button"
             disabled={disabled}
             aria-label="Present options"
-            className="inline-flex h-8 w-6 items-center justify-center rounded-r-md border-l hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-8 w-6 cursor-pointer items-center justify-center rounded-r-md border-l hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconChevronDown size={14} />
           </button>

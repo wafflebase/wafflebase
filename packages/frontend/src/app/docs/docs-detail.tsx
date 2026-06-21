@@ -185,7 +185,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
               <TooltipTrigger asChild>
                 <Toggle
                   size="sm"
-                  className="h-7 w-7 min-w-7 p-0"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
                   aria-label={
                     commentsPanelOpen ? "Hide comments" : "Show comments"
                   }
@@ -211,11 +211,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <DocsFormattingToolbar
-            editor={editor}
-            editContext={editContext}
-            documentTitle={documentData?.title}
-          />
+          <DocsFormattingToolbar editor={editor} editContext={editContext} />
           <DocsView
             onEditorReady={setEditor}
             onJumpHandleReady={setJumpHandle}

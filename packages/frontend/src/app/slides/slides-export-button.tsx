@@ -58,7 +58,7 @@ export function SlidesExportButton({
               type="button"
               disabled={disabled || !store || exporting}
               aria-label="Export presentation"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
             >
               {exporting ? (
                 <IconLoader2 size={16} className="animate-spin" />
