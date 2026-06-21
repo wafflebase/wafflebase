@@ -12,9 +12,18 @@ import { Button } from "@/components/ui/button";
 import {
   applySelectedMentions,
   detectMentionQuery,
+  mentionBodyToPlainText,
+  parseMentionBody,
   type MentionRef,
 } from "../mentions.ts";
 import { AuthorAvatar } from "./AuthorAvatar";
+
+/** Seed the mention map from an existing tokenized body (edit entry). */
+function seedMentions(body: string): MentionRef[] {
+  return parseMentionBody(body).flatMap((s) =>
+    s.type === "mention" ? [{ userId: s.userId, username: s.username }] : [],
+  );
+}
 
 const MAX_TEXTAREA_HEIGHT_PX = 200;
 const MAX_MENTION_RESULTS = 8;
@@ -72,7 +81,11 @@ export function CommentComposer({
   compact = false,
   members,
 }: CommentComposerProps) {
-  const [body, setBody] = useState(initialBody);
+  // The textarea shows de-tokenized text (`@username`); the stored body's
+  // `@[username](userId)` tokens are re-applied on submit. On edit entry we
+  // also seed the mention map from the existing tokens so an untouched save
+  // round-trips them losslessly (and a touched one drops only what changed).
+  const [body, setBody] = useState(() => mentionBodyToPlainText(initialBody));
   const trimmed = body.trim();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -85,7 +98,7 @@ export function CommentComposer({
     start: number;
   } | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const selectedRef = useRef<MentionRef[]>([]);
+  const selectedRef = useRef<MentionRef[]>(seedMentions(initialBody));
   const composingRef = useRef(false);
 
   const filteredMembers =
@@ -182,9 +195,10 @@ export function CommentComposer({
     if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
-      const finalBody = mentionsEnabled
-        ? applySelectedMentions(body, selectedRef.current).trim()
-        : trimmed;
+      // Always replay the mention map (empty for plain new comments), so an
+      // edited comment keeps its tokens even when the member list never
+      // loaded (e.g. mentions disabled for this session).
+      const finalBody = applySelectedMentions(body, selectedRef.current).trim();
       await onSubmit(finalBody);
       setBody("");
       selectedRef.current = [];

@@ -17,8 +17,10 @@ import type { MentionMember } from "./components/CommentComposer";
 export function useWorkspaceMembers(
   workspaceId: string | undefined,
 ): MentionMember[] {
+  // Same key/fetcher as the rest of the app's workspace-detail query, so the
+  // member list shares one cache entry instead of issuing a duplicate fetch.
   const { data } = useQuery({
-    queryKey: ["workspace", workspaceId, "members"],
+    queryKey: ["workspaces", workspaceId],
     queryFn: () => fetchWorkspace(workspaceId!),
     enabled: !!workspaceId,
     staleTime: 5 * 60 * 1000,

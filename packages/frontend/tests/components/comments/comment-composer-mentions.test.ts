@@ -139,6 +139,26 @@ describe("CommentComposer mentions", () => {
     expect(onSubmit).toHaveBeenCalledWith("@kimX");
   });
 
+  test("edit entry shows de-tokenized text and round-trips on save", async () => {
+    const onSubmit = vi.fn();
+    const el = render(
+      h(CommentComposer, {
+        submitLabel: "Save",
+        onSubmit,
+        members: MEMBERS,
+        initialBody: "hey @[kim](u1) look",
+      }),
+    );
+    const ta = el.querySelector("textarea") as HTMLTextAreaElement;
+    // The raw token is never shown to the user.
+    expect(ta.value).toBe("hey @kim look");
+    // An untouched save re-emits the original token losslessly.
+    await act(async () => {
+      (el.querySelector("button:last-of-type") as HTMLButtonElement).click();
+    });
+    expect(onSubmit).toHaveBeenCalledWith("hey @[kim](u1) look");
+  });
+
   test("no dropdown when the members prop is absent", () => {
     const el = render(
       h(CommentComposer, { submitLabel: "Comment", onSubmit: () => {} }),

@@ -57,9 +57,12 @@ export function parseMentionBody(body: string): BodySegment[] {
   return segments;
 }
 
-// A mention query continues until whitespace; the char before `@` must be
-// start-of-text or whitespace so `email@host` never triggers the dropdown.
-const MENTION_QUERY_RE = /(?:^|\s)@(\S*)$/;
+// A mention query runs after an `@` whose preceding char is start-of-text or
+// anything that is not a username character (`[A-Za-z0-9-]`). That excludes
+// `email@host` (preceded by a letter) while still triggering after CJK text
+// typed with no space (`안녕@kim`). The query itself excludes whitespace and
+// `@`, so the `$`-anchored match always picks the last in-progress mention.
+const MENTION_QUERY_RE = /(?:^|[^A-Za-z0-9-])@([^\s@]*)$/;
 
 /**
  * Inspect the text up to `caret` and return the in-progress mention query
@@ -88,7 +91,10 @@ function escapeRegExp(value: string): string {
  * usernames are processed first so a shorter one can't match inside a longer
  * one, and a trailing-boundary lookahead means an edited mention
  * (`@kim` → `@kimX`) is left as plain text rather than emitting a broken
- * token. GitHub usernames are unique, so keying by username is unambiguous.
+ * token. Usernames are GitHub logins (`[A-Za-z0-9-]`, unique), so keying by
+ * username is unambiguous and the boundary class matches the login charset —
+ * a following non-login char (space, punctuation, CJK particle) ends the
+ * mention cleanly.
  */
 export function applySelectedMentions(
   body: string,

@@ -139,6 +139,10 @@ describe('detectMentionQuery', () => {
   it('returns null when there is no "@" before the caret', () => {
     expect(detectMentionQuery('hello ', 6)).toBeNull();
   });
+
+  it('triggers after non-login text typed with no space (CJK)', () => {
+    expect(detectMentionQuery('안녕@kim', 6)).toEqual({ query: 'kim', start: 2 });
+  });
 });
 
 describe('applySelectedMentions', () => {
