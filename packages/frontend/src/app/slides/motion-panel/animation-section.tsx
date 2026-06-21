@@ -11,6 +11,7 @@ import type {
 import { findElementPath } from '@wafflebase/slides';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import {
   Select,
@@ -79,8 +80,24 @@ const CATEGORIES: AnimCategory[] = ['entrance', 'exit', 'emphasis'];
 const DIRECTIONS: AnimDirection[] = ['up', 'down', 'left', 'right'];
 const EASINGS: AnimEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut'];
 
-const NUMBER_INPUT_CLASS =
-  'border-input focus-visible:border-ring focus-visible:ring-ring/50 h-7 flex-1 rounded-md border bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50';
+// Static option lists are hoisted so they aren't rebuilt per render/animation.
+// (Effect options stay inline since they depend on the row's category.)
+const CATEGORY_OPTIONS = CATEGORIES.map((value) => ({
+  value,
+  label: CATEGORY_LABELS[value],
+}));
+const START_OPTIONS = STARTS.map((value) => ({
+  value,
+  label: START_LABELS[value],
+}));
+const EASING_OPTIONS = EASINGS.map((value) => ({
+  value,
+  label: EASING_LABELS[value],
+}));
+const DIRECTION_OPTIONS = DIRECTIONS.map((value) => ({
+  value,
+  label: DIRECTION_LABELS[value],
+}));
 
 const FLY_EFFECTS: AnimEffect[] = ['flyIn', 'flyOut'];
 
@@ -235,10 +252,7 @@ export function AnimationSection(props: {
                     <MotionSelect
                       label="Category"
                       value={a.category}
-                      options={CATEGORIES.map((cat) => ({
-                        value: cat,
-                        label: CATEGORY_LABELS[cat],
-                      }))}
+                      options={CATEGORY_OPTIONS}
                       onChange={(category) => {
                         const effect = DEFAULT_EFFECT_BY_CATEGORY[category];
                         props.store.batch(() =>
@@ -268,10 +282,7 @@ export function AnimationSection(props: {
                       <MotionSelect
                         label="Direction"
                         value={a.direction ?? 'right'}
-                        options={DIRECTIONS.map((d) => ({
-                          value: d,
-                          label: DIRECTION_LABELS[d],
-                        }))}
+                        options={DIRECTION_OPTIONS}
                         onChange={(direction) =>
                           props.store.batch(() =>
                             props.store.updateAnimation(props.slideId, a.id, {
@@ -284,10 +295,7 @@ export function AnimationSection(props: {
                     <MotionSelect
                       label="Start"
                       value={a.start}
-                      options={STARTS.map((s) => ({
-                        value: s,
-                        label: START_LABELS[s],
-                      }))}
+                      options={START_OPTIONS}
                       onChange={(start) =>
                         props.store.batch(() =>
                           props.store.updateAnimation(props.slideId, a.id, {
@@ -319,7 +327,7 @@ export function AnimationSection(props: {
                     </label>
                     <label className="flex items-center gap-2">
                       <span className="w-16 shrink-0 text-muted-foreground">Delay</span>
-                      <input
+                      <Input
                         type="number"
                         aria-label="Animation delay"
                         min={0}
@@ -332,17 +340,14 @@ export function AnimationSection(props: {
                             }),
                           )
                         }
-                        className={NUMBER_INPUT_CLASS}
+                        className="h-7 flex-1 px-2 text-xs"
                       />
                       <span className="shrink-0 text-muted-foreground">ms</span>
                     </label>
                     <MotionSelect
                       label="Easing"
                       value={a.easing ?? 'easeInOut'}
-                      options={EASINGS.map((ease) => ({
-                        value: ease,
-                        label: EASING_LABELS[ease],
-                      }))}
+                      options={EASING_OPTIONS}
                       onChange={(easing) =>
                         props.store.batch(() =>
                           props.store.updateAnimation(props.slideId, a.id, {
