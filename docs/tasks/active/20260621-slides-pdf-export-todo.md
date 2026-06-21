@@ -2,6 +2,25 @@
 
 Design: `docs/design/slides/slides-pdf-export.md`
 Branch: `slides-pdf-export`
+PR: #395
+
+## Relation to prior tracked items
+
+Slides PDF export was already planned before this task; this delivers it:
+
+- **Fulfils** [`20260505-slides-package-mvp-todo.md`](./20260505-slides-package-mvp-todo.md)
+  **P5.6** (`export/pdf.ts`). The MVP plan assumed delegating
+  font/embedding to docs' vector painter; we chose raster instead
+  (docs' `PdfPainter` can't paint slide shapes/connectors/effects).
+- **Unblocks** [`20260608-slides-tables-todo.md`](./20260608-slides-tables-todo.md)
+  **P6** — table cells now render in the PDF via the shared
+  `drawSlide()` pipeline; only the visual-diff verification remains.
+- **Still open (not in this task):** MVP **P5.7/P5.8** — CLI
+  `slides export-pdf` + backend roundtrip e2e (needs `node-canvas`); and
+  [`20260616-slides-fonts-todo.md`](./20260616-slides-fonts-todo.md)
+  **P3** — generalising `pdf-fonts.ts` subsetting + license notices,
+  which matters mainly for the vector-text **P1** follow-up (raster P0
+  embeds via `document.fonts`, not pdf-fonts subsetting).
 
 ## Goal
 

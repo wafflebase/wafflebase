@@ -24,10 +24,15 @@ Discovered while picking up P5/P6 (2026-06-20):
   `textCursorCell` / `resizingTableEdge` is net-new peer-overlay
   rendering for slides, not a field add. Deferred until slides grows a
   peer-presence rendering layer (tracked in slides-collaboration.md).
-- **P6 PDF export is blocked.** `packages/slides/src/export/pdf.ts`
-  does not exist — slides PDF export is itself an unstarted "Phase 5b"
-  item (see the comment in `frontend/src/app/slides/slides-view.tsx`).
-  The table PDF case can only land once that module exists.
+- **P6 PDF export was blocked; now UNBLOCKED (2026-06-21).**
+  `packages/slides/src/export/pdf.ts` did not exist — slides PDF export
+  was itself an unstarted "Phase 5b" item. It now ships as a P0 raster
+  exporter (PR #395,
+  [`20260621-slides-pdf-export-todo.md`](./20260621-slides-pdf-export-todo.md)).
+  Because that exporter rasterises each slide through the shared
+  `drawSlide()` pipeline, tables already render in the PDF for free; the
+  remaining P6 work below is **verification only** (a visual fixture
+  diff), not new painter code.
 - **Cell body is LWW JSON, not a Tree.** Despite the design doc saying
   "per-cell `body` Tree", `withTableCellBody` stores `cell.body.blocks`
   as a plain JSON value (last-writer-wins per cell). Same-cell
@@ -143,7 +148,13 @@ What landed (in commit order):
 
 ## P6 — PDF export
 
-- [ ] Table case in `packages/slides/src/export/pdf.ts`
+Unblocked by the P0 slides PDF exporter (PR #395). The exporter
+rasterises via the shared `drawSlide()` pipeline, so table cells already
+render in the PDF without a dedicated painter — only verification remains.
+
+- [x] Table case in `packages/slides/src/export/pdf.ts` — covered
+      transitively: `drawTable` runs inside `drawSlide`, no table-specific
+      export code needed.
 - [ ] Visual PDF diff against a fixture deck under
       `pnpm verify:browser:docker`
 
