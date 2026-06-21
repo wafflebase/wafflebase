@@ -75,11 +75,12 @@ itself is general (benefits the other 150+ shapes & PPTX import later).
 ## Post-review fixes
 - arcTo angles are geometric (ray), not the ellipse parameter — fixed
   with a ray–ellipse intersection (commit 2).
-- Curved-arrow bend looked broken / disconnected on rectangular frames:
-  the engine was flat-filling the `fill="darkenLess"` 3-D shading overlay
-  as if it were silhouette. Now only norm silhouette paths render; the
-  body path alone is the complete outline at every aspect ratio. Also
-  removes the body/head stroke seam (commit 3).
+- Curved-arrow bend looked broken on rectangular frames. Final fix:
+  the body + `darkenLess` curl union is the true filled silhouette
+  (correct at all aspect ratios); the "break" was a stroke artifact
+  (stroking the internal seam). Now fill the union and stroke a separate
+  `fill="none"` outline (`OUTLINE_BUILDERS` + `PresetShapeDef.outline`),
+  matching PowerPoint. Arc resolution bumped to 64/turn (commits 3–4).
 
 ## Review
 (to fill in)

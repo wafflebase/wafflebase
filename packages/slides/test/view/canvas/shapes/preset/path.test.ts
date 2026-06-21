@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import '../../../../../src/view/canvas/test-canvas-env';
 import { createTestCanvas } from '../../../../../src/view/canvas/test-canvas-env';
-import { buildPresetPath } from '../../../../../src/view/canvas/shapes/preset/path';
+import {
+  buildPresetOutline,
+  buildPresetPath,
+} from '../../../../../src/view/canvas/shapes/preset/path';
 import type { PresetShapeDef } from '../../../../../src/view/canvas/shapes/preset/types';
 
 describe('buildPresetPath', () => {
@@ -79,10 +82,10 @@ describe('buildPresetPath', () => {
     expect(end.y).toBeCloseTo(189.44, 0);
   });
 
-  it('renders only norm silhouette paths, skipping outline + shading', () => {
-    // Norm body square + a fill="none" outline and a fill="darkenLess"
-    // shading overlay covering a wrong region. If either were rendered
-    // they would distort the fill; only the body square should remain.
+  it('unions filled paths but skips fill="none" outlines', () => {
+    // Two filled paths (a norm body + a darkenLess region) union into
+    // the rendered shape; a fill="none" outline is skipped. Both filled
+    // regions must be inside; the skipped outline must not add a path.
     const def: PresetShapeDef = {
       adj: {},
       guides: [],
@@ -90,9 +93,20 @@ describe('buildPresetPath', () => {
         {
           cmds: [
             { t: 'move', pt: { x: 'l', y: 't' } },
+            { t: 'line', pt: { x: 'hc', y: 't' } },
+            { t: 'line', pt: { x: 'hc', y: 'b' } },
+            { t: 'line', pt: { x: 'l', y: 'b' } },
+            { t: 'close' },
+          ],
+        },
+        {
+          // darkenLess shading region — still part of the silhouette.
+          fill: 'darkenLess',
+          cmds: [
+            { t: 'move', pt: { x: 'hc', y: 't' } },
             { t: 'line', pt: { x: 'r', y: 't' } },
             { t: 'line', pt: { x: 'r', y: 'b' } },
-            { t: 'line', pt: { x: 'l', y: 'b' } },
+            { t: 'line', pt: { x: 'hc', y: 'b' } },
             { t: 'close' },
           ],
         },
@@ -100,27 +114,18 @@ describe('buildPresetPath', () => {
           fill: 'none',
           cmds: [
             { t: 'move', pt: { x: 'l', y: 't' } },
-            { t: 'line', pt: { x: 'hc', y: 'vc' } },
-          ],
-        },
-        {
-          // A shading overlay far outside the body — must NOT paint.
-          fill: 'darkenLess',
-          cmds: [
-            { t: 'move', pt: { x: 'r', y: 't' } },
-            { t: 'line', pt: { x: 'r', y: 'vc' } },
-            { t: 'line', pt: { x: 'hc', y: 't' } },
-            { t: 'close' },
+            { t: 'line', pt: { x: 'r', y: 'b' } },
           ],
         },
       ],
     };
     const path = buildPresetPath(def, { w: 100, h: 100 });
     const ops = (path as unknown as { ops: Array<unknown> }).ops;
-    // Exactly one rendered subpath (the body); shading/outline skipped.
-    expect(ops.length).toBe(1);
+    // Two filled subpaths unioned; the fill="none" outline is skipped.
+    expect(ops.length).toBe(2);
     const ctx = createTestCanvas(200, 200).getContext('2d');
-    expect(ctx.isPointInPath(path, 50, 50)).toBe(true);
+    expect(ctx.isPointInPath(path, 25, 50)).toBe(true); // body half
+    expect(ctx.isPointInPath(path, 75, 50)).toBe(true); // darkenLess half
   });
 
   it('flattens a quadratic Bézier between its endpoints', () => {
@@ -141,5 +146,31 @@ describe('buildPresetPath', () => {
     const ctx = createTestCanvas(200, 200).getContext('2d');
     // The arch peaks ~mid-height at x=50; a point just under it is inside.
     expect(ctx.isPointInPath(path, 50, 80)).toBe(true);
+  });
+
+  it('buildPresetOutline returns the outline path, or null when absent', () => {
+    const withOutline: PresetShapeDef = {
+      adj: {},
+      guides: [],
+      paths: [
+        {
+          cmds: [
+            { t: 'move', pt: { x: 'l', y: 't' } },
+            { t: 'line', pt: { x: 'r', y: 'b' } },
+            { t: 'close' },
+          ],
+        },
+      ],
+      outline: [
+        { t: 'move', pt: { x: 'l', y: 't' } },
+        { t: 'line', pt: { x: 'r', y: 't' } },
+        { t: 'line', pt: { x: 'r', y: 'b' } },
+      ],
+    };
+    expect(buildPresetOutline(withOutline, { w: 100, h: 100 })).toBeInstanceOf(
+      Path2D,
+    );
+    const noOutline: PresetShapeDef = { adj: {}, guides: [], paths: [] };
+    expect(buildPresetOutline(noOutline, { w: 100, h: 100 })).toBeNull();
   });
 });

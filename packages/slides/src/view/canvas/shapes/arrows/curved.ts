@@ -7,19 +7,18 @@
 // the band thickness `th` — the detail the old hand-rolled "single
 // point tip" approximation was missing).
 //
-// Each preset has three `<a:path>`s: the silhouette body (`fill`
-// defaults to norm), a `fill="darkenLess"` 3-D shading overlay, and a
-// `fill="none"` outline. The body path alone is already the complete
-// band + arrowhead outline at every aspect ratio, so the engine
-// renders only it and skips the shading + outline paths (see
-// `buildPresetPath`).
+// Each preset has three `<a:path>`s: the band body (norm fill), a
+// `fill="darkenLess"` curl that PowerPoint shades for 3-D, and a
+// `fill="none"` stroke outline. The body + curl together are the full
+// silhouette, so the engine fills both (skipping only the self-
+// intersecting `none` outline) — see `buildPresetPath`.
 
 import type {
   AdjustmentHandle,
   AdjustmentSpec,
   PathBuilder,
 } from '../builder';
-import { presetBuilder } from '../preset/path';
+import { presetBuilder, presetOutlineBuilder } from '../preset/path';
 import { presetNumericHandle } from '../preset/handles';
 import type { PresetShapeDef } from '../preset/types';
 
@@ -74,9 +73,12 @@ const CURVED_RIGHT_DEF: PresetShapeDef = {
     { name: 'swAng3', fmla: '+- cd4 dang2 0' },
     { name: 'stAng3', fmla: '+- cd2 0 dang2' },
   ],
+  // Union of the two filled OOXML paths: the band body + the
+  // `darkenLess` curl (the upper portion PowerPoint shades for 3-D).
+  // Together they are the full silhouette; we fill both in the shape
+  // colour, connected at every aspect ratio.
   paths: [
     {
-      fill: undefined,
       cmds: [
         { t: 'move', pt: { x: 'l', y: 'hR' } },
         { t: 'arc', wR: 'w', hR: 'hR', stAng: 'cd2', swAng: 'mswAng' },
@@ -97,6 +99,21 @@ const CURVED_RIGHT_DEF: PresetShapeDef = {
         { t: 'close' },
       ],
     },
+  ],
+  // `fill="none"` perimeter — stroked instead of the filled union so
+  // the body/curl seam is not drawn across the shape.
+  outline: [
+    { t: 'move', pt: { x: 'l', y: 'hR' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: 'cd2', swAng: 'mswAng' },
+    { t: 'line', pt: { x: 'x1', y: 'y4' } },
+    { t: 'line', pt: { x: 'r', y: 'y6' } },
+    { t: 'line', pt: { x: 'x1', y: 'y8' } },
+    { t: 'line', pt: { x: 'x1', y: 'y7' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: 'stAng', swAng: 'swAng' },
+    { t: 'line', pt: { x: 'l', y: 'hR' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: 'cd2', swAng: 'cd4' },
+    { t: 'line', pt: { x: 'r', y: 'th' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: '3cd4', swAng: 'swAng2' },
   ],
 };
 
@@ -142,9 +159,9 @@ const CURVED_LEFT_DEF: PresetShapeDef = {
     { name: 'swAng3', fmla: '+- swAng dang2 0' },
     { name: 'stAng3', fmla: '+- 0 0 dang2' },
   ],
+  // Union of band body + `darkenLess` curl — full silhouette.
   paths: [
     {
-      fill: undefined,
       cmds: [
         { t: 'move', pt: { x: 'l', y: 'y6' } },
         { t: 'line', pt: { x: 'x1', y: 'y4' } },
@@ -165,6 +182,20 @@ const CURVED_LEFT_DEF: PresetShapeDef = {
         { t: 'close' },
       ],
     },
+  ],
+  // `fill="none"` perimeter — stroked instead of the filled union.
+  outline: [
+    { t: 'move', pt: { x: 'r', y: 'y3' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: '0', swAng: '-5400000' },
+    { t: 'line', pt: { x: 'l', y: 't' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: '3cd4', swAng: 'cd4' },
+    { t: 'line', pt: { x: 'r', y: 'y3' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: '0', swAng: 'swAng' },
+    { t: 'line', pt: { x: 'x1', y: 'y8' } },
+    { t: 'line', pt: { x: 'l', y: 'y6' } },
+    { t: 'line', pt: { x: 'x1', y: 'y4' } },
+    { t: 'line', pt: { x: 'x1', y: 'y5' } },
+    { t: 'arc', wR: 'w', hR: 'hR', stAng: 'swAng', swAng: 'swAng2' },
   ],
 };
 
@@ -214,9 +245,9 @@ const CURVED_UP_DEF: PresetShapeDef = {
     { name: 'swAng3', fmla: '+- swAng dang2 0' },
     { name: 'stAng2', fmla: '+- cd4 0 dang2' },
   ],
+  // Union of band body + `darkenLess` curl — full silhouette.
   paths: [
     {
-      fill: undefined,
       cmds: [
         { t: 'move', pt: { x: 'x6', y: 't' } },
         { t: 'line', pt: { x: 'x8', y: 'y1' } },
@@ -237,6 +268,20 @@ const CURVED_UP_DEF: PresetShapeDef = {
         { t: 'close' },
       ],
     },
+  ],
+  // `fill="none"` perimeter — stroked instead of the filled union.
+  outline: [
+    { t: 'move', pt: { x: 'ix', y: 'iy' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'stAng2', swAng: 'swAng2' },
+    { t: 'line', pt: { x: 'x4', y: 'y1' } },
+    { t: 'line', pt: { x: 'x6', y: 't' } },
+    { t: 'line', pt: { x: 'x8', y: 'y1' } },
+    { t: 'line', pt: { x: 'x7', y: 'y1' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'stAng3', swAng: 'swAng' },
+    { t: 'line', pt: { x: 'wR', y: 'b' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'cd4', swAng: 'cd4' },
+    { t: 'line', pt: { x: 'th', y: 't' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'cd2', swAng: '-5400000' },
   ],
 };
 
@@ -285,9 +330,9 @@ const CURVED_DOWN_DEF: PresetShapeDef = {
     { name: 'swAng2', fmla: '+- dang2 0 cd4' },
     { name: 'swAng3', fmla: '+- cd4 dang2 0' },
   ],
+  // Union of band body + `darkenLess` curl — full silhouette.
   paths: [
     {
-      fill: undefined,
       cmds: [
         { t: 'move', pt: { x: 'x6', y: 'b' } },
         { t: 'line', pt: { x: 'x4', y: 'y1' } },
@@ -309,6 +354,20 @@ const CURVED_DOWN_DEF: PresetShapeDef = {
         { t: 'close' },
       ],
     },
+  ],
+  // `fill="none"` perimeter — stroked instead of the filled union.
+  outline: [
+    { t: 'move', pt: { x: 'ix', y: 'iy' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'stAng2', swAng: 'swAng2' },
+    { t: 'line', pt: { x: 'l', y: 'b' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'cd2', swAng: 'cd4' },
+    { t: 'line', pt: { x: 'x3', y: 't' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: '3cd4', swAng: 'swAng' },
+    { t: 'line', pt: { x: 'x8', y: 'y1' } },
+    { t: 'line', pt: { x: 'x6', y: 'b' } },
+    { t: 'line', pt: { x: 'x4', y: 'y1' } },
+    { t: 'line', pt: { x: 'x5', y: 'y1' } },
+    { t: 'arc', wR: 'wR', hR: 'h', stAng: 'stAng', swAng: 'mswAng' },
   ],
 };
 
@@ -348,6 +407,15 @@ const HANDLE_POS: Record<
 
 export function makeCurvedArrowBuilder(direction: CurvedDirection): PathBuilder {
   return presetBuilder(DEFS[direction]);
+}
+
+/** Stroke-outline builder (perimeter only) for a curved arrow. */
+export function makeCurvedArrowOutlineBuilder(
+  direction: CurvedDirection,
+): PathBuilder {
+  const outline = presetOutlineBuilder(DEFS[direction]);
+  if (!outline) throw new Error(`curved arrow "${direction}" has no outline`);
+  return outline;
 }
 
 export function curvedArrowHandles(

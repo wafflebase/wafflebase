@@ -46,6 +46,16 @@ export interface PresetShapeDef {
   adj: Record<string, number>;
   /** `<a:gdLst>` in evaluation order. */
   guides: PresetGuide[];
-  /** `<a:pathLst>`. */
+  /** `<a:pathLst>` filled sub-paths (the silhouette to fill). */
   paths: PresetPath[];
+  /**
+   * Optional `fill="none"` outline commands used for *stroking* only.
+   * Some OOXML shapes (e.g. the curved arrows) compose their fill from
+   * several sub-paths that share internal edges; stroking that union
+   * would draw a seam across the shape. When present, this single
+   * outline path traces the shape's true perimeter, so the renderer
+   * fills `paths` but strokes `outline`. Left open (no `close`) — it
+   * already returns to its start.
+   */
+  outline?: PresetCmd[];
 }

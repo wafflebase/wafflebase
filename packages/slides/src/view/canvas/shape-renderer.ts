@@ -2,7 +2,7 @@ import type { ShapeElement, ShapeKind } from '../../model/element';
 import { resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { resolveStrokeColor } from './render-context';
-import { PATH_BUILDERS } from './shapes';
+import { OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 import { buildFreeformPath } from './shapes/freeform';
@@ -114,9 +114,11 @@ export function drawShape(
     drawPlaceholderRect(ctx, size, data, theme);
     return;
   }
+  const outlineBuilder = OUTLINE_BUILDERS.get(data.kind);
   paintFillStroke(ctx, builder(size, data.adjustments), data, theme, {
     skipFill: OPEN_PATH_KINDS.has(data.kind),
     fillRule: EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero',
+    strokePath: outlineBuilder?.(size, data.adjustments),
   });
 }
 
@@ -134,7 +136,16 @@ function paintFillStroke(
   path: Path2D,
   data: ShapeElement['data'],
   theme: Theme,
-  opts?: { skipFill?: boolean; fillRule?: CanvasFillRule },
+  opts?: {
+    skipFill?: boolean;
+    fillRule?: CanvasFillRule;
+    /**
+     * Separate perimeter path to stroke instead of `path`. Used by
+     * kinds whose filled geometry is a multi-sub-path union (curved
+     * arrows) so the body/curl seam is not stroked across the shape.
+     */
+    strokePath?: Path2D;
+  },
 ): void {
   if (data.fill && !opts?.skipFill) {
     ctx.fillStyle = resolveColor(data.fill, theme);
@@ -144,7 +155,7 @@ function paintFillStroke(
     ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
     ctx.lineJoin = 'round';
-    ctx.stroke(path);
+    ctx.stroke(opts?.strokePath ?? path);
   }
 }
 

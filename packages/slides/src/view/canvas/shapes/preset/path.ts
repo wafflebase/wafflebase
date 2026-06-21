@@ -10,10 +10,15 @@
 
 import type { FrameSize, PathBuilder, Point } from '../builder';
 import { evalGuides, ooxmlAngleToRad, type Resolver } from './formula';
-import type { PresetPt, PresetShapeDef } from './types';
+import type { PresetCmd, PresetPt, PresetShapeDef } from './types';
 
-/** Segments per full 360° arc; matches `curves.ts` DEFAULT_ARC_SEGMENTS. */
-const ARC_SEGMENTS_PER_TURN = 32;
+/**
+ * Segments per full 360° arc. Higher than `curves.ts`'s 32 because the
+ * preset arrows draw highly eccentric arcs (e.g. `wR = w`, `hR ≈ h/2`)
+ * whose chord error is larger; 64 keeps the fill edge and the separate
+ * stroke outline visually coincident at the curl junction.
+ */
+const ARC_SEGMENTS_PER_TURN = 64;
 /** Flattening resolution for quadratic / cubic Béziers. */
 const BEZIER_SEGMENTS = 24;
 
@@ -109,16 +114,17 @@ function appendCubic(
  * Build a `Path2D` from a preset definition for a given frame size and
  * adjustment array.
  *
- * Only the *silhouette* sub-paths are rendered — those with no `fill`
- * attribute or `fill="norm"`. DrawingML also carries:
- *   - `fill="none"` — stroke-only outline (no fill), and
- *   - `fill="darken" | "darkenLess" | "lighten" | "lightenLess"` —
- *     3-D shading overlays drawn in a modified shade of the same fill
- *     over a *sub-region* of the silhouette.
- * Both are skipped: a flat renderer has no shading, and filling a
- * shading overlay as if it were silhouette paints a spurious blob.
- * For our arrows the `norm` body path is already the complete outline,
- * so this also avoids any body/head seam.
+ * Every *filled* sub-path is rendered and unioned (nonzero) into one
+ * Path2D. In DrawingML a shape's fill region can span several
+ * `<a:path>`s — a `norm` (default) body plus `fill="darken" |
+ * "darkenLess" | "lighten" | "lightenLess"` paths, which PowerPoint
+ * shades differently for a 3-D look but which still belong to the
+ * silhouette. A flat renderer ignores the shading and fills them all
+ * in the shape colour, so their union is the complete solid shape.
+ *
+ * Only `fill="none"` sub-paths are skipped: those are stroke-only
+ * outlines that re-trace the silhouette (and self-intersect), so
+ * filling them would distort the shape.
  */
 export function buildPresetPath(
   def: PresetShapeDef,
@@ -128,61 +134,74 @@ export function buildPresetPath(
   const r = evalGuides(size, def, adjustments);
   const path = new Path2D();
   for (const sub of def.paths) {
-    if (sub.fill !== undefined && sub.fill !== 'norm') continue;
-    let cur: Point = { x: 0, y: 0 };
-    let start: Point = { x: 0, y: 0 };
-    for (const cmd of sub.cmds) {
-      switch (cmd.t) {
-        case 'move': {
-          cur = pt(cmd.pt, r);
-          start = { ...cur };
-          path.moveTo(cur.x, cur.y);
-          break;
-        }
-        case 'line': {
-          cur = pt(cmd.pt, r);
-          path.lineTo(cur.x, cur.y);
-          break;
-        }
-        case 'arc': {
-          cur = appendArc(
-            path,
-            cur,
-            r(cmd.wR),
-            r(cmd.hR),
-            r(cmd.stAng),
-            r(cmd.swAng),
-          );
-          break;
-        }
-        case 'quad': {
-          cur = appendQuad(path, cur, pt(cmd.c, r), pt(cmd.pt, r));
-          break;
-        }
-        case 'cubic': {
-          cur = appendCubic(
-            path,
-            cur,
-            pt(cmd.c1, r),
-            pt(cmd.c2, r),
-            pt(cmd.pt, r),
-          );
-          break;
-        }
-        case 'close': {
-          path.closePath();
-          cur = { ...start };
-          break;
-        }
-      }
+    if (sub.fill === 'none') continue;
+    renderCmds(path, sub.cmds, r);
+  }
+  return path;
+}
+
+/** Append one command list to `path`, starting a fresh sub-path. */
+function renderCmds(path: Path2D, cmds: PresetCmd[], r: Resolver): void {
+  let cur: Point = { x: 0, y: 0 };
+  let start: Point = { x: 0, y: 0 };
+  for (const cmd of cmds) {
+    switch (cmd.t) {
+      case 'move':
+        cur = pt(cmd.pt, r);
+        start = { ...cur };
+        path.moveTo(cur.x, cur.y);
+        break;
+      case 'line':
+        cur = pt(cmd.pt, r);
+        path.lineTo(cur.x, cur.y);
+        break;
+      case 'arc':
+        cur = appendArc(path, cur, r(cmd.wR), r(cmd.hR), r(cmd.stAng), r(cmd.swAng));
+        break;
+      case 'quad':
+        cur = appendQuad(path, cur, pt(cmd.c, r), pt(cmd.pt, r));
+        break;
+      case 'cubic':
+        cur = appendCubic(path, cur, pt(cmd.c1, r), pt(cmd.c2, r), pt(cmd.pt, r));
+        break;
+      case 'close':
+        path.closePath();
+        cur = { ...start };
+        break;
     }
   }
+}
+
+/**
+ * Build the stroke-only outline `Path2D` for a preset, or `null` when
+ * the preset has no separate outline (its fill path is also its
+ * stroke). The outline is left open — the renderer strokes it without
+ * an auto-closing segment.
+ */
+export function buildPresetOutline(
+  def: PresetShapeDef,
+  size: FrameSize,
+  adjustments?: number[],
+): Path2D | null {
+  if (!def.outline) return null;
+  const r = evalGuides(size, def, adjustments);
+  const path = new Path2D();
+  renderCmds(path, def.outline, r);
   return path;
 }
 
 /** Curry a preset definition into the registry's `PathBuilder` shape. */
 export function presetBuilder(def: PresetShapeDef): PathBuilder {
   return (size, adjustments) => buildPresetPath(def, size, adjustments);
+}
+
+/**
+ * Curry a preset's outline into a `PathBuilder`-shaped stroke builder,
+ * or `null` if the preset has no separate outline.
+ */
+export function presetOutlineBuilder(def: PresetShapeDef): PathBuilder | null {
+  if (!def.outline) return null;
+  return (size, adjustments) => buildPresetOutline(def, size, adjustments)!;
 }
 
 /**

@@ -41,20 +41,32 @@
 - **pdf-lib was uninstalled locally**, making two unrelated PDF tests
   fail; `pnpm install` fixed it. Not caused by this change.
 
-## `fill="darkenLess"` is shading, not silhouette
+## Multi-`<path>` curved arrows: fill the union, stroke a separate outline
 
-The biggest visual bug came from treating DrawingML's multi-`<path>`
-shapes as a union of filled regions. The curved arrows carry a
-`fill="darkenLess"` (and `fill="none"` outline) path *in addition* to
-the norm body path. `darkenLess`/`lighten`/etc. are 3-D shading
-overlays drawn over a *sub-region* in a modified shade — NOT extra
-silhouette. Flat-filling them painted a big wrong blob and made the
-band look broken (worse on rectangular frames). Fix: render only `norm`
-(or fill-less) silhouette paths; skip `none` + all shading variants.
-The norm body path is already the complete outline, which also removed
-the earlier body/head stroke seam. User caught this ("square connects,
-rectangle disconnects") — aspect-ratio-dependent visual bugs point at
-the geometry/compositing, not the data.
+The curved arrows carry THREE `<a:path>`s: a `norm` body, a
+`fill="darkenLess"` curl, and a `fill="none"` outline. Two wrong turns
+before landing it (user corrected both):
+
+1. First treated `darkenLess` as a same-colour fill and unioned it →
+   correct shape but a stroked **seam** across the body/curl junction;
+   on rectangular frames the contrast made it look disconnected.
+2. Then assumed `darkenLess` was pure shading and dropped it (body
+   only) → **distorted**: the body alone is missing the upper curl. The
+   user: "square: pre-fix shape was right; current is distorted."
+
+Reality: `darkenLess` IS part of the silhouette (PowerPoint just shades
+it for 3-D). The body + curl union is the true filled shape (correct at
+every aspect ratio). The seam was only a *stroke* artifact — stroking
+the internal shared edge. PowerPoint fills the union but strokes the
+`fill="none"` **outline** (the true perimeter). So: `PATH_BUILDERS`
+fills the union, a new `OUTLINE_BUILDERS` provides the perimeter, and
+the renderer strokes that. `PresetShapeDef.outline` carries the open
+outline command list; `buildPresetOutline` renders it.
+
+Lesson: a flat renderer of DrawingML multi-path shapes generally wants
+fill = union of filled sub-paths, stroke = the `fill="none"` outline.
+Bumped preset arc resolution to 64/turn so the eccentric fill arcs and
+the separate stroke outline stay visually coincident at the junction.
 
 ## Known limitations (documented in the todo)
 
