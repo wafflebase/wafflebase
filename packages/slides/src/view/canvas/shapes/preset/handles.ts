@@ -18,7 +18,6 @@
 import type { AdjustmentHandle, AdjustmentSpec, FrameSize, Point } from '../builder';
 import { insetAlongAxis } from '../handles';
 import { presetPoint } from './path';
-import { OOXML_CIRCLE } from './formula';
 import type { PresetShapeDef } from './types';
 
 /** Number of adjustment slots a preset declares (adj1, adj2, …). */
@@ -143,9 +142,16 @@ export function presetAngularHandle(opts: {
       const cx = frame.w / 2;
       const cy = frame.h / 2;
       let deg = (Math.atan2(pointer.y - cy, pointer.x - cx) * 180) / Math.PI;
-      if (deg < 0) deg += 360;
-      let ooxml = Math.round(deg * 60000) % OOXML_CIRCLE;
-      if (ooxml < 0) ooxml += OOXML_CIRCLE;
+      // Unwrap toward the start angle so dragging across the 0°/360°
+      // seam doesn't snap to the opposite side (mirrors `angularHandle`).
+      const startRaw = (start[index] ?? spec.defaultValue) / 60000;
+      const startDeg = Number.isFinite(startRaw) ? startRaw : 0;
+      const MAX_UNWRAP = 4;
+      let steps = 0;
+      while (deg - startDeg > 180 && steps++ < MAX_UNWRAP) deg -= 360;
+      steps = 0;
+      while (deg - startDeg < -180 && steps++ < MAX_UNWRAP) deg += 360;
+      const ooxml = Math.round(deg * 60000);
       const clamped = Math.max(spec.min, Math.min(spec.max, ooxml));
       const result = fullAdjustments(def, start);
       result[index] = clamped;

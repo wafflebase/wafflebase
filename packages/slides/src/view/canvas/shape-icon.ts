@@ -1,6 +1,6 @@
 import type { ShapeKind } from '../../model/element';
 import type { FrameSize } from './shapes/builder';
-import { PATH_BUILDERS } from './shapes';
+import { OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
 import { ACTION_BUTTON_GLYPHS, isActionButton } from './shapes/action-buttons';
 
 const STROKE_WIDTH = 1.0;
@@ -71,8 +71,11 @@ export function renderShapeIcon(
     const iconKind = CALLOUT_BUBBLE_PROXY[kind] ?? kind;
     const builder = PATH_BUILDERS.get(iconKind);
     if (!builder) return;
-    const path = builder({ w, h }, undefined);
-    ctx.stroke(path);
+    // Stroke the dedicated perimeter outline when a kind has one (the
+    // curved arrows): their `PATH_BUILDERS` path is a multi-sub-path
+    // fill union whose internal seam would otherwise show in the icon.
+    const outline = OUTLINE_BUILDERS.get(iconKind);
+    ctx.stroke((outline ?? builder)({ w, h }, undefined));
   } finally {
     ctx.restore();
   }
