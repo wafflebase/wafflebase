@@ -46,7 +46,9 @@ pan the image under a fixed window, commit as one undo step.
   - [x] Reset crop: restore proportions (`resetFrameForUncrop` + clear crop)
 - [x] **Tests + verify**
   - [x] interaction unit/integration (enter via dblclick + toolbar; commit/cancel)
-  - [x] visual harness scenario (`slides-scenarios.tsx` + `verify-visual-browser.mjs`)
+  - [~] visual harness scenario (`slides-scenarios.tsx` + `verify-visual-browser.mjs`)
+        — **deferred** (flaky async image load); jsdom interaction tests cover
+        the session end-to-end (see Deviations below)
   - [x] `pnpm verify:fast` green
 - [x] **Review** — `/code-review` over branch diff; address blocking findings
 - [x] **Docs** — update `packages/slides/README.md` image section; lessons file

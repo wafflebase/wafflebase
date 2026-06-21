@@ -87,6 +87,8 @@ Deferred (known limitations):
 
 - `pnpm verify:fast` green (lint + unit, desktop global-controls included).
 - Manual smoke in `pnpm dev` at <768px: Theme/Format/Motion bottom sheets
-  open from overflow, Slide background applies, Table inserts. (pending)
+  open from overflow, Slide background applies, Table inserts. _(Not
+  separately hand-smoked at archival; the implementation + `verify:fast`
+  shipped in #392. The checklist above covers code, not this manual pass.)_
 - Desktop toolbar unchanged — panels still dock as drawers, background
   dropdown still works via the shared hook.
