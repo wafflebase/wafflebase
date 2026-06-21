@@ -19,6 +19,7 @@ import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
+import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 
@@ -900,11 +901,31 @@ export function SlidesView({
     // bitmaps and the IntersectionObserver, causing a one-frame blank
     // flicker across the whole panel — visible every time the user
     // moves a shape if it's the wrong tool.
+    // Push the current set of peers into the editor overlay (selection
+    // rings, live drag frames, guide previews). Recomputed from the
+    // resolved theme each call so peer colours follow light/dark.
+    const pushPeers = () => {
+      editor.setPeers(
+        mapPresenceToPeerView(store.getPeers(), resolvedThemeRef.current),
+      );
+    };
+
     const offChange = store.onChange(() => {
       editor.markDirty();
       editor.render();
       thumbHandle?.refreshContent();
+      // A peer's selection rings track elements they (or anyone) moved,
+      // so refresh peer chrome on document changes too — not just on the
+      // presence channel below.
+      pushPeers();
     });
+
+    // Presence rides a separate Yorkie channel from document changes, so
+    // subscribe to it explicitly; otherwise a peer selecting / dragging
+    // (without mutating the document) would not refresh their rings.
+    const offPeers = store.onPresenceChange(pushPeers);
+    // Seed once so peers already present at mount render immediately.
+    pushPeers();
 
     // Local presence: broadcast active slide + selection. Yorkie's
     // Presence.set merges (does not replace), so we pass ONLY the
@@ -927,8 +948,17 @@ export function SlidesView({
     // JSON-clone the whole presentation 60 times per second, scaling
     // linearly with deck size and stressing the GC at idle.
     let lastSlideCount = store.getSlideCount();
+    // Peer ring colours derive from the resolved theme; a light↔dark
+    // toggle alone fires no peer/document event, so re-push peers when the
+    // theme changes (cheap O(1) compare against the live ref each frame)
+    // to recolour them immediately instead of waiting for the next event.
+    let lastPeerTheme = resolvedThemeRef.current;
     let raf = 0;
     const tick = () => {
+      if (resolvedThemeRef.current !== lastPeerTheme) {
+        lastPeerTheme = resolvedThemeRef.current;
+        pushPeers();
+      }
       editor.render();
       const n = store.getSlideCount();
       if (n !== lastSlideCount) {
@@ -954,6 +984,7 @@ export function SlidesView({
       offSelection();
       offSlide();
       offChange();
+      offPeers();
       thumbHandle?.dispose();
       notesHandle?.dispose();
       editor.detach();

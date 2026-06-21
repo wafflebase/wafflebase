@@ -21,6 +21,7 @@ import {
   SITE_SNAP_RADIUS,
 } from './interactions/insert-connector';
 import { RESIZE_HANDLE_CURSORS, type ResizeHandle } from './hit-test';
+import type { PeerOverlays } from './peers';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -145,6 +146,16 @@ export interface OverlayOptions {
    * `handleHitTest`.
    */
   cropWindow?: Frame;
+  /**
+   * In-canvas peer presence to paint: selection rings, name tags, and
+   * in-flight guide previews for other users editing the same slide.
+   * The editor resolves these from `setPeers(...)` + the element world
+   * lookup. Rings/labels are in world coords; the overlay applies scale.
+   * Painted under the local selection chrome and fully non-interactive
+   * (`pointer-events: none`) so they never intercept the local user's
+   * gestures. Omitted when no peers are on the current slide.
+   */
+  peerOverlays?: PeerOverlays;
 }
 
 /**
@@ -232,6 +243,15 @@ export function renderOverlay(
     const preview = makePermanentGuide(previewGuide, options);
     preview.style.opacity = '0.55';
     overlay.appendChild(preview);
+  }
+
+  // Peer presence (rings / name tags / guide previews for other users on
+  // this slide). Painted here — above guides, below the local selection
+  // handles and the `selectedElements.length === 0` early return — so a
+  // peer's selection is visible even when the local user has nothing
+  // selected, while local handles always win the top layer.
+  if (options.peerOverlays) {
+    renderPeerOverlays(overlay, options.peerOverlays, options);
   }
 
   // Context box (drill-in) + member outlines (group selected). Painted
@@ -734,6 +754,7 @@ function appendOutline(
   frame: Frame,
   scale: number,
   className: string,
+  border: string = OUTLINE_BORDER,
 ): void {
   const el = document.createElement('div');
   el.className = className;
@@ -749,9 +770,80 @@ function appendOutline(
     el.style.transformOrigin = 'center';
   }
   el.style.boxSizing = 'border-box';
-  el.style.border = OUTLINE_BORDER;
+  el.style.border = border;
   el.style.pointerEvents = 'none';
   overlay.appendChild(el);
+}
+
+/**
+ * Paint peer presence: in-flight guide lines, selection / live-frame
+ * rings, and name tags, each tinted with the peer's stable colour.
+ * Everything is non-interactive. Guides paint first (full-slide lines),
+ * then rings, then labels on top so a tag is never hidden behind another
+ * peer's ring.
+ */
+function renderPeerOverlays(
+  overlay: HTMLDivElement,
+  peers: PeerOverlays,
+  options: OverlayOptions,
+): void {
+  const { scale, slideWidth, slideHeight } = options;
+
+  for (const guide of peers.guides) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-peer-guide';
+    el.style.position = 'absolute';
+    el.style.background = guide.color;
+    el.style.opacity = '0.7';
+    el.style.pointerEvents = 'none';
+    if (guide.axis === 'x') {
+      el.style.left = `${guide.position * scale}px`;
+      el.style.top = '0px';
+      el.style.width = '1px';
+      el.style.height = `${slideHeight * scale}px`;
+    } else {
+      el.style.left = '0px';
+      el.style.top = `${guide.position * scale}px`;
+      el.style.width = `${slideWidth * scale}px`;
+      el.style.height = '1px';
+    }
+    overlay.appendChild(el);
+  }
+
+  for (const ring of peers.rings) {
+    // Reuse the shared outline builder (same rotated-frame math as the
+    // member / context outlines) with a solid peer-coloured border.
+    appendOutline(
+      overlay,
+      ring.frame,
+      scale,
+      'wfb-slides-peer-ring',
+      `2px solid ${ring.color}`,
+    );
+  }
+
+  for (const label of peers.labels) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-peer-label';
+    el.textContent = label.text;
+    el.style.position = 'absolute';
+    el.style.left = `${label.x * scale}px`;
+    el.style.top = `${label.y * scale}px`;
+    // Sit the tag just above the ring's top-left corner.
+    el.style.transform = 'translateY(-100%)';
+    el.style.transformOrigin = 'left bottom';
+    el.style.background = label.color;
+    el.style.color = '#fff';
+    el.style.font = '11px/1.4 system-ui, -apple-system, sans-serif';
+    el.style.padding = '1px 6px';
+    el.style.borderRadius = '3px 3px 3px 0';
+    el.style.whiteSpace = 'nowrap';
+    el.style.maxWidth = '140px';
+    el.style.overflow = 'hidden';
+    el.style.textOverflow = 'ellipsis';
+    el.style.pointerEvents = 'none';
+    overlay.appendChild(el);
+  }
 }
 
 function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {

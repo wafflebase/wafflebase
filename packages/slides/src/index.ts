@@ -176,6 +176,7 @@ export { collectSnapCandidates } from './view/editor/snap-candidates';
 
 // View — Editor (Phase 3a)
 export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind, type ConnectorInsertKind } from './view/editor/editor';
+export type { PeerView } from './view/editor/peers';
 
 // View — Ruler (H/V rulers + future guides)
 export {

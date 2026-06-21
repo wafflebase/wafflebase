@@ -2659,6 +2659,18 @@ export class YorkieSlidesStore implements SlidesStore {
     }));
   }
 
+  /**
+   * Subscribe to peer-presence changes (a peer joining, leaving, or
+   * updating its presence). Distinct from `onChange`, which only fires
+   * on document `remote-change` events — presence updates ride a
+   * separate Yorkie channel (`'others'`) and would otherwise be missed,
+   * leaving peer selection rings / live frames stale. Returns an
+   * unsubscribe function.
+   */
+  onPresenceChange(cb: () => void): () => void {
+    return this.doc.subscribe('others', () => cb());
+  }
+
   // --- internal ---
 
   private requireBatch(): void {

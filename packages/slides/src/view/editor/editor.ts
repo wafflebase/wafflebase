@@ -128,6 +128,7 @@ import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
+import { computePeerOverlays, type PeerView, type PeerOverlays } from './peers';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
@@ -307,6 +308,15 @@ export interface SlidesEditor {
   getSelection(): readonly string[];
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
+  /**
+   * Replace the set of in-canvas peers (other users editing the same
+   * presentation) and repaint the overlay. The host maps Yorkie
+   * `SlidesPresence` into presentation-agnostic `PeerView[]` (selection
+   * rings, live drag frames, guide previews) and calls this on every
+   * peer-presence change. Pass `[]` to clear all peer chrome. No-op on
+   * the canvas bitmap — peers live entirely in the DOM overlay.
+   */
+  setPeers(peers: readonly PeerView[]): void;
   /**
    * Currently-selected cell range inside a table, or `null` when no
    * range is active. Toolbar code reads this to decide whether to show
@@ -869,6 +879,14 @@ class SlidesEditorImpl implements SlidesEditor {
     | { id?: string; axis: 'x' | 'y'; position: number }
     | null = null;
 
+  /**
+   * In-canvas peer presence, pushed in by the host via `setPeers`. The
+   * editor never reads Yorkie types — the host maps `SlidesPresence`
+   * into `PeerView[]`. Painted by `repaintOverlay` (peers on the current
+   * slide only). Empty when solo or no host has wired presence.
+   */
+  private peers: readonly PeerView[] = [];
+
   constructor(options: SlidesEditorOptions) {
     this.options = options;
     const ctx = options.canvas.getContext('2d');
@@ -1138,6 +1156,7 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      peerOverlays: this.currentPeerOverlays(slide),
       // Pass the full slide so connector endpoint handles can resolve
       // `attached` endpoints to world positions via the host element's
       // frame. Free endpoints don't need this map but it's cheap to
@@ -1325,6 +1344,21 @@ class SlidesEditorImpl implements SlidesEditor {
 
   onSelectionChange(cb: () => void): () => void {
     return this.selection.subscribe(cb);
+  }
+
+  setPeers(peers: readonly PeerView[]): void {
+    if (this.disposed) return;
+    this.peers = peers;
+    // Peers live only in the DOM overlay; no canvas markDirty needed.
+    //
+    // Known limitation: a peer-presence tick that lands mid-gesture
+    // repaints the steady-state overlay over the in-flight ghost preview
+    // (the gesture's own `paintGhostPreview` re-establishes it on the
+    // next pointermove, so it reads as a brief flicker). The proper fix
+    // is a gesture-lifecycle signal that defers this repaint while a
+    // gesture is live; it lands with the P2 live-frame broadcast work
+    // (see docs/tasks/active/20260621-slides-live-presence-todo.md).
+    this.repaintOverlay();
   }
 
   getCellSelection(): {
@@ -5105,12 +5139,38 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      // Keep peer rings / name tags visible through the gesture preview —
+      // this path rebuilds the overlay DOM, so omitting peers would drop
+      // them on the first drag/resize/rotate repaint until the gesture ends.
+      peerOverlays: this.currentPeerOverlays(slide),
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: this.options.store.read().guides,
       pendingGuide: this.pendingGuide,
     });
+  }
+
+  /**
+   * Build the peer-presence overlays (selection rings / live frames /
+   * guide previews) for `slide`, or `undefined` when no peers are
+   * present. `buildElementWorldLookup` lifts every element (group
+   * children included) to an absolute world frame so a peer's selected
+   * ids resolve to the same coordinates the local handles use — the same
+   * order of work as the `store.read()` deep clone these repaint paths
+   * already do, so it adds no new asymptotic cost. `computePeerOverlays`
+   * filters to peers on `slide` and prefers their live `activeFrames`
+   * over the static selection ring. Shared by `repaintOverlay` and
+   * `paintGhostPreview` so peers render in every overlay path.
+   */
+  private currentPeerOverlays(slide: Slide): PeerOverlays | undefined {
+    if (this.peers.length === 0) return undefined;
+    const peerLookup = buildElementWorldLookup(slide.elements);
+    return computePeerOverlays(
+      this.peers,
+      slide.id,
+      (id) => peerLookup.get(id)?.frame,
+    );
   }
 
   private currentSlide() {
