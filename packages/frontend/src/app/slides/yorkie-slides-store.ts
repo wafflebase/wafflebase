@@ -1,4 +1,4 @@
-import type { Document as YorkieDocument, TimeTicket } from '@yorkie-js/sdk';
+import type { Document as YorkieDocument, Presence, TimeTicket } from '@yorkie-js/sdk';
 import {
   DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
@@ -179,214 +179,6 @@ function unwrapElement(e: unknown): YorkieElement {
 }
 
 // ---------------------------------------------------------------------------
-// undo/redo reconcile — apply a snapshot to the live Yorkie root by diffing,
-// touching only what actually changed.
-//
-// The old `replaceRoot` rewrote the root with `slides.splice(0, len, ...)` /
-// `layouts.splice(0, len, ...)`, so every undo/redo removed and re-added the
-// entire document. Each cycle tombstoned thousands of CRDT nodes; repeated
-// undo/redo bloated one deck to 118MB and OOM-cascaded the EKS nodes during
-// server housekeeping (2026-06-20 incident). Reconciling by id keeps unchanged
-// nodes — and their CRDT identity — in place, so a single-element undo touches
-// a single element.
-// ---------------------------------------------------------------------------
-
-/**
- * Structural deep-equality, independent of object key order. Used to decide
- * whether a field actually changed before writing it — writing an equal value
- * would tombstone the old CRDT subtree for nothing.
- */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (
-    typeof a !== 'object' ||
-    typeof b !== 'object' ||
-    a === null ||
-    b === null
-  ) {
-    return false;
-  }
-  const aArr = Array.isArray(a);
-  if (aArr !== Array.isArray(b)) return false;
-  if (aArr) {
-    const aa = a as unknown[];
-    const bb = b as unknown[];
-    if (aa.length !== bb.length) return false;
-    for (let i = 0; i < aa.length; i++) {
-      if (!deepEqual(aa[i], bb[i])) return false;
-    }
-    return true;
-  }
-  const ao = a as Record<string, unknown>;
-  const bo = b as Record<string, unknown>;
-  const ak = Object.keys(ao);
-  if (ak.length !== Object.keys(bo).length) return false;
-  for (const k of ak) {
-    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false;
-    if (!deepEqual(ao[k], bo[k])) return false;
-  }
-  return true;
-}
-
-/** A Yorkie id-keyed array proxy: indexable, spliceable, and movable. */
-type ReconcileArray = MovableArray & {
-  [index: number]: { id: string };
-  splice(start: number, deleteCount: number, ...items: unknown[]): unknown;
-};
-
-/**
- * Reconcile a Yorkie id-keyed array proxy against a desired plain array,
- * touching only what changed: remove ids absent from `desired`, insert new
- * ids, reorder survivors with Yorkie move primitives (no remove/re-add, so no
- * tombstones), then recurse into each survivor via `updateItem`.
- */
-function reconcileArrayById<T extends { id: string }>(
-  arr: unknown,
-  desired: T[],
-  updateItem: (target: ProxyArray[number], desired: T) => void,
-): void {
-  const a = arr as ReconcileArray;
-  const list = arr as unknown as ProxyArray;
-  // 1. Remove items absent from `desired`.
-  const desiredIds = new Set(desired.map((d) => d.id));
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (!desiredIds.has(list[i].id)) a.splice(i, 1);
-  }
-  // 2. Append items new to the target (final position fixed in step 3).
-  const present = new Set<string>();
-  for (let i = 0; i < list.length; i++) present.add(list[i].id);
-  for (const d of desired) {
-    if (!present.has(d.id)) a.splice(list.length, 0, d);
-  }
-  // 3. Reorder to `desired` order, only when it differs. Moves relink nodes
-  //    in place and emit no garbage, unlike splice remove + re-insert.
-  let sameOrder = list.length === desired.length;
-  if (sameOrder) {
-    for (let i = 0; i < desired.length; i++) {
-      if (list[i].id !== desired[i].id) {
-        sameOrder = false;
-        break;
-      }
-    }
-  }
-  if (!sameOrder) {
-    const ticketById = new Map<string, TimeTicket>();
-    for (let i = 0; i < list.length; i++) {
-      ticketById.set(list[i].id, a.getElementByIndex(i).getID());
-    }
-    let prev: TimeTicket | null = null;
-    for (const d of desired) {
-      const t = ticketById.get(d.id)!;
-      if (prev === null) a.moveFront(t);
-      else a.moveAfter(prev, t);
-      prev = t;
-    }
-  }
-  // 4. Update survivors, now index-aligned with `desired`.
-  for (let i = 0; i < desired.length; i++) {
-    updateItem(list[i], desired[i]);
-  }
-}
-
-/**
- * Reconcile the plain fields of a Yorkie object proxy: delete keys absent from
- * `desired`, assign keys whose value differs. `skip` names keys the caller
- * handles separately (e.g. a nested array reconciled by id).
- */
-function reconcileObjectFields(
-  target: Record<string, unknown>,
-  desired: Record<string, unknown>,
-  skip?: Set<string>,
-): void {
-  const plain = yorkieToPlain<Record<string, unknown>>(target);
-  for (const k of Object.keys(plain)) {
-    if (skip?.has(k)) continue;
-    if (!(k in desired)) delete target[k];
-  }
-  for (const k of Object.keys(desired)) {
-    if (skip?.has(k)) continue;
-    if (!deepEqual(plain[k], desired[k])) target[k] = clone(desired[k]);
-  }
-}
-
-/** Reconcile a group element's `data` — recurse children by id, then the
- *  remaining plain fields (`refSize`). */
-function updateGroupData(
-  target: { children: unknown; [k: string]: unknown },
-  desired: YorkieGroupElement['data'],
-): void {
-  reconcileArrayById(
-    target.children,
-    desired.children as unknown as { id: string }[],
-    updateElement as (target: ProxyArray[number], d: { id: string }) => void,
-  );
-  reconcileObjectFields(
-    target as Record<string, unknown>,
-    desired as unknown as Record<string, unknown>,
-    new Set(['children']),
-  );
-}
-
-/**
- * Reconcile one element. Unchanged elements return immediately (the common
- * case — this is what keeps undo/redo cheap). Groups recurse so editing one
- * child never churns its siblings; leaf elements swap only their changed
- * top-level fields.
- */
-function updateElement(target: ProxyArray[number], desired: YorkieElement): void {
-  const plain = unwrapElement(target);
-  if (deepEqual(plain, desired)) return;
-  if (desired.type === 'group' && plain.type === 'group') {
-    if (!deepEqual((plain as YorkieGroupElement).frame, desired.frame)) {
-      (target as Record<string, unknown>).frame = clone(desired.frame);
-    }
-    updateGroupData(
-      (target as { data: { children: unknown; [k: string]: unknown } }).data,
-      desired.data,
-    );
-    return;
-  }
-  reconcileObjectFields(
-    target as Record<string, unknown>,
-    desired as unknown as Record<string, unknown>,
-    new Set(['id']),
-  );
-}
-
-/** Reconcile one slide — scalar/background/notes fields, then elements by id. */
-function updateSlide(target: ProxyArray[number], desired: YorkieSlide): void {
-  const t = target as unknown as {
-    layoutId: string;
-    background: unknown;
-    notes: unknown;
-    elements: unknown;
-  };
-  if (t.layoutId !== desired.layoutId) t.layoutId = desired.layoutId;
-  if (!deepEqual(yorkieToPlain(t.background), desired.background)) {
-    t.background = clone(desired.background);
-  }
-  if (!deepEqual(yorkieToPlain(t.notes), desired.notes)) {
-    t.notes = clone(desired.notes);
-  }
-  reconcileArrayById(
-    t.elements,
-    desired.elements as unknown as { id: string }[],
-    updateElement as (target: ProxyArray[number], d: { id: string }) => void,
-  );
-}
-
-/** Reconcile one layout. Layouts rarely change on undo/redo, and their
- *  placeholders have no ids, so changed layouts swap fields wholesale. */
-function updateLayout(target: ProxyArray[number], desired: YorkieLayout): void {
-  if (deepEqual(yorkieToPlain(target), desired)) return;
-  reconcileObjectFields(
-    target as Record<string, unknown>,
-    desired as unknown as Record<string, unknown>,
-    new Set(['id']),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
 // to call on every mount.
 //
@@ -497,12 +289,18 @@ export function ensureSlidesRoot(
 }
 
 /**
- * Yorkie-backed `SlidesStore`. Wraps every mutation in `doc.update`
- * and snapshots the root before each top-level batch for local undo.
+ * Yorkie-backed `SlidesStore`. A top-level `batch()` opens ONE
+ * `doc.update`; every mutator runs against that ambient root via
+ * `withUpdate`, so a batch of N edits commits as one Yorkie change — and
+ * therefore one native undo unit. Undo/redo use `doc.history`, which
+ * applies the reverse ops of the last local change (O(change), not the
+ * old O(document) snapshot restore).
  *
- * Multi-user undo subtleties — where a remote change between batch
- * and undo would have the undo overwrite that remote change — are
- * deliberately ignored in Phase 4a; the behaviour matches MemSlidesStore.
+ * Native undo reverts only the local client's ops, so a peer's
+ * concurrent edit that landed between a batch and its undo is preserved
+ * — an improvement over the old snapshot path, which restored absolute
+ * state (last-write-wins over the peer). See
+ * `docs/design/slides/slides-native-undo.md`.
  */
 export class YorkieSlidesStore implements SlidesStore {
   /**
@@ -512,14 +310,42 @@ export class YorkieSlidesStore implements SlidesStore {
   onRemoteChange?: () => void;
 
   private doc: YorkieDocument<YorkieSlidesRoot>;
-  private undoStack: SlidesDocument[] = [];
-  private redoStack: SlidesDocument[] = [];
+  /**
+   * The live Yorkie root for the duration of a top-level `batch()`. Set
+   * while the batch's single `doc.update` is open; every mutator routes
+   * through `withUpdate`, which runs against this root instead of opening
+   * its own `doc.update`. That collapses a batch of N mutations into ONE
+   * Yorkie change — hence one native undo unit (`doc.history`). Null
+   * outside a batch.
+   */
+  private activeRoot: YorkieSlidesRoot | null = null;
+  /**
+   * The batch's ambient presence proxy, captured alongside `activeRoot`.
+   * `updatePresence` folds into this when a batch is open instead of
+   * opening a nested `doc.update` — a selection change fired synchronously
+   * while a batch's update is still open would otherwise nest updates.
+   * Presence `set` is not added to history, so this never pollutes the
+   * batch's undo unit.
+   */
+  private activePresence: Presence<SlidesPresence> | null = null;
+  /**
+   * Undo-stack depth at construction. `canUndo()` refuses to drop below
+   * this, so a user can't undo past the document's seeded initial state
+   * (the `ensureSlidesRoot` seed + the "new deck opens with one slide"
+   * seed). Mirrors `YorkieDocStore.undoFloor`.
+   */
+  private undoFloor = 0;
   private batchDepth = 0;
   private changeListeners = new Set<() => void>();
   private unsubscribeDoc: (() => void) | undefined;
 
   constructor(doc: YorkieDocument<YorkieSlidesRoot>) {
     this.doc = doc;
+    // Everything already in the doc at construction (the ensureSlidesRoot
+    // seed, plus any deck-seed the caller ran before building the store)
+    // is the initial state. Capture the undo depth now so canUndo() can
+    // refuse to revert past it. Mirrors YorkieDocStore.
+    this.undoFloor = this.doc.getUndoStackForTest().length;
     // Capture the unsubscribe handle so we can detach when the store
     // is disposed. Without this, every test/route that builds a fresh
     // YorkieSlidesStore for the same Yorkie document leaks one
@@ -733,119 +559,97 @@ export class YorkieSlidesStore implements SlidesStore {
 
   // --- batch + undo ---
 
+  /**
+   * Run `fn` against the batch's ambient root when a top-level `batch()`
+   * is open, otherwise open a standalone `doc.update`. Every mutator
+   * calls this instead of `this.doc.update` directly so that a whole
+   * batch commits as ONE Yorkie change — and therefore one native undo
+   * unit. `requireBatch()` guarantees mutators only run inside a batch,
+   * so the standalone fallback is defensive (it never fires for the
+   * mutators). `updatePresence` does not use this — it folds into the
+   * ambient presence proxy directly, since presence is not document state.
+   */
+  private withUpdate(fn: (r: YorkieSlidesRoot) => void): void {
+    if (this.activeRoot) {
+      fn(this.activeRoot);
+    } else {
+      this.doc.update((r) => fn(r));
+    }
+  }
+
   batch(fn: () => void): void {
-    if (this.batchDepth === 0) {
-      this.undoStack.push(this.read());
-      this.redoStack = [];
+    // Nested batch: we're already inside the ambient `doc.update`, so just
+    // run the body — don't open a second update (that would split the work
+    // into two undo units and break "one batch = one undo entry").
+    if (this.batchDepth > 0) {
+      this.batchDepth++;
+      try {
+        fn();
+      } finally {
+        this.batchDepth--;
+      }
+      return;
     }
     this.batchDepth++;
     try {
-      fn();
+      // ONE doc.update for the entire batch → one Yorkie change → one
+      // native undo unit. Mutators run against `activeRoot` via withUpdate;
+      // presence updates fold into `activePresence`.
+      this.doc.update((r, p) => {
+        this.activeRoot = r;
+        this.activePresence = p;
+        try {
+          fn();
+        } finally {
+          this.activeRoot = null;
+          this.activePresence = null;
+        }
+      });
     } finally {
       this.batchDepth--;
-      if (this.batchDepth === 0) {
-        this.notifyChange();
-      }
+      this.notifyChange();
     }
   }
 
   undo(): void {
     if (!this.canUndo()) return;
-    const snapshot = this.undoStack.pop()!;
-    this.redoStack.push(this.read());
-    this.replaceRoot(snapshot);
+    // Native undo applies the reverse ops of the last local change,
+    // touching only what changed (O(change), not O(document)). Slides has
+    // no read cache, so notify subscribers to repaint after the revert.
+    this.doc.history.undo();
     this.notifyChange();
   }
 
   redo(): void {
     if (!this.canRedo()) return;
-    const snapshot = this.redoStack.pop()!;
-    this.undoStack.push(this.read());
-    this.replaceRoot(snapshot);
+    this.doc.history.redo();
     this.notifyChange();
   }
 
   canUndo(): boolean {
-    return this.undoStack.length > 0;
+    // Gate on the undo floor so the seeded initial deck can't be undone
+    // away (mirrors YorkieDocStore). `history.canUndo()` alone would let
+    // the user revert the seed and leave the editor referencing slides /
+    // elements that no longer exist.
+    return (
+      this.doc.history.canUndo() &&
+      this.doc.getUndoStackForTest().length > this.undoFloor
+    );
   }
 
   canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return this.doc.history.canRedo();
   }
 
-  private replaceRoot(snapshot: SlidesDocument): void {
-    this.doc.update((r) => {
-      // Build the desired Yorkie-shaped tree from the snapshot (same mapping
-      // as before), then reconcile the live root against it by id so only
-      // changed nodes are written. The old code spliced the whole slides /
-      // layouts arrays, tombstoning every node on every undo/redo. See the
-      // reconcile helpers above and the 2026-06-20 node-OOM incident.
-      const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
-        id: s.id,
-        layoutId: s.layoutId,
-        background: clone(s.background),
-        elements: s.elements.map((e) => {
-          if (e.type === 'text') {
-            const td = e.data as { blocks?: Block[] };
-            return {
-              id: e.id,
-              type: 'text',
-              frame: { ...e.frame },
-              // Carry placeholderRef through snapshot restore (undo/redo);
-              // the prior bare `{ id, type, frame, blocks }` rebuild dropped
-              // it, stripping placeholder identity on every undo/redo.
-              ...(e.placeholderRef ? { placeholderRef: clone(e.placeholderRef) } : {}),
-              // Carry the WHOLE text `data` — blocks plus the Format-Options
-              // fields (fill / stroke / effects / alt / autofit). A narrow
-              // `{ blocks, autofit }` rebuild silently dropped fill/stroke/
-              // effects/alt on every undo/redo (and churned the element).
-              data: {
-                ...clone(e.data),
-                blocks: clone(td.blocks ?? []),
-              },
-            } as YorkieElement;
-          }
-          return clone(e) as YorkieElement;
-        }),
-        notes: clone(s.notes ?? []),
-      }));
-      const nextLayouts = clone(snapshot.layouts) as YorkieLayout[];
-
-      // meta / themes / masters / guides: small, bounded, and reconciling
-      // them deeply isn't worth it — but each is a nested object, so writing
-      // unconditionally would tombstone tens of nodes on every undo even when
-      // they never changed. Guard each write on a structural compare.
-      const rootAny = r as {
-        themes?: Theme[];
-        masters?: Master[];
-        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
-      };
-      const nextMeta = clone(snapshot.meta);
-      const nextThemes = clone(snapshot.themes);
-      const nextMasters = clone(snapshot.masters);
-      const nextGuides = clone(snapshot.guides ?? []);
-      if (!deepEqual(yorkieToPlain(r.meta), nextMeta)) r.meta = nextMeta;
-      if (!deepEqual(yorkieToPlain(rootAny.themes), nextThemes)) {
-        rootAny.themes = nextThemes;
-      }
-      if (!deepEqual(yorkieToPlain(rootAny.masters), nextMasters)) {
-        rootAny.masters = nextMasters;
-      }
-      if (!deepEqual(yorkieToPlain(rootAny.guides), nextGuides)) {
-        rootAny.guides = nextGuides;
-      }
-
-      reconcileArrayById(
-        r.slides,
-        nextSlides as unknown as { id: string }[],
-        updateSlide as (target: ProxyArray[number], d: { id: string }) => void,
-      );
-      reconcileArrayById(
-        r.layouts,
-        nextLayouts as unknown as { id: string }[],
-        updateLayout as (target: ProxyArray[number], d: { id: string }) => void,
-      );
-    });
+  /**
+   * Re-capture the undo floor at the current stack depth. Call after
+   * seeding content that must not be undoable — e.g. the "new deck opens
+   * with one slide" seed the editor runs *after* construction. Without
+   * this, a user could Cmd+Z the seed away and land on a blank deck.
+   * Mirrors how `YorkieDocStore` re-bases its floor in `setDocument`.
+   */
+  markUndoBaseline(): void {
+    this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
   // --- slide ops ---
@@ -856,7 +660,7 @@ export class YorkieSlidesStore implements SlidesStore {
     const id = generateId();
     const refs = slotRefsForLayout(layout);
     const { master, theme } = this.resolveMasterAndTheme();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const elements: YorkieElement[] = layout.placeholders.map((p, i) => {
         const placeholder = clone(p) as YorkiePlaceholder;
         const elementId = generateId();
@@ -915,7 +719,7 @@ export class YorkieSlidesStore implements SlidesStore {
   duplicateSlide(slideId: string): string {
     this.requireBatch();
     const newId = generateId();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const idx = r.slides.findIndex((s) => s.id === slideId);
       if (idx === -1) throw new Error(`Slide not found: ${slideId}`);
       const src = r.slides[idx];
@@ -973,7 +777,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   removeSlide(slideId: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const i = r.slides.findIndex((s) => s.id === slideId);
       if (i === -1) throw new Error(`Slide not found: ${slideId}`);
       r.slides.splice(i, 1);
@@ -983,7 +787,7 @@ export class YorkieSlidesStore implements SlidesStore {
   removeSlides(slideIds: string[]): void {
     this.requireBatch();
     const set = new Set(slideIds);
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       // Splice from the end so indices stay valid as we go.
       for (let i = r.slides.length - 1; i >= 0; i--) {
         if (set.has(r.slides[i].id)) r.slides.splice(i, 1);
@@ -993,7 +797,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   moveSlide(slideId: string, toIndex: number): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const slides = r.slides;
       const from = slides.findIndex((s) => s.id === slideId);
       if (from === -1) throw new Error(`Slide not found: ${slideId}`);
@@ -1017,7 +821,7 @@ export class YorkieSlidesStore implements SlidesStore {
   moveSlides(slideIds: string[], toIndex: number): void {
     this.requireBatch();
     const set = new Set(slideIds);
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const slides = r.slides;
       const arr = slides as unknown as MovableArray;
       // Capture stable CRDT tickets and the current partition BEFORE moving:
@@ -1049,7 +853,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   updateSlideBackground(slideId: string, bg: Background): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       s.background = clone(bg);
@@ -1060,7 +864,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   setSlideTransition(slideId: string, transition: SlideTransition | undefined): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       if (transition === undefined) {
@@ -1073,7 +877,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   addAnimation(slideId: string, anim: SlideAnimation): string {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const sAny = s as { animations?: SlideAnimation[] };
@@ -1085,7 +889,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   updateAnimation(slideId: string, animId: string, patch: Partial<ObjectAnimation>): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const sAny = s as { animations?: Array<{ id: string; [k: string]: unknown }> };
@@ -1102,7 +906,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   removeAnimation(slideId: string, animId: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const sAny = s as { animations?: Array<{ id: string }> };
@@ -1119,7 +923,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   reorderAnimation(slideId: string, animId: string, toIndex: number): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const sAny = s as { animations?: Array<{ id: string }> };
@@ -1140,7 +944,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   addTheme(theme: Theme): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const rootAny = r as { themes?: Theme[] };
       if (rootAny.themes == null) rootAny.themes = [] as Theme[];
       if (rootAny.themes.find((t) => t.id === theme.id)) return; // idempotent
@@ -1150,7 +954,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   applyTheme(themeId: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const rootAny = r as { themes?: Theme[] };
       if (!rootAny.themes?.find((t) => t.id === themeId)) {
         throw new Error(`[slides] theme '${themeId}' not in document`);
@@ -1164,14 +968,14 @@ export class YorkieSlidesStore implements SlidesStore {
     if (unit !== 'in' && unit !== 'cm') {
       throw new Error(`[slides] invalid unit '${unit}'`);
     }
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       r.meta.unit = unit;
     });
   }
 
   pushRecentColor(hex: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const meta = r.meta as { recentColors?: ArrayLike<string> };
       // Read the existing entries by index rather than `yorkieToPlain`:
       // a live CRDT array proxy inside `doc.update` throws on `toJSON`
@@ -1190,7 +994,7 @@ export class YorkieSlidesStore implements SlidesStore {
     this.requireBatch();
     const layout = getLayout(layoutId);
     const { master, theme } = this.resolveMasterAndTheme();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Cast through unknown: Yorkie array proxies expose the same shape
@@ -1207,7 +1011,12 @@ export class YorkieSlidesStore implements SlidesStore {
    * can rely on a non-null pair without checking.
    */
   private resolveMasterAndTheme(): { master: Master; theme: Theme } {
-    const root = this.doc.getRoot() as {
+    // Prefer the ambient batch root so we observe theme/master edits made
+    // earlier in the same batch and never read across a transaction
+    // boundary. Falls back to the committed root when called outside a
+    // batch. `yorkieToPlain` unwraps object/array fields fine on a live
+    // in-update proxy (only primitive arrays lack `toJSON`).
+    const root = (this.activeRoot ?? this.doc.getRoot()) as {
       meta?: { themeId?: string; masterId?: string };
       themes?: unknown;
       masters?: unknown;
@@ -1231,7 +1040,7 @@ export class YorkieSlidesStore implements SlidesStore {
   addElement(slideId: string, init: ElementInit, parentGroupId?: string): string {
     this.requireBatch();
     const id = generateId();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
 
@@ -1311,7 +1120,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   removeElement(slideId: string, elementId: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Walk the element tree so removal works for both slide-root and
@@ -1335,7 +1144,7 @@ export class YorkieSlidesStore implements SlidesStore {
   removeElements(slideId: string, elementIds: string[]): void {
     this.requireBatch();
     const set = new Set(elementIds);
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Collect paths before any removal so they all resolve correctly.
@@ -1385,7 +1194,7 @@ export class YorkieSlidesStore implements SlidesStore {
     frame: Partial<Frame>,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Walk the element tree so updates work for both slide-root and
@@ -1439,7 +1248,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   updateElementData(slideId: string, elementId: string, patch: object): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Walk the element tree so updates work for both slide-root and
@@ -1488,7 +1297,7 @@ export class YorkieSlidesStore implements SlidesStore {
     endpoint: Endpoint,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1520,7 +1329,7 @@ export class YorkieSlidesStore implements SlidesStore {
     },
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1560,7 +1369,7 @@ export class YorkieSlidesStore implements SlidesStore {
     stroke: Stroke | undefined,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1584,7 +1393,7 @@ export class YorkieSlidesStore implements SlidesStore {
     routing: ConnectorRouting,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1617,7 +1426,7 @@ export class YorkieSlidesStore implements SlidesStore {
     bend: number | undefined,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1653,7 +1462,7 @@ export class YorkieSlidesStore implements SlidesStore {
     bend: number | undefined,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -1682,7 +1491,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   reorderElement(slideId: string, elementId: string, toIndex: number): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Walk the element tree so reorder works for both slide-root and
@@ -1717,7 +1526,7 @@ export class YorkieSlidesStore implements SlidesStore {
     let groupId = '';
     let excludedConnectorIds: string[] = [];
 
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
 
@@ -1910,7 +1719,7 @@ export class YorkieSlidesStore implements SlidesStore {
   refitGroup(slideId: string, groupId: string): void {
     this.requireBatch();
 
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) return;
 
@@ -1980,7 +1789,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   bakeGroupResize(slideId: string, groupId: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) return;
 
@@ -2032,7 +1841,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
     let childIds: string[] = [];
 
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
 
@@ -2106,7 +1915,7 @@ export class YorkieSlidesStore implements SlidesStore {
     fn: (blocks: Block[]) => Block[] | void,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Walk the element tree so updates work for both slide-root and
@@ -2140,7 +1949,7 @@ export class YorkieSlidesStore implements SlidesStore {
     fn: (blocks: Block[]) => Block[] | void,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(s.elements as unknown as ProxyArray, elementId);
@@ -2199,7 +2008,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   withNotes(slideId: string, fn: (blocks: Block[]) => Block[] | void): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const blocks = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
@@ -2212,7 +2021,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   insertTableRow(slideId: string, elementId: string, atIndex: number): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const nRows = e.data.rows.length;
       if (atIndex < 0 || atIndex > nRows) {
@@ -2237,7 +2046,7 @@ export class YorkieSlidesStore implements SlidesStore {
     atIndex: number,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const nCols = e.data.columnWidths.length;
       if (atIndex < 0 || atIndex > nCols) {
@@ -2257,7 +2066,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   deleteTableRow(slideId: string, elementId: string, atIndex: number): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const nRows = e.data.rows.length;
       if (atIndex < 0 || atIndex >= nRows) {
@@ -2292,7 +2101,7 @@ export class YorkieSlidesStore implements SlidesStore {
     atIndex: number,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const nCols = e.data.columnWidths.length;
       if (atIndex < 0 || atIndex >= nCols) {
@@ -2327,7 +2136,7 @@ export class YorkieSlidesStore implements SlidesStore {
     range: { r0: number; c0: number; r1: number; c1: number },
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const nCols = e.data.columnWidths.length;
       const nRows = e.data.rows.length;
@@ -2393,7 +2202,7 @@ export class YorkieSlidesStore implements SlidesStore {
     anchor: { row: number; col: number },
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const cell = e.data.rows[anchor.row]?.cells[anchor.col];
       if (!cell) {
@@ -2428,7 +2237,7 @@ export class YorkieSlidesStore implements SlidesStore {
     widths: readonly number[],
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       if (widths.length !== e.data.columnWidths.length) {
         throw new Error(
@@ -2453,7 +2262,7 @@ export class YorkieSlidesStore implements SlidesStore {
     heights: readonly number[],
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       if (heights.length !== e.data.rows.length) {
         throw new Error(
@@ -2476,7 +2285,7 @@ export class YorkieSlidesStore implements SlidesStore {
     patch: Partial<import('@wafflebase/slides').CellStyle>,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const e = this.requireTableElement(r, slideId, elementId);
       const cell = e.data.rows[row]?.cells[col] as
         | {
@@ -2553,7 +2362,7 @@ export class YorkieSlidesStore implements SlidesStore {
     fn: (blocks: Block[]) => Block[] | void,
   ): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const path = yorkieFindElementPath(
@@ -2610,7 +2419,7 @@ export class YorkieSlidesStore implements SlidesStore {
     this.requireBatch();
     assertFiniteGuidePosition('addGuide', position);
     const id = generateId();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const rootAny = r as { guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }> };
       if (rootAny.guides == null) rootAny.guides = [];
       rootAny.guides.push({ id, axis, position });
@@ -2621,7 +2430,7 @@ export class YorkieSlidesStore implements SlidesStore {
   moveGuide(id: string, position: number): void {
     this.requireBatch();
     assertFiniteGuidePosition('moveGuide', position);
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const rootAny = r as { guides?: Array<{ id: string; position: number }> };
       const guide = rootAny.guides?.find((g) => g.id === id);
       if (!guide) throw new Error(`Guide not found: ${id}`);
@@ -2631,7 +2440,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   removeGuide(id: string): void {
     this.requireBatch();
-    this.doc.update((r) => {
+    this.withUpdate((r) => {
       const rootAny = r as { guides?: Array<{ id: string }> };
       const idx = rootAny.guides?.findIndex((g) => g.id === id) ?? -1;
       if (idx === -1) throw new Error(`Guide not found: ${id}`);
@@ -2649,7 +2458,17 @@ export class YorkieSlidesStore implements SlidesStore {
     // here would silently clobber the values the SlidesDetail wrapper
     // seeded via `initialPresence`, making the user appear anonymous to
     // peers after the first selection / slide change.
-    this.doc.update((_, p) => p.set(presence));
+    //
+    // Fold into the batch's ambient presence when a batch is open: a
+    // selection change can fire synchronously while a batch's `doc.update`
+    // is still open (e.g. adding an element re-selects it), and opening a
+    // nested `doc.update` here would be illegal. Presence `set` is not
+    // added to history, so this never affects the batch's undo unit.
+    if (this.activePresence) {
+      this.activePresence.set(presence);
+    } else {
+      this.doc.update((_, p) => p.set(presence));
+    }
   }
 
   getPeers(): Array<{ clientID: string; presence: SlidesPresence }> {

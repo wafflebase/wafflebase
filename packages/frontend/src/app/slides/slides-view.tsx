@@ -575,6 +575,9 @@ export function SlidesView({
     // than mutating the doc on their behalf.
     if (!readOnlyMount && store.read().slides.length === 0) {
       store.batch(() => store.addSlide("blank"));
+      // Re-base the undo floor above the seed so the user can't Cmd+Z the
+      // deck's only slide away and land on a blank canvas.
+      store.markUndoBaseline();
     }
     // Late-bound thumbnail handle. `mountThumbnailPanel` runs further
     // down (after the editor and the resize/notes wiring), but the

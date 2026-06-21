@@ -199,7 +199,7 @@ describe('YorkieSlidesStore — element ops', () => {
   });
 });
 
-describe('YorkieSlidesStore — undo/redo (snapshot-based)', () => {
+describe('YorkieSlidesStore — undo/redo (Yorkie-native doc.history)', () => {
   it('one batch = one undo entry', () => {
     const doc = makeDoc();
     const store = new YorkieSlidesStore(doc);
@@ -212,6 +212,207 @@ describe('YorkieSlidesStore — undo/redo (snapshot-based)', () => {
     expect(store.read().slides).toEqual([]);
     store.redo();
     expect(store.read().slides.length).toBe(2);
+  });
+
+  it('groups a multi-element drag into a single undo unit', () => {
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    const ids: string[] = [];
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      for (let i = 0; i < 3; i++) {
+        ids.push(
+          store.addElement(slideId, {
+            type: 'shape',
+            frame: { x: i * 10, y: 0, w: 50, h: 50, rotation: 0 },
+            data: { kind: 'rect' },
+          }),
+        );
+      }
+    });
+    // One batch moving all three elements — mirrors dragging a 3-element
+    // selection. With native undo this must collapse to ONE undo unit.
+    store.batch(() => {
+      for (const id of ids) {
+        const cur = store.read().slides[0].elements.find((e) => e.id === id)!;
+        store.updateElementFrame(slideId, id, { x: cur.frame.x + 100 });
+      }
+    });
+    const movedXs = store
+      .read()
+      .slides[0].elements.map((e) => e.frame.x);
+    expect(movedXs).toEqual([100, 110, 120]);
+
+    store.undo(); // reverts all three in one step
+    const revertedXs = store
+      .read()
+      .slides[0].elements.map((e) => e.frame.x);
+    expect(revertedXs).toEqual([0, 10, 20]);
+
+    store.redo();
+    expect(store.read().slides[0].elements.map((e) => e.frame.x)).toEqual([
+      100, 110, 120,
+    ]);
+  });
+
+  it('cannot undo past the seeded initial state (undo floor)', () => {
+    const doc = makeDoc();
+    // Seed a deck BEFORE constructing the store so the seed becomes the
+    // initial state the floor protects (mirrors how a real deck opens with
+    // one slide before the editor store is built).
+    const seed = new YorkieSlidesStore(doc);
+    seed.batch(() => seed.addSlide('blank'));
+
+    const store = new YorkieSlidesStore(doc);
+    expect(store.read().slides.length).toBe(1);
+    // Nothing has been edited through THIS store yet, and the floor was
+    // captured at construction, so undo is unavailable.
+    expect(store.canUndo()).toBe(false);
+    store.undo(); // no-op
+    expect(store.read().slides.length).toBe(1);
+
+    // One real edit becomes undoable; undoing it returns to the floor, not
+    // below it.
+    store.batch(() => store.addSlide('blank'));
+    expect(store.canUndo()).toBe(true);
+    store.undo();
+    expect(store.read().slides.length).toBe(1);
+    expect(store.canUndo()).toBe(false);
+    store.undo(); // still cannot drop below the seed
+    expect(store.read().slides.length).toBe(1);
+  });
+
+  it('markUndoBaseline protects a post-construction deck seed', () => {
+    // Mirrors slides-view.tsx: construct the store on an empty deck, seed
+    // the first slide, then re-base the floor so the seed isn't undoable.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    expect(store.read().slides.length).toBe(0);
+    store.batch(() => store.addSlide('blank'));
+    store.markUndoBaseline();
+
+    expect(store.read().slides.length).toBe(1);
+    expect(store.canUndo()).toBe(false);
+    store.undo(); // no-op — can't undo the seed
+    expect(store.read().slides.length).toBe(1);
+
+    // A real edit after the baseline is undoable, back to the seed.
+    store.batch(() => store.addSlide('blank'));
+    expect(store.canUndo()).toBe(true);
+    store.undo();
+    expect(store.read().slides.length).toBe(1);
+    expect(store.canUndo()).toBe(false);
+  });
+
+  it('updatePresence inside a batch does not open a nested update', () => {
+    // A selection change can fire synchronously while a batch's doc.update
+    // is still open. updatePresence must fold into the ambient presence,
+    // not open a nested doc.update (which Yorkie forbids). The batch must
+    // still commit as a single undo unit.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    expect(() => {
+      store.batch(() => {
+        slideId = store.addSlide('blank');
+        store.updatePresence({ activeSlideId: slideId });
+      });
+    }).not.toThrow();
+    expect(store.read().slides.length).toBe(1);
+    store.undo();
+    expect(store.read().slides.length).toBe(0);
+  });
+
+  it('reverses an array move (moveSlide) on undo/redo', () => {
+    // Native undo must reverse the Yorkie array move primitives, not just
+    // object `set`. moveSlide uses moveFront/moveAfterByIndex.
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    const ids: string[] = [];
+    store.batch(() => {
+      for (let i = 0; i < 3; i++) ids.push(store.addSlide('blank'));
+    });
+    const order = () => store.read().slides.map((s) => s.id);
+    expect(order()).toEqual([ids[0], ids[1], ids[2]]);
+
+    store.batch(() => store.moveSlide(ids[2], 0));
+    expect(order()).toEqual([ids[2], ids[0], ids[1]]);
+
+    store.undo();
+    expect(order()).toEqual([ids[0], ids[1], ids[2]]);
+    store.redo();
+    expect(order()).toEqual([ids[2], ids[0], ids[1]]);
+  });
+
+  it('reverses an object-key delete (setSlideTransition) on undo/redo', () => {
+    // Removing a transition deletes the `transition` key. Native undo must
+    // restore the deleted key (object-key delete must be reversible).
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+    });
+    store.batch(() =>
+      store.setSlideTransition(slideId, { type: 'fade', durationMs: 500 }),
+    );
+    expect(store.read().slides[0].transition).toEqual({
+      type: 'fade',
+      durationMs: 500,
+    });
+
+    store.batch(() => store.setSlideTransition(slideId, undefined));
+    expect(store.read().slides[0].transition).toBeUndefined();
+
+    store.undo(); // restores the deleted transition
+    expect(store.read().slides[0].transition).toEqual({
+      type: 'fade',
+      durationMs: 500,
+    });
+    store.redo(); // deletes it again
+    expect(store.read().slides[0].transition).toBeUndefined();
+  });
+
+  it('read() mid-batch reflects prior same-batch mutations (bringToFront)', () => {
+    // editor.ts bringToFront/sendToBack and keyboard reorder call
+    // store.read() INSIDE store.batch() and depend on it reflecting the
+    // reorderElement they just issued in the same batch. With one
+    // doc.update held open for the whole batch, read() must see in-progress
+    // mutations (and must not throw on toJSON of the live root, e.g. when
+    // meta carries a recentColors primitive array).
+    const doc = makeDoc();
+    const store = new YorkieSlidesStore(doc);
+    let slideId = '';
+    const ids: string[] = [];
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      for (let i = 0; i < 3; i++) {
+        ids.push(
+          store.addElement(slideId, {
+            type: 'shape',
+            frame: { x: i, y: 0, w: 10, h: 10, rotation: 0 },
+            data: { kind: 'rect' },
+          }),
+        );
+      }
+    });
+    store.batch(() => store.pushRecentColor('#abcdef')); // primitive array in meta
+
+    // Bring ids[0] then ids[1] to the front, re-reading live order each step.
+    expect(() => {
+      store.batch(() => {
+        for (const id of [ids[0], ids[1]]) {
+          const live = store.read().slides.find((s) => s.id === slideId)!;
+          store.reorderElement(slideId, id, live.elements.length - 1);
+        }
+      });
+    }).not.toThrow();
+    expect(store.read().slides[0].elements.map((e) => e.id)).toEqual([
+      ids[2],
+      ids[0],
+      ids[1],
+    ]);
   });
 
   it('throws if a mutation is called outside a batch', () => {
