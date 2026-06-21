@@ -10,6 +10,7 @@ import type {
 import { generateId } from '../../model/element';
 import type { ThemeColor } from '../../model/theme';
 import { parseColorFromContainer } from './color';
+import { readAltText } from './effects';
 import { emuToStrokePx, parseXfrm } from './geometry';
 import type { SlideParseContext } from './shape';
 import { detectVerticalAnchor, parseTextBody } from './text';
@@ -69,6 +70,11 @@ export function parseTable(
   const tableW = columnWidths.reduce((a, b) => a + b, 0);
   const tableH = rows.reduce((a, r) => a + r.height, 0);
 
+  // Tables render as multi-draw grids, so drop shadow / reflection are not
+  // imported (they'd shadow every border) — the panel routes only alt text
+  // here. Alt comes from `<p:nvGraphicFramePr><p:cNvPr descr>`.
+  const alt = readAltText(graphicFrame);
+
   const table: TableElement = {
     id: generateId(),
     type: 'table',
@@ -81,6 +87,7 @@ export function parseTable(
       columnWidths,
       rows,
       ...(tableStyleId ? { tableStyleId } : {}),
+      ...(alt ? { alt } : {}),
     },
   };
 

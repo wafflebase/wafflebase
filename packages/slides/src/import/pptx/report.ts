@@ -8,7 +8,6 @@
  */
 export class ImportReport {
   groupsFlattened = 0;
-  shadowsDropped = 0;
   textBoxesPreScaled = 0;
   unknownShapes = 0;
   unknownLayoutTypes = 0;
@@ -33,7 +32,6 @@ export class ImportReport {
   summary(): string {
     const parts: string[] = [];
     if (this.groupsFlattened) parts.push(`${this.groupsFlattened} group(s) expanded`);
-    if (this.shadowsDropped) parts.push(`${this.shadowsDropped} shadow(s) dropped`);
     if (this.textBoxesPreScaled) parts.push(`${this.textBoxesPreScaled} text box(es) pre-scaled`);
     if (this.unknownShapes) parts.push(`${this.unknownShapes} unknown shape(s) → rect`);
     if (this.unknownLayoutTypes) parts.push(`${this.unknownLayoutTypes} unknown layout type(s)`);

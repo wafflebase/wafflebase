@@ -17,8 +17,18 @@ Design doc: `docs/design/slides/slides-format-effects.md`
       `alt-text` (alt extended to shape/text/table).
 - [x] Sections: `drop-shadow-section.tsx`, `reflection-section.tsx`;
       `alt-text-section.tsx` generalized to all object types.
-- [ ] Import: PPTX `<a:outerShdw>` / `<a:reflection>` → effects;
-      `<p:cNvPr descr>` → alt. (follow-up slice)
+- [x] Import: PPTX `<a:outerShdw>` / `<a:reflection>` → effects;
+      `<p:cNvPr descr>` → alt. (slice on `slides-format-effects-import`)
+  - New `src/import/pptx/effects.ts`: `parseEffects(spPr, scale, clrMap)`
+    (outerShdw → DropShadow via `rotEmuToRad`/`emuToStrokePx`/
+    `parseColorFromContainer`, alpha → `opacity`; reflection → Reflection),
+    `readAltText(el)` (nv*Pr → cNvPr@descr), `parseImageAdjustments(blip)`.
+  - Wire: `parseChild`'s `sp` branch attaches effects+alt to the first
+    emitted element (the silhouette — avoids double-shadow on the
+    `[image,text]` blip-fill-with-caption case); `parsePic` (host spPr/nv);
+    `parseTable` (graphicFrame, alt only). Group effects intentionally not
+    imported (renderer paints effects on leaves only).
+  - Drop the now-stale `report.shadowsDropped` increment (shadows import).
 - [x] Tests: pick-sections routing, drop-shadow + reflection section
       commit/toggle, effects-renderer units (shadow + reflection),
       element-renderer shadow integration.
@@ -32,14 +42,25 @@ Design doc: `docs/design/slides/slides-format-effects.md`
       offscreen color compositing.
 - [x] Panel: `recolor-section.tsx` (None/Grayscale/Sepia presets);
       image Adjustments extended with Brightness + Contrast sliders.
-- [ ] Import: `<a:duotone>`/`<a:clrChange>` → recolor; `<a:lum>` →
-      brightness/contrast. (follow-up slice, with shadow/reflection import)
+- [x] Import: `<a:duotone>`/`<a:clrChange>` → recolor; `<a:lum>` →
+      brightness/contrast. (slice with shadow/reflection import)
+  - `parseImageAdjustments` in `effects.ts`: `<a:grayscl>` → grayscale,
+    `<a:duotone>` → sepia (warm srgbClr accent) else grayscale, `<a:lum
+    bright/contrast>` → brightness/contrast (/100000). `<a:clrChange>`
+    intentionally unmapped (arbitrary swap, no preset analog).
+  - Wire into `parseBlipFill` (adjustments live in `<a:blip>`, so both
+    `<p:pic>` and shape-`blipFill` images pick them up).
 - [x] Tests: imageFilter units, recolor section, adjustments patch
       commits, pick-sections image routing.
 
 ## Review / smoke
 
-- [ ] `pnpm verify:fast` green per commit
-- [ ] Code review over branch diff
-- [ ] Manual smoke in `pnpm dev`: select shape → Format options →
-      add shadow / reflection; image recolor + adjustments.
+- [x] `pnpm verify:fast` green per commit (import slice)
+- [x] Code review over branch diff (`/code-review --effort high`); 3
+      findings fixed — CLI `shadowsDropped` compile break, background
+      adjustment leak (`toBackgroundImage`), dup shadow on `[image,text]`.
+      See `*-lessons.md`. Verified `slides build` + CLI `tsc` clean.
+- [ ] Manual smoke: import a PPTX with shape drop shadow / reflection,
+      a picture recolor + brightness/contrast, and a `descr` alt; confirm
+      they render and appear in the Format panel. (Earlier panel-edit smoke
+      already covered; this slice only adds the import path.)

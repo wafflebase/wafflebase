@@ -281,7 +281,6 @@ function summariseReport(report: ImportReport): Record<string, number> {
   // empty parts and the standard "no fallbacks" line.
   return {
     groupsFlattened: report.groupsFlattened,
-    shadowsDropped: report.shadowsDropped,
     textBoxesPreScaled: report.textBoxesPreScaled,
     unknownShapes: report.unknownShapes,
     unknownLayoutTypes: report.unknownLayoutTypes,
