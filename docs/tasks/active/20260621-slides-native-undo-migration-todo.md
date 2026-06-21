@@ -74,18 +74,25 @@ touching only what changed. It also:
 
 ## Plan
 
-- [ ] Write `docs/design/slides/slides-native-undo.md` (this plan + the
+- [x] Write `docs/design/slides/slides-native-undo.md` (this plan + the
       batch→undo-unit design, op-reversibility audit, semantics)
-- [ ] Refactor `batch()` so one batch maps to one Yorkie undo unit
-      (single `doc.update` / ambient root)
-- [ ] Swap `undo()` / `redo()` / `canUndo()` / `canRedo()` to
-      `doc.history`, add an undo floor
-- [ ] Port undo/redo tests; keep the `getGarbageLen` churn test as a
-      regression guard (native undo should also be ~zero churn)
-- [ ] Remove `undoStack` / `redoStack` / `replaceRoot` and the reconcile
-      helpers once native parity is green
-- [ ] `pnpm verify:fast`; manual smoke (multi-element drag undo, undo
-      across a concurrent peer edit)
+- [x] Refactor `batch()` so one batch maps to one Yorkie undo unit
+      (single `doc.update` / ambient root via `withUpdate`)
+- [x] Swap `undo()` / `redo()` / `canUndo()` / `canRedo()` to
+      `doc.history`, add an undo floor (`undoFloor` + `markUndoBaseline`
+      called from `slides-view.tsx` after the deck seed)
+- [x] Make `updatePresence` nest-safe (fold into the batch's ambient
+      presence so a synchronous selection change can't open a nested
+      `doc.update`)
+- [x] Port undo/redo tests; keep the `getGarbageLen` churn test as a
+      regression guard (native undo also passes the existing tight
+      thresholds — no re-baseline needed). Added multi-element-drag
+      grouping, undo-floor, baseline, and presence-nest tests
+- [x] Remove `undoStack` / `redoStack` / `replaceRoot` and the reconcile
+      helpers (`deepEqual`, `reconcileArrayById`, `reconcileObjectFields`,
+      `updateGroupData`/`updateElement`/`updateSlide`/`updateLayout`)
+- [x] `pnpm verify:fast` green; manual smoke pending (multi-element drag
+      undo, undo across a concurrent peer edit)
 
 ## References
 
