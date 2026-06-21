@@ -89,6 +89,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [backend.md](backend.md)                               | Backend package — NestJS modules, API reference, auth system, database schema, security            |
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
+| [comments-mentions.md](comments-mentions.md)           | Comment `@user` mentions — inline `@[username](userId)` tokens in plain `body`, member autocomplete, blue chips; mention-only (notifications deferred), shared frontend module |
 | [rest-api.md](rest-api.md)                             | REST API v1 — workspace-scoped API keys, `/api/v1/` documents/tabs/cells/content endpoints, Yorkie service, CLI auth endpoints |
 | [cli.md](cli.md)                                       | `wafflebase` CLI — OAuth login + API keys, ctx switching, docs/sheets/api-keys namespaces, content/export/import, agent integration |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |

@@ -16,6 +16,7 @@ import { fetchMeOptional } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import { CommentComposer } from "@/components/comments/components/CommentComposer";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
+import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { OrphanedCard } from "@/components/comments/components/OrphanedCard";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
@@ -115,6 +116,12 @@ interface DocsViewProps {
    * the editor finishes mounting.
    */
   documentId?: string;
+  /**
+   * Workspace owning this document. Sources the `@` mention member list for
+   * the comment composers. Omitted on anonymous share-link mounts, which
+   * disables the mention dropdown (existing chips still render).
+   */
+  workspaceId?: string;
 }
 
 /**
@@ -131,6 +138,7 @@ export function DocsView({
   commentsPanelOpen,
   onCommentsPanelOpenChange,
   documentId,
+  workspaceId,
 }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // State-mirrored handle on the same DOM node, so effects that depend
@@ -169,6 +177,7 @@ export function DocsView({
       photo: me.photo || undefined,
     };
   }, [me]);
+  const mentionMembers = useWorkspaceMembers(workspaceId);
 
   const comments = useDocsComments({
     doc: doc ?? null,
@@ -590,6 +599,7 @@ export function DocsView({
           anchorRect={comments.active.anchorRect}
           currentUser={currentUser ?? undefined}
           readOnly={readOnly}
+          members={mentionMembers}
           onReply={(body) => comments.reply(comments.active!.thread.id, body)}
           onResolveToggle={() => comments.toggleResolved(comments.active!.thread)}
           onEdit={(commentId, body) =>
@@ -611,6 +621,7 @@ export function DocsView({
           <CommentComposer
             submitLabel="Comment"
             autoFocus
+            members={mentionMembers}
             onSubmit={comments.submitNewComment}
             onCancel={comments.closeCompose}
             disabled={!currentUser}

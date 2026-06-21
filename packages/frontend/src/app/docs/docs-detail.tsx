@@ -216,6 +216,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
             onEditorReady={setEditor}
             onJumpHandleReady={setJumpHandle}
             documentId={documentId}
+            workspaceId={documentData?.workspaceId}
             commentsPanelOpen={commentsPanelOpen}
             onCommentsPanelOpenChange={setCommentsPanelOpen}
           />

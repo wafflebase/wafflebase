@@ -18,7 +18,8 @@ import type {
 } from "@/types/comments";
 
 import { AuthorAvatar } from "./AuthorAvatar";
-import { CommentComposer } from "./CommentComposer";
+import { CommentBody } from "./CommentBody";
+import { CommentComposer, type MentionMember } from "./CommentComposer";
 
 type Props<A extends CommentAnchor> = {
   thread: Thread<A>;
@@ -27,6 +28,8 @@ type Props<A extends CommentAnchor> = {
   readOnly?: boolean;
   /** Autofocus the inline reply composer on mount. */
   autoFocusReply?: boolean;
+  /** Workspace members for the reply/edit composers' @ mention dropdown. */
+  members?: MentionMember[];
   onReply: (body: string) => Promise<void> | void;
   onResolveToggle: () => Promise<void> | void;
   onEdit: (commentId: string, body: string) => Promise<void> | void;
@@ -48,6 +51,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
   currentUserId,
   readOnly = false,
   autoFocusReply = false,
+  members,
   onReply,
   onResolveToggle,
   onEdit,
@@ -157,6 +161,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
             submitLabel="Save"
             autoFocus
             compact
+            members={members}
             onSubmit={async (body) => {
               await onEdit(c.id, body);
               setEditingCommentId(null);
@@ -164,7 +169,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
             onCancel={() => setEditingCommentId(null)}
           />
         ) : (
-          <p className="whitespace-pre-wrap text-xs text-foreground">{c.body}</p>
+          <CommentBody body={c.body} />
         )}
       </div>
     );
@@ -187,6 +192,7 @@ export function CommentThreadCard<A extends CommentAnchor>({
             onSubmit={onReply}
             compact
             autoFocus={autoFocusReply}
+            members={members}
           />
         </div>
       )}

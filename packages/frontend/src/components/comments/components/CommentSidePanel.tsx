@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
 import type { CommentAnchor, Thread } from "@/types/comments";
 
+import { mentionBodyToPlainText } from "../mentions.ts";
 import { AuthorAvatar } from "./AuthorAvatar";
 
 type Props<A extends CommentAnchor> = {
@@ -107,7 +108,7 @@ export function CommentSidePanel<A extends CommentAnchor>({
                     </time>
                   </div>
                   <p className="line-clamp-2 text-xs text-muted-foreground">
-                    {root.body.split("\n")[0].slice(0, 80)}
+                    {mentionBodyToPlainText(root.body).split("\n")[0].slice(0, 80)}
                   </p>
                   {renderAnchorLabel && (
                     <div className="text-[10px] text-muted-foreground">

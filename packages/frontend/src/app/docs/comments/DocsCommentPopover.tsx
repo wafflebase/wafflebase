@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { CommentThreadCard } from "@/components/comments/components/CommentThreadCard";
+import type { MentionMember } from "@/components/comments/components/CommentComposer";
 import type {
   CommentAuthor,
   DocsRangeAnchor,
@@ -12,6 +13,7 @@ type Props = {
   anchorRect: { x: number; y: number };
   currentUser?: CommentAuthor;
   readOnly?: boolean;
+  members?: MentionMember[];
   onReply: (body: string) => Promise<void> | void;
   onResolveToggle: () => Promise<void> | void;
   onEdit: (commentId: string, body: string) => Promise<void> | void;
@@ -33,6 +35,7 @@ export function DocsCommentPopover({
   anchorRect,
   currentUser,
   readOnly,
+  members,
   onReply,
   onResolveToggle,
   onEdit,
@@ -100,6 +103,7 @@ export function DocsCommentPopover({
           currentUserId={currentUser?.userId}
           readOnly={readOnly}
           autoFocusReply
+          members={members}
           onReply={onReply}
           onResolveToggle={onResolveToggle}
           onEdit={onEdit}

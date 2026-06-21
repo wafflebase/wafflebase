@@ -45,6 +45,7 @@ import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 import { CommentPopover } from "./components/comments/CommentPopover";
+import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
 
@@ -168,6 +169,7 @@ export function SheetView({
         : null,
     [currentUserData],
   );
+  const mentionMembers = useWorkspaceMembers(workspaceId);
   const [paintFormatActive, setPaintFormatActive] = useState(false);
   const [paintFormatSourceRef, setPaintFormatSourceRef] = useState<Ref | null>(
     null,
@@ -1581,6 +1583,7 @@ export function SheetView({
             <CommentPopover
               threads={activeCellThreads}
               currentUser={commentAuthor}
+              members={mentionMembers}
               onAddThread={handleCommentAddThread}
               onReply={handleCommentReply}
               onResolve={handleCommentResolve}
