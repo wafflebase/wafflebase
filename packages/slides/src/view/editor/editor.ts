@@ -128,6 +128,7 @@ import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
+import { computePeerOverlays, type PeerView, type PeerOverlays } from './peers';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
@@ -307,6 +308,15 @@ export interface SlidesEditor {
   getSelection(): readonly string[];
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
+  /**
+   * Replace the set of in-canvas peers (other users editing the same
+   * presentation) and repaint the overlay. The host maps Yorkie
+   * `SlidesPresence` into presentation-agnostic `PeerView[]` (selection
+   * rings, live drag frames, guide previews) and calls this on every
+   * peer-presence change. Pass `[]` to clear all peer chrome. No-op on
+   * the canvas bitmap — peers live entirely in the DOM overlay.
+   */
+  setPeers(peers: readonly PeerView[]): void;
   /**
    * Currently-selected cell range inside a table, or `null` when no
    * range is active. Toolbar code reads this to decide whether to show
@@ -869,6 +879,14 @@ class SlidesEditorImpl implements SlidesEditor {
     | { id?: string; axis: 'x' | 'y'; position: number }
     | null = null;
 
+  /**
+   * In-canvas peer presence, pushed in by the host via `setPeers`. The
+   * editor never reads Yorkie types — the host maps `SlidesPresence`
+   * into `PeerView[]`. Painted by `repaintOverlay` (peers on the current
+   * slide only). Empty when solo or no host has wired presence.
+   */
+  private peers: readonly PeerView[] = [];
+
   constructor(options: SlidesEditorOptions) {
     this.options = options;
     const ctx = options.canvas.getContext('2d');
@@ -1134,10 +1152,24 @@ class SlidesEditorImpl implements SlidesEditor {
         }
       }
     }
+    // Peer presence rings / live frames / guide previews. Resolve each
+    // peer's selected element ids to absolute world frames via the same
+    // lookup the local selection path uses; `computePeerOverlays` filters
+    // to peers on the current slide and prefers their live `activeFrames`.
+    let peerOverlays: PeerOverlays | undefined;
+    if (this.peers.length > 0) {
+      const peerLookup = buildElementWorldLookup(slide.elements);
+      peerOverlays = computePeerOverlays(
+        this.peers,
+        this.currentId,
+        (id) => peerLookup.get(id)?.frame,
+      );
+    }
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      peerOverlays,
       // Pass the full slide so connector endpoint handles can resolve
       // `attached` endpoints to world positions via the host element's
       // frame. Free endpoints don't need this map but it's cheap to
@@ -1325,6 +1357,13 @@ class SlidesEditorImpl implements SlidesEditor {
 
   onSelectionChange(cb: () => void): () => void {
     return this.selection.subscribe(cb);
+  }
+
+  setPeers(peers: readonly PeerView[]): void {
+    if (this.disposed) return;
+    this.peers = peers;
+    // Peers live only in the DOM overlay; no canvas markDirty needed.
+    this.repaintOverlay();
   }
 
   getCellSelection(): {
