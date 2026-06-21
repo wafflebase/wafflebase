@@ -23,9 +23,11 @@ Design doc: `docs/design/slides/slides-format-effects.md`
     (outerShdw → DropShadow via `rotEmuToRad`/`emuToStrokePx`/
     `parseColorFromContainer`, alpha → `opacity`; reflection → Reflection),
     `readAltText(el)` (nv*Pr → cNvPr@descr), `parseImageAdjustments(blip)`.
-  - Wire: `parseChild`'s `sp` branch attaches effects+alt to all emitted
-    elements; `parsePic` (host spPr/nv); `parseTable` (graphicFrame);
-    `parseGrpSp` (grpSpPr, effects only — group has no `alt`).
+  - Wire: `parseChild`'s `sp` branch attaches effects+alt to the first
+    emitted element (the silhouette — avoids double-shadow on the
+    `[image,text]` blip-fill-with-caption case); `parsePic` (host spPr/nv);
+    `parseTable` (graphicFrame, alt only). Group effects intentionally not
+    imported (renderer paints effects on leaves only).
   - Drop the now-stale `report.shadowsDropped` increment (shadows import).
 - [x] Tests: pick-sections routing, drop-shadow + reflection section
       commit/toggle, effects-renderer units (shadow + reflection),

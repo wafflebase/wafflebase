@@ -19,9 +19,11 @@ const UNIT = { sx: 1, sy: 1 };
 
 /** Parse an XML fragment and return its first element child. */
 function frag(xml: string): Element {
-  return parseXml(
+  const el = parseXml(
     `<root xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${xml}</root>`,
-  ).documentElement.firstElementChild!;
+  ).documentElement.firstElementChild;
+  if (!el) throw new Error(`frag(): no element child in fragment: ${xml}`);
+  return el;
 }
 
 function fakeArchive(media: Record<string, Uint8Array>): PptxArchive {
