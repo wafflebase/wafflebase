@@ -19,6 +19,7 @@ import type { SlidesPresence } from "@/types/users";
 import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
+import { setupSlidesImagePaths } from "./slides-image-input";
 import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
@@ -65,6 +66,14 @@ interface SlidesViewProps {
    * dropdown and view share state without each rebuilding the other.
    */
   zoomController?: ZoomController | null;
+  /**
+   * Uploads a local image file through the workspace image API and
+   * returns its URL + intrinsic size. Supplied by the parent shell
+   * (which owns the workspace id + auth). When provided, the canvas
+   * gains drag-and-drop and clipboard-paste image input; when omitted
+   * (e.g. a read-only share-link mount) those paths stay off.
+   */
+  uploadImage?: (file: File) => Promise<{ url: string; w: number; h: number }>;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -133,6 +142,7 @@ export function SlidesView({
   onStoreReady,
   onStartPresentation,
   zoomController,
+  uploadImage,
 }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
@@ -156,6 +166,14 @@ export function SlidesView({
   // callback identity).
   const onStartPresentationRef = useRef(onStartPresentation);
   onStartPresentationRef.current = onStartPresentation;
+
+  // Capture the latest uploadImage in a ref so the mount-time drag /
+  // paste listeners always call the freshest uploader. The parent's
+  // `uploadFn` identity changes once the workspace id finishes loading
+  // (it is `useCallback([workspaceId])`); without the ref the listeners
+  // would close over the pre-load version that throws "not loaded yet".
+  const uploadImageRef = useRef(uploadImage);
+  uploadImageRef.current = uploadImage;
 
   // Stable ref for the toast callback — wired into the editor at mount time.
   // Using sonner's toast.info directly; the ref prevents stale closure issues.
@@ -620,6 +638,25 @@ export function SlidesView({
     onEditorReady?.(editor);
     onStoreReady?.(store);
 
+    // Drag-and-drop + clipboard-paste image input. Drop fires on the
+    // canvas wrapper (cursor target); paste rides the document (matches
+    // the editor's document-level keyboard model — see slides-image-
+    // input.ts). Both no-op while a text box is being edited. Read-only
+    // mounts get no uploader, so the paths stay off. The upload wrapper
+    // reads `uploadImageRef` so a late-loading workspace id is picked up.
+    const cleanupImagePaths = readOnlyMount
+      ? () => {}
+      : setupSlidesImagePaths({
+          canvasWrap,
+          editor,
+          store,
+          upload: (file) => {
+            const fn = uploadImageRef.current;
+            if (!fn) return Promise.reject(new Error("Image upload unavailable"));
+            return fn(file);
+          },
+        });
+
     // Refit canvas to the right column, taking the current notes height
     // into account. Extracted into a function because two paths call
     // it: the ResizeObserver below, and the notes-drag handler (where
@@ -984,6 +1021,7 @@ export function SlidesView({
         document.body.style.userSelect = "";
       }
       cancelAnimationFrame(raf);
+      cleanupImagePaths();
       offSelection();
       offSlide();
       offChange();

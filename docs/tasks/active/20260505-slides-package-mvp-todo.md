@@ -60,7 +60,7 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 - [x] 5.1 `view/editor/text-box-editor.ts` — docs `initializeTextBox` bridge, double-click → mount → blur commit
 - [x] 5.2 ~~Yorkie Tree wiring for `TextElement.data.blocks` and `Slide.notes`~~ — reverted: nested `Tree` inside an array element gets JSON-serialised by Yorkie, no CRDT semantics. Bodies/notes stay as plain `Block[]` JSON; commits resolve LWW on blur. Per-keystroke convergence deferred to Phase 5a-2 (root-level `textTrees: { [elementId]: Tree }` map keyed by id).
-- [ ] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
+- [x] 5.3 Image input paths — upload (toolbar file picker), drag-drop, clipboard paste (workspace image API reuse). Insert frame aspect-preserved + capped at 80% of the slide. See [`20260507-slides-phase5b-1-image-plan.md`](./20260507-slides-phase5b-1-image-plan.md) (Continuation 2026-06-21).
 - [x] 5.4 Slide-canvas text painting via docs `paintLayout` — same baseline math + font path as the in-place editor. Slide-side CJK font registry shim was dropped because the editor itself relied on docs' `buildFont` and Korean rendered fine; if a missing-glyph case surfaces later, route through `resolveFontFamily` at the docs level so both surfaces benefit.
 - [x] 5.5 `view/present/presenter.ts` + `presentation-mode.tsx` — fullscreen, fit-to-screen, key nav
 - [x] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping. **Shipped as P0

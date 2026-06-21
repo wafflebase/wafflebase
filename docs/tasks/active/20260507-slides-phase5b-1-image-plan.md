@@ -650,3 +650,63 @@ git push
   paths.
 - Sub-image-of-image embed (e.g. SVG processing). The frontend
   hands raw bytes to `/images`; the server stores the file as-is.
+
+---
+
+## Continuation (2026-06-21): gap analysis + what shipped
+
+The original plan above proposed an architecture (a `SlidesEditor.insertImage`
+API + a slides-package `image-frame.ts` helper) that was **not** the path
+taken. By the time this was revisited, image insertion had already landed
+differently:
+
+- **Already done (toolbar file picker):** `slides-detail.tsx` →
+  `handleImagePick` opens a hidden `<input type="file" accept="image/*">`
+  and calls `insertImageOnSlide({ store, slideId, file, upload })`
+  (`packages/frontend/src/app/slides/insert-image.ts`). Upload reuses the
+  workspace `/api/v1/.../images` API via `uploadImageFile`
+  (`spreadsheet/image-upload.ts`) — same endpoint as docs/sheets.
+- **Was missing (this continuation closes it):**
+  1. **Drag-and-drop** a local image file onto the canvas.
+  2. **Clipboard paste** of an image.
+  3. **80 % insert cap** — `insert-image.ts` inserted at natural size 1:1
+     and centred only, so an oversized source (e.g. 3840×2160) spilled off
+     every slide edge. The plan called for an aspect-preserved 80 % cap; it
+     had been dropped.
+
+### What shipped
+
+- `insert-image.ts` — extracted a pure `computeImageFrame(naturalW,
+  naturalH)` that aspect-preserves + caps at 80 % of 1920×1080 + centres,
+  with a 0-dimension guard. `insertImageOnSlide` now routes through it.
+- `slides-image-input.ts` (new) — `pickImageFile` / `hasImageFile` plus
+  `setupSlidesImagePaths({ canvasWrap, editor, store, upload })`. **Two
+  hosts, deliberately:** `drop`/`dragover` on `canvasWrap` (drop dispatches
+  to the cursor's element), `paste` on `document` (matches the editor's
+  document-level keyboard model — when no text box is focused the paste
+  target is `document.body`, which a canvas-scoped listener never sees).
+  **Paste** gates on `editor.getEditingElementId() === null` and bails
+  when an unrelated input/textarea/contenteditable is focused or a modal
+  dialog is open. **Drop is intentionally NOT gated on edit mode** — the
+  slides text box installs no drop handler, so bailing while editing
+  would hand a bare-canvas drop to the browser default (navigate to the
+  file → unmount the editor); drop always `preventDefault`s and inserts.
+- `slides-view.tsx` — new optional `uploadImage` prop, captured in a ref
+  (the parent's `uploadFn` identity changes once the workspace id loads),
+  wired via `setupSlidesImagePaths` at mount + cleaned up on unmount.
+  Read-only share-link mounts pass no uploader, so the paths stay off.
+- `slides-detail.tsx` (desktop) passes `uploadImage={uploadFn}`. Mobile
+  (`MobileSlidesView`) keeps its own touch-oriented insert; desktop file
+  drag-drop is not a mobile affordance.
+
+### Deviations from the original plan (intentional)
+
+- No `SlidesEditor.insertImage` API and no slides-package `image-frame.ts`.
+  The insert policy (cap, centre) lives in the frontend `insert-image.ts`
+  next to the upload, keeping the slides package free of insert-frame
+  policy. Both approaches work; this matched the already-landed code.
+- Tests cover the pure frame math and the `pickImageFile` / drop / paste /
+  editing-gate / cleanup logic through a real `MemSlidesStore`, rather than
+  dispatching jsdom `DragEvent` / `ClipboardEvent` (whose constructors are
+  unreliable in jsdom) — events are synthesised as `Event` with a
+  defined `dataTransfer` / `clipboardData`.

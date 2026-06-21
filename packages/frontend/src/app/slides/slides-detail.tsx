@@ -372,6 +372,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               onStartPresentation={handleStartPresentation}
               documentId={documentId}
               zoomController={zoomControllerRef.current}
+              uploadImage={uploadFn}
             />
             {rightPanel === "theme" && store && (
               <ThemePanel
