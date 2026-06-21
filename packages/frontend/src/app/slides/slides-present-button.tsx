@@ -5,6 +5,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * Split-button that enters present mode. Primary click starts from the
@@ -26,16 +31,20 @@ export function PresentButton({ disabled, onStart }: PresentButtonProps) {
       : "Ctrl";
   return (
     <div className="inline-flex items-center rounded-md border">
-      <button
-        type="button"
-        onClick={() => onStart("current")}
-        disabled={disabled}
-        aria-label="Present from current slide"
-        className="inline-flex h-8 items-center gap-1.5 rounded-l-md px-3 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-      >
-        <IconPlayerPlay size={16} />
-        <span>Present</span>
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => onStart("current")}
+            disabled={disabled}
+            aria-label="Present from current slide"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <IconPlayerPlay size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Present</TooltipContent>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

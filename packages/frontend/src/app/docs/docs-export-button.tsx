@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { IconFileTypePdf, IconDownload, IconLoader2 } from "@tabler/icons-react";
+import { IconDownload, IconLoader2, IconFileDownload } from "@tabler/icons-react";
 import { toast } from "sonner";
-import type { SlidesStore } from "@wafflebase/slides";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,34 +12,34 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { exportSlidesPdfAndDownload } from "./pdf-actions";
+import type { EditorAPI } from "./docs-view";
+import { exportDocxAndDownload } from "./docx-actions";
+import { exportPdfAndDownload } from "./pdf-actions";
 
-interface SlidesExportButtonProps {
-  store: SlidesStore | null;
+interface DocsExportButtonProps {
+  editor: EditorAPI | null;
   title: string;
-  disabled?: boolean;
 }
 
 /**
- * Header "Export" menu for the slides editor. P0 offers PDF only (one
- * slide per page, raster). The dynamic-imported pdf-lib + per-slide
- * canvas render can take a few seconds on large decks, so the trigger
- * shows a spinner and stays disabled until the download fires.
+ * Header "Export" menu for the docs editor — icon-only to save space,
+ * mirroring the slides header. Offers DOCX and PDF (the same actions the
+ * formatting toolbar's Export dropdown exposes), reading the live
+ * document straight off the editor's store.
  */
-export function SlidesExportButton({
-  store,
-  title,
-  disabled,
-}: SlidesExportButtonProps) {
+export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   const [exporting, setExporting] = useState(false);
 
-  const handleExportPdf = async () => {
-    if (!store) return;
+  const runExport = async (
+    kind: "docx" | "pdf",
+    fn: typeof exportDocxAndDownload | typeof exportPdfAndDownload,
+  ) => {
+    if (!editor || exporting) return;
     setExporting(true);
     try {
-      await exportSlidesPdfAndDownload(store.read(), title || "presentation");
+      await fn(editor.getStore().getDocument(), title || "document");
     } catch (err) {
-      console.error("Slides PDF export failed", err);
+      console.error(`${kind.toUpperCase()} export failed`, err);
       toast.error(
         err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
       );
@@ -56,8 +55,8 @@ export function SlidesExportButton({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              disabled={disabled || !store || exporting}
-              aria-label="Export presentation"
+              disabled={!editor || exporting}
+              aria-label="Export document"
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
             >
               {exporting ? (
@@ -74,9 +73,17 @@ export function SlidesExportButton({
         <DropdownMenuItem
           className="cursor-pointer"
           disabled={exporting}
-          onSelect={handleExportPdf}
+          onSelect={() => runExport("docx", exportDocxAndDownload)}
         >
-          <IconFileTypePdf size={16} />
+          <IconFileDownload size={16} className="mr-2" />
+          Word (.docx)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer"
+          disabled={exporting}
+          onSelect={() => runExport("pdf", exportPdfAndDownload)}
+        >
+          <IconFileDownload size={16} className="mr-2" />
           PDF (.pdf)
         </DropdownMenuItem>
       </DropdownMenuContent>

@@ -24,6 +24,7 @@ import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { DocsPresence } from "@/types/users";
 import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
+import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
 
@@ -198,6 +199,10 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 {commentsPanelOpen ? "Hide comments" : "Show comments"}
               </TooltipContent>
             </Tooltip>
+            <DocsExportButton
+              editor={editor}
+              title={documentData?.title ?? "document"}
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence
               onSelectPeer={handleSelectPeer}
