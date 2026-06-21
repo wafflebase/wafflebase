@@ -771,19 +771,22 @@ export class YorkieSlidesStore implements SlidesStore {
         background: clone(s.background),
         elements: s.elements.map((e) => {
           if (e.type === 'text') {
-            const td = e.data as { blocks?: Block[]; autofit?: AutofitMode };
+            const td = e.data as { blocks?: Block[] };
             return {
               id: e.id,
               type: 'text',
               frame: { ...e.frame },
-              // Carry placeholderRef and autofit through snapshot restore
-              // (undo/redo); the prior bare `{ id, type, frame, blocks }`
-              // rebuild dropped both — stripping placeholder identity and
-              // the autofit mode deck-wide on every undo/redo.
+              // Carry placeholderRef through snapshot restore (undo/redo);
+              // the prior bare `{ id, type, frame, blocks }` rebuild dropped
+              // it, stripping placeholder identity on every undo/redo.
               ...(e.placeholderRef ? { placeholderRef: clone(e.placeholderRef) } : {}),
+              // Carry the WHOLE text `data` — blocks plus the Format-Options
+              // fields (fill / stroke / effects / alt / autofit). A narrow
+              // `{ blocks, autofit }` rebuild silently dropped fill/stroke/
+              // effects/alt on every undo/redo (and churned the element).
               data: {
+                ...clone(e.data),
                 blocks: clone(td.blocks ?? []),
-                ...(td.autofit ? { autofit: td.autofit } : {}),
               },
             } as YorkieElement;
           }
