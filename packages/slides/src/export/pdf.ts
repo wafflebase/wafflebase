@@ -124,7 +124,7 @@ export async function exportSlidesPdf(
 
   try {
     for (const slide of doc.slides) {
-      const cloned = cloneSlideWithCleanImages(slide, doc, map);
+      const cloned = prepareExportSlide(slide, doc, map);
 
       // Preload this slide's (now taint-free) image srcs so the single
       // paint below draws them instead of skipping still-loading ones.
@@ -178,6 +178,9 @@ export function collectFontFamilies(doc: SlidesDocument): string[] {
     for (const el of flattenElements(slide.elements)) {
       for (const body of textBodiesOf(el)) {
         for (const block of body.blocks) {
+          // List-item bullets can carry their own font (PPTX `<a:buFont>`),
+          // painted by the docs marker path independent of the inlines.
+          if (block.marker?.fontFamily) families.add(block.marker.fontFamily);
           for (const inline of block.inlines) {
             if (inline.style.fontFamily) families.add(inline.style.fontFamily);
           }
@@ -242,44 +245,58 @@ async function resolveDeckImages(
     if (bg) originals.add(bg);
   }
 
+  // Fetch all images concurrently — they are independent, and a deck
+  // with many cross-origin images would otherwise pay one round-trip
+  // of latency per image.
+  const entries = await Promise.all(
+    Array.from(originals).map(async (src) => {
+      if (src.startsWith('data:') || src.startsWith('blob:')) {
+        return { src, url: src, temp: false };
+      }
+      if (!fetcher) {
+        // No fetcher: best-effort. Same-origin srcs render fine; a
+        // cross-origin one would taint, but that is the caller's contract.
+        return { src, url: src, temp: false };
+      }
+      try {
+        const blob = await fetcher(src);
+        return { src, url: URL.createObjectURL(blob), temp: true };
+      } catch {
+        return { src, url: BLANK_PNG, temp: false };
+      }
+    }),
+  );
+
   const map = new Map<string, string>();
   const temp: string[] = [];
-  for (const src of originals) {
-    if (src.startsWith('data:') || src.startsWith('blob:')) {
-      map.set(src, src);
-      continue;
-    }
-    if (!fetcher) {
-      // No fetcher: best-effort. Same-origin srcs render fine; a
-      // cross-origin one would taint, but that is the caller's contract.
-      map.set(src, src);
-      continue;
-    }
-    try {
-      const blob = await fetcher(src);
-      const url = URL.createObjectURL(blob);
-      map.set(src, url);
-      temp.push(url);
-    } catch {
-      map.set(src, BLANK_PNG);
-    }
+  for (const entry of entries) {
+    map.set(entry.src, entry.url);
+    if (entry.temp) temp.push(entry.url);
   }
   return { map, temp };
 }
 
 /**
- * Deep-clone a slide with every image src rewritten to its taint-free
- * URL. The deck master's background image (used when the slide has none
- * of its own) is resolved onto the clone so `drawSlide` never reaches
- * the original cross-origin master src.
+ * Deep-clone a slide into the form the exporter should rasterise:
+ *   - every image src rewritten to its taint-free URL;
+ *   - the deck master's background image (used when the slide has none
+ *     of its own) resolved onto the clone so `drawSlide` never reaches
+ *     the original cross-origin master src;
+ *   - `placeholderRef` stripped from every element so empty placeholders
+ *     do NOT paint their editor-only "Click to add title" ghost hint
+ *     into the PDF. The hint is the sole render-path consumer of
+ *     `placeholderRef` (element-renderer's `text` case), and real
+ *     placeholder text bakes its typography into the blocks, so dropping
+ *     the ref only suppresses the hint.
  */
-function cloneSlideWithCleanImages(
+function prepareExportSlide(
   slide: Slide,
   doc: SlidesDocument,
   map: Map<string, string>,
 ): Slide {
   const cloned = structuredClone(slide) as Slide;
   for (const el of flattenElements(cloned.elements)) {
+    delete el.placeholderRef;
     if (el.type === 'image' && el.data.src) {
       el.data.src = map.get(el.data.src) ?? el.data.src;
     }

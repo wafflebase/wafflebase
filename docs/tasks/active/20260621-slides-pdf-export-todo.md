@@ -51,5 +51,32 @@ embedded into a pdf-lib document at 13.333" × 7.5" (16:9). Wire an
 
 ## Review
 
-(to fill in after implementation)
+Implemented P0 end-to-end:
+- `packages/slides/src/export/pdf.ts` — `exportSlidesPdf` + `collectFontFamilies`.
+- `evictImageSrcs` in image-cache; re-exports in `index.ts`; `pdf-lib` dep.
+- Frontend `pdf-actions.ts` + `slides-export-button.tsx`, wired into both
+  header sites in `slides-detail.tsx`.
+- Tests: `test/export/pdf.test.ts` (7) + `pdf-placeholder.test.ts` (1).
+- `pnpm verify:fast` green (slides 2072 tests pass).
+
+Code review (high effort, 7 finder angles → verify) findings addressed:
+1. **[bug] Placeholder ghost hints leaked into the PDF** — empty
+   placeholders paint "Click to add title" via the shared `drawSlide`.
+   Fixed by stripping `placeholderRef` on the export clone
+   (`prepareExportSlide`). Added a deterministic test. *(Note: the same
+   hint renders in presentation mode — pre-existing, out of scope here.)*
+2. **[perf] Sequential image fetch** — `resolveDeckImages` now fetches
+   all images concurrently via `Promise.all`.
+3. **[correctness] List-marker fonts** — `collectFontFamilies` now also
+   collects `block.marker.fontFamily` (PPTX `<a:buFont>`).
+
+Considered & dropped: PNG-ignores-quality (spec no-op, harmless),
+`assetTimeoutMs=0` hang (opt-in only; default 15s), deep-clone overhead
+(acceptable; clone is the safe taint-isolation seam).
+
+### Known limitations / follow-ups
+- Raster only — PDF text not selectable (P1: vector text overlay).
+- Desktop header only; mobile export deferred.
+- Animations/transitions render at resting state.
+- CLI/Node export deferred (needs `node-canvas`).
 ```

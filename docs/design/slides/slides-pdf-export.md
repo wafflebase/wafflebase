@@ -112,8 +112,16 @@ each callback. The exporter must close this gap deterministically.
    single broken asset URL can't hang the whole export; on timeout,
    render with whatever is available (placeholders for failures).
 
+The clone also **strips `placeholderRef`** from every element. Empty
+placeholders paint an editor-only "Click to add title" ghost hint via
+the same `drawSlide` path; without stripping, that hint would leak into
+the exported PDF. `placeholderRef` is the sole render-path consumer of
+the hint, and committed placeholder text bakes its own typography into
+the blocks, so dropping the ref only suppresses the hint.
+
 Fonts are handled once up-front, not per slide: scan all slide text
-blocks for `fontFamily` (+ bold/italic), then
+blocks for `fontFamily` (incl. list-marker `buFont`) plus each theme's
+heading/body fonts, then
 `await Promise.all(families.map(f => document.fonts.load(\`16px "${f}"\`)))`.
 This mirrors docs' `ensureCanvasFontsLoaded`. Slides already injects
 Google-Fonts `<link>`s lazily via `ensureFontLink`; the exporter must
