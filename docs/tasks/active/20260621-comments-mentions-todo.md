@@ -64,18 +64,37 @@ Scope decisions (locked in brainstorming):
   so the raw token never leaks into truncated previews.
 
 ### 5. Tests + verification
-- [ ] Composer interaction test (`.test.ts` + `IS_REACT_ACT_ENVIRONMENT`):
-  `@` opens dropdown, filter, keyboard select, tokenized submit, edit→drop.
-- [ ] `CommentBody` render test (chips + plain text).
-- [ ] `pnpm verify:fast` green.
+- [x] Composer interaction test (`.test.ts` + `IS_REACT_ACT_ENVIRONMENT`):
+  `@` opens dropdown, filter, keyboard select, tokenized submit, edit→drop,
+  edit-entry round-trip.
+- [x] `CommentBody` render test (chips + plain text).
+- [x] `pnpm verify:fast` green (EXIT=0 across all lanes).
 - [ ] Manual smoke in `pnpm dev`: mention in docs + sheets comment, Korean
-  IME path, chip render + tooltip.
+  IME path, chip render + tooltip. **(pending — needs running app)**
 
 ### 6. Wrap-up
-- [ ] Self code-review over full branch diff (`/code-review`); apply
-  blocking findings.
-- [ ] Capture lessons in `20260621-comments-mentions-lessons.md`.
+- [x] Self code-review over full branch diff (subagent). Findings applied:
+  edit round-trip (blocking), CJK trigger boundary, shared query cache.
+  Reviewer #2 (CJK-username boundary) confirmed non-issue — usernames are
+  ASCII GitHub logins.
+- [x] Capture lessons in `20260621-comments-mentions-lessons.md`.
 - [ ] `pnpm tasks:archive && pnpm tasks:index`; PR (Summary + Test plan).
+  **(pending — after manual smoke + user go-ahead)**
+
+## Review
+
+Shipped mention-only (input + storage + render) across the shared comments
+module, live for sheets + docs (slides inherits when its comments land).
+Commits on `feat/comments-mentions`:
+
+1. `mentions.ts` token helpers + design/task docs.
+2. `CommentBody` chip render + `mentionBodyToPlainText` previews.
+3. `@` autocomplete composer + `useWorkspaceMembers` + view wiring.
+4. Self-review fixes (edit round-trip, CJK trigger, shared cache).
+
+No CRDT/`@wafflebase/*` type change. 59 comments tests; `verify:fast` green.
+Deferred: notifications (Step 4 remainder), photo-in-chip tooltip, the
+docs-comments visual harness scenarios (separate todo).
 
 ## Out of scope (tracked elsewhere)
 - Notifications (in-app + email) — `docs-comments-followup` Step 4 remainder.

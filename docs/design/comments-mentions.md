@@ -84,7 +84,7 @@ Token grammar (kept deliberately small):
   username/userId containing `]`/`)` because those are stripped/escaped at
   serialize time — see `serializeMention`.)
 
-### New shared helper — `components/comments/mentions.ts`
+### New shared helper — `packages/frontend/src/components/comments/mentions.ts`
 
 Pure, DOM-free functions (unit-testable, node-safe):
 
@@ -189,13 +189,15 @@ CommentThreadCard ── CommentBody ── parseMentionBody ── blue chips
 
 ### Testing
 
-- `mentions.test.ts` — parse/serialize round-trip; escape edge cases
-  (`@[` in prose, `]`/`)` inside names, adjacent mentions, mention at
-  string start/end, empty body); `extractMentionedUserIds`.
+- `packages/frontend/tests/components/comments/mentions.test.ts` —
+  parse/serialize round-trip; escape edge cases (`@[` in prose, `]`/`)`
+  inside names, adjacent mentions, mention at string start/end, empty body);
+  `extractMentionedUserIds`.
 - Composer interaction test — `@` opens dropdown, filter, keyboard select,
-  submit produces a tokenized body, manual edit drops to plain text. Use
-  `.test.ts` + `IS_REACT_ACT_ENVIRONMENT` (jsdom react-dom is available;
-  `.tsx` render tests are flaky per project memory).
+  submit produces a tokenized body, manual edit drops to plain text. Use a
+  plain test (not JSX) under the `tests/` runner with
+  `IS_REACT_ACT_ENVIRONMENT` (jsdom react-dom is available; JSX render tests
+  are flaky per project memory).
 - `CommentBody` render test — chips rendered, plain text preserved.
 - `pnpm verify:fast` green.
 
