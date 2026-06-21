@@ -1,100 +1,80 @@
-import type {
-  AdjustmentHandle,
-  AdjustmentSpec,
-  PathBuilder,
-} from '../builder';
-import { adj } from '../builder';
-import { polylineArc } from '../curves';
-import { insetAlongAxis } from '../handles';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from '../builder';
+import { presetBuilder } from '../preset/path';
+import { presetNumericHandle } from '../preset/handles';
+import type { PresetShapeDef } from '../preset/types';
 
 /**
- * `swooshArrow` — curved tail rising from SW to NE with an
- * arrowhead at the upper-right tip. V0 traces the curve as a
- * single elliptical arc on each side of the band. Two adjustments:
- * shaft thickness + head length.
+ * `swooshArrow` — a thin curve that rises from the SW corner to a
+ * flared arrowhead at the upper-right, ported verbatim from the
+ * ECMA-376 `presetShapeDefinitions.xml` (`<swooshArrow>`). Two
+ * adjustments: `adj1` controls the curve height / head rise, `adj2`
+ * the head's horizontal offset from the right edge.
  */
-export const SWOOSH_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Shaft thickness', defaultValue: 12500, min: 0, max: 25000 },
-  { name: 'Head length', defaultValue: 25000, min: 0, max: 50000 },
-];
-
-export const buildSwooshArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const a1 = adj(adjustments, 0, 12500);
-  const a2 = adj(adjustments, 1, 25000);
-  const shaft = (a1 / 100000) * Math.min(w, h);
-  const headLen = (a2 / 100000) * w;
-  const headHalf = shaft * 1.25;
-  // Outer ellipse centred at NE corner; inner ellipse shrunk by
-  // `shaft`. Trace inner edge from SW corner up to head start,
-  // then arrowhead, then outer edge back.
-  const cx = w;
-  const cy = h;
-  const outerRx = w;
-  const outerRy = h;
-  const innerRx = Math.max(0, outerRx - shaft);
-  const innerRy = Math.max(0, outerRy - shaft);
-  const path = new Path2D();
-  // Inner curve: from (0, h - shaft) at θ = π up through θ = 3π/2
-  // (top) to the head start. We stop short of θ = 3π/2 to leave
-  // room for the head.
-  const tipFrac = 1 - headLen / w; // how much of the arc to draw
-  const tipAngle = Math.PI + tipFrac * (Math.PI / 2);
-  const inner = polylineArc(cx, cy, innerRx, innerRy, Math.PI, tipAngle, 16);
-  path.moveTo(inner[0].x, inner[0].y);
-  for (let i = 1; i < inner.length; i++) path.lineTo(inner[i].x, inner[i].y);
-  // Arrowhead from end of inner curve to outer arc start.
-  const headEndOuter = polylineArc(cx, cy, outerRx, outerRy, Math.PI, tipAngle, 16);
-  const tipOuter = headEndOuter[headEndOuter.length - 1];
-  // Compute outward perpendicular at tip for arrowhead spread.
-  const tx = Math.cos(tipAngle);
-  const ty = Math.sin(tipAngle);
-  // Perpendicular pointing outward from the centre (away).
-  const perpX = tx;
-  const perpY = ty;
-  const tipX = tipOuter.x + perpX * headHalf;
-  const tipY = tipOuter.y + perpY * headHalf;
-  path.lineTo(tipOuter.x + perpX * headHalf, tipOuter.y + perpY * headHalf);
-  void tipX; void tipY;
-  path.lineTo(tipOuter.x, tipOuter.y);
-  // Outer curve back from tip to SW corner (reverse direction).
-  for (let i = headEndOuter.length - 2; i >= 0; i--) {
-    path.lineTo(headEndOuter[i].x, headEndOuter[i].y);
-  }
-  path.closePath();
-  return path;
+const SWOOSH_ARROW_DEF: PresetShapeDef = {
+  adj: { adj1: 25000, adj2: 16667 },
+  guides: [
+    { name: 'a1', fmla: 'pin 1 adj1 75000' },
+    { name: 'maxAdj2', fmla: '*/ 70000 w ss' },
+    { name: 'a2', fmla: 'pin 0 adj2 maxAdj2' },
+    { name: 'ad1', fmla: '*/ h a1 100000' },
+    { name: 'ad2', fmla: '*/ ss a2 100000' },
+    { name: 'xB', fmla: '+- r 0 ad2' },
+    { name: 'yB', fmla: '+- t ssd8 0' },
+    { name: 'alfa', fmla: '*/ cd4 1 14' },
+    { name: 'dx0', fmla: 'tan ssd8 alfa' },
+    { name: 'xC', fmla: '+- xB 0 dx0' },
+    { name: 'dx1', fmla: 'tan ad1 alfa' },
+    { name: 'yF', fmla: '+- yB ad1 0' },
+    { name: 'xF', fmla: '+- xB dx1 0' },
+    { name: 'xE', fmla: '+- xF dx0 0' },
+    { name: 'yE', fmla: '+- yF ssd8 0' },
+    { name: 'dy2', fmla: '+- yE 0 t' },
+    { name: 'dy22', fmla: '*/ dy2 1 2' },
+    { name: 'dy3', fmla: '*/ h 1 20' },
+    { name: 'yD', fmla: '+- t dy22 dy3' },
+    { name: 'dy4', fmla: '*/ hd6 1 1' },
+    { name: 'yP1', fmla: '+- hd6 dy4 0' },
+    { name: 'xP1', fmla: 'val wd6' },
+    { name: 'dy5', fmla: '*/ hd6 1 2' },
+    { name: 'yP2', fmla: '+- yF dy5 0' },
+    { name: 'xP2', fmla: 'val wd4' },
+  ],
+  paths: [
+    {
+      cmds: [
+        { t: 'move', pt: { x: 'l', y: 'b' } },
+        { t: 'quad', c: { x: 'xP1', y: 'yP1' }, pt: { x: 'xB', y: 'yB' } },
+        { t: 'line', pt: { x: 'xC', y: 't' } },
+        { t: 'line', pt: { x: 'r', y: 'yD' } },
+        { t: 'line', pt: { x: 'xE', y: 'yE' } },
+        { t: 'line', pt: { x: 'xF', y: 'yF' } },
+        { t: 'quad', c: { x: 'xP2', y: 'yP2' }, pt: { x: 'l', y: 'b' } },
+        { t: 'close' },
+      ],
+    },
+  ],
 };
 
+export const SWOOSH_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
+  { name: 'Thickness', defaultValue: 25000, min: 1, max: 75000 },
+  { name: 'Head size', defaultValue: 16667, min: 0, max: 70000 },
+];
+
+export const buildSwooshArrow: PathBuilder = presetBuilder(SWOOSH_ARROW_DEF);
+
 export const SWOOSH_ARROW_HANDLES: readonly AdjustmentHandle[] = [
-  {
-    position: ({ w, h }, adjustments) => {
-      const shaft = ((adjustments[0] ?? 12500) / 100000) * Math.min(w, h);
-      return { x: 0, y: insetAlongAxis(h - shaft, h) };
-    },
-    apply: ({ w, h }, start, pointer) => {
-      const y = Math.max(0, Math.min(h, pointer.y));
-      const shaft = Math.max(0, h - y);
-      const raw = Math.round((shaft / Math.min(w, h)) * 100000);
-      const spec = SWOOSH_ARROW_ADJUSTMENTS[0];
-      return [
-        Math.max(spec.min, Math.min(spec.max, raw)),
-        start[1] ?? 25000,
-      ];
-    },
-  },
-  {
-    position: ({ w }, adjustments) => {
-      const headLen = ((adjustments[1] ?? 25000) / 100000) * w;
-      return { x: insetAlongAxis(w - headLen, w), y: 0 };
-    },
-    apply: ({ w }, start, pointer) => {
-      const x = Math.max(0, Math.min(w, pointer.x));
-      const headLen = Math.max(0, w - x);
-      const raw = w > 0 ? Math.round((headLen / w) * 100000) : 0;
-      const spec = SWOOSH_ARROW_ADJUSTMENTS[1];
-      return [
-        start[0] ?? 12500,
-        Math.max(spec.min, Math.min(spec.max, raw)),
-      ];
-    },
-  },
+  presetNumericHandle({
+    def: SWOOSH_ARROW_DEF,
+    index: 0,
+    posX: 'xF',
+    posY: 'yF',
+    spec: SWOOSH_ARROW_ADJUSTMENTS[0],
+  }),
+  presetNumericHandle({
+    def: SWOOSH_ARROW_DEF,
+    index: 1,
+    posX: 'xB',
+    posY: 'yB',
+    spec: SWOOSH_ARROW_ADJUSTMENTS[1],
+  }),
 ];

@@ -1,0 +1,171 @@
+// packages/slides/src/view/canvas/shapes/preset/path.ts
+//
+// Interpreter that turns a `PresetShapeDef` into a `Path2D`. Arcs and
+// Béziers are flattened to polylines — the same "one code path for
+// tests and production" rule the rest of the shape layer follows
+// (see `curves.ts`): the JSDOM canvas shim used by Vitest has
+// incomplete `arcTo`/`quadraticCurveTo` support, and browser
+// anti-alias makes the flattened approximation indistinguishable from
+// a native curve at slide scale.
+
+import type { FrameSize, PathBuilder, Point } from '../builder';
+import { polylineArc } from '../curves';
+import { evalGuides, ooxmlAngleToRad, type Resolver } from './formula';
+import type { PresetPt, PresetShapeDef } from './types';
+
+/** Segments per full 360° arc; matches `curves.ts` DEFAULT_ARC_SEGMENTS. */
+const ARC_SEGMENTS_PER_TURN = 32;
+/** Flattening resolution for quadratic / cubic Béziers. */
+const BEZIER_SEGMENTS = 24;
+
+function pt(p: PresetPt, r: Resolver): Point {
+  return { x: r(p.x), y: r(p.y) };
+}
+
+/** Append an OOXML `arcTo` to `path`, returning the new pen position. */
+function appendArc(
+  path: Path2D,
+  cur: Point,
+  wR: number,
+  hR: number,
+  stAng: number,
+  swAng: number,
+): Point {
+  const st = ooxmlAngleToRad(stAng);
+  const sw = ooxmlAngleToRad(swAng);
+  // The current pen position is the arc's start point on the ellipse
+  // at parameter `st`, so the centre is cur − (wR·cos st, hR·sin st).
+  const cx = cur.x - wR * Math.cos(st);
+  const cy = cur.y - hR * Math.sin(st);
+  const segments = Math.max(
+    1,
+    Math.ceil((Math.abs(sw) / (2 * Math.PI)) * ARC_SEGMENTS_PER_TURN),
+  );
+  const points = polylineArc(cx, cy, wR, hR, st, st + sw, segments);
+  for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
+  const last = points[points.length - 1];
+  return { x: last.x, y: last.y };
+}
+
+function appendQuad(path: Path2D, p0: Point, c: Point, p1: Point): Point {
+  for (let i = 1; i <= BEZIER_SEGMENTS; i++) {
+    const t = i / BEZIER_SEGMENTS;
+    const mt = 1 - t;
+    const x = mt * mt * p0.x + 2 * mt * t * c.x + t * t * p1.x;
+    const y = mt * mt * p0.y + 2 * mt * t * c.y + t * t * p1.y;
+    path.lineTo(x, y);
+  }
+  return { ...p1 };
+}
+
+function appendCubic(
+  path: Path2D,
+  p0: Point,
+  c1: Point,
+  c2: Point,
+  p1: Point,
+): Point {
+  for (let i = 1; i <= BEZIER_SEGMENTS; i++) {
+    const t = i / BEZIER_SEGMENTS;
+    const mt = 1 - t;
+    const x =
+      mt * mt * mt * p0.x +
+      3 * mt * mt * t * c1.x +
+      3 * mt * t * t * c2.x +
+      t * t * t * p1.x;
+    const y =
+      mt * mt * mt * p0.y +
+      3 * mt * mt * t * c1.y +
+      3 * mt * t * t * c2.y +
+      t * t * t * p1.y;
+    path.lineTo(x, y);
+  }
+  return { ...p1 };
+}
+
+/**
+ * Build a `Path2D` from a preset definition for a given frame size and
+ * adjustment array. `fill="none"` sub-paths (stroke-only outlines) are
+ * skipped; the remaining closed sub-paths union into one Path2D and
+ * fill with the nonzero rule — faithful to the body+head composition
+ * PowerPoint uses for multi-path arrows.
+ */
+export function buildPresetPath(
+  def: PresetShapeDef,
+  size: FrameSize,
+  adjustments?: number[],
+): Path2D {
+  const r = evalGuides(size, def, adjustments);
+  const path = new Path2D();
+  for (const sub of def.paths) {
+    if (sub.fill === 'none') continue;
+    let cur: Point = { x: 0, y: 0 };
+    let start: Point = { x: 0, y: 0 };
+    for (const cmd of sub.cmds) {
+      switch (cmd.t) {
+        case 'move': {
+          cur = pt(cmd.pt, r);
+          start = { ...cur };
+          path.moveTo(cur.x, cur.y);
+          break;
+        }
+        case 'line': {
+          cur = pt(cmd.pt, r);
+          path.lineTo(cur.x, cur.y);
+          break;
+        }
+        case 'arc': {
+          cur = appendArc(
+            path,
+            cur,
+            r(cmd.wR),
+            r(cmd.hR),
+            r(cmd.stAng),
+            r(cmd.swAng),
+          );
+          break;
+        }
+        case 'quad': {
+          cur = appendQuad(path, cur, pt(cmd.c, r), pt(cmd.pt, r));
+          break;
+        }
+        case 'cubic': {
+          cur = appendCubic(
+            path,
+            cur,
+            pt(cmd.c1, r),
+            pt(cmd.c2, r),
+            pt(cmd.pt, r),
+          );
+          break;
+        }
+        case 'close': {
+          path.closePath();
+          cur = { ...start };
+          break;
+        }
+      }
+    }
+  }
+  return path;
+}
+
+/** Curry a preset definition into the registry's `PathBuilder` shape. */
+export function presetBuilder(def: PresetShapeDef): PathBuilder {
+  return (size, adjustments) => buildPresetPath(def, size, adjustments);
+}
+
+/**
+ * Evaluate a single guide-point for a preset definition — used by
+ * adjustment handles to read a `pos`/landmark in element-local coords.
+ */
+export function presetPoint(
+  def: PresetShapeDef,
+  size: FrameSize,
+  adjustments: number[] | undefined,
+  x: string,
+  y: string,
+): Point {
+  const r = evalGuides(size, def, adjustments);
+  return { x: r(x), y: r(y) };
+}

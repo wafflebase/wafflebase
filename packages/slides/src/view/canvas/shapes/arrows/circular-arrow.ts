@@ -1,154 +1,299 @@
-import type {
-  AdjustmentHandle,
-  AdjustmentSpec,
-  PathBuilder,
-} from '../builder';
-import { adj } from '../builder';
-import { polylineArc } from '../curves';
-import { angularHandle, insetAlongAxis } from '../handles';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from '../builder';
+import { presetBuilder } from '../preset/path';
+import { presetAngularHandle, presetNumericHandle } from '../preset/handles';
+import type { PresetShapeDef } from '../preset/types';
 
 /**
- * `circularArrow` — near-complete circular band with a pointy tip
- * at one end. V0: sweep is fixed at 300° (60° gap). Three
- * adjustments: shaft thickness + head length + start angle of the
- * gap. The start angle uses `angularHandle` so the user can rotate
- * the gap around the frame.
+ * `circularArrow` — a near-complete circular band ending in a flared
+ * triangular arrowhead, ported verbatim from ECMA-376
+ * `presetShapeDefinitions.xml` (`<circularArrow>`). The arrowhead tip
+ * is the intersection of the tangent lines through the head shoulders
+ * with the band circles, solved by the long `u*`/`v*`/`q*` guide
+ * chain below (a line–circle quadratic). Five adjustments:
+ *
+ * - `adj1` band thickness, `adj2` arrowhead spread angle,
+ * - `adj3` end angle (absolute), `adj4` start angle (absolute),
+ * - `adj5` arrowhead thickness.
  */
+const CIRCULAR_ARROW_DEF: PresetShapeDef = {
+  adj: {
+    adj1: 12500,
+    adj2: 1142319,
+    adj3: 20457681,
+    adj4: 10800000,
+    adj5: 12500,
+  },
+  guides: [
+    { name: 'a5', fmla: 'pin 0 adj5 25000' },
+    { name: 'maxAdj1', fmla: '*/ a5 2 1' },
+    { name: 'a1', fmla: 'pin 0 adj1 maxAdj1' },
+    { name: 'enAng', fmla: 'pin 1 adj3 21599999' },
+    { name: 'stAng', fmla: 'pin 0 adj4 21599999' },
+    { name: 'th', fmla: '*/ ss a1 100000' },
+    { name: 'thh', fmla: '*/ ss a5 100000' },
+    { name: 'th2', fmla: '*/ th 1 2' },
+    { name: 'rw1', fmla: '+- wd2 th2 thh' },
+    { name: 'rh1', fmla: '+- hd2 th2 thh' },
+    { name: 'rw2', fmla: '+- rw1 0 th' },
+    { name: 'rh2', fmla: '+- rh1 0 th' },
+    { name: 'rw3', fmla: '+- rw2 th2 0' },
+    { name: 'rh3', fmla: '+- rh2 th2 0' },
+    { name: 'wtH', fmla: 'sin rw3 enAng' },
+    { name: 'htH', fmla: 'cos rh3 enAng' },
+    { name: 'dxH', fmla: 'cat2 rw3 htH wtH' },
+    { name: 'dyH', fmla: 'sat2 rh3 htH wtH' },
+    { name: 'xH', fmla: '+- hc dxH 0' },
+    { name: 'yH', fmla: '+- vc dyH 0' },
+    { name: 'rI', fmla: 'min rw2 rh2' },
+    { name: 'u1', fmla: '*/ dxH dxH 1' },
+    { name: 'u2', fmla: '*/ dyH dyH 1' },
+    { name: 'u3', fmla: '*/ rI rI 1' },
+    { name: 'u4', fmla: '+- u1 0 u3' },
+    { name: 'u5', fmla: '+- u2 0 u3' },
+    { name: 'u6', fmla: '*/ u4 u5 u1' },
+    { name: 'u7', fmla: '*/ u6 1 u2' },
+    { name: 'u8', fmla: '+- 1 0 u7' },
+    { name: 'u9', fmla: 'sqrt u8' },
+    { name: 'u10', fmla: '*/ u4 1 dxH' },
+    { name: 'u11', fmla: '*/ u10 1 dyH' },
+    { name: 'u12', fmla: '+/ 1 u9 u11' },
+    { name: 'u13', fmla: 'at2 1 u12' },
+    { name: 'u14', fmla: '+- u13 21600000 0' },
+    { name: 'u15', fmla: '?: u13 u13 u14' },
+    { name: 'u16', fmla: '+- u15 0 enAng' },
+    { name: 'u17', fmla: '+- u16 21600000 0' },
+    { name: 'u18', fmla: '?: u16 u16 u17' },
+    { name: 'u19', fmla: '+- u18 0 cd2' },
+    { name: 'u20', fmla: '+- u18 0 21600000' },
+    { name: 'u21', fmla: '?: u19 u20 u18' },
+    { name: 'maxAng', fmla: 'abs u21' },
+    { name: 'aAng', fmla: 'pin 0 adj2 maxAng' },
+    { name: 'ptAng', fmla: '+- enAng aAng 0' },
+    { name: 'wtA', fmla: 'sin rw3 ptAng' },
+    { name: 'htA', fmla: 'cos rh3 ptAng' },
+    { name: 'dxA', fmla: 'cat2 rw3 htA wtA' },
+    { name: 'dyA', fmla: 'sat2 rh3 htA wtA' },
+    { name: 'xA', fmla: '+- hc dxA 0' },
+    { name: 'yA', fmla: '+- vc dyA 0' },
+    { name: 'wtE', fmla: 'sin rw1 stAng' },
+    { name: 'htE', fmla: 'cos rh1 stAng' },
+    { name: 'dxE', fmla: 'cat2 rw1 htE wtE' },
+    { name: 'dyE', fmla: 'sat2 rh1 htE wtE' },
+    { name: 'xE', fmla: '+- hc dxE 0' },
+    { name: 'yE', fmla: '+- vc dyE 0' },
+    { name: 'dxG', fmla: 'cos thh ptAng' },
+    { name: 'dyG', fmla: 'sin thh ptAng' },
+    { name: 'xG', fmla: '+- xH dxG 0' },
+    { name: 'yG', fmla: '+- yH dyG 0' },
+    { name: 'dxB', fmla: 'cos thh ptAng' },
+    { name: 'dyB', fmla: 'sin thh ptAng' },
+    { name: 'xB', fmla: '+- xH 0 dxB 0' },
+    { name: 'yB', fmla: '+- yH 0 dyB 0' },
+    { name: 'sx1', fmla: '+- xB 0 hc' },
+    { name: 'sy1', fmla: '+- yB 0 vc' },
+    { name: 'sx2', fmla: '+- xG 0 hc' },
+    { name: 'sy2', fmla: '+- yG 0 vc' },
+    { name: 'rO', fmla: 'min rw1 rh1' },
+    { name: 'x1O', fmla: '*/ sx1 rO rw1' },
+    { name: 'y1O', fmla: '*/ sy1 rO rh1' },
+    { name: 'x2O', fmla: '*/ sx2 rO rw1' },
+    { name: 'y2O', fmla: '*/ sy2 rO rh1' },
+    { name: 'dxO', fmla: '+- x2O 0 x1O' },
+    { name: 'dyO', fmla: '+- y2O 0 y1O' },
+    { name: 'dO', fmla: 'mod dxO dyO 0' },
+    { name: 'q1', fmla: '*/ x1O y2O 1' },
+    { name: 'q2', fmla: '*/ x2O y1O 1' },
+    { name: 'DO', fmla: '+- q1 0 q2' },
+    { name: 'q3', fmla: '*/ rO rO 1' },
+    { name: 'q4', fmla: '*/ dO dO 1' },
+    { name: 'q5', fmla: '*/ q3 q4 1' },
+    { name: 'q6', fmla: '*/ DO DO 1' },
+    { name: 'q7', fmla: '+- q5 0 q6' },
+    { name: 'q8', fmla: 'max q7 0' },
+    { name: 'sdelO', fmla: 'sqrt q8' },
+    { name: 'ndyO', fmla: '*/ dyO -1 1' },
+    { name: 'sdyO', fmla: '?: ndyO -1 1' },
+    { name: 'q9', fmla: '*/ sdyO dxO 1' },
+    { name: 'q10', fmla: '*/ q9 sdelO 1' },
+    { name: 'q11', fmla: '*/ DO dyO 1' },
+    { name: 'dxF1', fmla: '+/ q11 q10 q4' },
+    { name: 'q12', fmla: '+- q11 0 q10' },
+    { name: 'dxF2', fmla: '*/ q12 1 q4' },
+    { name: 'adyO', fmla: 'abs dyO' },
+    { name: 'q13', fmla: '*/ adyO sdelO 1' },
+    { name: 'q14', fmla: '*/ DO dxO -1' },
+    { name: 'dyF1', fmla: '+/ q14 q13 q4' },
+    { name: 'q15', fmla: '+- q14 0 q13' },
+    { name: 'dyF2', fmla: '*/ q15 1 q4' },
+    { name: 'q16', fmla: '+- x2O 0 dxF1' },
+    { name: 'q17', fmla: '+- x2O 0 dxF2' },
+    { name: 'q18', fmla: '+- y2O 0 dyF1' },
+    { name: 'q19', fmla: '+- y2O 0 dyF2' },
+    { name: 'q20', fmla: 'mod q16 q18 0' },
+    { name: 'q21', fmla: 'mod q17 q19 0' },
+    { name: 'q22', fmla: '+- q21 0 q20' },
+    { name: 'dxF', fmla: '?: q22 dxF1 dxF2' },
+    { name: 'dyF', fmla: '?: q22 dyF1 dyF2' },
+    { name: 'sdxF', fmla: '*/ dxF rw1 rO' },
+    { name: 'sdyF', fmla: '*/ dyF rh1 rO' },
+    { name: 'xF', fmla: '+- hc sdxF 0' },
+    { name: 'yF', fmla: '+- vc sdyF 0' },
+    { name: 'x1I', fmla: '*/ sx1 rI rw2' },
+    { name: 'y1I', fmla: '*/ sy1 rI rh2' },
+    { name: 'x2I', fmla: '*/ sx2 rI rw2' },
+    { name: 'y2I', fmla: '*/ sy2 rI rh2' },
+    { name: 'dxI', fmla: '+- x2I 0 x1I' },
+    { name: 'dyI', fmla: '+- y2I 0 y1I' },
+    { name: 'dI', fmla: 'mod dxI dyI 0' },
+    { name: 'v1', fmla: '*/ x1I y2I 1' },
+    { name: 'v2', fmla: '*/ x2I y1I 1' },
+    { name: 'DI', fmla: '+- v1 0 v2' },
+    { name: 'v3', fmla: '*/ rI rI 1' },
+    { name: 'v4', fmla: '*/ dI dI 1' },
+    { name: 'v5', fmla: '*/ v3 v4 1' },
+    { name: 'v6', fmla: '*/ DI DI 1' },
+    { name: 'v7', fmla: '+- v5 0 v6' },
+    { name: 'v8', fmla: 'max v7 0' },
+    { name: 'sdelI', fmla: 'sqrt v8' },
+    { name: 'v9', fmla: '*/ sdyO dxI 1' },
+    { name: 'v10', fmla: '*/ v9 sdelI 1' },
+    { name: 'v11', fmla: '*/ DI dyI 1' },
+    { name: 'dxC1', fmla: '+/ v11 v10 v4' },
+    { name: 'v12', fmla: '+- v11 0 v10' },
+    { name: 'dxC2', fmla: '*/ v12 1 v4' },
+    { name: 'adyI', fmla: 'abs dyI' },
+    { name: 'v13', fmla: '*/ adyI sdelI 1' },
+    { name: 'v14', fmla: '*/ DI dxI -1' },
+    { name: 'dyC1', fmla: '+/ v14 v13 v4' },
+    { name: 'v15', fmla: '+- v14 0 v13' },
+    { name: 'dyC2', fmla: '*/ v15 1 v4' },
+    { name: 'v16', fmla: '+- x1I 0 dxC1' },
+    { name: 'v17', fmla: '+- x1I 0 dxC2' },
+    { name: 'v18', fmla: '+- y1I 0 dyC1' },
+    { name: 'v19', fmla: '+- y1I 0 dyC2' },
+    { name: 'v20', fmla: 'mod v16 v18 0' },
+    { name: 'v21', fmla: 'mod v17 v19 0' },
+    { name: 'v22', fmla: '+- v21 0 v20' },
+    { name: 'dxC', fmla: '?: v22 dxC1 dxC2' },
+    { name: 'dyC', fmla: '?: v22 dyC1 dyC2' },
+    { name: 'sdxC', fmla: '*/ dxC rw2 rI' },
+    { name: 'sdyC', fmla: '*/ dyC rh2 rI' },
+    { name: 'xC', fmla: '+- hc sdxC 0' },
+    { name: 'yC', fmla: '+- vc sdyC 0' },
+    { name: 'ist0', fmla: 'at2 sdxC sdyC' },
+    { name: 'ist1', fmla: '+- ist0 21600000 0' },
+    { name: 'istAng', fmla: '?: ist0 ist0 ist1' },
+    { name: 'isw1', fmla: '+- stAng 0 istAng' },
+    { name: 'isw2', fmla: '+- isw1 0 21600000' },
+    { name: 'iswAng', fmla: '?: isw1 isw2 isw1' },
+    { name: 'p1', fmla: '+- xF 0 xC' },
+    { name: 'p2', fmla: '+- yF 0 yC' },
+    { name: 'p3', fmla: 'mod p1 p2 0' },
+    { name: 'p4', fmla: '*/ p3 1 2' },
+    { name: 'p5', fmla: '+- p4 0 thh' },
+    { name: 'xGp', fmla: '?: p5 xF xG' },
+    { name: 'yGp', fmla: '?: p5 yF yG' },
+    { name: 'xBp', fmla: '?: p5 xC xB' },
+    { name: 'yBp', fmla: '?: p5 yC yB' },
+    { name: 'en0', fmla: 'at2 sdxF sdyF' },
+    { name: 'en1', fmla: '+- en0 21600000 0' },
+    { name: 'en2', fmla: '?: en0 en0 en1' },
+    { name: 'sw0', fmla: '+- en2 0 stAng' },
+    { name: 'sw1', fmla: '+- sw0 21600000 0' },
+    { name: 'swAng', fmla: '?: sw0 sw0 sw1' },
+    { name: 'wtI', fmla: 'sin rw3 stAng' },
+    { name: 'htI', fmla: 'cos rh3 stAng' },
+    { name: 'dxI', fmla: 'cat2 rw3 htI wtI' },
+    { name: 'dyI', fmla: 'sat2 rh3 htI wtI' },
+    { name: 'xI', fmla: '+- hc dxI 0' },
+    { name: 'yI', fmla: '+- vc dyI 0' },
+    { name: 'aI', fmla: '+- stAng 0 cd4' },
+    { name: 'aA', fmla: '+- ptAng cd4 0' },
+    { name: 'aB', fmla: '+- ptAng cd2 0' },
+    { name: 'idx', fmla: 'cos rw1 2700000' },
+    { name: 'idy', fmla: 'sin rh1 2700000' },
+    { name: 'il', fmla: '+- hc 0 idx' },
+    { name: 'ir', fmla: '+- hc idx 0' },
+    { name: 'it', fmla: '+- vc 0 idy' },
+    { name: 'ib', fmla: '+- vc idy 0' },
+  ],
+  paths: [
+    {
+      cmds: [
+        { t: 'move', pt: { x: 'xE', y: 'yE' } },
+        { t: 'arc', wR: 'rw1', hR: 'rh1', stAng: 'stAng', swAng: 'swAng' },
+        { t: 'line', pt: { x: 'xGp', y: 'yGp' } },
+        { t: 'line', pt: { x: 'xA', y: 'yA' } },
+        { t: 'line', pt: { x: 'xBp', y: 'yBp' } },
+        { t: 'line', pt: { x: 'xC', y: 'yC' } },
+        { t: 'arc', wR: 'rw2', hR: 'rh2', stAng: 'istAng', swAng: 'iswAng' },
+        { t: 'close' },
+      ],
+    },
+  ],
+};
+
 export const CIRCULAR_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Shaft thickness', defaultValue: 12500, min: 0, max: 25000 },
-  { name: 'Head length', defaultValue: 12500, min: 0, max: 30000 },
+  { name: 'Thickness', defaultValue: 12500, min: 0, max: 50000 },
+  { name: 'Arrowhead', defaultValue: 1142319, min: 0, max: 21599999 },
+  {
+    name: 'End angle',
+    defaultValue: 20457681,
+    min: 0,
+    max: 21600000,
+    axisLabel: 'end',
+  },
   {
     name: 'Start angle',
-    defaultValue: -3600000, // −60° → gap opens to the upper-right.
-    min: -21600000,
+    defaultValue: 10800000,
+    min: 0,
     max: 21600000,
     axisLabel: 'start',
   },
+  { name: 'Head thickness', defaultValue: 12500, min: 0, max: 25000 },
 ];
 
-const SWEEP_DEGREES = 300;
-const SWEEP_RAD = (SWEEP_DEGREES * Math.PI) / 180;
-
-export const buildCircularArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const a1 = adj(adjustments, 0, 12500);
-  const a2 = adj(adjustments, 1, 12500);
-  const startOoxml = adj(adjustments, 2, -3600000);
-  const shaft = (a1 / 100000) * Math.min(w, h);
-  const headLen = (a2 / 100000) * Math.min(w, h);
-  const cx = w / 2;
-  const cy = h / 2;
-  const outerR = Math.min(w, h) / 2 - headLen;
-  const innerR = Math.max(0, outerR - shaft);
-  const t0 = (startOoxml / 60000) * (Math.PI / 180);
-  const t1 = t0 + SWEEP_RAD;
-  const outer = polylineArc(cx, cy, outerR, outerR, t0, t1, 32);
-  const inner = polylineArc(cx, cy, innerR, innerR, t1, t0, 32);
-  const outerHead = outer[outer.length - 1];
-  const innerHead = inner[0];
-  // Pointy tip extends radially outward from centre.
-  const dx = outerHead.x - cx;
-  const dy = outerHead.y - cy;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  const tipX = outerHead.x + (len > 0 ? (dx / len) * headLen : 0);
-  const tipY = outerHead.y + (len > 0 ? (dy / len) * headLen : 0);
-  const path = new Path2D();
-  path.moveTo(outer[0].x, outer[0].y);
-  for (let i = 1; i < outer.length; i++) {
-    path.lineTo(outer[i].x, outer[i].y);
-  }
-  path.lineTo(tipX, tipY);
-  path.lineTo(innerHead.x, innerHead.y);
-  for (let i = 1; i < inner.length; i++) {
-    path.lineTo(inner[i].x, inner[i].y);
-  }
-  path.closePath();
-  return path;
-};
+export const buildCircularArrow: PathBuilder = presetBuilder(CIRCULAR_ARROW_DEF);
 
 export const CIRCULAR_ARROW_HANDLES: readonly AdjustmentHandle[] = [
-  // Shaft thickness — diamond on the inner arc at the start angle.
-  {
-    position: ({ w, h }, adjustments) => {
-      const shaft = ((adjustments[0] ?? 12500) / 100000) * Math.min(w, h);
-      const headLen = ((adjustments[1] ?? 12500) / 100000) * Math.min(w, h);
-      const startOoxml = adjustments[2] ?? -3600000;
-      const t0 = (startOoxml / 60000) * (Math.PI / 180);
-      const cx = w / 2;
-      const cy = h / 2;
-      const outerR = Math.min(w, h) / 2 - headLen;
-      const innerR = Math.max(0, outerR - shaft);
-      return {
-        x: insetAlongAxis(cx + innerR * Math.cos(t0), w),
-        y: insetAlongAxis(cy + innerR * Math.sin(t0), h),
-      };
-    },
-    apply: ({ w, h }, start, pointer) => {
-      const minDim = Math.min(w, h);
-      if (minDim <= 0) return [...start];
-      const cx = w / 2;
-      const cy = h / 2;
-      const dx = pointer.x - cx;
-      const dy = pointer.y - cy;
-      const r = Math.sqrt(dx * dx + dy * dy);
-      // Builder interprets `adj[0]` against `min(w, h)` (see line 32),
-      // so the normalization basis must match — the earlier
-      // `/ outerR (= min(w,h)/2)` doubled the value and made drag
-      // updates overshoot.
-      const headLen = ((start[1] ?? 12500) / 100000) * minDim;
-      const outerR = minDim / 2 - headLen;
-      const shaft = Math.max(0, Math.min(outerR, outerR - r));
-      const raw = Math.round((shaft / minDim) * 100000);
-      const spec = CIRCULAR_ARROW_ADJUSTMENTS[0];
-      return [
-        Math.max(spec.min, Math.min(spec.max, raw)),
-        start[1] ?? 12500,
-        start[2] ?? -3600000,
-      ];
-    },
-  },
-  // Head length — diamond on the outer perimeter at the head end.
-  {
-    position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[1] ?? 12500) / 100000) * Math.min(w, h);
-      const startOoxml = adjustments[2] ?? -3600000;
-      const t1 = (startOoxml / 60000) * (Math.PI / 180) + SWEEP_RAD;
-      const cx = w / 2;
-      const cy = h / 2;
-      const outerR = Math.min(w, h) / 2 - headLen;
-      return {
-        x: insetAlongAxis(cx + outerR * Math.cos(t1), w),
-        y: insetAlongAxis(cy + outerR * Math.sin(t1), h),
-      };
-    },
-    apply: ({ w, h }, start, pointer) => {
-      const minDim = Math.min(w, h);
-      if (minDim <= 0) return [...start];
-      const cx = w / 2;
-      const cy = h / 2;
-      const dx = pointer.x - cx;
-      const dy = pointer.y - cy;
-      const r = Math.sqrt(dx * dx + dy * dy);
-      // Builder uses `min(w,h)` as the head-length basis — same
-      // doubling fix as the shaft handle above.
-      const halfMin = minDim / 2;
-      const headLen = Math.max(0, Math.min(halfMin, halfMin - r));
-      const raw = Math.round((headLen / minDim) * 100000);
-      const spec = CIRCULAR_ARROW_ADJUSTMENTS[1];
-      return [
-        start[0] ?? 12500,
-        Math.max(spec.min, Math.min(spec.max, raw)),
-        start[2] ?? -3600000,
-      ];
-    },
-  },
-  // Start angle — angular handle on the outer perimeter at t0.
-  angularHandle({
-    center: ({ w, h }) => ({ x: w / 2, y: h / 2 }),
-    radius: ({ w, h }) => {
-      const halfMin = Math.min(w, h) / 2;
-      return { rx: halfMin - 4, ry: halfMin - 4 };
-    },
+  // Start angle (adj4) — absolute angle about the centre.
+  presetAngularHandle({
+    def: CIRCULAR_ARROW_DEF,
+    index: 3,
+    posX: 'xE',
+    posY: 'yE',
+    spec: CIRCULAR_ARROW_ADJUSTMENTS[3],
+  }),
+  // End angle (adj3) — absolute angle, diamond at the band-centre tip.
+  presetAngularHandle({
+    def: CIRCULAR_ARROW_DEF,
     index: 2,
+    posX: 'xH',
+    posY: 'yH',
     spec: CIRCULAR_ARROW_ADJUSTMENTS[2],
+  }),
+  // Arrowhead spread (adj2).
+  presetNumericHandle({
+    def: CIRCULAR_ARROW_DEF,
+    index: 1,
+    posX: 'xA',
+    posY: 'yA',
+    spec: CIRCULAR_ARROW_ADJUSTMENTS[1],
+  }),
+  // Band thickness (adj1).
+  presetNumericHandle({
+    def: CIRCULAR_ARROW_DEF,
+    index: 0,
+    posX: 'xF',
+    posY: 'yF',
+    spec: CIRCULAR_ARROW_ADJUSTMENTS[0],
+  }),
+  // Arrowhead thickness (adj5).
+  presetNumericHandle({
+    def: CIRCULAR_ARROW_DEF,
+    index: 4,
+    posX: 'xB',
+    posY: 'yB',
+    spec: CIRCULAR_ARROW_ADJUSTMENTS[4],
   }),
 ];
