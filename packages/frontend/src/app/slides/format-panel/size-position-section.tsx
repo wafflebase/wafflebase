@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   type DisplayUnit,
   degToRad,
@@ -196,26 +197,20 @@ export function SizePositionSection(props: SizePositionSectionProps) {
 
         <div className="flex items-center gap-2 pt-2 text-xs">
           <span className="w-20 shrink-0">Units</span>
-          <label className="inline-flex items-center gap-1">
-            <input
-              type="radio"
-              name="format-unit"
-              aria-label="Inches"
-              checked={unit === 'in'}
-              onChange={() => props.onSetUnit('in')}
-            />
-            Inches
-          </label>
-          <label className="inline-flex items-center gap-1">
-            <input
-              type="radio"
-              name="format-unit"
-              aria-label="Centimeters"
-              checked={unit === 'cm'}
-              onChange={() => props.onSetUnit('cm')}
-            />
-            Centimeters
-          </label>
+          <RadioGroup
+            className="flex items-center gap-2"
+            value={unit}
+            onValueChange={(value) => props.onSetUnit(value as DisplayUnit)}
+          >
+            <label className="inline-flex items-center gap-1">
+              <RadioGroupItem value="in" aria-label="Inches" />
+              Inches
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <RadioGroupItem value="cm" aria-label="Centimeters" />
+              Centimeters
+            </label>
+          </RadioGroup>
         </div>
       </div>
     </section>

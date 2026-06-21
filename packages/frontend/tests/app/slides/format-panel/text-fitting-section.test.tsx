@@ -20,7 +20,9 @@ describe('TextFittingSection', () => {
         onCommit={vi.fn()}
       />,
     );
-    expect((screen.getByLabelText(/resize shape to fit/i) as HTMLInputElement).checked).toBe(true);
+    expect(
+      screen.getByLabelText(/resize shape to fit/i).getAttribute('aria-checked'),
+    ).toBe('true');
   });
 
   it('no radio is checked when autofit differs across the selection', () => {
@@ -30,9 +32,15 @@ describe('TextFittingSection', () => {
         onCommit={vi.fn()}
       />,
     );
-    expect((screen.getByLabelText(/do not autofit/i) as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByLabelText(/shrink text/i) as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByLabelText(/resize shape to fit/i) as HTMLInputElement).checked).toBe(false);
+    expect(
+      screen.getByLabelText(/do not autofit/i).getAttribute('aria-checked'),
+    ).toBe('false');
+    expect(
+      screen.getByLabelText(/shrink text/i).getAttribute('aria-checked'),
+    ).toBe('false');
+    expect(
+      screen.getByLabelText(/resize shape to fit/i).getAttribute('aria-checked'),
+    ).toBe('false');
   });
 
   it('selecting a mode commits to every element id', () => {
