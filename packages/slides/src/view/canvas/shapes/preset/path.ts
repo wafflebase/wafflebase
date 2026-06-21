@@ -9,7 +9,6 @@
 // a native curve at slide scale.
 
 import type { FrameSize, PathBuilder, Point } from '../builder';
-import { polylineArc } from '../curves';
 import { evalGuides, ooxmlAngleToRad, type Resolver } from './formula';
 import type { PresetPt, PresetShapeDef } from './types';
 
@@ -20,6 +19,23 @@ const BEZIER_SEGMENTS = 24;
 
 function pt(p: PresetPt, r: Resolver): Point {
   return { x: r(p.x), y: r(p.y) };
+}
+
+/**
+ * The point on an ellipse of radii (wR, hR) centred at the origin at
+ * *geometric* angle `g` (the angle of the ray from the centre), i.e.
+ * the ray–ellipse intersection. DrawingML `arcTo` angles are geometric
+ * angles, NOT the ellipse parameter, so for `wR ≠ hR` we must intersect
+ * the ray rather than plug the angle into `(wR cos, hR sin)`. This form
+ * is continuous in `g` (no `atan2` wrap), so sweeps past ±180° need no
+ * unwrapping. For a circle (`wR == hR`) it reduces to `(wR cos, wR sin)`.
+ */
+function ellipseRayPoint(wR: number, hR: number, g: number): Point {
+  const cg = Math.cos(g);
+  const sg = Math.sin(g);
+  const denom = Math.hypot(hR * cg, wR * sg);
+  const r = denom === 0 ? 0 : (wR * hR) / denom;
+  return { x: r * cg, y: r * sg };
 }
 
 /** Append an OOXML `arcTo` to `path`, returning the new pen position. */
@@ -33,18 +49,24 @@ function appendArc(
 ): Point {
   const st = ooxmlAngleToRad(stAng);
   const sw = ooxmlAngleToRad(swAng);
-  // The current pen position is the arc's start point on the ellipse
-  // at parameter `st`, so the centre is cur − (wR·cos st, hR·sin st).
-  const cx = cur.x - wR * Math.cos(st);
-  const cy = cur.y - hR * Math.sin(st);
+  // The current pen position is the arc's start point — the ellipse
+  // point at geometric angle `st` — so the centre is cur minus that
+  // offset. Every sample then uses the same centre.
+  const p0 = ellipseRayPoint(wR, hR, st);
+  const cx = cur.x - p0.x;
+  const cy = cur.y - p0.y;
   const segments = Math.max(
     1,
     Math.ceil((Math.abs(sw) / (2 * Math.PI)) * ARC_SEGMENTS_PER_TURN),
   );
-  const points = polylineArc(cx, cy, wR, hR, st, st + sw, segments);
-  for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
-  const last = points[points.length - 1];
-  return { x: last.x, y: last.y };
+  let last = cur;
+  for (let i = 1; i <= segments; i++) {
+    const g = st + (sw * i) / segments;
+    const p = ellipseRayPoint(wR, hR, g);
+    last = { x: cx + p.x, y: cy + p.y };
+    path.lineTo(last.x, last.y);
+  }
+  return last;
 }
 
 function appendQuad(path: Path2D, p0: Point, c: Point, p1: Point): Point {

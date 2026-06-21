@@ -16,6 +16,18 @@
 
 ## Pitfalls hit
 
+- **DrawingML `arcTo` angles are GEOMETRIC, not the ellipse parameter.**
+  The first cut fed `stAng`/`swAng` straight into `(wR cos, hR sin)`,
+  which is only right for circles. For `wR ≠ hR` (every curved arrow:
+  `wR=w`, `hR≈h/2`) the arc must intersect the ray at the geometric
+  angle: `r(g) = wR·hR / hypot(hR cos g, wR sin g)`, point =
+  `r·(cos g, sin g)`. This is also what makes the spec's `at2`-derived
+  arc angles land exactly on the band/head junction points. The ray
+  form is wrap-safe (no `atan2` unwrapping across ±180°). Caught in
+  self-review; cardinal-angle tests (square frames, 90° sweeps) hid it
+  because geometric == parametric at multiples of 90°. Lock it with an
+  off-cardinal elliptical-arc assertion.
+
 - **`*/` inside a JSDoc comment closes the block comment.** Writing
   ``e.g. `"*/ ss adj1 100000"` `` in a `/** … */` doc terminated the
   comment early and broke the file. Don't put `*/` in TS comments.
