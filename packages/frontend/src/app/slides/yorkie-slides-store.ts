@@ -179,6 +179,214 @@ function unwrapElement(e: unknown): YorkieElement {
 }
 
 // ---------------------------------------------------------------------------
+// undo/redo reconcile — apply a snapshot to the live Yorkie root by diffing,
+// touching only what actually changed.
+//
+// The old `replaceRoot` rewrote the root with `slides.splice(0, len, ...)` /
+// `layouts.splice(0, len, ...)`, so every undo/redo removed and re-added the
+// entire document. Each cycle tombstoned thousands of CRDT nodes; repeated
+// undo/redo bloated one deck to 118MB and OOM-cascaded the EKS nodes during
+// server housekeeping (2026-06-20 incident). Reconciling by id keeps unchanged
+// nodes — and their CRDT identity — in place, so a single-element undo touches
+// a single element.
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural deep-equality, independent of object key order. Used to decide
+ * whether a field actually changed before writing it — writing an equal value
+ * would tombstone the old CRDT subtree for nothing.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (
+    typeof a !== 'object' ||
+    typeof b !== 'object' ||
+    a === null ||
+    b === null
+  ) {
+    return false;
+  }
+  const aArr = Array.isArray(a);
+  if (aArr !== Array.isArray(b)) return false;
+  if (aArr) {
+    const aa = a as unknown[];
+    const bb = b as unknown[];
+    if (aa.length !== bb.length) return false;
+    for (let i = 0; i < aa.length; i++) {
+      if (!deepEqual(aa[i], bb[i])) return false;
+    }
+    return true;
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const ak = Object.keys(ao);
+  if (ak.length !== Object.keys(bo).length) return false;
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false;
+    if (!deepEqual(ao[k], bo[k])) return false;
+  }
+  return true;
+}
+
+/** A Yorkie id-keyed array proxy: indexable, spliceable, and movable. */
+type ReconcileArray = MovableArray & {
+  [index: number]: { id: string };
+  splice(start: number, deleteCount: number, ...items: unknown[]): unknown;
+};
+
+/**
+ * Reconcile a Yorkie id-keyed array proxy against a desired plain array,
+ * touching only what changed: remove ids absent from `desired`, insert new
+ * ids, reorder survivors with Yorkie move primitives (no remove/re-add, so no
+ * tombstones), then recurse into each survivor via `updateItem`.
+ */
+function reconcileArrayById<T extends { id: string }>(
+  arr: unknown,
+  desired: T[],
+  updateItem: (target: ProxyArray[number], desired: T) => void,
+): void {
+  const a = arr as ReconcileArray;
+  const list = arr as unknown as ProxyArray;
+  // 1. Remove items absent from `desired`.
+  const desiredIds = new Set(desired.map((d) => d.id));
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (!desiredIds.has(list[i].id)) a.splice(i, 1);
+  }
+  // 2. Append items new to the target (final position fixed in step 3).
+  const present = new Set<string>();
+  for (let i = 0; i < list.length; i++) present.add(list[i].id);
+  for (const d of desired) {
+    if (!present.has(d.id)) a.splice(list.length, 0, d);
+  }
+  // 3. Reorder to `desired` order, only when it differs. Moves relink nodes
+  //    in place and emit no garbage, unlike splice remove + re-insert.
+  let sameOrder = list.length === desired.length;
+  if (sameOrder) {
+    for (let i = 0; i < desired.length; i++) {
+      if (list[i].id !== desired[i].id) {
+        sameOrder = false;
+        break;
+      }
+    }
+  }
+  if (!sameOrder) {
+    const ticketById = new Map<string, TimeTicket>();
+    for (let i = 0; i < list.length; i++) {
+      ticketById.set(list[i].id, a.getElementByIndex(i).getID());
+    }
+    let prev: TimeTicket | null = null;
+    for (const d of desired) {
+      const t = ticketById.get(d.id)!;
+      if (prev === null) a.moveFront(t);
+      else a.moveAfter(prev, t);
+      prev = t;
+    }
+  }
+  // 4. Update survivors, now index-aligned with `desired`.
+  for (let i = 0; i < desired.length; i++) {
+    updateItem(list[i], desired[i]);
+  }
+}
+
+/**
+ * Reconcile the plain fields of a Yorkie object proxy: delete keys absent from
+ * `desired`, assign keys whose value differs. `skip` names keys the caller
+ * handles separately (e.g. a nested array reconciled by id).
+ */
+function reconcileObjectFields(
+  target: Record<string, unknown>,
+  desired: Record<string, unknown>,
+  skip?: Set<string>,
+): void {
+  const plain = yorkieToPlain<Record<string, unknown>>(target);
+  for (const k of Object.keys(plain)) {
+    if (skip?.has(k)) continue;
+    if (!(k in desired)) delete target[k];
+  }
+  for (const k of Object.keys(desired)) {
+    if (skip?.has(k)) continue;
+    if (!deepEqual(plain[k], desired[k])) target[k] = clone(desired[k]);
+  }
+}
+
+/** Reconcile a group element's `data` — recurse children by id, then the
+ *  remaining plain fields (`refSize`). */
+function updateGroupData(
+  target: { children: unknown; [k: string]: unknown },
+  desired: YorkieGroupElement['data'],
+): void {
+  reconcileArrayById(
+    target.children,
+    desired.children as unknown as { id: string }[],
+    updateElement as (target: ProxyArray[number], d: { id: string }) => void,
+  );
+  reconcileObjectFields(
+    target as Record<string, unknown>,
+    desired as unknown as Record<string, unknown>,
+    new Set(['children']),
+  );
+}
+
+/**
+ * Reconcile one element. Unchanged elements return immediately (the common
+ * case — this is what keeps undo/redo cheap). Groups recurse so editing one
+ * child never churns its siblings; leaf elements swap only their changed
+ * top-level fields.
+ */
+function updateElement(target: ProxyArray[number], desired: YorkieElement): void {
+  const plain = unwrapElement(target);
+  if (deepEqual(plain, desired)) return;
+  if (desired.type === 'group' && plain.type === 'group') {
+    if (!deepEqual((plain as YorkieGroupElement).frame, desired.frame)) {
+      (target as Record<string, unknown>).frame = clone(desired.frame);
+    }
+    updateGroupData(
+      (target as { data: { children: unknown; [k: string]: unknown } }).data,
+      desired.data,
+    );
+    return;
+  }
+  reconcileObjectFields(
+    target as Record<string, unknown>,
+    desired as unknown as Record<string, unknown>,
+    new Set(['id']),
+  );
+}
+
+/** Reconcile one slide — scalar/background/notes fields, then elements by id. */
+function updateSlide(target: ProxyArray[number], desired: YorkieSlide): void {
+  const t = target as unknown as {
+    layoutId: string;
+    background: unknown;
+    notes: unknown;
+    elements: unknown;
+  };
+  if (t.layoutId !== desired.layoutId) t.layoutId = desired.layoutId;
+  if (!deepEqual(yorkieToPlain(t.background), desired.background)) {
+    t.background = clone(desired.background);
+  }
+  if (!deepEqual(yorkieToPlain(t.notes), desired.notes)) {
+    t.notes = clone(desired.notes);
+  }
+  reconcileArrayById(
+    t.elements,
+    desired.elements as unknown as { id: string }[],
+    updateElement as (target: ProxyArray[number], d: { id: string }) => void,
+  );
+}
+
+/** Reconcile one layout. Layouts rarely change on undo/redo, and their
+ *  placeholders have no ids, so changed layouts swap fields wholesale. */
+function updateLayout(target: ProxyArray[number], desired: YorkieLayout): void {
+  if (deepEqual(yorkieToPlain(target), desired)) return;
+  reconcileObjectFields(
+    target as Record<string, unknown>,
+    desired as unknown as Record<string, unknown>,
+    new Set(['id']),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
 // to call on every mount.
 //
@@ -567,42 +775,33 @@ export class YorkieSlidesStore implements SlidesStore {
 
   private replaceRoot(snapshot: SlidesDocument): void {
     this.doc.update((r) => {
-      r.meta = clone(snapshot.meta);
-      // Themes/masters are part of the snapshot too — undo of an op that
-      // touches them needs them mirrored here. Until Task 5 ships the
-      // theme-edit ops these arrays don't change, but writing them keeps
-      // the Yorkie root consistent with the cloned snapshot.
-      //
-      // Guides also live on the snapshot — without rewriting them here,
-      // undo / redo of addGuide / moveGuide / removeGuide silently
-      // diverges from the editor's pre-batch state.
-      const rootAny = r as {
-        themes?: Theme[];
-        masters?: Master[];
-        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
-      };
-      rootAny.themes = clone(snapshot.themes);
-      rootAny.masters = clone(snapshot.masters);
-      rootAny.guides = clone(snapshot.guides ?? []);
+      // Build the desired Yorkie-shaped tree from the snapshot (same mapping
+      // as before), then reconcile the live root against it by id so only
+      // changed nodes are written. The old code spliced the whole slides /
+      // layouts arrays, tombstoning every node on every undo/redo. See the
+      // reconcile helpers above and the 2026-06-20 node-OOM incident.
       const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
         id: s.id,
         layoutId: s.layoutId,
         background: clone(s.background),
         elements: s.elements.map((e) => {
           if (e.type === 'text') {
-            const td = e.data as { blocks?: Block[]; autofit?: AutofitMode };
+            const td = e.data as { blocks?: Block[] };
             return {
               id: e.id,
               type: 'text',
               frame: { ...e.frame },
-              // Carry placeholderRef and autofit through snapshot restore
-              // (undo/redo); the prior bare `{ id, type, frame, blocks }`
-              // rebuild dropped both — stripping placeholder identity and
-              // the autofit mode deck-wide on every undo/redo.
+              // Carry placeholderRef through snapshot restore (undo/redo);
+              // the prior bare `{ id, type, frame, blocks }` rebuild dropped
+              // it, stripping placeholder identity on every undo/redo.
               ...(e.placeholderRef ? { placeholderRef: clone(e.placeholderRef) } : {}),
+              // Carry the WHOLE text `data` — blocks plus the Format-Options
+              // fields (fill / stroke / effects / alt / autofit). A narrow
+              // `{ blocks, autofit }` rebuild silently dropped fill/stroke/
+              // effects/alt on every undo/redo (and churned the element).
               data: {
+                ...clone(e.data),
                 blocks: clone(td.blocks ?? []),
-                ...(td.autofit ? { autofit: td.autofit } : {}),
               },
             } as YorkieElement;
           }
@@ -610,9 +809,42 @@ export class YorkieSlidesStore implements SlidesStore {
         }),
         notes: clone(s.notes ?? []),
       }));
-      r.slides.splice(0, r.slides.length, ...(nextSlides as never[]));
       const nextLayouts = clone(snapshot.layouts) as YorkieLayout[];
-      r.layouts.splice(0, r.layouts.length, ...(nextLayouts as never[]));
+
+      // meta / themes / masters / guides: small, bounded, and reconciling
+      // them deeply isn't worth it — but each is a nested object, so writing
+      // unconditionally would tombstone tens of nodes on every undo even when
+      // they never changed. Guard each write on a structural compare.
+      const rootAny = r as {
+        themes?: Theme[];
+        masters?: Master[];
+        guides?: Array<{ id: string; axis: 'x' | 'y'; position: number }>;
+      };
+      const nextMeta = clone(snapshot.meta);
+      const nextThemes = clone(snapshot.themes);
+      const nextMasters = clone(snapshot.masters);
+      const nextGuides = clone(snapshot.guides ?? []);
+      if (!deepEqual(yorkieToPlain(r.meta), nextMeta)) r.meta = nextMeta;
+      if (!deepEqual(yorkieToPlain(rootAny.themes), nextThemes)) {
+        rootAny.themes = nextThemes;
+      }
+      if (!deepEqual(yorkieToPlain(rootAny.masters), nextMasters)) {
+        rootAny.masters = nextMasters;
+      }
+      if (!deepEqual(yorkieToPlain(rootAny.guides), nextGuides)) {
+        rootAny.guides = nextGuides;
+      }
+
+      reconcileArrayById(
+        r.slides,
+        nextSlides as unknown as { id: string }[],
+        updateSlide as (target: ProxyArray[number], d: { id: string }) => void,
+      );
+      reconcileArrayById(
+        r.layouts,
+        nextLayouts as unknown as { id: string }[],
+        updateLayout as (target: ProxyArray[number], d: { id: string }) => void,
+      );
     });
   }
 
