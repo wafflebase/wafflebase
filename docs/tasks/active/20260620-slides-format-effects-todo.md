@@ -53,7 +53,12 @@ Design doc: `docs/design/slides/slides-format-effects.md`
 
 ## Review / smoke
 
-- [ ] `pnpm verify:fast` green per commit
-- [ ] Code review over branch diff
-- [ ] Manual smoke in `pnpm dev`: select shape → Format options →
-      add shadow / reflection; image recolor + adjustments.
+- [x] `pnpm verify:fast` green per commit (import slice)
+- [x] Code review over branch diff (`/code-review --effort high`); 3
+      findings fixed — CLI `shadowsDropped` compile break, background
+      adjustment leak (`toBackgroundImage`), dup shadow on `[image,text]`.
+      See `*-lessons.md`. Verified `slides build` + CLI `tsc` clean.
+- [ ] Manual smoke: import a PPTX with shape drop shadow / reflection,
+      a picture recolor + brightness/contrast, and a `descr` alt; confirm
+      they render and appear in the Format panel. (Earlier panel-edit smoke
+      already covered; this slice only adds the import path.)
