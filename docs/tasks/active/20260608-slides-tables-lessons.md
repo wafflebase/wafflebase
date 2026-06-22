@@ -99,6 +99,47 @@ portalled into `document.body`, so query `[role="menuitem"]` off
 surface the component actually touches (`read`, `batch`,
 `updateTableCellStyle`, `getCurrentSlideId`) and cast through `unknown`.
 
+## Scope a "presence" field to its substrate, not the design doc
+
+The design doc listed three table presence fields (`selectedTableCells`,
+`textCursorCell`, `resizingTableEdge`). Only one was actually buildable
+now: `selectedTableCells`, the static analogue of the already-wired
+`selectedElementIds`. The other two have no substrate to extend:
+- `resizingTableEdge` is a *live drag preview*; the element-level
+  `activeFrames` live-frame broadcast it pairs with is itself deferred
+  (live-presence task P2 — blocked on "no single gesture-end chokepoint
+  to clear" the live frames). Build table edge-resize presence with that.
+- `textCursorCell` is framed as an extension of `textCursor`, but slides
+  renders zero peer text carets today (only docs does). Needs that layer
+  first (a separate PR per the live-presence todo).
+
+Before estimating a presence field, check (a) does local state for it
+exist, and (b) is there a *broadcast precedent* (a sibling field already
+wired through `updatePresence`)? `selectedTableCells` had both
+(`editor.cellSelection` + `selectedElementIds`); the other two had
+neither. Same recurring theme as the earlier "verify the substrate
+exists" lesson.
+
+## Clearing an optional presence field: set it to `undefined`, guard on read
+
+Yorkie `Presence.set` MERGES, so a field is "cleared" by broadcasting it
+as `undefined` and having every consumer guard with `if (presence.field)`
+(docs does exactly this for `activeCursorPos` / `activeSelection`). The
+`broadcast()` in `slides-view.tsx` therefore always includes
+`selectedTableCells` (value or `undefined`) — never omits the key — so a
+peer's cell highlight disappears the instant they click away.
+
+## Keep peer presence visible when a projection can be empty
+
+First cut suppressed the cell-selected table's plain ring *unconditionally*
+whenever `selectedTableCells` was set, then drew highlights. But the
+cell→rect projection can legitimately return zero rects — a drag range
+that lands entirely on merge-*covered* cells whose anchor sits outside the
+range, or a table that was just deleted. Result: ring gone, no highlights,
+peer presence invisible. Fix: project first, and suppress the ring only
+when rects actually rendered. General rule — when a "replace A with B"
+overlay can produce an empty B, gate the removal of A on B being non-empty.
+
 ## Test conventions
 
 - Integration tests are auto-discovered by `tests/**/*.integration.ts`

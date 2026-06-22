@@ -62,4 +62,20 @@ export type SlidesPresence = {
     axis: 'x' | 'y';
     position: number;
   };
+  /**
+   * Cell range the user has selected inside a table (the table analogue
+   * of `selectedElementIds`). `elementId` is the table; `r0/c0`–`r1/c1`
+   * are the inclusive anchor/focus cell coords. Cleared by broadcasting
+   * `undefined` when the cell selection ends — consumers guard on
+   * presence, so a deleted-or-undefined key reads the same. Peer text
+   * carets inside a cell (`textCursorCell`) and live edge-resize preview
+   * (`resizingTableEdge`) are deferred with the live-presence work.
+   */
+  selectedTableCells?: {
+    elementId: string;
+    r0: number;
+    c0: number;
+    r1: number;
+    c1: number;
+  };
 };

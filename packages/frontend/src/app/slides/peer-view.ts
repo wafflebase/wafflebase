@@ -35,6 +35,7 @@ export function mapPresenceToPeerView(
             position: presence.draggingGuide.position,
           }
         : undefined,
+      selectedTableCells: presence.selectedTableCells,
     });
   }
   return views;

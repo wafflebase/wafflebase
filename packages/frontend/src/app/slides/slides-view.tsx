@@ -973,13 +973,28 @@ export function SlidesView({
     // SlidesDetail via `initialPresence` and stay intact across these
     // partial updates.
     const broadcast = () => {
+      // Table cell-range presence: map the editor's local cell selection
+      // to the wire shape, or `undefined` to clear it (Presence.set
+      // merges, and peers guard on the field — so undefined reads the
+      // same as a deleted key). The table id rides as `elementId`.
+      const cell = editor.getCellSelection();
       store.updatePresence({
         activeSlideId: editor.getCurrentSlideId(),
         selectedElementIds: editor.getSelection().slice(),
+        selectedTableCells: cell
+          ? {
+              elementId: cell.tableId,
+              r0: cell.r0,
+              c0: cell.c0,
+              r1: cell.r1,
+              c1: cell.c1,
+            }
+          : undefined,
       });
     };
     const offSelection = editor.onSelectionChange(broadcast);
     const offSlide = editor.onCurrentSlideChange(broadcast);
+    const offCellSelection = editor.onCellSelectionChange(broadcast);
 
     // RAF loop so async asset loads (image cache) repaint, and
     // thumbnail count stays in sync with store mutations the panel
@@ -1024,6 +1039,7 @@ export function SlidesView({
       cleanupImagePaths();
       offSelection();
       offSlide();
+      offCellSelection();
       offChange();
       offPeers();
       thumbHandle?.dispose();
