@@ -421,6 +421,29 @@ the Yorkie document with key `sheet-{id}`. The sheet and datasource tab views
 are lazy-loaded per active tab, and the datasource selector dialog is loaded
 on demand when adding datasource tabs.
 
+#### Multi-Editor Integration
+
+The frontend hosts several editor types from a single document list.
+`Document` carries a `type: "sheet" | "doc" | "slides"` field (DB default
+`"sheet"`, so legacy rows stay valid without migration); the create endpoints
+accept an optional `type`. The "New" dropdown in the document list offers one
+entry per type, and a type indicator column/icon distinguishes them in the
+list.
+
+Routing keys off `doc.type`, resolved by a `getDocumentPath(doc)` helper:
+
+| Type | Route | Detail component |
+|------|-------|------------------|
+| `sheet` (default) | `/s/:id` | `DocumentDetail` (sheets) |
+| `doc` | `/d/:id` | `DocsDetail` |
+| `slides` | `/p/:id` | `SlidesDetail` |
+
+Each editor binds its own Yorkie document key — e.g. sheets use `sheet-{id}`
+and docs use `doc-{id}` — so they never collide even when they share the same
+underlying document UUID. The docs editor uses `YorkieDocStore`, a `DocStore`
+implementation backed by the Yorkie Tree CRDT (parallel to `YorkieStore` for
+sheets).
+
 ### Type Definitions
 
 ```typescript

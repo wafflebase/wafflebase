@@ -212,12 +212,27 @@ interface Store {
   area with the peer's color at ~10% opacity.
 - Skip peers whose `activeCell` axis ID is not found in current row/col order.
 
-> The transient name-tag UX painted above each peer's active cell
-> (4-second auto-show on cell change, hover trigger, viewport
-> edge-case clamping) lives in
-> [`docs/design/archive/peer-cursor-labels.md`](../archive/peer-cursor-labels.md).
-> Its presence-schema half was superseded by `SelectionPresence`
-> (above); the label-rendering details still apply to `overlay.ts`.
+### Peer Cursor Name Labels
+
+A small name tag (the peer's `username`, white text on the peer's cursor color,
+~10–11px, truncated with ellipsis at 120px logical width) renders on the overlay
+canvas just above a peer's active cell. The tag is **transient**: it auto-shows
+for ~4 seconds when a peer moves to a new cell, and shows while the local user
+hovers over a peer's active cell; otherwise it is hidden so cell content stays
+readable. The local user's own cursor never shows a label.
+
+Rendering stays stateless in `overlay.ts`, which receives a `visiblePeerLabels`
+map and draws only the tags it is told to. The visibility state, ~4s timers, and
+hover detection live in `worksheet.ts`. The Store presence type carries an
+optional `username?`, so `MemStore`/`ReadOnlyStore` can omit it and the label
+simply doesn't render.
+
+Edge cases handled at paint time:
+
+- Flip the tag below the cell at the top viewport boundary.
+- Clamp to the left/right viewport edges.
+- When multiple peers share a cell, stack tags vertically, sorted by `clientID`.
+- Render within each quadrant's clip region under frozen panes.
 
 ### Migration / Backward Compatibility
 

@@ -50,8 +50,7 @@ each have their own dedicated doc — see the cluster index below.
 
 | Doc | What it covers |
 |---|---|
-| **`docs-tables.md`** (this doc) | Data model, CRDT structure, cursor/navigation, layout, granular store ops, pagination basics |
-| [`docs-table-ui.md`](../archive/docs-table-ui.md) _(archived)_ | Grid picker, context menu, IME cell routing |
+| **`docs-tables.md`** (this doc) | Data model, CRDT structure, cursor/navigation, layout, granular store ops, pagination basics, frontend UI (grid picker, context menu, IME cell routing) |
 | [`tables/docs-table-resize.md`](tables/docs-table-resize.md) | Column/row border drag handles, guideline rendering |
 | [`tables/docs-table-copy-paste.md`](tables/docs-table-copy-paste.md) | Cell-range clipboard, whole-table block, external HTML table paste |
 | [`tables/docs-table-row-splitting.md`](tables/docs-table-row-splitting.md) | Split tall table rows across pages; recursive nested-table support |
@@ -297,6 +296,40 @@ recursive nested-table support) lives in
 
 The existing dirty-block cache skips relayout of unchanged tables. Per-cell
 cache is deferred — current granularity is acceptable for typical sizes.
+
+## Frontend UI
+
+### Table Insert
+
+A toolbar grid picker (`TableGridPicker`) lives inside a Radix
+`DropdownMenuContent`. The grid starts at 5×5 and expands up to 10×10 as
+the pointer nears an edge. Hovering highlights the `(0,0) → hovered`
+region and a label shows the dimensions (e.g., `"3 x 4"`); clicking calls
+`editor.insertTable(rows, cols)`.
+
+### Cell Operations Context Menu
+
+A Radix `ContextMenu` wraps the editor container. It shows table
+operations only when `editor.isInTable()` is true; otherwise it falls
+through to the default browser menu. The menu groups:
+
+- **Rows / columns** — insert/delete row, insert/delete column.
+- **Cells** — merge cell, split cell (disabled when the target has no
+  existing merge), cell background color (shared color palette).
+- **Table** — delete table.
+
+### IME in Cells
+
+IME composition (and all text editing) inside a cell uses the ordinary
+block-level path — there is no cell-specific routing. Because cells are
+mini-documents whose blocks are ordinary `Block` instances addressed by
+`blockId` (see Key Decisions: no `cellAddress` on `DocPosition`), the
+composition handlers in `text-editor.ts` need no "inside cell" branch.
+
+> Earlier table UI (v0.3.1) routed IME through dedicated
+> `insertTextInCell` / `deleteTextInCell` ops keyed on a
+> `position.cellAddress`; the later Block[]-cells redesign removed that
+> branch. `git log` has the original design.
 
 ## Store & Undo
 

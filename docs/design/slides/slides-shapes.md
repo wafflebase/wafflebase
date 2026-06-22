@@ -445,6 +445,33 @@ for the initial fill / stroke. Conventions across all families:
 | Callouts / Flowchart | `role: 'background'` | `role: 'text'`, width 2 |
 | Action buttons | `role: 'background'` | `role: 'text'`, width 1 — `drawActionButton` reuses `stroke.color` for the inner glyph fill, falling back to the `background` role on collision so the glyph stays legible against any body fill |
 
+### Drag-move
+
+Dragging a selected element repositions it via a ghost preview rather
+than live-mutating the element under the cursor. Hovering a selected
+element's bbox shows a `move` cursor (mouse pointers only). During the
+drag the original shape and its selection handles stay anchored in
+place; a semi-transparent ghost copy (`GHOST_ALPHA`, the same constant
+the insert-mode hover preview uses) follows the cursor. Selection
+handles anchor to the original bbox; smart-guide / snap overlays anchor
+to the ghost bbox.
+
+Rendering reuses the renderer's existing ghost path:
+`drawSlide` / `forceRender` accept `ghosts?: ReadonlyArray<Element>`
+(generalized from a single `ghost?`), and each ghost is painted through
+the normal `drawElement` path inside a `GHOST_ALPHA` alpha band — no
+extra canvas layer and no synthesized slide. Connectors are excluded
+from the `ghosts` array on this path: they keep rendering against their
+original endpoints during the drag.
+
+The move commits only on `pointerup`, inside a single `store.batch`:
+
+- Non-connector elements commit through `updateElementFrame`
+  (world delta → scope-local).
+- Connectors commit through `commitTranslate` (free endpoints move,
+  attached endpoints stay put).
+- A zero-delta gesture (a click without drag) opens no batch.
+
 ### OOXML alignment
 
 Every `ShapeKind` name matches an OOXML `prstGeom` preset value,
