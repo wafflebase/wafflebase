@@ -95,4 +95,15 @@ describe('tableToXml', () => {
     expect(xml).toContain('<a:off');
     expect(xml).toContain('<a:ext');
   });
+  it('emits escaped descr on cNvPr for alt text with special chars', () => {
+    const withAlt: TableElement = { ...el, data: { ...el.data, alt: 'A & B "x"' } };
+    const xml = tableToXml(withAlt);
+    expect(xml).toContain('descr="A &amp; B &quot;x&quot;"');
+  });
+  it('emits tableStyleId inside tblPr', () => {
+    const withStyle: TableElement = { ...el, data: { ...el.data, tableStyleId: 'someId' } };
+    const xml = tableToXml(withStyle);
+    expect(xml).toContain('<a:tableStyleId>someId</a:tableStyleId>');
+    expect(xml).toContain('<a:tblPr>');
+  });
 });

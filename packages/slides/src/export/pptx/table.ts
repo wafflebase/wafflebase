@@ -17,7 +17,7 @@
  * children in tcPr CT_TableCellProperties).
  */
 import type { CellBorder, TableCell, TableElement } from '../../model/element.js';
-import { attr } from './xml.js';
+import { attr, escapeXmlText } from './xml.js';
 import { pxToEmuX, pxToEmuY, pxToEmu } from './units.js';
 import { textBodyToXml } from './text.js';
 import { solidFillXml, colorFromStringOrTheme } from './color.js';
@@ -31,7 +31,10 @@ export function tableToXml(el: TableElement): string {
 
   const rows = data.rows.map(rowToXml).join('');
 
-  const tbl = `<a:tbl><a:tblPr/><a:tblGrid>${grid}</a:tblGrid>${rows}</a:tbl>`;
+  const tblPrContent = el.data.tableStyleId
+    ? `<a:tableStyleId>${escapeXmlText(el.data.tableStyleId)}</a:tableStyleId>`
+    : '';
+  const tbl = `<a:tbl><a:tblPr>${tblPrContent}</a:tblPr><a:tblGrid>${grid}</a:tblGrid>${rows}</a:tbl>`;
 
   const xfrm =
     `<p:xfrm>` +
@@ -39,8 +42,8 @@ export function tableToXml(el: TableElement): string {
     `<a:ext cx="${pxToEmuX(frame.w)}" cy="${pxToEmuY(frame.h)}"/>` +
     `</p:xfrm>`;
 
-  // Use attr() helper so el.id is XML-attribute-escaped.
-  const cNvPr = `<p:cNvPr id="0"${attr('name', el.id)}/>`;
+  // Use attr() helper so el.id and data.alt are XML-attribute-escaped.
+  const cNvPr = `<p:cNvPr id="0"${attr('name', el.id)}${attr('descr', el.data.alt)}/>`;
   const nv = `<p:nvGraphicFramePr>${cNvPr}<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>`;
 
   const graphicData =
