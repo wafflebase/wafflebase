@@ -715,6 +715,28 @@ function makeTableResizePreview(
 }
 
 /**
+ * Position a non-interactive overlay div at a world `frame` scaled to the
+ * viewport: left/top/size, `border-box`, `pointer-events:none`, and the
+ * shared `!== 0` rotation guard (CSS-rotate about the box centre). The
+ * caller owns only the paint (fill / border). Shared by the cell-range
+ * highlight, the peer cell highlights, and the dashed outline so the
+ * frame→CSS math lives in one place.
+ */
+function positionRect(el: HTMLDivElement, frame: Frame, scale: number): void {
+  el.style.position = 'absolute';
+  el.style.left = `${frame.x * scale}px`;
+  el.style.top = `${frame.y * scale}px`;
+  el.style.width = `${frame.w * scale}px`;
+  el.style.height = `${frame.h * scale}px`;
+  el.style.boxSizing = 'border-box';
+  el.style.pointerEvents = 'none';
+  if (frame.rotation !== 0) {
+    el.style.transform = `rotate(${frame.rotation}rad)`;
+    el.style.transformOrigin = 'center';
+  }
+}
+
+/**
  * Cell-range selection highlight: a semi-transparent blue fill over the
  * cell's world rect. Lives below the selection handles so the table's
  * outer handles still receive pointer events for resize. Stacks
@@ -724,18 +746,8 @@ function makeTableResizePreview(
  */
 function makeCellRangeRect(frame: Frame, scale: number): HTMLDivElement {
   const div = document.createElement('div');
-  div.style.position = 'absolute';
-  div.style.left = `${frame.x * scale}px`;
-  div.style.top = `${frame.y * scale}px`;
-  div.style.width = `${frame.w * scale}px`;
-  div.style.height = `${frame.h * scale}px`;
+  positionRect(div, frame, scale);
   div.style.background = 'rgba(26, 115, 232, 0.18)';
-  div.style.boxSizing = 'border-box';
-  div.style.pointerEvents = 'none';
-  if (frame.rotation !== 0) {
-    div.style.transformOrigin = 'center';
-    div.style.transform = `rotate(${frame.rotation}rad)`;
-  }
   div.dataset.slidesCellRange = 'true';
   return div;
 }
@@ -758,20 +770,8 @@ function appendOutline(
 ): void {
   const el = document.createElement('div');
   el.className = className;
-  el.style.position = 'absolute';
-  el.style.left = `${frame.x * scale}px`;
-  el.style.top = `${frame.y * scale}px`;
-  el.style.width = `${frame.w * scale}px`;
-  el.style.height = `${frame.h * scale}px`;
-  // Match renderRotatedHandles' `!== 0` guard (Frame.rotation is always
-  // a number); a non-zero rotation CSS-rotates the box about its centre.
-  if (frame.rotation !== 0) {
-    el.style.transform = `rotate(${frame.rotation}rad)`;
-    el.style.transformOrigin = 'center';
-  }
-  el.style.boxSizing = 'border-box';
+  positionRect(el, frame, scale);
   el.style.border = border;
-  el.style.pointerEvents = 'none';
   overlay.appendChild(el);
 }
 
@@ -819,19 +819,9 @@ function renderPeerOverlays(
   for (const cell of peers.cellRects) {
     const el = document.createElement('div');
     el.className = 'wfb-slides-peer-cell';
-    el.style.position = 'absolute';
-    el.style.left = `${cell.frame.x * scale}px`;
-    el.style.top = `${cell.frame.y * scale}px`;
-    el.style.width = `${cell.frame.w * scale}px`;
-    el.style.height = `${cell.frame.h * scale}px`;
+    positionRect(el, cell.frame, scale);
     el.style.background = cell.color;
     el.style.opacity = '0.22';
-    el.style.boxSizing = 'border-box';
-    el.style.pointerEvents = 'none';
-    if (cell.frame.rotation !== 0) {
-      el.style.transform = `rotate(${cell.frame.rotation}rad)`;
-      el.style.transformOrigin = 'center';
-    }
     overlay.appendChild(el);
   }
 

@@ -131,8 +131,21 @@ export function computePeerOverlays(
     if (peer.activeSlideId !== currentSlideId) continue;
 
     let anchor: { x: number; y: number } | undefined;
-    // The table whose ring is replaced by cell highlights below.
-    const cellTableId = peer.selectedTableCells?.elementId;
+
+    // Project a cell-range selection first so the ring loop can drop the
+    // table's plain outline ONLY when highlights actually replace it. A
+    // merge-hole drag range (or a deleted table) yields no rects — keep
+    // the ring then so the peer's presence never goes invisible.
+    const peerCellRects: Frame[] = [];
+    let cellTableId: string | undefined;
+    if (peer.selectedTableCells && cellRangeRectsOf) {
+      const sel = peer.selectedTableCells;
+      const rects = cellRangeRectsOf(sel.elementId, sel);
+      if (rects && rects.length > 0) {
+        for (const frame of rects) peerCellRects.push(frame);
+        cellTableId = sel.elementId;
+      }
+    }
 
     if (peer.activeFrames && peer.activeFrames.length > 0) {
       for (const f of peer.activeFrames) {
@@ -151,15 +164,9 @@ export function computePeerOverlays(
       }
     }
 
-    if (peer.selectedTableCells && cellRangeRectsOf) {
-      const { elementId, r0, c0, r1, c1 } = peer.selectedTableCells;
-      const rects = cellRangeRectsOf(elementId, { r0, c0, r1, c1 });
-      if (rects) {
-        for (const frame of rects) cellRects.push({ frame, color: peer.color });
-        if (!anchor && rects.length > 0) {
-          anchor = { x: rects[0].x, y: rects[0].y };
-        }
-      }
+    for (const frame of peerCellRects) cellRects.push({ frame, color: peer.color });
+    if (!anchor && peerCellRects.length > 0) {
+      anchor = { x: peerCellRects[0].x, y: peerCellRects[0].y };
     }
 
     if (peer.draggingGuide) {

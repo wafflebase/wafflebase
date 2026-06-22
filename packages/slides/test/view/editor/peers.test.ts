@@ -168,7 +168,7 @@ describe('computePeerOverlays', () => {
     expect(out.labels).toEqual([{ x: 5, y: 5, text: 'Ada', color: '#ff0000' }]);
   });
 
-  it('omits cell highlights when no projector is supplied', () => {
+  it('omits cell highlights but keeps the table ring when no projector is supplied', () => {
     const out = computePeerOverlays(
       [
         peer({
@@ -181,5 +181,26 @@ describe('computePeerOverlays', () => {
       lookup({ t1: frame(0, 0, 10, 10) }),
     );
     expect(out.cellRects).toEqual([]);
+    // No rects → presence must not vanish: the table ring is kept.
+    expect(out.rings).toEqual([{ frame: frame(0, 0, 10, 10), color: '#ff0000' }]);
+  });
+
+  it('keeps the table ring when the cell projector yields no rects (merge hole)', () => {
+    const out = computePeerOverlays(
+      [
+        peer({
+          clientID: 'c1',
+          selectedElementIds: ['t1'],
+          selectedTableCells: { elementId: 't1', r0: 0, c0: 1, r1: 0, c1: 2 },
+        }),
+      ],
+      's1',
+      lookup({ t1: frame(0, 0, 80, 40) }),
+      // Range falls entirely on merge-covered cells → empty projection.
+      () => [],
+    );
+    expect(out.cellRects).toEqual([]);
+    expect(out.rings).toEqual([{ frame: frame(0, 0, 80, 40), color: '#ff0000' }]);
+    expect(out.labels).toEqual([{ x: 0, y: 0, text: 'Ada', color: '#ff0000' }]);
   });
 });
