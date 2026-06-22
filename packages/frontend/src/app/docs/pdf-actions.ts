@@ -17,6 +17,11 @@ export async function exportPdfAndDownload(
 ): Promise<void> {
   // Dynamic import keeps pdf-lib + fontkit out of the initial bundle.
   const { PdfExporter, CanvasTextMeasurer } = await import("@wafflebase/docs");
+  // Curated-font TTF URL map (small) — loaded alongside the exporter so the
+  // resolver lets the PDF embed the real face for any curated Google Font.
+  const { FONT_FILES } = await import(
+    "../../components/text-formatting/font-files.data"
+  );
   // PdfExporter no longer falls back to an approximate measurer when the
   // browser canvas probe fails — every caller must supply one explicitly.
   // CanvasTextMeasurer owns its own OffscreenCanvas, so we don't have to
@@ -25,6 +30,7 @@ export async function exportPdfAndDownload(
     imageFetcher: docsImageFetcher,
     metadata: { title: metadata?.title ?? title, author: metadata?.author },
     measurer: new CanvasTextMeasurer(),
+    fontResolver: (family) => FONT_FILES[family],
   });
   downloadBlob(blob, safeFilename(title, "pdf"));
 }

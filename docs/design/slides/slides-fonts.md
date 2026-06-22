@@ -185,7 +185,20 @@ through `SlidesView`; Docs reuses the same shared dialog.
 
 ### Export: license-aware embedding
 
-`pdf-fonts.ts` today hardcodes four Noto KR URLs in `DEFAULT_URLS`.
+**Status: P3-a shipped (Docs PDF).** Curated Google Fonts now embed their
+real face in Docs PDF export. The frontend injects a `fontResolver`
+(`PdfExportOptions.fontResolver`) backed by the generated
+`font-files.data.ts` (per-family version-pinned gstatic TTF URLs from
+`scripts/build-font-files.mjs`); `pdf-fonts.ts` `scanFontsUsed` collects
+the curated families used on Latin text and `pdf-painter.ts`
+`embedAllFonts` subset-embeds regular + bold (italic via oblique shim).
+Scope is the curated catalog only; full-library picks and system fonts
+fall back to Helvetica/Times. Slides PDF export is raster, so it embeds
+nothing. License notices (P3-b) and PPTX embedding (P3-c) remain. See
+[`docs/design/docs/docs-pdf-export.md`](../docs/docs-pdf-export.md).
+
+The original generalization intent (now realized for the curated set):
+`pdf-fonts.ts` historically hardcoded four Noto KR URLs in `DEFAULT_URLS`.
 Generalize to resolve **any used Google Font** to its TTF:
 
 - Add a resolver that, given a family + weight, returns the

@@ -73,6 +73,44 @@ and from the REST API) comes from the google/fonts git-trees in four
 requests. Per-family `<link>`s also contain any weight mistake to a
 single family rather than poisoning a shared link.
 
+## (P3-a) Importing a generator `.mjs` runs its top-level `build()`
+
+`build-font-files.mjs` reused the curated seed via
+`import { GOOGLE_SEED } from './build-font-catalog.mjs'`. That import
+executed the *whole* catalog generator (its `build().catch(...)` ran at
+module load), making network calls and rewriting `font-catalog.data.ts`
+as a side effect. Fix: guard the bottom call with
+`if (import.meta.url === \`file://${process.argv[1]}\`)` so the module is
+import-safe. **Apply:** any script you intend to also import from must
+gate its side-effecting entry behind a run-as-main check.
+
+## (P3-a) Variable fonts can't be weight-instanced at embed time
+
+`@pdf-lib/fontkit` embeds a variable font's default master (≈400), so a
+"bold" variable file renders at regular weight. The reliable per-weight
+source is fontsource's `google-fonts-v2.json`
+`variants[w].normal.<subset>.url.truetype` — version-pinned **static**
+gstatic TTFs (e.g. `.../roboto/v50/...ttf`). Derive bold as the nearest
+available weight to 700; alias bold→regular when none exists.
+
+## (P3-a) pdf-lib compresses streams — don't grep the PDF bytes
+
+A test asserted the exported PDF text `.toContain('NotoSansKR')`. It
+failed even though the font embedded correctly: pdf-lib saves with object
+streams + Flate, so font names / `FontFile2` live inside compressed
+streams and never appear in the raw bytes. **Apply:** to assert on PDF
+structure, `PDFDocument.load()` the result and inspect parsed objects
+(e.g. count `FontFile/FontFile2/FontFile3` keys via
+`context.enumerateIndirectObjects()`), not a substring search.
+
+## (P3-a) Slides PDF is raster — font embedding is Docs-only
+
+Slides export (`slides/src/export/pdf.ts`) rasterizes each slide via
+`drawSlide()` and embeds a bitmap, so it carries no font program — the
+on-canvas face is "baked in". Generalizing `pdf-fonts.ts` only affects
+**Docs** PDF export. Always check whether a sibling surface even uses the
+subsystem before assuming a change spans both.
+
 ## Frontend has no `tsc` gate — don't trust a raw `tsc -p`
 
 `pnpm frontend` validates via `eslint` + `vitest` (esbuild transpile);

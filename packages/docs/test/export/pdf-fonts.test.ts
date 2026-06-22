@@ -45,6 +45,52 @@ describe('scanFontsUsed', () => {
     expect(result.needsBold).toBe(true);
   });
 
+  const resolver = (family: string) =>
+    family === 'Roboto'
+      ? { regular: 'https://x/roboto-regular.ttf', bold: 'https://x/roboto-bold.ttf' }
+      : family === 'Lobster'
+        ? { regular: 'https://x/lobster.ttf' }
+        : undefined;
+
+  it('records a curated custom family used on Latin text', () => {
+    const result = scanFontsUsed(para('Hello', {}, 'Roboto'), resolver);
+    expect(result.customFamilies.get('Roboto')).toEqual({
+      needsBold: false,
+      regular: 'https://x/roboto-regular.ttf',
+      bold: 'https://x/roboto-bold.ttf',
+    });
+  });
+
+  it('merges needsBold across inlines of the same family', () => {
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: 'plain', style: { fontFamily: 'Roboto' } },
+          { text: 'strong', style: { fontFamily: 'Roboto', bold: true } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+    expect(scanFontsUsed(doc, resolver).customFamilies.get('Roboto')?.needsBold).toBe(true);
+  });
+
+  it('does not record a custom family used only on CJK text (Noto handles it)', () => {
+    const result = scanFontsUsed(para('안녕하세요', {}, 'Roboto'), resolver);
+    expect(result.customFamilies.has('Roboto')).toBe(false);
+  });
+
+  it('ignores families the resolver does not know (system fonts)', () => {
+    const result = scanFontsUsed(para('Hello', {}, 'Arial'), resolver);
+    expect(result.customFamilies.size).toBe(0);
+  });
+
+  it('records nothing when no resolver is supplied', () => {
+    const result = scanFontsUsed(para('Hello', {}, 'Roboto'));
+    expect(result.customFamilies.size).toBe(0);
+  });
+
   it('walks tables and headers/footers', () => {
     const doc: Document = {
       blocks: [],
@@ -74,6 +120,21 @@ describe('PdfFonts', () => {
     await fonts.load('kr-sans-regular');
     await fonts.load('kr-sans-regular');
     expect(calls).toBe(1);
+  });
+
+  it('loads a custom font key from an injected source', async () => {
+    const fonts = new PdfFonts({
+      sources: {
+        'custom:Roboto:regular': () => Promise.resolve(TEST_FONT.buffer as ArrayBuffer),
+      },
+    });
+    const buf = await fonts.load('custom:Roboto:regular');
+    expect(buf.byteLength).toBe(TEST_FONT.byteLength);
+  });
+
+  it('throws for an unregistered custom key (no network URL)', async () => {
+    const fonts = new PdfFonts({ sources: {} });
+    await expect(fonts.load('custom:Nope:regular')).rejects.toThrow(/no source/i);
   });
 
   it('throws a clear error when source is missing', async () => {

@@ -21,7 +21,7 @@
  * installed.
  */
 import { writeFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const OUT = join(
@@ -48,7 +48,7 @@ const EAGER = new Set([
  * for Korean families); group is auto-derived from metadata (korean
  * subset → Korean, else the GF category) unless overridden.
  */
-const GOOGLE_SEED = [
+export const GOOGLE_SEED = [
   // Korean
   { family: 'Noto Sans KR', label: 'Noto Sans KR' },
   { family: 'Noto Serif KR', label: 'Noto Serif KR' },
@@ -305,7 +305,12 @@ function emit(entries) {
   );
 }
 
-build().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when invoked directly — this module also exports `GOOGLE_SEED`
+// for `build-font-files.mjs`, which must import it without triggering a
+// network catalog rebuild.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  build().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
