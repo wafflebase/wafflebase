@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 302
+Total archived tasks: 303
 
-## 2026/06 (56 tasks)
+## 2026/06 (57 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.4.7 (2026-06-23) | [20260623-release-v0.4.7-todo.md](./2026/06/20260623-release-v0.4.7-todo.md) | - |
 | comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./2026/06/20260621-comments-mentions-todo.md) | [20260621-comments-mentions-lessons.md](./2026/06/20260621-comments-mentions-lessons.md) |
 | dependabot alerts (2026-06-21) | [20260621-dependabot-alerts-todo.md](./2026/06/20260621-dependabot-alerts-todo.md) | - |
 | slides live presence (2026-06-21) | [20260621-slides-live-presence-todo.md](./2026/06/20260621-slides-live-presence-todo.md) | - |
