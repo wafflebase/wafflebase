@@ -143,6 +143,22 @@ Conditional formatting is applied at render time on top of static style layers,
 using rule list order (later matching rules override earlier ones). Supported
 rule style keys are `b`, `i`, `u`, `tc`, and `bg`.
 
+Each rule applies its condition and style to one or more ranges
+(Google-Sheets parity), e.g. `A1:B10, D1:E10, G1:G20`:
+
+```typescript
+type ConditionalFormatRule = {
+  ranges: Range[]; // one or more [Ref, Ref] areas
+  // ...condition + style
+};
+```
+
+Style resolution matches a point with `rule.ranges.some(r => inRange(point, r))`.
+Shift/move iterate every range and drop any range that collapses to zero size,
+dropping the whole rule if all of its ranges go. The frontend edits ranges as
+comma-separated text (`A1:B10, D1:E10`) that is parsed and joined; there is no
+multi-select-via-Ctrl+click UI.
+
 `CellInput.applyStyle` mirrors active-cell effective style in inline editor.
 
 Custom borders are rendered above default gridlines. Text overflow into empty

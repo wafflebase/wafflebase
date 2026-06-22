@@ -315,6 +315,7 @@ snapshot undo produce the same observable `read()`.
   `00_log/incidents/2026/2026-06-20-yorkie-document-oom-node-cascade.md`.
 - Reference impls: `docs/yorkie-doc-store.ts` (Docs, with `undoFloor`),
   `spreadsheet/yorkie-store.ts` (Sheets, with `beginBatch`/`endBatch`).
-- Yorkie undo mechanism: `docs/design/archive/docs-ime-undo-history.md`.
+- Yorkie undo mechanism: `docs/design/docs/docs-intent-preserving-edits.md`
+  (IME Composition and Undo Granularity).
 </content>
 </invoke>

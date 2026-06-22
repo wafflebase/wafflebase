@@ -54,9 +54,8 @@ documents" has since landed and now lives in a dedicated design doc:
 - Headers / footers — shipped, see
   [`docs-header-footer.md`](docs-header-footer.md).
 - Pagination — shipped, see [`docs-pagination.md`](docs-pagination.md).
-- Frontend integration (React component, routing) — shipped (the
-  PR notes are archived at
-  [`../archive/docs-frontend-integration.md`](../archive/docs-frontend-integration.md)).
+- Frontend integration (React component, routing) — shipped; see
+  [`frontend.md`](../frontend.md) (Dual-Editor Integration).
 - Full IME composition handling — Korean IME (desktop + Mobile Safari)
   shipped; other CJK still deferred.
 - Copy/paste with rich formatting — shipped (Phase 2 of the
@@ -130,6 +129,19 @@ The `Doc` class provides methods to manipulate the document:
 
 A **position** is represented as `{ blockId: string, offset: number }` where
 offset is the character index within the block's concatenated inline text.
+
+#### Empty list-item Backspace exits the list
+
+Backspace at offset 0 of an **empty** `list-item` converts it to a
+`paragraph` (exiting the list) rather than merging into the previous
+block — even when it is the first/only block — mirroring what Enter
+(`splitBlock`) already does and matching Google Docs / Notion. In
+`deleteBackward()` (`packages/docs/src/model/document.ts`) this branch
+sits after the `offset > 0` early return and **before** the
+`if (blockIndex <= 0) return pos` guard, so it also fires for the first
+block. Non-empty list items and non-list blocks are unchanged. It
+operates on `getContextBlocks()` (body / header / footer); table-cell
+Backspace is handled in the view layer.
 
 ## Store Abstraction
 
@@ -231,6 +243,25 @@ interface LayoutBlock {
 - **Pixel position** `{ x, y }` → binary search layout blocks by Y, then
   walk lines/runs by X to find the nearest character boundary →
   `{ blockId, offset }`.
+
+### Mobile zoom-to-fit
+
+When the container is narrower than the page
+(`containerWidth < pageWidth`), pages shrink to fit with 16px side
+padding via `scaleFactor = Math.min(1, (containerWidth - 32) / pageWidth)`.
+Desktop is unchanged (the cap at 1.0 means no scaling).
+
+- **Canvas scale, not CSS transform** — the scale is applied with
+  Canvas `ctx.scale` in `doc-canvas.ts` `render()` (operating on logical
+  coords) so text stays sharp; DPR scaling stays separate in `resize()`.
+  The logical canvas width passed to layout helpers is
+  `canvasWidth / scaleFactor` so page centering still works in unscaled
+  coords.
+- **Hit-testing inverts the scale** — `text-editor.ts`
+  (`getPositionFromMouse`, `updateDragSelection`) divides out the factor
+  via a `getScaleFactor` callback. The scroll spacer height is
+  `totalHeight * scaleFactor` and `scrollY = scrollTop / scaleFactor`.
+  The ruler is hidden when `scaleFactor < 1`.
 
 ## Package Structure
 
