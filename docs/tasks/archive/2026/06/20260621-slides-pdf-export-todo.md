@@ -49,24 +49,28 @@ embedded into a pdf-lib document at 13.333" × 7.5" (16:9). Wire an
 
 ## Tasks
 
-- [ ] Add `evictImageSrcs(srcs)` to `view/canvas/image-cache.ts`.
-- [ ] `packages/slides/src/export/pdf.ts`:
-  - [ ] `collectFontFamilies(doc)` — theme heading/body + all inline `fontFamily`.
-  - [ ] image src collection (image elements recursing groups + effective bg per slide).
-  - [ ] `resolveDeckImages(doc, fetcher)` → `{ map, temp }` (object URLs; data/blob passthrough; failed→placeholder).
-  - [ ] `cloneSlideWithCleanImages(slide, doc, map)` (structuredClone + rewrite + master-bg resolve).
-  - [ ] `renderSlideToCanvas` (preload images, single `drawSlide`).
-  - [ ] `canvasToBytes` (OffscreenCanvas/HTMLCanvas, png/jpeg).
-  - [ ] `exportSlidesPdf(doc, opts)` — dynamic-import pdf-lib, page per slide, 960×540 pt.
-- [ ] Re-export `exportSlidesPdf` + `collectFontFamilies` + types from `src/index.ts`.
-- [ ] Add `pdf-lib` to `packages/slides/package.json`.
-- [ ] Frontend `packages/frontend/src/app/slides/pdf-actions.ts`:
-  - [ ] `exportSlidesPdfAndDownload(doc, title)` — ensure fonts, fetch images, download.
-  - [ ] reuse `downloadBlob` / `safeFilename` from docs `export-utils`.
-- [ ] Wire "Export → PDF" into the Slides toolbar right-side globals.
-- [ ] Tests: font scan, render-and-wait, PDF round-trip (page count/size).
-- [ ] `pnpm verify:fast` green.
-- [ ] Code review pass; address blocking findings.
+All items below shipped via PR #395 (merged to `main`); see the Review
+section for the as-built mapping. Boxes closed retroactively in the
+v0.4.7 release pass.
+
+- [x] Add `evictImageSrcs(srcs)` to `view/canvas/image-cache.ts`.
+- [x] `packages/slides/src/export/pdf.ts`:
+  - [x] `collectFontFamilies(doc)` — theme heading/body + all inline `fontFamily`.
+  - [x] image src collection (image elements recursing groups + effective bg per slide).
+  - [x] `resolveDeckImages(doc, fetcher)` → `{ map, temp }` (object URLs; data/blob passthrough; failed→placeholder).
+  - [x] `cloneSlideWithCleanImages(slide, doc, map)` (structuredClone + rewrite + master-bg resolve).
+  - [x] `renderSlideToCanvas` (preload images, single `drawSlide`).
+  - [x] `canvasToBytes` (OffscreenCanvas/HTMLCanvas, png/jpeg).
+  - [x] `exportSlidesPdf(doc, opts)` — dynamic-import pdf-lib, page per slide, 960×540 pt.
+- [x] Re-export `exportSlidesPdf` + `collectFontFamilies` + types from `src/index.ts`.
+- [x] Add `pdf-lib` to `packages/slides/package.json`.
+- [x] Frontend `packages/frontend/src/app/slides/pdf-actions.ts`:
+  - [x] `exportSlidesPdfAndDownload(doc, title)` — ensure fonts, fetch images, download.
+  - [x] reuse `downloadBlob` / `safeFilename` from docs `export-utils`.
+- [x] Wire "Export → PDF" into the Slides toolbar right-side globals.
+- [x] Tests: font scan, render-and-wait, PDF round-trip (page count/size).
+- [x] `pnpm verify:fast` green.
+- [x] Code review pass; address blocking findings.
 
 ## Review
 

@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 300
+Total archived tasks: 301
 
-## 2026/06 (55 tasks)
+## 2026/06 (56 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -18,6 +18,7 @@ Total archived tasks: 300
 | slides mobile toolbar parity (2026-06-21) | [20260621-slides-mobile-toolbar-parity-todo.md](./2026/06/20260621-slides-mobile-toolbar-parity-todo.md) | - |
 | slides native undo migration (2026-06-21) | [20260621-slides-native-undo-migration-todo.md](./2026/06/20260621-slides-native-undo-migration-todo.md) | [20260621-slides-native-undo-migration-lessons.md](./2026/06/20260621-slides-native-undo-migration-lessons.md) |
 | slides ooxml arrow geometry (2026-06-21) | [20260621-slides-ooxml-arrow-geometry-todo.md](./2026/06/20260621-slides-ooxml-arrow-geometry-todo.md) | [20260621-slides-ooxml-arrow-geometry-lessons.md](./2026/06/20260621-slides-ooxml-arrow-geometry-lessons.md) |
+| slides pdf export (2026-06-21) | [20260621-slides-pdf-export-todo.md](./2026/06/20260621-slides-pdf-export-todo.md) | - |
 | slides radix form controls (2026-06-21) | [20260621-slides-radix-form-controls-todo.md](./2026/06/20260621-slides-radix-form-controls-todo.md) | [20260621-slides-radix-form-controls-lessons.md](./2026/06/20260621-slides-radix-form-controls-lessons.md) |
 | slides undo redo churn (2026-06-21) | [20260621-slides-undo-redo-churn-todo.md](./2026/06/20260621-slides-undo-redo-churn-todo.md) | [20260621-slides-undo-redo-churn-lessons.md](./2026/06/20260621-slides-undo-redo-churn-lessons.md) |
 | a11y radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./2026/06/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./2026/06/20260620-a11y-radix-cleanup-lessons.md) |
