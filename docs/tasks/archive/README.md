@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 301
+Total archived tasks: 302
 
 ## 2026/06 (56 tasks)
 
@@ -69,7 +69,7 @@ Total archived tasks: 301
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (100 tasks)
+## 2026/05 (101 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -158,6 +158,7 @@ Total archived tasks: 301
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
+| slides phase5b 1 image (2026-05-07) | [20260507-slides-phase5b-1-image-todo.md](./2026/05/20260507-slides-phase5b-1-image-todo.md) | [20260507-slides-phase5b-1-image-lessons.md](./2026/05/20260507-slides-phase5b-1-image-lessons.md) |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |

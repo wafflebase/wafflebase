@@ -22,7 +22,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./active/20260608-slides-tables-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
-| slides phase5b 1 image (2026-05-07) | - | [20260507-slides-phase5b-1-image-lessons.md](./active/20260507-slides-phase5b-1-image-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
@@ -31,7 +30,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 301
+- Archived task count: 302
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: release v0.4.7 (2026-06-23)
