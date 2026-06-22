@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { PdfPainter } from '../../src/export/pdf-painter.js';
 import { PdfExporter } from '../../src/export/pdf-exporter.js';
@@ -110,6 +110,7 @@ async function collectPaintedText(
     needsLatinSerif: true,
     needsBold: true,
     needsItalic: true,
+    customFamilies: new Map(),
   });
 
   const pageSetup = doc.pageSetup ?? DEFAULT_PAGE_SETUP;
@@ -225,6 +226,7 @@ async function renderWithStyle(
     needsLatinSerif: true,
     needsBold: true,
     needsItalic: true,
+    customFamilies: new Map(),
   });
 
   const doc: Document = {
@@ -326,5 +328,113 @@ describe('PdfPainter inline styles', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const size = (annotsRef as any).size?.() ?? (annotsRef as any).array?.length ?? 0;
     expect(size).toBeGreaterThan(0);
+  });
+});
+
+describe('embedAllFonts — custom Google Fonts', () => {
+  function fontsWithCustom(
+    extra: Record<string, () => Promise<ArrayBuffer>>,
+  ): PdfFonts {
+    const sources: Partial<Record<PdfFontKey, () => Promise<ArrayBuffer>>> = {};
+    for (const k of ALL_KEYS) sources[k] = () => Promise.resolve(TEST_FONT);
+    Object.assign(sources, extra);
+    return new PdfFonts({ sources });
+  }
+
+  const usage = (customFamilies: Map<string, { needsBold: boolean; regular: string; bold?: string }>) => ({
+    needsKR: false, needsKRSerif: false, needsLatinSerif: false,
+    needsBold: true, needsItalic: false, customFamilies,
+  });
+
+  it('embeds distinct regular + bold faces for a custom family', async () => {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    const fonts = fontsWithCustom({
+      'custom:Roboto:regular': () => Promise.resolve(TEST_FONT),
+      'custom:Roboto:bold': () => Promise.resolve(TEST_FONT),
+    });
+    const embedded = await PdfPainter.embedAllFonts(pdfDoc, fonts, usage(
+      new Map([['Roboto', { needsBold: true, regular: 'https://x/r.ttf', bold: 'https://x/b.ttf' }]]),
+    ));
+    expect(embedded['custom:Roboto:regular']).toBeDefined();
+    expect(embedded['custom:Roboto:bold']).toBeDefined();
+    expect(embedded['custom:Roboto:bold']).not.toBe(embedded['custom:Roboto:regular']);
+  });
+
+  it('aliases bold to the regular face when the family has no bold cut', async () => {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    const fonts = fontsWithCustom({
+      'custom:Lobster:regular': () => Promise.resolve(TEST_FONT),
+    });
+    const embedded = await PdfPainter.embedAllFonts(pdfDoc, fonts, usage(
+      new Map([['Lobster', { needsBold: true, regular: 'https://x/l.ttf' }]]),
+    ));
+    expect(embedded['custom:Lobster:bold']).toBe(embedded['custom:Lobster:regular']);
+  });
+
+  it('drops a family whose fetch fails (no key emitted → standard fallback)', async () => {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    const fonts = fontsWithCustom({
+      'custom:Bad:regular': () => Promise.reject(new Error('network down')),
+    });
+    const embedded = await PdfPainter.embedAllFonts(pdfDoc, fonts, usage(
+      new Map([['Bad', { needsBold: false, regular: 'https://x/bad.ttf' }]]),
+    ));
+    expect(embedded['custom:Bad:regular']).toBeUndefined();
+  });
+});
+
+describe('PdfExporter — custom font embedding', () => {
+  const robotoDoc = (): Document => ({
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'Hello', style: { fontFamily: 'Roboto' } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    pageSetup: { ...DEFAULT_PAGE_SETUP },
+  });
+
+  function fontsWithRoboto(): PdfFonts {
+    const sources: Partial<Record<PdfFontKey, () => Promise<ArrayBuffer>>> = {};
+    for (const k of ALL_KEYS) sources[k] = () => Promise.resolve(TEST_FONT);
+    sources['custom:Roboto:regular'] = () => Promise.resolve(TEST_FONT);
+    return new PdfFonts({ sources });
+  }
+
+  // pdf-lib saves with object-stream + Flate compression, so the font name
+  // is unreadable in the raw bytes. Reload and count embedded font
+  // *programs* (FontFile/FontFile2/FontFile3) instead — a StandardFont
+  // (Helvetica/Times) embeds none; a custom TrueType embed adds one.
+  const embeddedFontPrograms = async (blob: Blob): Promise<number> => {
+    const re = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()));
+    let count = 0;
+    for (const [, obj] of re.context.enumerateIndirectObjects()) {
+      if (obj instanceof PDFDict) {
+        for (const k of ['FontFile', 'FontFile2', 'FontFile3']) {
+          if (obj.has(PDFName.of(k))) count++;
+        }
+      }
+    }
+    return count;
+  };
+
+  it('embeds the real face when a resolver maps the family', async () => {
+    const blob = await PdfExporter.export(robotoDoc(), {
+      fonts: fontsWithRoboto(),
+      measurer: mockCtx(),
+      fontResolver: (family) => (family === 'Roboto' ? { regular: 'https://x/r.ttf' } : undefined),
+    });
+    expect(await embeddedFontPrograms(blob)).toBe(1);
+  });
+
+  it('falls back to a StandardFont (no embedded binary) without a resolver', async () => {
+    const blob = await PdfExporter.export(robotoDoc(), {
+      fonts: fontsWithRoboto(),
+      measurer: mockCtx(),
+    });
+    expect(await embeddedFontPrograms(blob)).toBe(0);
   });
 });

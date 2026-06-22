@@ -1,7 +1,7 @@
 import type { InlineStyle } from '../model/types.js';
 import type { StoredColor } from '../model/color.js';
 import { defaultColorResolver } from '../model/color.js';
-import type { PdfFontKey } from './pdf-fonts.js';
+import { customFontKey, type PdfFontKey } from './pdf-fonts.js';
 
 // "Latin-safe" character class: code points pdf-lib's WinAnsi-encoded
 // StandardFonts (Helvetica, Times, Courier) can encode without throwing.
@@ -71,15 +71,30 @@ export function splitMixedScript(text: string): ScriptSegment[] {
 }
 
 /**
- * Map an InlineStyle + script flag to one of the 12 embedded PDF fonts.
+ * Map an InlineStyle + script flag to an embedded PDF font key.
  *
- * Korean italic falls back to regular (Noto KR has no italic). Use
- * `isItalicShim` to know when to apply a manual oblique transform.
+ * For Latin text in a curated Google Font (`embeddable` carries the
+ * families that were actually embedded), returns a per-family `custom:`
+ * key. Otherwise falls back to one of the 12 standard/Korean keys.
+ *
+ * Korean and custom italics fall back to the regular cut (no italic face
+ * is embedded). Use `isItalicShim` to know when to apply a manual oblique
+ * transform.
  */
-export function resolveFontKey(style: InlineStyle, needsCustomFont: boolean): PdfFontKey {
-  const isSerif = SERIF_FAMILIES.has(style.fontFamily ?? 'Arial');
+export function resolveFontKey(
+  style: InlineStyle,
+  needsCustomFont: boolean,
+  embeddable?: ReadonlySet<string>,
+): PdfFontKey {
+  const family = style.fontFamily ?? 'Arial';
+  const isSerif = SERIF_FAMILIES.has(family);
   const isBold = !!style.bold;
   const isItalic = !!style.italic;
+  // Latin segments of a curated, successfully-embedded Google Font use the
+  // real face. CJK segments (`needsCustomFont`) still route to Noto below.
+  if (!needsCustomFont && embeddable?.has(family)) {
+    return customFontKey(family, isBold);
+  }
   if (needsCustomFont) {
     if (isSerif) return isBold ? 'kr-serif-bold' : 'kr-serif-regular';
     return isBold ? 'kr-sans-bold' : 'kr-sans-regular';
@@ -98,10 +113,17 @@ export function resolveFontKey(style: InlineStyle, needsCustomFont: boolean): Pd
 
 /**
  * True when the painter must apply an oblique transform because the
- * resolved Korean font has no italic variant.
+ * resolved font has no italic variant — the Korean Noto faces and the
+ * custom Google Font embeds (which only ship regular + bold).
  */
-export function isItalicShim(style: InlineStyle, needsCustomFont: boolean): boolean {
-  return !!style.italic && needsCustomFont;
+export function isItalicShim(
+  style: InlineStyle,
+  needsCustomFont: boolean,
+  embeddable?: ReadonlySet<string>,
+): boolean {
+  if (!style.italic) return false;
+  if (needsCustomFont) return true;
+  return !!embeddable?.has(style.fontFamily ?? 'Arial');
 }
 
 /**

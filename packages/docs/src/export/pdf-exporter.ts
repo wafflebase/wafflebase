@@ -9,7 +9,13 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Document } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
-import { PdfFonts, scanFontsUsed, type FontUsage } from './pdf-fonts.js';
+import {
+  PdfFonts,
+  scanFontsUsed,
+  customFontKey,
+  type FontUsage,
+  type PdfFontResolver,
+} from './pdf-fonts.js';
 import { computeLayout, computeListCounters } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
 import type { TextMeasurer } from '../view/measurer.js';
@@ -34,6 +40,13 @@ export interface PdfExportOptions {
    * breaks do not match what the user sees on-screen.
    */
   measurer: TextMeasurer;
+  /**
+   * Resolves a font family to embeddable TTF URLs so curated Google Fonts
+   * export with their real face instead of a Helvetica/Times fallback.
+   * Injected by the frontend from `font-files.data.ts` (the docs package
+   * can't import the frontend catalog). Omit and export behaves as before.
+   */
+  fontResolver?: PdfFontResolver;
 }
 
 export class PdfExporter {
@@ -52,7 +65,7 @@ export class PdfExporter {
       throw new Error('PdfExporter.export requires opts.measurer');
     }
     const fonts = opts.fonts ?? new PdfFonts();
-    const usage = scanFontsUsed(doc);
+    const usage = scanFontsUsed(doc, opts.fontResolver);
 
     // 1. Pre-load Noto KR into document.fonts so Canvas measureText is consistent.
     await ensureCanvasFontsLoaded(usage);
@@ -99,6 +112,16 @@ export class PdfExporter {
 
     const embeddedFonts = await PdfPainter.embedAllFonts(pdfDoc, fonts, usage);
 
+    // Only families whose regular face actually embedded count as
+    // embeddable — a fetch/embed failure leaves the key out of
+    // `embeddedFonts`, so the painter falls back to the standard faces.
+    const embeddableFamilies = new Set<string>();
+    for (const family of usage.customFamilies.keys()) {
+      if (embeddedFonts[customFontKey(family, false)]) {
+        embeddableFamilies.add(family);
+      }
+    }
+
     // 5. Image fetch + embed. Walks the body, header, and footer block
     // lists for image inlines, fetches each unique src via the caller-
     // supplied fetcher, and embeds them into the PDF up-front so the
@@ -124,6 +147,7 @@ export class PdfExporter {
         footerLayout,
         listCounters,
         layoutBlocks: layout.blocks,
+        embeddableFamilies,
       });
 
       for (const pl of lp.lines) {
