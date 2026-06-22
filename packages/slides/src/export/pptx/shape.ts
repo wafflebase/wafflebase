@@ -1,5 +1,5 @@
 import type { Frame, ShapeElement, ShapeKind, Stroke } from '../../model/element.js';
-import { pxToEmuX, pxToEmuY, degToRot60k } from './units.js';
+import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
 import { solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml } from './text.js';
 import { effectsToXml } from './effects.js';
@@ -18,15 +18,15 @@ export function kindToPrst(kind: ShapeKind): string {
 /**
  * Serialize a {@link Frame} to an `<a:xfrm>` element.
  *
- * **Rotation units:** `Frame.rotation` is stored in degrees (the
- * property name comes from CSS transforms where 90 means 90°).
- * `degToRot60k` converts to OOXML 60 000ths-of-a-degree.
+ * **Rotation units:** `Frame.rotation` is stored in radians (set by
+ * `rotEmuToRad` during PPTX import). `radToRot60k` converts to OOXML
+ * 60 000ths-of-a-degree.
  *
  * `flipH` / `flipV` are optional on Frame; omitting them when
  * falsy keeps the attribute list compact and round-trip stable.
  */
 export function xfrmXml(frame: Frame): string {
-  const rot = frame.rotation ? ` rot="${degToRot60k(frame.rotation)}"` : '';
+  const rot = frame.rotation ? ` rot="${radToRot60k(frame.rotation)}"` : '';
   const fh = frame.flipH ? ' flipH="1"' : '';
   const fv = frame.flipV ? ' flipV="1"' : '';
   return (

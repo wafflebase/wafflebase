@@ -16,6 +16,9 @@ export function pxToEmu(px: number): number {
 export function degToRot60k(deg: number): number {
   return Math.round(deg * 60_000);
 }
+export function radToRot60k(rad: number): number {
+  return Math.round(rad * (180 / Math.PI) * 60_000);
+}
 export function ptToHundredths(pt: number): number {
   return Math.round(pt * 100);
 }

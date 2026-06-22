@@ -10,7 +10,7 @@ describe('shape', () => {
     expect(kindToPrst('rect')).toBe('rect');
   });
   it('emits xfrm in EMU', () => {
-    const xml = xfrmXml({ ...frame, rotation: 90 });
+    const xml = xfrmXml({ ...frame, rotation: Math.PI / 2 });
     expect(xml).toContain('rot="5400000"');
     expect(xml).toMatch(/<a:off x="\d+" y="\d+"\/>/);
   });
