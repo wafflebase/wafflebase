@@ -117,4 +117,15 @@ describe('textBodyToXml', () => {
     const xml = textBodyToXml({ blocks: [block] });
     expect(xml).toContain('<a:buChar char="•"/>');
   });
+
+  it('falls back to black for an unknown role string (no val="undefined")', () => {
+    // StoredColor.role is open (string), so an out-of-set value can arrive
+    // at runtime. Verify the bridge emits a valid srgbClr instead of the
+    // broken <a:schemeClr val="undefined"/> that the old `c as any` path
+    // would have produced.
+    const unknownColor = { kind: 'role', role: 'somethingUnknown' } as Parameters<typeof textBodyToXml>[0]['blocks'][0]['inlines'][0]['style']['color'];
+    const xml = textBodyToXml({ blocks: [para('X', { color: unknownColor })] });
+    expect(xml).not.toContain('val="undefined"');
+    expect(xml).toContain('<a:srgbClr val="000000"/>');
+  });
 });

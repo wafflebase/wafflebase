@@ -1,9 +1,10 @@
 import type { Block, Inline } from '@wafflebase/docs';
 import type { StoredColor } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
+import type { ColorRole, ThemeColor } from '../../model/theme.js';
 import { escapeXmlText } from './xml.js';
 import { ptToHundredths } from './units.js';
-import { colorChildXml, colorFromStringOrTheme } from './color.js';
+import { ROLE_TO_SCHEME, colorChildXml, colorFromStringOrTheme } from './color.js';
 
 /**
  * Serialize a `TextBody` to an OOXML `<a:txBody>` or `<p:txBody>` element.
@@ -69,16 +70,24 @@ function blockToXml(block: Block): string {
  *     hex string (`'#RRGGBB'`).
  *   - `<a:schemeClr val="…">` → `{ kind: 'role', role: '…' }`.
  *
- * `colorFromStringOrTheme` already handles the `string → {kind:'srgb'}` case.
- * `StoredColor` and `ThemeColor` share the same `{kind:'srgb'|'role'}` shape,
- * so the cast is safe for both structured forms.
+ * `StoredColor`'s role arm uses `role: string` (open), while `ThemeColor`'s
+ * role arm uses `role: ColorRole` (closed, 12 values). An out-of-set role
+ * string would make `colorChildXml` emit `<a:schemeClr val="undefined"/>`.
+ * We validate the role against `ROLE_TO_SCHEME` keys and fall back to black
+ * for any unrecognised value.
  */
-function storedColorToThemeColor(c: StoredColor) {
-  // colorFromStringOrTheme accepts string | ThemeColor. StoredColor is
-  // string | {kind:'srgb'} | {kind:'role'} — all of which are ThemeColor-
-  // compatible for the purposes of colorChildXml (same discriminated union).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return colorFromStringOrTheme(c as any);
+function storedColorToThemeColor(c: StoredColor): ThemeColor {
+  if (typeof c === 'string') return colorFromStringOrTheme(c);
+  if (c.kind === 'srgb') return { kind: 'srgb', value: c.value };
+  // role arm: validate against the closed ColorRole set before casting
+  if ((Object.keys(ROLE_TO_SCHEME) as string[]).includes(c.role)) {
+    const out: ThemeColor = { kind: 'role', role: c.role as ColorRole };
+    if (c.tint !== undefined) out.tint = c.tint;
+    if (c.shade !== undefined) out.shade = c.shade;
+    return out;
+  }
+  // Unknown role — emit black rather than a broken `val="undefined"` attribute
+  return { kind: 'srgb', value: '#000000' };
 }
 
 function runToXml(inline: Inline): string {
