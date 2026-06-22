@@ -96,6 +96,25 @@ describe('imageToXml', () => {
     expect(xml).toContain('descr="A sample image"');
   });
 
+  it('escapes special characters in alt text descr attribute', () => {
+    const xml = imageToXml(
+      { ...base, data: { ...base.data, alt: 'He said "hi" & <b>' } },
+      'rId11',
+    );
+    expect(xml).toContain('descr="He said &quot;hi&quot; &amp; &lt;b&gt;"');
+    // Ensure there is no raw " inside the attribute value (only &quot;)
+    const descrMatch = xml.match(/descr="([^"]*)"/);
+    expect(descrMatch).not.toBeNull();
+    // The matched value should not contain raw & < or unescaped "
+    expect(descrMatch![1]).not.toContain('&"');
+    expect(descrMatch![1]).not.toContain('<');
+  });
+
+  it('omits descr attribute when alt is absent', () => {
+    const xml = imageToXml(base, 'rId12');
+    expect(xml).not.toContain('descr=');
+  });
+
   it('emits effectLst for effects', () => {
     const xml = imageToXml(
       {

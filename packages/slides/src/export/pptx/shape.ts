@@ -4,6 +4,7 @@ import { solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml } from './text.js';
 import { effectsToXml } from './effects.js';
 import { freeformToCustGeom } from './freeform.js';
+import { attr, escapeXmlAttr } from './xml.js';
 
 /**
  * Map a `ShapeKind` to the OOXML `prst` attribute value.
@@ -90,10 +91,10 @@ export function shapeToXml(el: ShapeElement): string {
     ? textBodyToXml(data.text, 'p:txBody')
     : `<p:txBody><a:bodyPr/><a:p/></p:txBody>`;
 
-  const descrAttr = data.alt ? ` descr="${data.alt}"` : '';
+  const descrAttr = attr('descr', data.alt);
   const nv =
     `<p:nvSpPr>` +
-    `<p:cNvPr id="0" name="${el.id}"${descrAttr}/>` +
+    `<p:cNvPr id="0" name="${escapeXmlAttr(el.id)}"${descrAttr}/>` +
     `<p:cNvSpPr/>` +
     `<p:nvPr/>` +
     `</p:nvSpPr>`;

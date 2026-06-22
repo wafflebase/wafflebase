@@ -73,4 +73,28 @@ describe('shape', () => {
     const xml = shapeToXml(el);
     expect(xml).toContain('descr="A red box"');
   });
+  it('escapes special characters in alt text descr attribute', () => {
+    const el: ShapeElement = {
+      id: 's',
+      frame,
+      type: 'shape',
+      data: { kind: 'rect', alt: 'A & B "quoted"' },
+    };
+    const xml = shapeToXml(el);
+    expect(xml).toContain('descr="A &amp; B &quot;quoted&quot;"');
+    // No raw & or " inside attribute value
+    const descrMatch = xml.match(/descr="([^"]*)"/);
+    expect(descrMatch).not.toBeNull();
+    expect(descrMatch![1]).not.toContain('&"');
+  });
+  it('omits descr attribute when alt is absent', () => {
+    const el: ShapeElement = {
+      id: 's',
+      frame,
+      type: 'shape',
+      data: { kind: 'rect' },
+    };
+    const xml = shapeToXml(el);
+    expect(xml).not.toContain('descr=');
+  });
 });

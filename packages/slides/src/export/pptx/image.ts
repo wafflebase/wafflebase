@@ -1,6 +1,7 @@
 import type { Crop, ImageElement } from '../../model/element.js';
 import { xfrmXml } from './shape.js';
 import { effectsToXml } from './effects.js';
+import { attr, escapeXmlAttr } from './xml.js';
 
 /**
  * Serialize an {@link ImageElement} to a `<p:pic>` element.
@@ -69,10 +70,10 @@ export function imageToXml(el: ImageElement, embedRId: string): string {
   const srcRect = data.crop ? srcRectXml(data.crop) : '';
 
   // Non-visual props
-  const descrAttr = data.alt ? ` descr="${data.alt}"` : '';
+  const descrAttr = attr('descr', data.alt);
   const nv =
     `<p:nvPicPr>` +
-    `<p:cNvPr id="0" name="${el.id}"${descrAttr}/>` +
+    `<p:cNvPr id="0" name="${escapeXmlAttr(el.id)}"${descrAttr}/>` +
     `<p:cNvPicPr/>` +
     `<p:nvPr/>` +
     `</p:nvPicPr>`;
