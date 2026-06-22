@@ -33,6 +33,14 @@ examples, and safety notes.
 | [docs-export-docx.md](docs-export-docx.md) | read-only | Export a doc to .docx (full document only) |
 | [docs-import-docx.md](docs-import-docx.md) | write / destructive | Import a .docx as a new or replacement doc |
 
+## Slides Skills
+
+| File | Safety | Description |
+|------|--------|-------------|
+| [slides-manage.md](slides-manage.md) | write / destructive | Create, list, get, rename, delete slide decks |
+| [slides-read-content.md](slides-read-content.md) | read-only | Read a deck as JSON, Markdown, or plain text |
+| [slides-import-pptx.md](slides-import-pptx.md) | write / destructive | Import a .pptx as a new or replacement deck |
+
 ## Recipes
 
 | File | Safety | Description |

@@ -294,19 +294,43 @@ wafflebase
   │           [--replace <doc-id> --yes]     (destructive; required together)
   │           [--workspace <id>]
   │
-  └── sheets (aliases: sheet, spreadsheet, spreadsheets)
-        ├── tabs (alias: tab)
-        │     └── list <doc-id>              List tabs in a spreadsheet
-        ├── cells (alias: cell)
-        │     ├── get <doc-id> [<range>]     Get cells (default: all, or A1, or A1:C10)
-        │     ├── set <doc-id> <ref> <value> [--tab] [--formula]
-        │     ├── batch <doc-id>             [--tab] [--data <json>]   (JSON from stdin or --data)
-        │     └── delete <doc-id> <ref>      [--tab]
-        ├── import <doc-id> <file>
-        │     [--tab <tab-id>] [--file-format csv|json] [--start <ref>]
-        └── export <doc-id> <file>
-              [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
+  │     ├── tabs (alias: tab)
+  │     │     └── list <doc-id>              List tabs in a spreadsheet
+  │     ├── cells (alias: cell)
+  │     │     ├── get <doc-id> [<range>]     Get cells (default: all, or A1, or A1:C10)
+  │     │     ├── set <doc-id> <ref> <value> [--tab] [--formula]
+  │     │     ├── batch <doc-id>             [--tab] [--data <json>]   (JSON from stdin or --data)
+  │     │     └── delete <doc-id> <ref>      [--tab]
+  │     ├── import <doc-id> <file>
+  │     │     [--tab <tab-id>] [--file-format csv|json] [--start <ref>]
+  │     └── export <doc-id> <file>
+  │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  │
+  └── slides (aliases: slide, deck)
+        ├── list                             List slide decks (type: slides)
+        ├── create <title>                   Create a new deck
+        ├── get <doc-id>                      Show deck metadata
+        ├── rename <doc-id> <title>          Rename a deck
+        ├── delete <doc-id>                   Delete a deck
+        ├── content <doc-id>
+        │     [--format json|md|text]        (default: json)
+        │     [--notes]                       (include speaker notes; md/text)
+        │     [--out <file>|-]                (default: stdout)
+        │     [--force]
+        └── import <file>
+              [--title <title>]               (default: file basename)
+              [--replace <doc-id> --yes]      (destructive; required together)
 ```
+
+The Slides `content` command is text-only for `md`/`text`: it walks each
+slide's elements (text boxes, shape labels, table cells, flattened
+groups) and serializes the `TextBody` blocks via the same
+`@wafflebase/docs` serializers used by `docs content`. Shapes, images,
+connectors, positioning, and theming are dropped in those forms; `json`
+returns the full `SlidesDocument` losslessly. Slides have no page
+concept, so there is no `--pages` flag. PDF/PPTX export are deferred
+(PDF needs Canvas rasterization; PPTX export has no engine yet).
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
@@ -537,6 +561,7 @@ packages/cli/
       status.ts          status
       ctx.ts             ctx list/switch
       docs.ts            docs list/create/get/rename/delete + content/export/import
+      slides.ts          slides list/create/get/rename/delete + content/import
       sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
       tabs.ts            sheets tabs list
       cells.ts           sheets cells get/set/batch/delete
@@ -551,6 +576,10 @@ packages/cli/
       docx-import.ts     importDocx + base64 ImageUploader + InvalidDocxError
       import.ts          runDocsImport orchestrator (POST + PUT, --replace flow)
       paginate.ts        paginateForCli helper (computeLayout + paginateLayout)
+    slides/              Presentation pipeline
+      content.ts         runSlidesContent orchestrator (json + per-slide md/text)
+      import.ts          runSlidesImport orchestrator (POST + PUT, --replace flow)
+      pptx-import.ts     importPptx wrapper + base64 image uploader
       page-range.ts      parsePageRange (1-3,5,7-9 + clamp warnings)
       page-slice.ts      sliceBlocksByPages
       fontkit-measurer.ts FontkitMeasurer (TextMeasurer for Node)
@@ -573,6 +602,7 @@ packages/cli/
     sheets-read-cells.md / sheets-write-cells.md / sheets-import-export.md
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
+    slides-manage.md / slides-read-content.md / slides-import-pptx.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
   scripts/
@@ -736,6 +766,13 @@ Schema entries by command (canonical plural names):
 | `sheets.cells.delete`    | destructive   |                                                        |
 | `sheets.import`          | write         |                                                        |
 | `sheets.export`          | read-only     |                                                        |
+| `slides.list`            | read-only     | filtered to `type: slides`                             |
+| `slides.create`          | write         |                                                        |
+| `slides.get`             | read-only     | metadata only                                          |
+| `slides.rename`          | write         |                                                        |
+| `slides.delete`          | destructive   |                                                        |
+| `slides.content`         | read-only     | `json` lossless; `md`/`text` text-only                 |
+| `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
 | `login`                  | write         | OAuth login, writes session file                       |
 | `logout`                 | write         | Deletes session file                                   |
 | `status`                 | read-only     | Shows current auth state                               |
