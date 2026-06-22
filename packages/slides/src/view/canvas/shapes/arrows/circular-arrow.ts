@@ -237,17 +237,20 @@ export const CIRCULAR_ARROW_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Thickness', defaultValue: 12500, min: 0, max: 50000 },
   { name: 'Arrowhead', defaultValue: 1142319, min: 0, max: 21599999 },
   {
+    // Bounds match the guide clamps (`pin 1 adj3 21599999` /
+    // `pin 0 adj4 21599999`) so a handle value never exceeds what the
+    // geometry will honour.
     name: 'End angle',
     defaultValue: 20457681,
     min: 0,
-    max: 21600000,
+    max: 21599999,
     axisLabel: 'end',
   },
   {
     name: 'Start angle',
     defaultValue: 10800000,
     min: 0,
-    max: 21600000,
+    max: 21599999,
     axisLabel: 'start',
   },
   { name: 'Head thickness', defaultValue: 12500, min: 0, max: 25000 },

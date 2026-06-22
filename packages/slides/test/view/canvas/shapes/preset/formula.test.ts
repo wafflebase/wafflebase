@@ -117,4 +117,10 @@ describe('evalGuides', () => {
     const r = evalGuides({ w: 10, h: 10 }, def);
     expect(() => r('nope')).toThrow(/unresolved token/);
   });
+
+  it('throws on built-in tokens with a zero divisor', () => {
+    const r = evalGuides({ w: 200, h: 100 }, def);
+    expect(() => r('wd0')).toThrow(/invalid built-in divisor/);
+    expect(() => r('cd0')).toThrow(/invalid built-in divisor/);
+  });
 });

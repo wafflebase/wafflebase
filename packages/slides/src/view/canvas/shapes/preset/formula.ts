@@ -115,19 +115,23 @@ function resolveBuiltin(token: string, w: number, h: number): number | undefined
     case 'vc':
       return h / 2;
   }
-  // Fractional dimensions: wd2, hd6, ssd8, … (base / N).
+  // Fractional dimensions: wd2, hd6, ssd8, … (base / N). A zero
+  // divisor (`wd0`) is never a valid DrawingML token — fail fast so a
+  // transcription typo surfaces rather than silently yielding 0.
   const frac = /^(w|h|ss)d(\d+)$/.exec(token);
   if (frac) {
     const base = frac[1] === 'w' ? w : frac[1] === 'h' ? h : Math.min(w, h);
     const n = Number(frac[2]);
-    return n === 0 ? 0 : base / n;
+    if (n === 0) throw new Error(`formula: invalid built-in divisor "${token}"`);
+    return base / n;
   }
   // Angle constants: cd2, cd4, cd8, 3cd4, 7cd8, … (m · circle / N).
   const ang = /^(\d*)cd(\d+)$/.exec(token);
   if (ang) {
     const m = ang[1] === '' ? 1 : Number(ang[1]);
     const n = Number(ang[2]);
-    return n === 0 ? 0 : (m * OOXML_CIRCLE) / n;
+    if (n === 0) throw new Error(`formula: invalid built-in divisor "${token}"`);
+    return (m * OOXML_CIRCLE) / n;
   }
   // Numeric literal (incl. negatives like "-5400000").
   if (/^[+-]?\d+(\.\d+)?$/.test(token)) return Number(token);
