@@ -65,7 +65,8 @@ itself is general (benefits the other 150+ shapes & PPTX import later).
 - [x] Update per-shape tests (adjustment counts/handles changed).
 - [x] `pnpm --filter @wafflebase/slides test` green.
 - [x] `pnpm verify:fast` green.
-- [ ] Browser smoke: insert each shape, confirm arrowheads render (pre-merge).
+- [x] Browser smoke: insert each shape, confirm arrowheads render (pre-merge).
+      Shipped via PR #401 (merged to `main`).
 
 ## Known limitations / non-goals
 - Connection sites (`cxnLst`) and `ahPolar` exact drag inverse parity not
@@ -83,4 +84,13 @@ itself is general (benefits the other 150+ shapes & PPTX import later).
   matching PowerPoint. Arc resolution bumped to 64/turn (commits 3–4).
 
 ## Review
-(to fill in)
+
+Shipped via PR #401 (merged to `main`). Replaced ad-hoc arrow path math
+with a faithful OOXML preset-geometry engine for the curved/circular/swoosh
+arrow family: arcTo driven by ray–ellipse intersection (geometric angles),
+filled-union silhouettes with a separate `fill="none"` outline to avoid
+internal-seam stroke artifacts, preset-guide-driven adjustment handles, and
+arc resolution at 64/turn. Per-shape tests updated for the new adjustment
+counts/handles; `pnpm --filter @wafflebase/slides test` and `pnpm verify:fast`
+green. Connection sites (`cxnLst`), `ahPolar` exact drag-inverse parity, and
+applying the engine to the other 150+ shapes are tracked as future work.
