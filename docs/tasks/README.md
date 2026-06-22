@@ -21,6 +21,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./active/20260621-comments-mentions-todo.md) | - |
 | slides live presence (2026-06-21) | [20260621-slides-live-presence-todo.md](./active/20260621-slides-live-presence-todo.md) | - |
 | slides native undo migration (2026-06-21) | [20260621-slides-native-undo-migration-todo.md](./active/20260621-slides-native-undo-migration-todo.md) | [20260621-slides-native-undo-migration-lessons.md](./active/20260621-slides-native-undo-migration-lessons.md) |
+| slides ooxml arrow geometry (2026-06-21) | [20260621-slides-ooxml-arrow-geometry-todo.md](./active/20260621-slides-ooxml-arrow-geometry-todo.md) | [20260621-slides-ooxml-arrow-geometry-lessons.md](./active/20260621-slides-ooxml-arrow-geometry-lessons.md) |
 | slides pdf export (2026-06-21) | [20260621-slides-pdf-export-todo.md](./active/20260621-slides-pdf-export-todo.md) | - |
 | slides format effects (2026-06-20) | [20260620-slides-format-effects-todo.md](./active/20260620-slides-format-effects-todo.md) | [20260620-slides-format-effects-lessons.md](./active/20260620-slides-format-effects-lessons.md) |
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |

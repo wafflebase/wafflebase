@@ -2,6 +2,7 @@ import {
   CURVED_ARROW_ADJUSTMENTS,
   curvedArrowHandles,
   makeCurvedArrowBuilder,
+  makeCurvedArrowOutlineBuilder,
 } from './curved';
 
 /**
@@ -12,3 +13,4 @@ import {
 export const CURVED_RIGHT_ARROW_ADJUSTMENTS = CURVED_ARROW_ADJUSTMENTS;
 export const buildCurvedRightArrow = makeCurvedArrowBuilder('right');
 export const CURVED_RIGHT_ARROW_HANDLES = curvedArrowHandles('right');
+export const CURVED_RIGHT_ARROW_OUTLINE = makeCurvedArrowOutlineBuilder('right');

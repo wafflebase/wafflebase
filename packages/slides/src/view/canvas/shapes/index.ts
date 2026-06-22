@@ -186,21 +186,25 @@ import {
   buildCurvedRightArrow,
   CURVED_RIGHT_ARROW_ADJUSTMENTS,
   CURVED_RIGHT_ARROW_HANDLES,
+  CURVED_RIGHT_ARROW_OUTLINE,
 } from './arrows/curved-right-arrow';
 import {
   buildCurvedLeftArrow,
   CURVED_LEFT_ARROW_ADJUSTMENTS,
   CURVED_LEFT_ARROW_HANDLES,
+  CURVED_LEFT_ARROW_OUTLINE,
 } from './arrows/curved-left-arrow';
 import {
   buildCurvedUpArrow,
   CURVED_UP_ARROW_ADJUSTMENTS,
   CURVED_UP_ARROW_HANDLES,
+  CURVED_UP_ARROW_OUTLINE,
 } from './arrows/curved-up-arrow';
 import {
   buildCurvedDownArrow,
   CURVED_DOWN_ARROW_ADJUSTMENTS,
   CURVED_DOWN_ARROW_HANDLES,
+  CURVED_DOWN_ARROW_OUTLINE,
 } from './arrows/curved-down-arrow';
 import {
   buildRibbon,
@@ -383,6 +387,15 @@ import { buildFlowChartMagneticTape } from './flowchart/magnetic-tape';
 export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 
 /**
+ * Shape kind → optional stroke-outline builder. A few OOXML shapes
+ * (the curved arrows) build their fill from several sub-paths that
+ * share internal edges; stroking that filled union would draw a seam
+ * across the shape. For those kinds the renderer fills the
+ * `PATH_BUILDERS` path but strokes this separate perimeter path.
+ */
+export const OUTLINE_BUILDERS = new Map<ShapeKind, PathBuilder>();
+
+/**
  * Shape kind → adjustable parameter specs. Only kinds with at least
  * one adjustment are listed. Phase 2's toolbar UI iterates this map.
  */
@@ -455,6 +468,10 @@ PATH_BUILDERS.set('curvedRightArrow', buildCurvedRightArrow);
 PATH_BUILDERS.set('curvedLeftArrow', buildCurvedLeftArrow);
 PATH_BUILDERS.set('curvedUpArrow', buildCurvedUpArrow);
 PATH_BUILDERS.set('curvedDownArrow', buildCurvedDownArrow);
+OUTLINE_BUILDERS.set('curvedRightArrow', CURVED_RIGHT_ARROW_OUTLINE);
+OUTLINE_BUILDERS.set('curvedLeftArrow', CURVED_LEFT_ARROW_OUTLINE);
+OUTLINE_BUILDERS.set('curvedUpArrow', CURVED_UP_ARROW_OUTLINE);
+OUTLINE_BUILDERS.set('curvedDownArrow', CURVED_DOWN_ARROW_OUTLINE);
 PATH_BUILDERS.set('ribbon', buildRibbon);
 PATH_BUILDERS.set('ribbon2', buildRibbon2);
 PATH_BUILDERS.set('horizontalScroll', buildHorizontalScroll);

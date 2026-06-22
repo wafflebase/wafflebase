@@ -55,7 +55,7 @@ describe('buildUturnArrow', () => {
 });
 
 describe('UTURN_ARROW_HANDLES', () => {
-  it('exposes two handles', () => {
-    expect(UTURN_ARROW_HANDLES.length).toBe(2);
+  it('exposes five handles', () => {
+    expect(UTURN_ARROW_HANDLES.length).toBe(5);
   });
 });
