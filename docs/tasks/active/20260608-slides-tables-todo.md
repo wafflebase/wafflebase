@@ -141,7 +141,7 @@ What landed (in commit order):
       deleteTableColumn, mergeTableCells, unmergeTableCells,
       updateTableColumnWidths, updateTableRowHeights,
       updateTableCellStyle, withTableCellBody)
-- [ ] Presence: `selectedTableCells` (IN PROGRESS, branch
+- [x] Presence: `selectedTableCells` (branch
       `slides-table-cell-presence`) — static cell-range presence, the
       table analogue of the already-wired `selectedElementIds`. Pipeline:
       `SlidesPresence.selectedTableCells` → broadcast on
@@ -149,7 +149,10 @@ What landed (in commit order):
       `computePeerOverlays` (new `cellRangeRectsOf` projector + `cellRects`
       output) → `renderPeerOverlays` peer-tinted cell fills. Geometry
       shared with the local path via a new `projectCellRangeRects` helper
-      in `table-renderer.ts`.
+      in `table-renderer.ts`. Ring suppressed only when rects actually
+      render (merge-hole / deleted-table ranges keep the ring so presence
+      never vanishes). Pure-fn + DOM-builder unit tests; live two-user
+      smoke still recommended before merge.
   - [ ] `resizingTableEdge` — DEFERRED with the live-frame broadcast.
         It is a *live drag preview*; the element-level `activeFrames`
         live broadcast it pairs with is itself deferred (P2 of
