@@ -1,0 +1,120 @@
+import { describe, it, expect } from 'vitest';
+import { textBodyToXml } from '../../../src/export/pptx/text.js';
+import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
+
+function para(text: string, style: Record<string, unknown> = {}): Block {
+  return {
+    id: 'b',
+    type: 'paragraph',
+    inlines: [{ text, style }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  } as Block;
+}
+
+describe('textBodyToXml', () => {
+  it('emits bodyPr autofit and a run', () => {
+    const xml = textBodyToXml({ blocks: [para('Hi')], autofit: 'shrink', verticalAnchor: 'middle' });
+    expect(xml).toContain('<a:bodyPr');
+    expect(xml).toContain('anchor="ctr"');
+    expect(xml).toContain('<a:normAutofit/>');
+    expect(xml).toContain('<a:t>Hi</a:t>');
+  });
+
+  it('emits run properties for bold/italic/size/color', () => {
+    const xml = textBodyToXml({ blocks: [para('X', { bold: true, italic: true, fontSize: 24, color: '#FF0000' })] });
+    expect(xml).toMatch(/<a:rPr[^>]*b="1"/);
+    expect(xml).toMatch(/<a:rPr[^>]*i="1"/);
+    expect(xml).toMatch(/<a:rPr[^>]*sz="2400"/);
+    expect(xml).toContain('<a:srgbClr val="FF0000"/>');
+  });
+
+  it('escapes text', () => {
+    expect(textBodyToXml({ blocks: [para('a < b & c')] })).toContain('<a:t>a &lt; b &amp; c</a:t>');
+  });
+
+  it('defaults absent autofit to spAutoFit', () => {
+    expect(textBodyToXml({ blocks: [para('x')] })).toContain('<a:spAutoFit/>');
+  });
+
+  it('uses p:txBody wrapper when tag is p:txBody', () => {
+    const xml = textBodyToXml({ blocks: [para('Hello')] }, 'p:txBody');
+    expect(xml).toMatch(/^<p:txBody>/);
+    expect(xml).toMatch(/<\/p:txBody>$/);
+    expect(xml).toContain('<a:t>Hello</a:t>');
+  });
+
+  it('emits underline and strikethrough', () => {
+    const xml = textBodyToXml({
+      blocks: [para('U', { underline: true, strikethrough: true })],
+    });
+    expect(xml).toMatch(/<a:rPr[^>]*u="sng"/);
+    expect(xml).toMatch(/<a:rPr[^>]*strike="sngStrike"/);
+  });
+
+  it('emits font family', () => {
+    const xml = textBodyToXml({ blocks: [para('F', { fontFamily: 'Arial' })] });
+    expect(xml).toContain('<a:latin typeface="Arial"/>');
+  });
+
+  it('handles srgb StoredColor object', () => {
+    const xml = textBodyToXml({
+      blocks: [para('C', { color: { kind: 'srgb', value: '#00FF00' } })],
+    });
+    expect(xml).toContain('<a:srgbClr val="00FF00"/>');
+  });
+
+  it('handles role StoredColor object (theme color)', () => {
+    const xml = textBodyToXml({
+      blocks: [para('T', { color: { kind: 'role', role: 'text' } })],
+    });
+    expect(xml).toContain('<a:schemeClr val="tx1"/>');
+  });
+
+  it('emits noAutofit for autofit none and anchor bottom', () => {
+    const xml = textBodyToXml({ blocks: [para('N')], autofit: 'none', verticalAnchor: 'bottom' });
+    expect(xml).toContain('<a:noAutofit/>');
+    expect(xml).toContain('anchor="b"');
+  });
+
+  it('emits anchor t for top vertical anchor', () => {
+    const xml = textBodyToXml({ blocks: [para('T')], verticalAnchor: 'top' });
+    expect(xml).toContain('anchor="t"');
+  });
+
+  it('emits paragraph alignment', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: 'A', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE, alignment: 'center' },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('algn="ctr"');
+  });
+
+  it('emits ordered list bullet', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'list-item',
+      inlines: [{ text: 'I', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      listKind: 'ordered',
+      listLevel: 1,
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('<a:buAutoNum type="arabicPeriod"/>');
+    expect(xml).toContain('lvl="1"');
+  });
+
+  it('emits unordered list bullet', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'list-item',
+      inlines: [{ text: 'U', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      listKind: 'unordered',
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('<a:buChar char="•"/>');
+  });
+});
