@@ -810,6 +810,31 @@ function renderPeerOverlays(
     overlay.appendChild(el);
   }
 
+  // Peer table cell-range highlights: a translucent peer-tinted fill per
+  // cell, painted before rings/labels so a peer ring (e.g. of another
+  // selected element) and the name tag stay legible on top. Opacity on
+  // the element (not an rgba colour) keeps this independent of the peer
+  // colour's format. Overlapping cells deepen slightly, same as the local
+  // cell-range overlay.
+  for (const cell of peers.cellRects) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-peer-cell';
+    el.style.position = 'absolute';
+    el.style.left = `${cell.frame.x * scale}px`;
+    el.style.top = `${cell.frame.y * scale}px`;
+    el.style.width = `${cell.frame.w * scale}px`;
+    el.style.height = `${cell.frame.h * scale}px`;
+    el.style.background = cell.color;
+    el.style.opacity = '0.22';
+    el.style.boxSizing = 'border-box';
+    el.style.pointerEvents = 'none';
+    if (cell.frame.rotation !== 0) {
+      el.style.transform = `rotate(${cell.frame.rotation}rad)`;
+      el.style.transformOrigin = 'center';
+    }
+    overlay.appendChild(el);
+  }
+
   for (const ring of peers.rings) {
     // Reuse the shared outline builder (same rotated-frame math as the
     // member / context outlines) with a solid peer-coloured border.

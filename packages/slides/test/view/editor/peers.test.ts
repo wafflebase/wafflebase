@@ -121,4 +121,65 @@ describe('computePeerOverlays', () => {
     expect(out.rings).toEqual([]);
     expect(out.labels).toEqual([]);
   });
+
+  it('highlights a peer table cell-range and suppresses that table ring', () => {
+    const rects = [frame(0, 0, 60, 20), frame(0, 20, 60, 20)];
+    const out = computePeerOverlays(
+      [
+        peer({
+          clientID: 'c1',
+          // The table is element-selected AND cell-selected — the ring
+          // is replaced by the cell highlights to avoid a doubled outline.
+          selectedElementIds: ['t1'],
+          selectedTableCells: { elementId: 't1', r0: 0, c0: 0, r1: 1, c1: 0 },
+        }),
+      ],
+      's1',
+      lookup({ t1: frame(100, 100, 60, 40) }),
+      (elementId) => (elementId === 't1' ? rects : undefined),
+    );
+    expect(out.rings).toEqual([]);
+    expect(out.cellRects).toEqual([
+      { frame: rects[0], color: '#ff0000' },
+      { frame: rects[1], color: '#ff0000' },
+    ]);
+    // Label falls back to the first cell rect when no ring anchors it.
+    expect(out.labels).toEqual([{ x: 0, y: 0, text: 'Ada', color: '#ff0000' }]);
+  });
+
+  it('keeps rings for other selected elements while highlighting the cell table', () => {
+    const rects = [frame(0, 0, 60, 20)];
+    const out = computePeerOverlays(
+      [
+        peer({
+          clientID: 'c1',
+          selectedElementIds: ['t1', 'e2'],
+          selectedTableCells: { elementId: 't1', r0: 0, c0: 0, r1: 0, c1: 0 },
+        }),
+      ],
+      's1',
+      lookup({ t1: frame(100, 100, 60, 40), e2: frame(5, 5, 10, 10) }),
+      () => rects,
+    );
+    // t1's ring is suppressed; e2 still rings. Cell highlights come from t1.
+    expect(out.rings).toEqual([{ frame: frame(5, 5, 10, 10), color: '#ff0000' }]);
+    expect(out.cellRects).toEqual([{ frame: rects[0], color: '#ff0000' }]);
+    // Anchor prefers the first resolved ring (e2) over the cell rect.
+    expect(out.labels).toEqual([{ x: 5, y: 5, text: 'Ada', color: '#ff0000' }]);
+  });
+
+  it('omits cell highlights when no projector is supplied', () => {
+    const out = computePeerOverlays(
+      [
+        peer({
+          clientID: 'c1',
+          selectedElementIds: ['t1'],
+          selectedTableCells: { elementId: 't1', r0: 0, c0: 0, r1: 0, c1: 0 },
+        }),
+      ],
+      's1',
+      lookup({ t1: frame(0, 0, 10, 10) }),
+    );
+    expect(out.cellRects).toEqual([]);
+  });
 });

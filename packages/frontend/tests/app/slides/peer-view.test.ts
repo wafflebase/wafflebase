@@ -87,4 +87,35 @@ describe("mapPresenceToPeerView", () => {
     ]);
     expect(out[0].draggingGuide).toEqual({ axis: "x", position: 120 });
   });
+
+  it("forwards a table cell-range selection", () => {
+    const out = mapPresenceToPeerView(
+      [
+        {
+          clientID: "c1",
+          presence: presence({
+            activeSlideId: "s1",
+            selectedElementIds: ["t1"],
+            selectedTableCells: { elementId: "t1", r0: 0, c0: 0, r1: 1, c1: 2 },
+          }),
+        },
+      ],
+      "light",
+    );
+    expect(out[0].selectedTableCells).toEqual({
+      elementId: "t1",
+      r0: 0,
+      c0: 0,
+      r1: 1,
+      c1: 2,
+    });
+  });
+
+  it("leaves selectedTableCells undefined when the peer has no cell range", () => {
+    const out = mapPresenceToPeerView(
+      [{ clientID: "c1", presence: presence({ activeSlideId: "s1" }) }],
+      "light",
+    );
+    expect(out[0].selectedTableCells).toBeUndefined();
+  });
 });

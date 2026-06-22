@@ -30,6 +30,7 @@ import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
 import {
   computeTableLayout,
   nextCellInDirection,
+  projectCellRangeRects,
   tableCellAtPoint,
   tableEdgeAt,
   type TableLayout,
@@ -1072,7 +1073,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // table cell after the table is already element-selected). Skipped
     // while text-edit is active so the in-place editor's outline owns
     // the visual focus.
-    const cellRangeRects: Frame[] = [];
+    let cellRangeRects: Frame[] = [];
     if (this.cellSelection !== null && this.editingElementId === null) {
       const sel = this.cellSelection;
       const tableEl = findElement(slide.elements, sel.tableId);
@@ -1080,41 +1081,11 @@ class SlidesEditorImpl implements SlidesEditor {
         const layout = computeTableLayout(tableEl.data, {
           fontScale: deckFontScale(doc.meta),
         });
-        const nCols = tableEl.data.columnWidths.length;
-        const nRows = tableEl.data.rows.length;
-        const rmin = Math.min(sel.r0, sel.r1);
-        const rmax = Math.max(sel.r0, sel.r1);
-        const cmin = Math.min(sel.c0, sel.c1);
-        const cmax = Math.max(sel.c0, sel.c1);
-        for (let r = rmin; r <= rmax; r++) {
-          for (let c = cmin; c <= cmax; c++) {
-            const cell = tableEl.data.rows[r]?.cells[c];
-            if (!cell) continue;
-            // Skip covered cells — they have no rect of their own; the
-            // anchor's rect (with its full merged span) is painted from
-            // its own (r, c).
-            if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
-            const gs = Math.min(
-              Math.max(cell.gridSpan ?? 1, 1),
-              nCols - c,
-            );
-            const rs = Math.min(
-              Math.max(cell.rowSpan ?? 1, 1),
-              nRows - r,
-            );
-            const x0 = layout.colX[c];
-            const x1 = layout.colX[c + gs];
-            const y0 = layout.rowY[r];
-            const y1 = layout.rowY[r + rs];
-            cellRangeRects.push({
-              x: tableEl.frame.x + x0,
-              y: tableEl.frame.y + y0,
-              w: x1 - x0,
-              h: y1 - y0,
-              rotation: tableEl.frame.rotation,
-            });
-          }
-        }
+        cellRangeRects = projectCellRangeRects(
+          tableEl,
+          { r0: sel.r0, c0: sel.c0, r1: sel.r1, c1: sel.c1 },
+          layout,
+        );
       } else {
         // The table was removed (or replaced); drop the stale selection.
         this.setCellSelection(null);
@@ -1156,7 +1127,7 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
-      peerOverlays: this.currentPeerOverlays(slide),
+      peerOverlays: this.currentPeerOverlays(slide, deckFontScale(doc.meta)),
       // Pass the full slide so connector endpoint handles can resolve
       // `attached` endpoints to world positions via the host element's
       // frame. Free endpoints don't need this map but it's cheap to
@@ -5134,7 +5105,9 @@ class SlidesEditorImpl implements SlidesEditor {
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
-    this.renderer.forceRender(slide, this.options.store.read(), ghosts);
+    // One read clone serves the ghost render, peer font scale, and guides.
+    const doc = this.options.store.read();
+    this.renderer.forceRender(slide, doc, ghosts);
     renderOverlay(this.options.overlay, handleElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
@@ -5142,11 +5115,11 @@ class SlidesEditorImpl implements SlidesEditor {
       // Keep peer rings / name tags visible through the gesture preview —
       // this path rebuilds the overlay DOM, so omitting peers would drop
       // them on the first drag/resize/rotate repaint until the gesture ends.
-      peerOverlays: this.currentPeerOverlays(slide),
+      peerOverlays: this.currentPeerOverlays(slide, deckFontScale(doc.meta)),
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
-      permanentGuides: this.options.store.read().guides,
+      permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
     });
   }
@@ -5162,14 +5135,30 @@ class SlidesEditorImpl implements SlidesEditor {
    * filters to peers on `slide` and prefers their live `activeFrames`
    * over the static selection ring. Shared by `repaintOverlay` and
    * `paintGhostPreview` so peers render in every overlay path.
+   *
+   * `fontScale` (deck pt→px) is threaded in so the cell-range projector
+   * lays out a peer's selected table on the same grid the renderer used;
+   * callers pass `deckFontScale(doc.meta)` from the doc they already hold.
    */
-  private currentPeerOverlays(slide: Slide): PeerOverlays | undefined {
+  private currentPeerOverlays(
+    slide: Slide,
+    fontScale: number,
+  ): PeerOverlays | undefined {
     if (this.peers.length === 0) return undefined;
     const peerLookup = buildElementWorldLookup(slide.elements);
     return computePeerOverlays(
       this.peers,
       slide.id,
       (id) => peerLookup.get(id)?.frame,
+      // Project a peer's table cell-range onto the painted grid. Only
+      // invoked when a peer actually has `selectedTableCells`, so the
+      // layout cost stays off the common no-cell-presence path.
+      (elementId, range) => {
+        const el = findElement(slide.elements, elementId);
+        if (el?.type !== 'table') return undefined;
+        const layout = computeTableLayout(el.data, { fontScale });
+        return projectCellRangeRects(el, range, layout);
+      },
     );
   }
 
