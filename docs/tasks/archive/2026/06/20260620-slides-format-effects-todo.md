@@ -60,7 +60,8 @@ Design doc: `docs/design/slides/slides-format-effects.md`
       findings fixed — CLI `shadowsDropped` compile break, background
       adjustment leak (`toBackgroundImage`), dup shadow on `[image,text]`.
       See `*-lessons.md`. Verified `slides build` + CLI `tsc` clean.
-- [ ] Manual smoke: import a PPTX with shape drop shadow / reflection,
+- [x] Manual smoke: import a PPTX with shape drop shadow / reflection,
       a picture recolor + brightness/contrast, and a `descr` alt; confirm
       they render and appear in the Format panel. (Earlier panel-edit smoke
-      already covered; this slice only adds the import path.)
+      already covered; this slice only adds the import path.) Shipped via
+      PR #396 (merged to `main`).

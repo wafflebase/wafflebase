@@ -6,14 +6,19 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 295
+Total archived tasks: 302
 
-## 2026/06 (50 tasks)
+## 2026/06 (56 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./2026/06/20260621-comments-mentions-todo.md) | [20260621-comments-mentions-lessons.md](./2026/06/20260621-comments-mentions-lessons.md) |
 | dependabot alerts (2026-06-21) | [20260621-dependabot-alerts-todo.md](./2026/06/20260621-dependabot-alerts-todo.md) | - |
+| slides live presence (2026-06-21) | [20260621-slides-live-presence-todo.md](./2026/06/20260621-slides-live-presence-todo.md) | - |
 | slides mobile toolbar parity (2026-06-21) | [20260621-slides-mobile-toolbar-parity-todo.md](./2026/06/20260621-slides-mobile-toolbar-parity-todo.md) | - |
+| slides native undo migration (2026-06-21) | [20260621-slides-native-undo-migration-todo.md](./2026/06/20260621-slides-native-undo-migration-todo.md) | [20260621-slides-native-undo-migration-lessons.md](./2026/06/20260621-slides-native-undo-migration-lessons.md) |
+| slides ooxml arrow geometry (2026-06-21) | [20260621-slides-ooxml-arrow-geometry-todo.md](./2026/06/20260621-slides-ooxml-arrow-geometry-todo.md) | [20260621-slides-ooxml-arrow-geometry-lessons.md](./2026/06/20260621-slides-ooxml-arrow-geometry-lessons.md) |
+| slides pdf export (2026-06-21) | [20260621-slides-pdf-export-todo.md](./2026/06/20260621-slides-pdf-export-todo.md) | - |
 | slides radix form controls (2026-06-21) | [20260621-slides-radix-form-controls-todo.md](./2026/06/20260621-slides-radix-form-controls-todo.md) | [20260621-slides-radix-form-controls-lessons.md](./2026/06/20260621-slides-radix-form-controls-lessons.md) |
 | slides undo redo churn (2026-06-21) | [20260621-slides-undo-redo-churn-todo.md](./2026/06/20260621-slides-undo-redo-churn-todo.md) | [20260621-slides-undo-redo-churn-lessons.md](./2026/06/20260621-slides-undo-redo-churn-lessons.md) |
 | a11y radix cleanup (2026-06-20) | [20260620-a11y-radix-cleanup-todo.md](./2026/06/20260620-a11y-radix-cleanup-todo.md) | [20260620-a11y-radix-cleanup-lessons.md](./2026/06/20260620-a11y-radix-cleanup-lessons.md) |
@@ -22,6 +27,7 @@ Total archived tasks: 295
 | docs comments polish (2026-06-20) | [20260620-docs-comments-polish-todo.md](./2026/06/20260620-docs-comments-polish-todo.md) | [20260620-docs-comments-polish-lessons.md](./2026/06/20260620-docs-comments-polish-lessons.md) |
 | release v0.4.6 (2026-06-20) | [20260620-release-v0.4.6-todo.md](./2026/06/20260620-release-v0.4.6-todo.md) | - |
 | slides animation (2026-06-20) | [20260620-slides-animation-todo.md](./2026/06/20260620-slides-animation-todo.md) | [20260620-slides-animation-lessons.md](./2026/06/20260620-slides-animation-lessons.md) |
+| slides format effects (2026-06-20) | [20260620-slides-format-effects-todo.md](./2026/06/20260620-slides-format-effects-todo.md) | [20260620-slides-format-effects-lessons.md](./2026/06/20260620-slides-format-effects-lessons.md) |
 | slides image crop (2026-06-20) | [20260620-slides-image-crop-todo.md](./2026/06/20260620-slides-image-crop-todo.md) | [20260620-slides-image-crop-lessons.md](./2026/06/20260620-slides-image-crop-lessons.md) |
 | slides notes live sync (2026-06-20) | [20260620-slides-notes-live-sync-todo.md](./2026/06/20260620-slides-notes-live-sync-todo.md) | [20260620-slides-notes-live-sync-lessons.md](./2026/06/20260620-slides-notes-live-sync-lessons.md) |
 | slides shape gaps (2026-06-20) | [20260620-slides-shape-gaps-todo.md](./2026/06/20260620-slides-shape-gaps-todo.md) | [20260620-slides-shape-gaps-lessons.md](./2026/06/20260620-slides-shape-gaps-lessons.md) |
@@ -63,7 +69,7 @@ Total archived tasks: 295
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (100 tasks)
+## 2026/05 (101 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -152,6 +158,7 @@ Total archived tasks: 295
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
+| slides phase5b 1 image (2026-05-07) | [20260507-slides-phase5b-1-image-todo.md](./2026/05/20260507-slides-phase5b-1-image-todo.md) | [20260507-slides-phase5b-1-image-lessons.md](./2026/05/20260507-slides-phase5b-1-image-lessons.md) |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |

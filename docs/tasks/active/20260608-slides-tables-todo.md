@@ -6,24 +6,28 @@ Bring structured table editing to `@wafflebase/slides` for PowerPoint
 and Google Slides parity. Replaces the current PPTX "flatten table"
 import path (`packages/slides/src/import/pptx/table.ts`) which loses
 merges, per-side borders, and structural fidelity. Benchmark deck:
-the Yorkie 캐즘 deck (tables on slides 24–27, 33–35).
+the Yorkie chasm deck (tables on slides 24–27, 33–35).
 
-## Status (2026-06-20)
+## Status (2026-06-23)
 
 P1–P4 are done. P5's granular Yorkie ops AND the two-user integration
-test are done; presence is deferred (see note below). P6 (PDF export)
-is blocked — slides has no PDF export module yet at all.
+test are done; table-cell presence is still deferred (see note below).
+P6 (PDF export) is unblocked and transitively covered; only the visual
+diff remains.
 
 Discovered while picking up P5/P6 (2026-06-20):
 
-- **Presence is a bigger feature than it looks.** The slides editor
-  renders NO peer-presence overlays today — `YorkieSlidesStore.getPeers()`
-  exists but nothing in `view/` consumes it, and there is no existing
-  `textCursor` presence field (the design doc's "extend existing
-  textCursor" premise does not hold). Adding `selectedTableCells` /
-  `textCursorCell` / `resizingTableEdge` is net-new peer-overlay
-  rendering for slides, not a field add. Deferred until slides grows a
-  peer-presence rendering layer (tracked in slides-collaboration.md).
+- **Presence is a bigger feature than it looks.** As of 2026-06-20 the
+  slides editor rendered NO peer-presence overlays — `getPeers()` existed
+  but nothing in `view/` consumed it, and there was no `textCursor`
+  presence field (the design doc's "extend existing textCursor" premise
+  did not hold). **Update (2026-06-23):** PR #390 landed the missing
+  peer-presence rendering layer (`packages/slides/src/view/editor/peers.ts`,
+  `overlay.ts` rings, frontend `peer-view.ts`), so the blocker is lifted.
+  The table-cell fields `selectedTableCells` / `textCursorCell` /
+  `resizingTableEdge` are still net-new work, but they now extend the
+  existing peer layer rather than waiting on it. Tracked here + in
+  slides-collaboration.md.
 - **P6 PDF export was blocked; now UNBLOCKED (2026-06-21).**
   `packages/slides/src/export/pdf.ts` did not exist — slides PDF export
   was itself an unstarted "Phase 5b" item. It now ships as a P0 raster
@@ -91,7 +95,7 @@ What landed (in commit order):
 - [x] Replace `tableMergesIgnored` / `tableBordersApproximated` with
       `tablesImported` / `tableCellsImported`
 - [x] Cover the PPTX mappings in the design doc's mapping table
-- [x] Import fixture test using the Yorkie 캐즘 deck slides 24–27, 33–35
+- [x] Import fixture test using the Yorkie chasm deck slides 24–27, 33–35
 
 ## P3 — Cell editing (text)
 
@@ -138,8 +142,9 @@ What landed (in commit order):
       updateTableColumnWidths, updateTableRowHeights,
       updateTableCellStyle, withTableCellBody)
 - [ ] Presence: `selectedTableCells`, `textCursorCell`,
-      `resizingTableEdge` (deferred — needs a slides peer-presence
-      rendering layer that does not exist yet; see Status note)
+      `resizingTableEdge` (still open — the peer-presence rendering layer
+      now exists as of PR #390, so this extends it rather than waiting on
+      it; see Status note)
 - [x] Two-user integration test — landed as
       `frontend/tests/app/slides/yorkie-slides-table-concurrent.integration.ts`
       (concurrent disjoint-cell edits, concurrent row insert,

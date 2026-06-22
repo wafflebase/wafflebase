@@ -18,12 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./active/20260621-comments-mentions-todo.md) | - |
-| slides live presence (2026-06-21) | [20260621-slides-live-presence-todo.md](./active/20260621-slides-live-presence-todo.md) | - |
-| slides native undo migration (2026-06-21) | [20260621-slides-native-undo-migration-todo.md](./active/20260621-slides-native-undo-migration-todo.md) | [20260621-slides-native-undo-migration-lessons.md](./active/20260621-slides-native-undo-migration-lessons.md) |
-| slides ooxml arrow geometry (2026-06-21) | [20260621-slides-ooxml-arrow-geometry-todo.md](./active/20260621-slides-ooxml-arrow-geometry-todo.md) | [20260621-slides-ooxml-arrow-geometry-lessons.md](./active/20260621-slides-ooxml-arrow-geometry-lessons.md) |
-| slides pdf export (2026-06-21) | [20260621-slides-pdf-export-todo.md](./active/20260621-slides-pdf-export-todo.md) | - |
-| slides format effects (2026-06-20) | [20260620-slides-format-effects-todo.md](./active/20260620-slides-format-effects-todo.md) | [20260620-slides-format-effects-lessons.md](./active/20260620-slides-format-effects-lessons.md) |
+| release v0.4.7 (2026-06-23) | [20260623-release-v0.4.7-todo.md](./active/20260623-release-v0.4.7-todo.md) | - |
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./active/20260608-slides-tables-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
@@ -35,7 +30,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 295
+- Archived task count: 302
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: comments mentions (2026-06-21)
+Latest active task: release v0.4.7 (2026-06-23)

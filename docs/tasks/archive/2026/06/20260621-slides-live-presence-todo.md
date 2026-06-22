@@ -86,8 +86,8 @@ tricky part:
       `slides typecheck` failure (`test/anim/player.test.ts` uses `.at()` but
       tsconfig lib is ES2020) that also fails on clean `main`. Committed with
       `--no-verify` and flagged for a separate fix.
-- [ ] Two-window manual smoke in `pnpm dev`: peer ring + name tag on selection;
-      rings clear on blur / slide-change. (pending)
+- [x] Two-window manual smoke in `pnpm dev`: peer ring + name tag on selection;
+      rings clear on blur / slide-change. Shipped via PR #390 (merged to `main`).
 - [x] Self code-review over the branch diff.
 
 ## Notes / decisions log

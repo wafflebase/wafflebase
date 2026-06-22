@@ -1,5 +1,16 @@
 # Slides Phase 5b-1 (Image Input) Implementation Plan
 
+> **STATUS — SHIPPED via PR #399 (merged to `main`).** The three image
+> input paths (toolbar picker, drag-drop, clipboard paste) all landed.
+> The step-by-step plan below was **superseded**: the implementation
+> deviated from the proposed `SlidesEditor.insertImage` / slides-package
+> `image-frame.ts` architecture and instead landed the insert policy in
+> the frontend (`insert-image.ts` + `slides-image-input.ts`). See the
+> "Continuation (2026-06-21): gap analysis + what shipped" section at the
+> bottom for the as-built mapping. The plan-step boxes are ticked
+> retroactively to reflect that every objective shipped (renamed from
+> `-plan` to `-todo` so it can archive). Closed in the v0.4.7 release pass.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development.
 
 **Goal:** Land the three image input paths the spec calls for —
@@ -79,7 +90,7 @@ default frame:
 
 Pure math; no canvas or store dependencies.
 
-- [ ] **Step 1: Failing test (default frame for an oversized image)**
+- [x] **Step 1: Failing test (default frame for an oversized image)**
 
 ```ts
 // packages/slides/src/model/image-frame.test.ts
@@ -100,7 +111,7 @@ describe('computeImageFrame', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```ts
 // packages/slides/src/model/image-frame.ts
@@ -138,7 +149,7 @@ export function computeImageFrame(
 }
 ```
 
-- [ ] **Step 3: More test coverage**
+- [x] **Step 3: More test coverage**
 
 ```ts
   it('uses natural size 1:1 for images smaller than the cap', () => {
@@ -163,7 +174,7 @@ export function computeImageFrame(
   });
 ```
 
-- [ ] **Step 4: Run + commit**
+- [x] **Step 4: Run + commit**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/image-frame.test.ts
@@ -184,7 +195,7 @@ Public method on the editor that wraps `computeImageFrame` +
 `store.addElement`, returns the new element id, and selects it. The
 frontend image input paths all funnel through this one entry.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 Append to `editor.test.ts`:
 
@@ -218,13 +229,13 @@ Append to `editor.test.ts`:
 (Import `ImageElement` from `../../model/element`. Add to existing
 imports rather than duplicating.)
 
-- [ ] **Step 2: Run test, expect FAIL on `editor.insertImage` not defined**
+- [x] **Step 2: Run test, expect FAIL on `editor.insertImage` not defined**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/view/editor/editor.test.ts -t insertImage
 ```
 
-- [ ] **Step 3: Add the method to the `SlidesEditor` interface**
+- [x] **Step 3: Add the method to the `SlidesEditor` interface**
 
 In `editor.ts` near the other public methods on the `SlidesEditor`
 interface (around the `setInsertMode` declaration), add:
@@ -248,7 +259,7 @@ interface (around the `setInsertMode` declaration), add:
   ): string;
 ```
 
-- [ ] **Step 4: Implement on the impl class**
+- [x] **Step 4: Implement on the impl class**
 
 Inside `SlidesEditorImpl`, add:
 
@@ -281,7 +292,7 @@ Add the import at the top:
 import { computeImageFrame } from '../../model/image-frame';
 ```
 
-- [ ] **Step 5: Run + commit**
+- [x] **Step 5: Run + commit**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/view/editor/editor.test.ts
@@ -315,7 +326,7 @@ Mirrors the docs `image-insert.ts` shape for slides:
   case the docs editor's own listeners handle paste / drop). Returns
   a cleanup function.
 
-- [ ] **Step 1: Failing test (upload + insert smoke)**
+- [x] **Step 1: Failing test (upload + insert smoke)**
 
 ```ts
 // packages/frontend/tests/app/slides/slides-image-input.test.ts
@@ -359,13 +370,13 @@ describe('insertImageFromFile', () => {
 `packages/frontend/vitest.config.ts` — confirm with
 `pnpm --filter @wafflebase/frontend test`.)
 
-- [ ] **Step 2: Run, expect FAIL on missing module**
+- [x] **Step 2: Run, expect FAIL on missing module**
 
 ```bash
 pnpm --filter @wafflebase/frontend test slides-image-input
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // packages/frontend/src/app/slides/slides-image-input.ts
@@ -497,7 +508,7 @@ function pickImageFile(dt: DataTransfer | null): File | null {
 }
 ```
 
-- [ ] **Step 4: Run + commit**
+- [x] **Step 4: Run + commit**
 
 ```bash
 pnpm --filter @wafflebase/frontend test slides-image-input
@@ -518,7 +529,7 @@ accept="image/*">` and feeds the picked file through
 `insertImageFromFile`. `setupSlidesImagePaths` is wired once on
 mount with the existing `canvasWrap` div as the listener host.
 
-- [ ] **Step 1: Add a toolbar button + file picker**
+- [x] **Step 1: Add a toolbar button + file picker**
 
 Inside the toolbar setup block (after the existing
 `insertKinds` loop that creates rect/ellipse/line/arrow/text
@@ -563,7 +574,7 @@ import {
 } from "./slides-image-input";
 ```
 
-- [ ] **Step 2: Wire drag-drop + paste**
+- [x] **Step 2: Wire drag-drop + paste**
 
 After the editor is initialised (`const editor = initializeEditor({
 ... })` line), add:
@@ -579,7 +590,7 @@ After the editor is initialised (`const editor = initializeEditor({
 In the `useEffect`'s cleanup return, add `cleanupImagePaths();`
 before the existing teardown.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Local dev (the test harness covers the unit logic; there's no
 substitute for actually inserting an image):
@@ -598,7 +609,7 @@ In a slides document:
    actions should NOT insert an image (text-box owns input). Drop
    does nothing; paste pastes text into the text-box.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/slides-view.tsx
@@ -609,18 +620,18 @@ git commit -m "Wire slides image input — toolbar, drag-drop, paste"
 
 ## Task 5: Verify gate + checklist tick
 
-- [ ] **Step 1: Run the full pre-commit gate**
+- [x] **Step 1: Run the full pre-commit gate**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 2: Tick item 5.3 in the master todo**
+- [x] **Step 2: Tick item 5.3 in the master todo**
 
 In `docs/tasks/active/20260505-slides-package-mvp-todo.md`, change
 
 ```
-- [ ] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
+- [x] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
 ```
 
 to
@@ -629,7 +640,7 @@ to
 - [x] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
 ```
 
-- [ ] **Step 3: Commit + push**
+- [x] **Step 3: Commit + push**
 
 ```bash
 git add docs/tasks/active/20260505-slides-package-mvp-todo.md

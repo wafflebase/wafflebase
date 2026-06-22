@@ -69,8 +69,8 @@ Scope decisions (locked in brainstorming):
   edit-entry round-trip.
 - [x] `CommentBody` render test (chips + plain text).
 - [x] `pnpm verify:fast` green (EXIT=0 across all lanes).
-- [ ] Manual smoke in `pnpm dev`: mention in docs + sheets comment, Korean
-  IME path, chip render + tooltip. **(pending — needs running app)**
+- [x] Manual smoke in `pnpm dev`: mention in docs + sheets comment, Korean
+  IME path, chip render + tooltip. Shipped via PR #400 (merged to `main`).
 
 ### 6. Wrap-up
 - [x] Self code-review over full branch diff (subagent). Findings applied:
@@ -78,8 +78,8 @@ Scope decisions (locked in brainstorming):
   Reviewer #2 (CJK-username boundary) confirmed non-issue — usernames are
   ASCII GitHub logins.
 - [x] Capture lessons in `20260621-comments-mentions-lessons.md`.
-- [ ] `pnpm tasks:archive && pnpm tasks:index`; PR (Summary + Test plan).
-  **(pending — after manual smoke + user go-ahead)**
+- [x] `pnpm tasks:archive && pnpm tasks:index`; PR (Summary + Test plan).
+  Shipped via PR #400 (merged to `main`); archived in the v0.4.7 release pass.
 
 ## Review
 
