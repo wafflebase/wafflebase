@@ -6,13 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 303
+Total archived tasks: 309
 
-## 2026/06 (57 tasks)
+## 2026/06 (62 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| design archive policy (2026-06-23) | [20260623-design-archive-policy-todo.md](./2026/06/20260623-design-archive-policy-todo.md) | [20260623-design-archive-policy-lessons.md](./2026/06/20260623-design-archive-policy-lessons.md) |
 | release v0.4.7 (2026-06-23) | [20260623-release-v0.4.7-todo.md](./2026/06/20260623-release-v0.4.7-todo.md) | - |
+| slides cli phase1 (2026-06-23) | [20260623-slides-cli-phase1-todo.md](./2026/06/20260623-slides-cli-phase1-todo.md) | [20260623-slides-cli-phase1-lessons.md](./2026/06/20260623-slides-cli-phase1-lessons.md) |
+| slides pptx export (2026-06-23) | [20260623-slides-pptx-export-todo.md](./2026/06/20260623-slides-pptx-export-todo.md) | [20260623-slides-pptx-export-lessons.md](./2026/06/20260623-slides-pptx-export-lessons.md) |
 | comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./2026/06/20260621-comments-mentions-todo.md) | [20260621-comments-mentions-lessons.md](./2026/06/20260621-comments-mentions-lessons.md) |
 | dependabot alerts (2026-06-21) | [20260621-dependabot-alerts-todo.md](./2026/06/20260621-dependabot-alerts-todo.md) | - |
 | slides live presence (2026-06-21) | [20260621-slides-live-presence-todo.md](./2026/06/20260621-slides-live-presence-todo.md) | - |
@@ -38,6 +41,7 @@ Total archived tasks: 303
 | slides color picker recent (2026-06-17) | [20260617-slides-color-picker-recent-todo.md](./2026/06/20260617-slides-color-picker-recent-todo.md) | [20260617-slides-color-picker-recent-lessons.md](./2026/06/20260617-slides-color-picker-recent-lessons.md) |
 | slides cell edit overflow (2026-06-16) | [20260616-slides-cell-edit-overflow-todo.md](./2026/06/20260616-slides-cell-edit-overflow-todo.md) | [20260616-slides-cell-edit-overflow-lessons.md](./2026/06/20260616-slides-cell-edit-overflow-lessons.md) |
 | slides cell edit shrink (2026-06-16) | [20260616-slides-cell-edit-shrink-todo.md](./2026/06/20260616-slides-cell-edit-shrink-todo.md) | [20260616-slides-cell-edit-shrink-lessons.md](./2026/06/20260616-slides-cell-edit-shrink-lessons.md) |
+| slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./2026/06/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./2026/06/20260616-slides-fonts-lessons.md) |
 | slides shared mobile view (2026-06-16) | [20260616-slides-shared-mobile-view-todo.md](./2026/06/20260616-slides-shared-mobile-view-todo.md) | - |
 | slides textbox border (2026-06-15) | [20260615-slides-textbox-border-todo.md](./2026/06/20260615-slides-textbox-border-todo.md) | - |
 | multi select resize (2026-06-12) | [20260612-multi-select-resize-todo.md](./2026/06/20260612-multi-select-resize-todo.md) | [20260612-multi-select-resize-lessons.md](./2026/06/20260612-multi-select-resize-lessons.md) |
@@ -53,6 +57,7 @@ Total archived tasks: 303
 | docs pending summary merge (2026-06-08) | [20260608-docs-pending-summary-merge-todo.md](./2026/06/20260608-docs-pending-summary-merge-todo.md) | [20260608-docs-pending-summary-merge-lessons.md](./2026/06/20260608-docs-pending-summary-merge-lessons.md) |
 | release v0.4.4 (2026-06-08) | [20260608-release-v0.4.4-todo.md](./2026/06/20260608-release-v0.4.4-todo.md) | - |
 | slides dark theme on create (2026-06-08) | [20260608-slides-dark-theme-on-create-todo.md](./2026/06/20260608-slides-dark-theme-on-create-todo.md) | [20260608-slides-dark-theme-on-create-lessons.md](./2026/06/20260608-slides-dark-theme-on-create-lessons.md) |
+| slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./2026/06/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./2026/06/20260608-slides-tables-lessons.md) |
 | cmd slash shortcuts help (2026-06-07) | [20260607-cmd-slash-shortcuts-help-todo.md](./2026/06/20260607-cmd-slash-shortcuts-help-todo.md) | [20260607-cmd-slash-shortcuts-help-lessons.md](./2026/06/20260607-cmd-slash-shortcuts-help-lessons.md) |
 | color palette auto close (2026-06-07) | [20260607-color-palette-auto-close-todo.md](./2026/06/20260607-color-palette-auto-close-todo.md) | [20260607-color-palette-auto-close-lessons.md](./2026/06/20260607-color-palette-auto-close-lessons.md) |
 | document list presence (2026-06-07) | [20260607-document-list-presence-todo.md](./2026/06/20260607-document-list-presence-todo.md) | [20260607-document-list-presence-lessons.md](./2026/06/20260607-document-list-presence-lessons.md) |
@@ -70,7 +75,7 @@ Total archived tasks: 303
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (101 tasks)
+## 2026/05 (102 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -163,6 +168,7 @@ Total archived tasks: 303
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |
+| slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./2026/05/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./2026/05/20260505-slides-package-mvp-lessons.md) |
 | undo destroys initial block (2026-05-05) | [20260505-undo-destroys-initial-block-todo.md](./2026/05/20260505-undo-destroys-initial-block-todo.md) | - |
 | release 0.3.7 (2026-05-04) | [20260504-release-0.3.7-todo.md](./2026/05/20260504-release-0.3.7-todo.md) | - |
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |

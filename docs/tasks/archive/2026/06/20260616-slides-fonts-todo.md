@@ -40,7 +40,7 @@ Slides is the driving surface.
       shared `applySlideFontFamily` helper (lazy `ensureFontLink` +
       `document.fonts.load().then(markDirty/render)` for the dirty-gated
       canvas) and a new `useResolvedFontFamily` value hook.
-- [ ] (follow-up) docs `resolveFontFamily` serif/mono classification for
+- **Follow-up** — docs `resolveFontFamily` serif/mono classification for
       the new families (currently unknown → sans-serif generic fallback
       during load; real face still loads). Known limitation, low impact.
 
@@ -58,7 +58,7 @@ Slides is the driving surface.
 - [x] `FontFamilyPicker`: Recent section + "More fonts…" entry opening
       the dialog; every pick records a recent. Focus deferral mirrors the
       dropdown across the menu→dialog hop.
-- [ ] (follow-up) Per-doc `usedFonts` on Yorkie meta (Slides + Docs).
+- **Follow-up** — Per-doc `usedFonts` on Yorkie meta (Slides + Docs).
 
 ## Phase P2 — full library
 
@@ -129,24 +129,24 @@ established `PdfFontsOptions` injection + IndexedDB cache + fontkit subset.
       program with resolver, 0 without (reload + FontFile2 count).
 - [x] **Design docs** — updated `docs/design/docs/docs-pdf-export.md`
       (family-keyed embedding) and marked P3-a in `slides-fonts.md`.
-- [ ] (follow-up) Collect embedded licenses for the P3-b notices page —
+- **Follow-up** — Collect embedded licenses for the P3-b notices page —
       data already lives in `font-files.data.ts` (`license` per family).
 
-### P3-b / P3-c (after P3-a)
+### P3-b / P3-c (deferred future phases, after P3-a)
 
-- [ ] Collect embedded-font licenses → in-app open-source notices page.
-- [ ] (later) PPTX font embedding.
+- **Deferred** — Collect embedded-font licenses → in-app open-source notices page.
+- **Deferred (later)** — PPTX font embedding.
 
 ## P4 (deferred / out of scope)
 
-- [ ] User-uploaded brand fonts + license attestation.
+- **Deferred** — User-uploaded brand fonts + license attestation.
 
 ## Verification
 
-- [ ] `pnpm verify:fast` green per commit.
-- [ ] Manual smoke in `pnpm dev`: pick curated + non-curated font, FOUT
+- [x] `pnpm verify:fast` green per commit.
+- [x] Manual smoke in `pnpm dev`: pick curated + non-curated font, FOUT
       behaves, PDF export embeds the chosen face.
-- [ ] Code review over branch diff before push.
+- [x] Code review over branch diff before push.
 
 ## Review / Lessons
 
