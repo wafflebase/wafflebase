@@ -250,19 +250,16 @@ import {
 } from './banners/left-right-ribbon';
 import {
   buildBorderCallout1,
-  buildBorderCallout1Outline,
   BORDER_CALLOUT_1_ADJUSTMENTS,
   BORDER_CALLOUT_1_HANDLES,
 } from './callouts/border-callout-1';
 import {
   buildBorderCallout2,
-  buildBorderCallout2Outline,
   BORDER_CALLOUT_2_ADJUSTMENTS,
   BORDER_CALLOUT_2_HANDLES,
 } from './callouts/border-callout-2';
 import {
   buildBorderCallout3,
-  buildBorderCallout3Outline,
   BORDER_CALLOUT_3_ADJUSTMENTS,
   BORDER_CALLOUT_3_HANDLES,
 } from './callouts/border-callout-3';
@@ -517,11 +514,8 @@ FACE_BUILDERS.set('verticalScroll', buildVerticalScrollFaces);
 PATH_BUILDERS.set('leftRightRibbon', buildLeftRightRibbon);
 FACE_BUILDERS.set('leftRightRibbon', buildLeftRightRibbonFaces);
 PATH_BUILDERS.set('borderCallout1', buildBorderCallout1);
-OUTLINE_BUILDERS.set('borderCallout1', buildBorderCallout1Outline);
 PATH_BUILDERS.set('borderCallout2', buildBorderCallout2);
-OUTLINE_BUILDERS.set('borderCallout2', buildBorderCallout2Outline);
 PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
-OUTLINE_BUILDERS.set('borderCallout3', buildBorderCallout3Outline);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);

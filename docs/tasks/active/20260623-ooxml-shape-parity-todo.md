@@ -101,6 +101,17 @@ was regenerated per commit and diffed to confirm only the intended shape keys
 changed each time. Full `slides test` green (2361). `slides typecheck` clean
 apart from the pre-existing `test/anim/player.test.ts` `.at()` gate gap.
 
+### Reverted after visual review (looked worse than before)
+- **borderCallout1/2/3** — the OOXML line-leader (full rect + thin leader to a
+  target *outside* the frame) renders badly here: this app keeps callout
+  pointers *inside* the frame (cf. wedgeRectCallout), so the leader showed as a
+  stubby diagonal trapped in the box. Reverted to the original filled-wedge
+  pointer, which fits the renderer. (Supersedes the earlier "match OOXML" call —
+  the abstract choice lost to the actual rendered result.)
+- **mathNotEqual** — the OOXML `crAng` slash-angle port rendered as a chunky,
+  broken diagonal. Reverted to the prior clean fixed-angle slash (audit had
+  rated the old one acceptable/MINOR anyway).
+
 ### Deliberately kept as-is (not bugs)
 - **upDownArrow** — uses a hardcoded `shaftHalf` ratio + anti-bowtie default
   (documented in the file) to avoid the shape collapsing at default; OOXML's

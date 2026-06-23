@@ -7,62 +7,36 @@ import { adj } from '../builder';
 import { insetAlongAxis } from '../handles';
 
 /**
- * `borderCallout1` — ECMA-376 OOXML preset. The body is a FULL-FRAME
- * rectangle `(0,0,w,h)`; a thin, UNFILLED leader line runs from an
- * interior anchor point to the callout target. OOXML defines two leader
- * points: `(x1,y1)` (interior anchor) and `(x2,y2)` (target). The
- * renderer fills `PATH_BUILDERS[kind]` (the rect) and, when an
- * `OUTLINE_BUILDERS[kind]` exists, strokes THAT instead — so the leader
- * shows as a line and is never filled.
- *
- * Wafflebase keeps a reduced 2-adjustment spec: target x / target y
- * (fraction of w/h, OOXML thousandths). The interior anchor is fixed at
- * OOXML's default first point.
+ * `borderCallout1` — rectangle body + single-segment wedge tail
+ * pointing to a callout target. The rect takes the top 75% of the
+ * frame; the tail extends from the rect's bottom-mid to the target
+ * point. V0: 2 adjustments — target x (fraction of w) and target
+ * y (fraction of h). OOXML's full 4-adjustment definition (start
+ * + target) is reduced to "target only" for now; the start point
+ * is fixed at the rect's bottom midpoint.
  */
 export const BORDER_CALLOUT_1_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Target x', defaultValue: 18750, min: -50000, max: 150000, axisLabel: 'x' },
   { name: 'Target y', defaultValue: 112500, min: -50000, max: 150000, axisLabel: 'y' },
 ];
 
-// OOXML default interior anchor point (x1,y1): adj2=-8333 (x), adj1=18750 (y).
-const ANCHOR_X_FRAC = -8333 / 100000;
-const ANCHOR_Y_FRAC = 18750 / 100000;
+const BODY_FRAC = 0.75; // rect occupies the top 75% of the frame
 
-/**
- * Filled body + hit region: the full frame rectangle only. The leader
- * line lives in the outline builder so it is stroked, not filled.
- */
-export const buildBorderCallout1: PathBuilder = ({ w, h }) => {
-  const path = new Path2D();
-  path.moveTo(0, 0);
-  path.lineTo(w, 0);
-  path.lineTo(w, h);
-  path.lineTo(0, h);
-  path.closePath();
-  return path;
-};
-
-/**
- * Stroked outline: the rectangle border plus the straight (2-point)
- * leader from the interior anchor to the target. This is what the
- * renderer strokes (via OUTLINE_BUILDERS), so the leader is a line and
- * is never filled.
- */
-export const buildBorderCallout1Outline: PathBuilder = ({ w, h }, adjustments) => {
+export const buildBorderCallout1: PathBuilder = ({ w, h }, adjustments) => {
   const tx = (adj(adjustments, 0, BORDER_CALLOUT_1_ADJUSTMENTS[0].defaultValue) / 100000) * w;
   const ty = (adj(adjustments, 1, BORDER_CALLOUT_1_ADJUSTMENTS[1].defaultValue) / 100000) * h;
-  const ax = ANCHOR_X_FRAC * w;
-  const ay = ANCHOR_Y_FRAC * h;
+  const bodyH = h * BODY_FRAC;
+  const tailWidth = w * 0.04;
+  const startX = w / 2;
   const path = new Path2D();
-  // Rectangle border.
   path.moveTo(0, 0);
   path.lineTo(w, 0);
-  path.lineTo(w, h);
-  path.lineTo(0, h);
-  path.closePath();
-  // Leader polyline: interior anchor → target (straight).
-  path.moveTo(ax, ay);
+  path.lineTo(w, bodyH);
+  path.lineTo(startX + tailWidth, bodyH);
   path.lineTo(tx, ty);
+  path.lineTo(startX - tailWidth, bodyH);
+  path.lineTo(0, bodyH);
+  path.closePath();
   return path;
 };
 

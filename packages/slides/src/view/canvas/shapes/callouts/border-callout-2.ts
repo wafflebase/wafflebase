@@ -7,15 +7,8 @@ import { adj } from '../builder';
 import { insetAlongAxis } from '../handles';
 
 /**
- * `borderCallout2` — ECMA-376 OOXML preset. FULL-FRAME rectangle body
- * plus a thin UNFILLED leader with one bend: interior anchor → bend →
- * target (3 points). OOXML defines the leader as `(x1,y1)`,`(x2,y2)`,
- * `(x3,y3)`; the renderer fills the rect (PATH_BUILDERS) and strokes the
- * outline (OUTLINE_BUILDERS), so the leader is a line and never filled.
- *
- * Wafflebase keeps a reduced 4-adjustment spec: bend (x,y) + target
- * (x,y), fractions of w/h (OOXML thousandths). The interior anchor is
- * fixed at OOXML's default first point.
+ * `borderCallout2` — rect body + two-segment tail with one mid-bend.
+ * V0: 4 adjustments (bend point + target point).
  */
 export const BORDER_CALLOUT_2_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Bend x', defaultValue: 18750, min: -50000, max: 150000, axisLabel: 'bendX' },
@@ -24,43 +17,27 @@ export const BORDER_CALLOUT_2_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Target y', defaultValue: 112500, min: -50000, max: 150000, axisLabel: 'targetY' },
 ];
 
-// OOXML default interior anchor point (x1,y1): adj2=-8333 (x), adj1=18750 (y).
-const ANCHOR_X_FRAC = -8333 / 100000;
-const ANCHOR_Y_FRAC = 18750 / 100000;
+const BODY_FRAC = 0.75;
 
-/** Filled body + hit region: the full frame rectangle only. */
-export const buildBorderCallout2: PathBuilder = ({ w, h }) => {
-  const path = new Path2D();
-  path.moveTo(0, 0);
-  path.lineTo(w, 0);
-  path.lineTo(w, h);
-  path.lineTo(0, h);
-  path.closePath();
-  return path;
-};
-
-/**
- * Stroked outline: rectangle border + leader polyline with one bend
- * (interior anchor → bend → target). Stroked, never filled.
- */
-export const buildBorderCallout2Outline: PathBuilder = ({ w, h }, adjustments) => {
+export const buildBorderCallout2: PathBuilder = ({ w, h }, adjustments) => {
   const bx = (adj(adjustments, 0, BORDER_CALLOUT_2_ADJUSTMENTS[0].defaultValue) / 100000) * w;
   const by = (adj(adjustments, 1, BORDER_CALLOUT_2_ADJUSTMENTS[1].defaultValue) / 100000) * h;
   const tx = (adj(adjustments, 2, BORDER_CALLOUT_2_ADJUSTMENTS[2].defaultValue) / 100000) * w;
   const ty = (adj(adjustments, 3, BORDER_CALLOUT_2_ADJUSTMENTS[3].defaultValue) / 100000) * h;
-  const ax = ANCHOR_X_FRAC * w;
-  const ay = ANCHOR_Y_FRAC * h;
+  const bodyH = h * BODY_FRAC;
+  const tailWidth = w * 0.03;
+  const startX = w / 2;
   const path = new Path2D();
-  // Rectangle border.
   path.moveTo(0, 0);
   path.lineTo(w, 0);
-  path.lineTo(w, h);
-  path.lineTo(0, h);
-  path.closePath();
-  // Leader polyline: anchor → bend → target.
-  path.moveTo(ax, ay);
-  path.lineTo(bx, by);
+  path.lineTo(w, bodyH);
+  path.lineTo(startX + tailWidth, bodyH);
+  path.lineTo(bx + tailWidth, by);
   path.lineTo(tx, ty);
+  path.lineTo(bx - tailWidth, by);
+  path.lineTo(startX - tailWidth, bodyH);
+  path.lineTo(0, bodyH);
+  path.closePath();
   return path;
 };
 
