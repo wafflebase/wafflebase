@@ -2,13 +2,13 @@ import type { PathBuilder } from '../builder';
 
 /**
  * `flowChartDelay` — rectangle on the left joined to a right-side
- * semi-ellipse forming a "D". Semi-ellipse radius
- * `rx = min(h/2, w)`, vertical radius `h/2`. When the frame is
- * narrower than its height, the curve consumes the full width
- * gracefully.
+ * semi-ellipse forming a "D". Per ECMA-376 the cap is centred at
+ * `hc = w/2` with horizontal radius `wd2 = w/2` and vertical radius
+ * `hd2 = h/2`, so the curved right half is exactly a semi-ellipse
+ * (the flat top/bottom run from the left edge to mid-width).
  */
 export const buildFlowChartDelay: PathBuilder = ({ w, h }) => {
-  const rx = Math.min(h / 2, w);
+  const rx = w / 2;
   const ry = h / 2;
   const flatX = w - rx;
   const cy = h / 2;

@@ -200,3 +200,35 @@ export function linearTopEdgeHandle(opts: {
     },
   };
 }
+
+/**
+ * Mirror of `linearTopEdgeHandle` for adjustments whose diamond
+ * slides along the BOTTOM edge as the value changes — e.g. the
+ * bottom-pair chamfer/round of `snip2SameRect` / `round2SameRect`.
+ * Forward maps the adjustment to an x coordinate; inverse maps a
+ * pointer x back to the adjustment unit. The y is pinned to `h`.
+ */
+export function linearBottomEdgeHandle(opts: {
+  forward: (adj: number, frame: FrameSize) => number;
+  inverse: (x: number, frame: FrameSize) => number;
+  spec: AdjustmentSpec;
+  index?: number;
+}): AdjustmentHandle {
+  const { forward, inverse, spec, index = 0 } = opts;
+  return {
+    position: (frame, adjustments) => ({
+      x: insetAlongAxis(
+        forward(adjustments[index] ?? spec.defaultValue, frame),
+        frame.w,
+      ),
+      y: frame.h,
+    }),
+    apply: (frame, start, pointer) => {
+      const raw = Math.round(inverse(pointer.x, frame));
+      const clamped = Math.max(spec.min, Math.min(spec.max, raw));
+      const result = [...start];
+      result[index] = clamped;
+      return result;
+    },
+  };
+}

@@ -1,23 +1,45 @@
 import type { PathBuilder } from '../builder';
 
 /**
- * `flowChartTerminator` — pill shape (rounded rectangle with corner
- * radius = `min(w, h) / 2`, i.e. fully rounded ends). Identical to
- * `roundRect` at maximum corner radius; kept as a distinct kind so
- * the OOXML preset round-trips.
+ * `flowChartTerminator` — stadium with half-ELLIPSE caps, not a pill.
+ * Per ECMA-376 the cap horizontal radius is `wR = 3475/21600 * w`
+ * (≈ 0.1609 w) and the vertical radius is `hR = h/2`. On a square
+ * box this reads as a rounded rect, but on a wide box the curved
+ * ends only reach ~0.16 w in from each side (they are squashed
+ * ellipses, never semicircles).
  */
+const CAP_RATIO = 3475 / 21600;
+
 export const buildFlowChartTerminator: PathBuilder = ({ w, h }) => {
-  const r = Math.min(w, h) / 2;
+  const rx = w * CAP_RATIO;
+  const ry = h / 2;
+  const cy = h / 2;
+  const leftCx = rx;
+  const rightCx = w - rx;
+  const segments = 32;
   const path = new Path2D();
-  path.moveTo(r, 0);
-  path.lineTo(w - r, 0);
-  path.quadraticCurveTo(w, 0, w, r);
-  path.lineTo(w, h - r);
-  path.quadraticCurveTo(w, h, w - r, h);
-  path.lineTo(r, h);
-  path.quadraticCurveTo(0, h, 0, h - r);
-  path.lineTo(0, r);
-  path.quadraticCurveTo(0, 0, r, 0);
+
+  // Top straight edge, left cap centre to right cap centre.
+  path.moveTo(leftCx, 0);
+  path.lineTo(rightCx, 0);
+
+  // Right cap: top (-90°) sweeping clockwise to bottom (+90°).
+  for (let i = 1; i <= segments; i++) {
+    const t = i / segments;
+    const angle = -Math.PI / 2 + t * Math.PI;
+    path.lineTo(rightCx + rx * Math.cos(angle), cy + ry * Math.sin(angle));
+  }
+
+  // Bottom straight edge.
+  path.lineTo(leftCx, h);
+
+  // Left cap: bottom (+90°) sweeping clockwise to top (+270°).
+  for (let i = 1; i <= segments; i++) {
+    const t = i / segments;
+    const angle = Math.PI / 2 + t * Math.PI;
+    path.lineTo(leftCx + rx * Math.cos(angle), cy + ry * Math.sin(angle));
+  }
+
   path.closePath();
   return path;
 };
