@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 
 /**
- * Build a rich .pptx in-memory covering 6 element types across 6 slides:
+ * Build a rich .pptx in-memory covering 6 element types across 7 slides:
  *
  *   Slide 1 — preset shape (roundRect) with red fill and "Hello" text
  *   Slide 2 — text box (txBox=1) with bold "TextBox content"
@@ -9,6 +9,8 @@ import JSZip from 'jszip';
  *   Slide 4 — image (<p:pic>) referencing a 1×1 PNG
  *   Slide 5 — group (<p:grpSp>) containing a blue rect child
  *   Slide 6 — straight connector (<p:cxnSp>) with green stroke
+ *   Slide 7 — text box exercising lineHeight, marL/indent, highlight, and
+ *              bullet marker (buClr/buSzPts/buFont) round-trip fields
  *
  * Used by round-trip tests so no real .pptx binary needs to be checked in.
  */
@@ -38,6 +40,8 @@ export async function buildRichPptx(): Promise<ArrayBuffer> {
   zip.file('ppt/slides/_rels/slide5.xml.rels', SLIDE_RELS_BASIC);
   zip.file('ppt/slides/slide6.xml', SLIDE6);
   zip.file('ppt/slides/_rels/slide6.xml.rels', SLIDE_RELS_BASIC);
+  zip.file('ppt/slides/slide7.xml', SLIDE7);
+  zip.file('ppt/slides/_rels/slide7.xml.rels', SLIDE_RELS_BASIC);
 
   // Image referenced by slide 4.
   zip.file('ppt/media/image1.png', PNG_1X1);
@@ -77,6 +81,7 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Override PartName="/ppt/slides/slide4.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
   <Override PartName="/ppt/slides/slide5.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
   <Override PartName="/ppt/slides/slide6.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+  <Override PartName="/ppt/slides/slide7.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
 </Types>`;
 
 const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -84,7 +89,7 @@ const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
 </Relationships>`;
 
-// rId1 = slideMaster, rId2–rId7 = slides 1–6, rId8 = theme
+// rId1 = slideMaster, rId2–rId8 = slides 1–7, rId9 = theme
 const PRESENTATION = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
@@ -95,6 +100,7 @@ const PRESENTATION = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <p:sldId id="259" r:id="rId5"/>
     <p:sldId id="260" r:id="rId6"/>
     <p:sldId id="261" r:id="rId7"/>
+    <p:sldId id="262" r:id="rId8"/>
   </p:sldIdLst>
   <p:sldSz cx="12192000" cy="6858000"/>
   <p:notesSz cx="6858000" cy="9144000"/>
@@ -109,7 +115,8 @@ const PRESENTATION_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
   <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide4.xml"/>
   <Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide5.xml"/>
   <Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide6.xml"/>
-  <Relationship Id="rId8" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+  <Relationship Id="rId8" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide7.xml"/>
+  <Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
 </Relationships>`;
 
 // ---------------------------------------------------------------------------
@@ -340,6 +347,61 @@ const SLIDE6 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <a:ln w="12700"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:ln>
         </p:spPr>
       </p:cxnSp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+/**
+ * Slide 7: text box exercising the four formerly-excluded round-trip fields:
+ *
+ *   Para 1 — lineHeight=1.5 via <a:lnSpc><a:spcPct val="150000"/>
+ *             marginLeft=48px via <a:pPr marL="457200"> (457200 ÷ 9525 ≈ 48)
+ *             textIndent=-48px via <a:pPr indent="-457200"> (-457200 ÷ 9525 ≈ -48)
+ *             run with backgroundColor yellow via <a:highlight><a:srgbClr val="FFFF00"/>
+ *   Para 2 — unordered list with full bullet marker:
+ *             buClr red (#FF0000), buSzPts 12pt (val="1200"), buFont Arial,
+ *             buChar "•"
+ */
+const SLIDE7 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="TextBox 7"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="457200"/><a:ext cx="4572000" cy="1828800"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr><a:spAutoFit/></a:bodyPr>
+          <a:p>
+            <a:pPr algn="l" marL="457200" indent="-457200">
+              <a:lnSpc><a:spcPct val="150000"/></a:lnSpc>
+            </a:pPr>
+            <a:r>
+              <a:rPr>
+                <a:highlight><a:srgbClr val="FFFF00"/></a:highlight>
+              </a:rPr>
+              <a:t>Highlighted text with spacing</a:t>
+            </a:r>
+          </a:p>
+          <a:p>
+            <a:pPr algn="l">
+              <a:buClr><a:srgbClr val="FF0000"/></a:buClr>
+              <a:buSzPts val="1200"/>
+              <a:buFont typeface="Arial"/>
+              <a:buChar char="&#x2022;"/>
+            </a:pPr>
+            <a:r>
+              <a:rPr/>
+              <a:t>Bullet with custom marker</a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
     </p:spTree>
   </p:cSld>
 </p:sld>`;

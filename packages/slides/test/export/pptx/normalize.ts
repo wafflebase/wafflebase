@@ -34,31 +34,16 @@ const CONNECTOR_ENDPOINT_NORMALIZED = { kind: '_normalized' } as const;
  *   re-import both endpoints become `free` endpoints computed from frame
  *   corners, so the comparison must ignore them entirely.
  *
- * **`inline.style.backgroundColor`** — imported from `<a:highlight>` but
- *   the exporter has no `<a:highlight>` output path; dropped.
- *
  * **`inline.style.href`** — imported from `<a:hlinkClick>` but exported
  *   as an empty `r:id=""` relationship that resolves to nothing on
- *   re-import; dropped.
+ *   re-import; dropped. v1 deferral: exporter does not yet wire hyperlink
+ *   relationship ids.
  *
- * **`block.style.lineHeight`** — imported from `<a:lnSpc>` but not
- *   serialised by the text exporter; dropped.
+ * **`block.style.marginTop`** — the importer does not read `<a:pPr spcBef>`
+ *   so this field is never populated on import; excluded vacuously.
  *
- * **`block.style.marginLeft`** — imported from `<a:pPr marL>` but not
- *   serialised; dropped.
- *
- * **`block.style.textIndent`** — imported from `<a:pPr indent>` but not
- *   serialised; dropped.
- *
- * **`block.style.marginTop`** — imported from `<a:pPr spcBef>` but not
- *   serialised; dropped.
- *
- * **`block.style.marginBottom`** — imported from `<a:pPr spcAft>` but
- *   not serialised; dropped.
- *
- * **`block.marker`** — bullet/numbering marker styling (`buFont`,
- *   `buSzPts`, `buClr`) is imported but only `buChar`/`buAutoNum` type
- *   info is exported; drop the full marker object.
+ * **`block.style.marginBottom`** — the importer does not read `<a:pPr spcAft>`
+ *   so this field is never populated on import; excluded vacuously.
  *
  * **`meta.pxPerPt`** — computed from slide size; may differ slightly due
  *   to floating-point rounding; dropped.
@@ -200,18 +185,12 @@ function normalizeBlock(block: Block): void {
   // Zero block ID (regenerated on import).
   block.id = '';
 
-  // Drop block-style fields that the exporter does not serialise.
+  // Drop block-style fields that the importer never populates (vacuous exclusions).
+  // marginTop/marginBottom: the importer does not read <a:pPr spcBef>/<a:pPr spcAft>,
+  // so these fields are never set on import and need no exporter path.
   const s = block.style as Partial<typeof block.style>;
-  delete s.lineHeight;
-  delete s.marginLeft;
-  delete s.textIndent;
   delete s.marginTop;
   delete s.marginBottom;
-
-  // Drop marker — only buChar/buAutoNum type is exported, not full styling.
-  if ('marker' in block) {
-    delete (block as unknown as Record<string, unknown>)['marker'];
-  }
 
   for (const inline of block.inlines) {
     normalizeInline(inline);
@@ -220,9 +199,8 @@ function normalizeBlock(block: Block): void {
 
 function normalizeInline(inline: Inline): void {
   const s = inline.style as Partial<typeof inline.style>;
-  // backgroundColor: imported from <a:highlight> but not exported.
-  delete s.backgroundColor;
-  // href: exported as empty r:id, resolves to nothing on re-import.
+  // href: v1 deferral — exported as empty r:id="", resolves to nothing on re-import.
+  // Hyperlink relationship wiring is deferred; drop for comparison.
   delete (s as Record<string, unknown>)['href'];
 }
 

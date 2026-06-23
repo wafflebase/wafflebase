@@ -124,7 +124,21 @@ describe('PPTX round-trip (model equivalence)', () => {
     expect(normalize(deckB)).toEqual(normalize(deckA));
   });
 
-  it('full rich deck (all 6 slides) round-trips', async () => {
+  it('text box with lineHeight, marL/indent, highlight, and bullet marker round-trips', async () => {
+    const buf = await buildRichPptx();
+    const a = (await importPptx(buf)).document;
+    const slide7 = a.slides[6];
+    const deckA = { ...a, slides: [slide7] };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const b = (await importPptx(ab)).document;
+    const deckB = { ...b, slides: [b.slides[0]] };
+
+    expect(normalize(deckB)).toEqual(normalize(deckA));
+  });
+
+  it('full rich deck (all 7 slides) round-trips', async () => {
     const buf = await buildRichPptx();
     const { a, b } = await roundTrip(buf);
     expect(normalize(b)).toEqual(normalize(a));

@@ -1,8 +1,8 @@
-import type { Block, Inline } from '@wafflebase/docs';
+import type { Block, BlockMarker, Inline } from '@wafflebase/docs';
 import type { StoredColor } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
 import type { ColorRole, ThemeColor } from '../../model/theme.js';
-import { escapeXmlText } from './xml.js';
+import { escapeXmlText, escapeXmlAttr } from './xml.js';
 import { ptToHundredths } from './units.js';
 import { ROLE_TO_SCHEME, colorChildXml, colorFromStringOrTheme } from './color.js';
 
@@ -49,15 +49,76 @@ const ALGN: Record<string, string> = {
   justify: 'just',
 };
 
+/**
+ * EMU per pixel at 96 dpi (914400 EMU/in ÷ 96 px/in = 9525).
+ * The importer converts marL/indent from EMU to px by dividing by this value,
+ * so the exporter inverts it by multiplying.
+ */
+const EMU_PER_PX = 9525;
+
 function blockToXml(block: Block): string {
   const algn = ALGN[block.style.alignment] ?? 'l';
   const lvl = block.listLevel ? ` lvl="${block.listLevel}"` : '';
-  let bu = '';
-  if (block.listKind === 'ordered') bu = '<a:buAutoNum type="arabicPeriod"/>';
-  else if (block.listKind === 'unordered') bu = '<a:buChar char="•"/>';
-  const pPr = `<a:pPr algn="${algn}"${lvl}>${bu}</a:pPr>`;
+
+  // marL / indent — importer reads attrInt(pPr,'marL') / 'indent' then
+  // divides by 9525 (EMU→px). Invert: multiply by 9525 and emit only when non-zero.
+  const marLAttr =
+    block.style.marginLeft ? ` marL="${Math.round(block.style.marginLeft * EMU_PER_PX)}"` : '';
+  const indentAttr =
+    block.style.textIndent ? ` indent="${Math.round(block.style.textIndent * EMU_PER_PX)}"` : '';
+
+  // lineHeight — importer reads <a:lnSpc><a:spcPct val> and divides by 100_000.
+  // Invert: multiply by 100_000.
+  const lnSpc =
+    block.style.lineHeight != null
+      ? `<a:lnSpc><a:spcPct val="${Math.round(block.style.lineHeight * 100_000)}"/></a:lnSpc>`
+      : '';
+
+  // Bullet marker style — emit buClr, buSzPts, buFont BEFORE buAutoNum/buChar
+  // per OOXML pPr child order. Only meaningful on list items; only emit when present.
+  const markerXml = block.listKind ? markerToXml(block.marker) : '';
+
+  let buType = '';
+  if (block.listKind === 'ordered') buType = '<a:buAutoNum type="arabicPeriod"/>';
+  else if (block.listKind === 'unordered') buType = '<a:buChar char="•"/>';
+
+  const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${markerXml}${buType}</a:pPr>`;
   const runs = block.inlines.map(runToXml).join('');
   return `<a:p>${pPr}${runs}</a:p>`;
+}
+
+/**
+ * Emit bullet marker styling children for `<a:pPr>`.
+ *
+ * OOXML pPr child order for bullet style: buClr → buSzPts → buFont.
+ * The importer reads:
+ *   - `<a:buFont typeface>` → marker.fontFamily
+ *   - `<a:buSzPts val>` / 100 → marker.fontSize (val is hundredths of a point)
+ *   - `<a:buClr>` color → marker.color
+ */
+function markerToXml(marker: BlockMarker | undefined): string {
+  if (!marker) return '';
+  const parts: string[] = [];
+
+  // buClr — importer reads parseColorFromContainer(buClr, clrMap) → marker.color
+  if (marker.color != null) {
+    parts.push(
+      `<a:buClr>${colorChildXml(storedColorToThemeColor(marker.color))}</a:buClr>`,
+    );
+  }
+
+  // buSzPts — importer reads attrInt(buSzPts,'val') / 100 → marker.fontSize (pts)
+  // Invert: multiply by 100 for hundredths-of-a-point.
+  if (marker.fontSize != null && marker.fontSize > 0) {
+    parts.push(`<a:buSzPts val="${Math.round(marker.fontSize * 100)}"/>`);
+  }
+
+  // buFont — importer reads attr(buFont,'typeface') → marker.fontFamily
+  if (marker.fontFamily) {
+    parts.push(`<a:buFont typeface="${escapeXmlAttr(marker.fontFamily)}"/>`);
+  }
+
+  return parts.join('');
 }
 
 /**
@@ -102,6 +163,13 @@ function runToXml(inline: Inline): string {
   if (s.color != null) {
     children.push(
       `<a:solidFill>${colorChildXml(storedColorToThemeColor(s.color))}</a:solidFill>`,
+    );
+  }
+  // backgroundColor → <a:highlight> — importer reads parseColorFromContainer(highlight, clrMap)
+  // → style.backgroundColor. Use the same colorChildXml bridge already used for style.color.
+  if (s.backgroundColor != null) {
+    children.push(
+      `<a:highlight>${colorChildXml(storedColorToThemeColor(s.backgroundColor))}</a:highlight>`,
     );
   }
   if (s.fontFamily) {
