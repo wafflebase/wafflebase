@@ -77,6 +77,41 @@ const SLIDE_WITH_SHAPE_AND_EMPTY_TEXT = `<?xml version="1.0"?>
   </p:cSld>
 </p:sld>`;
 
+/**
+ * A `txBox="1"` `<p:sp>` that carries an explicit `<a:solidFill>` background
+ * and `<a:ln>` border. Google Slides exports labelled callout boxes this way
+ * (e.g. the "Network Interruption" box). The importer must preserve the fill
+ * and stroke; dropping them leaves the box transparent so underlying shapes
+ * (a connector line, here) show through it.
+ */
+const SLIDE_WITH_FILLED_TEXTBOX = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Label"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="0" y="0"/>
+            <a:ext cx="2000000" cy="500000"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+          <a:ln w="38100"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle/>
+          <a:p><a:r><a:rPr lang="en-US"/><a:t>Network Interruption</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
 describe('parseSlide — shape inline text', () => {
   it('folds <p:txBody> inside a prstGeom <p:sp> into ShapeElement.data.text', async () => {
     const slide = await parseSlide({
@@ -117,5 +152,31 @@ describe('parseSlide — shape inline text', () => {
     expect(el.type).toBe('shape');
     if (el.type !== 'shape') return;
     expect(el.data.text).toBeUndefined();
+  });
+
+  it('preserves the fill and border of a txBox="1" shape that carries them', async () => {
+    const slide = await parseSlide({
+      archive: makeArchive({
+        'ppt/slides/slide1.xml': SLIDE_WITH_FILLED_TEXTBOX,
+      }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    expect(slide).toBeDefined();
+    expect(slide!.elements).toHaveLength(1);
+    const el = slide!.elements[0];
+    expect(el.type).toBe('text');
+    if (el.type !== 'text') return;
+    // The white background must survive so the box stays opaque.
+    expect(el.data.fill).toBeDefined();
+    // The black border must survive too.
+    expect(el.data.stroke).toBeDefined();
+    expect(el.data.stroke!.width).toBeGreaterThan(0);
+    expect(el.data.blocks[0].inlines.map((i) => i.text).join('')).toBe(
+      'Network Interruption',
+    );
   });
 });

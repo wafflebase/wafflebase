@@ -449,10 +449,19 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   // element this `<p:sp>` emits by `parseChild`, which has the source
   // `<p:sp>` node and the slide clrMap in scope.
 
-  // Pure text box — `txBox=1` shapes have no fill/stroke and exist only
-  // as a host for `<p:txBody>`.
+  // Text box (`txBox=1`) — a `<p:txBody>` host that usually has no
+  // fill/stroke. But Google Slides exports labelled callout boxes as
+  // `txBox=1` shapes carrying an explicit `<a:solidFill>` background and
+  // `<a:ln>` border (e.g. the "Network Interruption" label); preserve
+  // those so the box stays opaque instead of letting underlying shapes
+  // (a connector line, here) show through it. The renderer paints a text
+  // element's `data.fill`/`data.stroke` just like a shape's.
   if (isTextBox && txBody) {
-    return [buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey)];
+    const fill = parseShapeFill(spPr, ctx);
+    const stroke = parseShapeStroke(spPr, ctx);
+    return [
+      buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey, fill, stroke),
+    ];
   }
 
   // Shape with `<a:blipFill>` — treat as picture, regardless of geometry.
@@ -633,13 +642,19 @@ function buildTextElement(
   ctx: SlideParseContext,
   placeholderRef: PlaceholderRef | undefined,
   layoutSizeKey: string | undefined,
+  fill?: TextElement['data']['fill'],
+  stroke?: TextElement['data']['stroke'],
 ): TextElement {
   return {
     id,
     type: 'text',
     frame,
     ...(placeholderRef ? { placeholderRef } : {}),
-    data: buildTextBody(txBody, ctx, placeholderRef, layoutSizeKey),
+    data: {
+      ...buildTextBody(txBody, ctx, placeholderRef, layoutSizeKey),
+      ...(fill ? { fill } : {}),
+      ...(stroke ? { stroke } : {}),
+    },
   };
 }
 
