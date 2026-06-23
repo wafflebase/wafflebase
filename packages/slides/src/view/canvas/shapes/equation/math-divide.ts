@@ -8,30 +8,52 @@ import { insetAlongAxis } from '../handles';
  *
  * Adjustments (`MATH_DIVIDE_ADJUSTMENTS`):
  *   [0] barThickness — OOXML thousandths of `h`. Default 23520.
- *   [1] dotRadius    — OOXML thousandths of `h`. Default 5880.
- *   [2] gap          — OOXML thousandths of `h`, between bar edge and
- *                      the nearest edge of each dot. Default 11760.
+ *   [1] dotRadius    — OOXML `adj3`, thousandths of `h`. Default 11760.
+ *   [2] gap          — OOXML `adj2`, thousandths of `h`, between bar
+ *                      edge and the nearest edge of each dot. Default
+ *                      5880.
+ *
+ * NOTE: the ECMA-376 preset's `adj3` is the dot RADIUS (default 11760)
+ * and `adj2` is the gap (default 5880) — the previous implementation
+ * had these two defaults swapped (radius 5880 / gap 11760).
+ *
+ * OOXML proportions (origin = frame top-left, y DOWN):
+ *   dy1 = h * a1/200000             half bar-thickness
+ *   rad = h * a3/100000             dot radius (a3 = adj index 1)
+ *   yg  = h * a2/100000             gap (a2 = adj index 2)
+ *   dx1 = w * 73490/200000          half bar-width (73.49% of w)
+ *   y3 = vc - dy1                   bar top edge
+ *   y2 = y3 - (yg + rad)            top-dot centre
+ *   y1 = y2 - rad                   top-dot top edge
+ *   y5 = b - y1                     bottom-dot centre (symmetric)
+ * The bar therefore spans only the inner 73.49% of the width.
  */
 export const MATH_DIVIDE_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Bar thickness', defaultValue: 23520, min: 0, max: 50000 },
-  { name: 'Dot radius', defaultValue: 5880, min: 0, max: 25000 },
-  { name: 'Gap', defaultValue: 11760, min: 0, max: 50000 },
+  { name: 'Dot radius', defaultValue: 11760, min: 0, max: 25000 },
+  { name: 'Gap', defaultValue: 5880, min: 0, max: 50000 },
 ];
 
 export const buildMathDivide: PathBuilder = ({ w, h }, adjustments) => {
-  const bar = (adj(adjustments, 0, 23520) / 100000) * h;
-  const dotR = (adj(adjustments, 1, 5880) / 100000) * h;
-  const gap = (adj(adjustments, 2, 11760) / 100000) * h;
-  const cx = w / 2;
-  const cy = h / 2;
+  const dy1 = (adj(adjustments, 0, 23520) / 200000) * h; // half bar
+  const dotR = (adj(adjustments, 1, 11760) / 100000) * h; // a3 radius
+  const gap = (adj(adjustments, 2, 5880) / 100000) * h; // a2 gap
+  const dx1 = (w * 73490) / 200000; // half bar-width (73.49% of w)
+  const hc = w / 2;
+  const vc = h / 2;
+  const barTop = vc - dy1;
+  const barBottom = vc + dy1;
+  // Top-dot centre sits gap + radius above the bar's top edge.
+  const topDotY = barTop - gap - dotR;
+  const bottomDotY = barBottom + gap + dotR;
   const path = new Path2D();
-  path.rect(0, cy - bar / 2, w, bar);
+  path.rect(hc - dx1, barTop, dx1 * 2, dy1 * 2);
   // Top dot.
-  path.moveTo(cx + dotR, cy - bar / 2 - gap - dotR);
-  path.arc(cx, cy - bar / 2 - gap - dotR, dotR, 0, Math.PI * 2);
+  path.moveTo(hc + dotR, topDotY);
+  path.arc(hc, topDotY, dotR, 0, Math.PI * 2);
   // Bottom dot.
-  path.moveTo(cx + dotR, cy + bar / 2 + gap + dotR);
-  path.arc(cx, cy + bar / 2 + gap + dotR, dotR, 0, Math.PI * 2);
+  path.moveTo(hc + dotR, bottomDotY);
+  path.arc(hc, bottomDotY, dotR, 0, Math.PI * 2);
   return path;
 };
 

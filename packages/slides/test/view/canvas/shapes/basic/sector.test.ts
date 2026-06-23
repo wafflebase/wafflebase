@@ -72,13 +72,25 @@ describe('blockArcPath', () => {
     expect(ctx.isPointInPath(path, 50, 50)).toBe(false);
   });
 
-  it('full thickness (50000) leaves the band reaching halfway to the centre', () => {
+  it('thickness uses the absolute offset dr = ss*adj3/100000', () => {
+    // 100×100, ss=100, adj3=25000 → dr=25, inner r=25. The top band
+    // fills y∈[0,25] at x=50, so (50,20) is inside the ring but
+    // (50,30) falls into the inner hole. The old multiplicative model
+    // (inner r=37.5) excluded (50,20).
+    const path = blockArcPath(FRAME, A_180, A_0, 25000);
+    const ctx = createTestCanvas(200, 200).getContext('2d');
+    expect(ctx.isPointInPath(path, 50, 20)).toBe(true);
+    expect(ctx.isPointInPath(path, 50, 30)).toBe(false);
+  });
+
+  it('full thickness (50000) → dr=ss/2, inner radius 0 (solid wedge)', () => {
+    // ss=100, dr=50, inner r = 50-50 = 0 → the band fills the whole
+    // top semi-wedge with no hole.
     const path = blockArcPath(FRAME, A_180, A_0, 50000);
     const ctx = createTestCanvas(200, 200).getContext('2d');
     // Outer arc edge still inside.
     expect(ctx.isPointInPath(path, 50, 5)).toBe(true);
-    // Just past the inner radius edge (rxy/2 = 25 from centre at
-    // top → y ≈ 30). Outside.
-    expect(ctx.isPointInPath(path, 50, 30)).toBe(false);
+    // No hole now — a point above centre is inside the wedge.
+    expect(ctx.isPointInPath(path, 50, 30)).toBe(true);
   });
 });

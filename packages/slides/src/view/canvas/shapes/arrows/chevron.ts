@@ -5,9 +5,10 @@ import { adj } from '../builder';
  * `chevron` — right-pointing block chevron with a back notch.
  *
  * Adjustments (`CHEVRON_ADJUSTMENTS`):
- *   [0] notchDepth — OOXML thousandths of `h/2`; default 50000.
- *       (The OOXML preset is geometrically slightly different, but this
- *        matches PowerPoint's visible default closely enough for v1.)
+ *   [0] adj — OOXML notch depth `x1 = ss*adj/100000` directly
+ *       (thousandths of `ss = min(w,h)`); default 50000. The back
+ *       notch sits at `x1`; the front point insets to `x2 = w - x1`.
+ *       At the default `x1 = 50% of ss`.
  */
 export const CHEVRON_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Notch depth', defaultValue: 50000, min: 0, max: 100000 },
@@ -15,33 +16,36 @@ export const CHEVRON_ADJUSTMENTS: readonly AdjustmentSpec[] = [
 
 export const CHEVRON_HANDLES: readonly AdjustmentHandle[] = [
   {
+    // OOXML ahXY pos x="x2" y="t" → handle at the front-point inset
+    // x2 = w - x1, where x1 = ss*adj/100000.
     position: ({ w, h }, adjustments) => {
-      const ratio = (adjustments[0] ?? 50000) / 100000;
-      const inset = ratio * (h / 2) * (w / h);
-      return { x: inset, y: h / 2 };
+      const x1 = ((adjustments[0] ?? 50000) / 100000) * Math.min(w, h);
+      return { x: Math.min(w, w - x1), y: h / 2 };
     },
     apply: ({ w, h }, _start, pointer) => {
-      // Inverse of inset = ratio * (h/2) * (w/h)
-      const denom = (h / 2) * (w / h);
-      const inset = Math.max(0, Math.min(w, pointer.x));
-      const ratio = denom > 0 ? inset / denom : 0;
-      const value = Math.round(ratio * 100000);
+      // pointer.x maps to x2 = w - x1 ⇒ x1 = w - pointer.x ⇒
+      // adj = x1 / ss * 100000.
+      const ss = Math.min(w, h);
+      const x1 = Math.max(0, Math.min(w, w - pointer.x));
+      const value = ss > 0 ? Math.round((x1 / ss) * 100000) : 0;
       return [Math.max(0, Math.min(100000, value))];
     },
   },
 ];
 
 export const buildChevron: PathBuilder = ({ w, h }, adjustments) => {
-  const notch = (adj(adjustments, 0, 50000) / 100000) * (h / 2);
-  const tip = w; // pointing right
-  const inset = Math.min(w, notch * (w / h)); // rough; OOXML uses min(w, h/2 * tan...)
+  // OOXML: x1 = ss * adj / 100000 (back notch depth), ss = min(w,h);
+  // front point insets to x2 = w - x1.
+  const ss = Math.min(w, h);
+  const x1 = Math.min(w, (adj(adjustments, 0, 50000) / 100000) * ss);
+  const x2 = w - x1;
   const path = new Path2D();
   path.moveTo(0, 0);
-  path.lineTo(w - inset, 0);
-  path.lineTo(tip, h / 2);
-  path.lineTo(w - inset, h);
+  path.lineTo(x2, 0);
+  path.lineTo(w, h / 2);
+  path.lineTo(x2, h);
   path.lineTo(0, h);
-  path.lineTo(inset, h / 2);
+  path.lineTo(x1, h / 2);
   path.closePath();
   return path;
 };

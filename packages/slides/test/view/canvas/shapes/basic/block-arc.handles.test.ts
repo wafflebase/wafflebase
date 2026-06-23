@@ -16,9 +16,9 @@ describe('BLOCK_ARC_HANDLES', () => {
 
   it('thickness handle moves toward centre as thickness grows', () => {
     // Default 180°→0° → CW midpoint is 270° = top. Diamond paints
-    // on the inner arc, so increasing thickness shrinks the inner
-    // radius and the diamond slides from y≈10 (close to top edge,
-    // 90% radius) down toward y=100 (frame centre, 50% radius).
+    // on the inner arc at radius (outer - dr), dr = ss*adj3/100000.
+    // Growing adj3 enlarges dr, shrinking the inner radius, so the
+    // diamond slides from near the top edge down toward the centre.
     const thin = BLOCK_ARC_HANDLES[2].position(FRAME, [10800000, 0, 10000]);
     const thick = BLOCK_ARC_HANDLES[2].position(FRAME, [10800000, 0, 50000]);
     expect(thick.y).toBeGreaterThan(thin.y);

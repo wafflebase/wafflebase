@@ -10,6 +10,11 @@ import { insetAlongAxis } from '../handles';
  *   [0] barThickness — OOXML thousandths of `h`. Default 23520.
  *   [1] gap          — OOXML thousandths of `h`, between the inner
  *                      edges of the two bars. Default 11760.
+ *
+ * OOXML proportions: each bar spans only `73.49%` of the width, centred
+ * (`dx1 = w * 73490/200000`), so the bars run `[hc - dx1, hc + dx1]` —
+ * NOT the full width. Vertically the upper bar is `[y1, y2]` with
+ * `dy2 = h * gap/200000` (half-gap), `y2 = vc - dy2`, `y1 = y2 - bar`.
  */
 export const MATH_EQUAL_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Bar thickness', defaultValue: 23520, min: 0, max: 50000 },
@@ -19,10 +24,12 @@ export const MATH_EQUAL_ADJUSTMENTS: readonly AdjustmentSpec[] = [
 export const buildMathEqual: PathBuilder = ({ w, h }, adjustments) => {
   const bar = (adj(adjustments, 0, 23520) / 100000) * h;
   const gap = (adj(adjustments, 1, 11760) / 100000) * h;
+  const dx1 = (w * 73490) / 200000; // half bar-width (73.49% of w)
+  const hc = w / 2;
   const cy = h / 2;
   const path = new Path2D();
-  path.rect(0, cy - gap / 2 - bar, w, bar);
-  path.rect(0, cy + gap / 2, w, bar);
+  path.rect(hc - dx1, cy - gap / 2 - bar, dx1 * 2, bar);
+  path.rect(hc - dx1, cy + gap / 2, dx1 * 2, bar);
   return path;
 };
 

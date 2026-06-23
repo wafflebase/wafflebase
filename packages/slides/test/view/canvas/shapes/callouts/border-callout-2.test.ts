@@ -1,14 +1,41 @@
 import { describe, it, expect } from 'vitest';
 import '../../../../../src/view/canvas/test-canvas-env';
+import { createTestCanvas } from '../../../../../src/view/canvas/test-canvas-env';
 import {
   buildBorderCallout2,
+  buildBorderCallout2Outline,
   BORDER_CALLOUT_2_ADJUSTMENTS,
   BORDER_CALLOUT_2_HANDLES,
 } from '../../../../../src/view/canvas/shapes/callouts/border-callout-2';
 
 describe('buildBorderCallout2', () => {
-  it('produces a Path2D', () => {
-    expect(buildBorderCallout2({ w: 200, h: 200 })).toBeInstanceOf(Path2D);
+  it('fills the FULL frame body (incl. center, top and bottom edges)', () => {
+    const path = buildBorderCallout2({ w: 200, h: 200 });
+    const ctx = createTestCanvas(400, 400).getContext('2d');
+    expect(ctx.isPointInPath(path, 100, 100)).toBe(true);
+    expect(ctx.isPointInPath(path, 100, 10)).toBe(true);
+    expect(ctx.isPointInPath(path, 100, 190)).toBe(true);
+  });
+
+  it('outline contains the one-bend leader (anchor → bend → target)', () => {
+    const path = buildBorderCallout2Outline({ w: 200, h: 200 });
+    const ctx = createTestCanvas(400, 400).getContext('2d');
+    ctx.lineWidth = 6;
+    // Interior anchor: (-8333%,18750%) → (-16.7, 37.5).
+    expect(ctx.isPointInStroke(path, -16.7, 37.5)).toBe(true);
+    // Bend: (18750%,90000%) → (37.5, 180).
+    expect(ctx.isPointInStroke(path, 37.5, 180)).toBe(true);
+    // Target: (18750%,112500%) → (37.5, 225).
+    expect(ctx.isPointInStroke(path, 37.5, 225)).toBe(true);
+    // A point on the bend → target segment.
+    expect(ctx.isPointInStroke(path, 37.5, 200)).toBe(true);
+  });
+
+  it('outline includes the rectangle border', () => {
+    const path = buildBorderCallout2Outline({ w: 200, h: 200 });
+    const ctx = createTestCanvas(400, 400).getContext('2d');
+    ctx.lineWidth = 6;
+    expect(ctx.isPointInStroke(path, 100, 0)).toBe(true);
   });
 
   it('has 4 adjustments', () => {
