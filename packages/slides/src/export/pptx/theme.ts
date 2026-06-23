@@ -95,6 +95,7 @@ export function themeToXml(theme: Theme, index: number): string {
     `</a:fontScheme>`;
 
   return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="${escapeXmlAttr(`Theme${index}`)}">` +
     `<a:themeElements>${clrScheme}${fontScheme}${FMT_SCHEME}</a:themeElements>` +
     `</a:theme>`

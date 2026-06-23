@@ -29,8 +29,10 @@ const BUILT_IN_TO_TYPE: Record<string, string> = {
   'title-only': 'titleOnly',
   'one-column-text': 'body',
   'blank': 'blank',
-  // Wafflebase-specific layouts that have no OOXML equivalent — fall back
-  // to 'blank' so the importer still produces a valid (if approximate) result.
+  // Wafflebase-specific layouts with no exact OOXML equivalent — use the
+  // closest approximation so the importer still produces a valid result:
+  //   main-point, caption, big-number → 'blank'
+  //   section-title-description       → 'obj' (title+body is the closest match)
   'main-point': 'blank',
   'section-title-description': 'obj',
   'caption': 'blank',

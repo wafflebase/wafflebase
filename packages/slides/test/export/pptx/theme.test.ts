@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { themeToXml } from '../../../src/export/pptx/theme.js';
 import { layoutToXml } from '../../../src/export/pptx/layout.js';
+import { masterToXml } from '../../../src/export/pptx/master.js';
 import { defaultLight } from '../../../src/themes/default-light.js';
 import { BUILT_IN_LAYOUTS } from '../../../src/model/layout.js';
+import { DEFAULT_MASTER } from '../../../src/model/master.js';
 
 describe('theme/layout', () => {
   it('emits a 12-slot clrScheme and a fontScheme', () => {
@@ -74,5 +76,16 @@ describe('theme/layout', () => {
     expect(xml).toContain(`val="${toHex(c.accent6)}"`);
     expect(xml).toContain(`val="${toHex(c.hyperlink)}"`);
     expect(xml).toContain(`val="${toHex(c.visitedHyperlink)}"`);
+  });
+
+  it('themeToXml starts with XML declaration', () => {
+    const xml = themeToXml(defaultLight, 1);
+    expect(xml).toMatch(/^<\?xml version="1\.0" encoding="UTF-8" standalone="yes"\?>/);
+  });
+
+  it('masterToXml emits <p:sldMaster> and starts with XML declaration', () => {
+    const xml = masterToXml(DEFAULT_MASTER, 1);
+    expect(xml).toMatch(/^<\?xml version="1\.0" encoding="UTF-8" standalone="yes"\?>/);
+    expect(xml).toContain('<p:sldMaster');
   });
 });
