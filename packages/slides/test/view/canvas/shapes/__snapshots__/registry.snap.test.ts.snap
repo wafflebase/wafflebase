@@ -5117,7 +5117,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 75,
         },
         {
-          "x": 37.5,
+          "x": 25,
           "y": 75,
         },
         {
@@ -5125,7 +5125,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 100,
         },
         {
-          "x": 62.5,
+          "x": 75,
           "y": 75,
         },
         {
@@ -8955,7 +8955,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 25,
-          "y": 62.5,
+          "y": 75,
         },
         {
           "x": 0,
@@ -8963,7 +8963,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 25,
-          "y": 37.5,
+          "y": 25,
         },
         {
           "x": 25,
@@ -9238,19 +9238,19 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 50,
         },
         {
-          "x": 25,
+          "x": 50,
           "y": 0,
         },
         {
-          "x": 25,
+          "x": 50,
           "y": 25,
         },
         {
-          "x": 75,
+          "x": 50,
           "y": 25,
         },
         {
-          "x": 75,
+          "x": 50,
           "y": 0,
         },
         {
@@ -9258,19 +9258,19 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 50,
         },
         {
-          "x": 75,
+          "x": 50,
           "y": 100,
         },
         {
-          "x": 75,
+          "x": 50,
           "y": 75,
         },
         {
-          "x": 25,
+          "x": 50,
           "y": 75,
         },
         {
-          "x": 25,
+          "x": 50,
           "y": 100,
         },
       ],
@@ -9287,7 +9287,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 25,
-          "y": 37.5,
+          "y": 25,
         },
         {
           "x": 25,
@@ -9315,7 +9315,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 75,
-          "y": 37.5,
+          "y": 25,
         },
         {
           "x": 100,
@@ -9323,7 +9323,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 75,
-          "y": 62.5,
+          "y": 75,
         },
         {
           "x": 75,
@@ -9351,7 +9351,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 25,
-          "y": 62.5,
+          "y": 75,
         },
       ],
     },
@@ -11254,7 +11254,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 0,
         },
         {
-          "x": 59.2575,
+          "x": 68.515,
           "y": 18.515,
         },
         {
@@ -11279,7 +11279,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 81.485,
-          "y": 40.7425,
+          "y": 31.485,
         },
         {
           "x": 100,
@@ -11287,7 +11287,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 81.485,
-          "y": 59.2575,
+          "y": 68.515,
         },
         {
           "x": 81.485,
@@ -11310,7 +11310,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 81.485,
         },
         {
-          "x": 59.2575,
+          "x": 68.515,
           "y": 81.485,
         },
         {
@@ -11318,7 +11318,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 100,
         },
         {
-          "x": 40.7425,
+          "x": 31.485,
           "y": 81.485,
         },
         {
@@ -11343,7 +11343,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 18.515,
-          "y": 59.2575,
+          "y": 68.515,
         },
         {
           "x": 0,
@@ -11351,7 +11351,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 18.515,
-          "y": 40.7425,
+          "y": 31.485,
         },
         {
           "x": 18.515,
@@ -11374,7 +11374,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 18.515,
         },
         {
-          "x": 40.7425,
+          "x": 31.485,
           "y": 18.515,
         },
       ],
@@ -11528,7 +11528,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 75,
-          "y": 37.5,
+          "y": 25,
         },
         {
           "x": 100,
@@ -11536,7 +11536,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         },
         {
           "x": 75,
-          "y": 62.5,
+          "y": 75,
         },
         {
           "x": 75,
@@ -15009,7 +15009,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 25,
         },
         {
-          "x": 62.5,
+          "x": 75,
           "y": 25,
         },
         {
@@ -15017,7 +15017,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 0,
         },
         {
-          "x": 37.5,
+          "x": 25,
           "y": 25,
         },
         {
@@ -15097,7 +15097,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 0,
         },
         {
-          "x": 62.5,
+          "x": 75,
           "y": 25,
         },
         {
@@ -15125,7 +15125,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 75,
         },
         {
-          "x": 62.5,
+          "x": 75,
           "y": 75,
         },
         {
@@ -15133,7 +15133,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 100,
         },
         {
-          "x": 37.5,
+          "x": 25,
           "y": 75,
         },
         {
@@ -15161,7 +15161,7 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "y": 25,
         },
         {
-          "x": 37.5,
+          "x": 25,
           "y": 25,
         },
       ],
