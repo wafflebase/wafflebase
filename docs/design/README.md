@@ -98,13 +98,18 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 | [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |
 
-## Archive
+## Obsolete docs
 
-Single-PR design notes for shipped features whose ongoing design
-surface lives elsewhere now sit under
-[`archive/`](archive/README.md). They are kept for historical
-context; they are not part of the load-bearing design surface a new
-contributor should read first.
+There is no archive folder. Design docs are filed by **validity**, not
+by how they shipped:
+
+- **Still valid** (describes current behavior) — the durable design
+  lives in its canonical subsystem doc above, regardless of whether it
+  shipped as a single PR. Fold a single-PR note into the relevant doc as
+  a concise subsection rather than keeping it as a standalone file.
+- **No longer valid** (superseded or abandoned) — delete the doc and
+  leave a one-line pointer in its successor doc (and the commit message);
+  `git log` preserves the full content for anyone who needs the history.
 
 ## Template
 

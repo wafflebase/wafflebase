@@ -9,6 +9,7 @@
     "build": "vite build",
     "build:font-catalog": "node ./scripts/build-font-catalog.mjs",
     "build:font-catalog-full": "node ./scripts/build-font-catalog-full.mjs",
+    "build:font-files": "node ./scripts/build-font-files.mjs",
     "lint": "eslint . --max-warnings 0",
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
     "test": "vitest --run",

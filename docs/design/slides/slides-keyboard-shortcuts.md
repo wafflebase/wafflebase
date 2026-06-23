@@ -53,15 +53,30 @@ and a discoverable shortcuts-help modal.
 
 ### Shift modifiers during drag
 
-Holding Shift while dragging applies a context-specific constraint
-(1:1 shape draw, 15° angle snap on lines/connectors and endpoints,
-axis lock on element move; the existing aspect-ratio resize and 15°
-rotate continue to apply). Sampled live — pressing or releasing Shift
-mid-drag updates the constraint immediately. For connector draw and
-endpoint drag, Shift wins over connection-site snap.
+Shift is the single "constraint" modifier across every drag
+interaction. It is sampled live per `mousemove`, so pressing or
+releasing it mid-drag updates the constraint on the next frame. The
+new draw/move constraints below join the pre-existing ones, unifying
+the rule to "Shift = constraint".
 
-Full design and per-interaction matrix:
-[slides-shift-modifiers.md](../archive/slides-shift-modifiers.md).
+| Interaction | Shift constraint |
+|---|---|
+| Shape draw (every `ShapeKind`) | Force `w === h` — square / circle / regular shape. Text-box insert is exempt. |
+| Connector / line draw | Snap the endpoint angle to 15° increments; length preserved. |
+| Connector endpoint drag (existing) | 15° snap relative to the fixed opposite endpoint. |
+| Element move | Axis-lock onto the dominant axis (max displacement; X wins ties), re-decided every frame. Multi-select moves in lockstep. |
+| Corner resize (existing) | Preserve aspect ratio. |
+| Rotate (existing) | Snap to 15° increments. |
+| Adjustment handle (existing) | Snap to default adjustment values. |
+| Arrow-key nudge (existing) | Larger step. |
+
+For connector draw and endpoint drag, Shift wins over connection-site
+snap — the endpoint attachment falls out of the snapped coordinate.
+
+Constraint math lives in pure helpers in
+`packages/slides/src/view/editor/interactions/constraints.ts`:
+`constrainToSquare`, `snapEndpointAngle`, and `lockAxis`. The 15° step
+is `Math.PI / 12`, shared with `rotate.ts`.
 
 ### Architecture
 

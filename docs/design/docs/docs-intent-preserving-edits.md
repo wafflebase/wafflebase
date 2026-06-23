@@ -114,6 +114,29 @@ skipped in the Yorkie SDK — `concurrently-split-split-test` and
 a flat block list) is a narrower pattern, but concurrent split+edit
 divergence cannot be fully ruled out until these are resolved upstream.
 
+### IME Composition and Undo Granularity
+
+Undo in the Docs editor *is* Yorkie's `doc.history` — the store keeps no own
+stack and `snapshot()` is a no-op. Yorkie pushes exactly one undo unit per
+`doc.update()` that produces reverse ops, with no way to exclude or group Tree
+edits across updates. The only lever is to avoid interim `doc.update()`s.
+
+So one IME-composed character (e.g. one Hangul syllable) is one undo unit: a
+single Undo removes it cleanly, matching English typing and Google Docs/Notion.
+
+- **While a composition is active**, no Tree edit / `doc.update()` is performed
+  for interim composing text. The committed text is written exactly once on
+  `compositionend` (single `doc.update()` → one undo unit). In-progress
+  composing text is view-local.
+- **The composing string is rendered via view-local layout injection** — a
+  synthetic `MeasuredSegment` spliced into `layoutBlock()` at the composing
+  offset, so it reflows/wraps correctly and the caret resolves normally. It is
+  never written to `doc.document.blocks` and is cleared on composition end/abort.
+  Body, header, footer, and table cells all share `root.content` and funnel
+  through the same `layoutBlock()`. The software Hangul assembler (`hangul.ts`)
+  routes its `composing` vs `commit` split through the same transient-render /
+  single-insert paths.
+
 ## Phases
 
 | Phase | Scope | Status |

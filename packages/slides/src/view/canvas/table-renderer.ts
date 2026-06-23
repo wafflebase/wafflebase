@@ -2,6 +2,7 @@ import {
   DEFAULT_CELL_PADDING,
   isBlocksEmpty,
   type CellBorder,
+  type Frame,
   type TableCell,
   type TableElement,
 } from '../../model/element';
@@ -135,6 +136,55 @@ export function computeTableLayout(
   for (let r = 0; r < nRows; r++) rowY[r + 1] = rowY[r] + rowH[r];
 
   return { colX, rowY, rowH };
+}
+
+/**
+ * Project an inclusive cell range to world-space rects — one per
+ * non-covered cell, expanded to the cell's merged span. Covered cells
+ * (`gridSpan === 0 || rowSpan === 0`) contribute nothing: the anchor's
+ * rect already spans them. `layout` must come from
+ * `computeTableLayout(table.data, …)` with the same `fontScale` the
+ * renderer used, so the rects land exactly on the painted grid.
+ *
+ * Pure geometry: shared by the editor's local cell-range overlay and the
+ * peer-presence overlay so both draw identical rectangles.
+ */
+export function projectCellRangeRects(
+  table: Pick<TableElement, 'frame' | 'data'>,
+  range: { r0: number; c0: number; r1: number; c1: number },
+  layout: TableLayout,
+): Frame[] {
+  const { columnWidths, rows } = table.data;
+  const nCols = columnWidths.length;
+  const nRows = rows.length;
+  const rmin = Math.min(range.r0, range.r1);
+  const rmax = Math.max(range.r0, range.r1);
+  const cmin = Math.min(range.c0, range.c1);
+  const cmax = Math.max(range.c0, range.c1);
+
+  const rects: Frame[] = [];
+  for (let r = rmin; r <= rmax; r++) {
+    for (let c = cmin; c <= cmax; c++) {
+      const cell = rows[r]?.cells[c];
+      if (!cell) continue;
+      // Covered cells own no rect; the merge anchor paints the full span.
+      if (cell.gridSpan === 0 || cell.rowSpan === 0) continue;
+      const gs = Math.min(Math.max(cell.gridSpan ?? 1, 1), nCols - c);
+      const rs = Math.min(Math.max(cell.rowSpan ?? 1, 1), nRows - r);
+      const x0 = layout.colX[c];
+      const x1 = layout.colX[c + gs];
+      const y0 = layout.rowY[r];
+      const y1 = layout.rowY[r + rs];
+      rects.push({
+        x: table.frame.x + x0,
+        y: table.frame.y + y0,
+        w: x1 - x0,
+        h: y1 - y0,
+        rotation: table.frame.rotation,
+      });
+    }
+  }
+  return rects;
 }
 
 function paintCellFills(

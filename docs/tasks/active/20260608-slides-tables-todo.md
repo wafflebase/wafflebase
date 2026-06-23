@@ -141,10 +141,28 @@ What landed (in commit order):
       deleteTableColumn, mergeTableCells, unmergeTableCells,
       updateTableColumnWidths, updateTableRowHeights,
       updateTableCellStyle, withTableCellBody)
-- [ ] Presence: `selectedTableCells`, `textCursorCell`,
-      `resizingTableEdge` (still open — the peer-presence rendering layer
-      now exists as of PR #390, so this extends it rather than waiting on
-      it; see Status note)
+- [x] Presence: `selectedTableCells` (branch
+      `slides-table-cell-presence`) — static cell-range presence, the
+      table analogue of the already-wired `selectedElementIds`. Pipeline:
+      `SlidesPresence.selectedTableCells` → broadcast on
+      `editor.onCellSelectionChange` → `mapPresenceToPeerView` →
+      `computePeerOverlays` (new `cellRangeRectsOf` projector + `cellRects`
+      output) → `renderPeerOverlays` peer-tinted cell fills. Geometry
+      shared with the local path via a new `projectCellRangeRects` helper
+      in `table-renderer.ts`. Ring suppressed only when rects actually
+      render (merge-hole / deleted-table ranges keep the ring so presence
+      never vanishes). Pure-fn + DOM-builder unit tests; live two-user
+      smoke still recommended before merge.
+  - [ ] `resizingTableEdge` — DEFERRED with the live-frame broadcast.
+        It is a *live drag preview*; the element-level `activeFrames`
+        live broadcast it pairs with is itself deferred (P2 of
+        `archive/2026/06/20260621-slides-live-presence-todo.md`, blocked
+        on the "no single gesture-end chokepoint to clear" problem). Build
+        table edge-resize presence together with that, not standalone.
+  - [ ] `textCursorCell` — DEFERRED. The design doc frames it as an
+        extension of `textCursor`, but slides renders NO peer text carets
+        today (only docs does); the live-presence todo lists peer text
+        carets as an explicit separate PR. Needs that substrate first.
 - [x] Two-user integration test — landed as
       `frontend/tests/app/slides/yorkie-slides-table-concurrent.integration.ts`
       (concurrent disjoint-cell edits, concurrent row insert,

@@ -13,7 +13,7 @@ import {
   getBlockIndexForLine,
 } from '../view/table-geometry.js';
 import { Theme, ptToPx } from '../view/theme.js';
-import { PdfFonts, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
+import { PdfFonts, customFontKey, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
 import {
   resolveFontKey,
   splitMixedScript,
@@ -82,6 +82,13 @@ export interface PaintContext {
    * `blockIndex` exactly as the body lines reference.
    */
   layoutBlocks?: LayoutBlock[];
+  /**
+   * Families that were successfully embedded as custom Google Fonts.
+   * `resolveFontKey` / `isItalicShim` consult this so only embedded
+   * families produce a `custom:` key; a fetch/embed failure drops the
+   * family here and the run falls back to the standard faces.
+   */
+  embeddableFamilies?: ReadonlySet<string>;
 }
 
 export class PdfPainter {
@@ -156,6 +163,46 @@ export class PdfPainter {
     } else {
       out['kr-serif-regular'] = out['serif-regular']!;
       out['kr-serif-bold']    = out['serif-bold']!;
+    }
+
+    // Custom Google Fonts: fetch + subset-embed the real face for each
+    // curated family the document uses on Latin text. TrueType (glyf)
+    // outlines subset cleanly (unlike the CJK CFF fonts above), so these
+    // keep `subset: true`. A fetch/embed failure drops the family — the
+    // family stays out of `out`, so the exporter's `embeddableFamilies`
+    // set won't include it and the run falls back to Helvetica/Times.
+    // Export must never be blocked by a font download.
+    if (usage?.customFamilies) {
+      for (const [family, u] of usage.customFamilies) {
+        const regKey = customFontKey(family, false);
+        const boldKey = customFontKey(family, true);
+        let reg: PDFFont;
+        try {
+          fonts.registerCustom(regKey, u.regular);
+          reg = await pdfDoc.embedFont(
+            new Uint8Array(await fonts.load(regKey)),
+            { subset: true },
+          );
+        } catch {
+          continue;
+        }
+        out[regKey] = reg;
+        // Bold reuses the regular face unless a distinct bold cut exists
+        // and embeds successfully — so `boldKey` is always a valid font.
+        let bold = reg;
+        if (u.needsBold && u.bold) {
+          try {
+            fonts.registerCustom(boldKey, u.bold);
+            bold = await pdfDoc.embedFont(
+              new Uint8Array(await fonts.load(boldKey)),
+              { subset: true },
+            );
+          } catch {
+            bold = reg;
+          }
+        }
+        out[boldKey] = bold;
+      }
     }
 
     return out as EmbeddedFonts;
@@ -686,7 +733,7 @@ export class PdfPainter {
 
     for (const seg of segments) {
       if (seg.text.length === 0) continue;
-      const key = resolveFontKey(style, seg.needsCustomFont);
+      const key = resolveFontKey(style, seg.needsCustomFont, ctx.embeddableFamilies);
       const font = fonts[key];
       // Compute the segment width once; reused for background, advance,
       // underline, and strikethrough draws below. Width must be measured
@@ -714,7 +761,7 @@ export class PdfPainter {
       // pop the graphics state so background/underline/strike stay
       // upright. Background and decoration draws sit *outside* this
       // block intentionally.
-      if (isItalicShim(style, seg.needsCustomFont)) {
+      if (isItalicShim(style, seg.needsCustomFont, ctx.embeddableFamilies)) {
         const tx = px2pt(xpx);
         const ty = pageHeightPt - px2pt(drawBaselineYpx);
         page.pushOperators(pushGraphicsState());

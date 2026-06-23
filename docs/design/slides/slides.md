@@ -377,8 +377,9 @@ type SlidesPresence = {
 Stable `slideId` and `elementId` make selection survive remote
 structural edits, reusing the design from
 `sheets/axis-id-selection.md`. Peer cursor labels follow the
-visual treatment in `docs/docs-presence.md` (and the archived
-`archive/peer-cursor-labels.md` for the original Sheets design).
+visual treatment in `docs/docs-presence.md` (and the Peer Cursor
+Name Labels section of `sheets/axis-id-selection.md` for the
+original Sheets design).
 
 ### Rendering pipeline
 
@@ -416,6 +417,29 @@ slide container (position: relative)
   loader rather than maintaining its own — there is one source of
   truth across the two engines.
 
+#### Pasteboard (off-slide area)
+
+The empty area inside `scrollHost` around the slide rect is a
+*pasteboard*: shapes dragged off the slide stay rendered, visible, and
+pointer-reachable instead of being clipped to a slide-only canvas. It is
+a **variable** pasteboard — the slide rect keeps its Fit-zoom size while
+the canvas (and `canvasWrap`) grow to `max(slideHost, scrollHost)`, so
+the surrounding empty space becomes the pasteboard and the slide never
+visually shrinks. `scale = hostWidth / SLIDE_WIDTH` is unchanged;
+`drawSlide` takes `slideOffsetLogicalX/Y` and paints the slide
+background fill restricted to the slide rect.
+
+Slide elevation (1px hairline + drop shadow) is a CSS `box-shadow` on a
+transparent `slideElevation` div at the slide rect rather than a canvas
+paint, so it shows in every paint mode, tracks `--foreground` in dark
+mode, and keeps constant blur at any zoom. The overlay stays
+slide-host-sized at the slide offset; off-slide handles overflow it and
+stay interactive, and `clientToLogical` subtracts the offsets so
+off-slide pointers yield correct negative / `>SLIDE_WIDTH` coordinates.
+The pasteboard is asymmetric by design: an axis where the slide
+overflows `scrollHost` gets no band on that axis, and above Fit zoom
+there is no pasteboard at all (drop to Fit to recover it).
+
 ### Editor UI
 
 Default layout is two panes (thumbnails left, canvas center) plus a
@@ -450,6 +474,33 @@ v1 toolbar surfaces:
   align). Mixed-type formatting is intentionally limited in v1.
 
 Items not in this list are out of v1.
+
+#### Color picker (commit/record + recent colors)
+
+Every slides color control — shape fill, text-box background,
+stroke/border, table cell fill, and slide background — shares one
+`ThemedColorPicker` with Theme / Standard / Custom sections. Its
+`onChange` carries two independent flags so live editing does not close
+the palette:
+
+```ts
+onChange(color: string, opts?: { commit?: boolean; record?: boolean }): void;
+```
+
+A swatch click is `commit + record` (apply, record recent, close); a
+custom `<input type=color>` drag/type is neither (apply live, stay open
+— this is what stops the palette closing on every native `onChange`);
+and a custom blur after a real change is `record` only (stay open). A
+`customDirty` ref gates the blur so a cancelled OS color dialog cannot
+clobber a role fill with `#000000`.
+
+Recent colors persist **per document** in the Yorkie root as
+`Meta.recentColors?: string[]` (max 8, most-recent-first,
+case-insensitive dedupe, sRGB only — role colors are theme-relative).
+`pushRecentColor(hex)` mutates inside the color-apply batch so it is one
+undo unit, and reads existing entries by index because a live CRDT array
+proxy throws on `toJSON` inside an `update`; `migrateDocument` copies the
+field through on every read.
 
 The thumbnail panel is collapsible via the View menu and uses virtual
 scrolling to stay responsive at the v1 ceiling (~100 slides).

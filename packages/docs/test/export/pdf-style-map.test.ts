@@ -22,6 +22,28 @@ describe('resolveFontKey', () => {
     expect(resolveFontKey({ fontFamily: '바탕' } as InlineStyle, true))
       .toBe('kr-serif-regular');
   });
+
+  const embeddable = new Set(['Roboto']);
+  it('returns a custom key for an embedded Google Font on Latin text', () => {
+    expect(resolveFontKey({ fontFamily: 'Roboto' } as InlineStyle, false, embeddable))
+      .toBe('custom:Roboto:regular');
+  });
+  it('returns the custom bold key for bold text', () => {
+    expect(resolveFontKey({ fontFamily: 'Roboto', bold: true } as InlineStyle, false, embeddable))
+      .toBe('custom:Roboto:bold');
+  });
+  it('uses the custom regular key for italic (oblique is synthesized)', () => {
+    expect(resolveFontKey({ fontFamily: 'Roboto', italic: true } as InlineStyle, false, embeddable))
+      .toBe('custom:Roboto:regular');
+  });
+  it('routes CJK segments of a custom family to the Noto path', () => {
+    expect(resolveFontKey({ fontFamily: 'Roboto' } as InlineStyle, true, embeddable))
+      .toBe('kr-sans-regular');
+  });
+  it('falls back to standard faces when the family is not embedded', () => {
+    expect(resolveFontKey({ fontFamily: 'Lobster' } as InlineStyle, false, embeddable))
+      .toBe('sans-regular');
+  });
 });
 
 describe('splitMixedScript', () => {
@@ -86,5 +108,15 @@ describe('isItalicShim', () => {
   });
   it('returns false when italic is not set', () => {
     expect(isItalicShim({} as InlineStyle, true)).toBe(false);
+  });
+  it('shims italic for an embedded custom font (no italic face)', () => {
+    const embeddable = new Set(['Roboto']);
+    expect(isItalicShim({ italic: true, fontFamily: 'Roboto' } as InlineStyle, false, embeddable))
+      .toBe(true);
+  });
+  it('does not shim a non-embedded family italic', () => {
+    const embeddable = new Set(['Roboto']);
+    expect(isItalicShim({ italic: true, fontFamily: 'Lobster' } as InlineStyle, false, embeddable))
+      .toBe(false);
   });
 });

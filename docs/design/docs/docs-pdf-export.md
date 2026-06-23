@@ -184,31 +184,58 @@ one that mutates pdf-lib state.
 
 ### Font Strategy
 
-Four PDF fonts cover all Docs content:
+A fixed set of standard/Korean keys plus per-family custom keys cover all
+Docs content:
 
 | PDF Font Key            | Source                  | Purpose                          |
 |-------------------------|-------------------------|----------------------------------|
-| `sans-{regular,bold,italic,boldItalic}` | pdf-lib standard Helvetica family | Latin sans-serif |
-| `serif-{regular,bold,italic,boldItalic}` | pdf-lib standard Times family    | Latin serif      |
+| `sans-{regular,bold,italic,boldItalic}` | pdf-lib standard Helvetica family | Latin sans-serif fallback |
+| `serif-{regular,bold,italic,boldItalic}` | pdf-lib standard Times family    | Latin serif fallback      |
 | `kr-sans-{regular,bold}` | Noto Sans KR (fetched)  | Korean sans-serif (incl. CJK)    |
 | `kr-serif-{regular,bold}` | Noto Serif KR (fetched) | Korean serif                     |
+| `custom:<family>:{regular,bold}` | curated Google Font TTF (fetched) | the real face for a curated family on Latin text |
 
-`InlineStyle.fontFamily` is mapped to one of these via the same fallback
-logic as `view/fonts.ts`:
+`InlineStyle.fontFamily` is mapped to a key via `resolveFontKey`. A Latin
+segment whose family is a curated, successfully-embedded Google Font
+(tracked in `embeddable`) gets its own `custom:` key; otherwise it falls
+back to the serif/sans standard faces. CJK segments always route to the
+Noto path:
 
 ```ts
-function resolveFontKey(style: InlineStyle, runHasCJK: boolean): PdfFontKey {
-  const isSerif = SERIF_FONTS.has(style.fontFamily ?? 'Arial');
-  const isBold  = !!style.bold;
-  const isItalic = !!style.italic;
-  if (runHasCJK) {
-    return isSerif
-      ? (isBold ? 'kr-serif-bold' : 'kr-serif-regular')
-      : (isBold ? 'kr-sans-bold'  : 'kr-sans-regular');
+function resolveFontKey(
+  style: InlineStyle, needsCustomFont: boolean, embeddable?: ReadonlySet<string>,
+): PdfFontKey {
+  const family = style.fontFamily ?? 'Arial';
+  if (!needsCustomFont && embeddable?.has(family)) {
+    return customFontKey(family, !!style.bold);     // custom:<family>:regular|bold
   }
-  // ... 4-way Latin selection
+  const isSerif = SERIF_FONTS.has(family);
+  if (needsCustomFont) {
+    return isSerif
+      ? (style.bold ? 'kr-serif-bold' : 'kr-serif-regular')
+      : (style.bold ? 'kr-sans-bold'  : 'kr-sans-regular');
+  }
+  // ... 4-way standard Latin selection
 }
 ```
+
+**Custom Google Font embedding (P3-a).** Curated families (`font-catalog`)
+export with their real face instead of a Helvetica/Times approximation.
+The frontend injects a `fontResolver` (`PdfExportOptions.fontResolver`,
+backed by the generated `font-files.data.ts` — per-family version-pinned
+gstatic TTF URLs from `scripts/build-font-files.mjs`); the docs package
+can't import the frontend catalog, so this mirrors the existing
+`PdfFontsOptions` injection seam. `scanFontsUsed` collects each curated
+family used on Latin text (`usage.customFamilies`); `embedAllFonts`
+fetches + `embedFont(buf, { subset: true })` the regular and bold cuts
+(TrueType `glyf` outlines subset cleanly, unlike the CJK CFF fonts).
+Italic is synthesized via the oblique shim (no italic file is fetched);
+bold reuses the regular face when a family has no bold cut. Scope is the
+curated catalog only — full-library picks and system fonts fall back to
+the standard faces. A fetch/embed failure drops the family from
+`embeddable` so the run falls back gracefully; **export is never blocked
+by a font download**. Slides PDF export is raster (`slides/export/pdf.ts`)
+and so does not use this path.
 
 **Run splitting.** A single `LayoutRun` whose text mixes Korean and Latin
 (`"Hello 안녕 World"`) is split at script boundaries and drawn with
