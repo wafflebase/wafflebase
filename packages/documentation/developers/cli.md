@@ -1,9 +1,10 @@
 # CLI
 
-The Wafflebase CLI lets you manage spreadsheets and word-processor
-documents from the terminal — read/write cells, import/export CSV and
-JSON, render docs as Markdown or PDF, and round-trip `.docx` files
-through the same Yorkie-backed store the editor uses.
+The Wafflebase CLI lets you manage spreadsheets, word-processor
+documents, and slide decks from the terminal — read/write cells,
+import/export CSV and JSON, render docs as Markdown or PDF, and
+round-trip `.docx` and `.pptx` files through the same Yorkie-backed
+store the editor uses.
 
 ## Installation
 
@@ -104,17 +105,18 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 | `--api-key <key>` | API key | — |
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |
-| `--format <fmt>` | Output format: `json`, `table`, `csv` (also `md` / `text` on `docs content`, `pdf` / `docx` on `docs export`) | `json` |
+| `--format <fmt>` | Output format: `json`, `table`, `csv` (also `md` / `text` on `docs content` and `slides content`, `pdf` / `docx` on `docs export`, `pptx` on `slides export`) | `json` |
 | `--quiet` | Suppress output | `false` |
 | `--verbose` | Verbose output | `false` |
 | `--dry-run` | Show request without executing | `false` |
 
-## Namespace Layout (v0.3.7)
+## Namespace Layout
 
 The command tree groups commands under plural namespaces:
 
 - **`docs`** — manage and read both spreadsheet and word-processor documents
 - **`sheets`** — spreadsheet-specific operations (tabs, cells, CSV/JSON import/export)
+- **`slides`** — slide-deck operations (read content, import/export `.pptx`)
 - **`api-keys`** — workspace API key management
 - **`ctx`**, **`schema`**, **`login`/`logout`/`status`** — top-level utilities
 
@@ -368,6 +370,112 @@ wafflebase sheets export <doc-id> - --file-format csv | head -20
 | `--range <range>` | Cell range to export | all data |
 | `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
 
+## slides (aliases: slide, deck)
+
+Manage slide decks (`type: slides`) and read or convert their content.
+
+### Deck management
+
+```bash
+# List slide decks (filtered to type=slides)
+wafflebase slides list
+
+# Create a new deck
+wafflebase slides create "Kickoff Deck"
+
+# Get deck metadata
+wafflebase slides get <doc-id>
+
+# Rename a deck
+wafflebase slides rename <doc-id> "New Title"
+
+# Delete a deck
+wafflebase slides delete <doc-id>
+```
+
+### slides content
+
+Read a deck as JSON, Markdown, or plain text. `json` returns the raw
+`SlidesDocument`; `md`/`text` extract per-slide text (text boxes, shape
+labels, table cells, flattened groups).
+
+```bash
+# Default JSON (raw SlidesDocument)
+wafflebase slides content <doc-id>
+
+# Markdown / plain text — one section per slide
+wafflebase slides content <doc-id> --format md
+wafflebase slides content <doc-id> --format text
+
+# Include speaker notes (md/text only)
+wafflebase slides content <doc-id> --format md --notes
+
+# Save to a file (refuses to overwrite without --force)
+wafflebase slides content <doc-id> --format md --out deck.md --force
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | `json`, `md`, `text` | `json` |
+| `--notes` | Include speaker notes in `md`/`text` | `false` |
+| `--out <file>` | Write to file (`-` for stdout) | stdout |
+| `--force` | Overwrite existing output file | `false` |
+
+::: info
+On a non-slides document, `slides content` surfaces a structured
+`TYPE_MISMATCH` error on stderr, so agents reading the `code` field
+can route to `docs content` or `sheets cells get` instead.
+:::
+
+### slides export
+
+Export a deck to PPTX. The writer is the inverse of the PPTX importer
+and covers text, shapes (preset + freeform), images (crop/recolor/
+opacity/brightness), tables, connectors, nested groups, drop-shadow/
+reflection effects, theme/master/layout, speaker notes, and best-effort
+transitions + object animations.
+
+```bash
+# Auto-detected from the .pptx extension
+wafflebase slides export <doc-id> deck.pptx
+
+# Explicit format (only "pptx" is supported)
+wafflebase slides export <doc-id> out --format pptx
+
+# Pipe binary to stdout
+wafflebase slides export <doc-id> - --format pptx > deck.pptx
+
+# Overwrite an existing file
+wafflebase slides export <doc-id> deck.pptx --force
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | Only `pptx`; auto-detected from a `.pptx` extension | from extension |
+| `--force` | Overwrite existing target file | `false` |
+
+### slides import
+
+Import a `.pptx` as a new deck or replace an existing one.
+
+```bash
+# Default — create a new deck from the .pptx
+wafflebase slides import deck.pptx
+wafflebase slides import deck.pptx --title "Roadmap"
+
+# Replace an existing deck (destructive — requires --yes on non-TTY)
+wafflebase slides import revision.pptx --replace <doc-id> --yes
+
+# Preview the requests without executing
+wafflebase slides import deck.pptx --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--title <title>` | New deck title | file basename |
+| `--replace <doc-id>` | Existing deck to overwrite | — |
+| `--yes` | Skip the confirmation prompt under `--replace` | `false` |
+
 ## api-keys (alias: api-key)
 
 Manage API keys for programmatic access.
@@ -395,6 +503,7 @@ wafflebase schema
 # Describe a specific command
 wafflebase schema docs.content
 wafflebase schema sheets.cells.get
+wafflebase schema slides.export
 
 # Singular aliases also resolve
 wafflebase schema cell.get        # → sheets.cells.get
@@ -505,7 +614,9 @@ The CLI ships namespace-prefixed skill files in
 discover commands by intent: `sheets-read-cells.md`,
 `sheets-write-cells.md`, `docs-manage.md`, `docs-read-content.md`,
 `docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`,
-plus recipes (`recipe-csv-pipeline.md`, `recipe-docx-to-pdf.md`,
-`recipe-doc-to-markdown.md`, …). See `skills/SKILL.md` for the index
+`slides-manage.md`, `slides-read-content.md`, `slides-export-pptx.md`,
+`slides-import-pptx.md`, plus recipes (`recipe-csv-pipeline.md`,
+`recipe-docx-to-pdf.md`, `recipe-doc-to-markdown.md`, …). See
+`skills/SKILL.md` for the index
 and how the safety levels (`read-only` / `write` / `destructive`) map
 to agent confirmation behavior.
