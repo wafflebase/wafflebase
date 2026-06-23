@@ -4,7 +4,7 @@ import { buildCloud } from '../basic/cloud';
 import { pointTailHandle } from './handles';
 
 /**
- * `cloudCallout` — cloud silhouette plus two small "thought-bubble"
+ * `cloudCallout` — cloud silhouette plus three small "thought-bubble"
  * connector circles trailing toward (tx, ty).
  *
  * Adjustments (`CLOUD_CALLOUT_ADJUSTMENTS`):
@@ -13,9 +13,14 @@ import { pointTailHandle } from './handles';
  *   [1] tailY — OOXML thousandths of `h`, from frame centre. Default
  *               62500.
  *
- * The cloud body itself is delegated to `buildCloud` and composed via
- * `Path2D.addPath`; the two connector circles are appended as
- * additional sub-paths.
+ * Per ECMA-376 the callout trails THREE thought-bubbles of decreasing
+ * radius marching from the cloud body all the way to the tip
+ * (xPos, yPos): the largest bubble nearest the cloud, then a middle
+ * one, then the smallest at the tip. The OOXML radii are
+ * `g13 ≈ (gap/3) + ss·1800/21600` (largest), `ss·1200/21600` (middle),
+ * and `ss·600/21600` (smallest). The cloud body itself is delegated to
+ * `buildCloud` and composed via `Path2D.addPath`; the connector
+ * circles are appended as additional sub-paths.
  */
 export const CLOUD_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Tail x', defaultValue: -20833, min: -100000, max: 100000 },
@@ -29,28 +34,33 @@ export const buildCloudCallout: PathBuilder = ({ w, h }, adjustments) => {
   // Compose with the basic cloud builder.
   const cloud = buildCloud({ w, h });
   path.addPath(cloud);
-  // Two small "thought bubble" circles between cloud edge and (tx, ty).
+  // Three "thought bubble" circles of decreasing radius marching from
+  // the cloud body out to the tip (tx, ty), per ECMA-376. Bubbles are
+  // centred on the cloud-centre → tip line at increasing fractions of
+  // its length, with the smallest bubble landing on the tip.
   const cx = w / 2;
   const cy = h / 2;
   const dx = tx - cx;
   const dy = ty - cy;
-  const len = Math.hypot(dx, dy);
+  const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
-  const small1 = {
-    x: cx + ux * len * 0.65,
-    y: cy + uy * len * 0.65,
-    r: Math.min(w, h) * 0.07,
-  };
-  const small2 = {
-    x: cx + ux * len * 0.85,
-    y: cy + uy * len * 0.85,
-    r: Math.min(w, h) * 0.04,
-  };
-  path.moveTo(small1.x + small1.r, small1.y);
-  path.arc(small1.x, small1.y, small1.r, 0, Math.PI * 2);
-  path.moveTo(small2.x + small2.r, small2.y);
-  path.arc(small2.x, small2.y, small2.r, 0, Math.PI * 2);
+  const ss = Math.min(w, h);
+  const bubbleAt = (t: number, r: number): { x: number; y: number; r: number } => ({
+    x: cx + ux * len * t,
+    y: cy + uy * len * t,
+    r,
+  });
+  // OOXML-aligned radii: largest near the cloud, smallest at the tip.
+  const bubbles = [
+    bubbleAt(0.62, ss * 0.07), // largest, nearest cloud
+    bubbleAt(0.82, (ss * 1200) / 21600), // middle ≈ 0.0556·ss
+    bubbleAt(1.0, (ss * 600) / 21600), // smallest, at the tip
+  ];
+  for (const b of bubbles) {
+    path.moveTo(b.x + b.r, b.y);
+    path.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  }
   return path;
 };
 
