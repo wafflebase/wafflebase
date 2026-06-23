@@ -42,9 +42,18 @@ export async function buildRichPptx(): Promise<ArrayBuffer> {
   zip.file('ppt/slides/_rels/slide6.xml.rels', SLIDE_RELS_BASIC);
   zip.file('ppt/slides/slide7.xml', SLIDE7);
   zip.file('ppt/slides/_rels/slide7.xml.rels', SLIDE_RELS_BASIC);
+  zip.file('ppt/slides/slide8.xml', SLIDE8);
+  zip.file('ppt/slides/_rels/slide8.xml.rels', SLIDE_RELS_BASIC);
+  zip.file('ppt/slides/slide9.xml', SLIDE9);
+  zip.file('ppt/slides/_rels/slide9.xml.rels', SLIDE_RELS_BASIC);
+  zip.file('ppt/slides/slide10.xml', SLIDE10);
+  zip.file('ppt/slides/_rels/slide10.xml.rels', SLIDE10_RELS);
+  zip.file('ppt/slides/slide11.xml', SLIDE11);
+  zip.file('ppt/slides/_rels/slide11.xml.rels', SLIDE_RELS_BASIC);
 
-  // Image referenced by slide 4.
+  // Images referenced by slides 4 and 10.
   zip.file('ppt/media/image1.png', PNG_1X1);
+  zip.file('ppt/media/image2.png', PNG_1X1);
 
   return zip.generateAsync({ type: 'arraybuffer' });
 }
@@ -82,6 +91,10 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Override PartName="/ppt/slides/slide5.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
   <Override PartName="/ppt/slides/slide6.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
   <Override PartName="/ppt/slides/slide7.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+  <Override PartName="/ppt/slides/slide8.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+  <Override PartName="/ppt/slides/slide9.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+  <Override PartName="/ppt/slides/slide10.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+  <Override PartName="/ppt/slides/slide11.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
 </Types>`;
 
 const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -101,6 +114,10 @@ const PRESENTATION = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <p:sldId id="260" r:id="rId6"/>
     <p:sldId id="261" r:id="rId7"/>
     <p:sldId id="262" r:id="rId8"/>
+    <p:sldId id="263" r:id="rId9"/>
+    <p:sldId id="264" r:id="rId10"/>
+    <p:sldId id="265" r:id="rId11"/>
+    <p:sldId id="266" r:id="rId12"/>
   </p:sldIdLst>
   <p:sldSz cx="12192000" cy="6858000"/>
   <p:notesSz cx="6858000" cy="9144000"/>
@@ -116,7 +133,11 @@ const PRESENTATION_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
   <Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide5.xml"/>
   <Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide6.xml"/>
   <Relationship Id="rId8" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide7.xml"/>
-  <Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+  <Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide8.xml"/>
+  <Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide9.xml"/>
+  <Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide10.xml"/>
+  <Relationship Id="rId12" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide11.xml"/>
+  <Relationship Id="rId13" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
 </Relationships>`;
 
 // ---------------------------------------------------------------------------
@@ -195,6 +216,11 @@ const SLIDE4_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+</Relationships>`;
+const SLIDE10_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"/>
 </Relationships>`;
 
 // ---------------------------------------------------------------------------
@@ -404,4 +430,170 @@ const SLIDE7 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       </p:sp>
     </p:spTree>
   </p:cSld>
+</p:sld>`;
+
+/** Slide 8: shape with drop shadow and reflection effects. */
+const SLIDE8 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Shape with effects"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="457200"/><a:ext cx="2743200" cy="1828800"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:solidFill><a:srgbClr val="4472C4"/></a:solidFill>
+          <a:effectLst>
+            <a:outerShdw blurRad="38100" dist="38100" dir="2700000">
+              <a:srgbClr val="000000"><a:alpha val="60000"/></a:srgbClr>
+            </a:outerShdw>
+            <a:reflection stA="50000" endPos="35000" dist="0"/>
+          </a:effectLst>
+        </p:spPr>
+        <p:txBody><a:bodyPr/><a:p/></p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+/**
+ * Slide 9: freeform custGeom shape — a simple triangle via M/L/L/Z.
+ * Path coordinate space: w=100000, h=100000. Commands:
+ *   M 50000,0 (apex)  L 100000,100000 (bottom-right)  L 0,100000 (bottom-left)  Z
+ * Normalized to [0,1]: M 0.5,0  L 1,1  L 0,1  Z
+ */
+const SLIDE9 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Triangle freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="457200"/><a:ext cx="2743200" cy="1828800"/></a:xfrm>
+          <a:custGeom>
+            <a:avLst/>
+            <a:gdLst/>
+            <a:rect l="0" t="0" r="100000" b="100000"/>
+            <a:pathLst>
+              <a:path w="100000" h="100000">
+                <a:moveTo><a:pt x="50000" y="0"/></a:moveTo>
+                <a:lnTo><a:pt x="100000" y="100000"/></a:lnTo>
+                <a:lnTo><a:pt x="0" y="100000"/></a:lnTo>
+                <a:close/>
+              </a:path>
+            </a:pathLst>
+          </a:custGeom>
+          <a:solidFill><a:srgbClr val="70AD47"/></a:solidFill>
+        </p:spPr>
+        <p:txBody><a:bodyPr/><a:p/></p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+/**
+ * Slide 10: image with crop (srcRect), grayscale recolor, opacity, and brightness.
+ * srcRect: l=10000 t=10000 r=10000 b=10000  → crop {x:0.1, y:0.1, w:0.8, h:0.8}
+ * alphaModFix: amt=50000 → opacity=0.5
+ * grayscl: recolor='grayscale'
+ * lum bright=20000 → brightness=0.2
+ */
+const SLIDE10 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="2" name="Adjusted picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+        <p:blipFill>
+          <a:blip r:embed="rId2">
+            <a:alphaModFix amt="50000"/>
+            <a:grayscl/>
+            <a:lum bright="20000"/>
+          </a:blip>
+          <a:srcRect l="10000" t="10000" r="10000" b="10000"/>
+          <a:stretch><a:fillRect/></a:stretch>
+        </p:blipFill>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="457200"/><a:ext cx="1828800" cy="914400"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:pic>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+/**
+ * Slide 11: slide transition (fade, fast=250ms) + two object animations:
+ *   - Shape1 (cNvPr id=2): fadeIn entrance, onClick, 500ms, easeInOut
+ *   - Shape1 again: flyOut exit, withPrev, 700ms, easeOut, direction=right
+ *
+ * The timing tree matches the structure parseTiming expects:
+ *   p:seq > p:cTn(nodeType="mainSeq") > click groups > effect pars
+ */
+const SLIDE11 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="AnimTarget"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="457200"/><a:ext cx="2743200" cy="1828800"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:solidFill><a:srgbClr val="ED7D31"/></a:solidFill>
+        </p:spPr>
+        <p:txBody><a:bodyPr/><a:p/></p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+  <p:transition spd="fast"><p:fade/></p:transition>
+  <p:timing>
+    <p:tnLst>
+      <p:par>
+        <p:cTn nodeType="tmRoot">
+          <p:childTnLst>
+            <p:seq>
+              <p:cTn nodeType="mainSeq">
+                <p:childTnLst>
+                  <p:par>
+                    <p:cTn>
+                      <p:childTnLst>
+                        <p:par>
+                          <p:cTn nodeType="clickEffect" presetClass="entr" presetID="10" dur="500" accel="50000" decel="50000">
+                            <p:stCondLst><p:cond evt="onNext" delay="indefinite"/></p:stCondLst>
+                            <p:childTnLst>
+                              <p:animEffect>
+                                <p:cBhvr><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cBhvr>
+                              </p:animEffect>
+                            </p:childTnLst>
+                          </p:cTn>
+                        </p:par>
+                        <p:par>
+                          <p:cTn nodeType="withEffect" presetClass="exit" presetID="2" presetSubtype="1" dur="700" decel="100000">
+                            <p:stCondLst><p:cond delay="0"/></p:stCondLst>
+                            <p:childTnLst>
+                              <p:animEffect>
+                                <p:cBhvr><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cBhvr>
+                              </p:animEffect>
+                            </p:childTnLst>
+                          </p:cTn>
+                        </p:par>
+                      </p:childTnLst>
+                    </p:cTn>
+                  </p:par>
+                </p:childTnLst>
+              </p:cTn>
+            </p:seq>
+          </p:childTnLst>
+        </p:cTn>
+      </p:par>
+    </p:tnLst>
+  </p:timing>
 </p:sld>`;

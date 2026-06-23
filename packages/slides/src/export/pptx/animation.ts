@@ -25,6 +25,17 @@
  * - `byParagraph` emits a `<p:txEl><p:pRg st="0" end="9999"/></p:txEl>`
  *   as a best-effort range to trigger by-paragraph behaviour.
  * - `motionPath` is round-tripped verbatim into `<p:animMotion path="...">`.
+ *
+ * OOXML timing tree shape (matches what `parseTiming` in timing.ts reads):
+ *   p:timing > p:tnLst > p:par > p:cTn(nodeType="tmRoot") > p:childTnLst
+ *     > p:seq > p:cTn(nodeType="mainSeq") > p:childTnLst
+ *         > p:par (click group) > p:cTn > p:childTnLst
+ *             > p:par (effect) > p:cTn[presetClass,presetID,nodeType,dur]
+ *
+ * NOTE: `nodeType="mainSeq"` belongs on the `<p:cTn>` *inside* `<p:seq>`,
+ * not on `<p:seq>` itself. The importer checks `attr(cTn, 'nodeType')` on the
+ * seq's child cTn, not on the seq element. Similarly click-group cTns carry
+ * no nodeType — only the effect cTn carries `clickEffect`/`withEffect`/etc.
  */
 
 import type { AnimCategory, AnimDirection, AnimEffect, AnimEasing, AnimStart } from '../../model/element.js';
@@ -241,6 +252,22 @@ function groupByClick(anims: SlideAnimation[]): SlideAnimation[][] {
  * @param elementIdToSpid - map from model element id → OOXML integer shape id;
  *                          elements not in the map are skipped (report-worthy
  *                          in the caller, not here)
+ *
+ * OOXML timing tree structure (mirrors what `parseTiming` in timing.ts reads):
+ *
+ *   p:timing
+ *     p:tnLst
+ *       p:par                              ← tmRoot wrapper
+ *         p:cTn nodeType="tmRoot"
+ *           p:childTnLst
+ *             p:seq                        ← main sequence container
+ *               p:cTn nodeType="mainSeq"  ← nodeType is on p:cTn, NOT p:seq
+ *                 p:childTnLst
+ *                   p:par                  ← one click-group (per onClick)
+ *                     p:cTn               ← NO nodeType here
+ *                       p:childTnLst
+ *                         p:par            ← one effect par
+ *                           p:cTn nodeType="clickEffect"|"withEffect"|"afterEffect"
  */
 export function animationsToTimingXml(
   anims: SlideAnimation[],
@@ -262,8 +289,9 @@ export function animationsToTimingXml(
     }
     if (effectPars.length === 0) continue;
 
+    // Click-group cTn has NO nodeType — the nodeType lives on each effect cTn.
     const clickGroupCTn =
-      `<p:cTn id="0" nodeType="mainSeq">` +
+      `<p:cTn id="0">` +
       `<p:childTnLst>${effectPars.join('')}</p:childTnLst>` +
       `</p:cTn>`;
     clickGroupXmls.push(`<p:par>${clickGroupCTn}</p:par>`);
@@ -271,9 +299,11 @@ export function animationsToTimingXml(
 
   if (clickGroupXmls.length === 0) return '';
 
+  // `nodeType="mainSeq"` belongs on the p:cTn child of p:seq, NOT on p:seq
+  // itself. The importer checks `attr(child(seqEl, 'cTn'), 'nodeType')`.
   const mainSeq =
-    `<p:seq nodeType="mainSeq">` +
-    `<p:cTn id="0">` +
+    `<p:seq>` +
+    `<p:cTn id="0" nodeType="mainSeq">` +
     `<p:childTnLst>${clickGroupXmls.join('')}</p:childTnLst>` +
     `</p:cTn>` +
     `</p:seq>`;

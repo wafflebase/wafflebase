@@ -24,8 +24,13 @@ export function effectsToXml(e: Effects | undefined): string {
   }
   if (e.reflection) {
     const r = e.reflection;
+    // `endPos` (thousandths-of-percent) maps to `Reflection.size` in the
+    // importer (`parseReflection` reads `endPos`, not `endA`). Emitting
+    // only `endA` caused the size to always round-trip as 1 (the absent-
+    // `endPos` default). Fix: emit `endPos` so the size survives.
     parts.push(
-      `<a:reflection blurRad="0" stA="${Math.round(r.opacity * 100_000)}" endA="0" dist="${pxToEmu(r.distance)}"/>`,
+      `<a:reflection blurRad="0" stA="${Math.round(r.opacity * 100_000)}" endA="0"` +
+      ` endPos="${Math.round(r.size * 100_000)}" dist="${pxToEmu(r.distance)}"/>`,
     );
   }
   return `<a:effectLst>${parts.join('')}</a:effectLst>`;

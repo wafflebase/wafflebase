@@ -142,7 +142,74 @@ describe('PPTX round-trip (model equivalence)', () => {
     expect(normalize(deckB)).toEqual(normalize(deckA));
   });
 
-  it('full rich deck (all 7 slides) round-trips', async () => {
+
+  it('shape with drop shadow and reflection (effects) round-trips', async () => {
+    const buf = await buildRichPptx();
+    const a = (await importPptx(buf)).document;
+    const slide8 = a.slides[7];
+    const deckA = { ...a, slides: [slide8] };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const ab = toArrayBuffer(bytes);
+    const b = (await importPptx(ab)).document;
+    const deckB = { ...b, slides: [b.slides[0]] };
+
+    expect(normalize(deckB)).toEqual(normalize(deckA));
+  });
+
+  it('freeform custGeom (triangle M/L/L/Z path) round-trips', async () => {
+    const buf = await buildRichPptx();
+    const a = (await importPptx(buf)).document;
+    const slide9 = a.slides[8];
+    const deckA = { ...a, slides: [slide9] };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const ab = toArrayBuffer(bytes);
+    const b = (await importPptx(ab)).document;
+    const deckB = { ...b, slides: [b.slides[0]] };
+
+    expect(normalize(deckB)).toEqual(normalize(deckA));
+  });
+
+  it('image with crop, recolor, opacity, and brightness round-trips', async () => {
+    const buf = await buildRichPptx();
+    const a = (await importPptx(buf, {
+      uploadImage: async (bytes, mime) => {
+        const b64 = btoa(String.fromCharCode(...bytes));
+        return `data:${mime};base64,${b64}`;
+      },
+    })).document;
+    const slide10 = a.slides[9];
+    const deckA = { ...a, slides: [slide10] };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const ab = toArrayBuffer(bytes);
+    const b = (await importPptx(ab, {
+      uploadImage: async (imgBytes, mime) => {
+        const b64 = btoa(String.fromCharCode(...imgBytes));
+        return `data:${mime};base64,${b64}`;
+      },
+    })).document;
+    const deckB = { ...b, slides: [b.slides[0]] };
+
+    expect(normalize(deckB)).toEqual(normalize(deckA));
+  });
+
+  it('slide transition and object animations round-trip', async () => {
+    const buf = await buildRichPptx();
+    const a = (await importPptx(buf)).document;
+    const slide11 = a.slides[10];
+    const deckA = { ...a, slides: [slide11] };
+
+    const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
+    const ab = toArrayBuffer(bytes);
+    const b = (await importPptx(ab)).document;
+    const deckB = { ...b, slides: [b.slides[0]] };
+
+    expect(normalize(deckB)).toEqual(normalize(deckA));
+  });
+
+  it('full rich deck (all 11 slides) round-trips', async () => {
     const buf = await buildRichPptx();
     const { a, b } = await roundTrip(buf);
     expect(normalize(b)).toEqual(normalize(a));
