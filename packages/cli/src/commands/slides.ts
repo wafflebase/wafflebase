@@ -185,7 +185,11 @@ export function registerSlidesCommand(program: Command) {
       const local = this.opts<{ force: boolean }>();
       try {
         const formatSource = this.getOptionValueSourceWithGlobals('format');
-        const fmt = formatSource === 'cli' ? opts.format : undefined;
+        // Widen to `string` — `opts.format` is the global `OutputFormat`
+        // union (json|table|csv|yaml), which has no overlap with the
+        // export-only `pptx` value, so a direct comparison is a tsc error.
+        const fmt: string | undefined =
+          formatSource === 'cli' ? opts.format : undefined;
         if (fmt && fmt !== 'pptx') throw new Error(`Invalid --format "${fmt}". Only "pptx" is supported.`);
         if (!fmt && extname(file).toLowerCase() !== '.pptx') {
           throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
