@@ -137,4 +137,29 @@ describe('paintShapeText — inline text', () => {
     expect(y).toBeGreaterThanOrEqual(7);
     expect(y).toBeLessThan(25);
   });
+
+  it('insets cloud text by the preset text rect, not the uniform padding', () => {
+    const ctx = createCtxSpy();
+    paintShapeText(
+      asCtx(ctx),
+      size, // 400 × 200
+      shape({
+        kind: 'cloud',
+        text: { blocks: [paragraph('a')], verticalAnchor: 'top' },
+      }),
+      THEME,
+    );
+    expect(ctx.fillText).toHaveBeenCalled();
+    const [, x, y] = ctx.fillText.mock.calls[0];
+    // Cloud preset left inset = 2977/21600 · w + 14.4 px default padding
+    //   = (2977/21600)·400 + 14.4 ≈ 69.5 → snapped to 69.
+    // This is well to the right of the bare 14 px a `rect` would use, so
+    // a left-aligned word reads centred inside the cloud silhouette.
+    const expectedLeft = (2977 / 21600) * 400 + 14.4;
+    expect(x).toBeGreaterThanOrEqual(Math.floor(expectedLeft) - 1);
+    expect(x).toBeLessThanOrEqual(Math.ceil(expectedLeft));
+    expect(x).toBeGreaterThan(40); // unmistakably past the uniform 14 px
+    // Top inset = 3262/21600 · h + 7.2 px ≈ 37.4; baseline a bit below.
+    expect(y).toBeGreaterThanOrEqual(37);
+  });
 });
