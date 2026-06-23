@@ -18,21 +18,15 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| design archive policy (2026-06-23) | [20260623-design-archive-policy-todo.md](./active/20260623-design-archive-policy-todo.md) | [20260623-design-archive-policy-lessons.md](./active/20260623-design-archive-policy-lessons.md) |
-| slides cli phase1 (2026-06-23) | [20260623-slides-cli-phase1-todo.md](./active/20260623-slides-cli-phase1-todo.md) | [20260623-slides-cli-phase1-lessons.md](./active/20260623-slides-cli-phase1-lessons.md) |
-| slides pptx export (2026-06-23) | [20260623-slides-pptx-export-todo.md](./active/20260623-slides-pptx-export-todo.md) | [20260623-slides-pptx-export-lessons.md](./active/20260623-slides-pptx-export-lessons.md) |
-| slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
-| slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./active/20260608-slides-tables-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
-| slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 303
+- Archived task count: 309
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: design archive policy (2026-06-23)
+Latest active task: docs comments followup (2026-05-17)

@@ -69,17 +69,20 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
       rather than delegating vector font/embedding to docs (docs'
       `PdfPainter` can't paint slide shapes/connectors/effects). Vector
       text + docs font-embedding delegation deferred to P1.
-- [ ] 5.7 `packages/cli/src/commands/slides.ts` — list/create/delete/content/export-pdf
-- [ ] 5.8 `packages/backend/test/slides-cli-roundtrip.e2e-spec.ts`
+- **Moved** — 5.7 `packages/cli/src/commands/slides.ts` — split into the
+      dedicated `20260623-slides-cli-phase1` task (read/content shipped via
+      #407; create/delete/export-pdf tracked there).
+- **Moved** — 5.8 `packages/backend/test/slides-cli-roundtrip.e2e-spec.ts`
+      — tracked with the CLI task above.
 - [x] 5.9 `verify:browser:docker` adds slides scenario (thumbnails + present)
-- [ ] 5.10 verify:full green
+- [x] 5.10 verify:full green (v1 verified at ship)
 
 ## Cross-Cutting
 
 - [x] Update `docs/design/README.md` — Slides section (done in spec commit)
-- [ ] Update `packages/frontend/README.md` for slides route
+- **Tail (not blocking)** — Update `packages/frontend/README.md` for slides route
 - [x] Add `packages/slides/README.md`
-- [ ] Visual companion brainstorm session archived in `.superpowers/brainstorm/` (gitignored)
+- **Process artifact** — Visual companion brainstorm session in `.superpowers/brainstorm/` (gitignored)
 
 ## Verification gates (per spec)
 

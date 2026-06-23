@@ -79,7 +79,7 @@ docs/design/cli.md                         MODIFY: command tree + tables
   - `degToRot60k(deg: number): number` — `round(deg * 60_000)`
   - `ptToHundredths(pt: number): number` — `round(pt * 100)` (font size `<a:rPr sz>`)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/units.test.ts
@@ -112,12 +112,12 @@ describe('xml escaping', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/export/pptx/units.test.ts`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Write `xml.ts`**
+- [x] **Step 3: Write `xml.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/xml.ts
@@ -141,7 +141,7 @@ export function attr(name: string, value: string | number | undefined): string {
 }
 ```
 
-- [ ] **Step 4: Write `units.ts`**
+- [x] **Step 4: Write `units.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/units.ts
@@ -168,12 +168,12 @@ export function ptToHundredths(pt: number): number {
 }
 ```
 
-- [ ] **Step 5: Run tests — expect PASS**
+- [x] **Step 5: Run tests — expect PASS**
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/export/pptx/units.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/export/pptx/xml.ts packages/slides/src/export/pptx/units.ts packages/slides/test/export/pptx/units.test.ts
@@ -197,7 +197,7 @@ git commit -m "Add PPTX export xml/units helpers"
   - `build()` emits `[Content_Types].xml` (defaults + collected overrides), `_rels/.rels`, every part, and each part's `<folder>/_rels/<name>.rels` when it has rels.
   - `templates.ts`: `contentTypesXml(overrides: string[]): string`, `rootRelsXml(): string`, `REL_TYPES` constant map (slide, slideLayout, slideMaster, theme, image, notesSlide, notesMaster, officeDocument).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/zip.test.ts
@@ -236,11 +236,11 @@ describe('PptxWriter', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL** (`PptxWriter` not found).
+- [x] **Step 2: Run — expect FAIL** (`PptxWriter` not found).
 
 Run: `pnpm --filter @wafflebase/slides exec vitest run test/export/pptx/zip.test.ts`
 
-- [ ] **Step 3: Write `templates.ts`**
+- [x] **Step 3: Write `templates.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/templates.ts
@@ -278,7 +278,7 @@ ${overrides.join('\n')}
 }
 ```
 
-- [ ] **Step 4: Write `zip.ts`**
+- [x] **Step 4: Write `zip.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/zip.ts
@@ -352,8 +352,8 @@ function relsPathFor(partPath: string): string {
 }
 ```
 
-- [ ] **Step 5: Run — expect PASS.**
-- [ ] **Step 6: Commit**
+- [x] **Step 5: Run — expect PASS.**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/export/pptx/zip.ts packages/slides/src/export/pptx/templates.ts packages/slides/test/export/pptx/zip.test.ts
@@ -376,7 +376,7 @@ git commit -m "Add PptxWriter part/rels/media registry"
   - `solidFillXml(c: ThemeColor): string` — `<a:solidFill>{child}</a:solidFill>`.
   - `colorFromStringOrTheme(c: ThemeColor | string): ThemeColor` — wraps a raw hex string as `{ kind: 'srgb', value }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/color.test.ts
@@ -405,9 +405,9 @@ describe('color', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [x] **Step 2: Run — expect FAIL.**
 
-- [ ] **Step 3: Write `color.ts`**
+- [x] **Step 3: Write `color.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/color.ts
@@ -453,8 +453,8 @@ export function solidFillXml(c: ThemeColor): string {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX color serialization (ThemeColor → DrawingML)"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX color serialization (ThemeColor → DrawingML)"`
 
 > **Round-trip note for implementer:** confirm `SCHEME_TO_ROLE` in `src/import/pptx/color.ts` round-trips through `ROLE_TO_SCHEME` (importer maps both `dk1`/`tx1`→text; exporter must pick the canonical `tx1` so re-import yields the same role — it does). Add a round-trip assertion in `color.test.ts` importing `SCHEME_TO_ROLE`.
 
@@ -476,7 +476,7 @@ Mapping rules (inverse of `src/import/pptx/text.ts`):
 - Each `Inline` → `<a:r>` with `<a:rPr>`: `bold`→`b="1"`, `italic`→`i="1"`, `underline`→`u="sng"`, `strikethrough`→`strike="sngStrike"`, `fontSize`(pt)→`sz` via `ptToHundredths`, `color`→child `<a:solidFill>`, `fontFamily`→`<a:latin typeface="…"/>`, `href`→`<a:hlinkClick>` (link rel deferred — emit `<a:hlinkClick r:id=""/>` placeholder only if href present, see note). `<a:t>` carries escaped text.
 - Empty block → `<a:p><a:pPr .../></a:p>` (no runs).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/text.test.ts
@@ -512,9 +512,9 @@ describe('textBodyToXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [x] **Step 2: Run — expect FAIL.**
 
-- [ ] **Step 3: Write `text.ts`** (complete implementation)
+- [x] **Step 3: Write `text.ts`** (complete implementation)
 
 ```ts
 // packages/slides/src/export/pptx/text.ts
@@ -567,8 +567,8 @@ function runToXml(inline: Inline): string {
 
 > **Note:** `s.color` is `StoredColor` in docs; the importer maps OOXML run colors into it. If `StoredColor` is not directly a `ThemeColor`/hex string, adjust `colorFromStringOrTheme` accordingly — read `src/import/pptx/text.ts` for the exact inverse. Hyperlinks (`href`) need a slide-rel; defer to a follow-up and assert in round-trip normalization that `href` is excluded if not yet wired.
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX text body serialization (TextBody → a:txBody)"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX text body serialization (TextBody → a:txBody)"`
 
 ---
 
@@ -591,7 +591,7 @@ function runToXml(inline: Inline): string {
   - `freeformToCustGeom(path: FreeformPath, frame: Frame): string` → `<a:custGeom>`.
   - `effectsToXml(e: Effects | undefined): string` → `<a:effectLst>` or ''.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 // packages/slides/test/export/pptx/shape.test.ts
@@ -641,9 +641,9 @@ describe('freeformToCustGeom', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [x] **Step 2: Run — expect FAIL.**
 
-- [ ] **Step 3: Write `effects.ts`**
+- [x] **Step 3: Write `effects.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/effects.ts
@@ -671,7 +671,7 @@ export function effectsToXml(e: Effects | undefined): string {
 }
 ```
 
-- [ ] **Step 4: Write `freeform.ts`**
+- [x] **Step 4: Write `freeform.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/freeform.ts
@@ -701,7 +701,7 @@ export function freeformToCustGeom(path: FreeformPath, _frame: Frame): string {
 
 > **Note:** the exact arc encoding must mirror `src/import/pptx/freeform.ts`. Read it and adjust `arcTo` to the inverse; cover with the round-trip freeform fixture in Task 14.
 
-- [ ] **Step 5: Write `shape.ts`**
+- [x] **Step 5: Write `shape.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/shape.ts
@@ -754,8 +754,8 @@ function avLstXml(adj: number[] | undefined): string {
 
 > **Note:** `textBodyToXml` returns `<a:txBody>`; shapes need it wrapped as the shape's text. PPTX uses `<p:txBody>` only on `<p:sp>` — actually DrawingML uses `<p:txBody>` for `p:sp`. Adjust `textBodyToXml` to accept a tag param or wrap: emit `<p:txBody>` by replacing the outer tag in shape context. Decide in Step 3 of Task 4 (parameterize `textBodyToXml(body, { tag: 'a:txBody' | 'p:txBody' })`). Update the Task 4 test accordingly.
 
-- [ ] **Step 6: Run both tests — expect PASS.**
-- [ ] **Step 7: Commit** `git commit -m "Add PPTX shape/freeform/effects serialization"`
+- [x] **Step 6: Run both tests — expect PASS.**
+- [x] **Step 7: Commit** `git commit -m "Add PPTX shape/freeform/effects serialization"`
 
 ---
 
@@ -771,7 +771,7 @@ function avLstXml(adj: number[] | undefined): string {
   - `imageToXml(el: ImageElement, embedRId: string): string` → `<p:pic>` referencing `r:embed="${embedRId}"`, with `<a:srcRect>` from crop, `<a:alphaModFix>` from opacity, recolor/brightness/contrast filters.
   - The orchestrator (Task 12) resolves bytes + adds media/rel and passes `embedRId`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/image.test.ts
@@ -795,8 +795,8 @@ describe('imageToXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `image.ts`**
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `image.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/image.ts
@@ -835,8 +835,8 @@ function srcRectXml(crop: Crop): string {
 
 > **Note:** verify the crop fraction convention against `src/import/pptx/image.ts` (`srcRect`→`crop`). Adjust `srcRectXml`/recolor (`sepia`→`<a:duotone>`) to the exact inverse; cover in round-trip.
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX image serialization (ImageElement → p:pic)"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX image serialization (ImageElement → p:pic)"`
 
 ---
 
@@ -852,7 +852,7 @@ function srcRectXml(crop: Crop): string {
 
 Rules (inverse of `src/import/pptx/table.ts`): `<p:xfrm>` from frame; `<a:tblGrid><a:gridCol w=…>` from `columnWidths`; each row `<a:tr h=…>`; each non-covered cell `<a:tc rowSpan gridSpan>` (omit when 1), covered cell (`gridSpan===0`/`rowSpan===0`) → `<a:tc hMerge="1"/>` / `<a:tc vMerge="1"/>`; cell `<a:tcPr>` with `<a:lnL/R/T/B>` borders + `<a:solidFill>` fill; cell body via `textBodyToXml`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/table.test.ts
@@ -886,8 +886,8 @@ describe('tableToXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `table.ts`** (complete; mirror importer cell/border mapping)
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `table.ts`** (complete; mirror importer cell/border mapping)
 
 ```ts
 // packages/slides/src/export/pptx/table.ts
@@ -928,8 +928,8 @@ function tcPrXml(cell: TableCell): string {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX table serialization (TableElement → a:tbl)"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX table serialization (TableElement → a:tbl)"`
 
 ---
 
@@ -944,7 +944,7 @@ function tcPrXml(cell: TableCell): string {
 - Produces: `connectorToXml(el: ConnectorElement, frame: Frame): string` → `<p:cxnSp>` with `<a:prstGeom prst>` (`straight→line`, `elbow→bentConnector3`, `curved→curvedConnector3`), `<a:ln>` with arrowhead `<a:headEnd>/<a:tailEnd>`.
 - The orchestrator computes `frame` via `computeConnectorFrame` and passes it (connectors store endpoints, not a frame).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/connector.test.ts
@@ -968,8 +968,8 @@ describe('connectorToXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `connector.ts`**
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `connector.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/connector.ts
@@ -1009,8 +1009,8 @@ export function connectorToXml(el: ConnectorElement, frame: Frame): string {
 
 > **Note:** stroke color fill inside `<a:ln>` and exact arrowhead type mapping must mirror `src/import/pptx/connector.ts`. Add `solidFillXml(stroke.color)` inside `<a:ln>` if the importer reads it; cover in round-trip.
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX connector serialization (ConnectorElement → p:cxnSp)"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX connector serialization (ConnectorElement → p:cxnSp)"`
 
 ---
 
@@ -1027,7 +1027,7 @@ export function connectorToXml(el: ConnectorElement, frame: Frame): string {
   - `interface ElementXmlCtx { resolveImageRId(el: ImageElement): string; connectorFrame(el: ConnectorElement): Frame; }`
   - `groupToXml(el: GroupElement, ctx: ElementXmlCtx): string` → `<p:grpSp>` with `<a:grpSpPr><a:xfrm><a:off/><a:ext/><a:chOff/><a:chExt/></a:xfrm>` then children recursively.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/group.test.ts
@@ -1053,8 +1053,8 @@ describe('group', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `group.ts`**
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `group.ts`**
 
 ```ts
 // packages/slides/src/export/pptx/group.ts
@@ -1111,8 +1111,8 @@ export function groupToXml(el: GroupElement, ctx: ElementXmlCtx): string {
 
 > **Note:** child coordinate space — the importer reads group children in group-local coords with `chOff/chExt` defining the mapping. Confirm against `src/import/pptx/group.ts` that `chExt = refSize` and child frames are group-local; the round-trip group fixture (Task 14) is the gate.
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX group + element dispatch"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX group + element dispatch"`
 
 ---
 
@@ -1131,7 +1131,7 @@ export function groupToXml(el: GroupElement, ctx: ElementXmlCtx): string {
   - `masterToXml(master: Master, index: number): string` — `<p:sldMaster>` with background + `<p:clrMap>` + `<p:sldLayoutIdLst>` (filled by orchestrator rels).
   - `layoutToXml(layout: Layout, index: number): string` — `<p:sldLayout type="…" matchingName="…">` carrying the built-in layout `type` so the importer re-derives the same id.
 
-- [ ] **Step 1: Write the failing test** (focus on clrScheme + layout type round-trip)
+- [x] **Step 1: Write the failing test** (focus on clrScheme + layout type round-trip)
 
 ```ts
 // packages/slides/test/export/pptx/theme.test.ts
@@ -1158,8 +1158,8 @@ describe('theme/layout', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Implement `theme.ts`/`master.ts`/`layout.ts`.**
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Implement `theme.ts`/`master.ts`/`layout.ts`.**
 
 Read `src/import/pptx/theme.ts`, `master.ts`, `layout.ts` for the exact inverse. The clrScheme maps the deck's `ColorScheme` back to the 12 OOXML slots (`dk1/lt1/dk2/lt2/accent1..6/hlink/folHlink`) via `colorChildXml`; the fontScheme maps `FontScheme.major/minor` to `<a:majorFont><a:latin>`/`<a:minorFont>`. The layout emits `type` and `matchingName` from the built-in layout's OOXML type (the importer maps OOXML layout `type` → built-in layout id via a table in `import/pptx/layout.ts` — emit the inverse). Provide a static `<a:fmtScheme>` boilerplate (PowerPoint requires it; a minimal valid block is fine — copy from `build-minimal-pptx.ts`'s THEME constant).
 
@@ -1183,8 +1183,8 @@ export function themeToXml(theme: Theme, index: number): string {
 
 > The exact `ColorScheme`/`FontScheme`/`Theme` field names must be confirmed from `src/model/theme.ts` (the explorer quoted `ColorRole` but the implementer must read the `ColorScheme`/`Theme.colors`/`Theme.fonts` shapes and adjust `slot()` to emit `<a:srgbClr val>` from the stored hex, since clrScheme is absolute, not role-relative).
 
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX theme/master/layout serialization"`
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX theme/master/layout serialization"`
 
 ---
 
@@ -1200,7 +1200,7 @@ export function themeToXml(theme: Theme, index: number): string {
   - `transitionToXml(t: SlideTransition): string` → `<p:transition>` (preserve `pptxPreset` if the model stores the raw OOXML transition node/preset; else emit the closest preset).
   - `animationsToTimingXml(anims: SlideAnimation[]): string` → `<p:timing>` (best-effort; preserve preserved preset ids).
 
-- [ ] **Step 1: Write the failing test** (read `src/model` + `src/import/pptx/timing.ts`/`anim-preset-map.ts` first to learn the exact stored shape; write the test against real fields).
+- [x] **Step 1: Write the failing test** (read `src/model` + `src/import/pptx/timing.ts`/`anim-preset-map.ts` first to learn the exact stored shape; write the test against real fields).
 
 ```ts
 // packages/slides/test/export/pptx/animation.test.ts
@@ -1219,10 +1219,10 @@ describe('animation', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Implement** mirroring `src/import/pptx/timing.ts` + `anim-preset-map.ts`. Where the model preserves a raw OOXML preset id (`pptxPreset`-style field), write it straight back; otherwise emit the closest `<p:transition>`/`<p:par>` preset. Empty input → `''`.
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX animation/transition serialization (best-effort)"`
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Implement** mirroring `src/import/pptx/timing.ts` + `anim-preset-map.ts`. Where the model preserves a raw OOXML preset id (`pptxPreset`-style field), write it straight back; otherwise emit the closest `<p:transition>`/`<p:par>` preset. Empty input → `''`.
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX animation/transition serialization (best-effort)"`
 
 ---
 
@@ -1239,7 +1239,7 @@ describe('animation', () => {
   - `notesSlideToXml(notes: Block[]): string` → `<p:notes>` with a body placeholder shape carrying the notes text.
   - The `<p:spTree>` requires a leading `<p:nvGrpSpPr>`/`<p:grpSpPr>` boilerplate (copy from `build-minimal-pptx.ts`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/test/export/pptx/slide.test.ts
@@ -1265,10 +1265,10 @@ describe('slideToXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `slide.ts`** (background + spTree boilerplate + elements + transition/timing; notes slide). Mirror `src/import/pptx/index.ts` slide parse for the background + spTree structure.
-- [ ] **Step 4: Run — expect PASS.**
-- [ ] **Step 5: Commit** `git commit -m "Add PPTX slide + notes serialization"`
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `slide.ts`** (background + spTree boilerplate + elements + transition/timing; notes slide). Mirror `src/import/pptx/index.ts` slide parse for the background + spTree structure.
+- [x] **Step 4: Run — expect PASS.**
+- [x] **Step 5: Commit** `git commit -m "Add PPTX slide + notes serialization"`
 
 ---
 
@@ -1289,7 +1289,7 @@ describe('slideToXml', () => {
   - `exportPptx(deck: SlidesDocument, opts?: ExportPptxOptions): Promise<Uint8Array>` — orchestrates: pre-scan images (dedup by src, resolve via `fetchImage`, `writer.addMedia` + per-slide `addRel`), build each slide/layout/master/theme part, wire rels, return `writer.build()`.
   - image `mime`→`ext` map (`image/png`→png, etc.).
 
-- [ ] **Step 1: Write the failing test** (the first end-to-end smoke)
+- [x] **Step 1: Write the failing test** (the first end-to-end smoke)
 
 ```ts
 // packages/slides/test/export/pptx/export.test.ts
@@ -1317,9 +1317,9 @@ describe('exportPptx', () => {
 
 > The DOMParser polyfill: importPptx needs `DOMParser`. In the slides test env, add a `@vitest-environment jsdom` directive OR a local polyfill via `@xmldom/xmldom` (already a CLI dep; add to slides devDeps if needed). Prefer `// @vitest-environment jsdom` at the top of the round-trip tests.
 
-- [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Write `presentation.ts` and `index.ts`** (orchestrator wiring all parts + rels + media).
-- [ ] **Step 4: Add re-exports**
+- [x] **Step 2: Run — expect FAIL.**
+- [x] **Step 3: Write `presentation.ts` and `index.ts`** (orchestrator wiring all parts + rels + media).
+- [x] **Step 4: Add re-exports**
 
 ```ts
 // packages/slides/src/node.ts — append near importPptx exports
@@ -1332,13 +1332,13 @@ export { exportPptx } from './export/pptx/index.js';
 export type { ExportPptxOptions } from './export/pptx/index.js';
 ```
 
-- [ ] **Step 5: Run — expect PASS.**
-- [ ] **Step 6: Verify node entry stays DOM-free**
+- [x] **Step 5: Run — expect PASS.**
+- [x] **Step 6: Verify node entry stays DOM-free**
 
 Run: `pnpm --filter @wafflebase/slides typecheck`
 Then confirm no module under `export/pptx/` imports a DOM-only module (grep for `canvas`, `OffscreenCanvas`, `document.`).
 
-- [ ] **Step 7: Commit** `git commit -m "Add exportPptx orchestrator + presentation.xml + node export"`
+- [x] **Step 7: Commit** `git commit -m "Add exportPptx orchestrator + presentation.xml + node export"`
 
 ---
 
@@ -1354,7 +1354,7 @@ Then confirm no module under `export/pptx/` imports a DOM-only module (grep for 
   - `normalize(deck: SlidesDocument): unknown` — deep-clone that: zeroes `Slide.id`/`Element.id` (and group children recursively); sorts no collection that is order-significant (slides/elements stay ordered); deletes documented importer-lossy fields (list maintained in this file with a comment per exclusion); replaces intra-deck id references (e.g. connector `attached.elementId`, `layoutId`) with positional indices.
   - `fromDataUrl(src: string): Promise<{ bytes; mime }>` — decode `data:` URLs for the export `fetchImage`.
 
-- [ ] **Step 1: Write the failing round-trip test**
+- [x] **Step 1: Write the failing round-trip test**
 
 ```ts
 // @vitest-environment jsdom
@@ -1382,11 +1382,11 @@ describe('PPTX round-trip (model equivalence)', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL** (until normalize + any serializer gaps are fixed).
-- [ ] **Step 3: Write `normalize.ts`**, then iterate each serializer until the minimal fixture passes; add one fixture per element type and fix the corresponding serializer's inverse mismatches (this is where the per-module `> Note:` items get resolved against real OOXML).
-- [ ] **Step 4: Run — expect PASS** for every fixture.
-- [ ] **Step 5: Run the whole slides suite** `pnpm --filter @wafflebase/slides test` — expect PASS.
-- [ ] **Step 6: Commit** `git commit -m "Add PPTX model-equivalence round-trip suite"`
+- [x] **Step 2: Run — expect FAIL** (until normalize + any serializer gaps are fixed).
+- [x] **Step 3: Write `normalize.ts`**, then iterate each serializer until the minimal fixture passes; add one fixture per element type and fix the corresponding serializer's inverse mismatches (this is where the per-module `> Note:` items get resolved against real OOXML).
+- [x] **Step 4: Run — expect PASS** for every fixture.
+- [x] **Step 5: Run the whole slides suite** `pnpm --filter @wafflebase/slides test` — expect PASS.
+- [x] **Step 6: Commit** `git commit -m "Add PPTX model-equivalence round-trip suite"`
 
 ---
 
@@ -1403,7 +1403,7 @@ describe('PPTX round-trip (model equivalence)', () => {
   - `exportPptxCli(deck: SlidesDocument, opts: { imageFetcher?: (url: string) => Promise<Blob> }): Promise<Uint8Array>` — adapts the Blob-based CLI `ImageFetcher` to `exportPptx`'s `fetchImage` ({bytes,mime}) by reading `blob.arrayBuffer()` + `blob.type`.
   - `slides export <doc-id> <file> [--force]` command — format inferred from `.pptx` ext (or `--format pptx`); mirrors `docs export`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/slides-export.test.ts
@@ -1430,11 +1430,11 @@ describe('exportPptxCli', () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [x] **Step 2: Run — expect FAIL.**
 
 Run: `pnpm --filter @wafflebase/cli exec vitest run test/slides-export.test.ts`
 
-- [ ] **Step 3: Write `pptx-export.ts`**
+- [x] **Step 3: Write `pptx-export.ts`**
 
 ```ts
 // packages/cli/src/slides/pptx-export.ts
@@ -1459,7 +1459,7 @@ export async function exportPptxCli(
 }
 ```
 
-- [ ] **Step 4: Add the `export` command to `commands/slides.ts`**
+- [x] **Step 4: Add the `export` command to `commands/slides.ts`**
 
 ```ts
 // add imports
@@ -1502,12 +1502,12 @@ slides
   });
 ```
 
-- [ ] **Step 5: Run both tests — expect PASS.**
+- [x] **Step 5: Run both tests — expect PASS.**
 
 Run: `pnpm --filter @wafflebase/cli exec vitest run test/slides-export.test.ts test/namespaces.test.ts`
 
-- [ ] **Step 6: Extend `namespaces.test.ts`** — add `'export'` to the `slides contains …` sub-command list assertion.
-- [ ] **Step 7: Commit** `git commit -m "Add wafflebase slides export (PPTX) command"`
+- [x] **Step 6: Extend `namespaces.test.ts`** — add `'export'` to the `slides contains …` sub-command list assertion.
+- [x] **Step 7: Commit** `git commit -m "Add wafflebase slides export (PPTX) command"`
 
 ---
 
@@ -1523,7 +1523,7 @@ Run: `pnpm --filter @wafflebase/cli exec vitest run test/slides-export.test.ts t
 
 **Interfaces:** none (docs/metadata only).
 
-- [ ] **Step 1: Add the schema entry**
+- [x] **Step 1: Add the schema entry**
 
 ```ts
 // in registry.ts, after slides.content
@@ -1542,12 +1542,12 @@ Run: `pnpm --filter @wafflebase/cli exec vitest run test/slides-export.test.ts t
 },
 ```
 
-- [ ] **Step 2: Write `skills/slides-export-pptx.md`** (frontmatter `name/description/safety: read-only/tools: [wafflebase slides export]`, When-to-Use, Commands, Safety — mirror `docs-export-docx.md`).
-- [ ] **Step 3: Add the SKILL.md index row** under Slides Skills:
+- [x] **Step 2: Write `skills/slides-export-pptx.md`** (frontmatter `name/description/safety: read-only/tools: [wafflebase slides export]`, When-to-Use, Commands, Safety — mirror `docs-export-docx.md`).
+- [x] **Step 3: Add the SKILL.md index row** under Slides Skills:
   `| [slides-export-pptx.md](slides-export-pptx.md) | read-only | Export a deck to .pptx |`
-- [ ] **Step 4: Update `docs/design/cli.md`** — add `export <doc-id> <file> [--format pptx] [--force]` to the slides command-tree block; add the `slides.export` row to the schema table; delete the Phase-1 sentence "`slides export pptx` ... no PPTX export engine exists" / adjust the deferral paragraph to note PPTX export now ships (PDF still deferred).
-- [ ] **Step 5: Run** `pnpm --filter @wafflebase/cli test` — expect PASS (schema + namespaces).
-- [ ] **Step 6: Commit** `git commit -m "Document slides export: schema, skill, cli.md"`
+- [x] **Step 4: Update `docs/design/cli.md`** — add `export <doc-id> <file> [--format pptx] [--force]` to the slides command-tree block; add the `slides.export` row to the schema table; delete the Phase-1 sentence "`slides export pptx` ... no PPTX export engine exists" / adjust the deferral paragraph to note PPTX export now ships (PDF still deferred).
+- [x] **Step 5: Run** `pnpm --filter @wafflebase/cli test` — expect PASS (schema + namespaces).
+- [x] **Step 6: Commit** `git commit -m "Document slides export: schema, skill, cli.md"`
 
 ---
 

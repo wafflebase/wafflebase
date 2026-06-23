@@ -114,9 +114,9 @@ What landed (in commit order):
       `updateTableCellStyle` path. Model/renderer/store already
       supported `padding`; this was a UI-only gap. Behavioral test:
       `tests/app/slides/toolbar/table-controls.test.ts`.
-- [ ] Per-side border picker (current is preset-only; per-side comes
-      with the Format options panel work — deferred there, not built
-      standalone)
+- **Deferred** — Per-side border picker (current is preset-only;
+      per-side comes with the Format options panel work — built there,
+      not standalone)
 
 ## P4 — Structural edits
 
@@ -153,13 +153,13 @@ What landed (in commit order):
       render (merge-hole / deleted-table ranges keep the ring so presence
       never vanishes). Pure-fn + DOM-builder unit tests; live two-user
       smoke still recommended before merge.
-  - [ ] `resizingTableEdge` — DEFERRED with the live-frame broadcast.
+  - **Deferred** — `resizingTableEdge` with the live-frame broadcast.
         It is a *live drag preview*; the element-level `activeFrames`
         live broadcast it pairs with is itself deferred (P2 of
         `archive/2026/06/20260621-slides-live-presence-todo.md`, blocked
         on the "no single gesture-end chokepoint to clear" problem). Build
         table edge-resize presence together with that, not standalone.
-  - [ ] `textCursorCell` — DEFERRED. The design doc frames it as an
+  - **Deferred** — `textCursorCell`. The design doc frames it as an
         extension of `textCursor`, but slides renders NO peer text carets
         today (only docs does); the live-presence todo lists peer text
         carets as an explicit separate PR. Needs that substrate first.
@@ -178,8 +178,9 @@ render in the PDF without a dedicated painter — only verification remains.
 - [x] Table case in `packages/slides/src/export/pdf.ts` — covered
       transitively: `drawTable` runs inside `drawSlide`, no table-specific
       export code needed.
-- [ ] Visual PDF diff against a fixture deck under
-      `pnpm verify:browser:docker`
+- **Deferred** — Visual PDF diff against a fixture deck under
+      `pnpm verify:browser:docker` (render path covered transitively;
+      dedicated visual fixture not built)
 
 ## Verification gates
 

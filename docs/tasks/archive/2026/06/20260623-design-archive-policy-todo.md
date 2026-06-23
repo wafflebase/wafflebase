@@ -60,9 +60,9 @@ git history.
 - [x] 5. Update `docs/design/README.md`: remove Archive section; add short "Obsolete docs" policy note (note in successor + git)
 - [x] 5b. Fix dead links to the removed archive paths (docs.md, docs-tables.md, slides.md, slides-multi-select-resize.md, slides-native-undo.md)
 - [x] 6. Verify each folded fact against current code (caught 2 stale facts — see Review)
-- [ ] 7. Self-review diff; `pnpm verify:fast` (running)
-- [ ] 8. Update `tasks/README.md` index; lessons file; archive task
-- [ ] 9. PR
+- [x] 7. Self-review diff; `pnpm verify:fast`
+- [x] 8. Update `tasks/README.md` index; lessons file; archive task
+- [x] 9. PR — merged as #405 (a85aa2ad)
 
 ## Review
 
