@@ -264,10 +264,12 @@ function buildFaces(
   const body = new Path2D();
   tracePath(body, g);
   const tab = buildFoldTab(g);
-  // Fold tabs sit BEHIND the body (painted first / darker), body over.
+  // Body first (base fill), then the darker fold tab on top — paintFaces
+  // fills in array order, so the dark tab must come last to be visible
+  // (matches the other banner faces).
   return [
-    { path: tab, shade: -0.15 },
     { path: body, shade: 0 },
+    { path: tab, shade: -0.15 },
   ];
 }
 

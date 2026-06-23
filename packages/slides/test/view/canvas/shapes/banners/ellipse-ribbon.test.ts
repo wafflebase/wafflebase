@@ -60,13 +60,14 @@ describe('buildEllipseRibbon2 (vertical mirror)', () => {
 });
 
 describe('buildEllipseRibbonFaces', () => {
-  it('returns a darker center fold tab BEHIND the base body', () => {
+  it('paints the base body first, then a darker fold tab on top', () => {
     const faces = buildEllipseRibbonFaces(SIZE);
     expect(faces).toHaveLength(2);
-    const [tab, body] = faces;
-    // The fold tab is painted first (back) and darker; the body covers it.
-    expect(tab.shade).toBeLessThan(0);
+    const [body, tab] = faces;
+    // Body (base) is painted first; the darker fold tab paints LAST so it
+    // is visible (paintFaces fills in array order).
     expect(body.shade ?? 0).toBe(0);
+    expect(tab.shade).toBeLessThan(0);
     const ctx = createTestCanvas(200, 200).getContext('2d');
     // The tab is two narrow strips along the fold lines (x ≈ 37.5 / 62.5)
     // just below the raised center top edge.
@@ -78,12 +79,12 @@ describe('buildEllipseRibbonFaces', () => {
 });
 
 describe('buildEllipseRibbon2Faces', () => {
-  it('returns a darker center fold tab mirrored to the bottom', () => {
+  it('paints body first, then the darker fold tab mirrored to the bottom', () => {
     const faces = buildEllipseRibbon2Faces(SIZE);
     expect(faces).toHaveLength(2);
-    const [tab, body] = faces;
-    expect(tab.shade).toBeLessThan(0);
+    const [body, tab] = faces;
     expect(body.shade ?? 0).toBe(0);
+    expect(tab.shade).toBeLessThan(0);
     const ctx = createTestCanvas(200, 200).getContext('2d');
     // Fold lines mirror to y ≈ 82.
     expect(ctx.isPointInPath(tab.path, 37, 82)).toBe(true);
