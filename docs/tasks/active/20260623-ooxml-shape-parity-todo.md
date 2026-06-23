@@ -72,5 +72,45 @@ Preparation/Sort/SummingJunction, cube, can, donut, noSmoking, star4–32, irreg
 moon, cloud, leftBrace, rightBrace, leftBracket, rightBracket, bracePair, bracketPair,
 wave, doubleWave, wedgeRectCallout, wedgeEllipseCallout.
 
-## Review
-(to fill in)
+## Review — COMPLETE
+
+All 136 builders audited against ECMA-376; every deviation fixed except two
+deliberately-kept cases. Landed across 7 commits on `fix/bentarrow-pptx-geometry`:
+
+1. `1db8c16` — 9 geometry/orientation fixes (bentArrow + decagon, dodecagon,
+   plaque, foldedCorner, halfFrame, round2DiagRect, snipRoundRect, teardrop).
+2. `05362c9` — block arrows (ss-based head length) + arrow-callout head flare.
+3. `17fc10a` — **multi-fill shaded-faces infra** (`FACE_BUILDERS` + `applyShade`);
+   cube/can shaded.
+4. `f21c36e` — bevel, ribbon, ribbon2, ellipseRibbon(2), leftRightRibbon,
+   horizontal/verticalScroll: OOXML silhouettes + shaded fold/curl faces.
+5. `24e15b7` — borderCallout1/2/3 (full-rect + leader line via OUTLINE_BUILDERS),
+   math glyphs (73.49% bars, corner-aligned multiply, divide/notEqual adj),
+   plus/chevron/blockArc/corner adjustment semantics.
+6. `77074a7` — flowchart delay/manualInput/manualOperation/punchedCard/
+   punchedTape/terminator; sun (disc + discrete rays); lightningBolt (11-vtx);
+   snip1/snip2Diag/snip2Same/round2Same defaults; stripedRightArrow; bentUpArrow
+   (3 adj).
+7. `91596ed` — wedgeRoundRectCallout (any-direction tail), cloudCallout (3
+   bubbles), flowChartDocument/Multidocument (asymmetric bezier bottom),
+   flowChartMagneticTape (squared foot).
+
+Verification: every fix is covered by the canonical real-canvas `isPointInPath`
+specs (`packages/slides/test/.../shapes/**`); the all-builder registry snapshot
+was regenerated per commit and diffed to confirm only the intended shape keys
+changed each time. Full `slides test` green (2361). `slides typecheck` clean
+apart from the pre-existing `test/anim/player.test.ts` `.at()` gate gap.
+
+### Deliberately kept as-is (not bugs)
+- **upDownArrow** — uses a hardcoded `shaftHalf` ratio + anti-bowtie default
+  (documented in the file) to avoid the shape collapsing at default; OOXML's
+  independent shaft geometry would reintroduce that. Orientation is correct.
+- **heart / smileyFace** — curves are polyline approximations of the OOXML
+  béziers; silhouette + orientation are correct and the audit rated the fidelity
+  acceptable. Left to avoid churn for no visible gain.
+
+### Follow-ups (out of scope here)
+- The new shaded faces render in the editor/PDF (raster) automatically. PPTX
+  export still emits `<a:prstGeom>` (preset) so faces round-trip via the preset,
+  not as explicit fills — fine for these preset shapes.
+- `.ooxml-preset-ref.xml` (ECMA reference) is gitignored; kept locally for audit.
