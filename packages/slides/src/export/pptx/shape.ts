@@ -1,4 +1,4 @@
-import type { Frame, ShapeElement, ShapeKind, Stroke } from '../../model/element.js';
+import type { Frame, ShapeElement, ShapeKind, Stroke, TextElement } from '../../model/element.js';
 import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
 import { solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml } from './text.js';
@@ -96,6 +96,49 @@ export function shapeToXml(el: ShapeElement): string {
     `<p:nvSpPr>` +
     `<p:cNvPr id="0" name="${escapeXmlAttr(el.id)}"${descrAttr}/>` +
     `<p:cNvSpPr/>` +
+    `<p:nvPr/>` +
+    `</p:nvSpPr>`;
+
+  return `<p:sp>${nv}${spPr}${txBody}</p:sp>`;
+}
+
+/**
+ * Serialize a {@link TextElement} to a `<p:sp>` element with `txBox="1"`.
+ *
+ * A text element is a standalone text box — it maps to an OOXML `<p:sp>`
+ * with `<p:cNvSpPr txBox="1"/>`. Without the `txBox="1"` marker the
+ * PPTX importer would re-read it as a `ShapeElement` (kind: 'rect'), not
+ * a `TextElement`, so round-trip type fidelity requires emitting it.
+ *
+ * Text elements carry no geometry fill (just an optional stroke/fill on the
+ * box border), so `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` is used
+ * as the mandatory geometry placeholder alongside `<a:noFill/>` (unless an
+ * explicit fill is present).
+ */
+export function textElementToXml(el: TextElement): string {
+  const { data, frame } = el;
+
+  const fill = data.fill ? solidFillXml(data.fill) : '<a:noFill/>';
+
+  const spPr =
+    `<p:spPr>` +
+    xfrmXml(frame) +
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+    fill +
+    lineXml(data.stroke) +
+    effectsToXml(data.effects) +
+    `</p:spPr>`;
+
+  const txBody = textBodyToXml(
+    { blocks: data.blocks, autofit: data.autofit, verticalAnchor: data.verticalAnchor },
+    'p:txBody',
+  );
+
+  const descrAttr = attr('descr', data.alt);
+  const nv =
+    `<p:nvSpPr>` +
+    `<p:cNvPr id="0" name="${escapeXmlAttr(el.id)}"${descrAttr}/>` +
+    `<p:cNvSpPr txBox="1"/>` +
     `<p:nvPr/>` +
     `</p:nvSpPr>`;
 

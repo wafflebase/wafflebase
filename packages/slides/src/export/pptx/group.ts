@@ -20,10 +20,10 @@
  * therefore do not export it either; round-trip correctness requires
  * exporting only what the importer reads.
  */
-import type { Element, Frame, GroupElement, ImageElement, TextBody } from '../../model/element.js';
+import type { Element, Frame, GroupElement, ImageElement } from '../../model/element.js';
 import type { ConnectorElement } from '../../model/connector.js';
 import { pxToEmuX, pxToEmuY } from './units.js';
-import { shapeToXml } from './shape.js';
+import { shapeToXml, textElementToXml } from './shape.js';
 import { imageToXml } from './image.js';
 import { tableToXml } from './table.js';
 import { connectorToXml } from './connector.js';
@@ -39,16 +39,14 @@ export interface ElementXmlCtx {
 /**
  * Dispatch a single element to its dedicated PPTX serializer.
  *
- * `text` elements are coerced to a `<p:sp>` carrying a txBody — the same
- * representation PowerPoint uses for standalone text boxes. They map to a
- * `ShapeElement` with `kind: 'rect'` so the importer's shape path re-creates
- * a TextElement on round-trip (the shape→text promotion happens in the
- * importer's placeholder / txBody detection pass).
+ * `text` elements are serialized via `textElementToXml` which emits
+ * `<p:cNvSpPr txBox="1"/>` — the OOXML marker that causes the importer
+ * to reconstruct a `TextElement` (not a `ShapeElement`) on re-import.
  */
 export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
   switch (el.type) {
     case 'text':
-      return shapeToXml(textElementAsShape(el));
+      return textElementToXml(el);
     case 'shape':
       return shapeToXml(el);
     case 'image':
@@ -60,25 +58,6 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
     case 'group':
       return groupToXml(el, ctx);
   }
-}
-
-/**
- * Coerce a `TextElement` into the `ShapeElement` shape expected by
- * `shapeToXml`. The text body, fill, stroke, effects, and alt text are
- * preserved on the synthesized shape's data bag.
- */
-function textElementAsShape(
-  el: Extract<Element, { type: 'text' }>,
-): Extract<Element, { type: 'shape' }> {
-  const { blocks, autofit, verticalAnchor, fill, stroke, effects, alt } = el.data;
-  const textBody: TextBody = { blocks, autofit, verticalAnchor };
-  return {
-    id: el.id,
-    frame: el.frame,
-    placeholderRef: el.placeholderRef,
-    type: 'shape',
-    data: { kind: 'rect', text: textBody, fill, stroke, effects, alt },
-  };
 }
 
 /**
