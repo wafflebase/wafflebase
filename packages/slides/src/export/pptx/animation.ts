@@ -29,6 +29,7 @@
 
 import type { AnimCategory, AnimDirection, AnimEffect, AnimEasing, AnimStart } from '../../model/element.js';
 import type { SlideAnimation, SlideTransition } from '../../model/presentation.js';
+import { escapeXmlAttr } from './xml.js';
 
 // ---------------------------------------------------------------------------
 // Transition serialization
@@ -184,7 +185,6 @@ function effectParXml(anim: SlideAnimation, spid: number): string {
   }
 
   const subtypeAttr = presetSubtype !== undefined ? ` presetSubtype="${presetSubtype}"` : '';
-  const delayAttr = anim.delayMs && anim.delayMs > 0 ? ` delay="${anim.delayMs}"` : '';
 
   // Build target element — spTgt with optional txEl for byParagraph.
   const tgtEl = anim.byParagraph
@@ -196,7 +196,7 @@ function effectParXml(anim: SlideAnimation, spid: number): string {
   let behaviorEl: string;
   if (anim.motionPath !== undefined) {
     behaviorEl =
-      `<p:animMotion path="${anim.motionPath}">` +
+      `<p:animMotion path="${escapeXmlAttr(anim.motionPath)}">` +
       `<p:cBhvr>${tgtEl}</p:cBhvr>` +
       `</p:animMotion>`;
   } else {
@@ -209,7 +209,7 @@ function effectParXml(anim: SlideAnimation, spid: number): string {
   const cTn =
     `<p:cTn id="0" dur="${anim.durationMs}" nodeType="${nodeType}"` +
     ` presetClass="${presetClass}" presetID="${presetID}"${subtypeAttr}${easing}>` +
-    `<p:stCondLst><p:cond evt="onNext"${delayAttr} delay="0"/></p:stCondLst>` +
+    `<p:stCondLst><p:cond evt="onNext" delay="${anim.delayMs ?? 0}"/></p:stCondLst>` +
     `<p:childTnLst>${behaviorEl}</p:childTnLst>` +
     `</p:cTn>`;
 

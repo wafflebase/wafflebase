@@ -281,4 +281,35 @@ describe('animationsToTimingXml', () => {
     };
     expect(animationsToTimingXml([anim])).toBe('');
   });
+
+  it('escapes special chars in motionPath attribute', () => {
+    const anim: SlideAnimation = {
+      id: 'a1',
+      elementId: 'e1',
+      category: 'entrance',
+      effect: 'appear',
+      start: 'onClick',
+      durationMs: 1000,
+      motionPath: 'M 0 0 L 1&1 Z "end"',
+    };
+    const xml = animationsToTimingXml([anim], new Map([['e1', 7]]));
+    expect(xml).toContain('path="M 0 0 L 1&amp;1 Z &quot;end&quot;"');
+    expect(xml).not.toContain('path="M 0 0 L 1&1 Z "end""');
+  });
+
+  it('emits exactly one delay attribute with correct value when delayMs set', () => {
+    const anim: SlideAnimation = {
+      id: 'a1',
+      elementId: 'e1',
+      category: 'entrance',
+      effect: 'appear',
+      start: 'onClick',
+      durationMs: 500,
+      delayMs: 500,
+    };
+    const xml = animationsToTimingXml([anim], new Map([['e1', 2]]));
+    // Must contain delay="500" and must NOT also emit delay="0"
+    expect(xml).toContain('delay="500"');
+    expect((xml.match(/delay=/g) ?? []).length).toBe(1);
+  });
 });
