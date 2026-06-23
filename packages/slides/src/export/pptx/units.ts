@@ -13,9 +13,6 @@ export function pxToEmuY(px: number): number {
 export function pxToEmu(px: number): number {
   return Math.round((px / SLIDE_WIDTH) * EMU_W);
 }
-export function degToRot60k(deg: number): number {
-  return Math.round(deg * 60_000);
-}
 export function radToRot60k(rad: number): number {
   return Math.round(rad * (180 / Math.PI) * 60_000);
 }

@@ -56,6 +56,12 @@ describe('textBodyToXml', () => {
     expect(xml).toContain('<a:latin typeface="Arial"/>');
   });
 
+  it('escapes double-quotes in fontFamily attribute', () => {
+    const xml = textBodyToXml({ blocks: [para('Q', { fontFamily: 'Foo "Bar" Sans' })] });
+    expect(xml).toContain('typeface="Foo &quot;Bar&quot; Sans"');
+    expect(xml).not.toMatch(/typeface="[^"]*"[^/]/);
+  });
+
   it('handles srgb StoredColor object', () => {
     const xml = textBodyToXml({
       blocks: [para('C', { color: { kind: 'srgb', value: '#00FF00' } })],

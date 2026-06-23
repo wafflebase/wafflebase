@@ -173,7 +173,7 @@ function runToXml(inline: Inline): string {
     );
   }
   if (s.fontFamily) {
-    children.push(`<a:latin typeface="${escapeXmlText(s.fontFamily)}"/>`);
+    children.push(`<a:latin typeface="${escapeXmlAttr(s.fontFamily)}"/>`);
   }
   if (s.href) {
     // Hyperlinks require a slide relationship id, which is wired up in a
