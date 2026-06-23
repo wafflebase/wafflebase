@@ -1568,3 +1568,38 @@ Run: `pnpm --filter @wafflebase/cli exec vitest run test/slides-export.test.ts t
 **Type consistency:** `ElementXmlCtx` (Task 9) is consumed by Tasks 12–13; `textBodyToXml` tag-parameterization (Task 4 note ↔ Task 5/7 usage) flagged for reconciliation in Task 4 Step 3; `fetchImage: (src) => {bytes,mime}` (Task 13) ↔ `exportPptxCli` Blob adapter (Task 15) consistent; `PptxWriter` API (Task 2) used uniformly in Task 13.
 
 **Known risk carried into execution:** Tasks 10/11/12 require reading the corresponding importer modules to nail exact inverse XML; the round-trip fixtures in Task 14 will surface any mismatch as a failing test (this is the intended TDD loop for those modules).
+
+## Review (post-implementation)
+
+**Shipped.** All 16 tasks complete via subagent-driven development (fresh
+implementer + spec/quality review + fix loop per task), plus a final
+whole-branch review (opus) and a round-trip coverage extension.
+
+- **Exporter:** `packages/slides/src/export/pptx/` — Node-safe DrawingML +
+  jszip writer, inverse of the importer. Exposed via `@wafflebase/slides/node`
+  (and `src/index.ts`). CLI `wafflebase slides export <doc-id> <file>`.
+- **Round-trip coverage (the acceptance bar):** 13 round-trip fixtures
+  cover text, shape, table, image, group, connector, rich text
+  (lnSpc/marL/indent/highlight/bullet styling), drop-shadow/reflection
+  effects, freeform custGeom, image crop/recolor/opacity/brightness, and
+  slide transition + object animation. All deep-equal under `normalize()`.
+- **Tests:** slides export 144, slides suite 2249, CLI 208 — all pass.
+  CLI + slides typecheck clean (except the pre-existing, unrelated
+  `test/anim/player.test.ts` `.at()` error CI never runs).
+
+**Bugs caught by review/round-trip (would have shipped otherwise):**
+rotation stored in radians vs degrees (xfrmXml); `StoredColor` role-arm
+width mismatch; XML attribute escaping (alt, typeface, motionPath); alt +
+tableStyleId dropped on tables; four text-style fields silently dropped
+(masked by normalize exclusions); reflection `size` emitted as `endA` not
+`endPos`; **`nodeType="mainSeq"` on `<p:seq>` instead of its `<p:cTn>` —
+silently dropping every animation on re-import.**
+
+**Documented v1 deferrals (excluded in normalize with reasons):** inline
+`href` rel-wiring, connector attached-endpoints, group-targeted-animation
+spid coupling (importer-side gap), PDF export. See lessons file.
+
+**Process note:** mid-run git incident (a subagent ran `git checkout main`
++ cherry-pick, orphaning Phase 1) recovered losslessly via reflog reset +
+cherry-pick; a no-branch-switching guard was added to all later dispatches.
+Details in `*-lessons.md`.

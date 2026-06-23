@@ -19,7 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | slides cli phase1 (2026-06-23) | [20260623-slides-cli-phase1-todo.md](./active/20260623-slides-cli-phase1-todo.md) | [20260623-slides-cli-phase1-lessons.md](./active/20260623-slides-cli-phase1-lessons.md) |
-| slides pptx export (2026-06-23) | [20260623-slides-pptx-export-todo.md](./active/20260623-slides-pptx-export-todo.md) | - |
+| slides pptx export (2026-06-23) | [20260623-slides-pptx-export-todo.md](./active/20260623-slides-pptx-export-todo.md) | [20260623-slides-pptx-export-lessons.md](./active/20260623-slides-pptx-export-lessons.md) |
 | slides fonts (2026-06-16) | [20260616-slides-fonts-todo.md](./active/20260616-slides-fonts-todo.md) | [20260616-slides-fonts-lessons.md](./active/20260616-slides-fonts-lessons.md) |
 | slides tables (2026-06-08) | [20260608-slides-tables-todo.md](./active/20260608-slides-tables-todo.md) | [20260608-slides-tables-lessons.md](./active/20260608-slides-tables-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
