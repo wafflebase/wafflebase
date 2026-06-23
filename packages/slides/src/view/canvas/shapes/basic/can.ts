@@ -1,4 +1,9 @@
-import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
+import type {
+  PathBuilder,
+  AdjustmentSpec,
+  AdjustmentHandle,
+  FaceBuilder,
+} from '../builder';
 import { adj } from '../builder';
 import { insetAlongAxis } from '../handles';
 
@@ -52,6 +57,27 @@ export const buildCan: PathBuilder = ({ w, h }, adjustments) => {
   path.moveTo(w, ry);
   path.ellipse(w / 2, ry, w / 2, ry, 0, 0, Math.PI);
   return path;
+};
+
+/**
+ * Multi-fill faces for the can's 3D look: the cylinder body at the base
+ * fill, plus the top lid as a full ellipse, lightened to read as the
+ * lit top surface.
+ */
+export const buildCanFaces: FaceBuilder = ({ w, h }, adjustments) => {
+  const ry = (adj(adjustments, 0, 25000) / 100000) * h;
+  const body = new Path2D();
+  body.moveTo(0, ry);
+  body.ellipse(w / 2, ry, w / 2, ry, 0, Math.PI, 0);
+  body.lineTo(w, h - ry);
+  body.ellipse(w / 2, h - ry, w / 2, ry, 0, 0, Math.PI);
+  body.closePath();
+  const lid = new Path2D();
+  lid.ellipse(w / 2, ry, w / 2, ry, 0, 0, Math.PI * 2);
+  return [
+    { path: body, shade: 0 },
+    { path: lid, shade: 0.16 },
+  ];
 };
 
 // Handle paints at the horizontal centre of the lid line (w/2, ry).

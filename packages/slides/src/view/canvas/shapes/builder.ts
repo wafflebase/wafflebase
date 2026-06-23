@@ -17,6 +17,35 @@ export type PathBuilder = (
 ) => Path2D;
 
 /**
+ * One filled face of a multi-fill (3D-look / folded) shape. `path` is a
+ * closed Path2D in element-local coordinates; `shade` is a signed
+ * luminance delta applied to the shape's resolved fill color before
+ * painting this face — positive lightens (toward white), negative
+ * darkens (toward black), `0`/absent paints the base fill. This is how
+ * OOXML `<a:lumMod>`/`<a:lumOff>` 3D faces (cube/bevel/ribbon/scroll) are
+ * approximated within a single solid fill color.
+ *
+ * Faces are painted in array order (back-to-front), so later faces draw
+ * over earlier ones where they overlap.
+ */
+export type ShapeFace = {
+  path: Path2D;
+  shade?: number;
+};
+
+/**
+ * Optional companion to a `PathBuilder` for shapes that paint several
+ * differently-shaded faces (raised bevel, folded ribbon, scroll curl).
+ * The shape STILL registers a `PathBuilder` returning the union
+ * silhouette (used for hit-test, icon, snapshot, and export); the
+ * `FaceBuilder` only drives the multi-fill paint at render time.
+ */
+export type FaceBuilder = (
+  size: FrameSize,
+  adjustments?: number[],
+) => ShapeFace[];
+
+/**
  * Per-shape declaration of an adjustable parameter. Read by Phase 2's
  * toolbar UI to build numeric inputs; Phase 1 only uses `defaultValue`.
  *

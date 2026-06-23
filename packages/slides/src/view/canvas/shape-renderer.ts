@@ -1,8 +1,8 @@
 import type { ShapeElement, ShapeKind } from '../../model/element';
-import { resolveColor, type Theme } from '../../model/theme';
+import { applyShade, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { resolveStrokeColor } from './render-context';
-import { OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
+import { FACE_BUILDERS, OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 import { buildFreeformPath } from './shapes/freeform';
@@ -114,12 +114,47 @@ export function drawShape(
     drawPlaceholderRect(ctx, size, data, theme);
     return;
   }
+  // Multi-fill 3D-look / folded shapes (cube, can, bevel, ribbons,
+  // scrolls): paint each shaded face from the single fill color, then
+  // stroke the union silhouette once.
+  const faceBuilder = FACE_BUILDERS.get(data.kind);
+  if (faceBuilder) {
+    paintFaces(ctx, faceBuilder(size, data.adjustments), data, theme);
+    if (data.stroke) {
+      ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
+      ctx.lineWidth = data.stroke.width;
+      ctx.lineJoin = 'round';
+      ctx.stroke(builder(size, data.adjustments));
+    }
+    return;
+  }
+
   const outlineBuilder = OUTLINE_BUILDERS.get(data.kind);
   paintFillStroke(ctx, builder(size, data.adjustments), data, theme, {
     skipFill: OPEN_PATH_KINDS.has(data.kind),
     fillRule: EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero',
     strokePath: outlineBuilder?.(size, data.adjustments),
   });
+}
+
+/**
+ * Paint the shaded faces of a multi-fill shape. Each face is filled with
+ * the shape's resolved fill color, lightened/darkened by its `shade`
+ * delta. No fill ⇒ no-op (a stroke-only 3D shape shows just its
+ * silhouette outline, stroked by the caller).
+ */
+function paintFaces(
+  ctx: CanvasRenderingContext2D,
+  faces: ReadonlyArray<{ path: Path2D; shade?: number }>,
+  data: ShapeElement['data'],
+  theme: Theme,
+): void {
+  if (!data.fill) return;
+  const base = resolveColor(data.fill, theme);
+  for (const face of faces) {
+    ctx.fillStyle = face.shade ? applyShade(base, face.shade) : base;
+    ctx.fill(face.path);
+  }
 }
 
 /**

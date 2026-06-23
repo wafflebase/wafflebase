@@ -88,6 +88,33 @@ export function resolveFont(font: ThemeFont, theme: Theme): string {
   return theme.fonts[font.role];
 }
 
+/**
+ * Apply a signed luminance delta to an already-resolved CSS color
+ * (`#RRGGBB` or `rgba(...)`). `delta > 0` lightens toward white,
+ * `delta < 0` darkens toward black, `0` is identity. Used to paint the
+ * differently-shaded faces of 3D-look shapes (cube/bevel/ribbon/scroll)
+ * from a single base fill. Alpha (in `rgba(...)`) is preserved.
+ */
+export function applyShade(css: string, delta: number): string {
+  if (delta === 0) return css;
+  if (css.startsWith('#')) {
+    return delta > 0 ? tintColor(css, delta) : shadeColor(css, -delta);
+  }
+  const m = /^rgba?\(([^)]+)\)/.exec(css);
+  if (!m) return css;
+  const parts = m[1].split(',').map((s) => s.trim());
+  const r = Number(parts[0]);
+  const g = Number(parts[1]);
+  const b = Number(parts[2]);
+  const a = parts[3] ?? '1';
+  const f =
+    delta > 0
+      ? (v: number) => v + (255 - v) * delta
+      : (v: number) => v * (1 + delta);
+  const cl = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `rgba(${cl(f(r))}, ${cl(f(g))}, ${cl(f(b))}, ${a})`;
+}
+
 // Helpers — tint blends toward white, shade blends toward black.
 
 function parseHex(hex: string): [number, number, number] {

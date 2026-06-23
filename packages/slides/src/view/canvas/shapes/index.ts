@@ -1,7 +1,17 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
-import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from './builder';
-import { buildCan, CAN_ADJUSTMENTS, CAN_HANDLES } from './basic/can';
+import type {
+  AdjustmentHandle,
+  AdjustmentSpec,
+  FaceBuilder,
+  PathBuilder,
+} from './builder';
+import {
+  buildCan,
+  buildCanFaces,
+  CAN_ADJUSTMENTS,
+  CAN_HANDLES,
+} from './basic/can';
 import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
 import { buildDonut, DONUT_ADJUSTMENTS, DONUT_HANDLES } from './basic/donut';
@@ -62,6 +72,7 @@ import {
 } from './basic/folded-corner';
 import {
   buildCube,
+  buildCubeFaces,
   CUBE_ADJUSTMENTS,
   CUBE_HANDLES,
 } from './basic/cube';
@@ -396,6 +407,15 @@ export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 export const OUTLINE_BUILDERS = new Map<ShapeKind, PathBuilder>();
 
 /**
+ * Shape kind → optional multi-fill face builder. 3D-look / folded shapes
+ * (cube, can, bevel, ribbons, scrolls) paint several differently-shaded
+ * faces from the shape's single fill color. Kinds listed here STILL
+ * register a `PATH_BUILDERS` silhouette (for hit-test, icon, snapshot,
+ * and export); the renderer only consults this map for the fill paint.
+ */
+export const FACE_BUILDERS = new Map<ShapeKind, FaceBuilder>();
+
+/**
  * Shape kind → adjustable parameter specs. Only kinds with at least
  * one adjustment are listed. Phase 2's toolbar UI iterates this map.
  */
@@ -441,6 +461,7 @@ PATH_BUILDERS.set('plaque', buildPlaque);
 PATH_BUILDERS.set('bevel', buildBevel);
 PATH_BUILDERS.set('foldedCorner', buildFoldedCorner);
 PATH_BUILDERS.set('cube', buildCube);
+FACE_BUILDERS.set('cube', buildCubeFaces);
 PATH_BUILDERS.set('teardrop', buildTeardrop);
 PATH_BUILDERS.set('smileyFace', buildSmileyFace);
 PATH_BUILDERS.set('heart', buildHeart);
@@ -483,6 +504,7 @@ PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
+FACE_BUILDERS.set('can', buildCanFaces);
 PATH_BUILDERS.set('cloud', buildCloud);
 PATH_BUILDERS.set('rightArrow', buildRightArrow);
 PATH_BUILDERS.set('leftArrow', buildLeftArrow);
