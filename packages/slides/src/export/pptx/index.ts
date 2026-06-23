@@ -42,8 +42,7 @@
 
 import type { SlidesDocument } from '../../model/presentation.js';
 import type { ImageElement } from '../../model/element.js';
-import { flattenElements } from '../../model/group.js';
-import { buildElementWorldLookup } from '../../model/group.js';
+import { flattenElements, buildElementWorldLookup } from '../../model/group.js';
 import { computeConnectorFrame } from '../../view/canvas/connector-frame.js';
 import { PptxWriter } from './zip.js';
 import { REL_TYPES } from './templates.js';
@@ -281,27 +280,10 @@ export async function exportPptx(
 
     // Determine this slide's layout. Fall back to first layout or blank.
     const resolvedLayoutPath =
-      layoutIdToPath.get(slide.layoutId) ?? layoutsToEmit[0]
-        ? layoutIdToPath.get(slide.layoutId) ??
-          `ppt/slideLayouts/slideLayout1.xml`
-        : 'ppt/slideLayouts/slideLayout1.xml';
+      layoutIdToPath.get(slide.layoutId) ?? 'ppt/slideLayouts/slideLayout1.xml';
 
-    // The layout rel MUST be added AFTER image rels so rId1 isn't taken.
-    // Actually per PptxWriter, rIds are auto-incremented per slide part.
-    // The importer only requires the slideLayout rel to exist; it doesn't
-    // care about the rId number. Add layout rel first for clean rId1.
-    //
-    // NOTE: we add layout rel before images so slide's rId1 = layout
-    // (matches the minimal pptx fixture convention).
-    const layoutRelAlreadyAdded = slideImageRIdCache.size > 0;
-    if (!layoutRelAlreadyAdded) {
-      // Images were added via resolveImageRId() above during slideToXml().
-      // Layout rel has NOT been added yet; add it now.
-    }
-    // Actually: image rels get added during slideToXml() via resolveImageRId.
-    // We need the layout rel to also be in the slide's rels file. Add it.
-    // The order matters for rId numbering: slideToXml already called
-    // resolveImageRId which added image rels. Add layout rel after.
+    // Image rels are added during slideToXml() via resolveImageRId.
+    // Add the layout rel after so it follows any image rels in rId order.
     writer.addRel(slidePath, REL_TYPES.slideLayout, `../${resolvedLayoutPath.slice('ppt/'.length)}`);
 
     // Notes slide — if the slide has non-empty notes, emit a notes part.
