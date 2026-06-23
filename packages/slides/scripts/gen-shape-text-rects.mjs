@@ -76,7 +76,7 @@ function applyOp(op, a, b, c) {
     case 'cos': return a * Math.cos(b * DEG);
     case 'tan': return a * Math.tan(b * DEG);
     case 'pin': return b < a ? a : b > c ? c : b;
-    case 'at2': return Math.atan2(c, b) / DEG;
+    case 'at2': return Math.atan2(b, a) / DEG; // at2 x y = atan2(y, x)
     case 'cat2': return a * Math.cos(Math.atan2(c, b));
     case 'sat2': return a * Math.sin(Math.atan2(c, b));
     default: throw new Error(`unsupported guide op: ${op}`);

@@ -59,6 +59,11 @@ export const SHAPE_TEXT_RECTS: Partial<
  * without a preset rect fall back to a uniform `SHAPE_TEXT_PADDING` on
  * every side — i.e. the historical full-frame-minus-padding box.
  */
+// Known limitation: for shapes with a very narrow preset rect (e.g.
+// `leftRightRibbon`, `lightningBolt`), the composed inset can drive the inner
+// text box to zero width/height at small frame sizes — `paintTextBody` clamps
+// to `Math.max(0, …)`, so text simply doesn't render, matching PowerPoint's own
+// confinement of inline text to that narrow band rather than overflowing.
 export function shapeTextInset(kind: ShapeKind, w: number, h: number): TextInset {
   const rect = SHAPE_TEXT_RECTS[kind];
   if (!rect) {

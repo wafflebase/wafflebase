@@ -76,6 +76,7 @@ export const GENERATED_SHAPE_TEXT_RECTS: Partial<
   mathDivide: { l: 0.13255, t: 0.3824, r: 0.86745, b: 0.6176 },
   mathEqual: { l: 0.13255, t: 0.206, r: 0.86745, b: 0.794 },
   mathMinus: { l: 0.13255, t: 0.3824, r: 0.86745, b: 0.6176 },
+  mathMultiply: { l: 0.157019, t: 0.157019, r: 0.842981, b: 0.842981 },
   mathNotEqual: { l: 0.13255, t: 0.206, r: 0.86745, b: 0.794 },
   mathPlus: { l: 0.13255, t: 0.3824, r: 0.86745, b: 0.6176 },
   moon: { l: 0.146454, t: 0.239491, r: 0.5, b: 0.760509 },
