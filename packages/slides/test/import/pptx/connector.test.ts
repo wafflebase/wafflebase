@@ -152,6 +152,77 @@ describe('parseCxnSp / attached endpoint site index', () => {
     expect(site.y).toBeCloseTo(0.5, 5);
   });
 
+  // Slide 10 of the bug report: two timeline arrows are free
+  // `straightConnector1`s carrying BOTH flipH=1 and rot=10800000 (180°),
+  // with a `tailEnd` triangle. On a horizontal line the flip and the 180°
+  // rotation cancel, so the arrowhead must stay on the RIGHT (the `end`
+  // endpoint). Pre-fix the importer applied flipH only and ignored the
+  // rotation, resolving `end` to the left → arrowhead pointed left.
+  it('composes flipH + 180° rotation so a horizontal connector keeps its direction', async () => {
+    const tree = spTree(
+      `<p:spTree>
+        <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+        <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+        <p:cxnSp>
+          <p:nvCxnSpPr>
+            <p:cNvPr id="100" name="c"/>
+            <p:cNvCxnSpPr/>
+            <p:nvPr/>
+          </p:nvCxnSpPr>
+          <p:spPr>
+            <a:xfrm flipH="1" rot="10800000"><a:off x="1000000" y="2000000"/><a:ext cx="6000000" cy="0"/></a:xfrm>
+            <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+            <a:ln><a:tailEnd type="triangle"/></a:ln>
+          </p:spPr>
+        </p:cxnSp>
+      </p:spTree>`,
+    );
+    const elements = await parseSpTree(tree, ctx());
+    const connector = elements.find(
+      (e): e is ConnectorElement => e.type === 'connector',
+    );
+    expect(connector).toBeDefined();
+    expect(connector!.start.kind).toBe('free');
+    expect(connector!.end.kind).toBe('free');
+    if (connector!.start.kind !== 'free' || connector!.end.kind !== 'free') return;
+    // The arrowhead (tailEnd) is on `end`; it must sit to the RIGHT of the
+    // start, at the box's right edge.
+    expect(connector!.arrowheads.end?.kind).toBe('triangle');
+    expect(connector!.end.x).toBeGreaterThan(connector!.start.x);
+    expect(connector!.start.x).toBeCloseTo(1000000 * SCALE.sx, 3);
+    expect(connector!.end.x).toBeCloseTo(7000000 * SCALE.sx, 3);
+  });
+
+  it('resolves a plain free connector start→end across the box diagonal', async () => {
+    const tree = spTree(
+      `<p:spTree>
+        <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+        <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+        <p:cxnSp>
+          <p:nvCxnSpPr>
+            <p:cNvPr id="100" name="c"/>
+            <p:cNvCxnSpPr/>
+            <p:nvPr/>
+          </p:nvCxnSpPr>
+          <p:spPr>
+            <a:xfrm><a:off x="1000000" y="2000000"/><a:ext cx="6000000" cy="500000"/></a:xfrm>
+            <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+          </p:spPr>
+        </p:cxnSp>
+      </p:spTree>`,
+    );
+    const elements = await parseSpTree(tree, ctx());
+    const connector = elements.find(
+      (e): e is ConnectorElement => e.type === 'connector',
+    );
+    expect(connector).toBeDefined();
+    if (connector!.start.kind !== 'free' || connector!.end.kind !== 'free') return;
+    expect(connector!.start.x).toBeCloseTo(1000000 * SCALE.sx, 3);
+    expect(connector!.start.y).toBeCloseTo(2000000 * SCALE.sy, 3);
+    expect(connector!.end.x).toBeCloseTo(7000000 * SCALE.sx, 3);
+    expect(connector!.end.y).toBeCloseTo(2500000 * SCALE.sy, 3);
+  });
+
   it('returns a free endpoint when stCxn id has no matching sp', async () => {
     // Tree contains the connector but not the referenced target shape.
     const tree = spTree(

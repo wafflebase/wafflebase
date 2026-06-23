@@ -189,6 +189,13 @@ export function paintTextBody(
   theme: Theme,
   opts: {
     padding?: { x: number; y: number };
+    /**
+     * Per-side insets (left/top/right/bottom). Takes precedence over
+     * `padding` when present; lets shape callers pass an asymmetric text
+     * rectangle (e.g. the OOXML `cloud` preset's inset `<rect>`) so the
+     * box need not be symmetric about the frame centre.
+     */
+    inset?: { left: number; top: number; right: number; bottom: number };
     defaultVerticalAnchor?: VerticalAnchorMode;
     /**
      * Deck-level pre-scale (from `deckFontScale(meta)`). PPTX decks
@@ -200,10 +207,14 @@ export function paintTextBody(
   } = {},
 ): void {
   if (isTextBodyEmpty(body)) return;
-  const padX = opts.padding?.x ?? 0;
-  const padY = opts.padding?.y ?? 0;
-  const innerW = Math.max(0, size.w - 2 * padX);
-  const innerH = Math.max(0, size.h - 2 * padY);
+  const inset = opts.inset ?? {
+    left: opts.padding?.x ?? 0,
+    right: opts.padding?.x ?? 0,
+    top: opts.padding?.y ?? 0,
+    bottom: opts.padding?.y ?? 0,
+  };
+  const innerW = Math.max(0, size.w - inset.left - inset.right);
+  const innerH = Math.max(0, size.h - inset.top - inset.bottom);
 
   // Apply the deck-level pre-scale first so all downstream measurements
   // (wrap width fit, shrink-autofit, vertical-anchor offset) operate on
@@ -222,8 +233,8 @@ export function paintTextBody(
   const colorResolver = makeColorResolver(theme);
   const anchor = body.verticalAnchor ?? opts.defaultVerticalAnchor ?? 'top';
   const originY =
-    padY + computeVerticalOriginY(anchor, innerH, layout.totalHeight);
-  paintLayout(ctx, layout, padX, originY, { colorResolver });
+    inset.top + computeVerticalOriginY(anchor, innerH, layout.totalHeight);
+  paintLayout(ctx, layout, inset.left, originY, { colorResolver });
 }
 
 /**

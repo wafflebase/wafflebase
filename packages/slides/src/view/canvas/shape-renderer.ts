@@ -6,6 +6,7 @@ import { OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 import { buildFreeformPath } from './shapes/freeform';
+import { GENERATED_SHAPE_TEXT_RECTS } from './shapes/shape-text-rects.generated';
 import { paintTextBody } from './text-renderer';
 
 export type { FrameSize } from './shapes/builder';
@@ -25,6 +26,80 @@ export type { FrameSize } from './shapes/builder';
  * a visible "shift" on commit.
  */
 export const SHAPE_TEXT_PADDING = { x: 14.4, y: 7.2 } as const;
+
+/** Per-side text insets, in deck-canvas px (left/top/right/bottom). */
+export type TextInset = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+/**
+ * Per-`ShapeKind` text rectangle from the OOXML preset geometry's
+ * `<rect l t r b>` element, as fractions of the frame (0..1). PowerPoint
+ * lays a shape's text inside this rectangle — for non-rectangular shapes
+ * it is meaningfully inset from the bounding box so glyphs stay clear of
+ * the silhouette's curves. Only kinds whose preset rect differs from the
+ * full frame appear; kinds absent here use the full frame.
+ *
+ * The table is generated from the canonical `presetShapeDefinitions.xml`
+ * (see `scripts/gen-shape-text-rects.mjs`); the chosen rect is composed
+ * with the default `SHAPE_TEXT_PADDING` (PowerPoint's default `bodyPr`
+ * inset, applied *inside* the preset rect) at the use sites in
+ * {@link shapeTextInset}.
+ */
+export const SHAPE_TEXT_RECTS: Partial<
+  Record<ShapeKind, { l: number; t: number; r: number; b: number }>
+> = GENERATED_SHAPE_TEXT_RECTS;
+
+/**
+ * Text inset (px per side) for a shape's inline text: the kind's preset
+ * text rectangle (if any) plus the default `SHAPE_TEXT_PADDING`. Shapes
+ * without a preset rect fall back to a uniform `SHAPE_TEXT_PADDING` on
+ * every side — i.e. the historical full-frame-minus-padding box.
+ */
+// Known limitation: for shapes with a very narrow preset rect (e.g.
+// `leftRightRibbon`, `lightningBolt`), the composed inset can drive the inner
+// text box to zero width/height at small frame sizes — `paintTextBody` clamps
+// to `Math.max(0, …)`, so text simply doesn't render, matching PowerPoint's own
+// confinement of inline text to that narrow band rather than overflowing.
+export function shapeTextInset(kind: ShapeKind, w: number, h: number): TextInset {
+  const rect = SHAPE_TEXT_RECTS[kind];
+  if (!rect) {
+    return {
+      left: SHAPE_TEXT_PADDING.x,
+      top: SHAPE_TEXT_PADDING.y,
+      right: SHAPE_TEXT_PADDING.x,
+      bottom: SHAPE_TEXT_PADDING.y,
+    };
+  }
+  return {
+    left: rect.l * w + SHAPE_TEXT_PADDING.x,
+    top: rect.t * h + SHAPE_TEXT_PADDING.y,
+    right: (1 - rect.r) * w + SHAPE_TEXT_PADDING.x,
+    bottom: (1 - rect.b) * h + SHAPE_TEXT_PADDING.y,
+  };
+}
+
+/**
+ * The inset text frame for a shape, in the same coordinate space as the
+ * passed frame. Used by the editor so the in-place editing box and caret
+ * land exactly where {@link paintShapeText} paints the committed glyphs.
+ */
+export function shapeTextFrame(
+  kind: ShapeKind,
+  frame: { x: number; y: number; w: number; h: number; rotation: number },
+): { x: number; y: number; w: number; h: number; rotation: number } {
+  const ins = shapeTextInset(kind, frame.w, frame.h);
+  return {
+    x: frame.x + ins.left,
+    y: frame.y + ins.top,
+    w: Math.max(0, frame.w - ins.left - ins.right),
+    h: Math.max(0, frame.h - ins.top - ins.bottom),
+    rotation: frame.rotation,
+  };
+}
 
 const placeholderWarned = new Set<string>();
 
@@ -195,7 +270,7 @@ export function paintShapeText(
 ): void {
   if (!data.text) return;
   paintTextBody(ctx, size, data.text, theme, {
-    padding: SHAPE_TEXT_PADDING,
+    inset: shapeTextInset(data.kind, size.w, size.h),
     defaultVerticalAnchor: 'middle',
     fontScale,
   });
