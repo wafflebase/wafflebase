@@ -16,10 +16,14 @@ import { buildRichPptx } from '../../import/pptx/__fixtures__/build-rich-pptx.js
 import { normalize, fromDataUrl } from './normalize.js';
 import type { SlidesDocument } from '../../../src/model/presentation.js';
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 async function roundTrip(buf: ArrayBuffer): Promise<{ a: SlidesDocument; b: SlidesDocument }> {
   const a = (await importPptx(buf)).document;
   const bytes = await exportPptx(a, { fetchImage: fromDataUrl });
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const ab = toArrayBuffer(bytes);
   const b = (await importPptx(ab)).document;
   return { a, b };
 }
@@ -37,7 +41,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const slideA = { ...a, slides: [a.slides[0]] };
 
     const bytes = await exportPptx({ ...a, slides: [a.slides[0]] }, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const slideB = { ...b, slides: [b.slides[0]] };
 
@@ -51,7 +55,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide2] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const deckB = { ...b, slides: [b.slides[0]] };
 
@@ -65,7 +69,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide3] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const deckB = { ...b, slides: [b.slides[0]] };
 
@@ -84,7 +88,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide4] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab, {
       uploadImage: async (imgBytes, mime) => {
         const b64 = btoa(String.fromCharCode(...imgBytes));
@@ -103,7 +107,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide5] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const deckB = { ...b, slides: [b.slides[0]] };
 
@@ -117,7 +121,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide6] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const deckB = { ...b, slides: [b.slides[0]] };
 
@@ -131,7 +135,7 @@ describe('PPTX round-trip (model equivalence)', () => {
     const deckA = { ...a, slides: [slide7] };
 
     const bytes = await exportPptx(deckA, { fetchImage: fromDataUrl });
-    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const ab = toArrayBuffer(bytes);
     const b = (await importPptx(ab)).document;
     const deckB = { ...b, slides: [b.slides[0]] };
 
