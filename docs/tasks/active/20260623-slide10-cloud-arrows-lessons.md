@@ -49,6 +49,28 @@ rectangle. Fix added a per-`ShapeKind` `SHAPE_TEXT_RECTS` composed with the
 default padding, threaded through one `shapeTextInset`/`shapeTextFrame` helper
 so renderer paint and editor caret stay aligned.
 
+## Generate preset data, don't hand-maintain it — and expect source quirks
+
+When the per-shape text rect grew from "just cloud" to "all 137 inset presets,"
+the right move was a build-time generator over the canonical
+`presetShapeDefinitions.xml` + a small DrawingML guide-formula evaluator, not a
+hand-typed table. The evaluator only needed ~16 ops and the built-in guide set;
+evaluating on a unit square yields normalized fractions directly. Validate it
+by reproducing a known value (cloud `il=2977/21600`) before trusting the rest.
+
+The canonical preset file has real-world quirks the generator must absorb:
+CRLF line endings (Python's text mode hid this; Node's `readFileSync` did not —
+normalize first); `upDownArrow` defined twice (de-dupe by kind); `pie`'s rect is
+sweep-angle dependent and collapses to zero width at the default adjustment
+(skip degenerate rects); and `leftArrow`'s source references an undefined guide
+`dy` (a known ECMA typo) — let it fall back to uniform padding rather than
+hard-code a fix. Guard each of these explicitly and log what was skipped.
+
+Pin generated output two ways: a unit test on known values AND a `--check`
+mode run from a test so a stale checkout fails. Prettier-ignore the generated
+file and vendored data so the generator stays the single formatting authority
+(otherwise prettier rewraps an 80+ char line and the drift check fails).
+
 ## Pre-existing env drift surfaced mid-task
 
 `verify:fast` first failed on a stale slides `dist` (missing `exportPptx` from

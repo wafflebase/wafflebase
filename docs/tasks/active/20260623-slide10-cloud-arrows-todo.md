@@ -65,6 +65,19 @@ committed paint and in-place caret agree.
 - [x] Unit test: cloud text inset ≫ uniform 14px; rect unchanged
 - [x] Visual check: "Asynchronous" centered under cloud centre line
 
+## Problem 3b — generalize text rects to all shapes (build-time table)
+
+The cloud-only entry fixes the report, but 137 OOXML presets carry a custom
+inset text `<rect>`. Hand-maintaining them would drift. Instead generate the
+table at build time from the canonical `presetShapeDefinitions.xml`.
+
+- [x] Vendor `presetShapeDefinitions.xml` under `packages/slides/scripts/`
+- [x] DrawingML guide evaluator (ops: `*/ +- +/ val pin sin cos tan ?: min max mod at2 cat2 sat2 sqrt abs`; full built-in guide set; avLst defaults) evaluated on the unit square → normalized fractions
+- [x] Generator emits `shape-text-rects.generated.ts` (118 kinds) — full-frame, degenerate (`pie`), and the typo'd `leftArrow` source omitted; homePlate→pentagonArrow alias; `upDownArrow` dup de-duped
+- [x] `SHAPE_TEXT_RECTS` imports the generated map (dropped hand-coded cloud)
+- [x] `pnpm slides gen:textrects` script + `--check` drift guard wired into a unit test; `.prettierignore` for generated file + vendored XML
+- [x] Unit tests: generated cloud == known fractions; spot-checks; all-entries-valid; drift
+
 ## Verification
 
 - [x] `pnpm verify:fast` green (exit 0)
