@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
@@ -7,6 +8,9 @@ import {
   parseSlidesContentFormat,
   runSlidesContent,
 } from '../slides/content.js';
+import { writeBinary } from '../output/binary.js';
+import { createImageFetcher } from '../docs/image-fetcher.js';
+import { exportPptxCli } from '../slides/pptx-export.js';
 
 interface SlidesImportOpts {
   title?: string;
@@ -162,6 +166,38 @@ export function registerSlidesCommand(program: Command) {
           force: local.force,
           quiet: opts.quiet,
         });
+      } catch (e) {
+        outputError(e, opts.quiet);
+      }
+    });
+
+  slides
+    .command('export <doc-id> <file>')
+    .description('Export a slide deck to PPTX')
+    .option('--force', 'Overwrite existing output file', false)
+    .action(async function (this: Command, docId: string, file: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<{ force: boolean }>();
+      try {
+        const formatSource = this.getOptionValueSourceWithGlobals('format');
+        const fmt = formatSource === 'cli' ? opts.format : undefined;
+        if (fmt && fmt !== 'pptx') throw new Error(`Invalid --format "${fmt}". Only "pptx" is supported.`);
+        if (!fmt && extname(file).toLowerCase() !== '.pptx') {
+          throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
+        }
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          return;
+        }
+        const res = await getClient(opts).getSlidesContent(docId);
+        if (!res.ok) {
+          const body = res.data as { error?: { code?: string } } | null;
+          if (body?.error) { console.error(JSON.stringify(body, null, 2)); process.exitCode = 1; return; }
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const imageFetcher = createImageFetcher({ serverBase: getConfig(opts).server });
+        const bytes = await exportPptxCli(res.data, { imageFetcher });
+        writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {
         outputError(e, opts.quiet);
       }

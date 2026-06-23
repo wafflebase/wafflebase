@@ -298,6 +298,9 @@ importers:
       eslint:
         specifier: ^9.18.0
         version: 9.24.0(jiti@2.6.1)
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

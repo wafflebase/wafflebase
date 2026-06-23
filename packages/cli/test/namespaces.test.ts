@@ -105,7 +105,7 @@ describe('CLI namespace structure', () => {
     );
   });
 
-  it('slides contains list/create/get/rename/delete/content/import', () => {
+  it('slides contains list/create/get/rename/delete/content/import/export', () => {
     const program = buildProgram();
     const slides = findChild(program, 'slides');
     expect(slides).toBeDefined();
@@ -117,6 +117,7 @@ describe('CLI namespace structure', () => {
       'delete',
       'content',
       'import',
+      'export',
     ]) {
       expect(findChild(slides!, sub)?.name()).toBe(sub);
     }
