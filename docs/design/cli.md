@@ -318,6 +318,9 @@ wafflebase
         │     [--notes]                       (include speaker notes; md/text)
         │     [--out <file>|-]                (default: stdout)
         │     [--force]
+        ├── export <doc-id> <file>
+        │     [--format pptx]                (default: from extension)
+        │     [--force]                       (overwrite existing file)
         └── import <file>
               [--title <title>]               (default: file basename)
               [--replace <doc-id> --yes]      (destructive; required together)
@@ -329,8 +332,12 @@ groups) and serializes the `TextBody` blocks via the same
 `@wafflebase/docs` serializers used by `docs content`. Shapes, images,
 connectors, positioning, and theming are dropped in those forms; `json`
 returns the full `SlidesDocument` losslessly. Slides have no page
-concept, so there is no `--pages` flag. PDF/PPTX export are deferred
-(PDF needs Canvas rasterization; PPTX export has no engine yet).
+concept, so there is no `--pages` flag. PPTX export now ships
+(`slides export <doc-id> <file.pptx>`) — it is the inverse of the
+importer and achieves a full round-trip via the same OOXML writer, with
+two documented v1 limitations: inline href links on text runs and
+connector attached-endpoints are not yet wired in the exporter. PDF
+export remains deferred (requires Canvas rasterization).
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
@@ -561,7 +568,7 @@ packages/cli/
       status.ts          status
       ctx.ts             ctx list/switch
       docs.ts            docs list/create/get/rename/delete + content/export/import
-      slides.ts          slides list/create/get/rename/delete + content/import
+      slides.ts          slides list/create/get/rename/delete + content/export/import
       sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
       tabs.ts            sheets tabs list
       cells.ts           sheets cells get/set/batch/delete
@@ -602,7 +609,7 @@ packages/cli/
     sheets-read-cells.md / sheets-write-cells.md / sheets-import-export.md
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
-    slides-manage.md / slides-read-content.md / slides-import-pptx.md
+    slides-manage.md / slides-read-content.md / slides-export-pptx.md / slides-import-pptx.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
   scripts/
@@ -772,6 +779,7 @@ Schema entries by command (canonical plural names):
 | `slides.rename`          | write         |                                                        |
 | `slides.delete`          | destructive   |                                                        |
 | `slides.content`         | read-only     | `json` lossless; `md`/`text` text-only                 |
+| `slides.export`          | read-only     | file write is local; PPTX only                         |
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
 | `login`                  | write         | OAuth login, writes session file                       |
 | `logout`                 | write         | Deletes session file                                   |

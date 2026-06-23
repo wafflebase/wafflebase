@@ -174,6 +174,11 @@ export function registerSlidesCommand(program: Command) {
   slides
     .command('export <doc-id> <file>')
     .description('Export a slide deck to PPTX')
+    // NOTE: `--format` is intentionally not redeclared here — the global
+    // `--format` option catches the user's value (see the same comment on
+    // `docs export`). We read `opts.format` via `getOptionValueSourceWithGlobals`
+    // to distinguish an explicit CLI flag from the default, then validate
+    // that only "pptx" is accepted.
     .option('--force', 'Overwrite existing output file', false)
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);

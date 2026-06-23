@@ -40,6 +40,7 @@ examples, and safety notes.
 | [slides-manage.md](slides-manage.md) | write / destructive | Create, list, get, rename, delete slide decks |
 | [slides-read-content.md](slides-read-content.md) | read-only | Read a deck as JSON, Markdown, or plain text |
 | [slides-import-pptx.md](slides-import-pptx.md) | write / destructive | Import a .pptx as a new or replacement deck |
+| [slides-export-pptx.md](slides-export-pptx.md) | read-only | Export a deck to .pptx |
 
 ## Recipes
 

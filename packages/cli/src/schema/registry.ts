@@ -266,6 +266,19 @@ const registry: CommandSchema[] = [
     ],
     aliases: ['slide.import', 'deck.import', 'decks.import'],
   },
+  {
+    name: 'slides.export',
+    description: 'Export a slide deck to PPTX',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'Output path or - for stdout' },
+      '--format': { type: 'string', required: false, description: 'Output format (pptx); default from extension' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'binary', description: 'PPTX bytes' },
+    aliases: ['slide.export', 'deck.export', 'decks.export'],
+  },
 
   // Sheets namespace — canonical names live under sheets.*
   {
