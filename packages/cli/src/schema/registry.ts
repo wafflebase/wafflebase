@@ -183,6 +183,103 @@ const registry: CommandSchema[] = [
     aliases: ['doc.import', 'document.import', 'documents.import'],
   },
 
+  // Slides (presentation) namespace
+  {
+    name: 'slides.list',
+    description: 'List slide decks in workspace',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'string', title: 'string', type: 'string', createdAt: 'string' } },
+    aliases: ['slide.list', 'deck.list', 'decks.list'],
+  },
+  {
+    name: 'slides.create',
+    description: 'Create a new slide deck',
+    safety: 'write',
+    parameters: {
+      title: { type: 'string', required: true, description: 'Deck title' },
+    },
+    response: { id: 'string', title: 'string', type: 'string' },
+    aliases: ['slide.create', 'deck.create', 'decks.create'],
+  },
+  {
+    name: 'slides.get',
+    description: 'Show slide deck metadata',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string', title: 'string', type: 'string', createdAt: 'string' },
+    aliases: ['slide.get', 'deck.get', 'decks.get'],
+  },
+  {
+    name: 'slides.rename',
+    description: 'Rename a slide deck',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      title: { type: 'string', required: true, description: 'New title' },
+    },
+    response: { id: 'string', title: 'string' },
+    aliases: ['slide.rename', 'deck.rename', 'decks.rename'],
+  },
+  {
+    name: 'slides.delete',
+    description: 'Delete a slide deck',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string' },
+    aliases: ['slide.delete', 'deck.delete', 'decks.delete'],
+  },
+  {
+    name: 'slides.content',
+    description: 'Read deck content as JSON, Markdown, or plain text',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--format': { type: 'string', required: false, description: 'Output format (json|md|text)', default: 'json' },
+      '--notes': { type: 'boolean', required: false, description: 'Include speaker notes (md/text)', default: 'false' },
+      '--out': { type: 'string', required: false, description: 'Output file (- for stdout)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'object', description: 'Deck JSON, Markdown text, or plaintext per --format' },
+    aliases: ['slide.content', 'deck.content', 'decks.content'],
+  },
+  {
+    name: 'slides.import',
+    description: 'Import a .pptx file as a new (or replacement) slide deck',
+    // Default safety is `write` (create new deck); `--replace` flips it
+    // to destructive, mirroring `docs.import`.
+    safety: 'write',
+    parameters: {
+      file: { type: 'string', required: true, description: 'Source .pptx path or - for stdin' },
+      '--title': { type: 'string', required: false, description: 'Deck title (default: file basename)' },
+      '--replace': { type: 'string', required: false, description: 'Existing deck ID to replace' },
+      '--yes': { type: 'boolean', required: false, description: 'Skip --replace confirmation', default: 'false' },
+    },
+    response: { id: 'string', title: 'string', replaced: 'boolean' },
+    variants: [
+      { when: 'default', safety: 'write', creates: 'new slide deck' },
+      { when: '--replace given', safety: 'destructive', modifies: 'existing deck content' },
+    ],
+    aliases: ['slide.import', 'deck.import', 'decks.import'],
+  },
+  {
+    name: 'slides.export',
+    description: 'Export a slide deck to PPTX',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'Output path or - for stdout' },
+      '--format': { type: 'string', required: false, description: 'Output format (pptx); default from extension' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'binary', description: 'PPTX bytes' },
+    aliases: ['slide.export', 'deck.export', 'decks.export'],
+  },
+
   // Sheets namespace — canonical names live under sheets.*
   {
     name: 'sheets.tabs.list',

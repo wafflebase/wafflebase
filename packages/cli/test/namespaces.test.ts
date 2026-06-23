@@ -3,12 +3,14 @@ import type { Command } from 'commander';
 import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
+import { registerSlidesCommand } from '../src/commands/slides.js';
 import { registerApiKeysCommand } from '../src/commands/api-keys.js';
 
 function buildProgram(): Command {
   const p = createProgram();
   registerDocsCommand(p);
   registerSheetsCommand(p);
+  registerSlidesCommand(p);
   registerApiKeysCommand(p);
   return p;
 }
@@ -92,5 +94,32 @@ describe('CLI namespace structure', () => {
     const typeOpt = list!.options.find((o) => o.long === '--type');
     expect(typeOpt).toBeDefined();
     expect(typeOpt?.defaultValue).toBeUndefined();
+  });
+
+  it('exposes the slides namespace with slide/deck aliases', () => {
+    const program = buildProgram();
+    const slides = findChild(program, 'slides');
+    expect(slides?.name()).toBe('slides');
+    expect(slides?.aliases()).toEqual(
+      expect.arrayContaining(['slide', 'deck']),
+    );
+  });
+
+  it('slides contains list/create/get/rename/delete/content/import/export', () => {
+    const program = buildProgram();
+    const slides = findChild(program, 'slides');
+    expect(slides).toBeDefined();
+    for (const sub of [
+      'list',
+      'create',
+      'get',
+      'rename',
+      'delete',
+      'content',
+      'import',
+      'export',
+    ]) {
+      expect(findChild(slides!, sub)?.name()).toBe(sub);
+    }
   });
 });

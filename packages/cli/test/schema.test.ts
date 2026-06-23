@@ -28,6 +28,7 @@ describe('schema registry', () => {
     expect(names).toContain('sheets.cells.delete');
     expect(names).toContain('sheets.import');
     expect(names).toContain('sheets.export');
+    expect(names).toContain('slides.export');
     expect(names).toContain('api-keys.create');
     expect(names).toContain('api-keys.list');
     expect(names).toContain('api-keys.revoke');
@@ -49,6 +50,7 @@ describe('schema registry', () => {
     expect(getCommandSchema('sheets.cells.delete')!.safety).toBe('destructive');
     expect(getCommandSchema('sheets.import')!.safety).toBe('write');
     expect(getCommandSchema('sheets.export')!.safety).toBe('read-only');
+    expect(getCommandSchema('slides.export')!.safety).toBe('read-only');
     expect(getCommandSchema('api-keys.revoke')!.safety).toBe('destructive');
   });
 
@@ -69,6 +71,12 @@ describe('schema registry', () => {
     it('top-level import/export resolve to sheets.import/export', () => {
       expect(getCommandSchema('import')?.name).toBe('sheets.import');
       expect(getCommandSchema('export')?.name).toBe('sheets.export');
+    });
+
+    it('deck.export and slide.export resolve to slides.export', () => {
+      expect(getCommandSchema('deck.export')?.name).toBe('slides.export');
+      expect(getCommandSchema('slide.export')?.name).toBe('slides.export');
+      expect(getCommandSchema('decks.export')?.name).toBe('slides.export');
     });
 
     it('legacy api-key.* resolves to api-keys.*', () => {

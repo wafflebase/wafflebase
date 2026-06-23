@@ -157,3 +157,7 @@ export type {
   UploadImage,
 } from './import/pptx';
 export { ImportReport } from './import/pptx/report';
+
+// PPTX export — DOM-free; safe for Node consumers without a polyfill.
+export { exportPptx } from './export/pptx/index.js';
+export type { ExportPptxOptions } from './export/pptx/index.js';

@@ -218,3 +218,7 @@ export {
   type ExportSlidesPdfOptions,
   type SlidesImageFetcher,
 } from './export/pdf';
+
+// Export — PPTX (DOM-free; works in both browser and Node)
+export { exportPptx } from './export/pptx/index.js';
+export type { ExportPptxOptions } from './export/pptx/index.js';

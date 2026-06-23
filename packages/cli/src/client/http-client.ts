@@ -168,6 +168,12 @@ export class HttpClient {
   // Slides content — same endpoint as docs; the backend dispatches on
   // the persisted document type, picking the docs writer for `'doc'`
   // and the slides writer for `'slides'`.
+  getSlidesContent(docId: string) {
+    return this.request<SlidesDocument>(
+      'GET',
+      `/documents/${docId}/content`,
+    );
+  }
   putSlidesContent(docId: string, deck: SlidesDocument) {
     return this.request<SlidesDocument>(
       'PUT',

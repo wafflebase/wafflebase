@@ -20,7 +20,7 @@ export type ClrMap = Map<string, string>;
  * may swap these, but in practice the identity mapping is overwhelmingly
  * what we see; the PR2 scope treats them as synonyms.
  */
-const SCHEME_TO_ROLE: Record<string, ColorRole> = {
+export const SCHEME_TO_ROLE: Record<string, ColorRole> = {
   dk1: 'text',
   tx1: 'text',
   lt1: 'background',
