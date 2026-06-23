@@ -7,13 +7,16 @@ import {
 } from '../../../../../src/view/canvas/shapes/basic/round2-diag-rect';
 
 describe('buildRound2DiagRect', () => {
-  it('excludes NE and SW corners (outside the arcs)', () => {
+  it('rounds NW + SE by default; NE + SW stay sharp (OOXML)', () => {
     const path = buildRound2DiagRect({ w: 100, h: 100 });
     const ctx = createTestCanvas(200, 200).getContext('2d');
-    expect(ctx.isPointInPath(path, 5, 5)).toBe(true); // NW kept sharp
-    expect(ctx.isPointInPath(path, 95, 95)).toBe(true); // SE kept sharp
-    expect(ctx.isPointInPath(path, 99, 1)).toBe(false); // NE rounded
-    expect(ctx.isPointInPath(path, 1, 99)).toBe(false); // SW rounded
+    expect(ctx.isPointInPath(path, 50, 50)).toBe(true);
+    // NE + SW are square by default (adj2 = 0) → filled to the corner.
+    expect(ctx.isPointInPath(path, 98, 2)).toBe(true);
+    expect(ctx.isPointInPath(path, 2, 98)).toBe(true);
+    // NW + SE rounded (adj1 = 16667) → corners excluded.
+    expect(ctx.isPointInPath(path, 2, 2)).toBe(false);
+    expect(ctx.isPointInPath(path, 98, 98)).toBe(false);
   });
 });
 

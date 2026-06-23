@@ -1,17 +1,13 @@
-import type {
-  AdjustmentHandle,
-  AdjustmentSpec,
-  PathBuilder,
-} from '../builder';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from '../builder';
 import { adj } from '../builder';
 import { linearTopEdgeHandle } from '../handles';
 
 /**
- * `plaque` — rectangle with concave-cut corners. `adj1` is the
- * corner-notch depth as a fraction of `min(w, h)`. V0 renders the
- * cut as a straight chamfer (45° polygon corner). The OOXML preset
- * uses arc-cut corners — that's a follow-up refinement once
- * `polylineArc` is exercised across more shapes.
+ * `plaque` — rectangle whose four corners are cut by concave
+ * quarter-circles. `adj1` is the corner-notch depth as a fraction of
+ * `min(w, h)`. Matching the OOXML `plaque` preset, each corner arc is
+ * centered at the rectangle corner with radius `x1 = ss·adj/100000`
+ * and sweeps -90° (`swAng = -5400000`), curving inward.
  */
 export const PLAQUE_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
@@ -24,16 +20,24 @@ export const PLAQUE_ADJUSTMENTS: readonly AdjustmentSpec[] = [
 
 export const buildPlaque: PathBuilder = ({ w, h }, adjustments) => {
   const a1 = adj(adjustments, 0, PLAQUE_ADJUSTMENTS[0].defaultValue);
-  const c = (a1 / 100000) * Math.min(w, h);
+  // x1 = ss · adj / 100000 (radius of each concave corner arc).
+  const r = (a1 / 100000) * Math.min(w, h);
   const path = new Path2D();
-  path.moveTo(c, 0);
-  path.lineTo(w - c, 0);
-  path.lineTo(w, c);
-  path.lineTo(w, h - c);
-  path.lineTo(w - c, h);
-  path.lineTo(c, h);
-  path.lineTo(0, h - c);
-  path.lineTo(0, c);
+  // Each corner arc is centered at the rectangle corner and sweeps -90°
+  // (OOXML swAng = -5400000), so canvas angles decrease → counterclockwise.
+  // Start on the left edge, x1 down from the top-left corner.
+  path.moveTo(0, r);
+  // Top-left: center (0,0), 90° → 0°.
+  path.arc(0, 0, r, Math.PI / 2, 0, true);
+  path.lineTo(w - r, 0);
+  // Top-right: center (w,0), 180° → 90°.
+  path.arc(w, 0, r, Math.PI, Math.PI / 2, true);
+  path.lineTo(w, h - r);
+  // Bottom-right: center (w,h), 270° → 180°.
+  path.arc(w, h, r, (3 * Math.PI) / 2, Math.PI, true);
+  path.lineTo(r, h);
+  // Bottom-left: center (0,h), 0° → -90°.
+  path.arc(0, h, r, 0, -Math.PI / 2, true);
   path.closePath();
   return path;
 };

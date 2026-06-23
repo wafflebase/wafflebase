@@ -7,13 +7,16 @@ import {
 } from '../../../../../src/view/canvas/shapes/basic/snip-round-rect';
 
 describe('buildSnipRoundRect', () => {
-  it('excludes NE snip + SW round but fills NW + SE corners', () => {
+  it('rounds NW + snips NE; bottom corners stay square (OOXML)', () => {
     const path = buildSnipRoundRect({ w: 100, h: 100 });
     const ctx = createTestCanvas(200, 200).getContext('2d');
-    expect(ctx.isPointInPath(path, 5, 5)).toBe(true);
-    expect(ctx.isPointInPath(path, 95, 95)).toBe(true);
-    expect(ctx.isPointInPath(path, 95, 5)).toBe(false);
-    expect(ctx.isPointInPath(path, 1, 99)).toBe(false);
+    expect(ctx.isPointInPath(path, 50, 50)).toBe(true);
+    // Bottom corners are square (filled to the corner).
+    expect(ctx.isPointInPath(path, 3, 97)).toBe(true);
+    expect(ctx.isPointInPath(path, 97, 97)).toBe(true);
+    // Top-left rounded, top-right snipped → both corners excluded.
+    expect(ctx.isPointInPath(path, 3, 3)).toBe(false);
+    expect(ctx.isPointInPath(path, 97, 3)).toBe(false);
   });
 });
 

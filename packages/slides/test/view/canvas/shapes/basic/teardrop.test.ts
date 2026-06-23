@@ -8,10 +8,14 @@ import {
 } from '../../../../../src/view/canvas/shapes/basic/teardrop';
 
 describe('buildTeardrop', () => {
-  it('fills the centre of the drop', () => {
+  it('fills the lobe and extends the point to the upper-right (OOXML)', () => {
     const path = buildTeardrop({ w: 100, h: 100 });
     const ctx = createTestCanvas(200, 200).getContext('2d');
     expect(ctx.isPointInPath(path, 50, 70)).toBe(true);
+    // Upper-right corner region is filled (the tip points there).
+    expect(ctx.isPointInPath(path, 90, 10)).toBe(true);
+    // The opposite upper-left corner stays empty (asymmetric tip).
+    expect(ctx.isPointInPath(path, 10, 10)).toBe(false);
   });
 
   it('default tip extension is 100000', () => {
@@ -20,11 +24,10 @@ describe('buildTeardrop', () => {
 });
 
 describe('TEARDROP_HANDLES', () => {
-  it('paints on the top mid-line; lowering pointer decreases tip extension', () => {
+  it('paints on the top edge toward the tip (upper-right)', () => {
     expect(TEARDROP_HANDLES.length).toBe(1);
     const p = TEARDROP_HANDLES[0].position({ w: 100, h: 100 }, [100000]);
-    expect(p.x).toBe(50);
-    // Default tipY = 0, but the inset guard pushes it down by 8 px.
-    expect(p.y).toBeCloseTo(8, 1);
+    expect(p.y).toBe(0);
+    expect(p.x).toBeGreaterThan(50); // toward the upper-right tip
   });
 });
