@@ -28,6 +28,29 @@ async function roundTrip(buf: ArrayBuffer): Promise<{ a: SlidesDocument; b: Slid
   return { a, b };
 }
 
+describe('fromDataUrl', () => {
+  it('decodes a standard base64 data URL', async () => {
+    const b64 = btoa('hello');
+    const src = `data:image/png;base64,${b64}`;
+    const { mime, bytes } = await fromDataUrl(src);
+    expect(mime).toBe('image/png');
+    expect(bytes).toEqual(Uint8Array.from('hello', (c) => c.charCodeAt(0)));
+  });
+
+  it('handles a data URL with extra MIME params (e.g. charset)', async () => {
+    // Some encoders emit data:image/png;charset=utf-8;base64,...
+    const b64 = btoa('world');
+    const src = `data:image/png;charset=utf-8;base64,${b64}`;
+    const { mime, bytes } = await fromDataUrl(src);
+    expect(mime).toBe('image/png');
+    expect(bytes).toEqual(Uint8Array.from('world', (c) => c.charCodeAt(0)));
+  });
+
+  it('throws for a non-base64 data URL', async () => {
+    await expect(fromDataUrl('data:text/plain,hello')).rejects.toThrow('not a base64 data URL');
+  });
+});
+
 describe('PPTX round-trip (model equivalence)', () => {
   it('minimal deck round-trips', async () => {
     const { a, b } = await roundTrip(await buildMinimalPptx());

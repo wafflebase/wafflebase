@@ -42,4 +42,13 @@ describe('color', () => {
       expect(roundTripped).toBe(role);
     });
   });
+
+  it('escapes special chars in srgbClr val attribute', () => {
+    // A malformed hex value containing " or & must not produce raw special
+    // characters inside the XML attribute value.
+    const xml = colorChildXml({ kind: 'srgb', value: 'FF00"00' });
+    // The " must be escaped; no raw " inside the val attribute
+    expect(xml).not.toMatch(/val="[^"]*"[^/]/);
+    expect(xml).toContain('&quot;');
+  });
 });

@@ -1,4 +1,5 @@
 import type { ColorRole, ThemeColor } from '../../model/theme';
+import { escapeXmlAttr } from './xml.js';
 
 export const ROLE_TO_SCHEME: Record<ColorRole, string> = {
   text: 'tx1',
@@ -31,7 +32,7 @@ export function colorChildXml(c: ThemeColor): string {
     const val = ROLE_TO_SCHEME[c.role];
     return inner ? `<a:schemeClr val="${val}">${inner}</a:schemeClr>` : `<a:schemeClr val="${val}"/>`;
   }
-  const hex = c.value.replace(/^#/, '').toUpperCase();
+  const hex = escapeXmlAttr(c.value.replace(/^#/, '').toUpperCase());
   return inner ? `<a:srgbClr val="${hex}">${inner}</a:srgbClr>` : `<a:srgbClr val="${hex}"/>`;
 }
 

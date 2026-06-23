@@ -65,6 +65,10 @@ function rowToXml(row: { height: number; cells: TableCell[] }): string {
 
 function cellToXml(cell: TableCell): string {
   // Covered-cell fast paths — these cells carry no real content.
+  // A cell covered in BOTH directions (diagonal merge corner) needs both attributes.
+  if (cell.gridSpan === 0 && cell.rowSpan === 0) {
+    return `<a:tc hMerge="1" vMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc>`;
+  }
   if (cell.gridSpan === 0) {
     return `<a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc>`;
   }

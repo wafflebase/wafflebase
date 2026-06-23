@@ -67,5 +67,4 @@ non-null, so `=== 'slides'` never misses a deck); `import` alias collision (used
 `.blocks`/`.header`/`.footer`).
 
 **Deferred (Phase 2):** `slides export pdf` (Canvas/raster — needs a node canvas
-lib, the docs CLI deliberately avoids native deps) and `slides export pptx`
-(no PPTX export engine exists yet). Both are net-new work, not gap-filling.
+lib, the docs CLI deliberately avoids native deps). Net-new work, not gap-filling.

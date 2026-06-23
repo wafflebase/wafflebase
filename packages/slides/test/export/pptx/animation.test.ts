@@ -312,4 +312,22 @@ describe('animationsToTimingXml', () => {
     expect(xml).toContain('delay="500"');
     expect((xml.match(/delay=/g) ?? []).length).toBe(1);
   });
+
+  it('escapes special chars in pptxPreset.class attribute', () => {
+    // pptxPreset.class may contain arbitrary strings from an imported PPTX;
+    // ensure they are XML-attribute-escaped.
+    const anim: SlideAnimation = {
+      id: 'a1',
+      elementId: 'e1',
+      category: 'entrance',
+      effect: 'appear',
+      start: 'onClick',
+      durationMs: 500,
+      pptxPreset: { class: 'entr"&bad', id: 1, subtype: 0 },
+    };
+    const xml = animationsToTimingXml([anim], new Map([['e1', 2]]));
+    // Raw " and & must not appear inside the attribute value
+    expect(xml).toContain('presetClass="entr&quot;&amp;bad"');
+    expect(xml).not.toContain('presetClass="entr"&bad"');
+  });
 });

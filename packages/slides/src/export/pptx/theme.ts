@@ -80,7 +80,7 @@ export function themeToXml(theme: Theme, index: number): string {
   const schemeName = escapeXmlAttr(theme.name ?? `Theme${index}`);
 
   const colorSlots = CLR_SLOTS.map(([slot, role]) => {
-    const hex = toSrgbHex(theme.colors[role]);
+    const hex = escapeXmlAttr(toSrgbHex(theme.colors[role]));
     return `<a:${slot}><a:srgbClr val="${hex}"/></a:${slot}>`;
   }).join('');
 

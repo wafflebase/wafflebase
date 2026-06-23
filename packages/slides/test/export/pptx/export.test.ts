@@ -22,4 +22,14 @@ describe('exportPptx', () => {
     const reimported = await importPptx(reimportBuf);
     expect(reimported.document.slides).toHaveLength(1);
   });
+
+  it('deck with layouts:[] still produces ppt/slideLayouts/slideLayout1.xml', async () => {
+    // Fix 8: when layouts is empty, a synthetic blank layout must be emitted so
+    // every slide's layout rel resolves to a valid part.
+    const { document: base } = await importPptx(await buildMinimalPptx());
+    const deck = { ...base, layouts: [] };
+    const bytes = await exportPptx(deck);
+    const zip = await JSZip.loadAsync(bytes);
+    expect(zip.file('ppt/slideLayouts/slideLayout1.xml')).not.toBeNull();
+  });
 });

@@ -202,7 +202,12 @@ export async function exportPptx(
   const masterLayouts = deck.layouts.filter((l) => l.masterId === masterId);
   // If there are no layouts for this master, emit at least one (blank)
   // so the archive is always valid.
-  const layoutsToEmit = masterLayouts.length > 0 ? masterLayouts : deck.layouts.slice(0, 1);
+  let layoutsToEmit = masterLayouts.length > 0 ? masterLayouts : deck.layouts.slice(0, 1);
+
+  // Final guard: if the deck has no layouts at all, synthesise a minimal blank
+  // layout so every slide's layout rel resolves to a valid part.
+  const useFallbackLayout = layoutsToEmit.length === 0;
+  const FALLBACK_LAYOUT_ID = '__fallback_blank__';
 
   const masterPath = 'ppt/slideMasters/slideMaster1.xml';
 
@@ -214,14 +219,24 @@ export async function exportPptx(
 
   // Emit layout XMLs and build layoutId → layoutPath map.
   const layoutIdToPath = new Map<string, string>();
-  for (let i = 0; i < layoutsToEmit.length; i++) {
-    const layout = layoutsToEmit[i];
-    const layoutPath = `ppt/slideLayouts/slideLayout${i + 1}.xml`;
-    writer.addPart(layoutPath, layoutToXml(layout, i + 1), CT_SLIDE_LAYOUT);
-    layoutIdToPath.set(layout.id, layoutPath);
 
-    // layout → master rel
+  if (useFallbackLayout) {
+    // No layouts at all — emit a single minimal blank layout so every slide's
+    // layout rel resolves to a valid part.
+    const layoutPath = 'ppt/slideLayouts/slideLayout1.xml';
+    writer.addPart(layoutPath, fallbackLayoutXml(), CT_SLIDE_LAYOUT);
+    layoutIdToPath.set(FALLBACK_LAYOUT_ID, layoutPath);
     writer.addRel(layoutPath, REL_TYPES.slideMaster, '../slideMasters/slideMaster1.xml');
+  } else {
+    for (let i = 0; i < layoutsToEmit.length; i++) {
+      const layout = layoutsToEmit[i];
+      const layoutPath = `ppt/slideLayouts/slideLayout${i + 1}.xml`;
+      writer.addPart(layoutPath, layoutToXml(layout, i + 1), CT_SLIDE_LAYOUT);
+      layoutIdToPath.set(layout.id, layoutPath);
+
+      // layout → master rel
+      writer.addRel(layoutPath, REL_TYPES.slideMaster, '../slideMasters/slideMaster1.xml');
+    }
   }
 
   // master → theme rel (importer looks for this via `pickRelTarget(presRels,'theme')` on
@@ -231,12 +246,16 @@ export async function exportPptx(
   }
 
   // master → layout rels
-  for (let i = 0; i < layoutsToEmit.length; i++) {
-    writer.addRel(
-      masterPath,
-      REL_TYPES.slideLayout,
-      `../slideLayouts/slideLayout${i + 1}.xml`,
-    );
+  if (useFallbackLayout) {
+    writer.addRel(masterPath, REL_TYPES.slideLayout, '../slideLayouts/slideLayout1.xml');
+  } else {
+    for (let i = 0; i < layoutsToEmit.length; i++) {
+      writer.addRel(
+        masterPath,
+        REL_TYPES.slideLayout,
+        `../slideLayouts/slideLayout${i + 1}.xml`,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -260,9 +279,12 @@ export async function exportPptx(
       if (cached) return cached;
       const mediaPath = srcToMediaPath.get(src);
       if (!mediaPath) {
-        // Image src is not in the pre-scan map (shouldn't happen if all
-        // elements were scanned, but guard anyway).
-        return '';
+        // Image src is not in the pre-scan map — this should not happen if all
+        // elements were scanned, but guard with a clear error rather than an
+        // invalid r:embed="" attribute.
+        throw new Error(
+          `exportPptx: image src not found in media map: ${src.slice(0, 120)}`,
+        );
       }
       // Add an image rel for this slide (target is relative to slide's dir).
       const rId = writer.addRel(slidePath, REL_TYPES.image, `../${mediaPath}`);
@@ -328,6 +350,35 @@ export async function exportPptx(
   // Step 8: Build and return the zip.
   // -------------------------------------------------------------------------
   return writer.build();
+}
+
+// ---------------------------------------------------------------------------
+// Fallback layout XML (used when the deck has no layouts at all)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a bare-minimum blank slide layout when the deck has no layout records.
+ * This ensures every slide's layout rel resolves to a valid part even for
+ * programmatically constructed decks that omit layout data.
+ */
+function fallbackLayoutXml(): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<p:sldLayout` +
+    ` xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"` +
+    ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+    ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
+    ` type="blank"` +
+    `>` +
+    `<p:cSld>` +
+    `<p:spTree>` +
+    `<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+    `<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>` +
+    `</p:spTree>` +
+    `</p:cSld>` +
+    `<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>` +
+    `</p:sldLayout>`
+  );
 }
 
 // ---------------------------------------------------------------------------

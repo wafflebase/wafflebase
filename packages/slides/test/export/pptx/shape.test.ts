@@ -97,4 +97,19 @@ describe('shape', () => {
     const xml = shapeToXml(el);
     expect(xml).not.toContain('descr=');
   });
+
+  it('emits prst="rect" for freeform shape with no path', () => {
+    // prst="freeform" is not valid OOXML; fallback to rect when path is absent.
+    const el: ShapeElement = {
+      id: 's',
+      frame,
+      type: 'shape',
+      data: { kind: 'freeform' },
+    };
+    const xml = shapeToXml(el);
+    expect(xml).toContain('prst="rect"');
+    expect(xml).not.toContain('prst="freeform"');
+    // Must not emit custGeom either
+    expect(xml).not.toContain('<a:custGeom>');
+  });
 });

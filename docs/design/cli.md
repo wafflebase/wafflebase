@@ -335,8 +335,9 @@ returns the full `SlidesDocument` losslessly. Slides have no page
 concept, so there is no `--pages` flag. PPTX export now ships
 (`slides export <doc-id> <file.pptx>`) — it is the inverse of the
 importer and achieves a full round-trip via the same OOXML writer, with
-two documented v1 limitations: inline href links on text runs and
-connector attached-endpoints are not yet wired in the exporter. PDF
+three documented v1 limitations: inline href links on text runs,
+connector attached-endpoints are not yet wired in the exporter, and
+group-targeted animation coupling is a documented v1 gap. PDF
 export remains deferred (requires Canvas rasterization).
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,

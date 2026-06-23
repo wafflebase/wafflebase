@@ -66,4 +66,28 @@ describe('group', () => {
     // The leaf shape is inside
     expect(xml).toContain('<p:sp>');
   });
+
+  it('emits rot on group xfrm for frame.rotation = Math.PI/2', () => {
+    const g: GroupElement = {
+      id: 'gr',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: Math.PI / 2 },
+      type: 'group',
+      data: { children: [child] },
+    };
+    const xml = groupToXml(g, ctx);
+    // Math.PI/2 radians = 90 degrees = 5 400 000 in OOXML 60 000ths-of-a-degree
+    expect(xml).toContain('rot="5400000"');
+  });
+
+  it('emits flipH and flipV on group xfrm', () => {
+    const g: GroupElement = {
+      id: 'gf',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0, flipH: true, flipV: true },
+      type: 'group',
+      data: { children: [child] },
+    };
+    const xml = groupToXml(g, ctx);
+    expect(xml).toContain('flipH="1"');
+    expect(xml).toContain('flipV="1"');
+  });
 });

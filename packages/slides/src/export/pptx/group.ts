@@ -22,7 +22,7 @@
  */
 import type { Element, Frame, GroupElement, ImageElement } from '../../model/element.js';
 import type { ConnectorElement } from '../../model/connector.js';
-import { pxToEmuX, pxToEmuY } from './units.js';
+import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
 import { shapeToXml, textElementToXml } from './shape.js';
 import { imageToXml } from './image.js';
 import { tableToXml } from './table.js';
@@ -76,8 +76,11 @@ export function groupToXml(el: GroupElement, ctx: ElementXmlCtx): string {
   const { frame, data } = el;
   const ref = data.refSize ?? { w: frame.w, h: frame.h };
 
+  const rot = frame.rotation ? ` rot="${radToRot60k(frame.rotation)}"` : '';
+  const fh = frame.flipH ? ' flipH="1"' : '';
+  const fv = frame.flipV ? ' flipV="1"' : '';
   const xfrm =
-    `<a:xfrm>` +
+    `<a:xfrm${rot}${fh}${fv}>` +
     `<a:off x="${pxToEmuX(frame.x)}" y="${pxToEmuY(frame.y)}"/>` +
     `<a:ext cx="${pxToEmuX(frame.w)}" cy="${pxToEmuY(frame.h)}"/>` +
     `<a:chOff x="0" y="0"/>` +

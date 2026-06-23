@@ -53,6 +53,8 @@ re-import cycle within the documented limitations below.
 - **Connector attached-endpoints** (snapped to a shape's connection site)
   are exported as free-floating connectors; the snap relationship is
   dropped.
+- **Group-targeted animation coupling** is a documented v1 gap; animations
+  that target a group element directly may not resolve correctly on re-import.
 - Only `.pptx` format is supported — there is no PDF export from this
   command (PDF export requires Canvas rasterization and remains deferred).
 

@@ -106,4 +106,21 @@ describe('tableToXml', () => {
     expect(xml).toContain('<a:tableStyleId>someId</a:tableStyleId>');
     expect(xml).toContain('<a:tblPr>');
   });
+
+  it('emits both hMerge and vMerge for a cell covered in both directions', () => {
+    // A cell at the intersection of a horizontal and vertical merge span must
+    // carry both hMerge="1" and vMerge="1".
+    const bothCovered: TableElement = {
+      ...el,
+      data: {
+        ...el.data,
+        rows: [
+          { height: 40, cells: [{ ...cell('A'), gridSpan: 2, rowSpan: 2 }, { ...cell(''), gridSpan: 0 }] },
+          { height: 40, cells: [{ ...cell(''), rowSpan: 0 }, { ...cell(''), gridSpan: 0, rowSpan: 0 }] },
+        ],
+      },
+    };
+    const xml = tableToXml(bothCovered);
+    expect(xml).toContain('hMerge="1" vMerge="1"');
+  });
 });

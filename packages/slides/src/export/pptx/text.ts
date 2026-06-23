@@ -175,12 +175,8 @@ function runToXml(inline: Inline): string {
   if (s.fontFamily) {
     children.push(`<a:latin typeface="${escapeXmlAttr(s.fontFamily)}"/>`);
   }
-  if (s.href) {
-    // Hyperlinks require a slide relationship id, which is wired up in a
-    // later task. Emit a placeholder so round-trip normalization can strip
-    // href from the comparison scope when not yet wired.
-    children.push(`<a:hlinkClick r:id=""/>`);
-  }
+  // s.href: hyperlink wiring is deferred (Phase 2). Do not emit any
+  // <a:hlinkClick> node — an empty r:id="" produces an invalid relationship.
   const rPr =
     attrs.length || children.length
       ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`

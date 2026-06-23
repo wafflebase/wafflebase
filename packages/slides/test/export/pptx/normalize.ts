@@ -217,7 +217,7 @@ function normalizeInline(inline: Inline): void {
 export async function fromDataUrl(
   src: string,
 ): Promise<{ bytes: Uint8Array; mime: string }> {
-  const match = src.match(/^data:([^;]+);base64,(.+)$/s);
+  const match = src.match(/^data:([^;,]+)(?:;[^,]*?)?;base64,(.+)$/s);
   if (!match) {
     throw new Error(`fromDataUrl: not a base64 data URL: ${src.slice(0, 80)}`);
   }

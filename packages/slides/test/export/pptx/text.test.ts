@@ -134,4 +134,12 @@ describe('textBodyToXml', () => {
     expect(xml).not.toContain('val="undefined"');
     expect(xml).toContain('<a:srgbClr val="000000"/>');
   });
+
+  it('does not emit hlinkClick for a run with href set', () => {
+    // Hyperlink wiring is deferred; no <a:hlinkClick> node must be emitted
+    // (an empty r:id="" would produce an invalid relationship reference).
+    const xml = textBodyToXml({ blocks: [para('Link', { href: 'https://example.com' })] });
+    expect(xml).not.toContain('<a:hlinkClick');
+    expect(xml).not.toContain('hlinkClick');
+  });
 });

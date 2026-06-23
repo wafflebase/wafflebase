@@ -71,10 +71,14 @@ export function lineXml(stroke: Stroke | undefined): string {
 export function shapeToXml(el: ShapeElement): string {
   const { data, frame } = el;
 
+  // For freeform with a path → custGeom; freeform without path → rect fallback
+  // (prst="freeform" is not valid OOXML and causes PowerPoint to reject the file).
   const geom =
     data.kind === 'freeform' && data.path
       ? freeformToCustGeom(data.path, frame)
-      : `<a:prstGeom prst="${kindToPrst(data.kind)}">${avLstXml(data.adjustments)}</a:prstGeom>`;
+      : data.kind === 'freeform'
+        ? `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
+        : `<a:prstGeom prst="${kindToPrst(data.kind)}">${avLstXml(data.adjustments)}</a:prstGeom>`;
 
   const fill = data.fill ? solidFillXml(data.fill) : '<a:noFill/>';
 
