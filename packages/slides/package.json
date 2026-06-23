@@ -34,6 +34,7 @@
     "test:watch": "vitest --watch --passWithNoTests",
     "build": "vite --config vite.build.ts build",
     "typecheck": "tsc --noEmit",
+    "gen:textrects": "node scripts/gen-shape-text-rects.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

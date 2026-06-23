@@ -6,6 +6,7 @@ import { OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 import { buildFreeformPath } from './shapes/freeform';
+import { GENERATED_SHAPE_TEXT_RECTS } from './shapes/shape-text-rects.generated';
 import { paintTextBody } from './text-renderer';
 
 export type { FrameSize } from './shapes/builder';
@@ -40,25 +41,17 @@ export type TextInset = {
  * lays a shape's text inside this rectangle — for non-rectangular shapes
  * it is meaningfully inset from the bounding box so glyphs stay clear of
  * the silhouette's curves. Only kinds whose preset rect differs from the
- * full frame need an entry; kinds absent here use the full frame.
+ * full frame appear; kinds absent here use the full frame.
  *
- * The chosen rect is composed with the default `SHAPE_TEXT_PADDING`
- * (PowerPoint's default `bodyPr` inset, applied *inside* the preset rect)
- * at the use sites in {@link shapeTextInset}.
+ * The table is generated from the canonical `presetShapeDefinitions.xml`
+ * (see `scripts/gen-shape-text-rects.mjs`); the chosen rect is composed
+ * with the default `SHAPE_TEXT_PADDING` (PowerPoint's default `bodyPr`
+ * inset, applied *inside* the preset rect) at the use sites in
+ * {@link shapeTextInset}.
  */
 export const SHAPE_TEXT_RECTS: Partial<
   Record<ShapeKind, { l: number; t: number; r: number; b: number }>
-> = {
-  // OOXML `cloud` preset `<rect>`: il=2977/21600, it=3262/21600,
-  // ir=17087/21600, ib=17337/21600. Without this the left-aligned text
-  // hugs the cloud's left edge instead of reading centred.
-  cloud: {
-    l: 2977 / 21600,
-    t: 3262 / 21600,
-    r: 17087 / 21600,
-    b: 17337 / 21600,
-  },
-};
+> = GENERATED_SHAPE_TEXT_RECTS;
 
 /**
  * Text inset (px per side) for a shape's inline text: the kind's preset
