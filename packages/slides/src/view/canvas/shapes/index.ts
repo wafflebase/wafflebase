@@ -62,6 +62,7 @@ import {
 } from './basic/plaque';
 import {
   buildBevel,
+  buildBevelFaces,
   BEVEL_ADJUSTMENTS,
   BEVEL_HANDLES,
 } from './basic/bevel';
@@ -219,26 +220,31 @@ import {
 } from './arrows/curved-down-arrow';
 import {
   buildRibbon,
+  buildRibbonFaces,
   RIBBON_ADJUSTMENTS,
   RIBBON_HANDLES,
 } from './banners/ribbon';
 import {
   buildRibbon2,
+  buildRibbon2Faces,
   RIBBON2_ADJUSTMENTS,
   RIBBON2_HANDLES,
 } from './banners/ribbon2';
 import {
   buildHorizontalScroll,
+  buildHorizontalScrollFaces,
   HORIZONTAL_SCROLL_ADJUSTMENTS,
   HORIZONTAL_SCROLL_HANDLES,
 } from './banners/horizontal-scroll';
 import {
   buildVerticalScroll,
+  buildVerticalScrollFaces,
   VERTICAL_SCROLL_ADJUSTMENTS,
   VERTICAL_SCROLL_HANDLES,
 } from './banners/vertical-scroll';
 import {
   buildLeftRightRibbon,
+  buildLeftRightRibbonFaces,
   LEFT_RIGHT_RIBBON_ADJUSTMENTS,
   LEFT_RIGHT_RIBBON_HANDLES,
 } from './banners/left-right-ribbon';
@@ -365,8 +371,11 @@ import {
 import {
   buildEllipseRibbon,
   buildEllipseRibbon2,
+  buildEllipseRibbonFaces,
+  buildEllipseRibbon2Faces,
   ELLIPSE_RIBBON_ADJUSTMENTS,
   ELLIPSE_RIBBON_HANDLES,
+  ELLIPSE_RIBBON2_HANDLES,
 } from './banners/ellipse-ribbon';
 import {
   buildBracketPair,
@@ -459,6 +468,7 @@ PATH_BUILDERS.set('corner', buildCorner);
 PATH_BUILDERS.set('diagStripe', buildDiagStripe);
 PATH_BUILDERS.set('plaque', buildPlaque);
 PATH_BUILDERS.set('bevel', buildBevel);
+FACE_BUILDERS.set('bevel', buildBevelFaces);
 PATH_BUILDERS.set('foldedCorner', buildFoldedCorner);
 PATH_BUILDERS.set('cube', buildCube);
 FACE_BUILDERS.set('cube', buildCubeFaces);
@@ -494,10 +504,15 @@ OUTLINE_BUILDERS.set('curvedLeftArrow', CURVED_LEFT_ARROW_OUTLINE);
 OUTLINE_BUILDERS.set('curvedUpArrow', CURVED_UP_ARROW_OUTLINE);
 OUTLINE_BUILDERS.set('curvedDownArrow', CURVED_DOWN_ARROW_OUTLINE);
 PATH_BUILDERS.set('ribbon', buildRibbon);
+FACE_BUILDERS.set('ribbon', buildRibbonFaces);
 PATH_BUILDERS.set('ribbon2', buildRibbon2);
+FACE_BUILDERS.set('ribbon2', buildRibbon2Faces);
 PATH_BUILDERS.set('horizontalScroll', buildHorizontalScroll);
+FACE_BUILDERS.set('horizontalScroll', buildHorizontalScrollFaces);
 PATH_BUILDERS.set('verticalScroll', buildVerticalScroll);
+FACE_BUILDERS.set('verticalScroll', buildVerticalScrollFaces);
 PATH_BUILDERS.set('leftRightRibbon', buildLeftRightRibbon);
+FACE_BUILDERS.set('leftRightRibbon', buildLeftRightRibbonFaces);
 PATH_BUILDERS.set('borderCallout1', buildBorderCallout1);
 PATH_BUILDERS.set('borderCallout2', buildBorderCallout2);
 PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
@@ -748,7 +763,9 @@ PATH_BUILDERS.set('irregularSeal2', buildIrregularSeal2);
 PATH_BUILDERS.set('wave', buildWave);
 PATH_BUILDERS.set('doubleWave', buildDoubleWave);
 PATH_BUILDERS.set('ellipseRibbon', buildEllipseRibbon);
+FACE_BUILDERS.set('ellipseRibbon', buildEllipseRibbonFaces);
 PATH_BUILDERS.set('ellipseRibbon2', buildEllipseRibbon2);
+FACE_BUILDERS.set('ellipseRibbon2', buildEllipseRibbon2Faces);
 PATH_BUILDERS.set('bracketPair', buildBracketPair);
 PATH_BUILDERS.set('bracePair', buildBracePair);
 PATH_BUILDERS.set('flowChartPreparation', buildFlowChartPreparation);
@@ -780,6 +797,6 @@ ADJUSTMENT_HANDLES.set('star32', STAR_32_HANDLES);
 ADJUSTMENT_HANDLES.set('wave', WAVE_HANDLES);
 ADJUSTMENT_HANDLES.set('doubleWave', DOUBLE_WAVE_HANDLES);
 ADJUSTMENT_HANDLES.set('ellipseRibbon', ELLIPSE_RIBBON_HANDLES);
-ADJUSTMENT_HANDLES.set('ellipseRibbon2', ELLIPSE_RIBBON_HANDLES);
+ADJUSTMENT_HANDLES.set('ellipseRibbon2', ELLIPSE_RIBBON2_HANDLES);
 ADJUSTMENT_HANDLES.set('bracketPair', BRACKET_PAIR_HANDLES);
 ADJUSTMENT_HANDLES.set('bracePair', BRACE_PAIR_HANDLES);
