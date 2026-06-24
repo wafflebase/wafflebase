@@ -71,53 +71,56 @@ describe('arrow callouts', () => {
   // probes a point just outside the shaft half-thickness but inside the
   // head half-thickness, at the arrowhead base — it must be in the path.
   describe('arrowhead flares wider than the shaft (OOXML geometry)', () => {
+    // OOXML head depth = ss·adj3/100000 (ss = min(w,h)), so on a 2:1 frame
+    // (ss=100, adj3=25000) the head is 25 deep — the seam sits 25 from the
+    // tip edge, NOT w·adj3 from it.
     it('rightArrowCallout: head base wider than shaft', () => {
       // w=200,h=100 → ss=100; shaft half=12.5, head half=25; cy=50.
-      // Seam (shaft→head) at x = w - w·adj3 = 150.
+      // Seam (shaft→head) at x = w - ss·adj3/100000 = 175.
       const path = buildRightArrowCallout({ w: 200, h: 100 });
       // Just past the seam (in the head), beyond the shaft edge (62.5)
       // but inside the head edge (~75): inside the path.
-      expect(ctx.isPointInPath(path, 151, 70)).toBe(true);
-      // Same vertical offset in the shaft body (x<150): outside.
-      expect(ctx.isPointInPath(path, 148, 70)).toBe(false);
+      expect(ctx.isPointInPath(path, 176, 68)).toBe(true);
+      // Same vertical offset in the shaft body (x<175): outside.
+      expect(ctx.isPointInPath(path, 174, 68)).toBe(false);
     });
 
     it('leftArrowCallout: head base wider than shaft', () => {
-      // Seam at x = w·adj3 = 50.
+      // Seam at x = ss·adj3/100000 = 25.
       const path = buildLeftArrowCallout({ w: 200, h: 100 });
-      expect(ctx.isPointInPath(path, 49, 70)).toBe(true);
-      expect(ctx.isPointInPath(path, 52, 70)).toBe(false);
+      expect(ctx.isPointInPath(path, 24, 68)).toBe(true);
+      expect(ctx.isPointInPath(path, 26, 68)).toBe(false);
     });
 
     it('upArrowCallout: head base wider than shaft', () => {
       // w=100,h=200 → ss=100; shaft half=12.5, head half=25; cx=50.
-      // Seam (shaft→head) at y = h·adj3 = 50.
+      // Seam (shaft→head) at y = ss·adj3/100000 = 25.
       const path = buildUpArrowCallout({ w: 100, h: 200 });
-      expect(ctx.isPointInPath(path, 70, 49)).toBe(true);
-      expect(ctx.isPointInPath(path, 70, 52)).toBe(false);
+      expect(ctx.isPointInPath(path, 68, 24)).toBe(true);
+      expect(ctx.isPointInPath(path, 68, 26)).toBe(false);
     });
 
     it('downArrowCallout: head base wider than shaft', () => {
-      // Seam at y = h - h·adj3 = 150.
+      // Seam at y = h - ss·adj3/100000 = 175.
       const path = buildDownArrowCallout({ w: 100, h: 200 });
-      expect(ctx.isPointInPath(path, 70, 151)).toBe(true);
-      expect(ctx.isPointInPath(path, 70, 148)).toBe(false);
+      expect(ctx.isPointInPath(path, 68, 176)).toBe(true);
+      expect(ctx.isPointInPath(path, 68, 174)).toBe(false);
     });
 
     it('leftRightArrowCallout: head base wider than shaft', () => {
       // w=300,h=100 → ss=100; shaft half=12.5, head half=25; cy=50.
-      // Left seam at x = w·adj3 = 75.
+      // Left seam at x = ss·adj3/100000 = 25.
       const path = buildLeftRightArrowCallout({ w: 300, h: 100 });
-      expect(ctx.isPointInPath(path, 74, 70)).toBe(true);
-      expect(ctx.isPointInPath(path, 77, 70)).toBe(false);
+      expect(ctx.isPointInPath(path, 24, 68)).toBe(true);
+      expect(ctx.isPointInPath(path, 26, 68)).toBe(false);
     });
 
     it('upDownArrowCallout: head base wider than shaft', () => {
       // w=100,h=300 → ss=100; shaft half=12.5, head half=25; cx=50.
-      // Top seam at y = h·adj3 = 75.
+      // Top seam at y = ss·adj3/100000 = 25.
       const path = buildUpDownArrowCallout({ w: 100, h: 300 });
-      expect(ctx.isPointInPath(path, 70, 74)).toBe(true);
-      expect(ctx.isPointInPath(path, 70, 77)).toBe(false);
+      expect(ctx.isPointInPath(path, 68, 24)).toBe(true);
+      expect(ctx.isPointInPath(path, 68, 26)).toBe(false);
     });
 
     it('quadArrowCallout: head base wider than shaft', () => {

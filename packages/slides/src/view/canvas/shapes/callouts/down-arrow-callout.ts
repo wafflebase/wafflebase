@@ -17,7 +17,8 @@ export const buildDownArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
   // (ss·a2/100000). At default a1=a2 the head flares to 2× the shaft.
   const dx1 = ss * (a1 / 200000);
   const dx2 = ss * (a2 / 100000);
-  const dy1 = h * (a3 / 100000);
+  // OOXML head depth uses ss = min(w,h), not h (shallow head on tall frames).
+  const dy1 = ss * (a3 / 100000);
   const by = Math.min(h - dy1, h * (a4 / 100000));
   const cx = w / 2;
   const path = new Path2D();
@@ -44,7 +45,7 @@ export const DOWN_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const a3 = adjustments[2] ?? DEF_DEPTH;
       const a4 = adjustments[3] ?? DEF_BODY;
       // Builder clamps `by = min(h - dy1, h * adj4 / 100000)`.
-      const bodyY = Math.min(h - h * (a3 / 100000), h * (a4 / 100000));
+      const bodyY = Math.min(h - ss * (a3 / 100000), h * (a4 / 100000));
       return {
         x: insetAlongAxis(w / 2 + ss * (a1 / 200000), w),
         y: insetAlongAxis(bodyY, h),

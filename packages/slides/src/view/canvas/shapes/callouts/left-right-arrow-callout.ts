@@ -40,7 +40,8 @@ export const buildLeftRightArrowCallout: PathBuilder = (
   // (ss·a2/100000). At default a1=a2 the head flares to 2× the shaft.
   const dy1 = ss * (a1 / 200000);
   const dy2 = ss * (a2 / 100000);
-  const dx1 = w * (a3 / 100000);
+  // OOXML head depth uses ss = min(w,h), not w (shallow heads on wide frames).
+  const dx1 = ss * (a3 / 100000);
   const dx2 = Math.min(w / 2 - dx1, (w / 2) * (a4 / 100000));
   const cx = w / 2;
   const cy = h / 2;
@@ -75,7 +76,7 @@ export const LEFT_RIGHT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const a3 = adjustments[2] ?? DEF_DEPTH;
       const a4 = adjustments[3] ?? DEF_BI_BODY;
       // Two heads, so the clamp is `dx2 = min(w/2 - dx1, w*adj4/200000)`.
-      const dx1 = w * (a3 / 100000);
+      const dx1 = ss * (a3 / 100000);
       const dx2 = Math.min(w / 2 - dx1, (w / 2) * (a4 / 100000));
       return {
         x: insetAlongAxis(w / 2 - dx2, w),
