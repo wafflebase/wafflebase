@@ -8,7 +8,9 @@ import { ARROW_ADJUSTMENTS } from './right-arrow';
  * Reuses `ARROW_ADJUSTMENTS` from `right-arrow.ts`.
  */
 export const buildDownArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const headLen = Math.min(h, (adj(adjustments, 0, 50000) / 100000) * h);
+  // OOXML: dy1 = ss * adj2 / 100000 where ss = min(w, h). Mirror of upArrow.
+  const ss = Math.min(w, h);
+  const headLen = Math.min(h, (adj(adjustments, 0, 50000) / 100000) * ss);
   const headHalf = (adj(adjustments, 1, 50000) / 100000) * (w / 2);
   const path = new Path2D();
   path.moveTo(w / 2 - headHalf, 0);
@@ -26,13 +28,15 @@ export const buildDownArrow: PathBuilder = ({ w, h }, adjustments) => {
 export const DOWN_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * h;
+      const ss = Math.min(w, h);
+      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
       return { x: w / 2, y: insetAlongAxis(h - headLen, h) };
     },
-    apply: ({ h }, start, pointer) => {
+    apply: ({ w, h }, start, pointer) => {
+      const ss = Math.min(w, h);
       const y = Math.max(0, Math.min(h, pointer.y));
       const headLen = h - y;
-      const raw = h > 0 ? Math.round((headLen / h) * 100000) : 0;
+      const raw = ss > 0 ? Math.round((headLen / ss) * 100000) : 0;
       return [
         Math.max(ARROW_ADJUSTMENTS[0].min, Math.min(ARROW_ADJUSTMENTS[0].max, raw)),
         start[1] ?? ARROW_ADJUSTMENTS[1].defaultValue,
@@ -41,7 +45,8 @@ export const DOWN_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   },
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * h;
+      const ss = Math.min(w, h);
+      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
       const headHalf = ((adjustments[1] ?? ARROW_ADJUSTMENTS[1].defaultValue) / 100000) * (w / 2);
       return {
         x: insetAlongAxis(w / 2 - headHalf, w),

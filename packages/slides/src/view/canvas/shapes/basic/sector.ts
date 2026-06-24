@@ -106,14 +106,12 @@ export function arcPath(
 /**
  * `blockArc` — annular sector. Outer arc from `t0 → t1`, radial step
  * inward, inner arc back from `t1 → t0`, close back to outer start.
- * `thicknessFrac` is `adj3 / 100000` — 0 means an open band (zero
- * thickness, visually a stroke), 0.5 means inner radius is half of
- * outer (a thick band), values above 0.5 visually fall through to
- * pie-like wedges and are clamped at the spec layer.
- *
- * Inner radii are derived multiplicatively from the outer radii so
- * the band hugs the same ellipse on both sides (no rounding from
- * `min(rx, ry)`).
+ * `thicknessOoxml` is `adj3` (0..50000). Per ECMA-376 the ring
+ * thickness is a constant absolute radial offset
+ * `dr = ss*adj3/100000` (`ss = min(w,h)`), subtracted from BOTH outer
+ * radii: `iwd2 = wd2 - dr`, `ihd2 = hd2 - dr`. The offset is
+ * independent of the outer radius, so on a non-square frame the ring
+ * has uniform thickness rather than scaling with each axis.
  */
 export function blockArcPath(
   { w, h }: FrameSize,
@@ -126,9 +124,13 @@ export function blockArcPath(
   const { t0, t1 } = normalizeSweep(startOoxml, endOoxml);
   const rx = w / 2;
   const ry = h / 2;
-  const innerScale = Math.max(0, 1 - thicknessOoxml / 100000);
-  const irx = rx * innerScale;
-  const iry = ry * innerScale;
+  const ss = Math.min(w, h);
+  // adj3 is documented as 0..50000 (half of ss). Clamp both ends so an
+  // out-of-range value can't push the inner radii past the centre.
+  const thick = Math.max(0, Math.min(50000, thicknessOoxml));
+  const dr = (thick / 100000) * ss;
+  const irx = Math.max(0, rx - dr);
+  const iry = Math.max(0, ry - dr);
 
   const outer = polylineArc(cx, cy, rx, ry, t0, t1);
   const inner = polylineArc(cx, cy, irx, iry, t1, t0);

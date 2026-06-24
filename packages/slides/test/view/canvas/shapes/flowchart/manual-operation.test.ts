@@ -11,4 +11,15 @@ describe('buildFlowChartManualOperation', () => {
     expect(ctx.isPointInPath(path, 5, 99)).toBe(false);
     expect(ctx.isPointInPath(path, 95, 99)).toBe(false);
   });
+
+  it('tapers the bottom by w * 0.2 per side', () => {
+    // Bottom corners sit at x = w*0.2 (=20) and x = w*0.8 (=80).
+    // A point at x = 15 on the bottom edge is now outside the taper
+    // (it was inside under the old 0.125 inset).
+    const path = buildFlowChartManualOperation({ w: 100, h: 100 });
+    const ctx = createTestCanvas(200, 200).getContext('2d');
+    expect(ctx.isPointInPath(path, 15, 99)).toBe(false);
+    expect(ctx.isPointInPath(path, 85, 99)).toBe(false);
+    expect(ctx.isPointInPath(path, 25, 99)).toBe(true);
+  });
 });

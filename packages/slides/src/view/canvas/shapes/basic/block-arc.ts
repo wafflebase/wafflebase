@@ -11,8 +11,9 @@ import { angularHandle, insetAlongAxis } from '../handles';
  * `blockArc` — annular sector. Three adjustments:
  *  - `adj1` start angle (OOXML 60000ths)
  *  - `adj2` end angle
- *  - `adj3` thickness as a fraction of the outer radius
- *    (100000 → solid pie; 0 → infinitesimal stroke)
+ *  - `adj3` ring thickness as a constant absolute radial offset
+ *    `dr = ss*adj3/100000` (`ss = min(w,h)`), subtracted from both
+ *    outer radii (0 → infinitesimal stroke; 50000 → half of ss).
  *
  * Two angular handles paint on the outer ellipse perimeter; a third
  * inline linear-radial handle sits on the inner arc at the sweep
@@ -76,11 +77,15 @@ const thicknessHandle: AdjustmentHandle = {
     const cy = h / 2;
     const rx = w / 2;
     const ry = h / 2;
+    const ss = Math.min(w, h);
     const midRad = midAngleRad(start, end);
-    const innerScale = Math.max(0, 1 - thickness / 100000);
+    // Inner radii via constant absolute radial offset dr = ss*adj3.
+    const dr = (Math.max(0, thickness) / 100000) * ss;
+    const irx = Math.max(0, rx - dr);
+    const iry = Math.max(0, ry - dr);
     return {
-      x: insetAlongAxis(cx + rx * innerScale * Math.cos(midRad), w),
-      y: insetAlongAxis(cy + ry * innerScale * Math.sin(midRad), h),
+      x: insetAlongAxis(cx + irx * Math.cos(midRad), w),
+      y: insetAlongAxis(cy + iry * Math.sin(midRad), h),
     };
   },
   apply: ({ w, h }, start, pointer) => {
@@ -88,17 +93,22 @@ const thicknessHandle: AdjustmentHandle = {
     const cy = h / 2;
     const rx = w / 2;
     const ry = h / 2;
+    const ss = Math.min(w, h);
     const midRad = midAngleRad(start[0], start[1]);
     const dx = pointer.x - cx;
     const dy = pointer.y - cy;
-    const projection = dx * Math.cos(midRad) + dy * Math.sin(midRad);
-    // Outer ellipse radius along the midradial.
     const cos = Math.cos(midRad);
     const sin = Math.sin(midRad);
-    const denom = Math.sqrt((ry * cos) ** 2 + (rx * sin) ** 2);
-    const outerR = denom === 0 ? Math.max(rx, ry) : (rx * ry) / denom;
-    const innerFrac = Math.max(0, Math.min(1, projection / outerR));
-    const thickness = Math.round((1 - innerFrac) * 100000);
+    // The builder offsets each outer radius by the SAME absolute dr:
+    // irx = rx - dr, iry = ry - dr. The painted inner point therefore
+    // sits at (cx + irx·cos, cy + iry·sin); its projection onto the
+    // midradial is (rx·cos² + ry·sin²) − dr. Invert that exactly so the
+    // handle round-trips on non-square frames (deriving dr from the true
+    // ellipse radius `(rx·ry)/denom` only matches when rx === ry).
+    const projection = dx * cos + dy * sin;
+    const outerProj = rx * cos * cos + ry * sin * sin;
+    const dr = Math.max(0, outerProj - projection);
+    const thickness = ss > 0 ? Math.round((dr / ss) * 100000) : 0;
     const spec = BLOCK_ARC_ADJUSTMENTS[2];
     const clamped = Math.max(spec.min, Math.min(spec.max, thickness));
     const result = [...start];

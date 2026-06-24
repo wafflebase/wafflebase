@@ -33,12 +33,17 @@ export const DEF_BODY = 64977;
  * this thing" graphic with a built-in text frame.
  */
 export const buildRightArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
-  const a1 = adj(adjustments, 0, DEF_SHAFT);
-  const a2 = Math.max(a1, adj(adjustments, 1, DEF_HEAD));
+  const ss = Math.min(w, h);
+  const a2 = adj(adjustments, 1, DEF_HEAD);
+  // OOXML: maxAdj1 = a2 * 2, so the shaft half-thickness can grow to at
+  // most the head half-thickness (dy1 ≤ dy2) — never the other way round.
+  const a1 = Math.min(adj(adjustments, 0, DEF_SHAFT), a2 * 2);
   const a3 = adj(adjustments, 2, DEF_DEPTH);
   const a4 = adj(adjustments, 3, DEF_BODY);
-  const dy1 = (h / 2) * (a1 / 100000);
-  const dy2 = (h / 2) * (a2 / 100000);
+  // dy1 = shaft half-thickness (ss·a1/200000); dy2 = head half-thickness
+  // (ss·a2/100000). At default a1=a2 the head flares to 2× the shaft.
+  const dy1 = ss * (a1 / 200000);
+  const dy2 = ss * (a2 / 100000);
   const dx1 = w * (a3 / 100000);
   const bx = Math.min(w - dx1, w * (a4 / 100000));
   const cy = h / 2;
@@ -70,16 +75,18 @@ export const buildRightArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
 export const RIGHT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
+      const ss = Math.min(w, h);
       const a1 = adjustments[0] ?? DEF_SHAFT;
       const a3 = adjustments[2] ?? DEF_DEPTH;
       const a4 = adjustments[3] ?? DEF_BODY;
       const bodyX = Math.min(w - w * (a3 / 100000), w * (a4 / 100000));
       return {
         x: insetAlongAxis(bodyX, w),
-        y: insetAlongAxis(h / 2 - (h / 2) * (a1 / 100000), h),
+        y: insetAlongAxis(h / 2 - ss * (a1 / 200000), h),
       };
     },
     apply: ({ w, h }, start, pointer) => {
+      const ss = Math.min(w, h);
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const a3 = start[2] ?? DEF_DEPTH;
@@ -87,7 +94,7 @@ export const RIGHT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const rawA4 = w > 0 ? Math.round((x / w) * 100000) : DEF_BODY;
       const newA4 = Math.max(0, Math.min(maxA4, rawA4));
       const dy1 = Math.abs(y - h / 2);
-      const newA1 = h > 0 ? Math.round((dy1 / (h / 2)) * 100000) : DEF_SHAFT;
+      const newA1 = ss > 0 ? Math.round((dy1 / (ss / 2)) * 100000) : DEF_SHAFT;
       return [
         Math.max(0, Math.min(100000, newA1)),
         start[1] ?? DEF_HEAD,
@@ -98,19 +105,21 @@ export const RIGHT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
   },
   {
     position: ({ w, h }, adjustments) => {
-      const a2 = Math.max(adjustments[0] ?? DEF_SHAFT, adjustments[1] ?? DEF_HEAD);
+      const ss = Math.min(w, h);
+      const a2 = adjustments[1] ?? DEF_HEAD;
       const a3 = adjustments[2] ?? DEF_DEPTH;
       return {
         x: insetAlongAxis(w - w * (a3 / 100000), w),
-        y: insetAlongAxis(h / 2 - (h / 2) * (a2 / 100000), h),
+        y: insetAlongAxis(h / 2 - ss * (a2 / 100000), h),
       };
     },
     apply: ({ w, h }, start, pointer) => {
+      const ss = Math.min(w, h);
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const newA3 = w > 0 ? Math.round(((w - x) / w) * 100000) : DEF_DEPTH;
       const dy2 = Math.abs(y - h / 2);
-      const newA2 = h > 0 ? Math.round((dy2 / (h / 2)) * 100000) : DEF_HEAD;
+      const newA2 = ss > 0 ? Math.round((dy2 / ss) * 100000) : DEF_HEAD;
       return [
         start[0] ?? DEF_SHAFT,
         Math.max(0, Math.min(100000, newA2)),

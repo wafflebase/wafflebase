@@ -23,12 +23,16 @@ const DEF_BODY = 48123;
 
 export const buildQuadArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
   const dim = Math.min(w, h);
-  const a1 = adj(adjustments, 0, DEF_SHAFT);
-  const a2 = Math.max(a1, adj(adjustments, 1, DEF_HEAD));
+  const a2 = adj(adjustments, 1, DEF_HEAD);
+  // OOXML: maxAdj1 = a2 * 2, so the shaft half-thickness can grow to at
+  // most the head half-thickness (shaft ≤ head) — never the other way round.
+  const a1 = Math.min(adj(adjustments, 0, DEF_SHAFT), a2 * 2);
   const a3 = adj(adjustments, 2, DEF_DEPTH);
   const a4 = adj(adjustments, 3, DEF_BODY);
-  const shaft = (dim / 2) * (a1 / 100000);
-  const head = (dim / 2) * (a2 / 100000);
+  // shaft = ss·a1/200000 (half-thickness); head = ss·a2/100000 (half-
+  // thickness). At default a1=a2 the head flares to 2× the shaft.
+  const shaft = dim * (a1 / 200000);
+  const head = dim * (a2 / 100000);
   const depth = dim * (a3 / 100000);
   const body = Math.min((dim / 2) * (a4 / 100000), w / 2 - depth, h / 2 - depth);
   const cx = w / 2;
@@ -83,7 +87,7 @@ export const QUAD_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const a1 = adjustments[0] ?? DEF_SHAFT;
       const a3 = adjustments[2] ?? DEF_DEPTH;
       const a4 = adjustments[3] ?? DEF_BODY;
-      const shaft = (dim / 2) * (a1 / 100000);
+      const shaft = dim * (a1 / 200000);
       const depth = dim * (a3 / 100000);
       const body = Math.min(
         (dim / 2) * (a4 / 100000),

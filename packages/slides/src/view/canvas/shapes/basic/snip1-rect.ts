@@ -9,12 +9,12 @@ import { linearTopEdgeHandle } from '../handles';
 /**
  * `snip1Rect` — rectangle with the NE corner replaced by a straight
  * 45° chamfer. `adj1` is the chamfer size as a fraction of
- * `min(w, h)`. OOXML preset default 12500.
+ * `min(w, h)`. OOXML preset default 16667.
  */
 export const SNIP1_RECT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
     name: 'NE corner cut',
-    defaultValue: 12500,
+    defaultValue: 16667,
     min: 0,
     max: 50000,
   },

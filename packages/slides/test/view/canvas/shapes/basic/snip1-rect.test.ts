@@ -15,8 +15,8 @@ describe('buildSnip1Rect', () => {
     expect(ctx.isPointInPath(path, 95, 5)).toBe(false);
   });
 
-  it('default cut is 12500', () => {
-    expect(SNIP1_RECT_ADJUSTMENTS[0].defaultValue).toBe(12500);
+  it('default cut is the OOXML default 16667', () => {
+    expect(SNIP1_RECT_ADJUSTMENTS[0].defaultValue).toBe(16667);
   });
 });
 

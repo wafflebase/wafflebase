@@ -8,20 +8,26 @@ import {
 } from '../../../../../src/view/canvas/shapes/arrows/bent-arrow';
 
 describe('buildBentArrow', () => {
-  it('fills the horizontal arm + vertical arm', () => {
+  it('fills the horizontal arm + vertical tail with the head pointing right', () => {
     const path = buildBentArrow({ w: 200, h: 200 });
     const ctx = createTestCanvas(400, 400).getContext('2d');
-    // Top-left of horizontal arm.
-    expect(ctx.isPointInPath(path, 30, 15)).toBe(true);
+    // Horizontal arm at the top, mid-span.
+    expect(ctx.isPointInPath(path, 120, 50)).toBe(true);
+    // Vertical tail at the bottom-left.
+    expect(ctx.isPointInPath(path, 25, 180)).toBe(true);
+    // Arrow tip at the right edge, vertical-center of the arm.
+    expect(ctx.isPointInPath(path, 195, 50)).toBe(true);
+    // Bottom-right is empty (open inside the bend).
+    expect(ctx.isPointInPath(path, 180, 180)).toBe(false);
   });
 
-  it('has 2 adjustments', () => {
-    expect(BENT_ARROW_ADJUSTMENTS).toHaveLength(2);
+  it('has 4 adjustments (shaft, head width, head length, bend radius)', () => {
+    expect(BENT_ARROW_ADJUSTMENTS).toHaveLength(4);
   });
 });
 
 describe('BENT_ARROW_HANDLES', () => {
-  it('exposes two handles', () => {
-    expect(BENT_ARROW_HANDLES.length).toBe(2);
+  it('exposes four handles', () => {
+    expect(BENT_ARROW_HANDLES.length).toBe(4);
   });
 });

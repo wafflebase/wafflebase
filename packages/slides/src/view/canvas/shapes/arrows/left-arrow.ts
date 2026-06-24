@@ -8,7 +8,9 @@ import { ARROW_ADJUSTMENTS } from './right-arrow';
  * Reuses `ARROW_ADJUSTMENTS` from `right-arrow.ts`.
  */
 export const buildLeftArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const headLen = Math.min(w, (adj(adjustments, 0, 50000) / 100000) * w);
+  // OOXML: dx2 = ss * adj2 / 100000 where ss = min(w, h). Mirror of rightArrow.
+  const ss = Math.min(w, h);
+  const headLen = Math.min(w, (adj(adjustments, 0, 50000) / 100000) * ss);
   const headHalf = (adj(adjustments, 1, 50000) / 100000) * (h / 2);
   const path = new Path2D();
   path.moveTo(w, h / 2 - headHalf);
@@ -26,12 +28,14 @@ export const buildLeftArrow: PathBuilder = ({ w, h }, adjustments) => {
 export const LEFT_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * w;
+      const ss = Math.min(w, h);
+      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
       return { x: insetAlongAxis(headLen, w), y: h / 2 };
     },
-    apply: ({ w }, start, pointer) => {
+    apply: ({ w, h }, start, pointer) => {
+      const ss = Math.min(w, h);
       const x = Math.max(0, Math.min(w, pointer.x));
-      const raw = w > 0 ? Math.round((x / w) * 100000) : 0;
+      const raw = ss > 0 ? Math.round((x / ss) * 100000) : 0;
       return [
         Math.max(ARROW_ADJUSTMENTS[0].min, Math.min(ARROW_ADJUSTMENTS[0].max, raw)),
         start[1] ?? ARROW_ADJUSTMENTS[1].defaultValue,
@@ -40,7 +44,8 @@ export const LEFT_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   },
   {
     position: ({ w, h }, adjustments) => {
-      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * w;
+      const ss = Math.min(w, h);
+      const headLen = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
       const headHalf = ((adjustments[1] ?? ARROW_ADJUSTMENTS[1].defaultValue) / 100000) * (h / 2);
       return {
         x: insetAlongAxis(headLen, w),

@@ -7,20 +7,22 @@ describe('RIGHT_ARROW_HANDLES', () => {
   });
 
   it('handle 0 (head length) sits at the back of the head on centerline', () => {
-    // headLen = 50% * 200 = 100; back at (w - headLen, h/2) = (100, 50)
+    // ss = min(200, 100) = 100; headLen = 50% * ss = 50
+    // back at (w - headLen, h/2) = (150, 50)
     const p = RIGHT_ARROW_HANDLES[0].position({ w: 200, h: 100 }, [50000, 50000]);
-    expect(p).toEqual({ x: 100, y: 50 });
+    expect(p).toEqual({ x: 150, y: 50 });
   });
 
   it('handle 1 (head width) sits at the upper-outer back corner', () => {
-    // headLen=100, headHalf=50% * 50 = 25; pos = (100, 50-25) = (100, 25)
+    // headLen=50, headHalf=50% * 50 = 25; pos = (150, 50-25) = (150, 25)
     const p = RIGHT_ARROW_HANDLES[1].position({ w: 200, h: 100 }, [50000, 50000]);
-    expect(p).toEqual({ x: 100, y: 25 });
+    expect(p).toEqual({ x: 150, y: 25 });
   });
 
   it('head-length apply preserves head-width index from start', () => {
-    const next = RIGHT_ARROW_HANDLES[0].apply({ w: 200, h: 100 }, [50000, 30000], { x: 50, y: 50 });
-    expect(next).toEqual([75000, 30000]);
+    // ss=100; pointer.x=150 → headLen = w - x = 50 → 50/ss = 50000
+    const next = RIGHT_ARROW_HANDLES[0].apply({ w: 200, h: 100 }, [50000, 30000], { x: 150, y: 50 });
+    expect(next).toEqual([50000, 30000]);
   });
 
   it('head-width apply preserves head-length index from start', () => {

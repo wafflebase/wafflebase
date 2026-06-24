@@ -189,3 +189,4 @@ packages/documentation/.vitepress/cache
 
 # pnpm local store (when store-dir is set to .pnpm-store in repo)
 .pnpm-store/
+.ooxml-preset-ref.xml

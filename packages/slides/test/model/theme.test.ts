@@ -1,11 +1,42 @@
 import { describe, it, expect } from 'vitest';
 import {
+  applyShade,
   resolveColor,
   resolveFont,
   type ColorScheme,
   type FontScheme,
   type Theme,
 } from '../../src/model/theme';
+
+describe('applyShade', () => {
+  it('returns the color unchanged at delta 0', () => {
+    expect(applyShade('#808080', 0)).toBe('#808080');
+  });
+
+  it('lightens toward white for positive delta', () => {
+    expect(applyShade('#808080', 0.5)).toBe('#C0C0C0');
+  });
+
+  it('darkens toward black for negative delta', () => {
+    expect(applyShade('#808080', -0.5)).toBe('#404040');
+  });
+
+  it('shades rgba channels and preserves alpha', () => {
+    expect(applyShade('rgba(128, 128, 128, 0.5)', -0.5)).toBe(
+      'rgba(64, 64, 64, 0.5)',
+    );
+  });
+
+  it('returns a malformed rgba() input unchanged (no NaN channels)', () => {
+    // A non-numeric channel would otherwise recompose into rgba(NaN,...).
+    expect(applyShade('rgba(foo, 128, 128, 0.5)', -0.5)).toBe(
+      'rgba(foo, 128, 128, 0.5)',
+    );
+    expect(applyShade('rgba(128, 128, 128, bar)', 0.5)).toBe(
+      'rgba(128, 128, 128, bar)',
+    );
+  });
+});
 
 const COLORS: ColorScheme = {
   text: '#000000',

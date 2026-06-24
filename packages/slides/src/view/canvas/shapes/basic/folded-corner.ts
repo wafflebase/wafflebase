@@ -1,17 +1,23 @@
-import type {
-  AdjustmentHandle,
-  AdjustmentSpec,
-  PathBuilder,
-} from '../builder';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from '../builder';
 import { adj } from '../builder';
-import { linearTopEdgeHandle } from '../handles';
+import { insetAlongAxis } from '../handles';
 
 /**
- * `foldedCorner` — rectangle with the NE corner visibly folded
- * inward, exposing a triangular fold. `adj1` is the fold size as a
- * fraction of `min(w, h)`. Path includes both the main outline
- * (with the folded corner missing) and the fold triangle itself
- * for a single combined fill region.
+ * `foldedCorner` — rectangle with the bottom-right (SE) corner visibly
+ * folded inward, exposing a triangular flap. `adj1` is the fold size as
+ * a fraction of `min(w, h)` (`ss` in OOXML). Matches the ECMA-376
+ * `foldedCorner` preset geometry: the main body is the rectangle minus
+ * the bottom-right notch, and a folded-over triangular flap sits at the
+ * bottom-right.
+ *
+ * OOXML guides (l=0, t=0, r=w, b=h, y DOWN):
+ *   a   = pin(0, adj, 50000)
+ *   dy2 = ss · a / 100000      (fold depth)
+ *   dy1 = dy2 / 5              (flap "lift")
+ *   x1  = r − dy2
+ *   x2  = x1 + dy1
+ *   y2  = b − dy2
+ *   y1  = y2 + dy1
  */
 export const FOLDED_CORNER_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   {
@@ -24,31 +30,49 @@ export const FOLDED_CORNER_ADJUSTMENTS: readonly AdjustmentSpec[] = [
 
 export const buildFoldedCorner: PathBuilder = ({ w, h }, adjustments) => {
   const a1 = adj(adjustments, 0, FOLDED_CORNER_ADJUSTMENTS[0].defaultValue);
-  const f = (a1 / 100000) * Math.min(w, h);
+  const ss = Math.min(w, h);
+  const dy2 = (a1 / 100000) * ss;
+  const dy1 = dy2 / 5;
+  const x1 = w - dy2;
+  const x2 = x1 + dy1;
+  const y2 = h - dy2;
+  const y1 = y2 + dy1;
+
   const path = new Path2D();
-  // Main outline: rectangle missing the NE corner triangle.
+  // Main body: rectangle with the bottom-right corner notched away.
   path.moveTo(0, 0);
-  path.lineTo(w - f, 0);
-  path.lineTo(w, f);
-  path.lineTo(w, h);
+  path.lineTo(w, 0);
+  path.lineTo(w, y2);
+  path.lineTo(x1, h);
   path.lineTo(0, h);
   path.closePath();
-  // Fold triangle painted as a separate subpath inside the NE
-  // corner — visually distinct via the dispatcher's edge stroke.
-  path.moveTo(w - f, 0);
-  path.lineTo(w - f, f);
-  path.lineTo(w, f);
+  // Folded-over flap triangle at the bottom-right — painted as a
+  // separate subpath, visually distinct via the dispatcher's edge
+  // stroke. (OOXML's `darkenLess` shaded face.)
+  path.moveTo(x1, h);
+  path.lineTo(x2, y1);
+  path.lineTo(w, y2);
   path.closePath();
   return path;
 };
 
 export const FOLDED_CORNER_HANDLES: readonly AdjustmentHandle[] = [
-  // Diamond sits on the top edge — drag left to grow the fold.
-  // The fold corner is at x = w - f; forward maps adj → (w - f),
-  // inverse: f = w - x → adj = ((w - x) / min(w,h)) * 100000.
-  linearTopEdgeHandle({
-    forward: (a, { w, h }) => w - (a / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => ((w - x) / Math.min(w, h)) * 100000,
-    spec: FOLDED_CORNER_ADJUSTMENTS[0],
-  }),
+  // Diamond sits on the bottom edge at (x1, h) — drag left to grow the
+  // fold (OOXML ahXY: pos x="x1" y="b"). Forward maps adj → x1 = w − f;
+  // inverse: f = w − x → adj = ((w − x) / min(w,h)) * 100000.
+  {
+    position: ({ w, h }, adjs) => {
+      const a1 = adjs[0] ?? FOLDED_CORNER_ADJUSTMENTS[0].defaultValue;
+      const x1 = w - (a1 / 100000) * Math.min(w, h);
+      return { x: insetAlongAxis(x1, w), y: insetAlongAxis(h, h) };
+    },
+    apply: ({ w, h }, start, pointer) => {
+      const raw = Math.round(((w - pointer.x) / Math.min(w, h)) * 100000);
+      const spec = FOLDED_CORNER_ADJUSTMENTS[0];
+      const clamped = Math.max(spec.min, Math.min(spec.max, raw));
+      const result = [...start];
+      result[0] = clamped;
+      return result;
+    },
+  },
 ];

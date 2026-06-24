@@ -16,9 +16,9 @@ describe('BLOCK_ARC_HANDLES', () => {
 
   it('thickness handle moves toward centre as thickness grows', () => {
     // Default 180°→0° → CW midpoint is 270° = top. Diamond paints
-    // on the inner arc, so increasing thickness shrinks the inner
-    // radius and the diamond slides from y≈10 (close to top edge,
-    // 90% radius) down toward y=100 (frame centre, 50% radius).
+    // on the inner arc at radius (outer - dr), dr = ss*adj3/100000.
+    // Growing adj3 enlarges dr, shrinking the inner radius, so the
+    // diamond slides from near the top edge down toward the centre.
     const thin = BLOCK_ARC_HANDLES[2].position(FRAME, [10800000, 0, 10000]);
     const thick = BLOCK_ARC_HANDLES[2].position(FRAME, [10800000, 0, 50000]);
     expect(thick.y).toBeGreaterThan(thin.y);
@@ -46,5 +46,22 @@ describe('BLOCK_ARC_HANDLES', () => {
       { x: 100, y: 95 },
     );
     expect(thick[2]).toBeGreaterThan(25000);
+  });
+
+  it('thickness handle round-trips on a non-square frame (diagonal mid)', () => {
+    // 400×200 frame, sweep 0°→90° → midradial at 45° (diagonal), so the
+    // true ellipse radius differs from the per-axis offset. Painting the
+    // diamond for adj3, then applying it back from that exact point, must
+    // recover the same adj3 (regression for the rx≠ry inverse drift).
+    const wide = { w: 400, h: 200 };
+    for (const adj3 of [10000, 25000, 40000]) {
+      const start = [0, 5400000, adj3];
+      const p = BLOCK_ARC_HANDLES[2].position(wide, start);
+      const out = BLOCK_ARC_HANDLES[2].apply(wide, start, p);
+      // insetAlongAxis can nudge the painted point a few px off the true
+      // inner arc near the frame edges; allow a small tolerance.
+      expect(out[2]).toBeGreaterThan(adj3 - 1500);
+      expect(out[2]).toBeLessThan(adj3 + 1500);
+    }
   });
 });
