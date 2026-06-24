@@ -416,6 +416,16 @@ export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 export const OUTLINE_BUILDERS = new Map<ShapeKind, PathBuilder>();
 
 /**
+ * Shape kind → optional stroke-only "leader" builder. Some OOXML presets
+ * (the border callouts) draw a filled body PLUS a separate `fill="none"`
+ * polyline — the leader line from the box out to the callout target. The
+ * renderer fills+strokes the `PATH_BUILDERS` body, then strokes this
+ * extra path with the same stroke style. Returns an OPEN path (no
+ * `closePath`) so the leader is a polyline, not a filled wedge.
+ */
+export const LEADER_BUILDERS = new Map<ShapeKind, PathBuilder>();
+
+/**
  * Shape kind → optional multi-fill face builder. 3D-look / folded shapes
  * (cube, can, bevel, ribbons, scrolls) paint several differently-shaded
  * faces from the shape's single fill color. Kinds listed here STILL

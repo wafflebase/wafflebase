@@ -2,7 +2,12 @@ import type { ShapeElement, ShapeKind } from '../../model/element';
 import { applyShade, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { resolveStrokeColor } from './render-context';
-import { FACE_BUILDERS, OUTLINE_BUILDERS, PATH_BUILDERS } from './shapes';
+import {
+  FACE_BUILDERS,
+  LEADER_BUILDERS,
+  OUTLINE_BUILDERS,
+  PATH_BUILDERS,
+} from './shapes';
 import { isActionButton } from './shapes/action-buttons';
 import type { FrameSize } from './shapes/builder';
 import { buildFreeformPath } from './shapes/freeform';
@@ -210,6 +215,15 @@ export function drawShape(
     fillRule: EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero',
     strokePath: outlineBuilder?.(size, data.adjustments),
   });
+  // Border callouts: stroke the separate `fill="none"` leader polyline on
+  // top of the filled body, matching the OOXML two-path geometry.
+  const leaderBuilder = LEADER_BUILDERS.get(data.kind);
+  if (leaderBuilder && data.stroke) {
+    ctx.strokeStyle = resolveStrokeColor(data.stroke.color, theme);
+    ctx.lineWidth = data.stroke.width;
+    ctx.lineJoin = 'round';
+    ctx.stroke(leaderBuilder(size, data.adjustments));
+  }
 }
 
 /**

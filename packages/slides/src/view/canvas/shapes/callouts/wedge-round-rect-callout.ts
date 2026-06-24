@@ -2,26 +2,19 @@ import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 import { linearTopEdgeHandle } from '../handles';
 import { pointTailHandle } from './handles';
+import { wedgeTailGuides } from './wedge-common';
+import { arcTo, CD2, CD3_4, CD4 } from './ooxml-math';
 
 /**
- * `wedgeRoundRectCallout` — rounded speech bubble with a triangular
- * tail. Combines the rounded-rectangle outline with the wedge-callout
- * tail logic.
+ * `wedgeRoundRectCallout` — rounded speech-bubble rectangle with a
+ * triangular tail. Faithful port of the ECMA-376 preset: same tail
+ * guides as `wedgeRectCallout` (see `wedge-common.ts`), plus rounded
+ * corners of radius `u1 = ss·adj3/100000`.
  *
  * Adjustments (`WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS`):
- *   [0] tailX        — OOXML thousandths of `w`, from frame centre.
- *                      Default -20833.
- *   [1] tailY        — OOXML thousandths of `h`, from frame centre.
- *                      Default 62500.
- *   [2] cornerRadius — OOXML thousandths of `min(w, h)`. Default 16667.
- *
- * Following ECMA-376, the triangular tail points to the target
- * (tailX, tailY) wherever it lies: the tail base sits on whichever of
- * the four rectangle edges is closest to the target, so the tail
- * sprouts left/right/up/down — not only when the target is below the
- * box. Mirrors the closest-edge logic of `buildWedgeRectCallout`, with
- * the tail base clamped to the straight portion of each edge so it
- * never overruns the rounded corners.
+ *   [0] adj1 — tail tip x, thousandths of `w` from centre. Default -20833.
+ *   [1] adj2 — tail tip y, thousandths of `h` from centre. Default 62500.
+ *   [2] adj3 — corner radius, thousandths of `min(w, h)`. Default 16667.
  */
 export const WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Tail x', defaultValue: -20833, min: -100000, max: 100000 },
@@ -29,58 +22,49 @@ export const WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Corner radius', defaultValue: 16667, min: 0, max: 50000 },
 ];
 
-export const buildWedgeRoundRectCallout: PathBuilder = ({ w, h }, adjustments) => {
-  const tx = w / 2 + (adj(adjustments, 0, -20833) / 100000) * w;
-  const ty = h / 2 + (adj(adjustments, 1, 62500) / 100000) * h;
-  const r = (adj(adjustments, 2, 16667) / 100000) * Math.min(w, h);
-  const baseHalf = Math.min(w, h) * 0.05;
-  // The tail base sits on whichever edge is closest to the target.
-  const distances = [
-    { side: 'top', d: Math.abs(ty - 0) },
-    { side: 'right', d: Math.abs(tx - w) },
-    { side: 'bottom', d: Math.abs(ty - h) },
-    { side: 'left', d: Math.abs(tx - 0) },
-  ] as const;
-  const closest = distances.reduce((a, b) => (a.d < b.d ? a : b)).side;
-  // Clamp the base anchor to the straight run of an edge so it never
-  // overlaps a rounded corner (corners span `r` from each end).
-  const clampX = (x: number): number => Math.max(r, Math.min(w - r, x));
-  const clampY = (y: number): number => Math.max(r, Math.min(h - r, y));
+export const buildWedgeRoundRectCallout: PathBuilder = (
+  { w, h },
+  adjustments,
+) => {
+  const g = wedgeTailGuides(
+    w,
+    h,
+    adj(adjustments, 0, -20833),
+    adj(adjustments, 1, 62500),
+  );
+  const ss = Math.min(w, h);
+  const u1 = (ss * adj(adjustments, 2, 16667)) / 100000;
+  const u2 = w - u1;
+  const v2 = h - u1;
+
   const path = new Path2D();
-  // Rounded rectangle outline (clockwise from top-left curve start).
-  path.moveTo(r, 0);
-  // Top edge with optional tail.
-  if (closest === 'top') {
-    path.lineTo(clampX(tx - baseHalf), 0);
-    path.lineTo(tx, ty);
-    path.lineTo(clampX(tx + baseHalf), 0);
-  }
-  path.lineTo(w - r, 0);
-  path.quadraticCurveTo(w, 0, w, r);
-  // Right edge with optional tail.
-  if (closest === 'right') {
-    path.lineTo(w, clampY(ty - baseHalf));
-    path.lineTo(tx, ty);
-    path.lineTo(w, clampY(ty + baseHalf));
-  }
-  path.lineTo(w, h - r);
-  path.quadraticCurveTo(w, h, w - r, h);
-  // Bottom edge with optional tail (default case).
-  if (closest === 'bottom') {
-    path.lineTo(clampX(tx + baseHalf), h);
-    path.lineTo(tx, ty);
-    path.lineTo(clampX(tx - baseHalf), h);
-  }
-  path.lineTo(r, h);
-  path.quadraticCurveTo(0, h, 0, h - r);
-  // Left edge with optional tail.
-  if (closest === 'left') {
-    path.lineTo(0, clampY(ty + baseHalf));
-    path.lineTo(tx, ty);
-    path.lineTo(0, clampY(ty - baseHalf));
-  }
-  path.lineTo(0, r);
-  path.quadraticCurveTo(0, 0, r, 0);
+  // OOXML pathLst: rounded rectangle (quarter-circle corners of radius u1)
+  // walked clockwise from the top-left, with the same conditional tail
+  // vertex inserted into each edge as the sharp-cornered variant.
+  let cur = { x: 0, y: u1 };
+  path.moveTo(cur.x, cur.y);
+  cur = arcTo(path, cur, u1, u1, CD2, CD4); // top-left corner
+  path.lineTo(g.x1, 0);
+  path.lineTo(g.xt, g.yt);
+  path.lineTo(g.x2, 0);
+  path.lineTo(u2, 0);
+  cur = { x: u2, y: 0 };
+  cur = arcTo(path, cur, u1, u1, CD3_4, CD4); // top-right corner
+  path.lineTo(w, g.y1);
+  path.lineTo(g.xr, g.yr);
+  path.lineTo(w, g.y2);
+  path.lineTo(w, v2);
+  cur = { x: w, y: v2 };
+  cur = arcTo(path, cur, u1, u1, 0, CD4); // bottom-right corner
+  path.lineTo(g.x2, h);
+  path.lineTo(g.xb, g.yb);
+  path.lineTo(g.x1, h);
+  path.lineTo(u1, h);
+  cur = { x: u1, y: h };
+  cur = arcTo(path, cur, u1, u1, CD4, CD4); // bottom-left corner
+  path.lineTo(0, g.y2);
+  path.lineTo(g.xl, g.yl);
+  path.lineTo(0, g.y1);
   path.closePath();
   return path;
 };
