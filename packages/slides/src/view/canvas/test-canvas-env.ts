@@ -194,18 +194,50 @@ class TestPath2D {
     this.ops.push({ kind: 'rect', x, y, w, h });
   }
 
+  /**
+   * A FULL ellipse (`start`→`end` spans ≥ 2π) is recorded as an ellipse
+   * op so its interior is hit-tested directly and counter-clockwise
+   * sweeps still "punch a hole" under the even-odd rule (donut, can lid).
+   * A PARTIAL elliptical arc is sampled into polyline segments appended to
+   * the current subpath — the same treatment `arc()` gives partial circles
+   * — so multi-arc silhouettes (e.g. the `cloud` preset) hit-test against
+   * their true boundary instead of a full disc.
+   */
   ellipse(
     cx: number,
     cy: number,
     rx: number,
     ry: number,
     rotation: number,
-    _start: number,
-    _end: number,
+    start: number,
+    end: number,
     ccw?: boolean,
   ): void {
-    this.flushSubpath();
-    this.ops.push({ kind: 'ellipse', cx, cy, rx, ry, rotation, ccw: !!ccw });
+    const fullEllipse =
+      Math.abs(end - start) >= Math.PI * 2 - 1e-9 ||
+      (start === 0 && end === Math.PI * 2);
+    if (fullEllipse) {
+      this.flushSubpath();
+      this.ops.push({ kind: 'ellipse', cx, cy, rx, ry, rotation, ccw: !!ccw });
+      return;
+    }
+    if (!this.current) this.current = [];
+    let a0 = start;
+    let a1 = end;
+    if (ccw) {
+      while (a1 > a0) a1 -= Math.PI * 2;
+    } else {
+      while (a1 < a0) a1 += Math.PI * 2;
+    }
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    for (let i = 0; i <= ARC_STEPS; i++) {
+      const t = i / ARC_STEPS;
+      const a = a0 + (a1 - a0) * t;
+      const ex = rx * Math.cos(a);
+      const ey = ry * Math.sin(a);
+      this.current.push({ x: cx + ex * cos - ey * sin, y: cy + ex * sin + ey * cos });
+    }
   }
 
   moveTo(x: number, y: number): void {

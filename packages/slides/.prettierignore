@@ -1,0 +1,7 @@
+# Generated files — their generator is the sole formatting authority, and the
+# drift check (`gen:textrects --check`) compares against the generator output
+# byte-for-byte. Letting prettier reformat them would create false drift.
+src/view/canvas/shapes/shape-text-rects.generated.ts
+
+# Vendored upstream reference data (ECMA-376 preset geometry).
+scripts/presetShapeDefinitions.xml

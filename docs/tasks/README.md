@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | pptx textbox fill import (2026-06-23) | [20260623-pptx-textbox-fill-import-todo.md](./active/20260623-pptx-textbox-fill-import-todo.md) | [20260623-pptx-textbox-fill-import-lessons.md](./active/20260623-pptx-textbox-fill-import-lessons.md) |
+| slide10 cloud arrows (2026-06-23) | [20260623-slide10-cloud-arrows-todo.md](./active/20260623-slide10-cloud-arrows-todo.md) | [20260623-slide10-cloud-arrows-lessons.md](./active/20260623-slide10-cloud-arrows-lessons.md) |
 | docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./active/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./active/20260517-docs-comments-followup-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |

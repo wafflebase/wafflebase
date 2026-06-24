@@ -918,14 +918,28 @@ function resolveEndpoint(
     }
   }
   // Fall back to absolute frame corners. The default `straightConnector1`
-  // routes (x,y) → (x+w, y+h). `flipH`/`flipV` swap the active corner
-  // on each axis independently — e.g. a `flipH` connector starts at
-  // top-right and ends at bottom-left.
-  const startHorizontal = (which === 'start') !== flipH;
-  const startVertical = (which === 'start') !== flipV;
-  const x = startHorizontal ? frame.x : frame.x + frame.w;
-  const y = startVertical ? frame.y : frame.y + frame.h;
-  return { kind: 'free', x, y };
+  // routes the box top-left → bottom-right; `start` is the top-left
+  // corner, `end` the bottom-right. `flipH`/`flipV`/`rot` then transform
+  // those corners about the frame centre. Connectors paint in world
+  // coordinates with no per-element frame transform (see
+  // `connector-renderer.ts`), so the flip AND rotation must be baked into
+  // the resolved endpoints here. We mirror first, then rotate, matching
+  // OOXML `<a:xfrm>` and `element-renderer`'s rotate-then-scale order
+  // (a point flows flip → rotate → translate). Without the rotation a
+  // connector with both `flipH` and `rot=180°` — where the two cancel on
+  // a horizontal line — resolves its endpoints (and thus its arrowhead)
+  // to the wrong side.
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  // Local corner relative to centre before any transform.
+  let lx = (which === 'start' ? -frame.w : frame.w) / 2;
+  let ly = (which === 'start' ? -frame.h : frame.h) / 2;
+  if (flipH) lx = -lx;
+  if (flipV) ly = -ly;
+  const rot = frame.rotation ?? 0;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  return { kind: 'free', x: cx + lx * cos - ly * sin, y: cy + lx * sin + ly * cos };
 }
 
 const OOXML_ARROW_TO_KIND: Record<string, ArrowheadKind> = {

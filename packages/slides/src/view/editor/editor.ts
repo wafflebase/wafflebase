@@ -26,7 +26,7 @@ import {
 } from '../../model/image-crop';
 import type { Block } from '@wafflebase/docs';
 import { clearMeasureCache } from '@wafflebase/docs';
-import { SHAPE_TEXT_PADDING } from '../canvas/shape-renderer';
+import { shapeTextFrame } from '../canvas/shape-renderer';
 import {
   computeTableLayout,
   nextCellInDirection,
@@ -4390,14 +4390,10 @@ class SlidesEditorImpl implements SlidesEditor {
     if (el.type !== 'text' && el.type !== 'shape') return false;
     let region = getTextRegionRect(el, worldFrame);
     if (region === null && el.type === 'shape') {
-      // Mirror `buildEditTarget` (4154): the editable area for shape
-      // inline text is the world frame inset by `SHAPE_TEXT_PADDING`.
-      region = {
-        x: worldFrame.x + SHAPE_TEXT_PADDING.x,
-        y: worldFrame.y + SHAPE_TEXT_PADDING.y,
-        w: Math.max(0, worldFrame.w - 2 * SHAPE_TEXT_PADDING.x),
-        h: Math.max(0, worldFrame.h - 2 * SHAPE_TEXT_PADDING.y),
-      };
+      // Mirror `buildEditTarget`: the editable area for shape inline text
+      // is the world frame inset by the shape's text rectangle (preset
+      // `<rect>` + default padding).
+      region = shapeTextFrame(el.data.kind, worldFrame);
     }
     if (region === null) return false;
     if (region.w === 0 || region.h === 0) return false;
@@ -6507,13 +6503,10 @@ function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
     };
   }
   const body = element.data.text;
-  const innerFrame: Frame = {
-    x: element.frame.x + SHAPE_TEXT_PADDING.x,
-    y: element.frame.y + SHAPE_TEXT_PADDING.y,
-    w: Math.max(0, element.frame.w - 2 * SHAPE_TEXT_PADDING.x),
-    h: Math.max(0, element.frame.h - 2 * SHAPE_TEXT_PADDING.y),
-    rotation: element.frame.rotation,
-  };
+  // Inset by the shape's text rectangle (preset `<rect>` + default
+  // padding) so the in-place editing box and caret land exactly where
+  // `paintShapeText` paints the committed glyphs.
+  const innerFrame: Frame = shapeTextFrame(element.data.kind, element.frame);
   return {
     kind: 'shape',
     blocks: body?.blocks ?? [makeDefaultSlidesTextBlock()],
