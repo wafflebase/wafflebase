@@ -3,60 +3,50 @@ import type {
   AdjustmentSpec,
   PathBuilder,
 } from '../builder';
-import { adj } from '../builder';
-import { insetAlongAxis } from '../handles';
+import {
+  buildBorderCalloutBox,
+  buildBorderLeader,
+  leaderPointHandle,
+  X_BOUND,
+  Y_BOUND,
+} from './border-common';
 
 /**
- * `borderCallout1` — rectangle body + single-segment wedge tail
- * pointing to a callout target. The rect takes the top 75% of the
- * frame; the tail extends from the rect's bottom-mid to the target
- * point. V0: 2 adjustments — target x (fraction of w) and target
- * y (fraction of h). OOXML's full 4-adjustment definition (start
- * + target) is reduced to "target only" for now; the start point
- * is fixed at the rect's bottom midpoint.
+ * `borderCallout1` — full-frame text box plus a single-segment leader
+ * line to a target point. Faithful port of the ECMA-376 preset:
+ *
+ *   path 1 (filled): rectangle l,t → r,t → r,b → l,b → close
+ *   path 2 (fill=none): (x1,y1) → (x2,y2)
+ *
+ * Adjustments are the OOXML `(y, x)` pairs (thousandths of frame h/w):
+ *   [0] adj1 y1  Default 18750     [1] adj2 x1  Default -8333
+ *   [2] adj3 y2  Default 112500    [3] adj4 x2  Default -38333
  */
 export const BORDER_CALLOUT_1_ADJUSTMENTS: readonly AdjustmentSpec[] = [
-  { name: 'Target x', defaultValue: 18750, min: -50000, max: 150000, axisLabel: 'x' },
-  { name: 'Target y', defaultValue: 112500, min: -50000, max: 150000, axisLabel: 'y' },
+  { name: 'Point 1 y', defaultValue: 18750, ...Y_BOUND, axisLabel: 'y' },
+  { name: 'Point 1 x', defaultValue: -8333, ...X_BOUND, axisLabel: 'x' },
+  { name: 'Target y', defaultValue: 112500, ...Y_BOUND, axisLabel: 'y' },
+  { name: 'Target x', defaultValue: -38333, ...X_BOUND, axisLabel: 'x' },
 ];
 
-const BODY_FRAC = 0.75; // rect occupies the top 75% of the frame
+const DEFAULTS = BORDER_CALLOUT_1_ADJUSTMENTS.map((a) => a.defaultValue);
 
-export const buildBorderCallout1: PathBuilder = ({ w, h }, adjustments) => {
-  const tx = (adj(adjustments, 0, BORDER_CALLOUT_1_ADJUSTMENTS[0].defaultValue) / 100000) * w;
-  const ty = (adj(adjustments, 1, BORDER_CALLOUT_1_ADJUSTMENTS[1].defaultValue) / 100000) * h;
-  const bodyH = h * BODY_FRAC;
-  const tailWidth = w * 0.04;
-  const startX = w / 2;
-  const path = new Path2D();
-  path.moveTo(0, 0);
-  path.lineTo(w, 0);
-  path.lineTo(w, bodyH);
-  path.lineTo(startX + tailWidth, bodyH);
-  path.lineTo(tx, ty);
-  path.lineTo(startX - tailWidth, bodyH);
-  path.lineTo(0, bodyH);
-  path.closePath();
-  return path;
-};
+export const buildBorderCallout1: PathBuilder = buildBorderCalloutBox;
+
+export const buildBorderCallout1Leader: PathBuilder = ({ w, h }, adjustments) =>
+  buildBorderLeader(w, h, adjustments, DEFAULTS);
 
 export const BORDER_CALLOUT_1_HANDLES: readonly AdjustmentHandle[] = [
-  {
-    position: ({ w, h }, adjustments) => {
-      const tx = (adjustments[0] ?? BORDER_CALLOUT_1_ADJUSTMENTS[0].defaultValue) / 100000;
-      const ty = (adjustments[1] ?? BORDER_CALLOUT_1_ADJUSTMENTS[1].defaultValue) / 100000;
-      return {
-        x: insetAlongAxis(tx * w, w),
-        y: insetAlongAxis(ty * h, h),
-      };
-    },
-    apply: ({ w, h }, _start, pointer) => {
-      const rawX = Math.round((pointer.x / w) * 100000);
-      const rawY = Math.round((pointer.y / h) * 100000);
-      return [
-        Math.max(BORDER_CALLOUT_1_ADJUSTMENTS[0].min, Math.min(BORDER_CALLOUT_1_ADJUSTMENTS[0].max, rawX)),
-        Math.max(BORDER_CALLOUT_1_ADJUSTMENTS[1].min, Math.min(BORDER_CALLOUT_1_ADJUSTMENTS[1].max, rawY)),
-      ];
-    },
-  },
+  leaderPointHandle(
+    0,
+    1,
+    BORDER_CALLOUT_1_ADJUSTMENTS[0],
+    BORDER_CALLOUT_1_ADJUSTMENTS[1],
+  ),
+  leaderPointHandle(
+    2,
+    3,
+    BORDER_CALLOUT_1_ADJUSTMENTS[2],
+    BORDER_CALLOUT_1_ADJUSTMENTS[3],
+  ),
 ];

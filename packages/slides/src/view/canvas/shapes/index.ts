@@ -250,16 +250,19 @@ import {
 } from './banners/left-right-ribbon';
 import {
   buildBorderCallout1,
+  buildBorderCallout1Leader,
   BORDER_CALLOUT_1_ADJUSTMENTS,
   BORDER_CALLOUT_1_HANDLES,
 } from './callouts/border-callout-1';
 import {
   buildBorderCallout2,
+  buildBorderCallout2Leader,
   BORDER_CALLOUT_2_ADJUSTMENTS,
   BORDER_CALLOUT_2_HANDLES,
 } from './callouts/border-callout-2';
 import {
   buildBorderCallout3,
+  buildBorderCallout3Leader,
   BORDER_CALLOUT_3_ADJUSTMENTS,
   BORDER_CALLOUT_3_HANDLES,
 } from './callouts/border-callout-3';
@@ -526,6 +529,9 @@ FACE_BUILDERS.set('leftRightRibbon', buildLeftRightRibbonFaces);
 PATH_BUILDERS.set('borderCallout1', buildBorderCallout1);
 PATH_BUILDERS.set('borderCallout2', buildBorderCallout2);
 PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
+LEADER_BUILDERS.set('borderCallout1', buildBorderCallout1Leader);
+LEADER_BUILDERS.set('borderCallout2', buildBorderCallout2Leader);
+LEADER_BUILDERS.set('borderCallout3', buildBorderCallout3Leader);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
