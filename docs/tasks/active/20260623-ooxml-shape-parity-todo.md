@@ -59,7 +59,7 @@ Note: codebase convention is single-fill + internal edge lines (cube/can do this
 - [ ] **sun** — connected star, missing central disc + discrete rays.
 - [ ] **lightningBolt** — 7-vertex flat top vs OOXML 11-vertex pointed apex.
 - [ ] **heart / smileyFace** — polyline-approx curves (acceptable; low priority).
-- [ ] **mathPlus/Minus/Equal** — bars full-width vs 73.49%; **mathMultiply** (45° vs at2 corners); **mathDivide** (dot radius/gap swapped); **mathNotEqual** (adj3 = angle not thickness).
+- [ ] **mathPlus/Minus/Equal** — bars full-width vs 73.49%; **mathMultiply** (45° vs at2 corners); **mathDivide** (dot radius/gap swapped); ~~**mathNotEqual** (adj3 = angle not thickness)~~ → DONE in `20260624-notequal-ecma-geometry` (full ECMA port: adj order `[bar, angle, gap]`, slash weight = bar weight, adjustable 70–110° slash; fixes the prior `x7` sign bug).
 - [ ] **wedgeRoundRectCallout** — tail only when downward; **cloudCallout** — 2 bubbles vs 3, stop short of tip.
 
 ## MATCH (verified faithful)
@@ -112,6 +112,12 @@ apart from the pre-existing `test/anim/player.test.ts` `.at()` gate gap.
 - **mathNotEqual** — the OOXML `crAng` slash-angle port rendered as a chunky,
   broken diagonal. Reverted to the prior clean fixed-angle slash (audit had
   rated the old one acceptable/MINOR anyway).
+  **Superseded 2026-06-24** (`20260624-notequal-ecma-geometry`): re-ported
+  faithfully. The "broken diagonal" was a `x7 = hc + xadj2 + bhw2` sign bug
+  (ECMA is `− bhw2`) plus a wrong `[bar, gap, angle]` adjustment order. With
+  the correct sign + ECMA `[bar, angle, gap]` order, the union outline renders
+  clean at 70–110° (ASCII-rasterized + isPointInPath specs). Now the canonical
+  mathNotEqual.
 
 ### Deliberately kept as-is (not bugs)
 - **upDownArrow** — uses a hardcoded `shaftHalf` ratio + anti-bowtie default
