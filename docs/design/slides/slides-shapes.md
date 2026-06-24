@@ -495,6 +495,38 @@ match OOXML units (typically thousandths) so
 `<a:avLst><a:gd fmla="val 25000"/>` round-trips through
 `data.adjustments[i] = 25000` without conversion.
 
+### Callout geometry fidelity
+
+The 14 callout builders are faithful ports of the ECMA-376
+`presetShapeDefinitions.xml` `gdLst`/`pathLst` rather than freehand
+approximations, so they read pixel-close to PowerPoint / Google Slides.
+The shared OOXML guide operators (`pin`, `?:`, `cat2`/`sat2`, `mod`,
+`arcTo`) live in `callouts/ooxml-math.ts` so each builder transcribes its
+preset almost line-for-line.
+
+- **Wedge callouts** (`wedgeRect`, `wedgeRoundRect`, `wedgeEllipse`) — the
+  tail is a fixed third-of-side wide wedge anchored in the quadrant the
+  tip points toward (`x1..x2` = `7..10` or `2..5` twelfths), with the exit
+  edge chosen by the diagonal-slope test (`dz = |dy| − |dq|`,
+  `dq = dxPos·h/w`). Shared in `callouts/wedge-common.ts`.
+- **Border callouts** (`borderCallout1/2/3`) — a **full-frame filled box
+  PLUS a separate `fill="none"` leader polyline** through 2/3/4 target
+  points, carrying **4/6/8 `(y,x)` adjustments**. The leader is registered
+  in `LEADER_BUILDERS` and stroked over the body by the renderer (a body
+  with no fill still shows its border + leader). This replaced an earlier
+  reduced-adjustment box+wedge approximation that broke PPTX import.
+- **Arrow callouts** (`right/left/up/down/leftRight/upDown/quad`) — head
+  depth is `ss·adj3/100000` (`ss = min(w,h)`), so heads stay shallow on
+  non-square frames; `quadArrowCallout`'s central body is rectangular
+  (`w`-based half-width, `h`-based half-height).
+- **Cloud callout** — body reuses `basic/cloud.ts`; the three trailing
+  bubbles use the OOXML radii (`ss·1800/1200/600 / 21600`) at the
+  tip-anchored offsets along the tip → cloud-edge vector.
+
+The shape-registry Path2D snapshot
+(`test/view/canvas/shapes/registry.snap.test.ts`) locks these geometries;
+per-builder `isPointInPath` tests cover the body + tail/leader/head.
+
 ### Phase roadmap
 
 The library is delivered incrementally:
