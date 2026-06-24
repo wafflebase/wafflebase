@@ -13,7 +13,11 @@ export const STRIPED_RIGHT_ARROW_ADJUSTMENTS = ARROW_ADJUSTMENTS;
 export const STRIPED_RIGHT_ARROW_HANDLES = RIGHT_ARROW_HANDLES;
 
 export const buildStripedRightArrow: PathBuilder = ({ w, h }, adjustments) => {
-  const headLen = Math.min(w, (adj(adjustments, 0, 50000) / 100000) * w);
+  // Head length scales by ss = min(w, h) (clamped to w), matching
+  // `buildRightArrow` and the shared RIGHT_ARROW_HANDLES — so the handle
+  // tracks the rendered head base on non-square frames.
+  const ss = Math.min(w, h);
+  const headLen = Math.min(w, (adj(adjustments, 0, 50000) / 100000) * ss);
   const headHalf = (adj(adjustments, 1, 50000) / 100000) * (h / 2);
   const path = new Path2D();
   // Per ECMA-376 the stripe boundaries are fixed fractions of
@@ -21,7 +25,6 @@ export const buildStripedRightArrow: PathBuilder = ({ w, h }, adjustments) => {
   //   stripe 1: [0 .. ss/32]
   //   stripe 2: [ss/16 .. ss/8]
   //   body:     [5*ss/32 .. headStart] + arrowhead
-  const ss = Math.min(w, h);
   const ssd32 = ss / 32;
   const ssd16 = ss / 16;
   const ssd8 = ss / 8;

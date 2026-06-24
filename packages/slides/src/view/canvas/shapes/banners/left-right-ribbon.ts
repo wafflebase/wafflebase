@@ -161,21 +161,24 @@ export const buildLeftRightRibbonFaces: FaceBuilder = (size, adjustments) => {
 };
 
 export const LEFT_RIGHT_RIBBON_HANDLES: readonly AdjustmentHandle[] = [
-  // Head spread — diamond on the left edge at the arrowhead top corner
-  // (x1, t)..tip; track via the top arrowhead corner height.
+  // Head spread — diamond on the left body TOP edge at the inner
+  // arrowhead corner (x1, ly1). ly1 = vc + dy2 - dy1 moves with a1
+  // (unlike ly2 = vc + dy2, where the dy1 term cancels), so the handle
+  // tracks a1 and the position↔apply round-trip is stable.
   {
     position: (size, adjustments) => {
       const g = geometry(size, adjustments);
-      return { x: insetAlongAxis(g.x1, size.w), y: insetAlongAxis(g.ly2, size.h) };
+      return { x: insetAlongAxis(g.x1, size.w), y: insetAlongAxis(g.ly1, size.h) };
     },
     apply: ({ h }, start, pointer) => {
       const y = Math.max(0, Math.min(h, pointer.y));
-      // ly2 = vc + dy2; head spread dy1 sets the gap ly2-ly1=dy1.
-      // Recover a1 from the tip-to-top distance.
+      // ly1 = vc + dy2 - dy1  ⇒  dy1 = (h/2 + dy2px) - ly1.
+      // Recover a1 from the body-top edge: dragging it up (smaller y)
+      // widens the head spread.
       const a3 = Math.max(0, Math.min(start[2] ?? 16667, 33333));
       const dy2px = (h * a3) / -200000;
-      const ly2 = y;
-      const dy1px = ly2 - (h / 2 + dy2px);
+      const ly1 = y;
+      const dy1px = h / 2 + dy2px - ly1;
       const raw = h > 0 ? Math.round((dy1px / h) * 200000) : 0;
       const spec = LEFT_RIGHT_RIBBON_ADJUSTMENTS[0];
       return [

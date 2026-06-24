@@ -60,14 +60,20 @@ export const CORNER_HANDLES: readonly AdjustmentHandle[] = [
   // a1 = (h - y) / ss * 100000.
   linearLeftEdgeHandle({
     forward: (a, { w, h }) => h - (a / 100000) * Math.min(w, h),
-    inverse: (y, { w, h }) => ((h - y) / Math.min(w, h)) * 100000,
+    inverse: (y, { w, h }) => {
+      const ss = Math.min(w, h);
+      return ss > 0 ? ((h - y) / ss) * 100000 : CORNER_ADJUSTMENTS[0].defaultValue;
+    },
     spec: CORNER_ADJUSTMENTS[0],
     index: 0,
   }),
   // Left-arm width: diamond on the top edge at x1 = ss*a2/100000.
   linearTopEdgeHandle({
     forward: (a, { w, h }) => (a / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => (x / Math.min(w, h)) * 100000,
+    inverse: (x, { w, h }) => {
+      const ss = Math.min(w, h);
+      return ss > 0 ? (x / ss) * 100000 : CORNER_ADJUSTMENTS[1].defaultValue;
+    },
     spec: CORNER_ADJUSTMENTS[1],
     index: 1,
   }),

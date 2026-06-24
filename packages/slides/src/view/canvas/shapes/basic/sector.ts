@@ -125,7 +125,10 @@ export function blockArcPath(
   const rx = w / 2;
   const ry = h / 2;
   const ss = Math.min(w, h);
-  const dr = (Math.max(0, thicknessOoxml) / 100000) * ss;
+  // adj3 is documented as 0..50000 (half of ss). Clamp both ends so an
+  // out-of-range value can't push the inner radii past the centre.
+  const thick = Math.max(0, Math.min(50000, thicknessOoxml));
+  const dr = (thick / 100000) * ss;
   const irx = Math.max(0, rx - dr);
   const iry = Math.max(0, ry - dr);
 

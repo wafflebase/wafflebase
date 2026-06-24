@@ -36,7 +36,13 @@ export const LEFT_RIGHT_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
       const ss = Math.min(w, h);
-      const head = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
+      // buildLeftRightArrow caps each head at w/2; mirror that cap here
+      // so the handle x doesn't drift past the actual head base in tall
+      // boxes where ss = w and adj pushes head beyond w/2.
+      const head = Math.min(
+        w / 2,
+        ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss,
+      );
       return { x: insetAlongAxis(head, w), y: h / 2 };
     },
     apply: ({ w, h }, start, pointer) => {
@@ -52,7 +58,11 @@ export const LEFT_RIGHT_ARROW_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
       const ss = Math.min(w, h);
-      const head = ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss;
+      // Same w/2 head cap as buildLeftRightArrow (see handle [0]).
+      const head = Math.min(
+        w / 2,
+        ((adjustments[0] ?? ARROW_ADJUSTMENTS[0].defaultValue) / 100000) * ss,
+      );
       const headHalf = ((adjustments[1] ?? ARROW_ADJUSTMENTS[1].defaultValue) / 100000) * (h / 2);
       return {
         x: insetAlongAxis(head, w),

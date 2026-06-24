@@ -26,6 +26,16 @@ describe('applyShade', () => {
       'rgba(64, 64, 64, 0.5)',
     );
   });
+
+  it('returns a malformed rgba() input unchanged (no NaN channels)', () => {
+    // A non-numeric channel would otherwise recompose into rgba(NaN,...).
+    expect(applyShade('rgba(foo, 128, 128, 0.5)', -0.5)).toBe(
+      'rgba(foo, 128, 128, 0.5)',
+    );
+    expect(applyShade('rgba(128, 128, 128, bar)', 0.5)).toBe(
+      'rgba(128, 128, 128, bar)',
+    );
+  });
 });
 
 const COLORS: ColorScheme = {

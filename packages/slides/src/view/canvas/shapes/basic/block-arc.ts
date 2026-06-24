@@ -97,16 +97,17 @@ const thicknessHandle: AdjustmentHandle = {
     const midRad = midAngleRad(start[0], start[1]);
     const dx = pointer.x - cx;
     const dy = pointer.y - cy;
-    // Project pointer onto the midradial to read its radius, then
-    // invert dr = ss*adj3/100000 against the outer radius along that
-    // direction: dr = outerR - innerR ⇒ adj3 = dr/ss * 100000.
-    const projection = dx * Math.cos(midRad) + dy * Math.sin(midRad);
     const cos = Math.cos(midRad);
     const sin = Math.sin(midRad);
-    const denom = Math.sqrt((ry * cos) ** 2 + (rx * sin) ** 2);
-    const outerR = denom === 0 ? Math.max(rx, ry) : (rx * ry) / denom;
-    const innerR = Math.max(0, Math.min(outerR, projection));
-    const dr = outerR - innerR;
+    // The builder offsets each outer radius by the SAME absolute dr:
+    // irx = rx - dr, iry = ry - dr. The painted inner point therefore
+    // sits at (cx + irx·cos, cy + iry·sin); its projection onto the
+    // midradial is (rx·cos² + ry·sin²) − dr. Invert that exactly so the
+    // handle round-trips on non-square frames (deriving dr from the true
+    // ellipse radius `(rx·ry)/denom` only matches when rx === ry).
+    const projection = dx * cos + dy * sin;
+    const outerProj = rx * cos * cos + ry * sin * sin;
+    const dr = Math.max(0, outerProj - projection);
     const thickness = ss > 0 ? Math.round((dr / ss) * 100000) : 0;
     const spec = BLOCK_ARC_ADJUSTMENTS[2];
     const clamped = Math.max(spec.min, Math.min(spec.max, thickness));

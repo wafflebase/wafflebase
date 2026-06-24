@@ -36,7 +36,7 @@ export const buildRightArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
   const ss = Math.min(w, h);
   const a2 = adj(adjustments, 1, DEF_HEAD);
   // OOXML: maxAdj1 = a2 * 2, so the shaft half-thickness can grow to at
-  // most the head half-thickness (dy2 ≤ dy1) — never the other way round.
+  // most the head half-thickness (dy1 ≤ dy2) — never the other way round.
   const a1 = Math.min(adj(adjustments, 0, DEF_SHAFT), a2 * 2);
   const a3 = adj(adjustments, 2, DEF_DEPTH);
   const a4 = adj(adjustments, 3, DEF_BODY);

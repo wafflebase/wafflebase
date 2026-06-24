@@ -55,12 +55,13 @@ describe('buildVerticalScrollFaces', () => {
     const ctx = createTestCanvas(300, 300).getContext('2d');
     // Sheet face covers the body center.
     expect(ctx.isPointInPath(sheet.path, 50, 100)).toBe(true);
-    // Top rolled-under curl sits on the top edge.
-    expect(ctx.isPointInPath(top.path, 18, 8)).toBe(true);
-    expect(ctx.isPointInPath(top.path, 5, 193)).toBe(false);
-    // Bottom rolled-under curl sits on the bottom edge.
+    // Top rolled-under curl sits on the top-RIGHT edge, matching the
+    // silhouette's top curl (built on the right side at x6/x7).
+    expect(ctx.isPointInPath(top.path, 95, 7)).toBe(true);
+    expect(ctx.isPointInPath(top.path, 18, 8)).toBe(false);
+    // Bottom rolled-under curl sits on the bottom-LEFT edge.
     expect(ctx.isPointInPath(bottom.path, 5, 193)).toBe(true);
-    expect(ctx.isPointInPath(bottom.path, 18, 8)).toBe(false);
+    expect(ctx.isPointInPath(bottom.path, 95, 7)).toBe(false);
   });
 });
 

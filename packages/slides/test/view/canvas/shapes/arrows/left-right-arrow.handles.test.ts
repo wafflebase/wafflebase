@@ -13,6 +13,17 @@ describe('LEFT_RIGHT_ARROW_HANDLES', () => {
     expect(p).toEqual({ x: 50, y: 50 });
   });
 
+  it('caps the head handle x at w/2 in tall boxes (matches builder)', () => {
+    // Tall box: w=100, h=400 → ss=100. adj=100000 → head=100 uncapped,
+    // but buildLeftRightArrow caps head at w/2=50. The handle must mirror
+    // that cap so its x lands on the actual head base, not past it.
+    const frame = { w: 100, h: 400 };
+    const p0 = LEFT_RIGHT_ARROW_HANDLES[0].position(frame, [100000, 50000]);
+    expect(p0.x).toBeCloseTo(50, 5);
+    const p1 = LEFT_RIGHT_ARROW_HANDLES[1].position(frame, [100000, 50000]);
+    expect(p1.x).toBeCloseTo(50, 5);
+  });
+
   it('head-length apply scales by the shorter side (ss)', () => {
     // ss=100; pointer.x = 50 → head/ss = 50/100 = 0.5 → 50000
     const next = LEFT_RIGHT_ARROW_HANDLES[0].apply(

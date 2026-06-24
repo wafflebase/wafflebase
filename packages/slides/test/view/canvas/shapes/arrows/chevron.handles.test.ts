@@ -29,6 +29,13 @@ describe('CHEVRON_HANDLES', () => {
       expect(p.x).toBeCloseTo(100, 5);
       expect(p.y).toBeCloseTo(50, 5);
     });
+
+    it('out-of-range adj clamps to [0..100000] (matches builder)', () => {
+      // adj > max behaves like 100000 (x1 = ss = 100 → x2 = 100).
+      expect(handle.position(FRAME, [150000]).x).toBeCloseTo(100, 5);
+      // adj < min behaves like 0 (x1 = 0 → x2 = w = 200).
+      expect(handle.position(FRAME, [-50000]).x).toBeCloseTo(200, 5);
+    });
   });
 
   describe('apply', () => {

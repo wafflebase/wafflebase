@@ -116,10 +116,14 @@ export const buildRibbonFaces: FaceBuilder = ({ w, h }, adjustments) => {
   leftTab.lineTo(g.x5, g.y2);
   leftTab.closePath();
 
-  // Right fold tab (OOXML darkenLess sub-path 2).
+  // Right fold tab (OOXML darkenLess sub-path 2). The apex meets the
+  // silhouette's right band-top corner, which this builder places at
+  // (x8, y2) (line `lineTo(g.x8, g.y2)` in buildRibbon) — not (x8, y1).
+  // Anchoring to y2 keeps the shadow flush with the band edge instead
+  // of poking a dark triangle above the outline on the right seam.
   const rightTab = new Path2D();
   rightTab.moveTo(g.x6, g.hR);
-  rightTab.lineTo(g.x8, g.y1);
+  rightTab.lineTo(g.x8, g.y2);
   rightTab.lineTo(g.x6, g.y2);
   rightTab.closePath();
 

@@ -156,7 +156,12 @@ export const buildSun: PathBuilder = ({ w, h }, adjustments) => {
 export const SUN_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
-      const a = adjustments[0] ?? SUN_ADJUSTMENTS[0].defaultValue;
+      // Clamp to the spec's [min..max] so the handle uses the same
+      // disc radius the builder pins via `pin(12500, a, 46875)`; an
+      // out-of-range stored adj would otherwise paint the handle off
+      // the actual disc edge.
+      const spec = SUN_ADJUSTMENTS[0];
+      const a = pin(spec.min, adjustments[0] ?? spec.defaultValue, spec.max);
       // Disc radius along +x: wR = (50000 - a) / 100000 * w.
       const wR = ((50000 - a) / 100000) * w;
       return {

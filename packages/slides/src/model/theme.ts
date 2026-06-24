@@ -106,13 +106,16 @@ export function applyShade(css: string, delta: number): string {
   const r = Number(parts[0]);
   const g = Number(parts[1]);
   const b = Number(parts[2]);
-  const a = parts[3] ?? '1';
+  const a = parts[3] === undefined ? 1 : Number(parts[3]);
+  // A malformed channel (non-numeric token) would otherwise recompose
+  // into `rgba(NaN, ...)`. Bail out and return the input unchanged.
+  if (![r, g, b, a].every(Number.isFinite)) return css;
   const f =
     delta > 0
       ? (v: number) => v + (255 - v) * delta
       : (v: number) => v * (1 + delta);
   const cl = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  return `rgba(${cl(f(r))}, ${cl(f(g))}, ${cl(f(b))}, ${a})`;
+  return `rgba(${cl(f(r))}, ${cl(f(g))}, ${cl(f(b))}, ${parts[3] ?? '1'})`;
 }
 
 // Helpers — tint blends toward white, shade blends toward black.

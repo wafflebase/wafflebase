@@ -7,9 +7,10 @@ import type { PathBuilder } from '../builder';
  *
  * The bottom edge follows the ECMA-376 `flowChartDocument` preset: a
  * single asymmetric cubic Bézier (not a symmetric sine). It starts at
- * the right edge at `17322/21600·h`, dips below the baseline toward the
- * middle-right (control point `23922/21600·h`) and rises back at the
- * left edge to `20172/21600·h`, so the deepest dip sits right of centre.
+ * the right edge at `17322/21600·h`, dips below the baseline (deep
+ * control point `23922/21600·h` is the *second* control point, nearer
+ * the left end) and lands at the left edge at `20172/21600·h`, so the
+ * deepest dip sits left of centre.
  */
 export function appendDocumentSubpath(
   path: Path2D,

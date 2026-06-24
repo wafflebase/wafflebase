@@ -64,13 +64,23 @@ export const buildSnipRoundRect: PathBuilder = ({ w, h }, adjustments) => {
 export const SNIP_ROUND_RECT_HANDLES: readonly AdjustmentHandle[] = [
   linearLeftEdgeHandle({
     forward: (val, { w, h }) => (val / 100000) * Math.min(w, h),
-    inverse: (y, { w, h }) => (y / Math.min(w, h)) * 100000,
+    inverse: (y, { w, h }) => {
+      const ss = Math.min(w, h);
+      return ss > 0
+        ? (y / ss) * 100000
+        : SNIP_ROUND_RECT_ADJUSTMENTS[0].defaultValue;
+    },
     spec: SNIP_ROUND_RECT_ADJUSTMENTS[0],
     index: 0,
   }),
   linearTopEdgeHandle({
     forward: (val, { w, h }) => w - (val / 100000) * Math.min(w, h),
-    inverse: (x, { w, h }) => ((w - x) / Math.min(w, h)) * 100000,
+    inverse: (x, { w, h }) => {
+      const ss = Math.min(w, h);
+      return ss > 0
+        ? ((w - x) / ss) * 100000
+        : SNIP_ROUND_RECT_ADJUSTMENTS[1].defaultValue;
+    },
     spec: SNIP_ROUND_RECT_ADJUSTMENTS[1],
     index: 1,
   }),

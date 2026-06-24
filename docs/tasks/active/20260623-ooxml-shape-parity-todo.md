@@ -98,7 +98,8 @@ deliberately-kept cases. Landed across 7 commits on `fix/bentarrow-pptx-geometry
 Verification: every fix is covered by the canonical real-canvas `isPointInPath`
 specs (`packages/slides/test/.../shapes/**`); the all-builder registry snapshot
 was regenerated per commit and diffed to confirm only the intended shape keys
-changed each time. Full `slides test` green (2361). `slides typecheck` clean
+changed each time. Full `slides test` green (2354 after the two reverts).
+`slides typecheck` clean
 apart from the pre-existing `test/anim/player.test.ts` `.at()` gate gap.
 
 ### Reverted after visual review (looked worse than before)

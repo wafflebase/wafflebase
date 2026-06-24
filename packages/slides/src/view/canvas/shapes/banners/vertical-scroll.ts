@@ -127,11 +127,16 @@ export const buildVerticalScrollFaces: FaceBuilder = (size, adjustments) => {
   const g = guides(size, adjustments);
   const sheet = buildVerticalScroll(size, adjustments);
 
-  // OOXML darkenLess sub-path 1 — top roll (rolled-under).
+  // OOXML darkenLess sub-path 1 — top roll (rolled-under). The top
+  // outer curl in the silhouette is built on the RIGHT edge (x6/x7,
+  // centred at (r-ch2, ch2)), so the shadow face must sit there too.
+  // This is the 180° rotation about the frame centre of the bottom
+  // roll below (point (x,y) → (r-x, b-y); arc start angle θ → θ+π,
+  // sweep unchanged), which lands it on the top-right curl.
   const top = new Turtle(new Path2D());
   top
-    .moveTo(g.x4, g.ch2)
-    .arcTo(g.ch2, g.ch2, 0, HALF)
+    .moveTo(g.x6, g.ch2)
+    .arcTo(g.ch2, g.ch2, PI, 3 * HALF)
     .arcTo(g.ch4, g.ch4, HALF, PI)
     .close();
 

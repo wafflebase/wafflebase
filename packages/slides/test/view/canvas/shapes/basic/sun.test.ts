@@ -39,4 +39,14 @@ describe('SUN_HANDLES', () => {
   it('exposes one handle on the disc radius', () => {
     expect(SUN_HANDLES.length).toBe(1);
   });
+
+  it('clamps the handle adj to the spec range (matches builder pin)', () => {
+    // Below min (12500): builder pins to 12500 → wR = 37.5 → x = 87.5.
+    // Without the clamp the handle would paint at x = 95.
+    const below = SUN_HANDLES[0].position({ w: 100, h: 100 }, [5000]);
+    expect(below.x).toBeCloseTo(87.5, 5);
+    // Above max (46875): pinned to 46875 → wR = 3.125 → x = 53.125.
+    const above = SUN_HANDLES[0].position({ w: 100, h: 100 }, [60000]);
+    expect(above.x).toBeCloseTo(53.125, 5);
+  });
 });

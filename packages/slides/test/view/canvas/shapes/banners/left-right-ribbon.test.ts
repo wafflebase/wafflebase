@@ -75,4 +75,38 @@ describe('LEFT_RIGHT_RIBBON_HANDLES', () => {
   it('exposes three handles', () => {
     expect(LEFT_RIGHT_RIBBON_HANDLES.length).toBe(3);
   });
+
+  it('head-spread handle round-trips at its rendered position', () => {
+    // Anchored to ly1 (which moves with a1). Dropping the pointer back
+    // onto the rendered handle position must recover a1 unchanged, not
+    // collapse it to 0.
+    const size = { w: 200, h: 100 };
+    const start = [50000, 50000, 16667];
+    const handle = LEFT_RIGHT_RIBBON_HANDLES[0];
+    const pos = handle.position(size, start);
+    const next = handle.apply(size, start, { x: pos.x, y: pos.y });
+    expect(next[0]).toBe(50000);
+    expect(next[1]).toBe(50000);
+    expect(next[2]).toBe(16667);
+  });
+
+  it('head-spread handle tracks a1: smaller a1 lowers the body-top anchor', () => {
+    const size = { w: 200, h: 100 };
+    const handle = LEFT_RIGHT_RIBBON_HANDLES[0];
+    const wide = handle.position(size, [60000, 50000, 16667]);
+    const narrow = handle.position(size, [20000, 50000, 16667]);
+    // Larger head spread raises the body-top edge (smaller y); the anchor
+    // must respond to a1.
+    expect(wide.y).toBeLessThan(narrow.y);
+  });
+
+  it('head-spread handle recovers a larger a1 when dragged up', () => {
+    const size = { w: 200, h: 100 };
+    const start = [50000, 50000, 16667];
+    const handle = LEFT_RIGHT_RIBBON_HANDLES[0];
+    const pos = handle.position(size, start);
+    // Drag the body-top edge upward by 5px → wider head spread.
+    const next = handle.apply(size, start, { x: pos.x, y: pos.y - 5 });
+    expect(next[0]).toBeGreaterThan(50000);
+  });
 });
