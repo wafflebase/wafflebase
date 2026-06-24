@@ -58,7 +58,7 @@ Note: codebase convention is single-fill + internal edge lines (cube/can do this
 - [ ] **flowChartPunchedCard** (cut .25 vs .2 per-axis), **flowChartPunchedTape** (amp), **flowChartTerminator** (elliptical caps vs pill).
 - [ ] **sun** — connected star, missing central disc + discrete rays.
 - [ ] **lightningBolt** — 7-vertex flat top vs OOXML 11-vertex pointed apex.
-- [ ] **heart / smileyFace** — polyline-approx curves (acceptable; low priority).
+- [ ] ~~**heart**~~ → DONE in `20260625-heart-ecma-geometry` (exact 2-cubic-Bézier port, dropped the semicircle+straight-V polyline approx); **smileyFace** — polyline-approx curves (acceptable; low priority).
 - [ ] **mathPlus/Minus/Equal** — bars full-width vs 73.49%; **mathMultiply** (45° vs at2 corners); **mathDivide** (dot radius/gap swapped); ~~**mathNotEqual** (adj3 = angle not thickness)~~ → DONE in `20260624-notequal-ecma-geometry` (full ECMA port: adj order `[bar, angle, gap]`, slash weight = bar weight, adjustable 70–110° slash; fixes the prior `x7` sign bug).
 - [ ] **wedgeRoundRectCallout** — tail only when downward; **cloudCallout** — 2 bubbles vs 3, stop short of tip.
 

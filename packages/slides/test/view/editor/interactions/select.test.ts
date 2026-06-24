@@ -170,13 +170,12 @@ describe('selectAt — precise shape geometry', () => {
       data: { kind: 'heart', fill: { kind: 'srgb' as const, value: '#f00' } },
     };
     const slide = blankSlide([heart]);
-    // Lobe centre on the right side: lobeR=50, lobeY=50; right lobe
-    // centre is (cx+lobeR, lobeY) = (150, 50). Well inside the right
-    // lobe.
+    // Deep inside the right lobe of the ECMA Bézier silhouette: (150, 50)
+    // sits ~44 px clear of the nearest edge.
     expect(selectAt(slide, 150, 50, {}, [], hitOpts)).toEqual(['h']);
-    // 3 px above the top of the right lobe (lobe top ≈ y=0) — inside
-    // tolerance.
-    expect(selectAt(slide, 150, -3, {}, [], hitOpts)).toEqual(['h']);
+    // Just above the right lobe's top edge (≈ y=4 at x=150) — within the
+    // 6 px tolerance band.
+    expect(selectAt(slide, 150, 1, {}, [], hitOpts)).toEqual(['h']);
   });
 
   it('ignores clicks in the empty space above the heart dip', () => {
