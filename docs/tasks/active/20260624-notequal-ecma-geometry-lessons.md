@@ -12,9 +12,11 @@ a visual intuition.
 ## A reverted feature is a clue, not a closed door
 `mathNotEqual`'s ECMA port had been tried and reverted (`bfb231ab`) as a
 "chunky, broken diagonal." The revert note framed it as "ECMA looks worse" —
-but `git show` of the reverted code revealed the real cause: `x7 = hc + xadj2
-+ bhw2` (ECMA is `+- hc xadj2 bhw2` = **minus**), which slid the whole slash
-off the bars. The maintainer judged a *buggy* render, not the ECMA shape.
+but `git show` of the reverted code revealed the real cause: it wrote
+`x7 = hc + xadj2 + bhw2`, whereas the ECMA guide `+- hc xadj2 bhw2` means
+`hc + xadj2 − bhw2` (the `+-` operator subtracts its third arg). That flipped
+sign slid the whole slash off the bars. The maintainer judged a *buggy*
+render, not the ECMA shape.
 Lesson: when re-doing reverted work, diff the reverted commit and find the
 actual defect before assuming the design was the problem.
 

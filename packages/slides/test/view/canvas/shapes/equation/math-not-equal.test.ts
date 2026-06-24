@@ -61,6 +61,10 @@ describe('buildMathNotEqual', () => {
     expect(bot).not.toBeNull();
     const cTop = (top![0] + top![1]) / 2;
     const cBot = (bot![0] + bot![1]) / 2;
+    // Direction: the default "/" slash leans right going up, so the upper
+    // sample's centre sits right of the lower one. Locks orientation so a
+    // mirrored/sign-flipped slash (the prior reverted bug) is caught.
+    expect(cTop).toBeGreaterThan(cBot);
     // dx/dy slope of the centreline. A 45° slash → |slope| ≈ 1; the
     // ECMA default (20° from vertical) → |slope| ≈ tan(20°) ≈ 0.36.
     const slope = Math.abs((cTop - cBot) / (32 - 28));
@@ -88,5 +92,11 @@ describe('buildMathNotEqual', () => {
     const cTop = (top![0] + top![1]) / 2;
     const cBot = (bot![0] + bot![1]) / 2;
     expect(Math.abs(cTop - cBot)).toBeLessThan(0.5);
+  });
+
+  it('returns an empty path for a degenerate (zero-size) frame', () => {
+    // h=0 would divide by hd2/len → NaN vertices; the guard returns empty.
+    const path = buildMathNotEqual({ w: 60, h: 0 });
+    expect(ctx.isPointInPath(path, 30, 0)).toBe(false);
   });
 });

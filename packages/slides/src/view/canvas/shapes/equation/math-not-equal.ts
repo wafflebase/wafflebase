@@ -43,6 +43,9 @@ const clamp = (v: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, v));
 
 export const buildMathNotEqual: PathBuilder = ({ w, h }, adjustments) => {
+  // Degenerate frame: the slash math divides by hd2/len (both 0 when
+  // h=0), which would poison every vertex with NaN. Return an empty path.
+  if (w <= 0 || h <= 0) return new Path2D();
   const a1 = clamp(adj(adjustments, 0, 23520), 0, 50000);
   const crAng = clamp(adj(adjustments, 1, 6600000), 4200000, 6600000);
   const maxAdj3 = 100000 - 2 * a1;
