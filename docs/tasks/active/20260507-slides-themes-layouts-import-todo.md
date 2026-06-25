@@ -65,8 +65,11 @@ Plan re-split into 5 commits for reviewability.
 - [x] commit 1 — `feat(slides): updateTheme/updateMaster/updateLayout store mutations`
 - [x] commit 2 — `feat(slides): background fill/image inheritance (slide→layout→master)`
 - [x] commit 3 — `feat(slides): cascade layout geometry + master placeholder styles`
-- [ ] commit 4 — `feat(slides): theme builder mode + layouts/master thumbnail panel`
-- [ ] commit 5 — `feat(frontend): theme builder UI shell + editing surface`
+- [x] commit 4 — `feat(frontend): theme builder panel (colors / fonts / background)`
+- [ ] commit 5 — canvas layout-editing mode: thumbnail panel → layouts/master
+      list + drag placeholders, on top of the shipped updateLayout /
+      updateLayoutPlaceholderFrame store methods (separate follow-up; the
+      panel covers the colors/fonts/background v1 surface today)
 - [ ] verify: theme/master color edit repaints all slides <100 ms (role-resolved)
 - [ ] verify: master/layout background edit cascades to inheriting slides on repaint
 - [ ] verify: layout placeholder position edit re-flows only slides on that layout; user-moved/added elements untouched
