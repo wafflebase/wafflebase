@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 316
+Total archived tasks: 317
 
-## 2026/06 (68 tasks)
+## 2026/06 (69 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -17,6 +17,7 @@ Total archived tasks: 316
 | notequal ecma geometry (2026-06-24) | [20260624-notequal-ecma-geometry-todo.md](./2026/06/20260624-notequal-ecma-geometry-todo.md) | [20260624-notequal-ecma-geometry-lessons.md](./2026/06/20260624-notequal-ecma-geometry-lessons.md) |
 | bentarrow pptx geometry (2026-06-23) | [20260623-bentarrow-pptx-geometry-todo.md](./2026/06/20260623-bentarrow-pptx-geometry-todo.md) | - |
 | design archive policy (2026-06-23) | [20260623-design-archive-policy-todo.md](./2026/06/20260623-design-archive-policy-todo.md) | [20260623-design-archive-policy-lessons.md](./2026/06/20260623-design-archive-policy-lessons.md) |
+| ooxml shape parity (2026-06-23) | [20260623-ooxml-shape-parity-todo.md](./2026/06/20260623-ooxml-shape-parity-todo.md) | - |
 | pptx textbox fill import (2026-06-23) | [20260623-pptx-textbox-fill-import-todo.md](./2026/06/20260623-pptx-textbox-fill-import-todo.md) | [20260623-pptx-textbox-fill-import-lessons.md](./2026/06/20260623-pptx-textbox-fill-import-lessons.md) |
 | release v0.4.7 (2026-06-23) | [20260623-release-v0.4.7-todo.md](./2026/06/20260623-release-v0.4.7-todo.md) | - |
 | slide10 cloud arrows (2026-06-23) | [20260623-slide10-cloud-arrows-todo.md](./2026/06/20260623-slide10-cloud-arrows-todo.md) | [20260623-slide10-cloud-arrows-lessons.md](./2026/06/20260623-slide10-cloud-arrows-lessons.md) |

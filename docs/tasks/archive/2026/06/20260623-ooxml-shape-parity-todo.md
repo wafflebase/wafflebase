@@ -31,36 +31,40 @@ regenerated (only these 9 keys changed); `slides test` green (2274), no new type
 
 ### Wave 3 — needs fold/curl lines or structural redesign (confirm fidelity vs single-fill convention)
 Note: codebase convention is single-fill + internal edge lines (cube/can do this, no shading). Match within that convention.
-- [ ] **ellipseRibbon / ellipseRibbon2** — arch direction inverted; fold tab placement wrong.
-- [ ] **leftRightRibbon** — missing central vertical fold (renders as plain L-R arrow).
-- [ ] **ribbon / ribbon2** — flat; missing swallowtail folds + fold-shadow tabs.
-- [ ] **horizontalScroll / verticalScroll** — plain corner circles; OOXML has scroll curls + inner spiral hole.
-- [ ] **bevel** — hollow frame; OOXML = filled inner rect + 4 bevel faces.
-- [ ] **borderCallout1/2/3** — 70–75% rect + filled wedge; OOXML = full-frame rect + unfilled leader **line** (1/3/4 points). (Possible intentional design — confirm.)
+All resolved in `2c26e54c` (multi-fill shaded-faces infra `FACE_BUILDERS`/`applyShade`).
+- [x] **ellipseRibbon / ellipseRibbon2** — arch direction inverted; fold tab placement wrong.
+- [x] **leftRightRibbon** — missing central vertical fold (renders as plain L-R arrow).
+- [x] **ribbon / ribbon2** — flat; missing swallowtail folds + fold-shadow tabs.
+- [x] **horizontalScroll / verticalScroll** — plain corner circles; OOXML has scroll curls + inner spiral hole.
+- [x] **bevel** — hollow frame; OOXML = filled inner rect + 4 bevel faces.
+- [x] **borderCallout1/2/3** — reverted in `2c26e54c` (line-leader looked wrong in this
+      renderer), then ported faithfully in **#414** (`b066e12a`) with the rest of the 14 callouts.
 
 ## MINOR — correct orientation/topology, proportion or adjustment-semantics drift
 
 ### Wave 2 — proportion / adjustment fidelity
-- [ ] **plus** — adj is edge-inset (arm = 50% at default), builder treats adj as arm thickness (25%).
-- [ ] **blockArc** — inner radius multiplicative (1−adj3) vs OOXML constant offset `ss·adj3`.
-- [ ] **corner / halfFrame** — thickness scales by w/h instead of `ss=min(w,h)`.
-- [ ] **snip1Rect** (12500 vs 16667), **snip2DiagRect** (both vs NE-only default), **snip2SameRect / round2SameRect** (adj1/adj2 = top/bottom pair semantics; defaults).
-- [ ] **chevron** — adj as fraction of h/2 rescaled, not `ss·adj` direct (shallower default).
-- [ ] **stripedRightArrow** — stripe boundaries by /5 not ss/32-based.
-- [ ] **leftArrow/rightArrow/upArrow/downArrow/leftRightArrow** — head length by w/h not ss; straight head base (no dx1 notch).
-- [ ] **bentUpArrow** — 2 adj vs OOXML 3 (independent head width); head tied to shaft.
-- [ ] **upDownArrow** — 2 adj, hardcoded shaftHalf ratio.
-- [ ] **rightArrowCallout + left/up/down + leftRight + upDown + quad callouts** — arrowhead not flared (head==shaft at default); OOXML head half=`ss·a2`, shaft half=`ss·a1/2`.
-- [ ] **flowChartDelay** — cap radius `min(h/2,w)` vs OOXML `w/2`.
-- [ ] **flowChartDocument / Multidocument** — symmetric sine bottom vs OOXML asymmetric bezier.
-- [ ] **flowChartManualInput** (top inset h/4 vs h/5), **flowChartManualOperation** (taper .125 vs .2).
-- [ ] **flowChartMagneticTape** — foot triangle vs OOXML circle-trim corner.
-- [ ] **flowChartPunchedCard** (cut .25 vs .2 per-axis), **flowChartPunchedTape** (amp), **flowChartTerminator** (elliptical caps vs pill).
-- [ ] **sun** — connected star, missing central disc + discrete rays.
-- [ ] **lightningBolt** — 7-vertex flat top vs OOXML 11-vertex pointed apex.
-- [ ] ~~**heart**~~ → DONE in `20260625-heart-ecma-geometry` (exact 2-cubic-Bézier port, dropped the semicircle+straight-V polyline approx); **smileyFace** — polyline-approx curves (acceptable; low priority).
-- [ ] **mathPlus/Minus/Equal** — bars full-width vs 73.49%; **mathMultiply** (45° vs at2 corners); **mathDivide** (dot radius/gap swapped); ~~**mathNotEqual** (adj3 = angle not thickness)~~ → DONE in `20260624-notequal-ecma-geometry` (full ECMA port: adj order `[bar, angle, gap]`, slash weight = bar weight, adjustable 70–110° slash; fixes the prior `x7` sign bug).
-- [ ] **wedgeRoundRectCallout** — tail only when downward; **cloudCallout** — 2 bubbles vs 3, stop short of tip.
+All resolved in `2c26e54c` unless noted (heart/notEqual in their own sub-tasks;
+callouts re-ported in **#414** `b066e12a`).
+- [x] **plus** — adj is edge-inset (arm = 50% at default), builder treats adj as arm thickness (25%).
+- [x] **blockArc** — inner radius multiplicative (1−adj3) vs OOXML constant offset `ss·adj3`.
+- [x] **corner / halfFrame** — thickness scales by w/h instead of `ss=min(w,h)`.
+- [x] **snip1Rect** (12500 vs 16667), **snip2DiagRect** (both vs NE-only default), **snip2SameRect / round2SameRect** (adj1/adj2 = top/bottom pair semantics; defaults).
+- [x] **chevron** — adj as fraction of h/2 rescaled, not `ss·adj` direct (shallower default).
+- [x] **stripedRightArrow** — stripe boundaries by /5 not ss/32-based.
+- [x] **leftArrow/rightArrow/upArrow/downArrow/leftRightArrow** — head length by w/h not ss; straight head base (no dx1 notch).
+- [x] **bentUpArrow** — 2 adj vs OOXML 3 (independent head width); head tied to shaft. (now 3 adj)
+- [x] **upDownArrow** — **deliberately kept** (hardcoded `shaftHalf` + anti-bowtie default; OOXML independent shaft would collapse at default — orientation already correct). See Review.
+- [x] **rightArrowCallout + left/up/down + leftRight + upDown + quad callouts** — arrowhead not flared (head==shaft at default); OOXML head half=`ss·a2`, shaft half=`ss·a1/2`. (sweep + #414)
+- [x] **flowChartDelay** — cap radius `min(h/2,w)` vs OOXML `w/2`.
+- [x] **flowChartDocument / Multidocument** — symmetric sine bottom vs OOXML asymmetric bezier.
+- [x] **flowChartManualInput** (top inset h/4 vs h/5), **flowChartManualOperation** (taper .125 vs .2).
+- [x] **flowChartMagneticTape** — foot triangle vs OOXML circle-trim corner.
+- [x] **flowChartPunchedCard** (cut .25 vs .2 per-axis), **flowChartPunchedTape** (amp), **flowChartTerminator** (elliptical caps vs pill).
+- [x] **sun** — connected star, missing central disc + discrete rays.
+- [x] **lightningBolt** — 7-vertex flat top vs OOXML 11-vertex pointed apex.
+- [x] ~~**heart**~~ → DONE in `20260625-heart-ecma-geometry` (exact 2-cubic-Bézier port, dropped the semicircle+straight-V polyline approx); **smileyFace** — **deliberately kept** (polyline-approx curves, acceptable; low priority). See Review.
+- [x] **mathPlus/Minus/Equal** — bars full-width vs 73.49%; **mathMultiply** (45° vs at2 corners); **mathDivide** (dot radius/gap swapped); ~~**mathNotEqual** (adj3 = angle not thickness)~~ → DONE in `20260624-notequal-ecma-geometry` (full ECMA port: adj order `[bar, angle, gap]`, slash weight = bar weight, adjustable 70–110° slash; fixes the prior `x7` sign bug).
+- [x] **wedgeRoundRectCallout** — tail only when downward; **cloudCallout** — 2 bubbles vs 3, stop short of tip. (sweep + #414)
 
 ## MATCH (verified faithful)
 rect, ellipse, roundRect, triangle, rtTriangle, diamond, parallelogram, trapezoid,
