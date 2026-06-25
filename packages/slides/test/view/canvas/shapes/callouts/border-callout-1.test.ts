@@ -35,6 +35,16 @@ describe('BORDER_CALLOUT_1_HANDLES', () => {
     expect(BORDER_CALLOUT_1_HANDLES.length).toBe(2);
   });
 
+  it('positions the target handle on the real leader endpoint, not clamped inside the box', () => {
+    // Default target (x2,y2) = (200·-38333, 200·112500)/100000 = (-76.7, 225),
+    // i.e. down-left OUTSIDE the frame. The handle must land there (where the
+    // line actually ends), not be clamped to the box interior.
+    const start = BORDER_CALLOUT_1_ADJUSTMENTS.map((a) => a.defaultValue);
+    const pos = BORDER_CALLOUT_1_HANDLES[1].position({ w: 200, h: 200 }, start);
+    expect(pos.x).toBeCloseTo(-76.666, 1);
+    expect(pos.y).toBeCloseTo(225, 1);
+  });
+
   it('drag of the target handle writes its (y,x) pair (indices 2,3)', () => {
     const start = BORDER_CALLOUT_1_ADJUSTMENTS.map((a) => a.defaultValue);
     const next = BORDER_CALLOUT_1_HANDLES[1].apply(

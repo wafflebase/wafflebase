@@ -9,7 +9,6 @@
 
 import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from '../builder';
 import { adj } from '../builder';
-import { insetAlongAxis } from '../handles';
 
 /** Full-frame rectangle body, shared by all three border callouts. */
 export const buildBorderCalloutBox: PathBuilder = ({ w, h }) => {
@@ -56,9 +55,13 @@ export function leaderPointHandle(
   xSpec: AdjustmentSpec,
 ): AdjustmentHandle {
   return {
+    // No `insetAlongAxis` here: a leader vertex legitimately sits OUTSIDE
+    // the frame (the target points down-left of the box by default), so the
+    // handle must land on the real line endpoint, not clamped to the box
+    // edge — matching where PowerPoint / Google Slides draw it.
     position: ({ w, h }, adjustments) => ({
-      x: insetAlongAxis(((adjustments[xIndex] ?? xSpec.defaultValue) / 100000) * w, w),
-      y: insetAlongAxis(((adjustments[yIndex] ?? ySpec.defaultValue) / 100000) * h, h),
+      x: ((adjustments[xIndex] ?? xSpec.defaultValue) / 100000) * w,
+      y: ((adjustments[yIndex] ?? ySpec.defaultValue) / 100000) * h,
     }),
     apply: ({ w, h }, start, pointer) => {
       const result = [...start];
