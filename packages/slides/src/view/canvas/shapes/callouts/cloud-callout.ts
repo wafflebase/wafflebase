@@ -2,25 +2,23 @@ import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 import { buildCloud } from '../basic/cloud';
 import { pointTailHandle } from './handles';
+import { cat2, mod3, sat2 } from './ooxml-math';
 
 /**
  * `cloudCallout` — cloud silhouette plus three small "thought-bubble"
- * connector circles trailing toward (tx, ty).
+ * connector circles trailing toward the tip (xPos, yPos). Faithful port
+ * of the ECMA-376 preset.
  *
  * Adjustments (`CLOUD_CALLOUT_ADJUSTMENTS`):
- *   [0] tailX — OOXML thousandths of `w`, from frame centre. Default
- *               -20833.
- *   [1] tailY — OOXML thousandths of `h`, from frame centre. Default
- *               62500.
+ *   [0] adj1 — tip x, thousandths of `w` from centre. Default -20833.
+ *   [1] adj2 — tip y, thousandths of `h` from centre. Default 62500.
  *
- * Per ECMA-376 the callout trails THREE thought-bubbles of decreasing
- * radius marching from the cloud body all the way to the tip
- * (xPos, yPos): the largest bubble nearest the cloud, then a middle
- * one, then the smallest at the tip. The OOXML radii are
- * `g13 ≈ (gap/3) + ss·1800/21600` (largest), `ss·1200/21600` (middle),
- * and `ss·600/21600` (smallest). The cloud body itself is delegated to
- * `buildCloud` and composed via `Path2D.addPath`; the connector
- * circles are appended as additional sub-paths.
+ * The three bubbles march from the cloud edge to the tip with radii
+ * `ss·1800/21600` (largest, nearest the cloud), `ss·1200/21600` (middle),
+ * and `ss·600/21600` (smallest, at the tip). Their centres are the OOXML
+ * tip-anchored offsets along the tip → cloud-edge vector, not a naive
+ * fraction of the centre→tip line. The cloud body is delegated to
+ * `buildCloud`; the bubbles are appended as full-circle sub-paths.
  */
 export const CLOUD_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Tail x', defaultValue: -20833, min: -100000, max: 100000 },
@@ -28,38 +26,47 @@ export const CLOUD_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
 ];
 
 export const buildCloudCallout: PathBuilder = ({ w, h }, adjustments) => {
-  const tx = w / 2 + (adj(adjustments, 0, -20833) / 100000) * w;
-  const ty = h / 2 + (adj(adjustments, 1, 62500) / 100000) * h;
   const path = new Path2D();
-  // Compose with the basic cloud builder.
-  const cloud = buildCloud({ w, h });
-  path.addPath(cloud);
-  // Three "thought bubble" circles of decreasing radius marching from
-  // the cloud body out to the tip (tx, ty), per ECMA-376. Bubbles are
-  // centred on the cloud-centre → tip line at increasing fractions of
-  // its length, with the smallest bubble landing on the tip.
-  const cx = w / 2;
-  const cy = h / 2;
-  const dx = tx - cx;
-  const dy = ty - cy;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
+  path.addPath(buildCloud({ w, h }));
+
+  const hc = w / 2;
+  const vc = h / 2;
+  const wd2 = w / 2;
+  const hd2 = h / 2;
   const ss = Math.min(w, h);
-  const bubbleAt = (t: number, r: number): { x: number; y: number; r: number } => ({
-    x: cx + ux * len * t,
-    y: cy + uy * len * t,
-    r,
-  });
-  // OOXML-aligned radii: largest near the cloud, smallest at the tip.
-  const bubbles = [
-    bubbleAt(0.62, ss * 0.07), // largest, nearest cloud
-    bubbleAt(0.82, (ss * 1200) / 21600), // middle ≈ 0.0556·ss
-    bubbleAt(1.0, (ss * 600) / 21600), // smallest, at the tip
+
+  const dxPos = (w * adj(adjustments, 0, -20833)) / 100000;
+  const dyPos = (h * adj(adjustments, 1, 62500)) / 100000;
+  const xPos = hc + dxPos; // tip x
+  const yPos = vc + dyPos; // tip y
+
+  // Cloud-boundary point in the tip's direction (OOXML cat2/sat2 chain).
+  const ht = cat2(hd2, dxPos, dyPos);
+  const wt = sat2(wd2, dxPos, dyPos);
+  const g4 = hc + cat2(wd2, ht, wt);
+  const g5 = vc + sat2(hd2, ht, wt);
+  // Vector tip → boundary and its length.
+  const g6 = g4 - xPos;
+  const g7 = g5 - yPos;
+  const g8 = mod3(g6, g7, 0) || 1;
+
+  const g9 = (ss * 6600) / 21600;
+  const g11 = (g8 - g9) / 3;
+  const g12 = (ss * 1800) / 21600; // largest bubble radius
+  const g13 = g11 + g12; // middle-bubble offset from tip
+  const g20 = (ss * 4800) / 21600 + 2 * g11; // largest-bubble offset from tip
+  const g25 = (ss * 1200) / 21600; // middle bubble radius
+  const g26 = (ss * 600) / 21600; // smallest bubble radius
+
+  const bubbles: ReadonlyArray<readonly [number, number, number]> = [
+    // [centreX, centreY, radius]
+    [xPos + (g20 * g6) / g8, yPos + (g20 * g7) / g8, g12], // largest, near cloud
+    [xPos + (g13 * g6) / g8, yPos + (g13 * g7) / g8, g25], // middle
+    [xPos, yPos, g26], // smallest, at the tip
   ];
-  for (const b of bubbles) {
-    path.moveTo(b.x + b.r, b.y);
-    path.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  for (const [bx, by, r] of bubbles) {
+    path.moveTo(bx + r, by);
+    path.arc(bx, by, r, 0, Math.PI * 2);
   }
   return path;
 };

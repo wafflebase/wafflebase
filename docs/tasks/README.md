@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| callout ooxml fidelity (2026-06-25) | [20260625-callout-ooxml-fidelity-todo.md](./active/20260625-callout-ooxml-fidelity-todo.md) | [20260625-callout-ooxml-fidelity-lessons.md](./active/20260625-callout-ooxml-fidelity-lessons.md) |
 | heart ecma geometry (2026-06-25) | [20260625-heart-ecma-geometry-todo.md](./active/20260625-heart-ecma-geometry-todo.md) | [20260625-heart-ecma-geometry-lessons.md](./active/20260625-heart-ecma-geometry-lessons.md) |
 | notequal ecma geometry (2026-06-24) | [20260624-notequal-ecma-geometry-todo.md](./active/20260624-notequal-ecma-geometry-todo.md) | [20260624-notequal-ecma-geometry-lessons.md](./active/20260624-notequal-ecma-geometry-lessons.md) |
 | bentarrow pptx geometry (2026-06-23) | [20260623-bentarrow-pptx-geometry-todo.md](./active/20260623-bentarrow-pptx-geometry-todo.md) | - |
@@ -35,4 +36,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 309
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: heart ecma geometry (2026-06-25)
+Latest active task: callout ooxml fidelity (2026-06-25)

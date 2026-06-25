@@ -13,4 +13,16 @@ describe('buildWedgeEllipseCallout', () => {
     expect(ctx.isPointInPath(path, 29, 65)).toBe(true); // inside tail
     expect(ctx.isPointInPath(path, 200, 100)).toBe(false); // far outside
   });
+
+  it('keeps the body centred on a non-square frame', () => {
+    // 2:1 frame: the body must be an ellipse centred at (100,50) with
+    // radii (100,50). A point near the LEFT tip (5,50) is inside only when
+    // the arc is centred correctly — a polar-angle arc would drift the
+    // centre right (~125,60) and leave the left edge unfilled.
+    const path = buildWedgeEllipseCallout({ w: 200, h: 100 });
+    const ctx = createTestCanvas(400, 400).getContext('2d');
+    expect(ctx.isPointInPath(path, 100, 50)).toBe(true); // centre
+    expect(ctx.isPointInPath(path, 5, 50)).toBe(true); // left tip filled
+    expect(ctx.isPointInPath(path, 195, 50)).toBe(true); // right tip filled
+  });
 });

@@ -20,8 +20,10 @@ describe('buildWedgeRoundRectCallout', () => {
     // tailY = 0 → ty = 30 (vertical centre). Closest edge is right.
     const path = buildWedgeRoundRectCallout({ w: 100, h: 60 }, [60000, 0, 16667]);
     const ctx = createTestCanvas(200, 200).getContext('2d');
+    // OOXML wedge: base spans (100,10)→(100,25) on the right edge, apex
+    // at the tip (110,30); (104,22) sits inside that triangle.
     expect(ctx.isPointInPath(path, 50, 30)).toBe(true); // bubble centre
-    expect(ctx.isPointInPath(path, 108, 30)).toBe(true); // inside right tail
+    expect(ctx.isPointInPath(path, 104, 22)).toBe(true); // inside right tail
     expect(ctx.isPointInPath(path, 50, 100)).toBe(false); // nothing below
   });
 
@@ -30,8 +32,10 @@ describe('buildWedgeRoundRectCallout', () => {
     // tailX = 0 → tx = 50. Closest edge is top.
     const path = buildWedgeRoundRectCallout({ w: 100, h: 60 }, [0, -60000, 16667]);
     const ctx = createTestCanvas(200, 200).getContext('2d');
+    // OOXML wedge: base spans (16.7,0)→(41.7,0) on the top edge, apex at
+    // the tip (50,-6); (36,-2) sits inside that triangle.
     expect(ctx.isPointInPath(path, 50, 30)).toBe(true); // bubble centre
-    expect(ctx.isPointInPath(path, 50, -4)).toBe(true); // inside top tail
+    expect(ctx.isPointInPath(path, 36, -2)).toBe(true); // inside top tail
     expect(ctx.isPointInPath(path, 50, 100)).toBe(false); // nothing below
   });
 
@@ -40,8 +44,10 @@ describe('buildWedgeRoundRectCallout', () => {
     // tailY = 0 → ty = 30. Closest edge is left.
     const path = buildWedgeRoundRectCallout({ w: 100, h: 60 }, [-60000, 0, 16667]);
     const ctx = createTestCanvas(200, 200).getContext('2d');
+    // OOXML wedge: base spans (0,25)→(0,10) on the left edge, apex at the
+    // tip (-10,30); (-3,21) sits inside that triangle.
     expect(ctx.isPointInPath(path, 50, 30)).toBe(true); // bubble centre
-    expect(ctx.isPointInPath(path, -8, 30)).toBe(true); // inside left tail
+    expect(ctx.isPointInPath(path, -3, 21)).toBe(true); // inside left tail
     expect(ctx.isPointInPath(path, 50, 100)).toBe(false); // nothing below
   });
 });

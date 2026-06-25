@@ -1,43 +1,64 @@
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 import { pointTailHandle } from './handles';
+import { arcTo, deg60kToRad, FULL_ANGLE, radToDeg60k } from './ooxml-math';
 
 /**
  * `wedgeEllipseCallout` — elliptical speech bubble with a triangular
- * tail. The body is a single `ellipse()` op; the tail is a separate
- * triangular sub-path that connects two points on the ellipse to the
- * tail tip.
+ * tail. Faithful port of the ECMA-376 preset.
  *
  * Adjustments (`WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS`):
- *   [0] tailX — OOXML thousandths of `w`, from frame centre. Default
- *               -20833.
- *   [1] tailY — OOXML thousandths of `h`, from frame centre. Default
- *               62500.
+ *   [0] adj1 — tail tip x, thousandths of `w` from centre. Default -20833.
+ *   [1] adj2 — tail tip y, thousandths of `h` from centre. Default 62500.
+ *
+ * The tail base spans ±11° (660000 in 60000ths) around the tip direction,
+ * measured in the "circle-normalised" space (`sdx = dxPos·h`,
+ * `sdy = dyPos·w`) so the base stays angularly symmetric on non-square
+ * ellipses. The body is the major arc between the two base points.
  */
 export const WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS: readonly AdjustmentSpec[] = [
   { name: 'Tail x', defaultValue: -20833, min: -100000, max: 100000 },
   { name: 'Tail y', defaultValue: 62500, min: -100000, max: 100000 },
 ];
 
-export const buildWedgeEllipseCallout: PathBuilder = ({ w, h }, adjustments) => {
-  const tx = w / 2 + (adj(adjustments, 0, -20833) / 100000) * w;
-  const ty = h / 2 + (adj(adjustments, 1, 62500) / 100000) * h;
-  const cx = w / 2;
-  const cy = h / 2;
-  const rx = w / 2;
-  const ry = h / 2;
+const HALF_BASE = deg60kToRad(660000); // ±11°
+
+export const buildWedgeEllipseCallout: PathBuilder = (
+  { w, h },
+  adjustments,
+) => {
+  const hc = w / 2;
+  const vc = h / 2;
+  const wd2 = w / 2;
+  const hd2 = h / 2;
+
+  const dxPos = (w * adj(adjustments, 0, -20833)) / 100000;
+  const dyPos = (h * adj(adjustments, 1, 62500)) / 100000;
+  const xPos = hc + dxPos;
+  const yPos = vc + dyPos;
+
+  // Angle to the tip in circle-normalised space, then the two tail-base
+  // directions ±11° from it. `stAng`/`enAng` are the PARAMETRIC angles of
+  // the two base points on the ellipse — the base point (x1,y1) is exactly
+  // the parametric point (wd2·cos stAng, hd2·sin stAng), so the arc must be
+  // swept with these same parametric angles. (Deriving the start from
+  // atan2(dy1,dx1) would be the polar angle, drifting the arc centre off
+  // the frame centre on non-square ellipses.)
+  const pang = Math.atan2(dyPos * w, dxPos * h);
+  const stAng = pang + HALF_BASE;
+  const enAng = pang - HALF_BASE;
+  const x1 = hc + wd2 * Math.cos(stAng);
+  const y1 = vc + hd2 * Math.sin(stAng);
+
+  // Body arc swept the long way round so the ±11° tail notch is the gap.
+  const stAng60 = radToDeg60k(stAng);
+  const swAng1 = radToDeg60k(enAng) - stAng60;
+  const swAng = swAng1 > 0 ? swAng1 : swAng1 + FULL_ANGLE;
+
   const path = new Path2D();
-  path.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-  // Triangle tail from two points on the ellipse to (tx, ty).
-  const angle = Math.atan2(ty - cy, tx - cx);
-  const baseSpread = 0.25; // radians
-  const a1 = angle - baseSpread;
-  const a2 = angle + baseSpread;
-  const p1 = { x: cx + rx * Math.cos(a1), y: cy + ry * Math.sin(a1) };
-  const p2 = { x: cx + rx * Math.cos(a2), y: cy + ry * Math.sin(a2) };
-  path.moveTo(p1.x, p1.y);
-  path.lineTo(tx, ty);
-  path.lineTo(p2.x, p2.y);
+  path.moveTo(xPos, yPos);
+  path.lineTo(x1, y1);
+  arcTo(path, { x: x1, y: y1 }, wd2, hd2, stAng60, swAng);
   path.closePath();
   return path;
 };

@@ -17,7 +17,8 @@ export const buildLeftArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
   // (ss·a2/100000). At default a1=a2 the head flares to 2× the shaft.
   const dy1 = ss * (a1 / 200000);
   const dy2 = ss * (a2 / 100000);
-  const dx1 = w * (a3 / 100000);
+  // OOXML head depth uses ss = min(w,h), not w (shallow head on wide frames).
+  const dx1 = ss * (a3 / 100000);
   const bx = Math.max(dx1, w - w * (a4 / 100000));
   const cy = h / 2;
   const path = new Path2D();
@@ -45,7 +46,7 @@ export const LEFT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const a4 = adjustments[3] ?? DEF_BODY;
       // Mirror of right callout — builder clamps
       // `bx = max(dx1, w - w * adj4 / 100000)`.
-      const bodyX = Math.max(w * (a3 / 100000), w - w * (a4 / 100000));
+      const bodyX = Math.max(ss * (a3 / 100000), w - w * (a4 / 100000));
       return {
         x: insetAlongAxis(bodyX, w),
         y: insetAlongAxis(h / 2 - ss * (a1 / 200000), h),
@@ -56,7 +57,8 @@ export const LEFT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const a3 = start[2] ?? DEF_DEPTH;
-      const maxA4 = Math.max(0, 100000 - a3);
+      // Body max matches the ss-based seam: 100000 - a3·ss/w.
+      const maxA4 = Math.max(0, 100000 - Math.round((a3 * ss) / w));
       const rawA4 = w > 0 ? Math.round(((w - x) / w) * 100000) : DEF_BODY;
       const newA4 = Math.max(0, Math.min(maxA4, rawA4));
       const dy1 = Math.abs(y - h / 2);

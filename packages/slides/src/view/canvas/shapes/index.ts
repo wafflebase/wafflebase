@@ -250,16 +250,19 @@ import {
 } from './banners/left-right-ribbon';
 import {
   buildBorderCallout1,
+  buildBorderCallout1Leader,
   BORDER_CALLOUT_1_ADJUSTMENTS,
   BORDER_CALLOUT_1_HANDLES,
 } from './callouts/border-callout-1';
 import {
   buildBorderCallout2,
+  buildBorderCallout2Leader,
   BORDER_CALLOUT_2_ADJUSTMENTS,
   BORDER_CALLOUT_2_HANDLES,
 } from './callouts/border-callout-2';
 import {
   buildBorderCallout3,
+  buildBorderCallout3Leader,
   BORDER_CALLOUT_3_ADJUSTMENTS,
   BORDER_CALLOUT_3_HANDLES,
 } from './callouts/border-callout-3';
@@ -416,6 +419,16 @@ export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 export const OUTLINE_BUILDERS = new Map<ShapeKind, PathBuilder>();
 
 /**
+ * Shape kind → optional stroke-only "leader" builder. Some OOXML presets
+ * (the border callouts) draw a filled body PLUS a separate `fill="none"`
+ * polyline — the leader line from the box out to the callout target. The
+ * renderer fills+strokes the `PATH_BUILDERS` body, then strokes this
+ * extra path with the same stroke style. Returns an OPEN path (no
+ * `closePath`) so the leader is a polyline, not a filled wedge.
+ */
+export const LEADER_BUILDERS = new Map<ShapeKind, PathBuilder>();
+
+/**
  * Shape kind → optional multi-fill face builder. 3D-look / folded shapes
  * (cube, can, bevel, ribbons, scrolls) paint several differently-shaded
  * faces from the shape's single fill color. Kinds listed here STILL
@@ -516,6 +529,9 @@ FACE_BUILDERS.set('leftRightRibbon', buildLeftRightRibbonFaces);
 PATH_BUILDERS.set('borderCallout1', buildBorderCallout1);
 PATH_BUILDERS.set('borderCallout2', buildBorderCallout2);
 PATH_BUILDERS.set('borderCallout3', buildBorderCallout3);
+LEADER_BUILDERS.set('borderCallout1', buildBorderCallout1Leader);
+LEADER_BUILDERS.set('borderCallout2', buildBorderCallout2Leader);
+LEADER_BUILDERS.set('borderCallout3', buildBorderCallout3Leader);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);

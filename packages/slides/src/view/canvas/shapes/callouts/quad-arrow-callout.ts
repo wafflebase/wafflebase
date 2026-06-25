@@ -1,6 +1,7 @@
 import type { PathBuilder, AdjustmentSpec, AdjustmentHandle } from '../builder';
 import { adj } from '../builder';
 import { insetAlongAxis } from '../handles';
+import { pin } from './ooxml-math';
 
 /**
  * `quadArrowCallout` — four-headed arrow with a square callout body
@@ -22,100 +23,112 @@ const DEF_DEPTH = 18515;
 const DEF_BODY = 48123;
 
 export const buildQuadArrowCallout: PathBuilder = ({ w, h }, adjustments) => {
-  const dim = Math.min(w, h);
-  const a2 = adj(adjustments, 1, DEF_HEAD);
-  // OOXML: maxAdj1 = a2 * 2, so the shaft half-thickness can grow to at
-  // most the head half-thickness (shaft ≤ head) — never the other way round.
-  const a1 = Math.min(adj(adjustments, 0, DEF_SHAFT), a2 * 2);
-  const a3 = adj(adjustments, 2, DEF_DEPTH);
-  const a4 = adj(adjustments, 3, DEF_BODY);
-  // shaft = ss·a1/200000 (half-thickness); head = ss·a2/100000 (half-
-  // thickness). At default a1=a2 the head flares to 2× the shaft.
-  const shaft = dim * (a1 / 200000);
-  const head = dim * (a2 / 100000);
-  const depth = dim * (a3 / 100000);
-  const body = Math.min((dim / 2) * (a4 / 100000), w / 2 - depth, h / 2 - depth);
-  const cx = w / 2;
-  const cy = h / 2;
+  const ss = Math.min(w, h);
+  const hc = w / 2;
+  const vc = h / 2;
+  // OOXML pin chain: a2 ≤ 50000; a1 ≤ 2·a2 (shaft ≤ head); a3 ≤ 50000−a2;
+  // a4 ∈ [a1, 100000−2·a3] (body extent at least the shaft, never into a head).
+  const a2 = pin(0, adj(adjustments, 1, DEF_HEAD), 50000);
+  const a1 = pin(0, adj(adjustments, 0, DEF_SHAFT), 2 * a2);
+  const a3 = pin(0, adj(adjustments, 2, DEF_DEPTH), 50000 - a2);
+  const a4 = pin(a1, adj(adjustments, 3, DEF_BODY), 100000 - 2 * a3);
+  // Shaft / head half-thickness and head depth scale against ss = min(w,h);
+  // the central body is rectangular (w-based half-width, h-based half-height).
+  const head = (ss * a2) / 100000; // dx2
+  const shaft = (ss * a1) / 200000; // dx3
+  const ah = (ss * a3) / 100000; // head depth
+  const dx1 = (w * a4) / 200000; // body half-width
+  const dy1 = (h * a4) / 200000; // body half-height
+  const x2 = hc - dx1;
+  const x7 = hc + dx1;
+  const x3 = hc - head;
+  const x6 = hc + head;
+  const x4 = hc - shaft;
+  const x5 = hc + shaft;
+  const x8 = w - ah;
+  const y2 = vc - dy1;
+  const y7 = vc + dy1;
+  const y3 = vc - head;
+  const y6 = vc + head;
+  const y4 = vc - shaft;
+  const y5 = vc + shaft;
+  const y8 = h - ah;
+
   const path = new Path2D();
-  // CCW from top tip.
-  path.moveTo(cx, 0);
-  path.lineTo(cx + head, depth);
-  path.lineTo(cx + shaft, depth);
-  path.lineTo(cx + shaft, cy - body);
-  path.lineTo(cx + body, cy - body);
-  path.lineTo(cx + body, cy - shaft);
-  path.lineTo(w - depth, cy - shaft);
-  path.lineTo(w - depth, cy - head);
-  path.lineTo(w, cy);
-  path.lineTo(w - depth, cy + head);
-  path.lineTo(w - depth, cy + shaft);
-  path.lineTo(cx + body, cy + shaft);
-  path.lineTo(cx + body, cy + body);
-  path.lineTo(cx + shaft, cy + body);
-  path.lineTo(cx + shaft, h - depth);
-  path.lineTo(cx + head, h - depth);
-  path.lineTo(cx, h);
-  path.lineTo(cx - head, h - depth);
-  path.lineTo(cx - shaft, h - depth);
-  path.lineTo(cx - shaft, cy + body);
-  path.lineTo(cx - body, cy + body);
-  path.lineTo(cx - body, cy + shaft);
-  path.lineTo(depth, cy + shaft);
-  path.lineTo(depth, cy + head);
-  path.lineTo(0, cy);
-  path.lineTo(depth, cy - head);
-  path.lineTo(depth, cy - shaft);
-  path.lineTo(cx - body, cy - shaft);
-  path.lineTo(cx - body, cy - body);
-  path.lineTo(cx - shaft, cy - body);
-  path.lineTo(cx - shaft, depth);
-  path.lineTo(cx - head, depth);
+  // OOXML pathLst, walked from the left tip clockwise around all four heads.
+  path.moveTo(0, vc);
+  path.lineTo(ah, y3);
+  path.lineTo(ah, y4);
+  path.lineTo(x2, y4);
+  path.lineTo(x2, y2);
+  path.lineTo(x4, y2);
+  path.lineTo(x4, ah);
+  path.lineTo(x3, ah);
+  path.lineTo(hc, 0);
+  path.lineTo(x6, ah);
+  path.lineTo(x5, ah);
+  path.lineTo(x5, y2);
+  path.lineTo(x7, y2);
+  path.lineTo(x7, y4);
+  path.lineTo(x8, y4);
+  path.lineTo(x8, y3);
+  path.lineTo(w, vc);
+  path.lineTo(x8, y6);
+  path.lineTo(x8, y5);
+  path.lineTo(x7, y5);
+  path.lineTo(x7, y7);
+  path.lineTo(x5, y7);
+  path.lineTo(x5, y8);
+  path.lineTo(x6, y8);
+  path.lineTo(hc, h);
+  path.lineTo(x3, y8);
+  path.lineTo(x4, y8);
+  path.lineTo(x4, y7);
+  path.lineTo(x2, y7);
+  path.lineTo(x2, y5);
+  path.lineTo(ah, y5);
+  path.lineTo(ah, y6);
   path.closePath();
   return path;
 };
 
-// One handle on the top-right corner of the body — drag horizontally
-// to size the body (adj4), vertically to size shaft thickness (adj1).
-// Builder clamps `body = min((dim/2)*adj4, w/2-depth, h/2-depth)`, so
-// the handle uses the same clamp and bounds adj4 against the head
-// depth to keep dragging out of the dead range.
+// One handle on the top-right corner of the central body — drag
+// horizontally to size the body extent (adj4), vertically to size the
+// shaft thickness (adj1). Body half-width is `dx1 = w·adj4/200000`;
+// shaft half-thickness is `ss·adj1/200000`. adj4's max mirrors the
+// builder's pin (`100000 − 2·adj3`).
 export const QUAD_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
-      const dim = Math.min(w, h);
-      const a1 = adjustments[0] ?? DEF_SHAFT;
-      const a3 = adjustments[2] ?? DEF_DEPTH;
-      const a4 = adjustments[3] ?? DEF_BODY;
-      const shaft = dim * (a1 / 200000);
-      const depth = dim * (a3 / 100000);
-      const body = Math.min(
-        (dim / 2) * (a4 / 100000),
-        w / 2 - depth,
-        h / 2 - depth,
-      );
+      const ss = Math.min(w, h);
+      // Mirror the builder's pin chain so the painted handle tracks the
+      // actually-rendered body/shaft, never the raw (un-pinned) value.
+      const a2 = pin(0, adjustments[1] ?? DEF_HEAD, 50000);
+      const a1 = pin(0, adjustments[0] ?? DEF_SHAFT, 2 * a2);
+      const a3 = pin(0, adjustments[2] ?? DEF_DEPTH, 50000 - a2);
+      const a4 = pin(a1, adjustments[3] ?? DEF_BODY, 100000 - 2 * a3);
       return {
-        x: insetAlongAxis(w / 2 + body, w),
-        y: insetAlongAxis(h / 2 - shaft, h),
+        x: insetAlongAxis(w / 2 + (w * a4) / 200000, w),
+        y: insetAlongAxis(h / 2 - (ss * a1) / 200000, h),
       };
     },
     apply: ({ w, h }, start, pointer) => {
-      const dim = Math.min(w, h);
+      const ss = Math.min(w, h);
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const dx = Math.abs(x - w / 2);
       const dy = Math.abs(y - h / 2);
-      const a3 = start[2] ?? DEF_DEPTH;
+      // Return values already satisfying the builder's pin chain
+      // (a1 ≤ 2·a2, a4 ∈ [a1, 100000−2·a3]) per the AdjustmentHandle
+      // contract, so the stored adjustments match the rendered geometry.
+      const a2 = pin(0, start[1] ?? DEF_HEAD, 50000);
+      const a3 = pin(0, start[2] ?? DEF_DEPTH, 50000 - a2);
       const maxA4 = Math.max(0, 100000 - 2 * a3);
-      const rawA4 = dim > 0 ? Math.round((dx / (dim / 2)) * 100000) : DEF_BODY;
-      const newA4 = Math.max(0, Math.min(maxA4, rawA4));
-      const newA1 = dim > 0 ? Math.round((dy / (dim / 2)) * 100000) : DEF_SHAFT;
-      return [
-        Math.max(0, Math.min(50000, newA1)),
-        start[1] ?? DEF_HEAD,
-        start[2] ?? DEF_DEPTH,
-        newA4,
-      ];
+      const rawA4 = w > 0 ? Math.round((dx / (w / 2)) * 100000) : DEF_BODY;
+      const rawA1 = ss > 0 ? Math.round((dy / (ss / 2)) * 100000) : DEF_SHAFT;
+      const newA1 = pin(0, rawA1, 2 * a2);
+      const newA4 = pin(newA1, rawA4, maxA4);
+      return [newA1, start[1] ?? DEF_HEAD, start[2] ?? DEF_DEPTH, newA4];
     },
   },
 ];
