@@ -129,7 +129,12 @@ export {
 // Store interface (the data contract — implementations may pull in
 // DOM, but the interface itself does not). The reference impl
 // `MemSlidesStore` is also DOM-free and re-exported here.
-export type { SlidesStore } from './store/store';
+export type {
+  SlidesStore,
+  ThemePatch,
+  MasterPatch,
+  LayoutPatch,
+} from './store/store';
 export { MemSlidesStore } from './store/memory';
 
 // Shape registry + icon helper. The `PATH_BUILDERS` map and

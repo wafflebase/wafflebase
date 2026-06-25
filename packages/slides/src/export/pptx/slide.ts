@@ -77,11 +77,10 @@ const SPTREE_ROOT =
  * used if the image weren't present.
  */
 function backgroundToXml(bg: Background): string {
-  // An inheriting slide (no explicit fill) exports the `background` role,
-  // matching what it resolves to for the common master = role-background
-  // case. A master with a custom background fill does not cascade into the
-  // exported slide bg (the exporter lacks the doc to resolve it) — a known
-  // PPTX-export limitation tracked alongside the theme builder.
+  // Callers (export/pptx/index.ts) resolve the effective fill through the
+  // slide → layout → master chain before calling this, so an absent fill
+  // here means a genuinely fill-less background; default to the
+  // `background` role for safety. Background *images* are not exported yet.
   const fill = bg.fill ?? { kind: 'role' as const, role: 'background' as const };
   const fillXml = solidFillXml(fill);
   return `<p:bg><p:bgPr>${fillXml}</p:bgPr></p:bg>`;

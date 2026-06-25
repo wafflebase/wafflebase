@@ -54,6 +54,17 @@ function activeMaster(store: SlidesStore): Master | undefined {
   return doc.masters.find((m) => m.id === doc.meta.masterId) ?? doc.masters[0];
 }
 
+/**
+ * Normalize a hex color for `<input type="color">`, whose value must be a
+ * "valid lowercase simple color" (`#rrggbb`). Theme palettes store
+ * uppercase hex (e.g. `#1A1A1A`); without lowercasing the control rejects
+ * the value and shows black. Non-6-digit inputs fall back to black, which
+ * the native control would do anyway.
+ */
+function toColorInputValue(hex: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : "#000000";
+}
+
 export function ThemeBuilderPanel({
   store,
   currentThemeId,
@@ -119,7 +130,7 @@ export function ThemeBuilderPanel({
               <input
                 type="color"
                 aria-label={label}
-                value={theme.colors[role]}
+                value={toColorInputValue(theme.colors[role])}
                 onChange={(e) => setColor(role, e.target.value)}
                 className="h-6 w-6 shrink-0 cursor-pointer rounded border bg-transparent p-0"
               />
@@ -155,7 +166,7 @@ export function ThemeBuilderPanel({
           <input
             type="color"
             aria-label="Master background fill"
-            value={masterFillHex}
+            value={toColorInputValue(masterFillHex)}
             onChange={(e) => setMasterFill(e.target.value)}
             className="h-6 w-6 shrink-0 cursor-pointer rounded border bg-transparent p-0"
           />

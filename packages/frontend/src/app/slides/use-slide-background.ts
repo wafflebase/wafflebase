@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { SlidesStore, Theme, ThemeColor } from "@wafflebase/slides";
+import { resolveBackgroundFill } from "@wafflebase/slides";
 
 /**
  * Shared slide-background read + write semantics for the current slide.
@@ -25,7 +26,14 @@ export function useSlideBackground(
 } {
   const backgroundFill = useMemo(() => {
     if (!store || !slideId || !theme) return undefined;
-    return store.read().slides.find((s) => s.id === slideId)?.background?.fill;
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId);
+    if (!slide) return undefined;
+    // Resolve the effective background (slide → layout → master → role) so
+    // the swatch reflects what the slide actually shows. Slides now inherit
+    // by default (no explicit fill), so a raw `slide.background.fill` read
+    // would be undefined and the control would render blank.
+    return resolveBackgroundFill(slide, doc);
   }, [store, slideId, theme]);
 
   const onChange = useCallback(

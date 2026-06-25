@@ -352,10 +352,13 @@ export class MemSlidesStore implements SlidesStore {
    */
   private cascadeMasterStyles(master: Master, types: string[]): void {
     if (master.id !== this.doc.meta.masterId) return;
+    // Mirror YorkieSlidesStore.cascadeMasterStyles: fall back to
+    // defaultLight when the document has no themes, so both stores seed
+    // identical blocks.
     const theme =
       this.doc.themes.find((t) => t.id === this.doc.meta.themeId)
-      ?? this.doc.themes[0];
-    if (!theme) return;
+      ?? this.doc.themes[0]
+      ?? defaultLight;
     const typeSet = new Set(types);
     for (const slide of this.doc.slides) {
       for (const el of slide.elements) {

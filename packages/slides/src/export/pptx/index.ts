@@ -41,6 +41,7 @@
  */
 
 import type { SlidesDocument } from '../../model/presentation.js';
+import { resolveBackgroundFill } from '../../model/presentation.js';
 import type { ImageElement } from '../../model/element.js';
 import { flattenElements, buildElementWorldLookup } from '../../model/group.js';
 import { computeConnectorFrame } from '../../view/canvas/connector-frame.js';
@@ -297,8 +298,23 @@ export async function exportPptx(
       connectorFrame: (el) => computeConnectorFrame(el, worldLookup),
     };
 
+    // Resolve the effective background fill (slide → layout → master →
+    // role) so master/layout background edits round-trip; inheriting
+    // slides carry no explicit fill in the model. Background *images* are
+    // still not exported (see backgroundToXml).
+    const slideForXml =
+      slide.background.fill === undefined
+        ? {
+            ...slide,
+            background: {
+              ...slide.background,
+              fill: resolveBackgroundFill(slide, deck),
+            },
+          }
+        : slide;
+
     // Emit slide XML.
-    writer.addPart(slidePath, slideToXml(slide, ctx), CT_SLIDE);
+    writer.addPart(slidePath, slideToXml(slideForXml, ctx), CT_SLIDE);
 
     // Determine this slide's layout. Fall back to first layout or blank.
     const resolvedLayoutPath =
