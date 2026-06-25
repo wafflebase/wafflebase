@@ -29,17 +29,17 @@ is a simplified V0 that does not follow the OOXML `bentArrow` preset:
 
 ## Plan
 
-- [ ] Failing test: record `Path2D` calls, assert the tip points right + a
+- [x] Failing test: record `Path2D` calls, assert the tip points right + a
       rounded (arc) command exists. `bent-arrow.test.ts`.
-- [ ] Rewrite `buildBentArrow` faithful to the ECMA-376 `bentArrow` pathLst:
+- [x] Rewrite `buildBentArrow` faithful to the ECMA-376 `bentArrow` pathLst:
       head-right orientation, two concentric arcs (outer `bd`, inner `bd2`)
       for the constant-thickness rounded bend, reading adj1..adj4.
-- [ ] Expand `BENT_ARROW_ADJUSTMENTS` to 4 (shaft / arrowhead width / arrowhead
+- [x] Expand `BENT_ARROW_ADJUSTMENTS` to 4 (shaft / arrowhead width / arrowhead
       length / bend radius) and `BENT_ARROW_HANDLES` to 4, matching OOXML `ahLst`.
-- [ ] Fix the now-stale "mirror of bentArrow" comment in `bent-up-arrow.ts`
+- [x] Fix the now-stale "mirror of bentArrow" comment in `bent-up-arrow.ts`
       (`bentUpArrow` already points up correctly — out of scope to change its geometry).
-- [ ] `pnpm verify:fast` green.
-- [ ] Manual smoke: re-import the deck, confirm slide 17 arrows.
+- [x] `pnpm verify:fast` green.
+- [x] Manual smoke: re-import the deck, confirm slide 17 arrows.
 
 ## ECMA-376 reference (resolved gdLst)
 
@@ -55,4 +55,9 @@ path: M(0,b) L(0,y5) arc(c=(bd,y5) r=bd 180°→270°) L(x4,dh2) L(x4,t) L(r,aw2
 
 ## Review
 
-(to fill in)
+Shipped in **`2c26e54c`** ("Slides: match shape geometry to OOXML presets
++ shaded faces"). `bent-arrow.ts` now builds the head-right path with two
+concentric arcs (outer `bd`, inner `bd2`), `BENT_ARROW_ADJUSTMENTS` /
+`BENT_ARROW_HANDLES` are the full 4 (shaft / head width / head length /
+bend radius), the stale "mirror of bentArrow" comment is gone, and
+`bent-arrow.test.ts` exists. Boxes reconciled post-merge.

@@ -110,20 +110,16 @@ split/merge/table convergence bugs, diagnosed below).
     reordered element's children. No failing test covers it yet; left
     for a follow-up.
 
-### Remaining real convergence bugs (NOT fixed here — its own task)
+### Remaining real convergence bugs — split into their own task
 
 Genuine product bugs in the docs editing engine, surfaced now that the
-lane runs. Deep CRDT work — a focused branch + manual QA, not a tack-on.
+lane runs (5 subtests `{ skip: KNOWN_BUG }`). These are **docs Tree-CRDT
+bugs, not comments work** — deep CRDT work, likely multi-day.
 
-- [ ] **Docs concurrent split / merge / table edits don't converge (5
-  subtests).** `yorkie-doc-store-concurrent.integration.ts`:
-  "two users splitting the same paragraph" (`ABCDEFGH` → `ABGHCDEFGH`
-  duplication), "concurrent merge and text insert" (insert lost),
-  "concurrent split and text delete" (delete lost), and two table cases
-  (`applyCellSpan removal + applyCellStyle`, `updateTableAttrs rowHeights
-  + applyCellStyle`). These tie into the intent-preserving-edits Tree
-  migration (PR #152–#156) — deep CRDT work, likely multi-day. Treat as
-  a dedicated docs-collaboration task.
+→ **Split out to
+[`20260625-docs-collaboration-convergence-todo.md`](20260625-docs-collaboration-convergence-todo.md).**
+The `KNOWN_BUG` reference in
+`yorkie-doc-store-concurrent.integration.ts` now points there.
 
 ## Visual harness scenarios
 
@@ -133,18 +129,11 @@ harness scaffolding under `packages/frontend/src/app/harness/visual/`
 is sheets-focused), so standing one up cleanly was out of scope for
 PR #248.
 
-- [ ] Add a `harness/docs-comments` route mounting a minimal docs
-  editor with a seeded thread + side panel.
-- [ ] Range selection + `Cmd+Alt+M` opens composer focused at input.
-- [ ] Highlight renders across a line wrap (per-line rects).
-- [ ] Highlight click → popover positioned correctly; flips near
-  viewport edge.
-- [ ] Two overlapping threads → popover lists both.
-- [ ] Side panel tab counts update on resolve / reopen.
-- [ ] "Orphaned" sub-section renders quotedText; jump-to disabled.
-- [ ] Side panel thread click → scroll + caret + flash highlight.
-- [ ] Read-only mode: composer hidden, resolve/edit/delete hidden.
-- [ ] `pnpm verify:browser:docker` green.
+Deferred backlog — **not done**. The feature ships and works behind real
+users; this is pure visual-regression coverage with no blocker. The
+scenario list is already the canonical record in the design doc
+(`docs/design/docs/docs-comments.md` §8.3 "Visual / interaction (browser
+harness)"); pick it up from there when prioritized.
 
 ## Smaller polish from PR #248 review
 
@@ -170,7 +159,22 @@ landing PR scoped. **All four done** in
 
 ## Roadmap continuation
 
-Out-of-scope items remain (see PR #248 design doc §8):
+Out-of-scope items remain (canonical record: `docs-comments.md` §9 Phase
+Plan). **Not done here** — tracked in the design doc, not this file:
 
-- Step 3 — slides comments (third consumer of the shared module).
-- Step 4 — `@user` mentions + notifications across all consumers.
+- Step 3 — slides comments (third consumer of the shared module). Not
+  started; `packages/slides` has no comment model yet.
+- Step 4 — `@user` mentions + notifications across all consumers. Mentions
+  **shipped** (mention-only) in #400 (`docs/design/comments-mentions.md`);
+  in-app + email **notifications still deferred**.
+
+## Closeout
+
+Comments body work is complete (all items above checked). The remaining
+deferred items have been rehomed so this task can archive:
+
+- **Convergence bugs** → split into
+  `20260625-docs-collaboration-convergence-todo.md` (docs Tree-CRDT, not
+  comments).
+- **Visual harness** → backlog, canonical in `docs-comments.md` §8.3.
+- **Roadmap Step 3/4** → tracked in `docs-comments.md` §9.

@@ -34,16 +34,21 @@ path:
 (hc=w/2, hd4=h/4, hd3=h/3, t=0, b=h.)
 
 ## Plan / checklist
-- [ ] Rewrite test first (TDD): plump curved sides `(10,50)`/`(90,50)` inside
+- [x] Rewrite test first (TDD): plump curved sides `(10,50)`/`(90,50)` inside
       (would be outside the old straight-V); lobes inside; bottom tip inside;
       dip notch `(50,10)` outside; top corners outside.
-- [ ] Replace `buildHeart` body with `moveTo` + 2 `bezierCurveTo` + `close`
+- [x] Replace `buildHeart` body with `moveTo` + 2 `bezierCurveTo` + `close`
       from the ECMA guides; drop the `polylineArc` import.
-- [ ] Regenerate registry snapshot; confirm ONLY the `heart` key changed.
-- [ ] Slides tests + typecheck green (only the pre-existing `player.test.ts`
+- [x] Regenerate registry snapshot; confirm ONLY the `heart` key changed.
+- [x] Slides tests + typecheck green (only the pre-existing `player.test.ts`
       `.at()` gap remains).
-- [ ] Self code-review over branch diff.
-- [ ] Update parity task line ("heart … polyline-approx; low priority").
+- [x] Self code-review over branch diff.
+- [x] Update parity task line ("heart … polyline-approx; low priority").
 
 ## Review
-(to fill after implementation)
+
+Shipped in **PR #413** (`b2d158c7` — "Slides: match Not Equal + Heart to
+ECMA-376 preset geometry"). `heart.ts` is now `moveTo(hc,hd4)` + two
+`bezierCurveTo` + `close` per the ECMA-376 guides; registry snapshot
+updated. Boxes reconciled post-merge (the todo shipped with the PR but
+the checklist was left unticked).
