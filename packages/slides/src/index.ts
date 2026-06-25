@@ -136,7 +136,7 @@ export {
 } from './view/canvas/routing';
 
 export type { Point } from './model/frame';
-export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
+export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
 
 export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
 

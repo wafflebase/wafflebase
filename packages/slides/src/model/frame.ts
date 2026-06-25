@@ -64,6 +64,23 @@ export function combinedBoundingBox(frames: Frame[]): {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+/**
+ * True iff two frames are equal within a sub-pixel tolerance on every
+ * component (x, y, w, h, rotation). Used by the theme builder cascade to
+ * decide whether a slide placeholder still tracks its layout slot (so a
+ * layout geometry edit re-flows it) versus having been moved by the user
+ * (so the edit leaves it alone).
+ */
+export function framesApproxEqual(a: Frame, b: Frame, eps = 0.5): boolean {
+  return (
+    Math.abs(a.x - b.x) < eps &&
+    Math.abs(a.y - b.y) < eps &&
+    Math.abs(a.w - b.w) < eps &&
+    Math.abs(a.h - b.h) < eps &&
+    Math.abs(a.rotation - b.rotation) < 1e-6
+  );
+}
+
 function frameCorners(frame: Frame): Point[] {
   const cx = frame.x + frame.w / 2;
   const cy = frame.y + frame.h / 2;

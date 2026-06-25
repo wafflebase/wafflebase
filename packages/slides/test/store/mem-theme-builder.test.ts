@@ -219,6 +219,153 @@ describe('MemSlidesStore — theme builder mutations', () => {
     });
   });
 
+  describe('cascade — layout placeholder geometry → existing slides', () => {
+    it('re-flows a matching placeholder on slides using that layout', () => {
+      const store = new MemSlidesStore();
+      let sid!: string;
+      store.batch(() => {
+        sid = store.addSlide('title-body');
+      });
+      store.batch(() => {
+        store.updateLayoutPlaceholderFrame(
+          'title-body',
+          { type: 'title', index: 0 },
+          { x: 300, y: 40 },
+        );
+      });
+      const slide = store.read().slides.find((s) => s.id === sid)!;
+      const title = slide.elements.find(
+        (e) => e.placeholderRef?.type === 'title',
+      )!;
+      expect(title.frame.x).toBe(300);
+      expect(title.frame.y).toBe(40);
+    });
+
+    it('leaves a user-moved placeholder untouched', () => {
+      const store = new MemSlidesStore();
+      let sid!: string;
+      let tid!: string;
+      store.batch(() => {
+        sid = store.addSlide('title-body');
+      });
+      const slide0 = store.read().slides.find((s) => s.id === sid)!;
+      tid = slide0.elements.find((e) => e.placeholderRef?.type === 'title')!.id;
+      // User drags the title placeholder somewhere custom.
+      store.batch(() => {
+        store.updateElementFrame(sid, tid, { x: 17, y: 19 });
+      });
+      // Layout edit must NOT clobber the user's move.
+      store.batch(() => {
+        store.updateLayoutPlaceholderFrame(
+          'title-body',
+          { type: 'title', index: 0 },
+          { x: 300 },
+        );
+      });
+      const title = store
+        .read()
+        .slides.find((s) => s.id === sid)!
+        .elements.find((e) => e.id === tid)!;
+      expect(title.frame.x).toBe(17);
+      expect(title.frame.y).toBe(19);
+    });
+
+    it('only affects slides on the edited layout', () => {
+      const store = new MemSlidesStore();
+      let a!: string;
+      let b!: string;
+      store.batch(() => {
+        a = store.addSlide('title-body');
+        b = store.addSlide('title-only');
+      });
+      const bTitle0 = store
+        .read()
+        .slides.find((s) => s.id === b)!
+        .elements.find((e) => e.placeholderRef?.type === 'title')!.frame.x;
+      store.batch(() => {
+        store.updateLayoutPlaceholderFrame(
+          'title-body',
+          { type: 'title', index: 0 },
+          { x: 300 },
+        );
+      });
+      const out = store.read();
+      expect(
+        out.slides
+          .find((s) => s.id === a)!
+          .elements.find((e) => e.placeholderRef?.type === 'title')!.frame.x,
+      ).toBe(300);
+      expect(
+        out.slides
+          .find((s) => s.id === b)!
+          .elements.find((e) => e.placeholderRef?.type === 'title')!.frame.x,
+      ).toBe(bTitle0);
+    });
+  });
+
+  describe('cascade — master placeholder type style → existing slides', () => {
+    function titleFontSize(blocks: { inlines: { style?: { fontSize?: number } }[] }[]) {
+      return blocks[0]?.inlines[0]?.style?.fontSize;
+    }
+
+    it('re-seeds typography on empty placeholders of the patched type', () => {
+      const store = new MemSlidesStore();
+      let sid!: string;
+      store.batch(() => {
+        sid = store.addSlide('title-body');
+      });
+      store.batch(() => {
+        store.updateMaster('default', {
+          placeholderStyles: { title: { fontSize: 80 } },
+        });
+      });
+      const title = store
+        .read()
+        .slides.find((s) => s.id === sid)!
+        .elements.find((e) => e.placeholderRef?.type === 'title')!;
+      if (title.type !== 'text') throw new Error('expected text');
+      expect(titleFontSize(title.data.blocks)).toBe(80);
+    });
+
+    it('leaves a placeholder the user typed into untouched', () => {
+      const store = new MemSlidesStore();
+      let sid!: string;
+      let tid!: string;
+      store.batch(() => {
+        sid = store.addSlide('title-body');
+      });
+      tid = store
+        .read()
+        .slides.find((s) => s.id === sid)!
+        .elements.find((e) => e.placeholderRef?.type === 'title')!.id;
+      // User types into the title.
+      store.batch(() => {
+        store.updateElementData(sid, tid, {
+          blocks: [
+            {
+              id: 'p',
+              type: 'paragraph',
+              inlines: [{ text: 'Hello', style: { fontSize: 44 } }],
+              style: {},
+            },
+          ],
+        });
+      });
+      store.batch(() => {
+        store.updateMaster('default', {
+          placeholderStyles: { title: { fontSize: 80 } },
+        });
+      });
+      const title = store
+        .read()
+        .slides.find((s) => s.id === sid)!
+        .elements.find((e) => e.id === tid)!;
+      if (title.type !== 'text') throw new Error('expected text');
+      expect(title.data.blocks[0].inlines[0].text).toBe('Hello');
+      expect(titleFontSize(title.data.blocks)).toBe(44);
+    });
+  });
+
   describe('document-local layout resolution', () => {
     it('new slides honor an edited layout placeholder geometry', () => {
       const store = new MemSlidesStore();

@@ -32,6 +32,8 @@ import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { pushRecent } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
+import type { Master } from '../model/master';
+import { framesApproxEqual } from '../model/frame';
 import { migrateDocument } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
@@ -338,6 +340,32 @@ export class MemSlidesStore implements SlidesStore {
         }
         Object.assign(existing, clone(stylePatch));
       }
+      this.cascadeMasterStyles(master, Object.keys(patch.placeholderStyles));
+    }
+  }
+
+  /**
+   * Re-seed placeholder typography on EMPTY placeholders of the patched
+   * types across every slide, so a master type-style edit reaches slides
+   * that have not been typed into yet. Placeholders the user typed into
+   * keep their content and styling. Only runs for the active master.
+   */
+  private cascadeMasterStyles(master: Master, types: string[]): void {
+    if (master.id !== this.doc.meta.masterId) return;
+    const theme =
+      this.doc.themes.find((t) => t.id === this.doc.meta.themeId)
+      ?? this.doc.themes[0];
+    if (!theme) return;
+    const typeSet = new Set(types);
+    for (const slide of this.doc.slides) {
+      for (const el of slide.elements) {
+        if (el.type !== 'text') continue;
+        const t = el.placeholderRef?.type;
+        if (!t || !typeSet.has(t)) continue;
+        if (!isBlocksEmpty(el.data.blocks)) continue;
+        const style = master.placeholderStyles[t];
+        if (style) el.data.blocks = seedPlaceholderBlocks(style, theme);
+      }
     }
   }
 
@@ -374,7 +402,35 @@ export class MemSlidesStore implements SlidesStore {
       );
     }
     const spec = layout.placeholders[idx];
+    const oldFrame: Frame = { ...spec.frame };
     spec.frame = { ...spec.frame, ...frame };
+    this.cascadeLayoutFrame(layoutId, ref, oldFrame, spec.frame);
+  }
+
+  /**
+   * Re-flow the matching placeholder on every slide using `layoutId`,
+   * but only where the slide's placeholder still sits at the layout's
+   * previous slot frame (i.e. the user has not moved it). User-moved or
+   * user-added elements are left untouched.
+   */
+  private cascadeLayoutFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    oldFrame: Frame,
+    newFrame: Frame,
+  ): void {
+    for (const slide of this.doc.slides) {
+      if (slide.layoutId !== layoutId) continue;
+      for (const el of slide.elements) {
+        if (
+          el.placeholderRef?.type === ref.type &&
+          el.placeholderRef.index === ref.index &&
+          framesApproxEqual(el.frame, oldFrame)
+        ) {
+          el.frame = { ...newFrame };
+        }
+      }
+    }
   }
 
   setUnit(unit: 'in' | 'cm'): void {

@@ -13,6 +13,7 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type PlaceholderStyle,
   type ObjectAnimation,
   type PlaceholderRef,
   type Slide as ModelSlide,
@@ -41,6 +42,7 @@ import {
   defaultDark,
   defaultLight,
   flattenElements,
+  framesApproxEqual,
   generateId,
   getLayout,
   bakeGroupScale,
@@ -1023,8 +1025,45 @@ export class YorkieSlidesStore implements SlidesStore {
           }
           for (const [k, v] of Object.entries(stylePatch)) existing[k] = v;
         }
+        this.cascadeMasterStyles(
+          r,
+          master as Master,
+          Object.keys(patch.placeholderStyles),
+        );
       }
     });
+  }
+
+  /**
+   * Re-seed placeholder typography on EMPTY placeholders of the patched
+   * types across every slide (active master only). Mirrors
+   * MemSlidesStore.cascadeMasterStyles; runs inside the ambient update.
+   */
+  private cascadeMasterStyles(
+    r: YorkieSlidesRoot,
+    master: Master,
+    types: string[],
+  ): void {
+    const meta = r.meta as { masterId?: string; themeId?: string };
+    if (master.id !== meta.masterId) return;
+    const themes = (r as { themes?: Theme[] }).themes ?? [];
+    const theme =
+      themes.find((t) => t.id === meta.themeId) ?? themes[0] ?? defaultLight;
+    const typeSet = new Set(types);
+    for (const slide of r.slides) {
+      for (const el of slide.elements as unknown as YorkieElement[]) {
+        if (el.type !== 'text') continue;
+        const t = el.placeholderRef?.type;
+        if (!t || !typeSet.has(t)) continue;
+        const data = el.data as { blocks?: unknown };
+        const blocks = yorkieToPlain<Block[]>(data.blocks);
+        if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
+        const style = yorkieToPlain<PlaceholderStyle>(
+          (master.placeholderStyles as Record<string, unknown>)[t],
+        );
+        if (style) data.blocks = clone(seedPlaceholderBlocks(style, theme));
+      }
+    }
   }
 
   updateLayout(layoutId: string, patch: LayoutPatch): void {
@@ -1065,7 +1104,22 @@ export class YorkieSlidesStore implements SlidesStore {
         );
       }
       const spec = layout.placeholders[idx];
+      const oldFrame: Frame = { ...spec.frame };
       spec.frame = { ...spec.frame, ...frame };
+      const newFrame: Frame = { ...spec.frame };
+      // Cascade: re-flow matching placeholders that still track the slot.
+      for (const slide of r.slides) {
+        if (slide.layoutId !== layoutId) continue;
+        for (const el of slide.elements as unknown as YorkieElement[]) {
+          if (
+            el.placeholderRef?.type === ref.type &&
+            el.placeholderRef.index === ref.index &&
+            framesApproxEqual({ ...el.frame } as Frame, oldFrame)
+          ) {
+            el.frame = { ...newFrame };
+          }
+        }
+      }
     });
   }
 
