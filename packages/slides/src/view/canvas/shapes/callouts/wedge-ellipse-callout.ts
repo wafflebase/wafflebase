@@ -38,28 +38,27 @@ export const buildWedgeEllipseCallout: PathBuilder = (
   const yPos = vc + dyPos;
 
   // Angle to the tip in circle-normalised space, then the two tail-base
-  // directions ±11° from it.
+  // directions ±11° from it. `stAng`/`enAng` are the PARAMETRIC angles of
+  // the two base points on the ellipse — the base point (x1,y1) is exactly
+  // the parametric point (wd2·cos stAng, hd2·sin stAng), so the arc must be
+  // swept with these same parametric angles. (Deriving the start from
+  // atan2(dy1,dx1) would be the polar angle, drifting the arc centre off
+  // the frame centre on non-square ellipses.)
   const pang = Math.atan2(dyPos * w, dxPos * h);
   const stAng = pang + HALF_BASE;
   const enAng = pang - HALF_BASE;
-  const dx1 = wd2 * Math.cos(stAng);
-  const dy1 = hd2 * Math.sin(stAng);
-  const dx2 = wd2 * Math.cos(enAng);
-  const dy2 = hd2 * Math.sin(enAng);
-  const x1 = hc + dx1;
-  const y1 = vc + dy1;
+  const x1 = hc + wd2 * Math.cos(stAng);
+  const y1 = vc + hd2 * Math.sin(stAng);
 
-  // Parametric arc angles for the body, swept the long way round so the
-  // ±11° tail notch is the gap.
-  const stAng1 = radToDeg60k(Math.atan2(dy1, dx1));
-  const enAng1 = radToDeg60k(Math.atan2(dy2, dx2));
-  const swAng1 = enAng1 - stAng1;
+  // Body arc swept the long way round so the ±11° tail notch is the gap.
+  const stAng60 = radToDeg60k(stAng);
+  const swAng1 = radToDeg60k(enAng) - stAng60;
   const swAng = swAng1 > 0 ? swAng1 : swAng1 + FULL_ANGLE;
 
   const path = new Path2D();
   path.moveTo(xPos, yPos);
   path.lineTo(x1, y1);
-  arcTo(path, { x: x1, y: y1 }, wd2, hd2, stAng1, swAng);
+  arcTo(path, { x: x1, y: y1 }, wd2, hd2, stAng60, swAng);
   path.closePath();
   return path;
 };

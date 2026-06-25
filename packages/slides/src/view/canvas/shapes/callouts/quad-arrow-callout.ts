@@ -101,8 +101,12 @@ export const QUAD_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
   {
     position: ({ w, h }, adjustments) => {
       const ss = Math.min(w, h);
-      const a1 = adjustments[0] ?? DEF_SHAFT;
-      const a4 = adjustments[3] ?? DEF_BODY;
+      // Mirror the builder's pin chain so the painted handle tracks the
+      // actually-rendered body/shaft, never the raw (un-pinned) value.
+      const a2 = pin(0, adjustments[1] ?? DEF_HEAD, 50000);
+      const a1 = pin(0, adjustments[0] ?? DEF_SHAFT, 2 * a2);
+      const a3 = pin(0, adjustments[2] ?? DEF_DEPTH, 50000 - a2);
+      const a4 = pin(a1, adjustments[3] ?? DEF_BODY, 100000 - 2 * a3);
       return {
         x: insetAlongAxis(w / 2 + (w * a4) / 200000, w),
         y: insetAlongAxis(h / 2 - (ss * a1) / 200000, h),
@@ -114,17 +118,17 @@ export const QUAD_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const y = Math.max(0, Math.min(h, pointer.y));
       const dx = Math.abs(x - w / 2);
       const dy = Math.abs(y - h / 2);
-      const a3 = start[2] ?? DEF_DEPTH;
+      // Return values already satisfying the builder's pin chain
+      // (a1 ≤ 2·a2, a4 ∈ [a1, 100000−2·a3]) per the AdjustmentHandle
+      // contract, so the stored adjustments match the rendered geometry.
+      const a2 = pin(0, start[1] ?? DEF_HEAD, 50000);
+      const a3 = pin(0, start[2] ?? DEF_DEPTH, 50000 - a2);
       const maxA4 = Math.max(0, 100000 - 2 * a3);
       const rawA4 = w > 0 ? Math.round((dx / (w / 2)) * 100000) : DEF_BODY;
-      const newA4 = Math.max(0, Math.min(maxA4, rawA4));
-      const newA1 = ss > 0 ? Math.round((dy / (ss / 2)) * 100000) : DEF_SHAFT;
-      return [
-        Math.max(0, Math.min(50000, newA1)),
-        start[1] ?? DEF_HEAD,
-        start[2] ?? DEF_DEPTH,
-        newA4,
-      ];
+      const rawA1 = ss > 0 ? Math.round((dy / (ss / 2)) * 100000) : DEF_SHAFT;
+      const newA1 = pin(0, rawA1, 2 * a2);
+      const newA4 = pin(newA1, rawA4, maxA4);
+      return [newA1, start[1] ?? DEF_HEAD, start[2] ?? DEF_DEPTH, newA4];
     },
   },
 ];

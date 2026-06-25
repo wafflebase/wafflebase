@@ -23,10 +23,15 @@ describe('buildBorderCallout1', () => {
     expect(BORDER_CALLOUT_1_ADJUSTMENTS).toHaveLength(4);
   });
 
-  it('builds an open leader polyline to the target', () => {
-    // Default target (x2,y2) = (200·-38333, 200·112500)/100000 = (-76.7, 225).
+  it('builds an open leader polyline from point 1 to the target', () => {
+    // Default leader runs (x1,y1)=(-16.7, 37.5) → (x2,y2)=(-76.7, 225);
+    // its midpoint is (-46.7, 131.25). Stroke-hit-test the midpoint so an
+    // empty/degenerate leader would fail.
     const leader = buildBorderCallout1Leader({ w: 200, h: 200 });
-    expect(leader).toBeInstanceOf(Path2D);
+    const ctx = createTestCanvas(400, 400).getContext('2d');
+    ctx.lineWidth = 6;
+    expect(ctx.isPointInStroke(leader, -46.7, 131.25)).toBe(true); // on segment
+    expect(ctx.isPointInStroke(leader, 100, 100)).toBe(false); // far off
   });
 });
 
