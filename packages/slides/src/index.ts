@@ -152,7 +152,12 @@ export {
 } from './themes';
 
 // Store
-export type { SlidesStore } from './store/store';
+export type {
+  SlidesStore,
+  ThemePatch,
+  MasterPatch,
+  LayoutPatch,
+} from './store/store';
 export { MemSlidesStore } from './store/memory';
 
 // View — Canvas renderers (Phase 2)

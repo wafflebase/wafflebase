@@ -2,6 +2,7 @@ import type { Block } from '@wafflebase/docs';
 import type {
   ArrowheadStyle,
   AutofitMode,
+  Background,
   ConnectorRouting,
   Endpoint,
   Master,
@@ -201,4 +202,6 @@ export interface YorkieLayout {
   id: string;
   name: string;
   placeholders: YorkiePlaceholder[];
+  /** Optional layout background override edited via the theme builder (PR3). */
+  background?: Background;
 }

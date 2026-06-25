@@ -9,8 +9,31 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../model/connector';
-import type { ElementInit, Frame } from '../model/element';
-import type { Theme } from '../model/theme';
+import type { ElementInit, Frame, PlaceholderRef } from '../model/element';
+import type { ColorScheme, FontScheme, Theme, ThemeColor } from '../model/theme';
+import type { MasterBackgroundImage, PlaceholderStyle } from '../model/master';
+
+/** LWW patch for a theme's editable fields (theme builder, PR3). */
+export type ThemePatch = {
+  name?: string;
+  colors?: Partial<ColorScheme>;
+  fonts?: Partial<FontScheme>;
+};
+
+/** LWW patch for a master's editable fields (theme builder, PR3). */
+export type MasterPatch = {
+  /** Merge background fill and/or image. Pass `image: null` to clear it. */
+  background?: { fill?: ThemeColor; image?: MasterBackgroundImage | null };
+  /** Per-key partial merge of placeholder type styles (title, body, …). */
+  placeholderStyles?: Record<string, Partial<PlaceholderStyle>>;
+};
+
+/** LWW patch for a layout's editable fields (theme builder, PR3). */
+export type LayoutPatch = {
+  name?: string;
+  /** Set the layout background override, or pass `null` to clear it. */
+  background?: Background | null;
+};
 
 /**
  * SlidesStore — persistence abstraction for a presentation.
@@ -64,6 +87,38 @@ export interface SlidesStore {
   addTheme(theme: Theme): void;
   /** Apply a theme as the active theme. Theme must already be in `themes[]`. */
   applyTheme(themeId: string): void;
+
+  // --- theme builder (master / layout / theme editing, PR3) ---
+
+  /**
+   * LWW-merge editable fields into an existing theme. Role-bound colors
+   * and fonts re-resolve at render, so this cascades to all slides on
+   * repaint. Throws if the theme is not in `themes[]`.
+   */
+  updateTheme(themeId: string, patch: ThemePatch): void;
+
+  /**
+   * LWW-merge editable fields into an existing master. Background fill is
+   * read at render so it cascades on repaint; placeholder *type styles*
+   * are seeded into slides at creation and need the commit-2 cascade to
+   * reach existing slides. Throws if the master is not in `masters[]`.
+   */
+  updateMaster(masterId: string, patch: MasterPatch): void;
+
+  /** LWW-merge name / background into an existing layout. Throws if not in `layouts[]`. */
+  updateLayout(layoutId: string, patch: LayoutPatch): void;
+
+  /**
+   * Set the frame of the placeholder identified by `ref` (a (type,index)
+   * slot) within a layout. New slides created from the layout honor the
+   * edited geometry; existing slides need the commit-2 cascade. Throws if
+   * the layout or the slot is missing.
+   */
+  updateLayoutPlaceholderFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    frame: Partial<Frame>,
+  ): void;
 
   /**
    * Set the display unit for numeric inputs in the Format options

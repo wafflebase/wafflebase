@@ -1,4 +1,9 @@
-import type { SlidesStore } from './store';
+import type {
+  LayoutPatch,
+  MasterPatch,
+  SlidesStore,
+  ThemePatch,
+} from './store';
 import type {
   Background,
   Guide,
@@ -20,6 +25,7 @@ import type {
   ElementInit,
   Frame,
   GroupElement,
+  PlaceholderRef,
   TableCell,
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
@@ -148,9 +154,18 @@ export class MemSlidesStore implements SlidesStore {
 
   // --- slide ops ---
 
+  /**
+   * Resolve a layout by id from the document's own `layouts[]` so theme
+   * builder edits are honored, falling back to the shared built-in when
+   * the document lacks a copy (pre-PR1 docs / unknown id).
+   */
+  private resolveLayout(layoutId: string) {
+    return this.doc.layouts.find((l) => l.id === layoutId) ?? getLayout(layoutId);
+  }
+
   addSlide(layoutId: string, atIndex?: number): string {
     this.requireBatch();
-    const layout = getLayout(layoutId);
+    const layout = this.resolveLayout(layoutId);
     const id = generateId();
     const refs = slotRefsForLayout(layout);
     const master =
@@ -285,6 +300,81 @@ export class MemSlidesStore implements SlidesStore {
     this.doc.meta.themeId = themeId;
   }
 
+  updateTheme(themeId: string, patch: ThemePatch): void {
+    this.requireBatch();
+    const theme = this.doc.themes.find((t) => t.id === themeId);
+    if (!theme) {
+      throw new Error(`[slides] theme '${themeId}' not in document`);
+    }
+    if (patch.name !== undefined) theme.name = patch.name;
+    if (patch.colors) Object.assign(theme.colors, clone(patch.colors));
+    if (patch.fonts) Object.assign(theme.fonts, clone(patch.fonts));
+  }
+
+  updateMaster(masterId: string, patch: MasterPatch): void {
+    this.requireBatch();
+    const master = this.doc.masters.find((m) => m.id === masterId);
+    if (!master) {
+      throw new Error(`[slides] master '${masterId}' not in document`);
+    }
+    if (patch.background) {
+      if (patch.background.fill !== undefined) {
+        master.background.fill = clone(patch.background.fill);
+      }
+      if (patch.background.image !== undefined) {
+        if (patch.background.image === null) delete master.background.image;
+        else master.background.image = clone(patch.background.image);
+      }
+    }
+    if (patch.placeholderStyles) {
+      for (const [key, stylePatch] of Object.entries(patch.placeholderStyles)) {
+        const existing = master.placeholderStyles[key];
+        if (!existing) {
+          throw new Error(
+            `[slides] placeholder style '${key}' not on master '${masterId}'`,
+          );
+        }
+        Object.assign(existing, clone(stylePatch));
+      }
+    }
+  }
+
+  updateLayout(layoutId: string, patch: LayoutPatch): void {
+    this.requireBatch();
+    const layout = this.doc.layouts.find((l) => l.id === layoutId);
+    if (!layout) {
+      throw new Error(`[slides] layout '${layoutId}' not in document`);
+    }
+    if (patch.name !== undefined) layout.name = patch.name;
+    if (patch.background !== undefined) {
+      if (patch.background === null) delete layout.background;
+      else layout.background = clone(patch.background);
+    }
+  }
+
+  updateLayoutPlaceholderFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    frame: Partial<Frame>,
+  ): void {
+    this.requireBatch();
+    const layout = this.doc.layouts.find((l) => l.id === layoutId);
+    if (!layout) {
+      throw new Error(`[slides] layout '${layoutId}' not in document`);
+    }
+    const refs = slotRefsForLayout(layout);
+    const idx = refs.findIndex(
+      (r) => r.type === ref.type && r.index === ref.index,
+    );
+    if (idx === -1) {
+      throw new Error(
+        `[slides] placeholder slot ${ref.type}#${ref.index} not in layout '${layoutId}'`,
+      );
+    }
+    const spec = layout.placeholders[idx];
+    spec.frame = { ...spec.frame, ...frame };
+  }
+
   setUnit(unit: 'in' | 'cm'): void {
     this.requireBatch();
     if (unit !== 'in' && unit !== 'cm') {
@@ -312,7 +402,7 @@ export class MemSlidesStore implements SlidesStore {
       ?? this.doc.themes[0];
     applyLayoutToSlide(
       slide,
-      getLayout(layoutId),
+      this.resolveLayout(layoutId),
       master && theme ? { master, theme } : undefined,
     );
   }
