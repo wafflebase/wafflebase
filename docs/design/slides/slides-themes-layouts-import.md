@@ -493,6 +493,50 @@ Out of v1 scope (deferred to v1.5):
   layout (e.g. a logo bar, a footer line)
 - Reordering or renaming placeholders
 
+#### Re-review (2026-06-25): cascade reality grounded in current code
+
+The original PR3 plan assumed every builder edit "propagates immediately
+to all slides." Investigating the shipped code (`store/memory.ts`,
+`model/layout.ts`, `model/placeholder-blocks.ts`,
+`view/canvas/slide-renderer.ts`) shows propagation splits into two
+distinct mechanisms, which reshapes the commit plan:
+
+| Builder edit | How it reaches existing slides today | PR3 work |
+|---|---|---|
+| Theme color (role-bound) | `resolveColor` runs at **render** against `doc.themes[meta.themeId]` → automatic on repaint | none — just `updateTheme` + repaint |
+| Theme font (role-bound) | `resolveFont` at render → automatic | `updateTheme`; concrete `srgb`/`{kind:'family'}` runs and docs `InlineStyle.fontFamily: string` text do **not** follow (known limitation) |
+| Master background fill | `slide-renderer` reads `master.background` at render → automatic | `updateMaster`; repaint only |
+| Layout placeholder **position** | slide element `frame` is **copied** at slide-creation via `applyLayoutToSlide`; later layout edits do **not** move existing elements | explicit re-flow cascade required |
+| Master placeholder **type style** (`fontSize`, `align`, `lineHeight`) | seeded into text `blocks` at creation by `placeholder-blocks.ts`; concrete values, not re-resolved at render | explicit re-seed cascade required (unmodified placeholders only) |
+
+So "edit master color → all slides update <100 ms" is essentially a free
+repaint, but **position and type-style edits need an explicit cascade**
+that re-applies geometry/typography to the ref-bearing placeholder
+elements on affected slides, reusing the existing
+`applyLayoutToSlide` `(type,index)` slot-matching so user-demoted /
+user-added elements are left untouched.
+
+**Store gaps confirmed:** there are currently **no** `updateTheme`,
+`updateMaster`, or `updateLayout` mutations — `applyTheme` only sets
+`meta.themeId`. PR3 must add these three to the `SlidesStore` interface
+(both `MemSlidesStore` and `YorkieSlidesStore`), all `batch()`-wrapped so
+an edit + its cascade is one undo unit.
+
+**Editing a built-in theme:** `themes`/`masters` already live in
+`doc.themes[]` / `doc.masters[]` (document-local copies, not the shared
+`BUILT_IN_THEMES` literals), so editing is in-place on the doc copy — no
+"fork built-in into doc" step needed. They are stored as **plain JSON
+arrays** in Yorkie (not `Yorkie.Array`), so concurrent edits to the same
+theme/master field are last-write-wins; acceptable for v1 (see Risks).
+
+**Frontend deltas since the original plan:** the right-panel slot now
+arbitrates `theme | format | motion | null` (Format options + Motion
+panels shipped after PR1), and the built-in theme count grew 5 → 23
+(`slides-theme-catalog.md`). Builder mode follows the
+`presentingFrom`-style state-machine + conditional-mount pattern; the
+thumbnail panel (`mountThumbnailPanel`, vanilla from `@wafflebase/slides`)
+switches to a layouts+master list variant.
+
 ### Migration
 
 - `meta.themeId` / `meta.masterId` / `themes[]` / `masters[]` /
@@ -515,8 +559,10 @@ Out of v1 scope (deferred to v1.5):
 ## PR Plan
 
 **Status:** PR1 (themes + 11 layouts) and PR2 (PPTX best-effort import)
-shipped. PR3 (in-editor theme builder) deferred. The original rollout plan
-is retained below for historical context.
+shipped. PR3 (in-editor theme builder) re-reviewed 2026-06-25 against the
+current codebase and re-scoped (see the Theme builder "Re-review"
+subsection and the regrounded PR3 commit plan below); v1 editing surface
+unchanged.
 
 ### PR1 — Themed authoring (XL)
 
@@ -566,17 +612,38 @@ Acceptance:
 
 User value: brand-fit edits without leaving the editor.
 
-Single PR. Commit layering:
+Single PR. Commit layering **(regrounded 2026-06-25 — see the Theme
+builder "Re-review" subsection above):**
 
-1. `feat(slides): theme builder mode flag + thumbnail panel switch`
-2. `feat(slides): master / layout editing routes`
-3. `feat(frontend): theme builder UI shell`
-4. `feat(slides): batch updates for cascading theme/master edits`
+1. `feat(slides): updateTheme/updateMaster/updateLayout store mutations` —
+   add the three in-place edit methods to the `SlidesStore` interface,
+   `MemSlidesStore`, and `YorkieSlidesStore`, all `batch()`-wrapped and
+   `requireBatch()`-guarded. Includes per-placeholder geometry edit on a
+   layout. Vitest unit coverage for each.
+2. `feat(slides): cascade layout geometry + master placeholder styles` —
+   re-flow layout placeholder position/size and master placeholder
+   type-styles onto existing ref-bearing slide elements, reusing
+   `applyLayoutToSlide`'s `(type,index)` slot matching (user-added /
+   demoted elements untouched). Color/font/background already cascade via
+   render resolution — covered by repaint, not by this commit.
+3. `feat(slides): theme builder mode + layouts/master thumbnail panel` —
+   builder-mode state (presentation-mode-style flag), thumbnail panel
+   switches from slides to a layouts + master list, click-to-select a
+   layout/master.
+4. `feat(frontend): theme builder UI shell + editing surface` —
+   `View → Theme builder` entry, right-panel editing surface for
+   colors / fonts / background fill, placeholder drag reuses the existing
+   element selection handles.
 
 Acceptance:
 
-- Edit master color → all slides update in <100 ms
-- Edit layout placeholder position → only slides on that layout update
+- Edit theme/master color → all slides repaint with the new color
+  (<100 ms; role-resolved at render)
+- Edit layout placeholder position → only slides on that layout re-flow
+  their matching placeholders; user-moved/added elements untouched
+- Edit master placeholder font size → unmodified placeholders on
+  affected slides pick it up; user-edited text untouched
+- Each edit + cascade is a single undo unit
 - Two-user Yorkie test for concurrent master + slide edits
 - `pnpm verify:browser:docker` covers the theme builder entry point
 

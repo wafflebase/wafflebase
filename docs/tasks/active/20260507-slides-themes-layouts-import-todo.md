@@ -48,12 +48,23 @@ archived under `docs/tasks/archive/2026/05/`). Shipped as PR #243
 
 User value: brand-fit edits without leaving the editor.
 
-- [ ] commit 1 — `feat(slides): theme builder mode flag + thumbnail panel switch`
-- [ ] commit 2 — `feat(slides): master / layout editing routes`
-- [ ] commit 3 — `feat(frontend): theme builder UI shell`
-- [ ] commit 4 — `feat(slides): batch updates for cascading edits`
-- [ ] verify: master color edit propagates to all slides <100 ms
-- [ ] verify: layout placeholder edit only affects slides on that layout
+Re-reviewed 2026-06-25 against current code; commit plan regrounded (see
+design doc "Re-review" subsection). Key finding: theme/master colors,
+fonts, and background already cascade via render-time role resolution
+(repaint only), but layout placeholder **positions** and master
+placeholder **type-styles** are copied/seeded at slide-creation and need
+an explicit cascade. No `updateTheme/updateMaster/updateLayout` store
+methods exist yet.
+
+- [ ] commit 1 — `feat(slides): updateTheme/updateMaster/updateLayout store mutations`
+- [ ] commit 2 — `feat(slides): cascade layout geometry + master placeholder styles`
+- [ ] commit 3 — `feat(slides): theme builder mode + layouts/master thumbnail panel`
+- [ ] commit 4 — `feat(frontend): theme builder UI shell + editing surface`
+- [ ] verify: theme/master color edit repaints all slides <100 ms (role-resolved)
+- [ ] verify: layout placeholder position edit re-flows only slides on that layout; user-moved/added elements untouched
+- [ ] verify: master placeholder font-size edit picks up on unmodified placeholders only
+- [ ] verify: each edit + cascade is a single undo unit
+- [ ] verify: two-user Yorkie concurrent master + slide edit convergence
 - [ ] verify: `pnpm verify:browser:docker` covers theme builder entry
 - [ ] PR opened, reviewed, merged
 
