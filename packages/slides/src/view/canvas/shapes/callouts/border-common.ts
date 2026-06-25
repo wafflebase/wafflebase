@@ -62,8 +62,10 @@ export function leaderPointHandle(
     }),
     apply: ({ w, h }, start, pointer) => {
       const result = [...start];
-      const rawX = Math.round((pointer.x / w) * 100000);
-      const rawY = Math.round((pointer.y / h) * 100000);
+      // Guard zero-size frames so a drag can't write NaN (parity with the
+      // arrow callout handles).
+      const rawX = w > 0 ? Math.round((pointer.x / w) * 100000) : xSpec.defaultValue;
+      const rawY = h > 0 ? Math.round((pointer.y / h) * 100000) : ySpec.defaultValue;
       result[xIndex] = Math.max(xSpec.min, Math.min(xSpec.max, rawX));
       result[yIndex] = Math.max(ySpec.min, Math.min(ySpec.max, rawY));
       return result;
