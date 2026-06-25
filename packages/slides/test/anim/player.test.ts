@@ -27,7 +27,7 @@ describe('AnimationPlayer', () => {
     p.tick(0); p.tick(250); p.tick(500);
     // step0: elapsed=500 >= duration → after, opacity=1. step1: future, but
     // step1 does NOT animate e1, so e1's composed opacity comes only from step0.
-    expect(frames.at(-1)).toBeCloseTo(1);
+    expect(frames[frames.length - 1]).toBeCloseTo(1);
     expect(p.isLastStep).toBe(false);
   });
 
@@ -39,7 +39,8 @@ describe('AnimationPlayer', () => {
     const p = new AnimationPlayer(steps, size, onFrame);
     p.advance(); p.tick(0); p.tick(100);
     p.advance();          // mid-step → snap to end, do NOT start next
-    const lastFrame: Map<string, AnimState> = onFrame.mock.calls.at(-1)![0];
+    const calls = onFrame.mock.calls;
+    const lastFrame: Map<string, AnimState> = calls[calls.length - 1]![0];
     // e1 is in step0 (after snap → after phase → opacity=1).
     // e2 is in step1 (future → before → opacity=0, hidden=true) — but e2 is a
     // different element so it does not affect e1's composed state.
