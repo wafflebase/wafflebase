@@ -153,8 +153,8 @@ describe('MemSlidesStore — slides', () => {
     });
     bg.fill.value = '#00ff00'; // mutating the input must not change the store
     const fill = store.read().slides[0].background.fill;
-    expect(fill.kind).toBe('srgb');
-    if (fill.kind === 'srgb') expect(fill.value).toBe('#ff0000');
+    expect(fill?.kind).toBe('srgb');
+    if (fill?.kind === 'srgb') expect(fill.value).toBe('#ff0000');
   });
 });
 

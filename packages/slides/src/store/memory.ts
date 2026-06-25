@@ -30,7 +30,7 @@ import type {
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
-import { DEFAULT_BACKGROUND, pushRecent } from '../model/presentation';
+import { pushRecent } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
@@ -177,7 +177,9 @@ export class MemSlidesStore implements SlidesStore {
     const slide: Slide = {
       id,
       layoutId: layout.id,
-      background: clone(DEFAULT_BACKGROUND),
+      // Inherit background (no explicit fill) so master/layout background
+      // edits cascade at render via resolveBackgroundFill.
+      background: {},
       elements: layout.placeholders.map((p, i) => {
         const ref = refs[i];
         const cloned = clone(p);

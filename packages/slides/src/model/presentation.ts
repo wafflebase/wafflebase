@@ -18,7 +18,14 @@ export type BackgroundImage = {
 };
 
 export type Background = {
-  fill: ThemeColor;
+  /**
+   * Background fill. Optional: an absent fill means "inherit" — the
+   * renderer resolves it through {@link resolveBackgroundFill}
+   * (slide → layout → master → `background` role). A present fill is an
+   * explicit override at that level. Slides authored before background
+   * inheritance landed carry an explicit fill and keep their look.
+   */
+  fill?: ThemeColor;
   image?: BackgroundImage;
 };
 
@@ -156,6 +163,41 @@ export type SlidesDocument = {
 export const DEFAULT_BACKGROUND: Background = {
   fill: { kind: 'role', role: 'background' },
 };
+
+/**
+ * Resolve the effective background fill for a slide, walking the
+ * inheritance chain slide → layout → master → `background` role. The
+ * first level with an explicit `fill` wins; an absent fill at a level
+ * means "inherit from the next". Used by every renderer (canvas, PDF)
+ * so master/layout background edits cascade to inheriting slides at
+ * paint time without per-slide writes.
+ */
+export function resolveBackgroundFill(
+  slide: Slide,
+  doc: SlidesDocument,
+): ThemeColor {
+  if (slide.background.fill) return slide.background.fill;
+  const layout = doc.layouts.find((l) => l.id === slide.layoutId);
+  if (layout?.background?.fill) return layout.background.fill;
+  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+  if (master?.background.fill) return master.background.fill;
+  return { kind: 'role', role: 'background' };
+}
+
+/**
+ * Resolve the effective background image for a slide: slide → layout →
+ * master. Returns `undefined` when no level sets one.
+ */
+export function resolveBackgroundImage(
+  slide: Slide,
+  doc: SlidesDocument,
+): BackgroundImage | undefined {
+  if (slide.background.image) return slide.background.image;
+  const layout = doc.layouts.find((l) => l.id === slide.layoutId);
+  if (layout?.background?.image) return layout.background.image;
+  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+  return master?.background.image;
+}
 
 export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;

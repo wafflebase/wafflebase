@@ -27,6 +27,8 @@ export {
   DEFAULT_BACKGROUND,
   MAX_RECENT_COLORS,
   pushRecent,
+  resolveBackgroundFill,
+  resolveBackgroundImage,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
 } from './model/presentation';

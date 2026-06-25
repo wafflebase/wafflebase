@@ -1,6 +1,11 @@
 import type { Element } from '../../model/element';
 import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import {
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  resolveBackgroundFill,
+  resolveBackgroundImage,
+} from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
 import { resolveColor } from '../../model/theme';
 import type { AnimState } from '../../anim/state';
@@ -175,7 +180,7 @@ export function drawSlide(
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!hasPasteboard) {
-    ctx.fillStyle = resolveColor(slide.background.fill, theme);
+    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
     ctx.fillRect(0, 0, bitmapW, bitmapH);
   } else {
     ctx.clearRect(0, 0, bitmapW, bitmapH);
@@ -195,7 +200,7 @@ export function drawSlide(
     // and hairline are owned by `slideElevation` in slides-view.tsx
     // — keeping them in CSS means they survive every paint mode
     // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
-    ctx.fillStyle = resolveColor(slide.background.fill, theme);
+    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
     ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, SLIDE_HEIGHT + 2);
   }
 
@@ -246,15 +251,12 @@ export function drawSlide(
 }
 
 /**
- * Slide-level image background takes precedence; otherwise inherit
- * from the deck's master so master-only image decks still render.
- * Returns `undefined` when neither is set.
+ * Image background precedence slide → layout → master (see
+ * {@link resolveBackgroundImage}). Returns `undefined` when none is set.
  */
 function pickBackgroundImage(
   slide: Slide,
   doc: SlidesDocument,
 ): BackgroundImage | undefined {
-  if (slide.background.image) return slide.background.image;
-  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
-  return master?.background.image;
+  return resolveBackgroundImage(slide, doc);
 }

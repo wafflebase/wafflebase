@@ -1,6 +1,5 @@
 import type { Document as YorkieDocument, Presence, TimeTicket } from '@yorkie-js/sdk';
 import {
-  DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
   type ArrowheadStyle,
   type Background,
@@ -706,7 +705,9 @@ export class YorkieSlidesStore implements SlidesStore {
       const slide: YorkieSlide = {
         id,
         layoutId: layout.id,
-        background: clone(MODEL_DEFAULT_BACKGROUND) as YorkieSlide['background'],
+        // Inherit background (no explicit fill) so master/layout
+        // background edits cascade at render via resolveBackgroundFill.
+        background: {},
         elements,
         notes: [],
       };
