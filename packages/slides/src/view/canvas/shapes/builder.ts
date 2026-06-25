@@ -11,10 +11,7 @@ export type FrameSize = { w: number; h: number };
  * coordinates (top-left at 0,0). Path builders MUST NOT touch
  * fillStyle/strokeStyle — the dispatcher handles theme colour.
  */
-export type PathBuilder = (
-  size: FrameSize,
-  adjustments?: number[],
-) => Path2D;
+export type PathBuilder = (size: FrameSize, adjustments?: number[]) => Path2D;
 
 /**
  * One filled face of a multi-fill (3D-look / folded) shape. `path` is a
@@ -63,9 +60,9 @@ export type AdjustmentSpec = {
    * Optional short label for the multi-axis drag tooltip
    * ("x: 75% / y: 100%"). When absent the tooltip falls back to the
    * last whitespace-delimited word of `name` (e.g. "Tail x" → "x").
-   * Populate this when the heuristic would collide — e.g. mathNotEqual's
-   * "Bar thickness" and "Slash thickness" both end in "thickness" and
-   * need explicit labels to stay distinguishable.
+   * Populate this when the heuristic would collide — e.g. pie/arc/blockArc's
+   * "Start angle" and "End angle" both end in "angle" and need explicit
+   * labels to stay distinguishable.
    */
   axisLabel?: string;
 };
