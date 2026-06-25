@@ -82,4 +82,4 @@ table at build time from the canonical `presetShapeDefinitions.xml`.
 
 - [x] `pnpm verify:fast` green (exit 0)
 - [x] Real-browser render check: cloud silhouette + 4 arrows right + text centered
-- [ ] Self code-review the branch diff
+- [x] Self code-review the branch diff (shipped via PR #411, `f14458d6`)

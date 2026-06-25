@@ -21,9 +21,9 @@ const shouldRun = Boolean(process.env.YORKIE_RPC_ADDR);
 // intent-preserving-edits Tree migration and need a focused fix; skipped
 // (not deleted) so the rest of the lane stays green in CI while the
 // failures remain documented. Tracked in
-// docs/tasks/active/20260517-docs-comments-followup-todo.md.
+// docs/tasks/active/20260625-docs-collaboration-convergence-todo.md.
 const KNOWN_BUG =
-  'Known docs Tree convergence bug — see 20260517-docs-comments-followup-todo.md';
+  'Known docs Tree convergence bug — see 20260625-docs-collaboration-convergence-todo.md';
 
 /** Normalize blocks to a canonical shape for structural comparison. */
 function normalizeBlocks(blocks: Block[]) {

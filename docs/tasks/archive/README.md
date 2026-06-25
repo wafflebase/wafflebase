@@ -6,14 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 309
+Total archived tasks: 316
 
-## 2026/06 (62 tasks)
+## 2026/06 (68 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| callout ooxml fidelity (2026-06-25) | [20260625-callout-ooxml-fidelity-todo.md](./2026/06/20260625-callout-ooxml-fidelity-todo.md) | [20260625-callout-ooxml-fidelity-lessons.md](./2026/06/20260625-callout-ooxml-fidelity-lessons.md) |
+| heart ecma geometry (2026-06-25) | [20260625-heart-ecma-geometry-todo.md](./2026/06/20260625-heart-ecma-geometry-todo.md) | [20260625-heart-ecma-geometry-lessons.md](./2026/06/20260625-heart-ecma-geometry-lessons.md) |
+| notequal ecma geometry (2026-06-24) | [20260624-notequal-ecma-geometry-todo.md](./2026/06/20260624-notequal-ecma-geometry-todo.md) | [20260624-notequal-ecma-geometry-lessons.md](./2026/06/20260624-notequal-ecma-geometry-lessons.md) |
+| bentarrow pptx geometry (2026-06-23) | [20260623-bentarrow-pptx-geometry-todo.md](./2026/06/20260623-bentarrow-pptx-geometry-todo.md) | - |
 | design archive policy (2026-06-23) | [20260623-design-archive-policy-todo.md](./2026/06/20260623-design-archive-policy-todo.md) | [20260623-design-archive-policy-lessons.md](./2026/06/20260623-design-archive-policy-lessons.md) |
+| pptx textbox fill import (2026-06-23) | [20260623-pptx-textbox-fill-import-todo.md](./2026/06/20260623-pptx-textbox-fill-import-todo.md) | [20260623-pptx-textbox-fill-import-lessons.md](./2026/06/20260623-pptx-textbox-fill-import-lessons.md) |
 | release v0.4.7 (2026-06-23) | [20260623-release-v0.4.7-todo.md](./2026/06/20260623-release-v0.4.7-todo.md) | - |
+| slide10 cloud arrows (2026-06-23) | [20260623-slide10-cloud-arrows-todo.md](./2026/06/20260623-slide10-cloud-arrows-todo.md) | [20260623-slide10-cloud-arrows-lessons.md](./2026/06/20260623-slide10-cloud-arrows-lessons.md) |
 | slides cli phase1 (2026-06-23) | [20260623-slides-cli-phase1-todo.md](./2026/06/20260623-slides-cli-phase1-todo.md) | [20260623-slides-cli-phase1-lessons.md](./2026/06/20260623-slides-cli-phase1-lessons.md) |
 | slides pptx export (2026-06-23) | [20260623-slides-pptx-export-todo.md](./2026/06/20260623-slides-pptx-export-todo.md) | [20260623-slides-pptx-export-lessons.md](./2026/06/20260623-slides-pptx-export-lessons.md) |
 | comments mentions (2026-06-21) | [20260621-comments-mentions-todo.md](./2026/06/20260621-comments-mentions-todo.md) | [20260621-comments-mentions-lessons.md](./2026/06/20260621-comments-mentions-lessons.md) |
@@ -75,7 +81,7 @@ Total archived tasks: 309
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (102 tasks)
+## 2026/05 (103 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -130,6 +136,7 @@ Total archived tasks: 309
 | slides precise shape hit test (2026-05-19) | [20260519-slides-precise-shape-hit-test-todo.md](./2026/05/20260519-slides-precise-shape-hit-test-todo.md) | - |
 | slides shape move ghost (2026-05-19) | [20260519-slides-shape-move-ghost-todo.md](./2026/05/20260519-slides-shape-move-ghost-todo.md) | - |
 | release v0.4.1 (2026-05-18) | [20260518-release-v0.4.1-todo.md](./2026/05/20260518-release-v0.4.1-todo.md) | - |
+| docs comments followup (2026-05-17) | [20260517-docs-comments-followup-todo.md](./2026/05/20260517-docs-comments-followup-todo.md) | [20260517-docs-comments-followup-lessons.md](./2026/05/20260517-docs-comments-followup-lessons.md) |
 | pptx connector site index (2026-05-17) | [20260517-pptx-connector-site-index-todo.md](./2026/05/20260517-pptx-connector-site-index-todo.md) | [20260517-pptx-connector-site-index-lessons.md](./2026/05/20260517-pptx-connector-site-index-lessons.md) |
 | pptx image background (2026-05-17) | [20260517-pptx-image-background-todo.md](./2026/05/20260517-pptx-image-background-todo.md) | [20260517-pptx-image-background-lessons.md](./2026/05/20260517-pptx-image-background-lessons.md) |
 | pptx image opacity (2026-05-17) | [20260517-pptx-image-opacity-todo.md](./2026/05/20260517-pptx-image-opacity-todo.md) | [20260517-pptx-image-opacity-lessons.md](./2026/05/20260517-pptx-image-opacity-lessons.md) |

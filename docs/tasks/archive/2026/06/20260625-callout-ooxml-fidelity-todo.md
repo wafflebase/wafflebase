@@ -31,11 +31,12 @@ See `docs/design/slides/slides-shapes.md` → *Callout geometry fidelity*.
 - [x] Per-builder `isPointInPath` unit tests updated to the new geometry;
       shape-registry Path2D snapshot regenerated.
 - [x] `docs/design/slides/slides-shapes.md` callout-fidelity subsection.
-- [ ] (Follow-up) Authored-adjustment visual scenario for one
-      wedge + one border + one arrow. The catalog scenario already
-      renders all 14 callouts at defaults on every theme; the snapshot
-      test covers geometry precisely, so this is optional regression
-      polish, deferred to avoid scenario-id lockstep churn.
+**Deferred (not done — optional polish):** authored-adjustment visual
+scenario for one wedge + one border + one arrow. The catalog scenario
+already renders all 14 callouts at defaults on every theme; the snapshot
+test covers geometry precisely, so this is optional regression polish,
+deferred to avoid scenario-id lockstep churn. Pick up under the
+`ooxml-shape-parity` umbrella if/when prioritized.
 
 ## Verification
 
