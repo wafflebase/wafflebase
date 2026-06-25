@@ -104,7 +104,7 @@ import { type Store } from './store/store';
 import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
-import { ReadOnlyStore } from './store/readonly';
+import { ReadOnlyStore, toCell } from './store/readonly';
 import {
   initialize,
   Spreadsheet,
@@ -194,6 +194,7 @@ export {
   MemStore,
   CellIndex,
   ReadOnlyStore,
+  toCell,
   findEdgeWithIndex,
   DimensionIndex,
   toColumnLabel,

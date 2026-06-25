@@ -3,7 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Client } from 'pg';
+import { Client, types } from 'pg';
 import { PrismaService } from 'src/database/prisma.service';
 import { encrypt, decrypt } from './crypto.util';
 import { validateSelectQuery } from './sql-validator';
@@ -15,6 +15,26 @@ import {
 
 const QUERY_TIMEOUT_MS = 30_000;
 const MAX_ROWS = 10_000;
+
+// Keep date/time types as raw Postgres text instead of JS `Date`, which the
+// default parser shifts by the Node runtime timezone. (TIME/TIMETZ are strings.)
+const RAW_TEXT_OIDS = new Set([
+  types.builtins.DATE,
+  types.builtins.TIMESTAMP,
+  types.builtins.TIMESTAMPTZ,
+]);
+
+// pg-types types getTypeParser's return as `any`; pin it to avoid leaking `any`.
+type ValueParser = (value: string) => unknown;
+const getDefaultParser = types.getTypeParser as (
+  oid: Parameters<typeof types.getTypeParser>[0],
+  format?: Parameters<typeof types.getTypeParser>[1],
+) => ValueParser;
+
+const datasourceTypeParser: typeof types.getTypeParser = (oid, format) =>
+  RAW_TEXT_OIDS.has(oid)
+    ? (value: string) => value
+    : getDefaultParser(oid, format);
 
 @Injectable()
 export class DataSourceService {
@@ -119,10 +139,12 @@ export class DataSourceService {
     try {
       await client.connect();
 
-      // Set statement timeout
-      await client.query(
-        `SET statement_timeout = '${QUERY_TIMEOUT_MS}'`,
-      );
+      // Normalize output formatting only (not input parsing): UTC, ISO dates,
+      // and C money — so results are deterministic across server locales.
+      await client.query(`SET statement_timeout = '${QUERY_TIMEOUT_MS}'`);
+      await client.query(`SET TimeZone = 'UTC'`);
+      await client.query(`SET DateStyle = 'ISO'`);
+      await client.query(`SET lc_monetary = 'C'`);
 
       // Wrap with LIMIT to enforce max rows
       const wrappedQuery = `SELECT * FROM (${dto.query}) AS _q LIMIT ${MAX_ROWS + 1}`;
@@ -181,6 +203,7 @@ export class DataSourceService {
       password: decrypt(ds.password),
       ssl: ds.sslEnabled ? { rejectUnauthorized: false } : false,
       connectionTimeoutMillis: 10_000,
+      types: { getTypeParser: datasourceTypeParser },
     });
   }
 }
