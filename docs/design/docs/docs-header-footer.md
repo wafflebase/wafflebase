@@ -74,10 +74,16 @@ alignment) apply normally.
 
 ### Blocked Block Types
 
-Header/footer blocks must not contain: `table`, `page-break`,
-`horizontal-rule`. The editor prevents creation of these types when
-`editContext` is `'header'` or `'footer'`. `heading`, `list-item`, and
-`paragraph` are allowed.
+The editor prevents *creation* of `table`, `page-break`, and
+`horizontal-rule` blocks when `editContext` is `'header'` or `'footer'`.
+`heading`, `list-item`, and `paragraph` are allowed.
+
+This is a restriction on user-initiated insertion, not on what the model
+may hold: DOCX import preserves header/footer tables as native `table`
+blocks (a common letterhead pattern), and they render through the same
+`computeLayout` the body uses. Interactive table editing inside a header
+or footer (cell navigation, add/remove rows) is not yet wired — imported
+header/footer tables are render-faithful but edited at the block level.
 
 ## Layout
 

@@ -252,8 +252,16 @@ Location: `packages/docs/src/import/docx-importer.ts`
 | `<w:tbl>` inside `<w:tc>` | Flattened to text paragraphs |
 | `<w:drawing><wp:inline>` | Image inline within the parent paragraph |
 | `<w:sectPr>` | `PageSetup` |
-| `<w:headerReference>` | `HeaderFooter` (parse referenced header XML) |
-| `<w:footerReference>` | `HeaderFooter` (parse referenced footer XML) |
+| `<w:headerReference>` | `HeaderFooter` (parse referenced header XML; `<w:p>` and `<w:tbl>` children both convert) |
+| `<w:footerReference>` | `HeaderFooter` (parse referenced footer XML; `<w:p>` and `<w:tbl>` children both convert) |
+
+Header and footer parts reuse the same `<w:p>`/`<w:tbl>` walk as the body:
+`parseHeaderFooter` dispatches tables through `convertTable` with the
+part-scoped image map, so a letterhead layout table in a header imports as
+a native `table` block (rendered via the shared `computeLayout`). On export,
+`buildHeaderFooterXml` appends a trailing empty `<w:p/>` when the last
+header/footer block is a table, since OOXML requires that a header/footer
+part not end with a table.
 
 7. **Upload extracted images** to the image service, replace embedded
    references with URLs.

@@ -318,7 +318,13 @@ ${bodyXml}
     imageEntries: ImageEntry[],
   ): string {
     const tag = type === 'header' ? 'hdr' : 'ftr';
-    const blocks = hf.blocks.map((b) => DocxExporter.blockToXml(b, imageEntries)).join('\n');
+    let blocks = hf.blocks.map((b) => DocxExporter.blockToXml(b, imageEntries)).join('\n');
+    // OOXML requires that a header/footer part not end with a table — Word
+    // repairs the file otherwise. Append a trailing empty paragraph when the
+    // last block is a table, mirroring Word's own output.
+    if (hf.blocks[hf.blocks.length - 1]?.type === 'table') {
+      blocks += '\n    <w:p/>';
+    }
     // Include the drawing-related namespaces so that any embedded
     // <w:drawing> emitted by inlineToXml resolves correctly.
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

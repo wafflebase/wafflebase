@@ -680,6 +680,11 @@ export class DocxImporter {
       const el = node as Element;
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, partImageUrls));
+      } else if (el.localName === 'tbl') {
+        // Headers and footers can contain tables (e.g. a logo/contact
+        // layout grid). Reuse the body table converter with the part-scoped
+        // image map so cell images resolve against the header/footer rels.
+        blocks.push(DocxImporter.convertTable(el, partImageUrls));
       }
     }
 

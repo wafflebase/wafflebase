@@ -374,4 +374,48 @@ describe('DocxExporter', () => {
     expect(mediaFiles.length).toBe(2);
     expect(new Set(mediaFiles).size).toBe(2);
   });
+
+  it('should export and re-import a table inside a header', async () => {
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'Body', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+      header: {
+        blocks: [{
+          id: generateBlockId(),
+          type: 'table',
+          inlines: [],
+          style: { ...DEFAULT_BLOCK_STYLE },
+          tableData: {
+            rows: [{
+              cells: [
+                { blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: 'Left', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }], style: {} },
+                { blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: 'Right', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }], style: {} },
+              ],
+            }],
+            columnWidths: [0.5, 0.5],
+          },
+        }],
+        marginFromEdge: 48,
+      },
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const headerXml = await zip.file('word/header1.xml')?.async('string');
+    expect(headerXml!).toContain('<w:tbl>');
+    // A header part must not end with a table; a trailing paragraph follows it.
+    expect(headerXml!.trimEnd().endsWith('</w:hdr>')).toBe(true);
+    expect(headerXml!).toMatch(/<\/w:tbl>\s*<w:p\/>/);
+
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    const tableBlock = reimported.header!.blocks.find((b) => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    expect(tableBlock!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('Left');
+    expect(tableBlock!.tableData!.rows[0].cells[1].blocks[0].inlines[0].text).toBe('Right');
+  });
 });

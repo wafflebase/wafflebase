@@ -39,5 +39,25 @@ exporter disambiguation are tracked here.
 ## Revisit later
 
 - [ ] **5. `w:tblW` / `w:tcW`** — honor table/cell width overrides
-- [ ] **6. Support tables inside header / footer parts**
+- [x] **6. Support tables inside header / footer parts** — importer
+      `parseHeaderFooter` now dispatches `<w:tbl>` through `convertTable`
+      with the part-scoped image map; exporter already routed header/footer
+      blocks through `blockToXml` (handles tables), plus a trailing empty
+      `<w:p/>` guard so a header/footer never ends with a table (OOXML
+      validity). Render path reuses `computeLayout`, which already lays out
+      table blocks for the body.
 - [ ] **7. Replace nested-table flattening with native rendering**
+
+## Review (item 6)
+
+- **Importer** (`docx-importer.ts` `parseHeaderFooter`): added a `tbl`
+  branch mirroring the body walk; reuses `convertTable` so all the
+  table-style work (borders inheritance, vAlign, trHeight, vMerge,
+  gridBefore/After) applies inside header/footer cells too.
+- **Exporter** (`docx-exporter.ts` `buildHeaderFooterXml`): no dispatch
+  change needed (`blockToXml` already handles tables); added a trailing
+  `<w:p/>` when the last header/footer block is a table.
+- **Tests**: importer test imports a header table and asserts cell text;
+  exporter test round-trips a header table and asserts the trailing
+  `</w:tbl><w:p/>` and re-import fidelity.
+- `pnpm verify:fast` green.
