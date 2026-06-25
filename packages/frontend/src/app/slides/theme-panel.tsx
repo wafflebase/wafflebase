@@ -1,26 +1,33 @@
-import { IconX } from "@tabler/icons-react";
+import { useState } from "react";
 import { BUILT_IN_THEMES, type SlidesStore } from "@wafflebase/slides";
 import { applyBuiltInTheme } from "./theme-panel-helpers";
 import { ThemeThumbnail } from "./theme-thumbnail";
+import { ThemeBuilderPanel } from "./theme-builder-panel";
 
 interface ThemePanelProps {
   store: SlidesStore;
   currentThemeId: string;
   onClose: () => void;
   /**
-   * `drawer` (default) docks as a fixed-width `<aside>` column on the
-   * right of the desktop editor. `sheet` returns content-only — no
-   * width / border / own header — so a mobile bottom `Sheet` owns the
-   * chrome (title + built-in close).
+   * `drawer` (default) docks as a fixed-width column on the right of the
+   * desktop editor. `sheet` returns content-only — no width / border /
+   * own header — so a mobile bottom `Sheet` owns the chrome.
    */
   variant?: "drawer" | "sheet";
 }
 
+type View = "themes" | "customize";
+
 /**
- * Side panel listing the built-in themes. Clicking a thumbnail batches
- * `addTheme` + `applyTheme` so the change is one undo step. On desktop
- * it docks as a fixed-width column (`variant="drawer"`); on mobile it
- * renders inside a bottom sheet (`variant="sheet"`).
+ * Theme side panel with two tabs:
+ *  - **Themes** — pick a built-in theme (batches addTheme + applyTheme as
+ *    one undo step).
+ *  - **Customize** — the in-editor theme builder (colors / fonts / master
+ *    background), embedded so the deck's "what does it look like?" controls
+ *    live behind a single toolbar button.
+ *
+ * On desktop it docks as a fixed-width column (`variant="drawer"`); on
+ * mobile it renders inside a bottom sheet (`variant="sheet"`).
  */
 export function ThemePanel({
   store,
@@ -28,65 +35,76 @@ export function ThemePanel({
   onClose,
   variant = "drawer",
 }: ThemePanelProps) {
-  const list = (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {BUILT_IN_THEMES.map((t) => (
-        <ThemeThumbnail
-          key={t.id}
-          theme={t}
-          selected={t.id === currentThemeId}
-          onClick={() => applyBuiltInTheme(store, t.id)}
-        />
+  const [view, setView] = useState<View>("themes");
+
+  const tabs = (
+    <div
+      role="tablist"
+      aria-label="Theme view"
+      className="flex gap-1 rounded-md bg-muted p-0.5"
+    >
+      {(["themes", "customize"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={view === v}
+          onClick={() => setView(v)}
+          className={`flex-1 rounded px-2 py-1 text-xs font-medium capitalize transition-colors ${
+            view === v
+              ? "bg-background shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {v}
+        </button>
       ))}
     </div>
   );
 
+  const body =
+    view === "themes" ? (
+      <div className="flex flex-col gap-2 p-3">
+        {BUILT_IN_THEMES.map((t) => (
+          <ThemeThumbnail
+            key={t.id}
+            theme={t}
+            selected={t.id === currentThemeId}
+            onClick={() => applyBuiltInTheme(store, t.id)}
+          />
+        ))}
+      </div>
+    ) : (
+      <ThemeBuilderPanel store={store} currentThemeId={currentThemeId} />
+    );
+
   if (variant === "sheet") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{list}</div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pt-1">{tabs}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto pb-4">{body}</div>
+      </div>
     );
   }
 
   return (
     <aside
-      aria-label="Theme picker"
-      style={{
-        width: 220,
-        padding: 12,
-        borderLeft: "1px solid var(--border, #e5e5e5)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        overflowY: "auto",
-        flexShrink: 0,
-      }}
+      aria-label="Theme"
+      className="flex w-72 shrink-0 flex-col border-l bg-background"
     >
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <h2 style={{ fontSize: 14, margin: 0, fontWeight: 600 }}>Theme</h2>
+      <header className="flex items-center justify-between border-b p-2">
+        <h2 className="text-sm font-semibold">Theme</h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close theme picker"
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 4,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
+          aria-label="Close theme panel"
+          className="rounded p-1 hover:bg-muted"
         >
-          <IconX size={16} />
+          ×
         </button>
       </header>
-      {list}
+      <div className="p-2">{tabs}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
     </aside>
   );
 }

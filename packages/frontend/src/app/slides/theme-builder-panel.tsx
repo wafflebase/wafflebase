@@ -1,11 +1,13 @@
 /**
- * Theme builder panel — in-editor "Customize the theme" surface (PR3).
+ * Theme builder — in-editor "Customize the theme" surface (PR3).
  *
- * Edits the deck's ACTIVE theme and master in place through the store's
- * updateTheme / updateMaster mutations. Because role-bound colors and
- * fonts resolve at render and slide backgrounds inherit from the master,
- * every edit here cascades to all slides on the next repaint — no
- * per-slide writes. Each change is one undo step (wrapped in store.batch).
+ * Content-only: it renders the editing sections (colors / fonts / master
+ * background) and is embedded inside the Theme panel's "Customize" tab,
+ * which owns the panel chrome. Edits go through updateTheme / updateMaster
+ * in place; role-bound colors and fonts resolve at render and slide
+ * backgrounds inherit from the master, so every edit cascades to all
+ * slides on the next repaint — no per-slide writes. Each change is one
+ * undo step (wrapped in store.batch).
  *
  * v1 surface: theme color roles, theme heading/body fonts, master
  * background fill. Per-layout placeholder geometry editing (canvas drag)
@@ -29,8 +31,6 @@ interface ThemeBuilderPanelProps {
   store: SlidesStore;
   /** Active theme id, kept in sync by the parent via store.onChange. */
   currentThemeId: string;
-  onClose: () => void;
-  variant?: "drawer" | "sheet";
 }
 
 /** The 12 theme color roles, in editing order, with human labels. */
@@ -68,8 +68,6 @@ function toColorInputValue(hex: string): string {
 export function ThemeBuilderPanel({
   store,
   currentThemeId,
-  onClose,
-  variant = "drawer",
 }: ThemeBuilderPanelProps) {
   // Re-render on any store change (local commit or remote peer edit) so
   // the controls reflect the current theme/master. The store reads below
@@ -116,7 +114,7 @@ export function ThemeBuilderPanel({
     );
   };
 
-  const content = (
+  return (
     <div className="flex flex-col gap-5 p-3">
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Colors</h3>
@@ -188,29 +186,5 @@ export function ThemeBuilderPanel({
         </p>
       </section>
     </div>
-  );
-
-  if (variant === "sheet") {
-    return <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>;
-  }
-
-  return (
-    <aside
-      aria-label="Theme builder"
-      className="flex w-72 shrink-0 flex-col border-l bg-background"
-    >
-      <header className="flex items-center justify-between border-b p-2">
-        <h2 className="text-sm font-semibold">Theme builder</h2>
-        <button
-          type="button"
-          aria-label="Close theme builder"
-          onClick={onClose}
-          className="rounded p-1 hover:bg-muted"
-        >
-          ×
-        </button>
-      </header>
-      <div className="flex-1 overflow-y-auto">{content}</div>
-    </aside>
   );
 }

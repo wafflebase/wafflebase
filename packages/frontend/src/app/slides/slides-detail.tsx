@@ -28,7 +28,6 @@ import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
-import { ThemeBuilderPanel } from "./theme-builder-panel";
 import {
   Sheet,
   SheetContent,
@@ -149,7 +148,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  type RightPanel = "theme" | "format" | "motion" | "builder" | null;
+  type RightPanel = "theme" | "format" | "motion" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   // Session-scoped zoom controller shared between SlidesView (drives
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
@@ -364,10 +363,6 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               setRightPanel((p) => (p === "motion" ? null : "motion"))
             }
             motionPanelOpen={rightPanel === "motion"}
-            onToggleBuilderPanel={() =>
-              setRightPanel((p) => (p === "builder" ? null : "builder"))
-            }
-            builderPanelOpen={rightPanel === "builder"}
             zoomController={zoomControllerRef.current}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -397,13 +392,6 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               <MotionPanel
                 store={store}
                 editor={editor}
-                onClose={() => setRightPanel(null)}
-              />
-            )}
-            {rightPanel === "builder" && store && (
-              <ThemeBuilderPanel
-                store={store}
-                currentThemeId={currentThemeId}
                 onClose={() => setRightPanel(null)}
               />
             )}
@@ -461,10 +449,6 @@ const MOBILE_PANEL_META = {
     title: "Motion",
     description: "Configure slide transitions and object animations.",
   },
-  builder: {
-    title: "Theme builder",
-    description: "Customize the deck's theme colors, fonts, and background.",
-  },
 } as const;
 
 /**
@@ -491,7 +475,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
   // Which design/format panel is open as a bottom sheet. Mirrors the
   // desktop `rightPanel` side-drawer state machine, but the panels render
   // inside a `Sheet` instead of docking next to the canvas.
-  type RightPanel = "theme" | "format" | "motion" | "builder" | null;
+  type RightPanel = "theme" | "format" | "motion" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const panelMeta = rightPanel ? MOBILE_PANEL_META[rightPanel] : null;
   // Mirror the active theme so the Format sheet's theme-bound pickers

@@ -66,6 +66,8 @@ Plan re-split into 5 commits for reviewability.
 - [x] commit 2 — `feat(slides): background fill/image inheritance (slide→layout→master)`
 - [x] commit 3 — `feat(slides): cascade layout geometry + master placeholder styles`
 - [x] commit 4 — `feat(frontend): theme builder panel (colors / fonts / background)`
+      — entered via the Theme panel's "Customize" tab (no separate toolbar
+      button); edits apply live to all slides
 - [ ] commit 5 — canvas layout-editing mode: thumbnail panel → layouts/master
       list + drag placeholders, on top of the shipped updateLayout /
       updateLayoutPlaceholderFrame store methods (separate follow-up; the
