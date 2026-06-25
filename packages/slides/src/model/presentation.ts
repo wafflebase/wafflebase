@@ -165,18 +165,41 @@ export const DEFAULT_BACKGROUND: Background = {
 };
 
 /**
+ * A bare `background` role fill (no lum/tint/shade/alpha modifiers) is the
+ * system default every slide used to be seeded with before background
+ * inheritance landed. It is indistinguishable from "no background chosen",
+ * so it is treated as inherit — this lets a master/layout background edit
+ * reach slides authored before inheritance (which all carry this exact
+ * fill), not just freshly-created ones. A genuine custom override (an
+ * srgb color, or the background role with a tint/shade) still wins.
+ */
+function isInheritableFill(fill: ThemeColor): boolean {
+  return (
+    fill.kind === 'role' &&
+    fill.role === 'background' &&
+    fill.lumMod === undefined &&
+    fill.lumOff === undefined &&
+    fill.tint === undefined &&
+    fill.shade === undefined &&
+    fill.alpha === undefined
+  );
+}
+
+/**
  * Resolve the effective background fill for a slide, walking the
  * inheritance chain slide → layout → master → `background` role. The
- * first level with an explicit `fill` wins; an absent fill at a level
- * means "inherit from the next". Used by every renderer (canvas, PDF)
- * so master/layout background edits cascade to inheriting slides at
- * paint time without per-slide writes.
+ * first level with an explicit (non-inheritable) `fill` wins; an absent
+ * or bare-default fill means "inherit from the next". Used by every
+ * renderer (canvas, PDF) so master/layout background edits cascade to
+ * inheriting slides at paint time without per-slide writes.
  */
 export function resolveBackgroundFill(
   slide: Slide,
   doc: SlidesDocument,
 ): ThemeColor {
-  if (slide.background.fill) return slide.background.fill;
+  if (slide.background.fill && !isInheritableFill(slide.background.fill)) {
+    return slide.background.fill;
+  }
   const layout = doc.layouts.find((l) => l.id === slide.layoutId);
   if (layout?.background?.fill) return layout.background.fill;
   const master = doc.masters.find((m) => m.id === doc.meta.masterId);

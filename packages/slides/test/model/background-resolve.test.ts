@@ -54,6 +54,29 @@ describe('resolveBackgroundFill — precedence slide → layout → master → r
     });
   });
 
+  it('treats a bare background-role slide fill as inherit (legacy default)', () => {
+    // Slides authored before inheritance carry an explicit
+    // {role:'background'} fill; a master background edit must still reach
+    // them, so a bare background role is not an override.
+    const master = structuredClone(DEFAULT_MASTER);
+    master.background.fill = { kind: "srgb", value: "#333333" };
+    const d = doc({ masters: [master] });
+    const s = slide({ fill: { kind: "role", role: "background" } });
+    expect(resolveBackgroundFill(s, d)).toEqual({ kind: "srgb", value: "#333333" });
+  });
+
+  it('keeps a background-role fill that carries a modifier as an override', () => {
+    const master = structuredClone(DEFAULT_MASTER);
+    master.background.fill = { kind: "srgb", value: "#333333" };
+    const d = doc({ masters: [master] });
+    const s = slide({ fill: { kind: "role", role: "background", shade: 0.1 } });
+    expect(resolveBackgroundFill(s, d)).toEqual({
+      kind: "role",
+      role: "background",
+      shade: 0.1,
+    });
+  });
+
   it('falls back to the master fill when slide and layout have none', () => {
     const master = structuredClone(DEFAULT_MASTER);
     master.background.fill = { kind: 'srgb', value: '#333333' };
