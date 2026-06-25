@@ -56,7 +56,8 @@ export const DOWN_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const a3 = start[2] ?? DEF_DEPTH;
-      const maxA4 = Math.max(0, 100000 - a3);
+      // Vertical: body max matches the ss-based seam: 100000 - a3·ss/h.
+      const maxA4 = Math.max(0, 100000 - Math.round((a3 * ss) / h));
       const rawA4 = h > 0 ? Math.round((y / h) * 100000) : DEF_BODY;
       const newA4 = Math.max(0, Math.min(maxA4, rawA4));
       const dx1 = Math.abs(x - w / 2);

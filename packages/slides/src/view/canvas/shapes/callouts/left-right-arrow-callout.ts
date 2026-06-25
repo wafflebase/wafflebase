@@ -88,7 +88,9 @@ export const LEFT_RIGHT_ARROW_CALLOUT_HANDLES: readonly AdjustmentHandle[] = [
       const x = Math.max(0, Math.min(w, pointer.x));
       const y = Math.max(0, Math.min(h, pointer.y));
       const a3 = start[2] ?? DEF_DEPTH;
-      const maxA4 = Math.max(0, 100000 - 2 * a3);
+      // Two heads + ss-based depth: seam at w/2 - ss·a3/100000, so the
+      // central-body max is 100000 - 2·a3·ss/w.
+      const maxA4 = Math.max(0, 100000 - Math.round((2 * a3 * ss) / w));
       const dx = Math.abs(x - w / 2);
       const rawA4 = w > 0 ? Math.round((dx / (w / 2)) * 100000) : DEF_BI_BODY;
       const newA4 = Math.max(0, Math.min(maxA4, rawA4));

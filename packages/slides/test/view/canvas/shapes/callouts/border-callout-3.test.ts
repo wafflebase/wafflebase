@@ -23,15 +23,22 @@ describe('BORDER_CALLOUT_3_HANDLES', () => {
     expect(BORDER_CALLOUT_3_HANDLES.length).toBe(4);
   });
 
-  it('the target handle writes its (y,x) pair (indices 6,7)', () => {
-    const start = BORDER_CALLOUT_3_ADJUSTMENTS.map((a) => a.defaultValue);
-    const next = BORDER_CALLOUT_3_HANDLES[3].apply(
-      { w: 1000, h: 1000 },
-      start,
-      { x: 600, y: 800 },
-    );
-    expect(next[7]).toBeCloseTo(60000, -2); // x = 60%
-    expect(next[6]).toBeCloseTo(80000, -2); // y = 80%
-    expect(next[0]).toBe(start[0]);
-  });
+  it.each([0, 1, 2, 3])(
+    'handle %i writes its own (y,x) pair and leaves the others untouched',
+    (i) => {
+      const start = BORDER_CALLOUT_3_ADJUSTMENTS.map((a) => a.defaultValue);
+      const next = BORDER_CALLOUT_3_HANDLES[i].apply(
+        { w: 1000, h: 1000 },
+        start,
+        { x: 600, y: 800 },
+      );
+      const yIndex = 2 * i;
+      const xIndex = 2 * i + 1;
+      expect(next[xIndex]).toBeCloseTo(60000, -2); // x = 60%
+      expect(next[yIndex]).toBeCloseTo(80000, -2); // y = 80%
+      next.forEach((v, idx) => {
+        if (idx !== xIndex && idx !== yIndex) expect(v).toBe(start[idx]);
+      });
+    },
+  );
 });

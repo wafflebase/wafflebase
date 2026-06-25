@@ -23,17 +23,22 @@ describe('BORDER_CALLOUT_2_HANDLES', () => {
     expect(BORDER_CALLOUT_2_HANDLES.length).toBe(3);
   });
 
-  it('each handle writes BOTH its y and x index per drag', () => {
-    const start = BORDER_CALLOUT_2_ADJUSTMENTS.map((a) => a.defaultValue);
-    const frame = { w: 1000, h: 1000 };
-    // Handle 1 controls the bend point at indices (y=2, x=3).
-    const next = BORDER_CALLOUT_2_HANDLES[1].apply(frame, start, {
-      x: 250,
-      y: 400,
-    });
-    expect(next[3]).toBeCloseTo(25000, -2); // x = 25%
-    expect(next[2]).toBeCloseTo(40000, -2); // y = 40%
-    expect(next[0]).toBe(start[0]); // first point untouched
-    expect(next[4]).toBe(start[4]); // target untouched
+  it.each([0, 1, 2])(
+    'handle %i writes its own (y,x) pair and leaves the others untouched',
+    (i) => {
+      const start = BORDER_CALLOUT_2_ADJUSTMENTS.map((a) => a.defaultValue);
+      const frame = { w: 1000, h: 1000 };
+      const next = BORDER_CALLOUT_2_HANDLES[i].apply(frame, start, {
+        x: 250,
+        y: 400,
+      });
+      const yIndex = 2 * i;
+      const xIndex = 2 * i + 1;
+      expect(next[xIndex]).toBeCloseTo(25000, -2); // x = 25%
+      expect(next[yIndex]).toBeCloseTo(40000, -2); // y = 40%
+      // Every other index is passed through unchanged.
+      next.forEach((v, idx) => {
+        if (idx !== xIndex && idx !== yIndex) expect(v).toBe(start[idx]);
+      });
   });
 });
