@@ -126,14 +126,11 @@ describe('DataSourceService', () => {
     });
 
     expect(client.connect).toHaveBeenCalledTimes(1);
-    expect(client.query).toHaveBeenNthCalledWith(
-      1,
-      "SET statement_timeout = '30000'",
-    );
-    expect(client.query).toHaveBeenNthCalledWith(
-      2,
-      'SELECT * FROM (SELECT id FROM users) AS _q LIMIT 10001',
-    );
+    expect(client.query).toHaveBeenNthCalledWith(1, "SET statement_timeout = '30000'");
+    expect(client.query).toHaveBeenNthCalledWith(2, "SET TimeZone = 'UTC'");
+    expect(client.query).toHaveBeenNthCalledWith(3, "SET DateStyle = 'ISO'");
+    expect(client.query).toHaveBeenNthCalledWith(4, "SET lc_monetary = 'C'");
+    expect(client.query).toHaveBeenNthCalledWith(5, 'SELECT * FROM (SELECT id FROM users) AS _q LIMIT 10001');
     expect(client.end).toHaveBeenCalledTimes(1);
 
     expect(result.columns).toEqual([{ name: 'id', dataTypeID: 23 }]);

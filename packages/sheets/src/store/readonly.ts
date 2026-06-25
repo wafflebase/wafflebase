@@ -26,6 +26,16 @@ import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
 
 /**
+ * Converts a raw query result value to a string suitable for a sheet cell.
+ * Date → ISO string, object → JSON, everything else → String().
+ */
+export function toCell(val: unknown): string {
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+  return String(val);
+}
+
+/**
  * `ReadOnlyStore` is a Store implementation for displaying query results.
  * All write operations are no-ops. Data is loaded via `loadQueryResults`.
  */
@@ -60,7 +70,7 @@ export class ReadOnlyStore implements Store {
         const val = row[columns[c].name];
         if (val === null || val === undefined) continue;
         const sref = toSref({ r: r + 2, c: c + 1 });
-        this.grid.set(sref, { v: String(val) });
+        this.grid.set(sref, { v: toCell(val) });
       }
     }
 
