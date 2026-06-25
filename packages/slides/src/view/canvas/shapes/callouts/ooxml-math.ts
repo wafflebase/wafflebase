@@ -32,11 +32,6 @@ export function ifPos(x: number, a: number, b: number): number {
   return x > 0 ? a : b;
 }
 
-/** OOXML `at2 x y` — `atan2(y, x)`, in radians. */
-export function at2(x: number, y: number): number {
-  return Math.atan2(y, x);
-}
-
 /** OOXML `cat2 c x y` — cosine-arctangent: `c * cos(atan2(y, x))`. */
 export function cat2(c: number, x: number, y: number): number {
   return c * Math.cos(Math.atan2(y, x));
