@@ -21,7 +21,8 @@ import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
 import { resolveNestedTableLayout } from './table-layout.js';
-import { computeMergedCellLineLayouts } from './table-geometry.js';
+import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
+import type { BlockCellInfo } from '../model/types.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -448,6 +449,123 @@ function computeHFCursorPixel(
 }
 
 /**
+ * Selection rects when a header/footer selection touches a table cell.
+ * Two cases are drawn precisely; the rest degrade to whole-cell highlights:
+ *  - same inner block (drag within one cell): per-line text rects.
+ *  - both endpoints in the same table (drag across cells) or any other
+ *    in-table combination: whole-cell rects over the bounding row/col box.
+ * Header/footer tables are a single non-paginated band, so each cell maps
+ * to exactly one rect (no page/split fragments).
+ */
+function computeHFTableCellSelectionRects(
+  selectionRange: { anchor: DocPosition; focus: DocPosition },
+  anchorCell: BlockCellInfo | undefined,
+  focusCell: BlockCellInfo | undefined,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  measurer: TextMeasurer,
+  canvasWidth: number,
+  activePageIndex: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const targetPage = paginatedLayout.pages[activePageIndex];
+  if (!targetPage) return rects;
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+  const baseY = region === 'header'
+    ? getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge)
+    : getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+
+  const cellInfo = anchorCell ?? focusCell;
+  if (!cellInfo) return rects;
+  const tableLb = hfLayout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+  const tl = tableLb?.layoutTable;
+  const tableData = tableLb?.block.tableData;
+  if (!tableLb || !tl || !tableData) return rects;
+  const contentLeft = pageX + margins.left;
+  const tableTop = baseY + tableLb.y;
+
+  // Precise within-cell text selection: same inner block on both ends.
+  if (
+    anchorCell && focusCell &&
+    selectionRange.anchor.blockId === selectionRange.focus.blockId
+  ) {
+    const { rowIndex: row, colIndex: col } = anchorCell;
+    const cell = tl.cells[row]?.[col];
+    const dataCell = tableData.rows[row]?.cells[col];
+    if (!cell || !dataCell) return rects;
+    const blockIdx = dataCell.blocks.findIndex((b) => b.id === selectionRange.anchor.blockId);
+    if (blockIdx === -1) return rects;
+    const padding = dataCell.style.padding ?? 4;
+    const rowSpan = dataCell.rowSpan ?? 1;
+    const selStart = Math.min(selectionRange.anchor.offset, selectionRange.focus.offset);
+    const selEnd = Math.max(selectionRange.anchor.offset, selectionRange.focus.offset);
+    const lineLayouts = computeMergedCellLineLayouts(
+      cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+    );
+    const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+    const blockEndLine = cell.blockBoundaries[blockIdx + 1] ?? cell.lines.length;
+    const cellLeft = contentLeft + tl.columnXOffsets[col] + padding;
+
+    let charsSoFar = 0;
+    for (let li = blockStartLine; li < blockEndLine; li++) {
+      const line = cell.lines[li];
+      let lineChars = 0;
+      for (const run of line.runs) lineChars += run.text.length;
+      const lineStart = charsSoFar;
+      const lineEnd = charsSoFar + lineChars;
+      if (selEnd > lineStart && selStart < lineEnd) {
+        const lineSelStart = Math.max(0, selStart - lineStart);
+        const lineSelEnd = Math.min(lineChars, selEnd - lineStart);
+        let x0 = 0, x1 = 0, chars = 0;
+        for (const run of line.runs) {
+          const font = resolveInlineFont(run.inline.style);
+          if (chars <= lineSelStart && lineSelStart <= chars + run.text.length) {
+            x0 = run.x + measurer.measureWidth(run.text.slice(0, lineSelStart - chars), font);
+          }
+          if (chars <= lineSelEnd && lineSelEnd <= chars + run.text.length) {
+            x1 = run.x + measurer.measureWidth(run.text.slice(0, lineSelEnd - chars), font);
+          }
+          chars += run.text.length;
+        }
+        rects.push({
+          x: cellLeft + x0,
+          y: tableTop + lineLayouts[li].runLineY,
+          width: Math.max(0, x1 - x0),
+          height: line.height,
+        });
+      }
+      charsSoFar += lineChars;
+    }
+    return rects;
+  }
+
+  // Otherwise: whole-cell highlight over the bounding row/col box. When one
+  // endpoint is outside the table, clamp that side to the table edge.
+  const a = anchorCell ?? focusCell!;
+  const b = focusCell ?? anchorCell!;
+  const r0 = Math.min(a.rowIndex, b.rowIndex);
+  const r1 = Math.max(a.rowIndex, b.rowIndex);
+  const c0 = Math.min(a.colIndex, b.colIndex);
+  const c1 = Math.max(a.colIndex, b.colIndex);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      if (tl.cells[r]?.[c]?.merged) continue;
+      const rect = cellOriginPx(tl, tableData, r, c);
+      rects.push({
+        x: contentLeft + rect.x,
+        y: tableTop + rect.y,
+        width: rect.w,
+        height: rect.h,
+      });
+    }
+  }
+  return rects;
+}
+
+/**
  * Compute selection rects within a header/footer layout for all visible pages.
  */
 function computeHFSelectionRects(
@@ -460,6 +578,18 @@ function computeHFSelectionRects(
   canvasWidth: number,
   activePageIndex: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
+  // If either endpoint is inside a header/footer table cell, route to the
+  // table-aware path (the cell's inner block is not a top-level hfLayout
+  // block, so the flat scan below would find nothing).
+  const anchorCell = hfLayout.blockParentMap.get(selectionRange.anchor.blockId);
+  const focusCell = hfLayout.blockParentMap.get(selectionRange.focus.blockId);
+  if (anchorCell || focusCell) {
+    return computeHFTableCellSelectionRects(
+      selectionRange, anchorCell, focusCell, hfLayout, hf, region,
+      paginatedLayout, measurer, canvasWidth, activePageIndex,
+    );
+  }
+
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;

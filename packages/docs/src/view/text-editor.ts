@@ -2234,8 +2234,8 @@ export class TextEditor {
               const prevCellPos = this.getPrevCellLastPosition(arrowCellInfo);
               if (prevCellPos) {
                 newPos = prevCellPos;
-              } else {
-                // At first cell: exit table upward
+              } else if (this.editContext === 'body') {
+                // At first cell: exit table upward (body only).
                 newPos = this.getPositionBeforeTable(tableBlockId);
               }
             } else if (this.moveToPrevCell()) {
@@ -2259,8 +2259,8 @@ export class TextEditor {
               const nextCellPos = this.getNextCellFirstPosition(arrowCellInfo);
               if (nextCellPos) {
                 newPos = nextCellPos;
-              } else {
-                // At last cell: exit table downward
+              } else if (this.editContext === 'body') {
+                // At last cell: exit table downward (body only).
                 newPos = this.getPositionAfterTable(tableBlockId);
               }
             } else if (this.moveToNextCell()) {
@@ -2276,7 +2276,7 @@ export class TextEditor {
       } else if (direction === 'up') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
-        const tl = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const tl = this.getActiveLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
         const layoutCell = tl?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
 
         // Try line-by-line navigation within the cell first
@@ -2337,9 +2337,10 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
               };
             }
-          } else {
-            // Exit table upward
-            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+          } else if (this.editContext === 'body') {
+            // Exit table upward (body only — header/footer arrows stay in
+            // the table; exiting into header sibling blocks is not wired).
+            const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block before this table in parent cell
               const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -2379,7 +2380,7 @@ export class TextEditor {
       } else if (direction === 'down') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
-        const tl2 = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const tl2 = this.getActiveLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
         const layoutCell2 = tl2?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
 
         // Try line-by-line navigation within the cell first
@@ -2437,9 +2438,9 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
               };
             }
-          } else {
-            // Exit table downward
-            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+          } else if (this.editContext === 'body') {
+            // Exit table downward (body only — see the upward case).
+            const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block after this table in parent cell
               const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -2805,11 +2806,14 @@ export class TextEditor {
   // --- Cell helpers ---
 
   private isInCell(blockId: string): boolean {
-    return this.getLayout().blockParentMap.has(blockId);
+    return this.getActiveLayout().blockParentMap.has(blockId);
   }
 
   private getCellInfo(blockId: string): BlockCellInfo | undefined {
-    return this.getLayout().blockParentMap.get(blockId);
+    // Use the active (body / header / footer) layout so table cell editing
+    // works in every region. In body context this is the body layout, so
+    // behavior is unchanged there.
+    return this.getActiveLayout().blockParentMap.get(blockId);
   }
 
   /**
@@ -4607,6 +4611,11 @@ export class TextEditor {
     }
     // At last cell
     if (addRowAtEnd) {
+      // Structural row insertion targets the body table store path; header/
+      // footer table row/column ops are not wired (resolveTableBlock assumes
+      // the body). Tab at the last header/footer cell is a no-op rather than
+      // a crash.
+      if (this.editContext !== 'body') return false;
       // Tab: insert a new row and move to it
       this.saveSnapshot();
       const newRowIndex = td.rows.length;
@@ -4621,7 +4630,7 @@ export class TextEditor {
     // Exit table — move to the block after the table.
     // If this is a nested table, move to the next block in the parent cell
     // or to the next cell in the outer table.
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       // Nested table — find the next block in the parent cell
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -4638,6 +4647,9 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToNextCell(addRowAtEnd);
     }
+    // Header/footer: exiting the table into sibling blocks is not wired;
+    // keep the caret in the last cell rather than jumping into the body.
+    if (this.editContext !== 'body') return false;
     // Top-level table — move to the block after the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     const nextId = this.doc.ensureBlockAfter(blockIndex);
@@ -4680,7 +4692,7 @@ export class TextEditor {
     // At first cell — exit table.
     // If nested, move to the previous block in the parent cell or
     // to the previous cell in the outer table.
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
@@ -4695,6 +4707,8 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToPrevCell();
     }
+    // Header/footer: don't exit the table into sibling blocks (not wired).
+    if (this.editContext !== 'body') return false;
     // Top-level table — move to the block before the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     if (blockIndex > 0) {

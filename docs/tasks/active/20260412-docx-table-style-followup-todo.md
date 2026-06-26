@@ -73,12 +73,18 @@ which removes the body's hardest geometry.
       block (found via `hfLayout.blockParentMap`); computes the caret within
       the cell's lines at `baseY + lb.y + runLineY`, `columnXOffsets[col] +
       padding`.
-- [ ] **P3 — Selection render:** `computeHFSelectionRects` — handle
-      within-cell text selection and cell-range selection (reuse the
-      pure rect logic from `selection.ts buildCellRangeRects`).
-- [ ] **P4 — Navigation:** wire Arrow/Tab in the header/footer edit context
-      to the reusable cell-movement primitives; keep the
-      `insertText`/`deleteText` table-block no-op guard as a backstop.
+- [x] **P3 — Selection render:** `computeHFSelectionRects` routes to
+      `computeHFTableCellSelectionRects` when either endpoint is a cell
+      (via `blockParentMap`): precise per-line rects for a within-cell text
+      selection, whole-cell rects (`cellOriginPx`) for cross-cell ranges.
+- [x] **P4 — Navigation:** made `getCellInfo`/`isInCell` and the cell-branch
+      layout lookups use the **active** layout, so Arrow/Tab cell navigation
+      engages in header/footer. Reused the model-based cell-movement
+      primitives. Table-**exit** paths and structural row-add (`insertRow`,
+      which assumes the body store path via `resolveTableBlock`) are guarded
+      to body-only — header/footer arrows/Tab stay within the table rather
+      than crashing or jumping into the body. Full structural row/col edits
+      in header/footer tables remain a separate follow-up.
 
 Verification: canvas paint/caret is browser-only (jsdom can't `getContext`);
 pure geometry helpers get unit tests, the rest is manual smoke + browser
