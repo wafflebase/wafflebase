@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shared editor toolbar parity (2026-06-27) | [20260627-slides-shared-editor-toolbar-parity-todo.md](./active/20260627-slides-shared-editor-toolbar-parity-todo.md) | [20260627-slides-shared-editor-toolbar-parity-lessons.md](./active/20260627-slides-shared-editor-toolbar-parity-lessons.md) |
 | docx table deferred (2026-06-26) | [20260626-docx-table-deferred-todo.md](./active/20260626-docx-table-deferred-todo.md) | - |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
@@ -29,4 +30,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 318
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docx table deferred (2026-06-26)
+Latest active task: slides shared editor toolbar parity (2026-06-27)
