@@ -12,7 +12,12 @@ import { customFontKey, type PdfFontKey } from './pdf-fonts.js';
 // Coverage: Basic Latin + Latin-1 Supplement (U+0000–U+00FF) plus the
 // individual code points WinAnsi additionally encodes via the standard
 // PDF text-state encoding table.
-const LATIN_SAFE_CHARS = '\\u0000-\\u00FF\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
+//
+// The U+2018–U+201E quote block is enumerated as U+2018–U+201A and
+// U+201C–U+201E so U+201B (reversed-9 quote) is *excluded*: CP1252 has no
+// slot for it, so the StandardFonts throw on it — it must route to the
+// embedded Korean font instead. Keep this in sync with `pdf-fonts.ts`.
+const LATIN_SAFE_CHARS = '\\u0000-\\u00FF\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201A\\u201C-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
 const NEEDS_CJK_FONT = new RegExp(`[^${LATIN_SAFE_CHARS}]`);
 const SCRIPT_SPLIT = new RegExp(
   `[^${LATIN_SAFE_CHARS}]+|[${LATIN_SAFE_CHARS}]+`,
@@ -44,11 +49,14 @@ export interface ScriptSegment {
  * a strict "is this Hangul" check — so CJK punctuation (※, 「」) and
  * geometric shapes (●○■) route correctly.
  *
- * C0 control characters (\n, \r, \t, etc.) are stripped: WinAnsi has no
- * encoding for them and they have no visual representation at draw time.
- * Layout/pagination already breaks lines at logical boundaries, so any
- * control char surviving into a `LayoutRun.text` is a paste-time artifact
- * we can drop without losing meaning.
+ * C0 control characters (\n, \r, \t, etc.), DEL, and the C1 controls
+ * (U+0080–U+009F) are stripped: WinAnsi has no encoding for them and they
+ * have no visual representation at draw time. The C1 block sits inside the
+ * "Latin-safe" U+0000–U+00FF range, so without this strip a pasted C1 byte
+ * would route to a StandardFont and throw "WinAnsi cannot encode" — taking
+ * the whole export down. Layout/pagination already breaks lines at logical
+ * boundaries, so any control char surviving into a `LayoutRun.text` is a
+ * paste-time artifact we can drop without losing meaning.
  *
  * IMPORTANT: U+FFFC (Object Replacement Character) is the placeholder
  * text for image inlines and MUST NOT be added to the strip range here.
@@ -60,7 +68,7 @@ export interface ScriptSegment {
 export function splitMixedScript(text: string): ScriptSegment[] {
   if (!text) return [];
   // eslint-disable-next-line no-control-regex
-  const cleaned = text.replace(/[\u0000-\u001F\u007F]/g, '');
+  const cleaned = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
   if (!cleaned) return [];
   const segments: ScriptSegment[] = [];
   for (const match of cleaned.matchAll(SCRIPT_SPLIT)) {
