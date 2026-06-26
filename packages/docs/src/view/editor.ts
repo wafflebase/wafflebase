@@ -1140,10 +1140,29 @@ export function initialize(
     const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
     lastLogicalCanvasWidth = logicalCanvasWidth;
 
-    // Hide cursor when in cell-range selection mode
+    // Hide cursor when in cell-range selection mode. In header/footer edit
+    // context the caret lives in the header/footer layout (including table
+    // cells), so use that pixel — `cursor.getPixelPosition` resolves against
+    // the body layout and returns undefined for header/footer blocks, which
+    // would leave the hidden textarea stale and make the browser auto-scroll
+    // (the caret appears to jump to the table's edge on arrow keys).
+    const editCtx = textEditor?.getEditContext() ?? 'body';
+    const hfActivePageIndex = textEditor?.getHFActivePageIndex() ?? 0;
     const cursorPixelRaw = selection.range?.tableCellRange
       ? undefined
-      : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
+      : editCtx === 'header' && headerLayout && doc.document.header
+        ? computeHFCursorPixel(
+            cursor.position, headerLayout, doc.document.header, 'header',
+            paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
+            cursor.isVisible(),
+          )
+        : editCtx === 'footer' && footerLayout && doc.document.footer
+          ? computeHFCursorPixel(
+              cursor.position, footerLayout, doc.document.footer, 'footer',
+              paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
+              cursor.isVisible(),
+            )
+          : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
     // Caret color tracks the resolved text color at the cursor position
     // so it stays readable when the user picks a non-default color.
     // findBlock walks body / header / footer / cell blocks so this works
@@ -1306,9 +1325,8 @@ export function initialize(
       }
     }
 
-    const editCtx = textEditor?.getEditContext() ?? 'body';
-
-    // Compute header/footer cursor and selection
+    // Compute header/footer cursor and selection (editCtx / hfActivePageIndex
+    // are hoisted above for the textarea-tracking cursor pixel).
     let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfCursorFooter: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
