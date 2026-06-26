@@ -211,6 +211,7 @@ export type { AlignDirection, DistributeAxis, AlignReference } from './view/edit
 
 // View — Editor (Phase 3b additions)
 export { mountThumbnailPanel, type ThumbnailPanelHandle, type MountThumbnailPanelOptions } from './view/editor/thumbnail-panel';
+export { mountLayoutListPanel, type LayoutListPanelHandle, type MountLayoutListPanelOptions } from './view/editor/layout-list-panel';
 export { mountNotesPanel, type MountNotesPanelOptions, type NotesPanelHandle } from './view/editor/notes-panel';
 export { showLayoutPicker, type LayoutPickerOptions } from './view/editor/layout-picker';
 export { showContextMenu, dismiss as dismissContextMenu, type ContextMenuItem } from './view/editor/context-menu';
