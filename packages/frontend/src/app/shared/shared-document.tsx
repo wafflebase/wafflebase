@@ -21,6 +21,18 @@ import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
+import {
+  createZoomController,
+  FIT_ZOOM,
+  type ZoomController,
+} from "@/app/slides/zoom-controller";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { IconDatabase, IconMessage, IconTable } from "@tabler/icons-react";
 
 type PeerJumpTarget = {
@@ -53,6 +65,26 @@ const SlidesToolbar = lazy(() =>
 const MobileSlidesView = lazy(() =>
   import("@/app/slides/mobile-slides-view").then((module) => ({
     default: module.MobileSlidesView,
+  })),
+);
+
+// Right-side editing panels. Lazy-loaded so non-slides share links (and
+// read-only slides viewers) don't pull the slides editing chunk.
+const ThemePanel = lazy(() =>
+  import("@/app/slides/theme-panel").then((module) => ({
+    default: module.ThemePanel,
+  })),
+);
+
+const FormatPanel = lazy(() =>
+  import("@/app/slides/format-panel").then((module) => ({
+    default: module.FormatPanel,
+  })),
+);
+
+const MotionPanel = lazy(() =>
+  import("@/app/slides/motion-panel").then((module) => ({
+    default: module.MotionPanel,
   })),
 );
 
@@ -261,6 +293,17 @@ function SharedDesktopSlidesLayout({
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   const [currentThemeId, setCurrentThemeId] = useState("default-light");
+  // Which right-side editing panel is docked. Mirrors the owner route
+  // (`slides-detail.tsx`) so editor share links get the same theme /
+  // format / motion panels. Stays null (unused) for read-only viewers.
+  type RightPanel = "theme" | "format" | "motion" | null;
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  // Session-scoped zoom controller shared between SlidesView (drives
+  // refitCanvas) and SlidesToolbar (renders the dropdown). useRef keeps
+  // identity stable across the layout's lifetime.
+  const zoomControllerRef = useRef<ZoomController>(
+    createZoomController(FIT_ZOOM),
+  );
 
   useEffect(() => {
     if (!store) return;
@@ -304,18 +347,73 @@ function SharedDesktopSlidesLayout({
               store={store}
               theme={activeTheme}
               onImagePick={handleImagePick}
+              onToggleThemePanel={() =>
+                setRightPanel((p) => (p === "theme" ? null : "theme"))
+              }
+              themePanelOpen={rightPanel === "theme"}
+              onToggleFormatPanel={() =>
+                setRightPanel((p) => (p === "format" ? null : "format"))
+              }
+              formatPanelOpen={rightPanel === "format"}
+              onToggleMotionPanel={() =>
+                setRightPanel((p) => (p === "motion" ? null : "motion"))
+              }
+              motionPanelOpen={rightPanel === "motion"}
+              zoomController={zoomControllerRef.current}
             />
           )}
-          <SlidesView
-            readOnly={readOnly}
-            onEditorReady={setEditor}
-            onStoreReady={setStore}
-          />
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <SlidesView
+              readOnly={readOnly}
+              onEditorReady={setEditor}
+              onStoreReady={setStore}
+              zoomController={zoomControllerRef.current}
+            />
+            {/* rightPanel is only ever set by the toolbar above, which is
+                gated on !readOnly — so these never render for a viewer. */}
+            {rightPanel === "theme" && store && (
+              <ThemePanel
+                store={store}
+                currentThemeId={currentThemeId}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "format" && store && editor && (
+              <FormatPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "motion" && store && editor && (
+              <MotionPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+          </div>
         </Suspense>
       </div>
     </div>
   );
 }
+
+/** Titles + sr-only descriptions for the mobile editing bottom sheets. */
+const MOBILE_PANEL_META = {
+  theme: {
+    title: "Theme",
+    description: "Pick a built-in theme for the deck.",
+  },
+  format: {
+    title: "Format options",
+    description: "Edit size, position, and effects for the selected object.",
+  },
+  motion: {
+    title: "Motion",
+    description: "Configure slide transitions and object animations.",
+  },
+} as const;
 
 /**
  * SharedMobileSlidesLayout — phone shell for a shared slides link.
@@ -334,6 +432,11 @@ function SharedMobileSlidesLayout({
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   const [currentThemeId, setCurrentThemeId] = useState("default-light");
+  // Which editing panel is open as a bottom sheet — mirrors the owner
+  // mobile route so editor share links get theme / format / motion.
+  type RightPanel = "theme" | "format" | "motion" | null;
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const panelMeta = rightPanel ? MOBILE_PANEL_META[rightPanel] : null;
 
   useEffect(() => {
     if (!store) return;
@@ -374,6 +477,18 @@ function SharedMobileSlidesLayout({
               store={store}
               theme={activeTheme}
               onImagePick={handleImagePick}
+              onToggleThemePanel={() =>
+                setRightPanel((p) => (p === "theme" ? null : "theme"))
+              }
+              themePanelOpen={rightPanel === "theme"}
+              onToggleFormatPanel={() =>
+                setRightPanel((p) => (p === "format" ? null : "format"))
+              }
+              formatPanelOpen={rightPanel === "format"}
+              onToggleMotionPanel={() =>
+                setRightPanel((p) => (p === "motion" ? null : "motion"))
+              }
+              motionPanelOpen={rightPanel === "motion"}
             />
           )}
           <MobileSlidesView
@@ -383,6 +498,52 @@ function SharedMobileSlidesLayout({
           />
         </Suspense>
       </div>
+      {!readOnly && (
+        <Sheet
+          open={rightPanel !== null}
+          onOpenChange={(o) => {
+            if (!o) setRightPanel(null);
+          }}
+        >
+          <SheetContent
+            side="bottom"
+            className="max-h-[80vh] gap-0 p-0 pb-[env(safe-area-inset-bottom,8px)]"
+          >
+            <SheetHeader className="border-b">
+              <SheetTitle>{panelMeta?.title}</SheetTitle>
+              <SheetDescription className="sr-only">
+                {panelMeta?.description}
+              </SheetDescription>
+            </SheetHeader>
+            <Suspense fallback={<Loader />}>
+              {rightPanel === "theme" && store && (
+                <ThemePanel
+                  variant="sheet"
+                  store={store}
+                  currentThemeId={currentThemeId}
+                  onClose={() => setRightPanel(null)}
+                />
+              )}
+              {rightPanel === "format" && store && editor && (
+                <FormatPanel
+                  variant="sheet"
+                  store={store}
+                  editor={editor}
+                  onClose={() => setRightPanel(null)}
+                />
+              )}
+              {rightPanel === "motion" && store && editor && (
+                <MotionPanel
+                  variant="sheet"
+                  store={store}
+                  editor={editor}
+                  onClose={() => setRightPanel(null)}
+                />
+              )}
+            </Suspense>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 }
