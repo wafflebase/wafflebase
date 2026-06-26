@@ -4,7 +4,8 @@ import { Doc, type EditContext } from '../model/document.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
-import type { ComposingContext, DocumentLayout } from './layout.js';
+import type { ComposingContext, DocumentLayout, LayoutBlock } from './layout.js';
+import { getBlockIndexForLine } from './table-geometry.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
 import { resolveInlineFont } from './layout.js';
@@ -3975,39 +3976,12 @@ export class TextEditor {
    * Resolve mouse position to a DocPosition within header/footer layout.
    */
   /**
-   * Resolve a click in the header/footer to a caret position. Header/footer
-   * table cell editing is not yet wired, so a click that lands on a table
-   * block is redirected to the nearest editable (non-table) block — the
-   * caret must never sit on a table block (it has no inlines, so typing
-   * would be a no-op and the caret would render at the table corner).
+   * Resolve a click in the header/footer to a caret position. A click on a
+   * table block is resolved into the inner cell paragraph + offset (see
+   * `resolveHFCellOffset`); header/footer tables are a single non-paginated
+   * band, so the geometry is simpler than the body's paginated cell path.
    */
   private getHFPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
-    const raw = this.resolveHFRawPosition(e);
-    if (!raw) return raw;
-    const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
-    if (!hfLayout) return raw;
-    const idx = hfLayout.blocks.findIndex((lb) => lb.block.id === raw.blockId);
-    if (idx === -1 || hfLayout.blocks[idx].block.type !== 'table') return raw;
-
-    // Prefer the first editable block after the table, else the last before it.
-    for (let i = idx + 1; i < hfLayout.blocks.length; i++) {
-      if (hfLayout.blocks[i].block.type !== 'table') {
-        return { blockId: hfLayout.blocks[i].block.id, offset: 0, lineAffinity: 'forward' as const };
-      }
-    }
-    for (let i = idx - 1; i >= 0; i--) {
-      const lb = hfLayout.blocks[i];
-      if (lb.block.type !== 'table') {
-        let total = 0;
-        for (const line of lb.lines) for (const run of line.runs) total += run.text.length;
-        return { blockId: lb.block.id, offset: total, lineAffinity: 'backward' as const };
-      }
-    }
-    // Header/footer is a table with no editable sibling: leave the caret put.
-    return raw;
-  }
-
-  private resolveHFRawPosition(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
     if (!hfLayout) return undefined;
     const hf = this.editContext === 'header' ? this.doc.document.header : this.doc.document.footer;
@@ -4043,6 +4017,16 @@ export class TextEditor {
 
     // Find the closest block and line
     for (const lb of hfLayout.blocks) {
+      // Table block: resolve the click into a cell's inner paragraph.
+      if (lb.block.type === 'table' && lb.layoutTable) {
+        const top = lb.y;
+        const bottom = lb.y + lb.layoutTable.totalHeight;
+        if (localY >= top && localY < bottom) {
+          const resolved = this.resolveHFCellOffset(lb, localX, localY - lb.y);
+          if (resolved) return resolved;
+        }
+        continue;
+      }
       for (let li = 0; li < lb.lines.length; li++) {
         const line = lb.lines[li];
         const lineTop = lb.y + line.y;
@@ -4089,6 +4073,98 @@ export class TextEditor {
       return { blockId: lastBlock.block.id, offset: totalChars, lineAffinity: 'backward' as const };
     }
     return undefined;
+  }
+
+  /**
+   * Resolve a click inside a header/footer table to a cell's inner block +
+   * offset. Coordinates are table-logical (relative to the table's top-left).
+   * Header/footer tables are a single non-paginated band, so line Y is just
+   * the table-logical `runLineY` from `computeMergedCellLineLayouts` — no
+   * page/split mapping is needed (unlike the body's `resolveOffsetInCellAtXY`).
+   */
+  private resolveHFCellOffset(
+    lb: LayoutBlock,
+    tableLocalX: number,
+    tableLocalY: number,
+  ): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    const tl = lb.layoutTable;
+    const tableData = lb.block.tableData;
+    if (!tl || !tableData) return undefined;
+    const numRows = tl.rowHeights.length;
+    const numCols = tl.columnPixelWidths.length;
+    if (numRows === 0 || numCols === 0) return undefined;
+
+    // Column / row: last grid line whose top-left edge is <= the point.
+    let col = 0;
+    for (let c = 0; c < numCols; c++) {
+      if (tableLocalX >= tl.columnXOffsets[c]) col = c; else break;
+    }
+    let row = 0;
+    for (let r = 0; r < numRows; r++) {
+      if (tableLocalY >= tl.rowYOffsets[r]) row = r; else break;
+    }
+    // Resolve a covered (merged) cell to its owning top-left cell.
+    if (tableData.rows[row]?.cells[col]?.colSpan === 0) {
+      outer: for (let r = row; r >= 0; r--) {
+        for (let c = col; c >= 0; c--) {
+          const cand = tableData.rows[r]?.cells[c];
+          if (cand && cand.colSpan !== 0) {
+            const cs = cand.colSpan ?? 1;
+            const rs = cand.rowSpan ?? 1;
+            if (r + rs > row && c + cs > col) { row = r; col = c; break outer; }
+          }
+        }
+      }
+    }
+
+    const cell = tl.cells[row]?.[col];
+    const dataCell = tableData.rows[row]?.cells[col];
+    if (!cell || cell.merged || !dataCell || dataCell.blocks.length === 0) {
+      return undefined;
+    }
+    const padding = dataCell.style.padding ?? 4;
+    const rowSpan = dataCell.rowSpan ?? 1;
+
+    // Map Y → line index using the same per-line placement the renderer uses.
+    let targetLineIdx = Math.max(0, cell.lines.length - 1);
+    if (cell.lines.length > 0) {
+      const lineLayouts = computeMergedCellLineLayouts(
+        cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+      );
+      for (let li = 0; li < cell.lines.length; li++) {
+        if (tableLocalY < lineLayouts[li].runLineY + cell.lines[li].height) {
+          targetLineIdx = li;
+          break;
+        }
+      }
+    }
+
+    // Which inner block owns the target line, plus the char offset up to it.
+    const blockIdx = getBlockIndexForLine(cell.blockBoundaries, targetLineIdx);
+    const targetBlock = dataCell.blocks[blockIdx] ?? dataCell.blocks[dataCell.blocks.length - 1];
+    let offset = 0;
+    const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+    for (let li = blockStartLine; li < targetLineIdx; li++) {
+      for (const run of cell.lines[li].runs) offset += run.text.length;
+    }
+
+    // Resolve X within the target line. `run.x` is relative to the cell's
+    // content origin (column left + padding).
+    const cellLocalX = tableLocalX - (tl.columnXOffsets[col] + padding);
+    const targetLine = cell.lines[targetLineIdx];
+    if (targetLine) {
+      const measurer = this.getMeasurer();
+      for (const run of targetLine.runs) {
+        const font = resolveInlineFont(run.inline.style);
+        for (let i = 0; i <= run.text.length; i++) {
+          if (measurer.measureWidth(run.text.slice(0, i), font) + run.x >= cellLocalX) {
+            return { blockId: targetBlock.id, offset: offset + i, lineAffinity: 'backward' as const };
+          }
+        }
+        offset += run.text.length;
+      }
+    }
+    return { blockId: targetBlock.id, offset, lineAffinity: 'backward' as const };
   }
 
   /**

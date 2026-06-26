@@ -597,6 +597,23 @@ describe('YorkieDocStore', () => {
       expect(headerTable.inlines.length).toBe(0);
       expect(headerTable.tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('cell');
     });
+
+    it('insertText into a header table CELL block edits that cell', () => {
+      // P1 hit-testing resolves a header-table click to the cell's inner
+      // paragraph block; typing there must edit the cell and round-trip.
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [tableBlock, makeBlock('after')], marginFromEdge: 48 },
+      });
+      const cellBlockId = tableBlock.tableData!.rows[0].cells[1].blocks[0].id;
+
+      store.insertText(cellBlockId, 0, 'Hi');
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const headerTable = fresh.header!.blocks.find((b) => b.type === 'table')!;
+      expect(headerTable.tableData!.rows[0].cells[1].blocks[0].inlines[0].text).toBe('Hi');
+    });
   });
 
   describe('insertTableRow', () => {

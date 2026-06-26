@@ -21,6 +21,7 @@ import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
 import { resolveNestedTableLayout } from './table-layout.js';
+import { computeMergedCellLineLayouts } from './table-geometry.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -281,6 +282,93 @@ export interface EditorAPI {
 /**
  * Compute cursor pixel position within a header/footer layout for a visible page.
  */
+/**
+ * Caret pixel for a cursor inside a header/footer table cell. The cursor's
+ * blockId is a cell inner block (not a top-level hfLayout block), so it is
+ * located via `hfLayout.blockParentMap`. Header/footer tables are a single
+ * non-paginated band; the line Y is the table-logical `runLineY` plus the
+ * table's own `lb.y` and the region base Y.
+ */
+function computeHFTableCellCaretPixel(
+  position: DocPosition,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  measurer: TextMeasurer,
+  canvasWidth: number,
+  activePageIndex: number,
+  cursorVisible: boolean,
+): { x: number; y: number; height: number; visible: boolean } | undefined {
+  const cellInfo = hfLayout.blockParentMap.get(position.blockId);
+  if (!cellInfo) return undefined;
+  const tableLb = hfLayout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+  const tl = tableLb?.layoutTable;
+  const tableData = tableLb?.block.tableData;
+  if (!tableLb || !tl || !tableData) return undefined;
+  const { rowIndex: row, colIndex: col } = cellInfo;
+  const cell = tl.cells[row]?.[col];
+  const dataCell = tableData.rows[row]?.cells[col];
+  if (!cell || !dataCell) return undefined;
+  const blockIdx = dataCell.blocks.findIndex((b) => b.id === position.blockId);
+  if (blockIdx === -1) return undefined;
+
+  const padding = dataCell.style.padding ?? 4;
+  const rowSpan = dataCell.rowSpan ?? 1;
+  const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+  const blockEndLine = cell.blockBoundaries[blockIdx + 1] ?? cell.lines.length;
+
+  // Find the line within this block that holds `offset`, and the x within it.
+  let lineIdx = blockStartLine;
+  let cursorXInCell = 0;
+  let lineHeight = cell.lines[blockStartLine]?.height ?? 14;
+  let remaining = position.offset;
+  for (let li = blockStartLine; li < blockEndLine; li++) {
+    const line = cell.lines[li];
+    let lineChars = 0;
+    for (const run of line.runs) lineChars += run.text.length;
+    if (remaining <= lineChars || li === blockEndLine - 1) {
+      lineIdx = li;
+      lineHeight = line.height;
+      let chars = 0;
+      cursorXInCell = 0;
+      for (const run of line.runs) {
+        if (remaining <= chars + run.text.length) {
+          cursorXInCell = run.x + measurer.measureWidth(
+            run.text.slice(0, remaining - chars),
+            resolveInlineFont(run.inline.style),
+          );
+          break;
+        }
+        chars += run.text.length;
+        cursorXInCell = run.x + run.width;
+      }
+      break;
+    }
+    remaining -= lineChars;
+  }
+
+  const lineLayouts = computeMergedCellLineLayouts(
+    cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+  );
+  const runLineY = lineLayouts[lineIdx]?.runLineY ?? (tl.rowYOffsets[row] + padding);
+
+  const targetPage = paginatedLayout.pages[activePageIndex];
+  if (!targetPage) return undefined;
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+  const baseY = region === 'header'
+    ? getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge)
+    : getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+
+  return {
+    x: pageX + margins.left + tl.columnXOffsets[col] + padding + cursorXInCell,
+    y: baseY + tableLb.y + runLineY,
+    height: lineHeight,
+    visible: cursorVisible,
+  };
+}
+
 function computeHFCursorPixel(
   position: DocPosition,
   hfLayout: DocumentLayout,
@@ -293,7 +381,14 @@ function computeHFCursorPixel(
   cursorVisible: boolean,
 ): { x: number; y: number; height: number; visible: boolean } | undefined {
   const lb = hfLayout.blocks.find((b) => b.block.id === position.blockId);
-  if (!lb) return undefined;
+  if (!lb) {
+    // The caret may be inside a header/footer table cell, whose inner block
+    // is not a top-level hfLayout block. Resolve it via the cell map.
+    return computeHFTableCellCaretPixel(
+      position, hfLayout, hf, region, paginatedLayout, measurer,
+      canvasWidth, activePageIndex, cursorVisible,
+    );
+  }
 
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;

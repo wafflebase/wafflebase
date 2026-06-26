@@ -50,6 +50,40 @@ exporter disambiguation are tracked here.
       without it an imported header table laid out but painted nothing.
 - [ ] **7. Replace nested-table flattening with native rendering**
 
+## 6b. Header/footer table CELL editing (follow-on to item 6)
+
+Item 6 shipped render + crash-safety; the caret can't yet enter a
+header/footer table cell. Wire interactive cell editing, reusing the body's
+pure primitives (most navigation/merge helpers are already pagination-free;
+see `text-editor.ts` `moveToNextCell`/`moveToPrevCell`/`moveCellLine`,
+`selection.ts` `findMergeTopLeft`/`expandCellRangeForMerges`,
+`table-geometry.ts` `computeMergedCellLineLayouts`/`getBlockIndexForLine`).
+
+Header/footer tables are **single-band, non-paginated** (no split rows),
+which removes the body's hardest geometry.
+
+- [x] **P1 — Hit-test (click into a cell):** `getHFPositionFromMouse` now
+      detects a click on a table block and calls `resolveHFCellOffset`,
+      which maps table-local (x,y) → (row,col) via `layoutTable` offsets
+      (merged cells walked to owner), then to a cell inner block + offset
+      using `computeMergedCellLineLayouts` + `getBlockIndexForLine` + run
+      measurement. Single-band (non-paginated) so no split-row logic.
+- [x] **P2 — Caret render:** `computeHFCursorPixel` falls back to
+      `computeHFTableCellCaretPixel` when the cursor blockId is a cell inner
+      block (found via `hfLayout.blockParentMap`); computes the caret within
+      the cell's lines at `baseY + lb.y + runLineY`, `columnXOffsets[col] +
+      padding`.
+- [ ] **P3 — Selection render:** `computeHFSelectionRects` — handle
+      within-cell text selection and cell-range selection (reuse the
+      pure rect logic from `selection.ts buildCellRangeRects`).
+- [ ] **P4 — Navigation:** wire Arrow/Tab in the header/footer edit context
+      to the reusable cell-movement primitives; keep the
+      `insertText`/`deleteText` table-block no-op guard as a backstop.
+
+Verification: canvas paint/caret is browser-only (jsdom can't `getContext`);
+pure geometry helpers get unit tests, the rest is manual smoke + browser
+tests.
+
 ## Review (item 6)
 
 - **Importer** (`docx-importer.ts` `parseHeaderFooter`): added a `tbl`
