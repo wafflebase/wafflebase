@@ -104,7 +104,7 @@ function migrateSlide(slide: any): any {
   const migrated: any = {
     id: slide?.id,
     layoutId,
-    background: migrateBackground(slide?.background ?? { fill: '#ffffff' }),
+    background: migrateBackground(slide?.background ?? {}),
     elements: Array.isArray(slide?.elements) ? slide.elements.map(migrateElement) : [],
     notes: slide?.notes ?? [],
   };
@@ -114,10 +114,14 @@ function migrateSlide(slide: any): any {
   return migrated;
 }
 
-function migrateBackground(bg: any): { fill: ThemeColor; image?: any } {
-  const out: { fill: ThemeColor; image?: any } = {
-    fill: wrapColor(bg?.fill ?? '#ffffff'),
-  };
+function migrateBackground(bg: any): { fill?: ThemeColor; image?: any } {
+  const out: { fill?: ThemeColor; image?: any } = {};
+  // Preserve an absent fill as "inherit" (slide → layout → master →
+  // background role). Only wrap a fill that is actually set; never
+  // synthesize a white default — an inheriting slide resolves to the
+  // `background` role, which is white for default-light, so old decks
+  // look identical.
+  if (bg?.fill != null) out.fill = wrapColor(bg.fill);
   if (bg?.image != null) out.image = bg.image;
   return out;
 }

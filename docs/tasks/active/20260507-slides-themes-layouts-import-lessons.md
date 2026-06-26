@@ -83,4 +83,49 @@ re-investigate):
 - Notes that look empty (e.g. slides 33-35, 36) are genuinely empty
   in the source deck.
 
+## PR3 (theme builder) — re-review + store/render layer (2026-06-25/26)
+
+Resuming a ~1-year-deferred design. Lessons from grounding it against the
+shipped code:
+
+- **Re-review before coding a deferred design.** The original plan assumed
+  "every builder edit propagates to all slides." Reality split in two:
+  theme/master colors + fonts already cascade via render-time role
+  resolution (free repaint), but layout placeholder **positions** and
+  master placeholder **type styles** are copied/seeded at slide-creation
+  and need an explicit cascade. Background fill wasn't rendered with
+  inheritance at all. Finding this first reshaped the commit plan and
+  avoided building the wrong thing.
+- **`getLayout()` read from the shared `BUILT_IN_LAYOUTS` constant**, not
+  `doc.layouts`, so document-local layout edits were invisible to
+  addSlide/applyLayout. Any per-deck layout feature must resolve layouts
+  from the doc first. Fixed via a `resolveLayout` helper in both stores.
+- **Background inheritance required making `Background.fill` optional.**
+  Slides previously always carried an explicit fill (role 'background'),
+  so master/layout fill never showed. Made fill optional (`{}` = inherit),
+  routed all readers (canvas, PDF) through `resolveBackgroundFill` /
+  `resolveBackgroundImage`, and crucially fixed `migrateBackground` which
+  was force-defaulting absent fills to white — that would have pinned
+  every migrated slide and broken inheritance. Absent fill resolves to the
+  background role (white for default-light), so old decks look identical.
+- **Smart cascade beats blunt override.** "User-moved untouched" is
+  implementable without persistent override tracking: re-flow a slide
+  placeholder only when its frame still equals the layout's *pre-edit*
+  frame (`framesApproxEqual`); re-seed master type styles only on *empty*
+  placeholders. Both detect "did the user customize this?" from current
+  state, no extra flags.
+- **YorkieSlidesStore has no unit-test harness.** MemSlidesStore is the
+  TDD reference (30 new cases); the Yorkie store mirrors it in-place on
+  CRDT proxies and is covered by integration/browser lanes. Keep the two
+  implementations behaviorally identical method-for-method.
+- **Frontend isn't typechecked in CI** (`vite build` only, no `tsc`); the
+  gate is `eslint` + `vitest`. `tsc -b` shows ~120 pre-existing errors —
+  don't treat it as a gate, but DO scan its output filtered to your own
+  files to catch real type breaks (e.g. a missing package export only
+  surfaces after `pnpm slides build` refreshes dist).
+- **Process slip:** ran a bare `git stash` to compare against main while
+  commit-1 work was uncommitted — it stashed everything. `git stash pop`
+  recovered it. Commit (or at least don't stash) before reaching for
+  comparison tricks on a dirty tree.
+
 ## Brainstorming

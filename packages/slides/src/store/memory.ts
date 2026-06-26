@@ -1,4 +1,9 @@
-import type { SlidesStore } from './store';
+import type {
+  LayoutPatch,
+  MasterPatch,
+  SlidesStore,
+  ThemePatch,
+} from './store';
 import type {
   Background,
   Guide,
@@ -20,12 +25,15 @@ import type {
   ElementInit,
   Frame,
   GroupElement,
+  PlaceholderRef,
   TableCell,
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
-import { DEFAULT_BACKGROUND, pushRecent } from '../model/presentation';
+import { pushRecent } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
+import type { Master } from '../model/master';
+import { framesApproxEqual } from '../model/frame';
 import { migrateDocument } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
@@ -148,9 +156,18 @@ export class MemSlidesStore implements SlidesStore {
 
   // --- slide ops ---
 
+  /**
+   * Resolve a layout by id from the document's own `layouts[]` so theme
+   * builder edits are honored, falling back to the shared built-in when
+   * the document lacks a copy (pre-PR1 docs / unknown id).
+   */
+  private resolveLayout(layoutId: string) {
+    return this.doc.layouts.find((l) => l.id === layoutId) ?? getLayout(layoutId);
+  }
+
   addSlide(layoutId: string, atIndex?: number): string {
     this.requireBatch();
-    const layout = getLayout(layoutId);
+    const layout = this.resolveLayout(layoutId);
     const id = generateId();
     const refs = slotRefsForLayout(layout);
     const master =
@@ -162,7 +179,9 @@ export class MemSlidesStore implements SlidesStore {
     const slide: Slide = {
       id,
       layoutId: layout.id,
-      background: clone(DEFAULT_BACKGROUND),
+      // Inherit background (no explicit fill) so master/layout background
+      // edits cascade at render via resolveBackgroundFill.
+      background: {},
       elements: layout.placeholders.map((p, i) => {
         const ref = refs[i];
         const cloned = clone(p);
@@ -285,6 +304,138 @@ export class MemSlidesStore implements SlidesStore {
     this.doc.meta.themeId = themeId;
   }
 
+  updateTheme(themeId: string, patch: ThemePatch): void {
+    this.requireBatch();
+    const theme = this.doc.themes.find((t) => t.id === themeId);
+    if (!theme) {
+      throw new Error(`[slides] theme '${themeId}' not in document`);
+    }
+    if (patch.name !== undefined) theme.name = patch.name;
+    if (patch.colors) Object.assign(theme.colors, clone(patch.colors));
+    if (patch.fonts) Object.assign(theme.fonts, clone(patch.fonts));
+  }
+
+  updateMaster(masterId: string, patch: MasterPatch): void {
+    this.requireBatch();
+    const master = this.doc.masters.find((m) => m.id === masterId);
+    if (!master) {
+      throw new Error(`[slides] master '${masterId}' not in document`);
+    }
+    if (patch.background) {
+      if (patch.background.fill !== undefined) {
+        master.background.fill = clone(patch.background.fill);
+      }
+      if (patch.background.image !== undefined) {
+        if (patch.background.image === null) delete master.background.image;
+        else master.background.image = clone(patch.background.image);
+      }
+    }
+    if (patch.placeholderStyles) {
+      for (const [key, stylePatch] of Object.entries(patch.placeholderStyles)) {
+        const existing = master.placeholderStyles[key];
+        if (!existing) {
+          throw new Error(
+            `[slides] placeholder style '${key}' not on master '${masterId}'`,
+          );
+        }
+        Object.assign(existing, clone(stylePatch));
+      }
+      this.cascadeMasterStyles(master, Object.keys(patch.placeholderStyles));
+    }
+  }
+
+  /**
+   * Re-seed placeholder typography on EMPTY placeholders of the patched
+   * types across every slide, so a master type-style edit reaches slides
+   * that have not been typed into yet. Placeholders the user typed into
+   * keep their content and styling. Only runs for the active master.
+   */
+  private cascadeMasterStyles(master: Master, types: string[]): void {
+    if (master.id !== this.doc.meta.masterId) return;
+    // Mirror YorkieSlidesStore.cascadeMasterStyles: fall back to
+    // defaultLight when the document has no themes, so both stores seed
+    // identical blocks.
+    const theme =
+      this.doc.themes.find((t) => t.id === this.doc.meta.themeId)
+      ?? this.doc.themes[0]
+      ?? defaultLight;
+    const typeSet = new Set(types);
+    for (const slide of this.doc.slides) {
+      for (const el of slide.elements) {
+        if (el.type !== 'text') continue;
+        const t = el.placeholderRef?.type;
+        if (!t || !typeSet.has(t)) continue;
+        if (!isBlocksEmpty(el.data.blocks)) continue;
+        const style = master.placeholderStyles[t];
+        if (style) el.data.blocks = seedPlaceholderBlocks(style, theme);
+      }
+    }
+  }
+
+  updateLayout(layoutId: string, patch: LayoutPatch): void {
+    this.requireBatch();
+    const layout = this.doc.layouts.find((l) => l.id === layoutId);
+    if (!layout) {
+      throw new Error(`[slides] layout '${layoutId}' not in document`);
+    }
+    if (patch.name !== undefined) layout.name = patch.name;
+    if (patch.background !== undefined) {
+      if (patch.background === null) delete layout.background;
+      else layout.background = clone(patch.background);
+    }
+  }
+
+  updateLayoutPlaceholderFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    frame: Partial<Frame>,
+  ): void {
+    this.requireBatch();
+    const layout = this.doc.layouts.find((l) => l.id === layoutId);
+    if (!layout) {
+      throw new Error(`[slides] layout '${layoutId}' not in document`);
+    }
+    const refs = slotRefsForLayout(layout);
+    const idx = refs.findIndex(
+      (r) => r.type === ref.type && r.index === ref.index,
+    );
+    if (idx === -1) {
+      throw new Error(
+        `[slides] placeholder slot ${ref.type}#${ref.index} not in layout '${layoutId}'`,
+      );
+    }
+    const spec = layout.placeholders[idx];
+    const oldFrame: Frame = { ...spec.frame };
+    spec.frame = { ...spec.frame, ...frame };
+    this.cascadeLayoutFrame(layoutId, ref, oldFrame, spec.frame);
+  }
+
+  /**
+   * Re-flow the matching placeholder on every slide using `layoutId`,
+   * but only where the slide's placeholder still sits at the layout's
+   * previous slot frame (i.e. the user has not moved it). User-moved or
+   * user-added elements are left untouched.
+   */
+  private cascadeLayoutFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    oldFrame: Frame,
+    newFrame: Frame,
+  ): void {
+    for (const slide of this.doc.slides) {
+      if (slide.layoutId !== layoutId) continue;
+      for (const el of slide.elements) {
+        if (
+          el.placeholderRef?.type === ref.type &&
+          el.placeholderRef.index === ref.index &&
+          framesApproxEqual(el.frame, oldFrame)
+        ) {
+          el.frame = { ...newFrame };
+        }
+      }
+    }
+  }
+
   setUnit(unit: 'in' | 'cm'): void {
     this.requireBatch();
     if (unit !== 'in' && unit !== 'cm') {
@@ -312,7 +463,7 @@ export class MemSlidesStore implements SlidesStore {
       ?? this.doc.themes[0];
     applyLayoutToSlide(
       slide,
-      getLayout(layoutId),
+      this.resolveLayout(layoutId),
       master && theme ? { master, theme } : undefined,
     );
   }

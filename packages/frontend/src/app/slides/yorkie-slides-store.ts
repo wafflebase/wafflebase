@@ -1,6 +1,5 @@
 import type { Document as YorkieDocument, Presence, TimeTicket } from '@yorkie-js/sdk';
 import {
-  DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
   type ArrowheadStyle,
   type Background,
@@ -14,6 +13,7 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type PlaceholderStyle,
   type ObjectAnimation,
   type PlaceholderRef,
   type Slide as ModelSlide,
@@ -21,6 +21,9 @@ import {
   type SlideTransition,
   type SlidesDocument,
   type SlidesStore,
+  type ThemePatch,
+  type MasterPatch,
+  type LayoutPatch,
   type Stroke,
   type TextElement,
   type Theme,
@@ -39,6 +42,7 @@ import {
   defaultDark,
   defaultLight,
   flattenElements,
+  framesApproxEqual,
   generateId,
   getLayout,
   bakeGroupScale,
@@ -656,7 +660,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   addSlide(layoutId: string, atIndex?: number): string {
     this.requireBatch();
-    const layout = getLayout(layoutId);
+    const layout = this.resolveLayout(layoutId);
     const id = generateId();
     const refs = slotRefsForLayout(layout);
     const { master, theme } = this.resolveMasterAndTheme();
@@ -703,7 +707,9 @@ export class YorkieSlidesStore implements SlidesStore {
       const slide: YorkieSlide = {
         id,
         layoutId: layout.id,
-        background: clone(MODEL_DEFAULT_BACKGROUND) as YorkieSlide['background'],
+        // Inherit background (no explicit fill) so master/layout
+        // background edits cascade at render via resolveBackgroundFill.
+        background: {},
         elements,
         notes: [],
       };
@@ -963,6 +969,160 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
+  updateTheme(themeId: string, patch: ThemePatch): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const theme = (r as { themes?: Theme[] }).themes?.find(
+        (t) => t.id === themeId,
+      );
+      if (!theme) {
+        throw new Error(`[slides] theme '${themeId}' not in document`);
+      }
+      if (patch.name !== undefined) theme.name = patch.name;
+      // Per-key assignment mutates the live CRDT object in place.
+      if (patch.colors) {
+        for (const [k, v] of Object.entries(patch.colors)) {
+          (theme.colors as Record<string, string>)[k] = v as string;
+        }
+      }
+      if (patch.fonts) {
+        for (const [k, v] of Object.entries(patch.fonts)) {
+          (theme.fonts as Record<string, string>)[k] = v as string;
+        }
+      }
+    });
+  }
+
+  updateMaster(masterId: string, patch: MasterPatch): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const master = (r as { masters?: Master[] }).masters?.find(
+        (m) => m.id === masterId,
+      );
+      if (!master) {
+        throw new Error(`[slides] master '${masterId}' not in document`);
+      }
+      if (patch.background) {
+        if (patch.background.fill !== undefined) {
+          master.background.fill = clone(patch.background.fill);
+        }
+        if (patch.background.image !== undefined) {
+          if (patch.background.image === null) delete master.background.image;
+          else master.background.image = clone(patch.background.image);
+        }
+      }
+      if (patch.placeholderStyles) {
+        for (const [key, stylePatch] of Object.entries(
+          patch.placeholderStyles,
+        )) {
+          const existing = master.placeholderStyles[key] as
+            | Record<string, unknown>
+            | undefined;
+          if (!existing) {
+            throw new Error(
+              `[slides] placeholder style '${key}' not on master '${masterId}'`,
+            );
+          }
+          for (const [k, v] of Object.entries(stylePatch)) existing[k] = v;
+        }
+        this.cascadeMasterStyles(
+          r,
+          master as Master,
+          Object.keys(patch.placeholderStyles),
+        );
+      }
+    });
+  }
+
+  /**
+   * Re-seed placeholder typography on EMPTY placeholders of the patched
+   * types across every slide (active master only). Mirrors
+   * MemSlidesStore.cascadeMasterStyles; runs inside the ambient update.
+   */
+  private cascadeMasterStyles(
+    r: YorkieSlidesRoot,
+    master: Master,
+    types: string[],
+  ): void {
+    const meta = r.meta as { masterId?: string; themeId?: string };
+    if (master.id !== meta.masterId) return;
+    const themes = (r as { themes?: Theme[] }).themes ?? [];
+    const theme =
+      themes.find((t) => t.id === meta.themeId) ?? themes[0] ?? defaultLight;
+    const typeSet = new Set(types);
+    for (const slide of r.slides) {
+      for (const el of slide.elements as unknown as YorkieElement[]) {
+        if (el.type !== 'text') continue;
+        const t = el.placeholderRef?.type;
+        if (!t || !typeSet.has(t)) continue;
+        const data = el.data as { blocks?: unknown };
+        const blocks = yorkieToPlain<Block[]>(data.blocks);
+        if (!Array.isArray(blocks) || !isBlocksEmpty(blocks)) continue;
+        const style = yorkieToPlain<PlaceholderStyle>(
+          (master.placeholderStyles as Record<string, unknown>)[t],
+        );
+        if (style) data.blocks = clone(seedPlaceholderBlocks(style, theme));
+      }
+    }
+  }
+
+  updateLayout(layoutId: string, patch: LayoutPatch): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const layout = r.layouts.find((l) => l.id === layoutId);
+      if (!layout) {
+        throw new Error(`[slides] layout '${layoutId}' not in document`);
+      }
+      if (patch.name !== undefined) layout.name = patch.name;
+      if (patch.background !== undefined) {
+        if (patch.background === null) delete layout.background;
+        else layout.background = clone(patch.background);
+      }
+    });
+  }
+
+  updateLayoutPlaceholderFrame(
+    layoutId: string,
+    ref: PlaceholderRef,
+    frame: Partial<Frame>,
+  ): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const layout = r.layouts.find((l) => l.id === layoutId);
+      if (!layout) {
+        throw new Error(`[slides] layout '${layoutId}' not in document`);
+      }
+      const refs = slotRefsForLayout(
+        yorkieToPlain<Layout>(layout as unknown),
+      );
+      const idx = refs.findIndex(
+        (s) => s.type === ref.type && s.index === ref.index,
+      );
+      if (idx === -1) {
+        throw new Error(
+          `[slides] placeholder slot ${ref.type}#${ref.index} not in layout '${layoutId}'`,
+        );
+      }
+      const spec = layout.placeholders[idx];
+      const oldFrame: Frame = { ...spec.frame };
+      spec.frame = { ...spec.frame, ...frame };
+      const newFrame: Frame = { ...spec.frame };
+      // Cascade: re-flow matching placeholders that still track the slot.
+      for (const slide of r.slides) {
+        if (slide.layoutId !== layoutId) continue;
+        for (const el of slide.elements as unknown as YorkieElement[]) {
+          if (
+            el.placeholderRef?.type === ref.type &&
+            el.placeholderRef.index === ref.index &&
+            framesApproxEqual({ ...el.frame } as Frame, oldFrame)
+          ) {
+            el.frame = { ...newFrame };
+          }
+        }
+      }
+    });
+  }
+
   setUnit(unit: 'in' | 'cm'): void {
     this.requireBatch();
     if (unit !== 'in' && unit !== 'cm') {
@@ -992,7 +1152,7 @@ export class YorkieSlidesStore implements SlidesStore {
 
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
-    const layout = getLayout(layoutId);
+    const layout = this.resolveLayout(layoutId);
     const { master, theme } = this.resolveMasterAndTheme();
     this.withUpdate((r) => {
       const s = r.slides.find((s) => s.id === slideId);
@@ -1033,6 +1193,21 @@ export class YorkieSlidesStore implements SlidesStore {
       ?? themes[0]
       ?? defaultLight;
     return { master, theme };
+  }
+
+  /**
+   * Resolve a layout by id from the document's own `layouts[]` so theme
+   * builder edits are honored, falling back to the shared built-in when
+   * the document lacks a copy (pre-PR1 docs / unknown id). Reads the
+   * ambient batch root when inside a batch so it observes edits made
+   * earlier in the same transaction.
+   */
+  private resolveLayout(layoutId: string): Layout {
+    const root = (this.activeRoot ?? this.doc.getRoot()) as {
+      layouts?: unknown;
+    };
+    const layouts = yorkieToPlain<Layout[]>(root.layouts) ?? [];
+    return layouts.find((l) => l.id === layoutId) ?? getLayout(layoutId);
   }
 
   // --- element ops ---

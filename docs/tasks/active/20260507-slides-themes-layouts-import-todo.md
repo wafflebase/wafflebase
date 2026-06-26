@@ -48,12 +48,36 @@ archived under `docs/tasks/archive/2026/05/`). Shipped as PR #243
 
 User value: brand-fit edits without leaving the editor.
 
-- [ ] commit 1 — `feat(slides): theme builder mode flag + thumbnail panel switch`
-- [ ] commit 2 — `feat(slides): master / layout editing routes`
-- [ ] commit 3 — `feat(frontend): theme builder UI shell`
-- [ ] commit 4 — `feat(slides): batch updates for cascading edits`
-- [ ] verify: master color edit propagates to all slides <100 ms
-- [ ] verify: layout placeholder edit only affects slides on that layout
+Re-reviewed 2026-06-25 against current code; commit plan regrounded (see
+design doc "Re-review" subsection). Key finding: theme/master colors and
+fonts already cascade via render-time role resolution (repaint only), but
+background fill was NOT rendered with inheritance, and layout placeholder
+**positions** and master placeholder **type-styles** are copied/seeded at
+slide-creation and need an explicit cascade.
+
+Decisions (2026-06-25, user-confirmed): (1) background — wire renderer
+precedence slide→layout→master→theme (proper inheritance); (2) cascade —
+smart: layout position re-flows a slide placeholder only when its frame
+still matches the pre-edit layout frame (user-moved placeholders kept);
+master type-style re-seeds only empty placeholders (typed text kept).
+Plan re-split into 5 commits for reviewability.
+
+- [x] commit 1 — `feat(slides): updateTheme/updateMaster/updateLayout store mutations`
+- [x] commit 2 — `feat(slides): background fill/image inheritance (slide→layout→master)`
+- [x] commit 3 — `feat(slides): cascade layout geometry + master placeholder styles`
+- [x] commit 4 — `feat(frontend): theme builder panel (colors / fonts / background)`
+      — entered via the Theme panel's "Customize" tab (no separate toolbar
+      button); edits apply live to all slides
+- [ ] commit 5 — canvas layout-editing mode: thumbnail panel → layouts/master
+      list + drag placeholders, on top of the shipped updateLayout /
+      updateLayoutPlaceholderFrame store methods (separate follow-up; the
+      panel covers the colors/fonts/background v1 surface today)
+- [ ] verify: theme/master color edit repaints all slides <100 ms (role-resolved)
+- [ ] verify: master/layout background edit cascades to inheriting slides on repaint
+- [ ] verify: layout placeholder position edit re-flows only slides on that layout; user-moved/added elements untouched
+- [ ] verify: master placeholder font-size edit picks up on unmodified placeholders only
+- [ ] verify: each edit + cascade is a single undo unit
+- [ ] verify: two-user Yorkie concurrent master + slide edit convergence
 - [ ] verify: `pnpm verify:browser:docker` covers theme builder entry
 - [ ] PR opened, reviewed, merged
 

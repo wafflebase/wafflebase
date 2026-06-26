@@ -77,7 +77,12 @@ const SPTREE_ROOT =
  * used if the image weren't present.
  */
 function backgroundToXml(bg: Background): string {
-  const fillXml = solidFillXml(bg.fill);
+  // Callers (export/pptx/index.ts) resolve the effective fill through the
+  // slide → layout → master chain before calling this, so an absent fill
+  // here means a genuinely fill-less background; default to the
+  // `background` role for safety. Background *images* are not exported yet.
+  const fill = bg.fill ?? { kind: 'role' as const, role: 'background' as const };
+  const fillXml = solidFillXml(fill);
   return `<p:bg><p:bgPr>${fillXml}</p:bgPr></p:bg>`;
 }
 

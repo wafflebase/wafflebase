@@ -31,7 +31,11 @@ import type {
   Slide,
   SlidesDocument,
 } from '../model/presentation';
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../model/presentation';
+import {
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  resolveBackgroundImage,
+} from '../model/presentation';
 import { drawSlide } from '../view/canvas/slide-renderer';
 import {
   evictImageSrcs,
@@ -220,11 +224,6 @@ function textBodiesOf(el: Element): TextBody[] {
   return [];
 }
 
-/** Slide-level background image, else the deck master's, else undefined. */
-function masterBackgroundImage(doc: SlidesDocument): BackgroundImage | undefined {
-  const master = doc.masters.find((m) => m.id === doc.meta.masterId);
-  return master?.background.image;
-}
 
 /**
  * Pull every cross-origin image in the deck into a taint-free object
@@ -241,7 +240,7 @@ async function resolveDeckImages(
     for (const el of flattenElements(slide.elements)) {
       if (el.type === 'image' && el.data.src) originals.add(el.data.src);
     }
-    const bg = slide.background.image?.src ?? masterBackgroundImage(doc)?.src;
+    const bg = resolveBackgroundImage(slide, doc)?.src;
     if (bg) originals.add(bg);
   }
 
@@ -305,10 +304,12 @@ function prepareExportSlide(
     cloned.background.image.src =
       map.get(cloned.background.image.src) ?? cloned.background.image.src;
   } else {
-    const masterBg = masterBackgroundImage(doc);
-    if (masterBg) {
-      const clonedBg = structuredClone(masterBg) as BackgroundImage;
-      clonedBg.src = map.get(masterBg.src) ?? masterBg.src;
+    // Bake the inherited (layout → master) background image onto the
+    // cloned slide so the offscreen raster sees it directly.
+    const inheritedBg = resolveBackgroundImage(slide, doc);
+    if (inheritedBg) {
+      const clonedBg = structuredClone(inheritedBg) as BackgroundImage;
+      clonedBg.src = map.get(inheritedBg.src) ?? inheritedBg.src;
       cloned.background.image = clonedBg;
     }
   }

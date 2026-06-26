@@ -52,6 +52,22 @@ describe('migrateDocument', () => {
     expect(out.slides[0].background.fill).toEqual({ kind: 'srgb', value: '#ffaa00' });
   });
 
+  it('preserves an absent background fill as inherit (no white default)', () => {
+    const legacy = {
+      meta: { title: 'New' },
+      slides: [
+        { id: 's1', layoutId: 'blank', background: {}, elements: [], notes: [] },
+        { id: 's2', layoutId: 'blank', elements: [], notes: [] }, // no background
+      ],
+      layouts: [],
+    } as any;
+    const out = migrateDocument(legacy);
+    // An inheriting slide keeps fill absent so it resolves through
+    // slide → layout → master at render, rather than being pinned white.
+    expect(out.slides[0].background.fill).toBeUndefined();
+    expect(out.slides[1].background.fill).toBeUndefined();
+  });
+
   it('wraps a legacy shape fill string into srgb ThemeColor', () => {
     const legacy = {
       meta: { title: 'Old' },

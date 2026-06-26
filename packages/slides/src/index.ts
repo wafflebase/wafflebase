@@ -27,6 +27,8 @@ export {
   DEFAULT_BACKGROUND,
   MAX_RECENT_COLORS,
   pushRecent,
+  resolveBackgroundFill,
+  resolveBackgroundImage,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
 } from './model/presentation';
@@ -134,7 +136,7 @@ export {
 } from './view/canvas/routing';
 
 export type { Point } from './model/frame';
-export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
+export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
 
 export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
 
@@ -152,7 +154,12 @@ export {
 } from './themes';
 
 // Store
-export type { SlidesStore } from './store/store';
+export type {
+  SlidesStore,
+  ThemePatch,
+  MasterPatch,
+  LayoutPatch,
+} from './store/store';
 export { MemSlidesStore } from './store/memory';
 
 // View — Canvas renderers (Phase 2)
