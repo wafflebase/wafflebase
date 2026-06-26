@@ -4,7 +4,8 @@ import { Doc, type EditContext } from '../model/document.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
-import type { ComposingContext, DocumentLayout } from './layout.js';
+import type { ComposingContext, DocumentLayout, LayoutBlock } from './layout.js';
+import { getBlockIndexForLine } from './table-geometry.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
 import { resolveInlineFont } from './layout.js';
@@ -2233,8 +2234,8 @@ export class TextEditor {
               const prevCellPos = this.getPrevCellLastPosition(arrowCellInfo);
               if (prevCellPos) {
                 newPos = prevCellPos;
-              } else {
-                // At first cell: exit table upward
+              } else if (this.editContext === 'body') {
+                // At first cell: exit table upward (body only).
                 newPos = this.getPositionBeforeTable(tableBlockId);
               }
             } else if (this.moveToPrevCell()) {
@@ -2258,8 +2259,8 @@ export class TextEditor {
               const nextCellPos = this.getNextCellFirstPosition(arrowCellInfo);
               if (nextCellPos) {
                 newPos = nextCellPos;
-              } else {
-                // At last cell: exit table downward
+              } else if (this.editContext === 'body') {
+                // At last cell: exit table downward (body only).
                 newPos = this.getPositionAfterTable(tableBlockId);
               }
             } else if (this.moveToNextCell()) {
@@ -2275,7 +2276,7 @@ export class TextEditor {
       } else if (direction === 'up') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
-        const tl = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const tl = this.getActiveLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
         const layoutCell = tl?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
 
         // Try line-by-line navigation within the cell first
@@ -2336,9 +2337,10 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
               };
             }
-          } else {
-            // Exit table upward
-            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+          } else if (this.editContext === 'body') {
+            // Exit table upward (body only — header/footer arrows stay in
+            // the table; exiting into header sibling blocks is not wired).
+            const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block before this table in parent cell
               const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -2378,7 +2380,7 @@ export class TextEditor {
       } else if (direction === 'down') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
-        const tl2 = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const tl2 = this.getActiveLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
         const layoutCell2 = tl2?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
 
         // Try line-by-line navigation within the cell first
@@ -2436,9 +2438,9 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
               };
             }
-          } else {
-            // Exit table downward
-            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+          } else if (this.editContext === 'body') {
+            // Exit table downward (body only — see the upward case).
+            const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block after this table in parent cell
               const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -2804,11 +2806,14 @@ export class TextEditor {
   // --- Cell helpers ---
 
   private isInCell(blockId: string): boolean {
-    return this.getLayout().blockParentMap.has(blockId);
+    return this.getActiveLayout().blockParentMap.has(blockId);
   }
 
   private getCellInfo(blockId: string): BlockCellInfo | undefined {
-    return this.getLayout().blockParentMap.get(blockId);
+    // Use the active (body / header / footer) layout so table cell editing
+    // works in every region. In body context this is the body layout, so
+    // behavior is unchanged there.
+    return this.getActiveLayout().blockParentMap.get(blockId);
   }
 
   /**
@@ -3974,6 +3979,12 @@ export class TextEditor {
   /**
    * Resolve mouse position to a DocPosition within header/footer layout.
    */
+  /**
+   * Resolve a click in the header/footer to a caret position. A click on a
+   * table block is resolved into the inner cell paragraph + offset (see
+   * `resolveHFCellOffset`); header/footer tables are a single non-paginated
+   * band, so the geometry is simpler than the body's paginated cell path.
+   */
   private getHFPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
     if (!hfLayout) return undefined;
@@ -4010,6 +4021,16 @@ export class TextEditor {
 
     // Find the closest block and line
     for (const lb of hfLayout.blocks) {
+      // Table block: resolve the click into a cell's inner paragraph.
+      if (lb.block.type === 'table' && lb.layoutTable) {
+        const top = lb.y;
+        const bottom = lb.y + lb.layoutTable.totalHeight;
+        if (localY >= top && localY < bottom) {
+          const resolved = this.resolveHFCellOffset(lb, localX, localY - lb.y);
+          if (resolved) return resolved;
+        }
+        continue;
+      }
       for (let li = 0; li < lb.lines.length; li++) {
         const line = lb.lines[li];
         const lineTop = lb.y + line.y;
@@ -4056,6 +4077,98 @@ export class TextEditor {
       return { blockId: lastBlock.block.id, offset: totalChars, lineAffinity: 'backward' as const };
     }
     return undefined;
+  }
+
+  /**
+   * Resolve a click inside a header/footer table to a cell's inner block +
+   * offset. Coordinates are table-logical (relative to the table's top-left).
+   * Header/footer tables are a single non-paginated band, so line Y is just
+   * the table-logical `runLineY` from `computeMergedCellLineLayouts` — no
+   * page/split mapping is needed (unlike the body's `resolveOffsetInCellAtXY`).
+   */
+  private resolveHFCellOffset(
+    lb: LayoutBlock,
+    tableLocalX: number,
+    tableLocalY: number,
+  ): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    const tl = lb.layoutTable;
+    const tableData = lb.block.tableData;
+    if (!tl || !tableData) return undefined;
+    const numRows = tl.rowHeights.length;
+    const numCols = tl.columnPixelWidths.length;
+    if (numRows === 0 || numCols === 0) return undefined;
+
+    // Column / row: last grid line whose top-left edge is <= the point.
+    let col = 0;
+    for (let c = 0; c < numCols; c++) {
+      if (tableLocalX >= tl.columnXOffsets[c]) col = c; else break;
+    }
+    let row = 0;
+    for (let r = 0; r < numRows; r++) {
+      if (tableLocalY >= tl.rowYOffsets[r]) row = r; else break;
+    }
+    // Resolve a covered (merged) cell to its owning top-left cell.
+    if (tableData.rows[row]?.cells[col]?.colSpan === 0) {
+      outer: for (let r = row; r >= 0; r--) {
+        for (let c = col; c >= 0; c--) {
+          const cand = tableData.rows[r]?.cells[c];
+          if (cand && cand.colSpan !== 0) {
+            const cs = cand.colSpan ?? 1;
+            const rs = cand.rowSpan ?? 1;
+            if (r + rs > row && c + cs > col) { row = r; col = c; break outer; }
+          }
+        }
+      }
+    }
+
+    const cell = tl.cells[row]?.[col];
+    const dataCell = tableData.rows[row]?.cells[col];
+    if (!cell || cell.merged || !dataCell || dataCell.blocks.length === 0) {
+      return undefined;
+    }
+    const padding = dataCell.style.padding ?? 4;
+    const rowSpan = dataCell.rowSpan ?? 1;
+
+    // Map Y → line index using the same per-line placement the renderer uses.
+    let targetLineIdx = Math.max(0, cell.lines.length - 1);
+    if (cell.lines.length > 0) {
+      const lineLayouts = computeMergedCellLineLayouts(
+        cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+      );
+      for (let li = 0; li < cell.lines.length; li++) {
+        if (tableLocalY < lineLayouts[li].runLineY + cell.lines[li].height) {
+          targetLineIdx = li;
+          break;
+        }
+      }
+    }
+
+    // Which inner block owns the target line, plus the char offset up to it.
+    const blockIdx = getBlockIndexForLine(cell.blockBoundaries, targetLineIdx);
+    const targetBlock = dataCell.blocks[blockIdx] ?? dataCell.blocks[dataCell.blocks.length - 1];
+    let offset = 0;
+    const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+    for (let li = blockStartLine; li < targetLineIdx; li++) {
+      for (const run of cell.lines[li].runs) offset += run.text.length;
+    }
+
+    // Resolve X within the target line. `run.x` is relative to the cell's
+    // content origin (column left + padding).
+    const cellLocalX = tableLocalX - (tl.columnXOffsets[col] + padding);
+    const targetLine = cell.lines[targetLineIdx];
+    if (targetLine) {
+      const measurer = this.getMeasurer();
+      for (const run of targetLine.runs) {
+        const font = resolveInlineFont(run.inline.style);
+        for (let i = 0; i <= run.text.length; i++) {
+          if (measurer.measureWidth(run.text.slice(0, i), font) + run.x >= cellLocalX) {
+            return { blockId: targetBlock.id, offset: offset + i, lineAffinity: 'backward' as const };
+          }
+        }
+        offset += run.text.length;
+      }
+    }
+    return { blockId: targetBlock.id, offset, lineAffinity: 'backward' as const };
   }
 
   /**
@@ -4498,6 +4611,11 @@ export class TextEditor {
     }
     // At last cell
     if (addRowAtEnd) {
+      // Structural row insertion targets the body table store path; header/
+      // footer table row/column ops are not wired (resolveTableBlock assumes
+      // the body). Tab at the last header/footer cell is a no-op rather than
+      // a crash.
+      if (this.editContext !== 'body') return false;
       // Tab: insert a new row and move to it
       this.saveSnapshot();
       const newRowIndex = td.rows.length;
@@ -4512,7 +4630,7 @@ export class TextEditor {
     // Exit table — move to the block after the table.
     // If this is a nested table, move to the next block in the parent cell
     // or to the next cell in the outer table.
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       // Nested table — find the next block in the parent cell
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
@@ -4529,6 +4647,9 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToNextCell(addRowAtEnd);
     }
+    // Header/footer: exiting the table into sibling blocks is not wired;
+    // keep the caret in the last cell rather than jumping into the body.
+    if (this.editContext !== 'body') return false;
     // Top-level table — move to the block after the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     const nextId = this.doc.ensureBlockAfter(blockIndex);
@@ -4571,7 +4692,7 @@ export class TextEditor {
     // At first cell — exit table.
     // If nested, move to the previous block in the parent cell or
     // to the previous cell in the outer table.
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
@@ -4586,6 +4707,8 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToPrevCell();
     }
+    // Header/footer: don't exit the table into sibling blocks (not wired).
+    if (this.editContext !== 'body') return false;
     // Top-level table — move to the block before the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     if (blockIndex > 0) {

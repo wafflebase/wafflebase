@@ -38,6 +38,19 @@ describe('resolveOffset', () => {
     const block = makeBlock({ text: '' });
     expect(resolveOffset(block, 0)).toEqual({ inlineIndex: 0, charOffset: 0 });
   });
+
+  it('returns a benign position for a block with no inlines', () => {
+    // Table blocks carry no inlines (text lives in cell paragraphs). A stray
+    // caret on such a block must not crash by indexing inlines[-1].
+    const block: Block = {
+      id: 'tbl',
+      type: 'table',
+      inlines: [],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    };
+    expect(() => resolveOffset(block, 0)).not.toThrow();
+    expect(resolveOffset(block, 3)).toEqual({ inlineIndex: 0, charOffset: 0 });
+  });
 });
 
 describe('resolveDeleteRange', () => {

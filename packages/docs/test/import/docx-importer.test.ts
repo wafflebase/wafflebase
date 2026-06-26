@@ -1046,6 +1046,40 @@ describe('DocxImporter', () => {
     expect(headerInline!.style.image!.src.startsWith('__pending__')).toBe(false);
   });
 
+  it('should import a table inside a header part', async () => {
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+      </Relationships>`;
+    const header1Xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:tbl>
+          <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+          <w:tr>
+            <w:tc><w:p><w:r><w:t>Left</w:t></w:r></w:p></w:tc>
+            <w:tc><w:p><w:r><w:t>Right</w:t></w:r></w:p></w:tc>
+          </w:tr>
+        </w:tbl>
+        <w:p><w:r><w:t>After</w:t></w:r></w:p>
+      </w:hdr>`;
+    const buffer = await createMinimalDocx(
+      `<w:p><w:r><w:t>Body</w:t></w:r></w:p>
+       <w:sectPr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+         <w:headerReference w:type="default" r:id="rId20"/>
+         <w:pgSz w:w="11906" w:h="16838"/>
+       </w:sectPr>`,
+      { relsXml, extraFiles: { 'word/header1.xml': header1Xml } },
+    );
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.header).toBeDefined();
+    const tableBlock = doc.header!.blocks.find((b) => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    expect(tableBlock!.tableData!.rows).toHaveLength(1);
+    const cells = tableBlock!.tableData!.rows[0].cells;
+    expect(cells[0].blocks[0].inlines[0].text).toBe('Left');
+    expect(cells[1].blocks[0].inlines[0].text).toBe('Right');
+  });
+
   it('should import nested tables as actual table blocks', async () => {
     const buffer = await createMinimalDocx(`
       <w:tbl>

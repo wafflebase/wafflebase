@@ -74,10 +74,28 @@ alignment) apply normally.
 
 ### Blocked Block Types
 
-Header/footer blocks must not contain: `table`, `page-break`,
-`horizontal-rule`. The editor prevents creation of these types when
-`editContext` is `'header'` or `'footer'`. `heading`, `list-item`, and
-`paragraph` are allowed.
+The editor prevents *creation* of `table`, `page-break`, and
+`horizontal-rule` blocks when `editContext` is `'header'` or `'footer'`.
+`heading`, `list-item`, and `paragraph` are allowed.
+
+This is a restriction on user-initiated insertion, not on what the model
+may hold: DOCX import preserves header/footer tables as native `table`
+blocks (a common letterhead pattern). Layout reuses the body's
+`computeLayout`, and the header/footer paint path
+(`DocCanvas.renderHeaderFooterBlocks`) routes table blocks through the
+shared `renderTableBackgrounds` / `renderTableContent` renderer — the same
+one the body uses — so a header/footer table actually draws. (The earlier
+header/footer paint loop only emitted text runs, so a table laid out but
+painted nothing.) Interactive table editing inside a header or footer
+(cell caret, selection, navigation, add/remove rows) is not yet wired —
+the body wires table cell hit-testing (`resolveTableCellClick` /
+`resolveOffsetInCellAtXY`) and cell caret/selection, but the header/footer
+region does not. So imported header/footer tables are render-faithful but
+not cell-editable. Two guards keep this safe: a header/footer click on a
+table block is redirected to the nearest editable paragraph
+(`getHFPositionFromMouse`), and `YorkieDocStore.insertText`/`deleteText`
+early-return on a `table` block, so a stray caret never crashes
+(`resolveOffset` on empty inlines) or corrupts the table tree node.
 
 ## Layout
 

@@ -21,6 +21,8 @@ import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
 import { resolveNestedTableLayout } from './table-layout.js';
+import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
+import type { BlockCellInfo } from '../model/types.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -276,11 +278,105 @@ export interface EditorAPI {
    * (e.g. getRangeStyleSummary) without simulating drag.
    */
   _setSelectionForTest(range: { anchor: DocPosition; focus: DocPosition } | null): void;
+  /** Test-only: force the edit context (body/header/footer). */
+  _setEditContextForTest(ctx: 'body' | 'header' | 'footer'): void;
+  /** Test-only: read the current caret position. */
+  _getCursorForTest(): DocPosition;
 }
 
 /**
  * Compute cursor pixel position within a header/footer layout for a visible page.
  */
+/**
+ * Caret pixel for a cursor inside a header/footer table cell. The cursor's
+ * blockId is a cell inner block (not a top-level hfLayout block), so it is
+ * located via `hfLayout.blockParentMap`. Header/footer tables are a single
+ * non-paginated band; the line Y is the table-logical `runLineY` plus the
+ * table's own `lb.y` and the region base Y.
+ */
+function computeHFTableCellCaretPixel(
+  position: DocPosition,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  measurer: TextMeasurer,
+  canvasWidth: number,
+  activePageIndex: number,
+  cursorVisible: boolean,
+): { x: number; y: number; height: number; visible: boolean } | undefined {
+  const cellInfo = hfLayout.blockParentMap.get(position.blockId);
+  if (!cellInfo) return undefined;
+  const tableLb = hfLayout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+  const tl = tableLb?.layoutTable;
+  const tableData = tableLb?.block.tableData;
+  if (!tableLb || !tl || !tableData) return undefined;
+  const { rowIndex: row, colIndex: col } = cellInfo;
+  const cell = tl.cells[row]?.[col];
+  const dataCell = tableData.rows[row]?.cells[col];
+  if (!cell || !dataCell) return undefined;
+  const blockIdx = dataCell.blocks.findIndex((b) => b.id === position.blockId);
+  if (blockIdx === -1) return undefined;
+
+  const padding = dataCell.style.padding ?? 4;
+  const rowSpan = dataCell.rowSpan ?? 1;
+  const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+  const blockEndLine = cell.blockBoundaries[blockIdx + 1] ?? cell.lines.length;
+
+  // Find the line within this block that holds `offset`, and the x within it.
+  let lineIdx = blockStartLine;
+  let cursorXInCell = 0;
+  let lineHeight = cell.lines[blockStartLine]?.height ?? 14;
+  let remaining = position.offset;
+  for (let li = blockStartLine; li < blockEndLine; li++) {
+    const line = cell.lines[li];
+    let lineChars = 0;
+    for (const run of line.runs) lineChars += run.text.length;
+    if (remaining <= lineChars || li === blockEndLine - 1) {
+      lineIdx = li;
+      lineHeight = line.height;
+      let chars = 0;
+      cursorXInCell = 0;
+      for (const run of line.runs) {
+        if (remaining <= chars + run.text.length) {
+          const localOff = remaining - chars;
+          cursorXInCell = run.x + (run.imageHeight !== undefined
+            ? (localOff > 0 ? run.width : 0)
+            : measurer.measureWidth(
+                run.text.slice(0, localOff),
+                resolveInlineFont(run.inline.style),
+              ));
+          break;
+        }
+        chars += run.text.length;
+        cursorXInCell = run.x + run.width;
+      }
+      break;
+    }
+    remaining -= lineChars;
+  }
+
+  const lineLayouts = computeMergedCellLineLayouts(
+    cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+  );
+  const runLineY = lineLayouts[lineIdx]?.runLineY ?? (tl.rowYOffsets[row] + padding);
+
+  const targetPage = paginatedLayout.pages[activePageIndex];
+  if (!targetPage) return undefined;
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+  const baseY = region === 'header'
+    ? getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge)
+    : getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+
+  return {
+    x: pageX + margins.left + tl.columnXOffsets[col] + padding + cursorXInCell,
+    y: baseY + tableLb.y + runLineY,
+    height: lineHeight,
+    visible: cursorVisible,
+  };
+}
+
 function computeHFCursorPixel(
   position: DocPosition,
   hfLayout: DocumentLayout,
@@ -293,7 +389,14 @@ function computeHFCursorPixel(
   cursorVisible: boolean,
 ): { x: number; y: number; height: number; visible: boolean } | undefined {
   const lb = hfLayout.blocks.find((b) => b.block.id === position.blockId);
-  if (!lb) return undefined;
+  if (!lb) {
+    // The caret may be inside a header/footer table cell, whose inner block
+    // is not a top-level hfLayout block. Resolve it via the cell map.
+    return computeHFTableCellCaretPixel(
+      position, hfLayout, hf, region, paginatedLayout, measurer,
+      canvasWidth, activePageIndex, cursorVisible,
+    );
+  }
 
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
@@ -353,6 +456,127 @@ function computeHFCursorPixel(
 }
 
 /**
+ * Selection rects when a header/footer selection touches a table cell.
+ * Two cases are drawn precisely; the rest degrade to whole-cell highlights:
+ *  - same inner block (drag within one cell): per-line text rects.
+ *  - both endpoints in the same table (drag across cells) or any other
+ *    in-table combination: whole-cell rects over the bounding row/col box.
+ * Header/footer tables are a single non-paginated band, so each cell maps
+ * to exactly one rect (no page/split fragments).
+ */
+function computeHFTableCellSelectionRects(
+  selectionRange: { anchor: DocPosition; focus: DocPosition },
+  anchorCell: BlockCellInfo | undefined,
+  focusCell: BlockCellInfo | undefined,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  measurer: TextMeasurer,
+  canvasWidth: number,
+  activePageIndex: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const targetPage = paginatedLayout.pages[activePageIndex];
+  if (!targetPage) return rects;
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+  const baseY = region === 'header'
+    ? getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge)
+    : getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+
+  const cellInfo = anchorCell ?? focusCell;
+  if (!cellInfo) return rects;
+  const tableLb = hfLayout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+  const tl = tableLb?.layoutTable;
+  const tableData = tableLb?.block.tableData;
+  if (!tableLb || !tl || !tableData) return rects;
+  const contentLeft = pageX + margins.left;
+  const tableTop = baseY + tableLb.y;
+
+  // Precise within-cell text selection: same inner block on both ends.
+  if (
+    anchorCell && focusCell &&
+    selectionRange.anchor.blockId === selectionRange.focus.blockId
+  ) {
+    const { rowIndex: row, colIndex: col } = anchorCell;
+    const cell = tl.cells[row]?.[col];
+    const dataCell = tableData.rows[row]?.cells[col];
+    if (!cell || !dataCell) return rects;
+    const blockIdx = dataCell.blocks.findIndex((b) => b.id === selectionRange.anchor.blockId);
+    if (blockIdx === -1) return rects;
+    const padding = dataCell.style.padding ?? 4;
+    const rowSpan = dataCell.rowSpan ?? 1;
+    const selStart = Math.min(selectionRange.anchor.offset, selectionRange.focus.offset);
+    const selEnd = Math.max(selectionRange.anchor.offset, selectionRange.focus.offset);
+    const lineLayouts = computeMergedCellLineLayouts(
+      cell.lines, row, rowSpan, padding, tl.rowYOffsets, tl.rowHeights,
+    );
+    const blockStartLine = cell.blockBoundaries[blockIdx] ?? 0;
+    const blockEndLine = cell.blockBoundaries[blockIdx + 1] ?? cell.lines.length;
+    const cellLeft = contentLeft + tl.columnXOffsets[col] + padding;
+
+    let charsSoFar = 0;
+    for (let li = blockStartLine; li < blockEndLine; li++) {
+      const line = cell.lines[li];
+      let lineChars = 0;
+      for (const run of line.runs) lineChars += run.text.length;
+      const lineStart = charsSoFar;
+      const lineEnd = charsSoFar + lineChars;
+      if (selEnd > lineStart && selStart < lineEnd) {
+        const lineSelStart = Math.max(0, selStart - lineStart);
+        const lineSelEnd = Math.min(lineChars, selEnd - lineStart);
+        let x0 = 0, x1 = 0, chars = 0;
+        for (const run of line.runs) {
+          const font = resolveInlineFont(run.inline.style);
+          const runOffsetX = (n: number): number =>
+            run.x + (run.imageHeight !== undefined
+              ? (n > 0 ? run.width : 0)
+              : measurer.measureWidth(run.text.slice(0, n), font));
+          if (chars <= lineSelStart && lineSelStart <= chars + run.text.length) {
+            x0 = runOffsetX(lineSelStart - chars);
+          }
+          if (chars <= lineSelEnd && lineSelEnd <= chars + run.text.length) {
+            x1 = runOffsetX(lineSelEnd - chars);
+          }
+          chars += run.text.length;
+        }
+        rects.push({
+          x: cellLeft + x0,
+          y: tableTop + lineLayouts[li].runLineY,
+          width: Math.max(0, x1 - x0),
+          height: line.height,
+        });
+      }
+      charsSoFar += lineChars;
+    }
+    return rects;
+  }
+
+  // Otherwise: whole-cell highlight over the bounding row/col box. When one
+  // endpoint is outside the table, clamp that side to the table edge.
+  const a = anchorCell ?? focusCell!;
+  const b = focusCell ?? anchorCell!;
+  const r0 = Math.min(a.rowIndex, b.rowIndex);
+  const r1 = Math.max(a.rowIndex, b.rowIndex);
+  const c0 = Math.min(a.colIndex, b.colIndex);
+  const c1 = Math.max(a.colIndex, b.colIndex);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      if (tl.cells[r]?.[c]?.merged) continue;
+      const rect = cellOriginPx(tl, tableData, r, c);
+      rects.push({
+        x: contentLeft + rect.x,
+        y: tableTop + rect.y,
+        width: rect.w,
+        height: rect.h,
+      });
+    }
+  }
+  return rects;
+}
+
+/**
  * Compute selection rects within a header/footer layout for all visible pages.
  */
 function computeHFSelectionRects(
@@ -365,6 +589,18 @@ function computeHFSelectionRects(
   canvasWidth: number,
   activePageIndex: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
+  // If either endpoint is inside a header/footer table cell, route to the
+  // table-aware path (the cell's inner block is not a top-level hfLayout
+  // block, so the flat scan below would find nothing).
+  const anchorCell = hfLayout.blockParentMap.get(selectionRange.anchor.blockId);
+  const focusCell = hfLayout.blockParentMap.get(selectionRange.focus.blockId);
+  if (anchorCell || focusCell) {
+    return computeHFTableCellSelectionRects(
+      selectionRange, anchorCell, focusCell, hfLayout, hf, region,
+      paginatedLayout, measurer, canvasWidth, activePageIndex,
+    );
+  }
+
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
@@ -748,7 +984,6 @@ export function initialize(
     layout = result.layout;
     layoutCache = result.cache;
     dirtyBlockIds = undefined;
-    doc.setBlockParentMap(layout.blockParentMap);
     paginatedLayout = paginateLayout(layout, pageSetup);
 
     // Header/footer layouts
@@ -776,6 +1011,20 @@ export function initialize(
     } else {
       footerLayout = null;
     }
+
+    // Register cell→table parentage for all regions, not just the body, so
+    // `doc.findBlock` can resolve a caret that sits inside a header/footer
+    // table cell. Without the header/footer entries the keydown guard treats
+    // such a caret as a deleted block and resets it to the table (arrow keys
+    // appeared to "jump" out of the cell).
+    const mergedParentMap = new Map(layout.blockParentMap);
+    if (headerLayout) {
+      for (const [k, v] of headerLayout.blockParentMap) mergedParentMap.set(k, v);
+    }
+    if (footerLayout) {
+      for (const [k, v] of footerLayout.blockParentMap) mergedParentMap.set(k, v);
+    }
+    doc.setBlockParentMap(mergedParentMap);
   };
 
   const markDirty = (blockId: string) => {
@@ -915,10 +1164,29 @@ export function initialize(
     const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
     lastLogicalCanvasWidth = logicalCanvasWidth;
 
-    // Hide cursor when in cell-range selection mode
+    // Hide cursor when in cell-range selection mode. In header/footer edit
+    // context the caret lives in the header/footer layout (including table
+    // cells), so use that pixel — `cursor.getPixelPosition` resolves against
+    // the body layout and returns undefined for header/footer blocks, which
+    // would leave the hidden textarea stale and make the browser auto-scroll
+    // (the caret appears to jump to the table's edge on arrow keys).
+    const editCtx = textEditor?.getEditContext() ?? 'body';
+    const hfActivePageIndex = textEditor?.getHFActivePageIndex() ?? 0;
     const cursorPixelRaw = selection.range?.tableCellRange
       ? undefined
-      : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
+      : editCtx === 'header' && headerLayout && doc.document.header
+        ? computeHFCursorPixel(
+            cursor.position, headerLayout, doc.document.header, 'header',
+            paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
+            cursor.isVisible(),
+          )
+        : editCtx === 'footer' && footerLayout && doc.document.footer
+          ? computeHFCursorPixel(
+              cursor.position, footerLayout, doc.document.footer, 'footer',
+              paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
+              cursor.isVisible(),
+            )
+          : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
     // Caret color tracks the resolved text color at the cursor position
     // so it stays readable when the user picks a non-default color.
     // findBlock walks body / header / footer / cell blocks so this works
@@ -1081,9 +1349,8 @@ export function initialize(
       }
     }
 
-    const editCtx = textEditor?.getEditContext() ?? 'body';
-
-    // Compute header/footer cursor and selection
+    // Compute header/footer cursor and selection (editCtx / hfActivePageIndex
+    // are hoisted above for the textarea-tracking cursor pixel).
     let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfCursorFooter: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
     let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
@@ -2777,5 +3044,9 @@ export function initialize(
         });
       }
     },
+    _setEditContextForTest: (ctx) => {
+      textEditor?.setEditContext(ctx);
+    },
+    _getCursorForTest: () => ({ ...cursor.position }),
   };
 }

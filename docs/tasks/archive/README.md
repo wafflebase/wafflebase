@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 317
+Total archived tasks: 318
 
 ## 2026/06 (69 tasks)
 
@@ -190,7 +190,7 @@ Total archived tasks: 317
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |
 
-## 2026/04 (31 tasks)
+## 2026/04 (32 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -214,6 +214,7 @@ Total archived tasks: 317
 | yorkie native split merge (2026-04-13) | [20260413-yorkie-native-split-merge-todo.md](./2026/04/20260413-yorkie-native-split-merge-todo.md) | [20260413-yorkie-native-split-merge-lessons.md](./2026/04/20260413-yorkie-native-split-merge-lessons.md) |
 | docs image editing (2026-04-12) | [20260412-docs-image-editing-todo.md](./2026/04/20260412-docs-image-editing-todo.md) | [20260412-docs-image-editing-lessons.md](./2026/04/20260412-docs-image-editing-lessons.md) |
 | docx image import render (2026-04-12) | [20260412-docx-image-import-render-todo.md](./2026/04/20260412-docx-image-import-render-todo.md) | [20260412-docx-image-import-render-lessons.md](./2026/04/20260412-docx-image-import-render-lessons.md) |
+| docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./2026/04/20260412-docx-table-style-followup-todo.md) | [20260412-docx-table-style-followup-lessons.md](./2026/04/20260412-docx-table-style-followup-lessons.md) |
 | docs table merge ux (2026-04-11) | [20260411-docs-table-merge-ux-todo.md](./2026/04/20260411-docs-table-merge-ux-todo.md) | [20260411-docs-table-merge-ux-lessons.md](./2026/04/20260411-docs-table-merge-ux-lessons.md) |
 | docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./2026/04/20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./2026/04/20260411-docx-table-merge-gaps-lessons.md) |
 | release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./2026/04/20260411-release-v0.3.2-todo.md) | - |
