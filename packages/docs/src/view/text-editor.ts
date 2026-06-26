@@ -3974,7 +3974,40 @@ export class TextEditor {
   /**
    * Resolve mouse position to a DocPosition within header/footer layout.
    */
+  /**
+   * Resolve a click in the header/footer to a caret position. Header/footer
+   * table cell editing is not yet wired, so a click that lands on a table
+   * block is redirected to the nearest editable (non-table) block — the
+   * caret must never sit on a table block (it has no inlines, so typing
+   * would be a no-op and the caret would render at the table corner).
+   */
   private getHFPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    const raw = this.resolveHFRawPosition(e);
+    if (!raw) return raw;
+    const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
+    if (!hfLayout) return raw;
+    const idx = hfLayout.blocks.findIndex((lb) => lb.block.id === raw.blockId);
+    if (idx === -1 || hfLayout.blocks[idx].block.type !== 'table') return raw;
+
+    // Prefer the first editable block after the table, else the last before it.
+    for (let i = idx + 1; i < hfLayout.blocks.length; i++) {
+      if (hfLayout.blocks[i].block.type !== 'table') {
+        return { blockId: hfLayout.blocks[i].block.id, offset: 0, lineAffinity: 'forward' as const };
+      }
+    }
+    for (let i = idx - 1; i >= 0; i--) {
+      const lb = hfLayout.blocks[i];
+      if (lb.block.type !== 'table') {
+        let total = 0;
+        for (const line of lb.lines) for (const run of line.runs) total += run.text.length;
+        return { blockId: lb.block.id, offset: total, lineAffinity: 'backward' as const };
+      }
+    }
+    // Header/footer is a table with no editable sibling: leave the caret put.
+    return raw;
+  }
+
+  private resolveHFRawPosition(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
     if (!hfLayout) return undefined;
     const hf = this.editContext === 'header' ? this.doc.document.header : this.doc.document.footer;

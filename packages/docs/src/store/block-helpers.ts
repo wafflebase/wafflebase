@@ -17,6 +17,12 @@ export interface InlineSegment {
  * Resolve a block-level character offset to an inline index + char offset.
  */
 export function resolveOffset(block: Block, offset: number): InlinePosition {
+  // A block with no inlines (e.g. a table block, whose text lives in cell
+  // paragraphs) has no resolvable inline position. Return a benign zero
+  // position instead of indexing `inlines[-1]` and throwing.
+  if (block.inlines.length === 0) {
+    return { inlineIndex: 0, charOffset: 0 };
+  }
   let remaining = offset;
   for (let i = 0; i < block.inlines.length; i++) {
     const len = block.inlines[i].text.length;

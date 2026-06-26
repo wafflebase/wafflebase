@@ -37,6 +37,39 @@ block iteration but without table support. The fix extracted
 `renderTableBackgrounds`/`renderTableContent`. Prefer converging on the
 shared renderer over adding a second text-only path.
 
+## A new editable region inherits the whole editing surface
+
+**Symptom (2nd smoke):** clicking a header that contains a table and typing
+threw `Cannot read properties of undefined (reading 'text')` in
+`resolveOffset` (block-helpers.ts:29) — and the uncaught error in
+`handleInput` broke editing everywhere, not just the header.
+
+**Root cause:** a `table` block has `inlines: []`. The header/footer
+hit-test (`getHFPositionFromMouse`) had no table-cell resolution (unlike the
+body's `resolveTableCellClick` + `resolveOffsetInCellAtXY`), so a click on a
+header table returned the *table* block id. Typing → `resolveOffset(table)` →
+`inlines[-1].text` → crash.
+
+**Lesson:** enabling a block type in a *new region* silently opts that region
+into the entire editing surface — hit-test, caret (`computeHFCursorPixel`),
+selection, arrow-nav, text mutation. The body wires all of these for tables;
+the header/footer region wired none. "It renders" ≠ "it's a first-class
+editable block." Enumerate the editing surface (click → caret → type → delete
+→ split → navigate) and either wire each or guard each.
+
+**Lesson (defense placement):** guarding only the crash line (`resolveOffset`)
+is insufficient — the next caller (`applyInsertText`, or the Yorkie tree path)
+would deref `inlines[0]` or insert an inline node into the table's tree node
+and *corrupt* it. The correct guard is the invariant at the data layer:
+`insertText`/`deleteText` early-return on `block.type === 'table'`, so any
+stray caret (click, edit-entry, arrow-key) is a safe no-op regardless of how
+it got there.
+
+**Scope decision:** full header/footer table cell editing (cell caret +
+selection + navigation) is a separate, larger feature. This pass keeps header
+tables render-faithful and crash-safe, and redirects header-table clicks to
+the nearest editable paragraph. Documented as a known limitation.
+
 ## Verification gap
 
 Canvas paint is not unit-testable in jsdom (`getContext` unimplemented);

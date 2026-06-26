@@ -1517,6 +1517,12 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    // A table block has no inlines; text operations target a paragraph
+    // inside a cell, never the table block itself. Guard against a stray
+    // caret on a table block (e.g. a header/footer table whose cell
+    // hit-testing is not yet wired) so a keystroke is a safe no-op rather
+    // than crashing in resolveOffset / corrupting the table tree node.
+    if (block.type === 'table') return;
     if (isDebug()) {
       console.log(`[DOC] insertText blockId=${blockId.slice(0, 6)} offset=${offset} text="${text}" path=[${blockPath}] region=${region}`);
       console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
@@ -1601,6 +1607,8 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    // See insertText: never run a text op against a table block.
+    if (block.type === 'table') return;
     if (isDebug()) {
       console.log(`[DOC] deleteText blockId=${blockId.slice(0, 6)} offset=${offset} length=${length} path=[${blockPath}] region=${region}`);
       console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);

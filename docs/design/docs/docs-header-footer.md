@@ -87,8 +87,15 @@ shared `renderTableBackgrounds` / `renderTableContent` renderer — the same
 one the body uses — so a header/footer table actually draws. (The earlier
 header/footer paint loop only emitted text runs, so a table laid out but
 painted nothing.) Interactive table editing inside a header or footer
-(cell navigation, add/remove rows) is not yet wired — imported
-header/footer tables are render-faithful but edited at the block level.
+(cell caret, selection, navigation, add/remove rows) is not yet wired —
+the body wires table cell hit-testing (`resolveTableCellClick` /
+`resolveOffsetInCellAtXY`) and cell caret/selection, but the header/footer
+region does not. So imported header/footer tables are render-faithful but
+not cell-editable. Two guards keep this safe: a header/footer click on a
+table block is redirected to the nearest editable paragraph
+(`getHFPositionFromMouse`), and `YorkieDocStore.insertText`/`deleteText`
+early-return on a `table` block, so a stray caret never crashes
+(`resolveOffset` on empty inlines) or corrupts the table tree node.
 
 ## Layout
 

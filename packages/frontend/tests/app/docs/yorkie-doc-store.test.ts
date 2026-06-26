@@ -577,6 +577,28 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('text ops on a table block are safe no-ops', () => {
+    // A header/footer table whose cell hit-testing is not yet wired can leave
+    // the caret on the table block itself. insertText/deleteText there must
+    // not crash (resolveOffset indexing inlines[-1]) or corrupt the table.
+    it('insertText/deleteText on a header table block do nothing', () => {
+      const tableBlock = createTableBlock(2, 2);
+      tableBlock.tableData!.rows[0].cells[0].blocks[0].inlines[0].text = 'cell';
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [tableBlock, makeBlock('after')], marginFromEdge: 48 },
+      });
+
+      expect(() => store.insertText(tableBlock.id, 0, 'x')).not.toThrow();
+      expect(() => store.deleteText(tableBlock.id, 0, 1)).not.toThrow();
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const headerTable = fresh.header!.blocks.find((b) => b.type === 'table')!;
+      expect(headerTable.inlines.length).toBe(0);
+      expect(headerTable.tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('cell');
+    });
+  });
+
   describe('insertTableRow', () => {
     it('should insert a row without affecting other rows', () => {
       const { tableBlock, doc } = makeTableDoc();
