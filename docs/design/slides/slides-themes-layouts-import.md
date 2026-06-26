@@ -545,6 +545,70 @@ Per-layout placeholder geometry editing (canvas drag) remains a
 follow-up; its store methods (`updateLayout` /
 `updateLayoutPlaceholderFrame`) already ship.
 
+#### Commit 5 — canvas layout-editing mode (designed 2026-06-27)
+
+The remaining builder surface: drag a layout's placeholders on the canvas
+to edit their geometry, committing through the already-shipped
+`updateLayoutPlaceholderFrame` (+ its `cascadeLayoutFrame` re-flow). Decided
+2026-06-27: **layouts only** on canvas (master background/colors/fonts stay
+in the Customize panel — a master has no positioned placeholders to drag),
+entered via a **Customize-tab button**.
+
+**Approach — synthetic-slide reuse.** Rather than build a second canvas
+editor, feed the existing `SlidesEditor` a transient `Slide` built from a
+layout and route its geometry commits to the layout. The editor already
+funnels every slide read through one method (`currentSlide()` →
+`store.read().slides`) and reads `this.options.store` *dynamically* at
+commit time, so a store-level proxy is a clean "virtual-slide gate":
+
+1. **`buildLayoutSlide(layout, master, theme): Slide`** (pure, slides
+   package) — materializes a transient slide (synthetic id
+   `__layout__<layoutId>`) from the layout's `placeholders`, each element
+   carrying its `placeholderRef`. Reuses `applyLayoutToSlide` on an empty
+   slide so geometry/typography match real slides. Never persisted.
+
+2. **`LayoutEditStore`** (a `SlidesStore` proxy) — wraps the real store +
+   the current `layoutId`.
+   - `read()` → `{ ...realDoc, slides: [buildLayoutSlide(...)] }`, keeping
+     the real `themes`/`masters`/`layouts` so the renderer resolves
+     correctly.
+   - `updateElementFrame(_, elementId, frame)` → map element →
+     `placeholderRef` → `real.updateLayoutPlaceholderFrame(layoutId, ref,
+     frame)`. The shipped cascade re-flows live slides.
+   - `batch` / `onChange` delegate to the real store → one undo unit, and
+     edits repaint live slides immediately.
+   - Structural mutations (`addElement`, `removeElement*`,
+     `withTextElement`, table/connector/guide ops) → guarded no-ops, so no
+     layout edit can leak into slide content.
+
+3. **Editor `layoutEditMode` flag** — the UX gate the proxy can't cover.
+   When set: allow select / move / resize / rotate of placeholders;
+   suppress text-edit entry (double-click), delete, insert, duplicate, and
+   structural context-menu items. `enterLayoutEditMode(store, layoutId)` /
+   `exitLayoutEditMode()` swap `options.store` (new `setStore`) and toggle
+   the flag, reusing `setCurrentSlide`'s reset (exits crop, clears
+   selection, repaints).
+
+4. **`mountLayoutListPanel`** (vanilla, slides package) — in layout-edit
+   mode the left rail renders the layouts as a selectable list instead of
+   slide thumbnails (the existing `mountThumbnailPanel` is slide-specific —
+   reorder / new / duplicate / delete — so a separate small panel is
+   cleaner than overloading it). Click a layout → re-point the proxy's
+   `layoutId` + `editor.setCurrentSlide('__layout__…')`.
+
+5. **Frontend wiring** (`DesktopSlidesLayout` + `slides-view.tsx` +
+   `theme-panel.tsx`) — a `layoutEditTarget: layoutId | null` state
+   (parallel to `presentingFrom`); an **"Edit layout positions"** button in
+   the Customize tab enters the mode; `slides-view` swaps the left rail to
+   `mountLayoutListPanel` and calls `editor.enterLayoutEditMode` while
+   active; an exit affordance restores normal editing + the previous slide.
+
+Component boundaries are independently testable: `buildLayoutSlide` and
+`LayoutEditStore` get vitest coverage (layout → slide elements with refs;
+drag → `updateLayoutPlaceholderFrame`; structural ops no-op; single batch);
+the editor flag, layout list panel, and frontend wiring are covered by the
+browser lane (enter mode, drag a placeholder).
+
 #### Customization + theme-switching UX (model A — in-place edit, re-pick resets)
 
 Decided 2026-06-26. The theme builder edits the deck's active theme **in
