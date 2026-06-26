@@ -74,25 +74,29 @@ Decisions: synthetic-slide reuse (store proxy + editor flag), layouts only on
 canvas, entered via Customize-tab button. Design: see the design doc
 "Commit 5 — canvas layout-editing mode" subsection.
 
-- [ ] commit 5a — `feat(slides): buildLayoutSlide + LayoutEditStore proxy`
-      — pure synthetic slide from a layout; `SlidesStore` proxy routing
-      `updateElementFrame` → `updateLayoutPlaceholderFrame`, structural ops
-      guarded no-ops, `batch`/`onChange` delegate. Vitest.
-- [ ] commit 5b — `feat(slides): editor layoutEditMode + setStore + enter/exit`
-      — mode flag suppresses text-edit/delete/insert/structural ops; allows
-      move/resize/rotate; store swap reusing setCurrentSlide reset.
-- [ ] commit 5c — `feat(slides): mountLayoutListPanel`
-      — left-rail layouts list variant; click selects layout to edit.
-- [ ] commit 5d — `feat(frontend): layout-edit mode wiring + Customize entry`
-      — `layoutEditTarget` state, slides-view rail swap + enter/exit, Customize
-      tab "Edit layout positions" button.
-- [ ] verify: layout placeholder position edit re-flows only slides on that layout; user-moved/added elements untouched (covered by `mem-theme-builder.test.ts` cascade block; re-confirm via `buildLayoutSlide` round-trip)
-- [ ] verify: each edit + cascade is a single undo unit (LayoutEditStore `batch` delegation test)
-- [ ] verify: structural ops (delete/insert/text-edit) are inert in layout-edit mode
-- [ ] verify: `pnpm verify:fast` per commit
-- [ ] verify: `pnpm verify:browser:docker` covers layout-edit entry + a placeholder drag
-- [ ] verify (optional/stretch): two-user Yorkie concurrent master/layout + slide edit convergence — no dedicated test today; add if cheap, else note as known gap
-- [ ] docs: fold as-built notes into design doc; capture lessons
+- [x] commit 5a — `feat(slides): buildLayoutSlide + LayoutEditStore proxy`
+      — pure synthetic slide from a layout (deterministic ref-derived ids);
+      `SlidesStore` proxy routing `updateElementFrame` →
+      `updateLayoutPlaceholderFrame`, structural ops guarded no-ops,
+      `batch`/`onChange` delegate. 15 vitest cases; all 2440 slides tests green.
+- [x] commit 5b — `feat(slides): editor layoutEditMode + setStore + enter/exit`
+      — store swap rebuilds key rules; `layoutEditMode` flag gates text-edit
+      entry at the single `enterEditMode` chokepoint; drag/nudge route to the
+      layout via the proxy. 4 vitest cases (jsdom editor harness); 2444 green.
+- [x] commit 5c — `feat(slides): mountLayoutListPanel`
+      — vanilla layouts-list rail (preview + name), onSelect + setSelectedLayoutId
+      / refresh / dispose; store-subscribed previews. 4 vitest cases.
+- [x] commit 5d — `feat(frontend): layout-edit mode wiring + Customize entry`
+      — `layoutEditTarget` state, SlidesView rail swap (sibling host, thumbnails
+      hidden not disposed) + enter/exit via editor, Customize "Edit layout
+      positions" button + "Done" banner. Build + lint + 722 frontend tests green.
+- [x] verify: layout placeholder position edit re-flows only slides on that layout; user-moved/added elements untouched (`mem-theme-builder.test.ts` cascade block; `buildLayoutSlide` ref round-trip)
+- [x] verify: each edit + cascade is a single undo unit (LayoutEditStore `batch` delegation test + 5b drag-undo test)
+- [x] verify: structural ops (delete/insert/text-edit) are inert in layout-edit mode (proxy no-op tests + editor text-edit gate test; toolbar idle via `getToolbarState`)
+- [x] verify: `pnpm verify:fast` per commit
+- [ ] verify: manual smoke — enter layout-edit, drag a placeholder, confirm cascade + Done exit (UI changed; do before merge per CLAUDE.md). `verify:browser:docker` visual harness covers static comps, not interactive drag.
+- [ ] verify (optional/stretch): two-user Yorkie concurrent master/layout + slide edit convergence — no dedicated test today; known gap (theme-builder mutations are plain-JSON LWW, accepted in design Risks).
+- [x] docs: fold as-built notes into design doc; capture lessons
 - [ ] PR opened, reviewed, merged
 
 #### Already verified in commits 1–4 (PR3)
