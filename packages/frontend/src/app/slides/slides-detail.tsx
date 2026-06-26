@@ -169,6 +169,10 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   const [presentingFrom, setPresentingFrom] = useState<
     "current" | "first" | null
   >(null);
+  // Canvas layout-editing mode (PR3 theme builder): the layout id being
+  // edited, or null while editing slides normally. Entered from the Theme
+  // panel's Customize tab; SlidesView swaps the rail + canvas accordingly.
+  const [layoutEditTarget, setLayoutEditTarget] = useState<string | null>(null);
   // Mirror the deck size so the Present button can disable itself when
   // the deck momentarily holds zero slides (before the editor seeds its
   // initial slide). Re-evaluated on every store change.
@@ -201,6 +205,19 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     },
     [store],
   );
+
+  // Enter layout-edit mode on the current slide's layout (falling back to
+  // the first slide's, then 'title-body'), so the user starts editing the
+  // layout they were just looking at.
+  const handleEditLayouts = useCallback(() => {
+    if (!store) return;
+    const doc = store.read();
+    const currentId = editor?.getCurrentSlideId();
+    const current = doc.slides.find((s) => s.id === currentId);
+    setLayoutEditTarget(
+      current?.layoutId ?? doc.slides[0]?.layoutId ?? "title-body",
+    );
+  }, [store, editor]);
 
   // Resolve the active Theme object — fed to the contextual color and
   // font pickers in the toolbar so their "Theme" rows match the deck.
@@ -365,6 +382,21 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             motionPanelOpen={rightPanel === "motion"}
             zoomController={zoomControllerRef.current}
           />
+          {layoutEditTarget && (
+            <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
+              <span className="text-muted-foreground">
+                Editing layout placeholders — drag to reposition. Changes
+                apply to slides using that layout.
+              </span>
+              <button
+                type="button"
+                onClick={() => setLayoutEditTarget(null)}
+                className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
+              >
+                Done
+              </button>
+            </div>
+          )}
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <SlidesView
               onEditorReady={setEditor}
@@ -373,12 +405,14 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               documentId={documentId}
               zoomController={zoomControllerRef.current}
               uploadImage={uploadFn}
+              layoutEditTarget={layoutEditTarget}
             />
             {rightPanel === "theme" && store && (
               <ThemePanel
                 store={store}
                 currentThemeId={currentThemeId}
                 onClose={() => setRightPanel(null)}
+                onEditLayouts={handleEditLayouts}
               />
             )}
             {rightPanel === "format" && store && editor && (
