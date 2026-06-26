@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { BUILT_IN_THEMES, MemSlidesStore } from '@wafflebase/slides';
-import { applyBuiltInTheme } from '@/app/slides/theme-panel-helpers.ts';
+import {
+  applyBuiltInTheme,
+  isThemeModified,
+} from '@/app/slides/theme-panel-helpers.ts';
+
+function activeTheme(store: MemSlidesStore) {
+  const doc = store.read();
+  return doc.themes.find((t) => t.id === doc.meta.themeId)!;
+}
+const LIGHT = BUILT_IN_THEMES.find((t) => t.id === 'default-light')!;
 
 /**
  * The theme panel itself is a React component rendered in the browser
@@ -73,5 +82,62 @@ describe('ThemePanel — applyBuiltInTheme helper', () => {
       applyBuiltInTheme(store, t.id);
       expect(store.read().meta.themeId).toBe(t.id);
     }
+  });
+});
+
+describe('theme customization (model A — in-place edit, re-pick resets)', () => {
+  it('re-picking the active edited theme resets it to the built-in', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'default-light');
+    store.batch(() =>
+      store.updateTheme('default-light', { colors: { accent1: '#abcdef' } }),
+    );
+    expect(activeTheme(store).colors.accent1).toBe('#abcdef');
+    applyBuiltInTheme(store, 'default-light'); // re-pick → reset
+    expect(activeTheme(store).colors.accent1).toBe(LIGHT.colors.accent1);
+  });
+
+  it('switching away and back resets the edited theme', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'default-light');
+    store.batch(() =>
+      store.updateTheme('default-light', { fonts: { heading: 'Comic Sans' } }),
+    );
+    applyBuiltInTheme(store, 'material');
+    applyBuiltInTheme(store, 'default-light');
+    expect(activeTheme(store).fonts.heading).toBe(LIGHT.fonts.heading);
+  });
+
+  it('reset is one undo unit (undo restores the edited state)', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'default-light');
+    store.batch(() =>
+      store.updateTheme('default-light', { colors: { accent1: '#abcdef' } }),
+    );
+    applyBuiltInTheme(store, 'default-light'); // reset
+    expect(activeTheme(store).colors.accent1).toBe(LIGHT.colors.accent1);
+    store.undo();
+    expect(activeTheme(store).colors.accent1).toBe('#abcdef');
+  });
+
+  it('isThemeModified: false for pristine, true after edit', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'material');
+    expect(isThemeModified(activeTheme(store))).toBe(false);
+    store.batch(() =>
+      store.updateTheme('material', { colors: { accent1: '#000000' } }),
+    );
+    expect(isThemeModified(activeTheme(store))).toBe(true);
+  });
+
+  it('isThemeModified: false for a non-built-in (imported) theme', () => {
+    expect(
+      isThemeModified({
+        id: 'imported-deck-theme',
+        name: 'Imported',
+        colors: LIGHT.colors,
+        fonts: LIGHT.fonts,
+      }),
+    ).toBe(false);
   });
 });

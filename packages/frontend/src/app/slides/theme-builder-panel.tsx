@@ -26,6 +26,7 @@ import {
 } from "@wafflebase/slides";
 import { FontFamilyPicker } from "@/components/text-formatting/font-family-picker";
 import { ensureFontLink } from "@/components/text-formatting/font-catalog";
+import { applyBuiltInTheme, isThemeModified } from "./theme-panel-helpers";
 
 interface ThemeBuilderPanelProps {
   store: SlidesStore;
@@ -114,8 +115,25 @@ export function ThemeBuilderPanel({
     );
   };
 
+  const modified = isThemeModified(theme);
+
   return (
     <div className="flex flex-col gap-5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs text-muted-foreground">
+          Editing <span className="font-medium text-foreground">{theme.name}</span>
+        </span>
+        {modified && (
+          <button
+            type="button"
+            onClick={() => applyBuiltInTheme(store, theme.id)}
+            className="shrink-0 rounded px-1.5 py-0.5 text-[11px] hover:bg-muted"
+          >
+            Reset to original
+          </button>
+        )}
+      </div>
+
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Colors</h3>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">

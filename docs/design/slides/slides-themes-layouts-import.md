@@ -537,6 +537,50 @@ panels shipped after PR1), and the built-in theme count grew 5 → 23
 thumbnail panel (`mountThumbnailPanel`, vanilla from `@wafflebase/slides`)
 switches to a layouts+master list variant.
 
+**As shipped:** the builder is reached via the Theme panel's "Customize"
+tab (no separate toolbar button), editing the active theme + master
+through `updateTheme` / `updateMaster`. Edits apply live to all slides.
+Per-layout placeholder geometry editing (canvas drag) remains a
+follow-up; its store methods (`updateLayout` /
+`updateLayoutPlaceholderFrame`) already ship.
+
+#### Customization + theme-switching UX (model A — in-place edit, re-pick resets)
+
+Decided 2026-06-26. The theme builder edits the deck's active theme **in
+place**; there is no fork/override copy. The flows that make this
+predictable:
+
+- **Picking a theme always (re)applies a pristine clone.** `applyBuiltInTheme`
+  runs, in one batch, `addTheme(builtin)` (ensure present) +
+  `updateTheme(id, {name, colors, fonts})` (full overwrite to the
+  pristine built-in) + `applyTheme(id)`. So re-selecting the active theme
+  resets it, and switching away then back resets too — fixing the prior
+  idempotent-`addTheme` bug where a re-pick re-activated the *edited*
+  copy with no way back to the original. No new store API: it reuses
+  `addTheme` + `updateTheme` (which overwrites every role when handed a
+  full `colors`/`fonts`).
+- **Themes tab shows two sections.** A top **"In this presentation"**
+  section appears *only when the active theme differs from a pristine
+  built-in* — i.e. an edited built-in or a PPTX-imported theme — and
+  renders that live active palette as the selected thumbnail (resolving
+  the canvas/thumbnail mismatch). Below it, a **"Themes"** section lists
+  the pristine built-in palettes; clicking one applies it fresh
+  (reset/switch). When the active theme is an unedited built-in, no top
+  section shows and the matching built-in carries the selection ring.
+- **`isThemeModified(activeDocTheme, builtin)`** deep-compares
+  colors/fonts/name; true only when the active id is a built-in and
+  differs. Imported (non-built-in) active themes have no origin to
+  compare, so they show in the top section but offer no reset.
+- **Customize tab** edits in place and shows a **"Reset to original"**
+  control when the active theme is a modified built-in →
+  `applyBuiltInTheme(activeId)`.
+- **Loss protection is undo-only.** Switching away from or resetting an
+  edited theme discards the edits with no confirm dialog; each switch /
+  reset is a single undo unit, so `Cmd/Ctrl+Z` restores the previous
+  edited state.
+- **Out of v1 scope:** saving/forking named custom themes, resetting
+  imported themes, theme renaming.
+
 ### Migration
 
 - `meta.themeId` / `meta.masterId` / `themes[]` / `masters[]` /

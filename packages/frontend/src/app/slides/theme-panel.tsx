@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BUILT_IN_THEMES, type SlidesStore } from "@wafflebase/slides";
-import { applyBuiltInTheme } from "./theme-panel-helpers";
+import { applyBuiltInTheme, isThemeModified } from "./theme-panel-helpers";
 import { ThemeThumbnail } from "./theme-thumbnail";
 import { ThemeBuilderPanel } from "./theme-builder-panel";
 
@@ -37,6 +37,24 @@ export function ThemePanel({
 }: ThemePanelProps) {
   const [view, setView] = useState<View>("themes");
 
+  // Re-render on any store change so the live "In this presentation"
+  // thumbnail and modified state track customizations (which change theme
+  // colors without changing meta.themeId, so the parent's currentThemeId
+  // sync alone wouldn't refresh this panel).
+  const [tick, setTick] = useState(0);
+  useEffect(() => store.onChange?.(() => setTick((t) => t + 1)), [store]);
+  void tick;
+
+  const doc = store.read();
+  const active = doc.themes.find((t) => t.id === currentThemeId);
+  const activeIsBuiltin =
+    !!active && BUILT_IN_THEMES.some((t) => t.id === active.id);
+  // The active theme gets its own "In this presentation" entry when it is
+  // not a pristine built-in: an edited built-in, or a non-built-in
+  // (PPTX-imported) theme. Otherwise it is just selected in the list.
+  const showInPresentation =
+    !!active && (!activeIsBuiltin || isThemeModified(active));
+
   const tabs = (
     <div
       role="tablist"
@@ -64,15 +82,32 @@ export function ThemePanel({
 
   const body =
     view === "themes" ? (
-      <div className="flex flex-col gap-2 p-3">
-        {BUILT_IN_THEMES.map((t) => (
-          <ThemeThumbnail
-            key={t.id}
-            theme={t}
-            selected={t.id === currentThemeId}
-            onClick={() => applyBuiltInTheme(store, t.id)}
-          />
-        ))}
+      <div className="flex flex-col gap-3 p-3">
+        {showInPresentation && active && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-semibold text-muted-foreground">
+              In this presentation
+            </h3>
+            {/* Already active — clicking is a no-op; reset/switch happens
+                via the built-ins below or the Customize tab. */}
+            <ThemeThumbnail theme={active} selected onClick={() => {}} />
+          </section>
+        )}
+        <section className="flex flex-col gap-2">
+          {showInPresentation && (
+            <h3 className="text-xs font-semibold text-muted-foreground">
+              Themes
+            </h3>
+          )}
+          {BUILT_IN_THEMES.map((t) => (
+            <ThemeThumbnail
+              key={t.id}
+              theme={t}
+              selected={!showInPresentation && t.id === currentThemeId}
+              onClick={() => applyBuiltInTheme(store, t.id)}
+            />
+          ))}
+        </section>
       </div>
     ) : (
       <ThemeBuilderPanel store={store} currentThemeId={currentThemeId} />
