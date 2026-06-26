@@ -9,6 +9,10 @@ function activeTheme(store: MemSlidesStore) {
   const doc = store.read();
   return doc.themes.find((t) => t.id === doc.meta.themeId)!;
 }
+function activeMaster(store: MemSlidesStore) {
+  const doc = store.read();
+  return doc.masters.find((m) => m.id === doc.meta.masterId)!;
+}
 const LIGHT = BUILT_IN_THEMES.find((t) => t.id === 'default-light')!;
 
 /**
@@ -128,6 +132,37 @@ describe('theme customization (model A — in-place edit, re-pick resets)', () =
       store.updateTheme('material', { colors: { accent1: '#000000' } }),
     );
     expect(isThemeModified(activeTheme(store))).toBe(true);
+  });
+
+  it('re-pick resets a customized master background to the default', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'default-light');
+    store.batch(() =>
+      store.updateMaster('default', {
+        background: { fill: { kind: 'srgb', value: '#123456' } },
+      }),
+    );
+    expect(activeMaster(store).background.fill).toEqual({
+      kind: 'srgb',
+      value: '#123456',
+    });
+    applyBuiltInTheme(store, 'default-light'); // reset
+    expect(activeMaster(store).background.fill).toEqual({
+      kind: 'role',
+      role: 'background',
+    });
+  });
+
+  it('isThemeModified: true when only the master background changed', () => {
+    const store = new MemSlidesStore();
+    applyBuiltInTheme(store, 'default-light');
+    expect(isThemeModified(activeTheme(store), activeMaster(store))).toBe(false);
+    store.batch(() =>
+      store.updateMaster('default', {
+        background: { fill: { kind: 'srgb', value: '#123456' } },
+      }),
+    );
+    expect(isThemeModified(activeTheme(store), activeMaster(store))).toBe(true);
   });
 
   it('isThemeModified: false for a non-built-in (imported) theme', () => {

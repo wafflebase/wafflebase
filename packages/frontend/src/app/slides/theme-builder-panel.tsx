@@ -115,7 +115,7 @@ export function ThemeBuilderPanel({
     );
   };
 
-  const modified = isThemeModified(theme);
+  const modified = isThemeModified(theme, master);
 
   return (
     <div className="flex flex-col gap-5 p-3">

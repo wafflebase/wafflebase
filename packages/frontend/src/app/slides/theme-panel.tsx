@@ -47,13 +47,16 @@ export function ThemePanel({
 
   const doc = store.read();
   const active = doc.themes.find((t) => t.id === currentThemeId);
+  const master =
+    doc.masters.find((m) => m.id === doc.meta.masterId) ?? doc.masters[0];
   const activeIsBuiltin =
     !!active && BUILT_IN_THEMES.some((t) => t.id === active.id);
   // The active theme gets its own "In this presentation" entry when it is
-  // not a pristine built-in: an edited built-in, or a non-built-in
-  // (PPTX-imported) theme. Otherwise it is just selected in the list.
+  // not a pristine built-in: an edited built-in (theme or master
+  // background changed), or a non-built-in (PPTX-imported) theme.
+  // Otherwise it is just selected in the list.
   const showInPresentation =
-    !!active && (!activeIsBuiltin || isThemeModified(active));
+    !!active && (!activeIsBuiltin || isThemeModified(active, master));
 
   const tabs = (
     <div
@@ -88,9 +91,13 @@ export function ThemePanel({
             <h3 className="text-xs font-semibold text-muted-foreground">
               In this presentation
             </h3>
-            {/* Already active — clicking is a no-op; reset/switch happens
-                via the built-ins below or the Customize tab. */}
-            <ThemeThumbnail theme={active} selected onClick={() => {}} />
+            {/* Already active — clicking jumps to the Customize tab to
+                edit it (reset/switch happens via the built-ins below). */}
+            <ThemeThumbnail
+              theme={active}
+              selected
+              onClick={() => setView("customize")}
+            />
           </section>
         )}
         <section className="flex flex-col gap-2">
