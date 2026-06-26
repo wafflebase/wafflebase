@@ -310,6 +310,43 @@ describe('DocxImporter', () => {
     expect(td.columnWidths[2]).toBeCloseTo(3 / 6, 5);
   });
 
+  it('should derive column widths from <w:tcW> when <w:tblGrid> is absent', async () => {
+    // No <w:tblGrid> (hand-authored / malformed docx). Column proportions must
+    // come from per-cell <w:tcW> dxa widths so the table still renders with the
+    // right column ratios (1000/3000 → 1/4, 3/4).
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.columnWidths).toHaveLength(2);
+    expect(td.columnWidths[0]).toBeCloseTo(1 / 4, 5);
+    expect(td.columnWidths[1]).toBeCloseTo(3 / 4, 5);
+    // Both cells preserved and aligned to the derived 2-column grid.
+    expect(td.rows[0].cells).toHaveLength(2);
+  });
+
+  it('falls back to even-share columns when tblGrid and tcW are both absent', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.columnWidths).toHaveLength(2);
+    expect(td.columnWidths[0]).toBeCloseTo(0.5, 5);
+    expect(td.columnWidths[1]).toBeCloseTo(0.5, 5);
+  });
+
   it('should pad horizontal merge placeholders so cells.length matches numCols', async () => {
     // 5-column row with [A, B(gridSpan=4)]. Downstream layout, rendering,
     // and click handling all index `rows[r].cells[c]` by grid column and

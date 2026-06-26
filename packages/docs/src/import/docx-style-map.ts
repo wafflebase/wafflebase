@@ -163,6 +163,8 @@ export function mapTableCellProperties(tcPr: Element): {
   padding?: number;
   colSpan?: number;
   vMerge?: 'restart' | 'continue';
+  /** Preferred cell width in twips, when <w:tcW> declares a dxa value. */
+  widthTwips?: number;
 } {
   const result: ReturnType<typeof mapTableCellProperties> = {};
 
@@ -213,6 +215,19 @@ export function mapTableCellProperties(tcPr: Element): {
       if (Number.isFinite(parsed) && parsed > maxTwips) maxTwips = parsed;
     }
     if (maxTwips >= 0) result.padding = twipsToPx(maxTwips);
+  }
+
+  // <w:tcW> preferred cell width. Only dxa (twips) is convertible without a
+  // table total; pct/auto are left for the grid/even-share fallback. Used to
+  // derive column widths when <w:tblGrid> is absent (see docx-importer).
+  const tcW = getW(tcPr, 'tcW');
+  if (tcW) {
+    const type = getWAttr(tcW, 'type');
+    const w = getWAttr(tcW, 'w');
+    if ((!type || type === 'dxa') && w) {
+      const parsed = parseInt(w, 10);
+      if (Number.isFinite(parsed) && parsed > 0) result.widthTwips = parsed;
+    }
   }
 
   const tcBorders = getW(tcPr, 'tcBorders');

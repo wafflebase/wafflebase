@@ -85,6 +85,34 @@ describe('DocxExporter', () => {
     expect(reimported.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A1');
   });
 
+  it('should emit per-cell <w:tcW> widths matching the column ratios', async () => {
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [{
+            cells: [
+              { blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: 'A', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }], style: {} },
+              { blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: 'B', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }], style: {} },
+            ],
+          }],
+          columnWidths: [0.25, 0.75],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const docXml = await zip.file('word/document.xml')!.async('string');
+    // totalTwips = 9000 → 0.25×9000 = 2250, 0.75×9000 = 6750.
+    expect(docXml).toContain('<w:tcW w:w="2250" w:type="dxa"/>');
+    expect(docXml).toContain('<w:tcW w:w="6750" w:type="dxa"/>');
+  });
+
   it('should skip horizontal merge placeholder cells (no extra w:tc with w:vMerge)', async () => {
     // Owner with colSpan=2 covers the next grid column; the placeholder
     // at cell index 1 must NOT round-trip as a stray vMerge continuation,

@@ -269,6 +269,15 @@ ${bodyXml}
         }
 
         const tcPrParts: string[] = [];
+        // <w:tcW> preferred cell width (dxa), summed over spanned columns so a
+        // consumer that honors tcW over the grid still gets the right widths.
+        // Per CT_TcPr ordering, tcW precedes gridSpan.
+        const span = cell.colSpan && cell.colSpan > 1 ? cell.colSpan : 1;
+        let cellTwips = 0;
+        for (let s = 0; s < span && c + s < nCols; s++) {
+          cellTwips += Math.round((tableData.columnWidths[c + s] ?? 0) * totalTwips);
+        }
+        if (cellTwips > 0) tcPrParts.push(`<w:tcW w:w="${cellTwips}" w:type="dxa"/>`);
         if (cell.colSpan && cell.colSpan > 1) tcPrParts.push(`<w:gridSpan w:val="${cell.colSpan}"/>`);
         if (cell.rowSpan && cell.rowSpan > 1) tcPrParts.push(`<w:vMerge w:val="restart"/>`);
         if (cell.style.backgroundColor) {

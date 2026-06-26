@@ -277,7 +277,7 @@ export class DocxImporter {
       }
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;
-    const columnWidths = colWidthsRaw.map((w) => w / totalWidth);
+    let columnWidths = colWidthsRaw.map((w) => w / totalWidth);
     // Row-cell clamp target. When tblGrid is missing we cannot clamp
     // (we do not yet know how many columns exist), so numCols stays 0
     // and the clamp is effectively disabled.
@@ -480,6 +480,18 @@ export class DocxImporter {
       DocxImporter.applyTblBordersInheritance(rows, tblBorders);
     }
 
+    // No <w:tblGrid> (malformed or hand-authored docx): derive column widths
+    // for rendering from per-cell <w:tcW> dxa values, falling back to an even
+    // share. This only sets the render-time `columnWidths`; the structural
+    // shape-hardening above stays gated on `numCols` (0 here), so gridless
+    // rows keep their original cell shape.
+    if (columnWidths.length === 0) {
+      const derived: number[] = [];
+      DocxImporter.deriveColWidthsFromCells(tblEl, derived);
+      const dTotal = derived.reduce((a, b) => a + b, 0) || 1;
+      columnWidths = derived.map((w) => w / dTotal);
+    }
+
     const tableData: TableData = { rows, columnWidths };
     if (hasRowHeight) tableData.rowHeights = rowHeights;
 
@@ -537,6 +549,38 @@ export class DocxImporter {
         }
       }
     }
+  }
+
+  /**
+   * Derive relative column weights from per-cell <w:tcW> values when a table
+   * has no <w:tblGrid>. Walks direct-child rows and keeps the row that yields
+   * the most grid columns (gridSpan-aware): a cell with gridSpan N spreads its
+   * width across N columns, and cells without a usable dxa <w:tcW> contribute a
+   * unit weight so the column still renders at an even share. Results are
+   * pushed onto `out`; if every row is empty `out` is left untouched.
+   */
+  private static deriveColWidthsFromCells(tblEl: Element, out: number[]): void {
+    let best: number[] = [];
+    for (let i = 0; i < tblEl.childNodes.length; i++) {
+      const node = tblEl.childNodes[i];
+      if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
+      const trEl = node as Element;
+      const weights: number[] = [];
+      for (let j = 0; j < trEl.childNodes.length; j++) {
+        const tcNode = trEl.childNodes[j];
+        if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
+        const tcEl = tcNode as Element;
+        const tcPr = tcEl.getElementsByTagNameNS(W, 'tcPr')[0];
+        const props = tcPr ? mapTableCellProperties(tcPr) : {};
+        const span = props.colSpan && props.colSpan > 1 ? props.colSpan : 1;
+        const total = props.widthTwips && props.widthTwips > 0 ? props.widthTwips : 0;
+        for (let s = 0; s < span; s++) {
+          weights.push(total > 0 ? total / span : 1);
+        }
+      }
+      if (weights.length > best.length) best = weights;
+    }
+    for (const w of best) out.push(w);
   }
 
   /**

@@ -26,7 +26,6 @@ typefaces.
 
 - Round-trip fidelity (preserving every Word-specific attribute is not a goal).
 - Floating / anchored images — only inline images are in scope.
-- Nested tables — content is flattened to text on import.
 - Form controls, SmartArt, WordArt, embedded OLE objects.
 - Comments, track changes, footnotes/endnotes.
 - Real-time collaborative import (single-user import, then collaborate).
@@ -336,11 +335,17 @@ half-points → points: value / 2
 
 ### 2.5 Nested Table Handling
 
-When a `<w:tbl>` is encountered inside a `<w:tc>` (table cell):
+When a `<w:tbl>` is encountered inside a `<w:tc>` (table cell), it is
+imported as a native nested `table` block:
 
-1. Recursively extract all text content from the nested table.
-2. Join cell texts with ` | ` separators, rows with newlines.
-3. Insert the result as paragraph blocks in the parent cell.
+1. `convertTable` recurses on the inner `<w:tbl>` (see `convertTable` in
+   `docx-importer.ts`, which calls itself for `<w:tbl>` cell children).
+2. The resulting `table` block is appended to the parent cell's `blocks`,
+   so structure, widths, merges, and styling are preserved rather than
+   flattened to text.
+
+The grid walk is direct-child only (`findDirectChild`) so a nested grid
+never inflates the outer table's column count.
 
 ### 2.6 Frontend Integration
 
@@ -471,6 +476,5 @@ docker-compose.yml              # + MinIO service
 | Complex OOXML edge cases (theme colors, inherited styles) | Start with direct property values; add theme resolution later if needed |
 | Large image files slowing import | Validate file size (10 MB limit per image); show progress indicator |
 | Korean fonts not available on user's system | Fallback to Noto Sans/Serif KR from Google Fonts |
-| Nested table content loss | Show a warning toast when nested tables are flattened to text |
 | Export fidelity — Word may render differently | Test with Word, Google Docs, LibreOffice; focus on structural correctness over pixel-perfect |
 | S3 credentials in dev environment | MinIO with default creds for local dev; real S3 for production |
