@@ -683,6 +683,7 @@ export class DocCanvas {
         renderTableContent(
           this.ctx, lb.block.tableData, lb.layoutTable, originX, tableY,
           0, undefined, undefined, this.requestRender ?? undefined,
+          undefined, undefined, undefined, undefined, undefined, pageNumber,
         );
         continue;
       }
