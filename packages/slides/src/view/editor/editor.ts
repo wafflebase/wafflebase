@@ -1356,7 +1356,15 @@ class SlidesEditorImpl implements SlidesEditor {
     this.setCellSelection(null);
     this.options.store = store;
     this.installKeyRules();
-    this.currentId = currentId ?? store.read().slides[0]?.id;
+    // Resolve to a slide that actually exists in the new store. A caller-
+    // supplied id can be stale (e.g. a peer deleted the slide while the
+    // user was in layout-edit mode); fall back to the first slide rather
+    // than leaving a dangling current id and a blank canvas.
+    const slides = store.read().slides;
+    this.currentId =
+      currentId && slides.some((s) => s.id === currentId)
+        ? currentId
+        : slides[0]?.id;
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();

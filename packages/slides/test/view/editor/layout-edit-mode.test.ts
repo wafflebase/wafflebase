@@ -188,6 +188,13 @@ describe('editor layout-edit mode', () => {
     editor.exitLayoutEditMode(store, sid);
     expect(editor.getCurrentSlideId()).toBe(sid);
 
+    // Re-enter then exit restoring a slide id that no longer exists (e.g.
+    // a peer deleted it during layout editing): fall back to a real slide
+    // rather than leaving a dangling current id / blank canvas.
+    editor.enterLayoutEditMode(layoutStore);
+    editor.exitLayoutEditMode(store, "deleted-slide-id");
+    expect(editor.getCurrentSlideId()).toBe(sid);
+
     // Back in normal mode: clicking an empty placeholder enters text edit.
     const titleId = store
       .read()

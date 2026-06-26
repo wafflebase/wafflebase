@@ -21,7 +21,11 @@ import type {
 } from '../model/element';
 import type { Master } from '../model/master';
 import type { Theme } from '../model/theme';
-import { buildLayoutSlide, getLayout } from '../model/layout';
+import {
+  buildLayoutSlide,
+  getLayout,
+  parsePlaceholderElementId,
+} from '../model/layout';
 import type {
   LayoutPatch,
   MasterPatch,
@@ -89,15 +93,12 @@ export class LayoutEditStore implements SlidesStore {
     elementId: string,
     frame: Partial<Frame>,
   ): void {
-    const ref = this.refForElement(elementId);
+    // The synthetic element id deterministically encodes its slot, so we
+    // recover the ref by parsing rather than rebuilding the synthetic slide
+    // on every drag/resize/nudge commit.
+    const ref = parsePlaceholderElementId(elementId);
     if (!ref) return; // unknown / non-placeholder element → inert
     this.real.updateLayoutPlaceholderFrame(this.layoutId, ref, frame);
-  }
-
-  /** Map a synthetic element id back to its layout placeholder slot. */
-  private refForElement(elementId: string): PlaceholderRef | undefined {
-    const slide = this.read().slides[0];
-    return slide.elements.find((e) => e.id === elementId)?.placeholderRef;
   }
 
   // --- theme-builder mutations: delegate (panel edit surface) ---

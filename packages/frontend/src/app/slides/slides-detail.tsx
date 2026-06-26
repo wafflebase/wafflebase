@@ -211,13 +211,17 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   // layout they were just looking at.
   const handleEditLayouts = useCallback(() => {
     if (!store) return;
+    // Already editing a layout — don't recompute the target from the
+    // synthetic current slide (which would jump to the first slide's
+    // layout). The rail drives switching while a session is live.
+    if (layoutEditTarget) return;
     const doc = store.read();
     const currentId = editor?.getCurrentSlideId();
     const current = doc.slides.find((s) => s.id === currentId);
     setLayoutEditTarget(
       current?.layoutId ?? doc.slides[0]?.layoutId ?? "title-body",
     );
-  }, [store, editor]);
+  }, [store, editor, layoutEditTarget]);
 
   // Resolve the active Theme object — fed to the contextual color and
   // font pickers in the toolbar so their "Theme" rows match the deck.
@@ -406,6 +410,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               zoomController={zoomControllerRef.current}
               uploadImage={uploadFn}
               layoutEditTarget={layoutEditTarget}
+              onLayoutEditTargetChange={setLayoutEditTarget}
             />
             {rightPanel === "theme" && store && (
               <ThemePanel

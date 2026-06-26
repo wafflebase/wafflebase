@@ -144,6 +144,7 @@ export {
   buildLayoutSlide,
   getLayout,
   layoutEditSlideId,
+  parsePlaceholderElementId,
   placeholderElementId,
   slotRefsForLayout,
 } from './model/layout';

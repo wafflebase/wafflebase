@@ -3,6 +3,7 @@ import {
   buildLayoutSlide,
   getLayout,
   layoutEditSlideId,
+  parsePlaceholderElementId,
   placeholderElementId,
 } from '../../src/model/layout';
 import { DEFAULT_MASTER } from '../../src/model/master';
@@ -74,6 +75,23 @@ describe('buildLayoutSlide', () => {
       placeholderElementId({ type: 'body', index: 0 }),
       placeholderElementId({ type: 'body', index: 1 }),
     ]);
+  });
+
+  it('round-trips placeholderElementId ↔ parsePlaceholderElementId, including hyphenated types', () => {
+    for (const ref of [
+      { type: 'title' as const, index: 0 },
+      { type: 'body' as const, index: 1 },
+      { type: 'big-number' as const, index: 0 },
+      { type: 'subtitle' as const, index: 2 },
+    ]) {
+      expect(parsePlaceholderElementId(placeholderElementId(ref))).toEqual(ref);
+    }
+  });
+
+  it('parsePlaceholderElementId returns undefined for non-placeholder ids', () => {
+    expect(parsePlaceholderElementId('some-uuid-1234')).toBeUndefined();
+    expect(parsePlaceholderElementId('__ph__bogustype_0')).toBeUndefined();
+    expect(parsePlaceholderElementId('__ph__title_x')).toBeUndefined();
   });
 
   it('produces an empty-placeholder slide for the blank layout', () => {

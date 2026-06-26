@@ -218,6 +218,34 @@ export function placeholderElementId(ref: PlaceholderRef): string {
   return `__ph__${ref.type}_${ref.index}`;
 }
 
+const PLACEHOLDER_TYPES: ReadonlySet<string> = new Set<PlaceholderType>([
+  'title',
+  'subtitle',
+  'body',
+  'caption',
+  'big-number',
+]);
+
+/**
+ * Inverse of `placeholderElementId` — recover the `(type, index)` slot from
+ * a synthetic element id, or `undefined` when the id is not a placeholder
+ * element id (a real element / malformed input). Splits on the LAST `_` so
+ * hyphenated types like `big-number` round-trip.
+ */
+export function parsePlaceholderElementId(
+  id: string,
+): PlaceholderRef | undefined {
+  if (!id.startsWith('__ph__')) return undefined;
+  const rest = id.slice('__ph__'.length);
+  const sep = rest.lastIndexOf('_');
+  if (sep <= 0) return undefined;
+  const type = rest.slice(0, sep);
+  const indexStr = rest.slice(sep + 1);
+  if (!PLACEHOLDER_TYPES.has(type)) return undefined;
+  if (!/^\d+$/.test(indexStr)) return undefined;
+  return { type: type as PlaceholderType, index: Number(indexStr) };
+}
+
 /**
  * Materialize a transient Slide from a layout so the existing canvas
  * editor can render and drag its placeholders (PR3 commit 5). Each
