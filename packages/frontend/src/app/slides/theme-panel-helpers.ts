@@ -84,9 +84,13 @@ function isMasterBackgroundModified(master: Master): boolean {
  * Customize tab's "Reset to original" affordance.
  */
 export function isThemeModified(theme: Theme, master?: Master): boolean {
-  if (master && isMasterBackgroundModified(master)) return true;
+  // Gate everything behind the built-in lookup: a non-built-in (imported)
+  // theme has no origin to reset to, so it must report unmodified even if
+  // the master background changed — otherwise the panel would show "Reset
+  // to original", which calls applyBuiltInTheme(theme.id) and throws.
   const builtin = BUILT_IN_THEMES.find((t) => t.id === theme.id);
   if (!builtin) return false;
+  if (master && isMasterBackgroundModified(master)) return true;
   return (
     theme.name !== builtin.name ||
     !sameRecord(theme.colors, builtin.colors) ||

@@ -66,13 +66,15 @@ export function combinedBoundingBox(frames: Frame[]): {
 
 /**
  * True iff two frames are equal within a sub-pixel tolerance on every
- * component (x, y, w, h, rotation). Used by the theme builder cascade to
- * decide whether a slide placeholder still tracks its layout slot (so a
- * layout geometry edit re-flows it) versus having been moved by the user
- * (so the edit leaves it alone).
+ * component (x, y, w, h, rotation) and have the same flip state. Used by
+ * the theme builder cascade to decide whether a slide placeholder still
+ * tracks its layout slot (so a layout geometry edit re-flows it) versus
+ * having been moved/flipped by the user (so the edit leaves it alone).
  */
 export function framesApproxEqual(a: Frame, b: Frame, eps = 0.5): boolean {
   return (
+    (a.flipH ?? false) === (b.flipH ?? false) &&
+    (a.flipV ?? false) === (b.flipV ?? false) &&
     Math.abs(a.x - b.x) < eps &&
     Math.abs(a.y - b.y) < eps &&
     Math.abs(a.w - b.w) < eps &&

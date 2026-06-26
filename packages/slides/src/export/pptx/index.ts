@@ -298,20 +298,20 @@ export async function exportPptx(
       connectorFrame: (el) => computeConnectorFrame(el, worldLookup),
     };
 
-    // Resolve the effective background fill (slide → layout → master →
-    // role) so master/layout background edits round-trip; inheriting
-    // slides carry no explicit fill in the model. Background *images* are
-    // still not exported (see backgroundToXml).
-    const slideForXml =
-      slide.background.fill === undefined
-        ? {
-            ...slide,
-            background: {
-              ...slide.background,
-              fill: resolveBackgroundFill(slide, deck),
-            },
-          }
-        : slide;
+    // Always serialize the *resolved* effective fill (slide → layout →
+    // master → role) so master/layout background edits round-trip. A real
+    // slide override returns itself; an inheriting slide — whether it has
+    // no fill OR a bare `{role:'background'}` fill (the legacy default,
+    // which resolveBackgroundFill also treats as inherit) — resolves to
+    // the master/layout color. Background *images* are still not exported
+    // (see backgroundToXml).
+    const slideForXml = {
+      ...slide,
+      background: {
+        ...slide.background,
+        fill: resolveBackgroundFill(slide, deck),
+      },
+    };
 
     // Emit slide XML.
     writer.addPart(slidePath, slideToXml(slideForXml, ctx), CT_SLIDE);

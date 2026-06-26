@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
 import { MemSlidesStore } from '../../src/store/memory';
 
 /**
@@ -338,18 +339,17 @@ describe('MemSlidesStore — theme builder mutations', () => {
         .read()
         .slides.find((s) => s.id === sid)!
         .elements.find((e) => e.placeholderRef?.type === 'title')!.id;
-      // User types into the title.
+      // User types into the title — through the real text-body path
+      // (withTextElement), which is how typing reaches a text element.
       store.batch(() => {
-        store.updateElementData(sid, tid, {
-          blocks: [
-            {
-              id: 'p',
-              type: 'paragraph',
-              inlines: [{ text: 'Hello', style: { fontSize: 44 } }],
-              style: {},
-            },
-          ],
-        });
+        store.withTextElement(sid, tid, () => [
+          {
+            id: 'p',
+            type: 'paragraph',
+            inlines: [{ text: 'Hello', style: { fontSize: 44 } }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          },
+        ]);
       });
       store.batch(() => {
         store.updateMaster('default', {

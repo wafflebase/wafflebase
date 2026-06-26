@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import type { SlidesStore, Theme, ThemeColor } from "@wafflebase/slides";
 import { resolveBackgroundFill } from "@wafflebase/slides";
 
@@ -24,17 +24,22 @@ export function useSlideBackground(
     opts?: { commit?: boolean; record?: boolean },
   ) => void;
 } {
-  const backgroundFill = useMemo(() => {
+  // Computed per render (not memoized): the effective fill depends on the
+  // slide's layout and master, which can change without `store`/`slideId`/
+  // `theme` identity changing — a memo on those keys would go stale. The
+  // read is cheap relative to a repaint and callers already re-render on
+  // store changes.
+  const resolveFill = (): ThemeColor | undefined => {
     if (!store || !slideId || !theme) return undefined;
     const doc = store.read();
     const slide = doc.slides.find((s) => s.id === slideId);
     if (!slide) return undefined;
-    // Resolve the effective background (slide → layout → master → role) so
-    // the swatch reflects what the slide actually shows. Slides now inherit
-    // by default (no explicit fill), so a raw `slide.background.fill` read
-    // would be undefined and the control would render blank.
+    // Resolve slide → layout → master → role so the swatch reflects what
+    // the slide actually shows (slides inherit by default, so a raw
+    // `slide.background.fill` read would be undefined → blank control).
     return resolveBackgroundFill(slide, doc);
-  }, [store, slideId, theme]);
+  };
+  const backgroundFill = resolveFill();
 
   const onChange = useCallback(
     (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {

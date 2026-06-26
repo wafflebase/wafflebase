@@ -516,11 +516,12 @@ elements on affected slides, reusing the existing
 `applyLayoutToSlide` `(type,index)` slot-matching so user-demoted /
 user-added elements are left untouched.
 
-**Store gaps confirmed:** there are currently **no** `updateTheme`,
-`updateMaster`, or `updateLayout` mutations — `applyTheme` only sets
-`meta.themeId`. PR3 must add these three to the `SlidesStore` interface
-(both `MemSlidesStore` and `YorkieSlidesStore`), all `batch()`-wrapped so
-an edit + its cascade is one undo unit.
+**Store gaps (pre-implementation finding, now addressed):** at re-review
+the store had **no** `updateTheme` / `updateMaster` / `updateLayout`
+mutations — `applyTheme` only set `meta.themeId`. PR3 added these (plus
+`updateLayoutPlaceholderFrame`) to the `SlidesStore` interface and both
+implementations (`MemSlidesStore`, `YorkieSlidesStore`), all
+`batch()`-wrapped so an edit + its cascade is one undo unit.
 
 **Editing a built-in theme:** `themes`/`masters` already live in
 `doc.themes[]` / `doc.masters[]` (document-local copies, not the shared

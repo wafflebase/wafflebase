@@ -101,8 +101,11 @@ export function ThemeBuilderPanel({
 
   const setMasterFill = (value: string) => {
     store.batch(() =>
+      // Clear any background image so the chosen fill actually shows on
+      // image-backed (e.g. imported) decks, where the image would
+      // otherwise still paint over the fill.
       store.updateMaster(master.id, {
-        background: { fill: { kind: "srgb", value } },
+        background: { fill: { kind: "srgb", value }, image: null },
       }),
     );
   };
@@ -110,7 +113,7 @@ export function ThemeBuilderPanel({
   const resetMasterFill = () => {
     store.batch(() =>
       store.updateMaster(master.id, {
-        background: { fill: { kind: "role", role: "background" } },
+        background: { fill: { kind: "role", role: "background" }, image: null },
       }),
     );
   };
