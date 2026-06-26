@@ -278,6 +278,10 @@ export interface EditorAPI {
    * (e.g. getRangeStyleSummary) without simulating drag.
    */
   _setSelectionForTest(range: { anchor: DocPosition; focus: DocPosition } | null): void;
+  /** Test-only: force the edit context (body/header/footer). */
+  _setEditContextForTest(ctx: 'body' | 'header' | 'footer'): void;
+  /** Test-only: read the current caret position. */
+  _getCursorForTest(): DocPosition;
 }
 
 /**
@@ -973,7 +977,6 @@ export function initialize(
     layout = result.layout;
     layoutCache = result.cache;
     dirtyBlockIds = undefined;
-    doc.setBlockParentMap(layout.blockParentMap);
     paginatedLayout = paginateLayout(layout, pageSetup);
 
     // Header/footer layouts
@@ -1001,6 +1004,20 @@ export function initialize(
     } else {
       footerLayout = null;
     }
+
+    // Register cell→table parentage for all regions, not just the body, so
+    // `doc.findBlock` can resolve a caret that sits inside a header/footer
+    // table cell. Without the header/footer entries the keydown guard treats
+    // such a caret as a deleted block and resets it to the table (arrow keys
+    // appeared to "jump" out of the cell).
+    const mergedParentMap = new Map(layout.blockParentMap);
+    if (headerLayout) {
+      for (const [k, v] of headerLayout.blockParentMap) mergedParentMap.set(k, v);
+    }
+    if (footerLayout) {
+      for (const [k, v] of footerLayout.blockParentMap) mergedParentMap.set(k, v);
+    }
+    doc.setBlockParentMap(mergedParentMap);
   };
 
   const markDirty = (blockId: string) => {
@@ -3020,5 +3037,9 @@ export function initialize(
         });
       }
     },
+    _setEditContextForTest: (ctx) => {
+      textEditor?.setEditContext(ctx);
+    },
+    _getCursorForTest: () => ({ ...cursor.position }),
   };
 }

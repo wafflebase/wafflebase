@@ -70,6 +70,45 @@ selection + navigation) is a separate, larger feature. This pass keeps header
 tables render-faithful and crash-safe, and redirects header-table clicks to
 the nearest editable paragraph. Documented as a known limitation.
 
+## Arrow keys "jumped" out of header cells — a shared map built body-only
+
+**Symptom:** mouse click/type/select in a header table cell worked, but any
+arrow key snapped the caret to the table block (the first header block).
+
+**Two wrong theories, killed by evidence before fixing:**
+- *Caret math wrong?* Proved consistent: the renderer draws cell text at
+  `tableX + columnXOffsets[col] + padding + run.x`; the caret pixel uses the
+  same formula. Mouse and arrow render identically for the same position.
+- *Hidden textarea auto-scroll?* The textarea is `position: fixed`, so it
+  never triggers container scroll. (The cursor-pixel context-fix is still a
+  correctness improvement for IME placement, but it was not this bug.)
+
+**Root cause (found by reproducing in a jsdom test, not by reading):** a
+`handleKeyDown` guard resets the caret to the first context block when
+`doc.findBlock(caret.blockId)` returns undefined (meant for blocks deleted by
+a remote peer). `findBlock` → `findBlockInCells` keys off `doc._blockParentMap`,
+which the editor populated from the **body** layout only
+(`doc.setBlockParentMap(bodyLayout.blockParentMap)`). Header/footer table
+cells were never registered, so a header-cell caret looked "deleted" → reset.
+Typing survived only because it flows through the `input` event, not
+`keydown`.
+
+**Fix:** merge the header and footer layouts' `blockParentMap` into the doc's
+map each layout pass.
+
+**Lessons:**
+- A keydown handler and an input handler are *different code paths*. "Typing
+  works" does not imply "all keys work" — arrows/backspace/enter go through
+  keydown and can hit guards that input bypasses.
+- When you add a region (header/footer) that reuses body machinery, audit
+  every place the body registers global state (`setBlockParentMap`,
+  caret/selection maps). One body-only registration silently breaks the new
+  region's keyboard path while leaving mouse + typing intact.
+- Stop theorizing after two falsified hypotheses — *reproduce*. A ~40-line
+  jsdom test (canvas shim + `initialize` + `_setEditContextForTest` +
+  dispatch `keydown`) localized this in one run after a lot of dead-end
+  reading. The minimal test-only helpers were worth adding.
+
 ## Verification gap
 
 Canvas paint is not unit-testable in jsdom (`getContext` unimplemented);
