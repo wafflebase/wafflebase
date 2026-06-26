@@ -50,8 +50,14 @@ function headerTableBlock(): Block {
 }
 
 describe('header table arrow navigation', () => {
+  const editors: EditorAPI[] = [];
   beforeEach(() => { installCanvasShim(); document.body.innerHTML = ''; });
-  afterEach(() => { document.body.innerHTML = ''; });
+  afterEach(() => {
+    // Dispose even if an assertion threw before the test's own dispose(),
+    // so document/container listeners don't leak into the next test.
+    for (const editor of editors.splice(0)) editor.dispose();
+    document.body.innerHTML = '';
+  });
 
   function setup(): { editor: EditorAPI; table: Block; container: HTMLElement } {
     const store = new MemDocStore();
@@ -63,6 +69,7 @@ describe('header table arrow navigation', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const editor = initialize(container, store);
+    editors.push(editor);
     return { editor, table, container };
   }
 
@@ -81,7 +88,6 @@ describe('header table arrow navigation', () => {
     const pos = editor._getCursorForTest();
     expect(pos.blockId).toBe(c00);
     expect(pos.offset).toBe(1);
-    editor.dispose();
   });
 
   test('ArrowRight at cell end moves to the next cell', () => {
@@ -96,7 +102,6 @@ describe('header table arrow navigation', () => {
     const pos = editor._getCursorForTest();
     expect(pos.blockId).toBe(c01);
     expect(pos.offset).toBe(0);
-    editor.dispose();
   });
 
   test('ArrowDown moves to the cell below in the same column', () => {
@@ -109,6 +114,5 @@ describe('header table arrow navigation', () => {
     pressArrow(container, 'ArrowDown');
     const pos = editor._getCursorForTest();
     expect(pos.blockId).toBe(c11);
-    editor.dispose();
   });
 });

@@ -29,3 +29,28 @@ blockers.
       assume the body path. Make them region-aware, then drop the
       `editContext === 'body'` guards in `text-editor.ts`
       (`moveToNextCell` / `moveToPrevCell` and the arrow table-exit branches).
+
+## Header/footer table refinements (from PR #417 review)
+
+Edge cases in the shipped header/footer cell editing; none are crashes or
+common-path bugs.
+
+- [ ] **Page-number tokens inside header/footer table cells** — a
+      `pageNumber: true` inline in a cell renders its `#` placeholder, not
+      the page number. `renderTableContent` (`table-renderer.ts`, shared
+      with the body + PDF painter) draws `run.text` directly; thread an
+      optional `pageNumber` through and substitute like
+      `renderRunWithPageNumber`, then pass it from
+      `renderHeaderFooterBlocks`.
+- [ ] **`lineAffinity` in the HF cell caret/selection resolvers** —
+      `computeHFTableCellCaretPixel` resolves `remaining === lineChars` to
+      the previous visual line, so the caret at a wrap boundary can render
+      on the prior line for forward affinity (wrapped multi-line cells). The
+      existing header *paragraph* caret (`computeHFCursorPixel`) has the same
+      limitation — fix both by threading `cursor.lineAffinity` through.
+- [ ] **Mixed table / non-table HF selections** — when a selection spans a
+      cell and an outside header/footer paragraph,
+      `computeHFTableCellSelectionRects` collapses both endpoints to the one
+      in-table cell and drops the paragraph portion. Split rendering between
+      the flat HF path and the table path (or clamp the outside endpoint to
+      the table edge by document order).

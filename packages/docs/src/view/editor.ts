@@ -339,10 +339,13 @@ function computeHFTableCellCaretPixel(
       cursorXInCell = 0;
       for (const run of line.runs) {
         if (remaining <= chars + run.text.length) {
-          cursorXInCell = run.x + measurer.measureWidth(
-            run.text.slice(0, remaining - chars),
-            resolveInlineFont(run.inline.style),
-          );
+          const localOff = remaining - chars;
+          cursorXInCell = run.x + (run.imageHeight !== undefined
+            ? (localOff > 0 ? run.width : 0)
+            : measurer.measureWidth(
+                run.text.slice(0, localOff),
+                resolveInlineFont(run.inline.style),
+              ));
           break;
         }
         chars += run.text.length;
@@ -526,11 +529,15 @@ function computeHFTableCellSelectionRects(
         let x0 = 0, x1 = 0, chars = 0;
         for (const run of line.runs) {
           const font = resolveInlineFont(run.inline.style);
+          const runOffsetX = (n: number): number =>
+            run.x + (run.imageHeight !== undefined
+              ? (n > 0 ? run.width : 0)
+              : measurer.measureWidth(run.text.slice(0, n), font));
           if (chars <= lineSelStart && lineSelStart <= chars + run.text.length) {
-            x0 = run.x + measurer.measureWidth(run.text.slice(0, lineSelStart - chars), font);
+            x0 = runOffsetX(lineSelStart - chars);
           }
           if (chars <= lineSelEnd && lineSelEnd <= chars + run.text.length) {
-            x1 = run.x + measurer.measureWidth(run.text.slice(0, lineSelEnd - chars), font);
+            x1 = runOffsetX(lineSelEnd - chars);
           }
           chars += run.text.length;
         }
