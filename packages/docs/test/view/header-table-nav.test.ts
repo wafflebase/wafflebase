@@ -205,6 +205,36 @@ describe('header table structural edits (region-aware)', () => {
     expect(editor._getCursorForTest().blockId).toBe(rows[2].cells[0].blocks[0].id);
   });
 
+  test('Delete at the end of a header paragraph merges with the next header paragraph', () => {
+    // Regression: the merge-next path resolved the sibling from the body
+    // block array, so deleting at the end of a header paragraph either no-op'd
+    // or threw "Cannot merge blocks from different regions".
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [para('body')],
+      header: { blocks: [para('AAA'), para('BBB')], marginFromEdge: 48 },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+
+    const first = store.getDocument().header!.blocks[0].id;
+    editor._setEditContextForTest('header');
+    editor._setSelectionForTest({
+      anchor: { blockId: first, offset: 3 },
+      focus: { blockId: first, offset: 3 },
+    });
+    const ta = container.querySelector('textarea')!;
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+
+    const headerBlocks = store.getDocument().header!.blocks;
+    expect(headerBlocks).toHaveLength(1);
+    expect(headerBlocks[0].inlines.map((i) => i.text).join('')).toBe('AAABBB');
+    // Body untouched.
+    expect(store.getDocument().blocks).toHaveLength(1);
+  });
+
   test('ArrowRight at the last header cell exits into the trailing header paragraph', () => {
     const { editor, table, container, store } = setup();
     // c11 'No42' length 4 — caret at end.

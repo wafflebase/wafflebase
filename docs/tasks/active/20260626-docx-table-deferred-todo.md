@@ -75,6 +75,14 @@ common-path bugs.
 
 All six deferred items shipped in one PR. Implementation summary above.
 
+A self code-review of the branch diff found no blocking bugs. One adjacent,
+pre-existing correctness bug it surfaced was also fixed: the Delete /
+Ctrl-Delete "merge with next block" paths resolved the sibling from the
+body block array while `getBlockIndex` is context-aware, so deleting at the
+end of a header/footer paragraph could no-op or throw "Cannot merge blocks
+from different regions". Both sites now use `getContextBlocks()`
+(`handleDelete`, `handleWordDelete`), with a regression test.
+
 ### Tests
 
 - `pnpm --filter @wafflebase/docs typecheck` — clean.

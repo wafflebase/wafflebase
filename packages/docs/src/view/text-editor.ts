@@ -1826,10 +1826,13 @@ export class TextEditor {
       this.docDeleteText(this.cursor.position, 1);
       this.markDirty(this.cursor.position.blockId);
     } else {
-      // At end of block — merge with next (structural change)
+      // At end of block — merge with next (structural change). Resolve the
+      // sibling within the active context so this works in header/footer too
+      // (getBlockIndex is already context-aware).
+      const ctxBlocks = this.doc.getContextBlocks();
       const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
-      if (idx < this.doc.document.blocks.length - 1) {
-        const nextBlock = this.doc.document.blocks[idx + 1];
+      if (idx < ctxBlocks.length - 1) {
+        const nextBlock = ctxBlocks[idx + 1];
         this.invalidateLayout();
         this.doc.mergeBlocks(this.cursor.position.blockId, nextBlock.id);
       }
@@ -1871,11 +1874,13 @@ export class TextEditor {
       this.docDeleteText(pos, count);
       this.markDirty(pos.blockId);
     } else {
-      // At end of block — merge with next (same as normal delete)
+      // At end of block — merge with next (same as normal delete),
+      // context-aware so header/footer paragraphs merge correctly.
+      const ctxBlocks = this.doc.getContextBlocks();
       const idx = this.doc.getBlockIndex(pos.blockId);
-      if (idx < this.doc.document.blocks.length - 1) {
+      if (idx < ctxBlocks.length - 1) {
         this.invalidateLayout();
-        this.doc.mergeBlocks(pos.blockId, this.doc.document.blocks[idx + 1].id);
+        this.doc.mergeBlocks(pos.blockId, ctxBlocks[idx + 1].id);
       }
     }
     this.requestRender();
