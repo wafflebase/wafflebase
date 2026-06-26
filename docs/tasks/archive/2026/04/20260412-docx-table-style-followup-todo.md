@@ -1,8 +1,16 @@
 # DOCX table style & exporter follow-up
 
-**Status:** not-started
+**Status:** complete (items 1–4, E1, 6, 6b shipped; items 5 & 7 deferred)
 **Parent:** `20260411-docx-table-merge-gaps` (archived)
-**Scope:** `packages/docs/src/import/docx-importer.ts`, `packages/docs/src/export/docx-exporter.ts`
+**Scope:** `packages/docs/src/import/docx-importer.ts`,
+`packages/docs/src/export/docx-exporter.ts`, header/footer table
+rendering + cell editing (`view/doc-canvas.ts`, `view/editor.ts`,
+`view/text-editor.ts`, `frontend/.../yorkie-doc-store.ts`)
+
+Deferred follow-ups (separate task): **5.** `w:tblW`/`w:tcW` width
+overrides; **7.** native nested-table rendering; **structural** row/col
+add/delete inside header/footer tables (the table store ops assume the
+body path via `resolveTableBlock`).
 
 ## Background
 
@@ -38,7 +46,9 @@ exporter disambiguation are tracked here.
 
 ## Revisit later
 
-- [ ] **5. `w:tblW` / `w:tcW`** — honor table/cell width overrides
+Items 5 & 7 (and structural header/footer table edits) moved to
+`20260626-docx-table-deferred`.
+
 - [x] **6. Support tables inside header / footer parts** — importer
       `parseHeaderFooter` now dispatches `<w:tbl>` through `convertTable`
       with the part-scoped image map; exporter already routed header/footer
@@ -48,7 +58,6 @@ exporter disambiguation are tracked here.
       path (`DocCanvas.renderHeaderFooterBlocks`) was text-run only and had
       to be extended to draw table blocks via the shared table renderer —
       without it an imported header table laid out but painted nothing.
-- [ ] **7. Replace nested-table flattening with native rendering**
 
 ## 6b. Header/footer table CELL editing (follow-on to item 6)
 
