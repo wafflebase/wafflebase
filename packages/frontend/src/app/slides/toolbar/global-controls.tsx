@@ -110,7 +110,10 @@ export interface RightGlobalsProps {
 }
 
 /**
- * Right-side slide-style cluster: Slide background ▸ Theme.
+ * Right-side cluster, in order: Format options ▸ Motion ▸ Slide
+ * background ▸ Theme. Object-level controls (Format, Motion) lead, then
+ * the deck-level "what does this look like?" controls (Slide background,
+ * Theme).
  *
  * Mirrors Google Slides' arrangement of the "what does this deck look
  * like?" controls so they read as one group. Layout was tried here
@@ -163,6 +166,36 @@ export function RightGlobals({
       className="ml-auto flex items-center gap-1"
       aria-label="Slide style"
     >
+      {onToggleFormatPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!formatPanelOpen}
+              onPressedChange={() => onToggleFormatPanel()}
+              aria-label="Toggle format options"
+            >
+              <IconAdjustmentsAlt size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Format options</TooltipContent>
+        </Tooltip>
+      )}
+      {onToggleMotionPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!motionPanelOpen}
+              onPressedChange={() => onToggleMotionPanel()}
+              aria-label="Toggle motion panel"
+            >
+              <IconSparkles size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Motion</TooltipContent>
+        </Tooltip>
+      )}
       {hasSlideStyleGroup && (
         <DropdownMenu open={backgroundOpen} onOpenChange={setBackgroundOpen}>
           <Tooltip>
@@ -207,36 +240,6 @@ export function RightGlobals({
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Theme</TooltipContent>
-        </Tooltip>
-      )}
-      {onToggleFormatPanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!formatPanelOpen}
-              onPressedChange={() => onToggleFormatPanel()}
-              aria-label="Toggle format options"
-            >
-              <IconAdjustmentsAlt size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Format options</TooltipContent>
-        </Tooltip>
-      )}
-      {onToggleMotionPanel && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={!!motionPanelOpen}
-              onPressedChange={() => onToggleMotionPanel()}
-              aria-label="Toggle motion panel"
-            >
-              <IconSparkles size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Motion</TooltipContent>
         </Tooltip>
       )}
     </div>
