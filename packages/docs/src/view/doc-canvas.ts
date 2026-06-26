@@ -258,16 +258,9 @@ export class DocCanvas {
           }
         }
 
-        for (const lb of headerLayout.blocks) {
-          for (const line of lb.lines) {
-            for (const run of line.runs) {
-              this.renderRunWithPageNumber(
-                run, contentX, headerY + lb.y + line.y, line.height,
-                page.pageIndex + 1,
-              );
-            }
-          }
-        }
+        this.renderHeaderFooterBlocks(
+          headerLayout, contentX, headerY, page.pageIndex + 1,
+        );
 
         if (editContext === 'header' && headerCursor?.visible) {
           this.ctx.fillStyle = headerCursor.color ?? Theme.cursorColor;
@@ -313,16 +306,9 @@ export class DocCanvas {
           }
         }
 
-        for (const lb of footerLayout.blocks) {
-          for (const line of lb.lines) {
-            for (const run of line.runs) {
-              this.renderRunWithPageNumber(
-                run, contentX, footerY + lb.y + line.y, line.height,
-                page.pageIndex + 1,
-              );
-            }
-          }
-        }
+        this.renderHeaderFooterBlocks(
+          footerLayout, contentX, footerY, page.pageIndex + 1,
+        );
 
         if (editContext === 'footer' && footerCursor?.visible) {
           this.ctx.fillStyle = footerCursor.color ?? Theme.cursorColor;
@@ -671,6 +657,43 @@ export class DocCanvas {
       skipBackground: false,
       requestRender: this.requestRender ?? undefined,
     });
+  }
+
+  /**
+   * Paint the blocks of a header or footer layout at the given origin.
+   * Mirrors the body paint path: a `table` block routes through the shared
+   * table renderer (backgrounds + content), everything else draws its text
+   * runs. Without the table branch an imported header/footer table lays out
+   * but paints nothing — its single line carries no runs, only `layoutTable`.
+   * Header/footer regions are a single un-paginated band, so each table is
+   * drawn in one non-split pass.
+   */
+  private renderHeaderFooterBlocks(
+    layout: DocumentLayout,
+    originX: number,
+    originY: number,
+    pageNumber: number,
+  ): void {
+    for (const lb of layout.blocks) {
+      if (lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
+        const tableY = originY + lb.y;
+        renderTableBackgrounds(
+          this.ctx, lb.block.tableData, lb.layoutTable, originX, tableY,
+        );
+        renderTableContent(
+          this.ctx, lb.block.tableData, lb.layoutTable, originX, tableY,
+          0, undefined, undefined, this.requestRender ?? undefined,
+        );
+        continue;
+      }
+      for (const line of lb.lines) {
+        for (const run of line.runs) {
+          this.renderRunWithPageNumber(
+            run, originX, originY + lb.y + line.y, line.height, pageNumber,
+          );
+        }
+      }
+    }
   }
 
   /**

@@ -44,8 +44,10 @@ exporter disambiguation are tracked here.
       with the part-scoped image map; exporter already routed header/footer
       blocks through `blockToXml` (handles tables), plus a trailing empty
       `<w:p/>` guard so a header/footer never ends with a table (OOXML
-      validity). Render path reuses `computeLayout`, which already lays out
-      table blocks for the body.
+      validity). Layout reuses `computeLayout`; the header/footer **paint**
+      path (`DocCanvas.renderHeaderFooterBlocks`) was text-run only and had
+      to be extended to draw table blocks via the shared table renderer —
+      without it an imported header table laid out but painted nothing.
 - [ ] **7. Replace nested-table flattening with native rendering**
 
 ## Review (item 6)
@@ -57,7 +59,17 @@ exporter disambiguation are tracked here.
 - **Exporter** (`docx-exporter.ts` `buildHeaderFooterXml`): no dispatch
   change needed (`blockToXml` already handles tables); added a trailing
   `<w:p/>` when the last header/footer block is a table.
+- **Rendering** (`doc-canvas.ts`): the header/footer paint loop only drew
+  text runs, so an imported header table was invisible (laid out but not
+  painted). Extracted `renderHeaderFooterBlocks`, which routes table blocks
+  through `renderTableBackgrounds`/`renderTableContent` (shared with the
+  body) and draws everything else as runs; both header and footer loops now
+  call it. Found via manual smoke test — caught because the data path
+  (import → Yorkie round-trip → layout) was all verified correct yet the
+  table still didn't appear.
 - **Tests**: importer test imports a header table and asserts cell text;
   exporter test round-trips a header table and asserts the trailing
-  `</w:tbl><w:p/>` and re-import fidelity.
-- `pnpm verify:fast` green.
+  `</w:tbl><w:p/>` and re-import fidelity. Canvas paint is covered by
+  browser tests, not jsdom units.
+- `pnpm verify:fast` green; manual smoke in `pnpm dev` to confirm the
+  header table renders.

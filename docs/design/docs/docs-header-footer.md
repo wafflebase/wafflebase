@@ -80,9 +80,14 @@ The editor prevents *creation* of `table`, `page-break`, and
 
 This is a restriction on user-initiated insertion, not on what the model
 may hold: DOCX import preserves header/footer tables as native `table`
-blocks (a common letterhead pattern), and they render through the same
-`computeLayout` the body uses. Interactive table editing inside a header
-or footer (cell navigation, add/remove rows) is not yet wired — imported
+blocks (a common letterhead pattern). Layout reuses the body's
+`computeLayout`, and the header/footer paint path
+(`DocCanvas.renderHeaderFooterBlocks`) routes table blocks through the
+shared `renderTableBackgrounds` / `renderTableContent` renderer — the same
+one the body uses — so a header/footer table actually draws. (The earlier
+header/footer paint loop only emitted text runs, so a table laid out but
+painted nothing.) Interactive table editing inside a header or footer
+(cell navigation, add/remove rows) is not yet wired — imported
 header/footer tables are render-faithful but edited at the block level.
 
 ## Layout
