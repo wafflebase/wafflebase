@@ -138,7 +138,15 @@ export {
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
 
-export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
+export {
+  BUILT_IN_LAYOUTS,
+  applyLayoutToSlide,
+  buildLayoutSlide,
+  getLayout,
+  layoutEditSlideId,
+  placeholderElementId,
+  slotRefsForLayout,
+} from './model/layout';
 
 export { migrateDocument } from './model/migrate';
 
@@ -161,6 +169,7 @@ export type {
   LayoutPatch,
 } from './store/store';
 export { MemSlidesStore } from './store/memory';
+export { LayoutEditStore } from './store/layout-edit-store';
 
 // View — Canvas renderers (Phase 2)
 export { GHOST_ALPHA, SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';

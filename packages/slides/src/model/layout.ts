@@ -198,6 +198,60 @@ export function getLayout(layoutId: string): Layout {
 }
 
 /**
+ * Stable synthetic slide id for layout-edit mode (PR3 commit 5). Derived
+ * from the layout id so the same layout always maps to the same id —
+ * `setCurrentSlide` short-circuits on an unchanged id, so a fixed id lets
+ * the editor track which layout is being edited.
+ */
+export function layoutEditSlideId(layoutId: string): string {
+  return `__layout__${layoutId}`;
+}
+
+/**
+ * Deterministic element id for a layout placeholder, derived from its
+ * `(type, index)` slot (PR3 commit 5). `buildLayoutSlide` stamps these so
+ * the synthetic slide's element ids are stable across rebuilds — the
+ * editor holds an element id between reading the slide and committing a
+ * drag, so a fresh `generateId()` per build would break the ref mapping.
+ */
+export function placeholderElementId(ref: PlaceholderRef): string {
+  return `__ph__${ref.type}_${ref.index}`;
+}
+
+/**
+ * Materialize a transient Slide from a layout so the existing canvas
+ * editor can render and drag its placeholders (PR3 commit 5). Each
+ * placeholder becomes an element carrying its `(type, index)`
+ * `placeholderRef`; the LayoutEditStore proxy maps a dragged element's ref
+ * back to `updateLayoutPlaceholderFrame`. The slide is never persisted.
+ *
+ * Reuses `applyLayoutToSlide` so geometry and master/theme-seeded
+ * typography match exactly what a real slide created from this layout
+ * gets. Background is left empty (inherit) so the renderer resolves
+ * layout→master→theme just as it does for live slides.
+ */
+export function buildLayoutSlide(
+  layout: Layout,
+  master: Master,
+  theme: Theme,
+): Slide {
+  const slide: Slide = {
+    id: layoutEditSlideId(layout.id),
+    layoutId: layout.id,
+    background: {},
+    elements: [],
+    notes: [],
+  };
+  applyLayoutToSlide(slide, layout, { master, theme });
+  // Stamp deterministic ids so the synthetic slide is reproducible across
+  // reads (applyLayoutToSlide assigns fresh generateId() ids).
+  for (const el of slide.elements) {
+    if (el.placeholderRef) el.id = placeholderElementId(el.placeholderRef);
+  }
+  return slide;
+}
+
+/**
  * Re-slot a slide for a new layout (mutates `slide`).
  *
  * 1. Partition existing elements by `placeholderRef`: ref-bearing
