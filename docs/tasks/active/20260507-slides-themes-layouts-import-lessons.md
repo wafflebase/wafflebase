@@ -175,4 +175,14 @@ canvas. Lessons from reusing the slide editor for a non-slide target:
   behavior only had browser-lane coverage. Use this harness for editor
   changes (gate + store-swap got 4 real gesture tests).
 
+- **Smoke test caught an id-keyed cache going stale under in-place edits.**
+  `renderLayoutPreview` cached by `theme.id:master.id:layout.id` — fine when
+  those were immutable, but the theme builder edits them in place, so the
+  rail preview served the pre-edit bitmap (data saved, preview stale). The
+  canvas updated because the editor has its own rAF render loop; the rail
+  has none and relied on the cache. Fix: key the cache on rendered *content*
+  (colors/fonts/background/geometry) + cap it. Lesson: when a feature makes
+  a previously-immutable object editable, audit every id-keyed cache /
+  memo of that object — they silently go stale.
+
 ## Brainstorming
