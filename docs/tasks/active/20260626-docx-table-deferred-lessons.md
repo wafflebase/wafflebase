@@ -1,12 +1,40 @@
 # DOCX table deferred follow-ups — lessons
 
+## Check EVERY DocStore implementation, not just the in-memory one (cost me a blocking bug)
+
+My first pass concluded the table store ops were already region-aware after
+grepping only `packages/docs/src/` — where `MemDocStore.findBlockInAnyArray`
+*is* region-aware. I even rewrote the todo Scope line to drop
+`packages/frontend/src/app/docs/yorkie-doc-store.ts`. But the production
+editor uses `YorkieDocStore`, whose `resolveTableTreePath` searched only
+`currentDoc.blocks` (body) and threw `Table block not found` for header/footer
+tables. Dropping the `editContext === 'body'` guards therefore turned a safe
+no-op into an uncaught crash in the real app — the exact thing #417's guards
+prevented. The functions the todo named (`resolveTableTreePath`,
+`findTableIndex`, `resolveTableBlock`) **did** exist — in the file I had
+removed from scope.
+
+A self code-review (multi-agent) caught it; the MemDocStore-only unit tests
+all passed and masked it. Fix: make `resolveTableTreePath` delegate to the
+already-region-aware `resolveBlockTreePath`, and make `resolveTableBlock`
+pick the region root (body/header/footer) from the tree path. Added
+header/footer structural-op tests in `yorkie-doc-store.test.ts`.
+
+Lessons:
+1. The `Store` abstraction has ≥2 impls (`MemDocStore`, `YorkieDocStore`).
+   A behavior is only region-aware if **every** impl is — grep both
+   `packages/docs/src/store/` AND `packages/frontend/src/app/docs/`.
+2. Don't narrow a todo's Scope list without proving the dropped file is
+   irrelevant. The original scope named yorkie-doc-store.ts for a reason.
+3. Unit tests against the in-memory store can't prove the collaborative
+   path. Add a matching test in `yorkie-doc-store.test.ts` for anything that
+   touches store ops.
+
 ## Verify the stated root cause before implementing it
 
-The todo claimed structural HF edits were no-ops because "the table store
-ops (`resolveTableBlock` / `findTableIndex` / `resolveTableTreePath`) assume
-the body path." Those functions don't exist, and the store table ops
-(`insertTableRow`, etc.) were *already* region-aware (keyed by block id via
-`findBlock` → `findBlockInAnyArray`). The real blockers were elsewhere:
+The todo also described the mechanism imprecisely for the *in-memory* store:
+there, the table store ops (`insertTableRow`, etc.) were already region-aware
+(keyed by block id via `findBlock` → `findBlockInAnyArray`). The real blockers were elsewhere:
 
 1. Body-only block-array reads (`this.doc.document.blocks`) in
    `ensureBlockAfter`, `getPositionBeforeTable`, `getPositionAfterTable` —

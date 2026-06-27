@@ -684,6 +684,54 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('region-aware table structural ops (header / footer)', () => {
+    // Regression: resolveTableTreePath was body-only, so structural ops on a
+    // header/footer table threw "Table block not found" in the real editor
+    // (the MemDocStore path is region-aware, which masked it in unit tests).
+    it('insertTableRow into a header table does not throw and grows the table', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [tableBlock, makeBlock('after')], marginFromEdge: 48 },
+      });
+      expect(() =>
+        store.insertTableRow(tableBlock.id, 2, { cells: [createTableCell(), createTableCell()] }),
+      ).not.toThrow();
+      const headerTable = store.getDocument().header!.blocks.find((b) => b.type === 'table')!;
+      expect(headerTable.tableData!.rows.length).toBe(3);
+    });
+
+    it('deleteTableRow / insertTableColumn / deleteTableColumn work on a header table', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [tableBlock], marginFromEdge: 48 },
+      });
+      const id = tableBlock.id;
+      expect(() => store.insertTableColumn(id, 1, [createTableCell(), createTableCell()])).not.toThrow();
+      expect(store.getDocument().header!.blocks[0].tableData!.rows[0].cells.length).toBe(3);
+      expect(() => store.deleteTableColumn(id, 0)).not.toThrow();
+      expect(store.getDocument().header!.blocks[0].tableData!.rows[0].cells.length).toBe(2);
+      expect(() => store.deleteTableRow(id, 0)).not.toThrow();
+      expect(store.getDocument().header!.blocks[0].tableData!.rows.length).toBe(1);
+    });
+
+    it('insertTableRow into a footer table targets the footer region', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        footer: { blocks: [makeBlock('foot'), tableBlock], marginFromEdge: 48 },
+      });
+      expect(() =>
+        store.insertTableRow(tableBlock.id, 2, { cells: [createTableCell(), createTableCell()] }),
+      ).not.toThrow();
+      const footerTable = store.getDocument().footer!.blocks.find((b) => b.type === 'table')!;
+      expect(footerTable.tableData!.rows.length).toBe(3);
+      // Body untouched.
+      expect(store.getDocument().blocks.length).toBe(1);
+    });
+  });
+
   describe('updateTableCell', () => {
     it('should update one cell without affecting others', () => {
       const { tableBlock, doc } = makeTableDoc();

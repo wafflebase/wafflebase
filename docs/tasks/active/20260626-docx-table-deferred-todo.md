@@ -75,13 +75,27 @@ common-path bugs.
 
 All six deferred items shipped in one PR. Implementation summary above.
 
-A self code-review of the branch diff found no blocking bugs. One adjacent,
-pre-existing correctness bug it surfaced was also fixed: the Delete /
-Ctrl-Delete "merge with next block" paths resolved the sibling from the
-body block array while `getBlockIndex` is context-aware, so deleting at the
-end of a header/footer paragraph could no-op or throw "Cannot merge blocks
-from different regions". Both sites now use `getContextBlocks()`
-(`handleDelete`, `handleWordDelete`), with a regression test.
+A self code-review of the branch diff surfaced and fixed two correctness bugs:
+
+1. **Blocking (introduced):** dropping the `editContext === 'body'` guards
+   crashed header/footer table structural ops in the **Yorkie** editor.
+   `YorkieDocStore.resolveTableTreePath` was body-only (searched only
+   `doc.blocks`, threw `Table block not found` for HF tables); the
+   MemDocStore unit tests masked it. Fixed by making `resolveTableTreePath`
+   delegate to the region-aware `resolveBlockTreePath` and `resolveTableBlock`
+   pick the region root from the tree path. Added header/footer structural-op
+   tests in `packages/frontend/tests/app/docs/yorkie-doc-store.test.ts`.
+2. **Adjacent (pre-existing):** the Delete / Ctrl-Delete "merge with next
+   block" paths resolved the sibling from the body block array while
+   `getBlockIndex` is context-aware, so deleting at the end of a header/footer
+   paragraph could no-op or throw "Cannot merge blocks from different
+   regions". Both sites now use `getContextBlocks()`, with a regression test.
+
+Two pre-existing, out-of-scope items the review noted (unmodified lines, not
+fixed here): `editor.ts` `insertTable` (line ~2801) and the ruler cursor-cell
+lookup (line ~1662) still use the body-only `layout.blockParentMap`; making
+table *insertion* region-aware needs region-aware `doc.insertTable` /
+`insertTableInCell` and is a separate follow-up.
 
 ### Tests
 
