@@ -7,7 +7,10 @@ import type { Document, Block, Inline } from '../model/types.js';
 // The WinAnsi "specials" beyond Latin-1 (U+0000–U+00FF) that pdf-lib's
 // StandardFonts can still encode: typographic quotes, dashes, the Euro
 // sign, etc. Factored out so both regexes below derive from one source.
-const LATIN_SPECIAL_CHARS = '\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
+// The quote block is split around U+201B (reversed-9 quote), which CP1252
+// can't encode — it must route to the Korean font. Keep in sync with the
+// `LATIN_SAFE_CHARS` definition in `pdf-style-map.ts`.
+const LATIN_SPECIAL_CHARS = '\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201A\\u201C-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
 // Match `splitMixedScript`'s definition in pdf-style-map.ts: any character
 // pdf-lib's WinAnsi-encoded StandardFonts cannot encode. Detecting these
 // here triggers Korean font embed so the painter has glyphs for CJK
