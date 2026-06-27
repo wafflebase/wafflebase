@@ -94,10 +94,10 @@ canvas, entered via Customize-tab button. Design: see the design doc
 - [x] verify: each edit + cascade is a single undo unit (LayoutEditStore `batch` delegation test + 5b drag-undo test)
 - [x] verify: structural ops (delete/insert/text-edit) are inert in layout-edit mode (proxy no-op tests + editor text-edit gate test; toolbar idle via `getToolbarState`)
 - [x] verify: `pnpm verify:fast` per commit
-- [ ] verify: manual smoke — enter layout-edit, drag a placeholder, confirm cascade + Done exit (UI changed; do before merge per CLAUDE.md). `verify:browser:docker` visual harness covers static comps, not interactive drag.
-- [ ] verify (optional/stretch): two-user Yorkie concurrent master/layout + slide edit convergence — no dedicated test today; known gap (theme-builder mutations are plain-JSON LWW, accepted in design Risks).
+- [x] verify: manual smoke — enter layout-edit, drag a placeholder, confirm cascade + Done exit (UI changed; done before merge per CLAUDE.md). `verify:browser:docker` visual harness covers static comps, not interactive drag.
+- _Deferred (optional/stretch, not done):_ two-user Yorkie concurrent master/layout + slide edit convergence — no dedicated test today; known gap (theme-builder mutations are plain-JSON LWW, accepted in design Risks). Not a merge blocker.
 - [x] docs: fold as-built notes into design doc; capture lessons
-- [ ] PR opened, reviewed, merged
+- [x] PR opened, reviewed, merged — commit 5 shipped as PR #422 (commit 706b2eb2); PR1/PR2 previously merged.
 
 #### Already verified in commits 1–4 (PR3)
 
@@ -110,8 +110,14 @@ canvas, entered via Customize-tab button. Design: see the design doc
 
 - [x] Update `docs/design/README.md` Slides section with new doc
 - [x] Capture lessons in paired `20260507-slides-themes-layouts-import-lessons.md`
-- [ ] After all three PRs merged: `pnpm tasks:archive && pnpm tasks:index`
+- [x] After all three PRs merged: `pnpm tasks:archive && pnpm tasks:index`
 
 ## Review
 
-(filled in at completion)
+All three PRs merged to `main`: PR1 (themed authoring), PR2 (PPTX import,
+tracked in archived `20260515-pptx-import`), PR3 (theme customization +
+canvas layout-editing mode, final commit 5 = PR #422 / 706b2eb2). The two
+remaining unchecked boxes were a pre-merge manual smoke (done before the
+#422 merge) and an optional two-user Yorkie convergence test (known gap,
+theme-builder mutations are plain-JSON LWW per design Risks — deferred, not
+a blocker). Lessons captured in the paired lessons file.

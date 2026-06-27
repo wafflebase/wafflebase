@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 318
+Total archived tasks: 322
 
-## 2026/06 (69 tasks)
+## 2026/06 (71 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides shared editor toolbar parity (2026-06-27) | [20260627-slides-shared-editor-toolbar-parity-todo.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-todo.md) | [20260627-slides-shared-editor-toolbar-parity-lessons.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-lessons.md) |
+| docx table deferred (2026-06-26) | [20260626-docx-table-deferred-todo.md](./2026/06/20260626-docx-table-deferred-todo.md) | [20260626-docx-table-deferred-lessons.md](./2026/06/20260626-docx-table-deferred-lessons.md) |
 | callout ooxml fidelity (2026-06-25) | [20260625-callout-ooxml-fidelity-todo.md](./2026/06/20260625-callout-ooxml-fidelity-todo.md) | [20260625-callout-ooxml-fidelity-lessons.md](./2026/06/20260625-callout-ooxml-fidelity-lessons.md) |
 | heart ecma geometry (2026-06-25) | [20260625-heart-ecma-geometry-todo.md](./2026/06/20260625-heart-ecma-geometry-todo.md) | [20260625-heart-ecma-geometry-lessons.md](./2026/06/20260625-heart-ecma-geometry-lessons.md) |
 | notequal ecma geometry (2026-06-24) | [20260624-notequal-ecma-geometry-todo.md](./2026/06/20260624-notequal-ecma-geometry-todo.md) | [20260624-notequal-ecma-geometry-lessons.md](./2026/06/20260624-notequal-ecma-geometry-lessons.md) |
@@ -82,7 +84,7 @@ Total archived tasks: 318
 | slides shape text hit test (2026-06-01) | [20260601-slides-shape-text-hit-test-todo.md](./2026/06/20260601-slides-shape-text-hit-test-todo.md) | [20260601-slides-shape-text-hit-test-lessons.md](./2026/06/20260601-slides-shape-text-hit-test-lessons.md) |
 | slides vertical anchor overflow (2026-06-01) | [20260601-slides-vertical-anchor-overflow-todo.md](./2026/06/20260601-slides-vertical-anchor-overflow-todo.md) | - |
 
-## 2026/05 (103 tasks)
+## 2026/05 (105 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -174,6 +176,7 @@ Total archived tasks: 318
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
 | slides phase5b 1 image (2026-05-07) | [20260507-slides-phase5b-1-image-todo.md](./2026/05/20260507-slides-phase5b-1-image-todo.md) | [20260507-slides-phase5b-1-image-lessons.md](./2026/05/20260507-slides-phase5b-1-image-lessons.md) |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
+| slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./2026/05/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./2026/05/20260507-slides-themes-layouts-import-lessons.md) |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
 | docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./2026/05/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./2026/05/20260505-slides-package-mvp-lessons.md) |
@@ -184,6 +187,7 @@ Total archived tasks: 318
 | homepage redesign (2026-05-03) | [20260503-homepage-redesign-todo.md](./2026/05/20260503-homepage-redesign-todo.md) | - |
 | image split duplicate (2026-05-03) | [20260503-image-split-duplicate-todo.md](./2026/05/20260503-image-split-duplicate-todo.md) | - |
 | docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./2026/05/20260502-docs-cli-todo.md) | [20260502-docs-cli-lessons.md](./2026/05/20260502-docs-cli-lessons.md) |
+| pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./2026/05/20260501-pdf-export-followup-todo.md) | [20260501-pdf-export-followup-lessons.md](./2026/05/20260501-pdf-export-followup-lessons.md) |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./2026/05/20260501-release-0.3.6-todo.md) | - |
 | table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./2026/05/20260501-table-cell-resize-page-scroll-todo.md) | - |
