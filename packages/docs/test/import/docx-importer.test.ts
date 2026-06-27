@@ -310,6 +310,76 @@ describe('DocxImporter', () => {
     expect(td.columnWidths[2]).toBeCloseTo(3 / 6, 5);
   });
 
+  it('should derive column widths from <w:tcW> when <w:tblGrid> is absent', async () => {
+    // No <w:tblGrid> (hand-authored / malformed docx). Column proportions must
+    // come from per-cell <w:tcW> dxa widths so the table still renders with the
+    // right column ratios (1000/3000 → 1/4, 3/4).
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.columnWidths).toHaveLength(2);
+    expect(td.columnWidths[0]).toBeCloseTo(1 / 4, 5);
+    expect(td.columnWidths[1]).toBeCloseTo(3 / 4, 5);
+    // Both cells preserved and aligned to the derived 2-column grid.
+    expect(td.rows[0].cells).toHaveLength(2);
+  });
+
+  it('falls back to even-share columns when tblGrid and tcW are both absent', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.columnWidths).toHaveLength(2);
+    expect(td.columnWidths[0]).toBeCloseTo(0.5, 5);
+    expect(td.columnWidths[1]).toBeCloseTo(0.5, 5);
+  });
+
+  it('does not let a nested table tcW leak into the gridless outer column widths', async () => {
+    // Outer table has no <w:tblGrid>. Its first cell has NO direct <w:tcPr>
+    // but contains a nested table whose cells declare a huge tcW; the second
+    // cell declares tcW=1000. A recursive tcPr lookup would pull the nested
+    // 9999 into the outer column-width derivation. Direct-child lookup must
+    // treat the first outer cell as a unit weight, so the second cell (1000)
+    // dominates the outer ratios.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:tc>
+            <w:tbl>
+              <w:tblGrid><w:gridCol w:w="9999"/></w:tblGrid>
+              <w:tr>
+                <w:tc><w:tcPr><w:tcW w:w="9999" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>inner</w:t></w:r></w:p></w:tc>
+              </w:tr>
+            </w:tbl>
+          </w:tc>
+          <w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const outer = doc.blocks[0].tableData!;
+    expect(outer.columnWidths).toHaveLength(2);
+    // Outer col 0 = unit weight (1), col 1 = 1000 → col 1 dominates. With the
+    // recursive-lookup bug it would be [9999, 1000] → col 1 ≈ 0.09.
+    expect(outer.columnWidths[1]).toBeGreaterThan(0.9);
+    // The nested table is still imported as a native block in the first cell.
+    const nested = outer.rows[0].cells[0].blocks.find((b) => b.type === 'table');
+    expect(nested).toBeDefined();
+  });
+
   it('should pad horizontal merge placeholders so cells.length matches numCols', async () => {
     // 5-column row with [A, B(gridSpan=4)]. Downstream layout, rendering,
     // and click handling all index `rows[r].cells[c]` by grid column and

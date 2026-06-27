@@ -277,6 +277,14 @@ export function renderTableContent(
   focused?: boolean,
   rowSplitOffset?: number,
   rowSplitHeight?: number,
+  /**
+   * Current 1-based page number. When supplied, a run whose inline carries
+   * `style.pageNumber` paints this value instead of its `#` placeholder
+   * glyph — header/footer table cells can host page-number fields just like
+   * flat header/footer paragraphs. Undefined in the body, where page-number
+   * fields are not supported.
+   */
+  pageNumber?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -386,6 +394,7 @@ export function renderTableContent(
               nestedX, nestedY,
               0, undefined, undefined,
               requestRender, dragImageRun, selectionRects, focused,
+              undefined, undefined, pageNumber,
             );
           }
           continue;
@@ -462,7 +471,14 @@ export function renderTableContent(
           // the translucent selection highlight stays visible inside a
           // colored span. Don't redraw them here.
 
-          ctx.fillText(run.text, runX, baselineY);
+          // Page-number field: substitute the resolved page number for the
+          // `#` placeholder. Mirrors `renderRunWithPageNumber` on the flat
+          // header/footer paragraph path.
+          const drawText =
+            pageNumber !== undefined && style.pageNumber
+              ? String(pageNumber)
+              : run.text;
+          ctx.fillText(drawText, runX, baselineY);
 
           // Underline
           if (style.underline) {

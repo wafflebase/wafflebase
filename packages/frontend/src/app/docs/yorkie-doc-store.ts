@@ -2162,50 +2162,16 @@ export class YorkieDocStore implements DocStore {
   // -----------------------------------------------------------------------
 
   /**
-   * Resolve a table block's tree path. For top-level tables, returns a
-   * single-element array with the tree-adjusted index. For nested tables
-   * (inside a cell), returns the full path segments through the tree
-   * hierarchy: [parentTableIdx, rowIdx, cellIdx, blockIdx, ...].
+   * Resolve a table block's tree path. A table is just a block, so this
+   * delegates to the region-aware `resolveBlockTreePath`, which covers body,
+   * header, and footer (and nested tables). Returns:
+   * - Body top-level table:    `[treeIdx]`
+   * - Header top-level table:  `[0, blockIdx]`
+   * - Footer top-level table:  `[footerTreeIdx, blockIdx]`
+   * - Nested table:            `[...regionPrefix, rowIdx, cellIdx, blockIdx, ...]`
    */
   private resolveTableTreePath(tableBlockId: string): number[] {
-    const currentDoc = this.getDocument();
-
-    // Check if it's a top-level block
-    const bodyIdx = currentDoc.blocks.findIndex((b) => b.id === tableBlockId);
-    if (bodyIdx !== -1) {
-      return [bodyIdx + this.bodyTreeOffset(currentDoc)];
-    }
-
-    // Nested table — recursively search through the document structure
-    function findInBlocks(blocks: Block[], targetId: string, basePath: number[]): number[] | null {
-      for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i];
-        if (block.id === targetId) {
-          return [...basePath, i];
-        }
-        if (block.type === 'table' && block.tableData) {
-          for (let r = 0; r < block.tableData.rows.length; r++) {
-            for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
-              const cell = block.tableData.rows[r].cells[c];
-              const result = findInBlocks(cell.blocks, targetId, [...basePath, i, r, c]);
-              if (result) return result;
-            }
-          }
-        }
-      }
-      return null;
-    }
-
-    const offset = this.bodyTreeOffset(currentDoc);
-    const path = findInBlocks(currentDoc.blocks, tableBlockId, []);
-
-    if (!path) {
-      throw new Error(`Table block not found: ${tableBlockId}`);
-    }
-
-    // Add the body tree offset to the first segment
-    path[0] += offset;
-    return path;
+    return this.resolveBlockTreePath(tableBlockId, this.getDocument()).path;
   }
 
   /** Returns body array index and tree-adjusted index for a table block. */
@@ -2222,17 +2188,31 @@ export class YorkieDocStore implements DocStore {
 
   /**
    * Resolve the table Block from the cached document using the tree path
-   * returned by resolveTableTreePath(). For top-level tables, this indexes
-   * into `doc.blocks`. For nested tables, it walks through the table
-   * hierarchy (row → cell → blocks).
+   * returned by resolveTableTreePath(). Region-aware: a header table path
+   * starts `[0, blockIdx]`, a footer table path starts `[footerTreeIdx,
+   * blockIdx]`, and a body table path starts `[treeIdx]` (= bodyArrayIdx +
+   * bodyTreeOffset). Nested tables append [rowIdx, colIdx, blockIdx] triplets.
    */
   private resolveTableBlock(treePath: number[], doc: Document): Block {
     const offset = this.bodyTreeOffset(doc);
-    const bodyIdx = treePath[0] - offset;
-    let block = doc.blocks[bodyIdx];
-    // Walk deeper for nested tables: path segments after the first are
-    // [rowIdx, colIdx, blockIdx] triplets leading to the target block.
-    for (let i = 1; i < treePath.length; i += 3) {
+    const footerTreeIdx = offset + doc.blocks.length;
+    let block: Block;
+    let nestedStart: number;
+    if (doc.header && treePath[0] === 0) {
+      // Header region: [0, blockIdx, ...nested]
+      block = doc.header.blocks[treePath[1]];
+      nestedStart = 2;
+    } else if (doc.footer && treePath[0] === footerTreeIdx) {
+      // Footer region: [footerTreeIdx, blockIdx, ...nested]
+      block = doc.footer.blocks[treePath[1]];
+      nestedStart = 2;
+    } else {
+      // Body region: [treeIdx, ...nested]
+      block = doc.blocks[treePath[0] - offset];
+      nestedStart = 1;
+    }
+    // Walk deeper for nested tables: [rowIdx, colIdx, blockIdx] triplets.
+    for (let i = nestedStart; i < treePath.length; i += 3) {
       const r = treePath[i];
       const c = treePath[i + 1];
       const b = treePath[i + 2];

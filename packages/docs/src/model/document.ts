@@ -601,12 +601,21 @@ export class Doc {
    * Returns the ID of the block immediately after `blockIndex`.
    */
   ensureBlockAfter(blockIndex: number): string {
-    const blocks = this.document.blocks;
+    // Resolve against the active editing context (body / header / footer) so
+    // exiting a header/footer table appends the new paragraph to that region.
+    const blocks = this.getContextBlocks();
     if (blockIndex < blocks.length - 1) {
       return blocks[blockIndex + 1].id;
     }
     const newBlock = createEmptyBlock();
-    this.store.insertBlock(blockIndex + 1, newBlock);
+    const sibling = blocks[blockIndex];
+    if (sibling) {
+      // insertBlockAfter is region-aware (keyed by sibling id) in both the
+      // in-memory and Yorkie stores; insertBlock(index) is body-only.
+      this.store.insertBlockAfter(sibling.id, newBlock);
+    } else {
+      this.store.insertBlock(blockIndex + 1, newBlock);
+    }
     this.refresh();
     return newBlock.id;
   }

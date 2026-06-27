@@ -1826,10 +1826,13 @@ export class TextEditor {
       this.docDeleteText(this.cursor.position, 1);
       this.markDirty(this.cursor.position.blockId);
     } else {
-      // At end of block — merge with next (structural change)
+      // At end of block — merge with next (structural change). Resolve the
+      // sibling within the active context so this works in header/footer too
+      // (getBlockIndex is already context-aware).
+      const ctxBlocks = this.doc.getContextBlocks();
       const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
-      if (idx < this.doc.document.blocks.length - 1) {
-        const nextBlock = this.doc.document.blocks[idx + 1];
+      if (idx < ctxBlocks.length - 1) {
+        const nextBlock = ctxBlocks[idx + 1];
         this.invalidateLayout();
         this.doc.mergeBlocks(this.cursor.position.blockId, nextBlock.id);
       }
@@ -1871,11 +1874,13 @@ export class TextEditor {
       this.docDeleteText(pos, count);
       this.markDirty(pos.blockId);
     } else {
-      // At end of block — merge with next (same as normal delete)
+      // At end of block — merge with next (same as normal delete),
+      // context-aware so header/footer paragraphs merge correctly.
+      const ctxBlocks = this.doc.getContextBlocks();
       const idx = this.doc.getBlockIndex(pos.blockId);
-      if (idx < this.doc.document.blocks.length - 1) {
+      if (idx < ctxBlocks.length - 1) {
         this.invalidateLayout();
-        this.doc.mergeBlocks(pos.blockId, this.doc.document.blocks[idx + 1].id);
+        this.doc.mergeBlocks(pos.blockId, ctxBlocks[idx + 1].id);
       }
     }
     this.requestRender();
@@ -2234,8 +2239,8 @@ export class TextEditor {
               const prevCellPos = this.getPrevCellLastPosition(arrowCellInfo);
               if (prevCellPos) {
                 newPos = prevCellPos;
-              } else if (this.editContext === 'body') {
-                // At first cell: exit table upward (body only).
+              } else {
+                // At first cell: exit table upward (region-aware).
                 newPos = this.getPositionBeforeTable(tableBlockId);
               }
             } else if (this.moveToPrevCell()) {
@@ -2259,8 +2264,8 @@ export class TextEditor {
               const nextCellPos = this.getNextCellFirstPosition(arrowCellInfo);
               if (nextCellPos) {
                 newPos = nextCellPos;
-              } else if (this.editContext === 'body') {
-                // At last cell: exit table downward (body only).
+              } else {
+                // At last cell: exit table downward (region-aware).
                 newPos = this.getPositionAfterTable(tableBlockId);
               }
             } else if (this.moveToNextCell()) {
@@ -2337,9 +2342,8 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
               };
             }
-          } else if (this.editContext === 'body') {
-            // Exit table upward (body only — header/footer arrows stay in
-            // the table; exiting into header sibling blocks is not wired).
+          } else {
+            // Exit table upward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block before this table in parent cell
@@ -2363,14 +2367,14 @@ export class TextEditor {
                 // Exit outer table
                 const outerIdx = this.doc.getBlockIndex(parentCellInfo.tableBlockId);
                 if (outerIdx > 0) {
-                  const prevBlock = this.doc.document.blocks[outerIdx - 1];
+                  const prevBlock = this.doc.getContextBlocks()[outerIdx - 1];
                   newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
                 }
               }
             } else {
               const blockIndex = this.doc.getBlockIndex(tableBlockId);
               if (blockIndex > 0) {
-                const prevBlock = this.doc.document.blocks[blockIndex - 1];
+                const prevBlock = this.doc.getContextBlocks()[blockIndex - 1];
                 newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
               }
             }
@@ -2438,8 +2442,8 @@ export class TextEditor {
                 offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
               };
             }
-          } else if (this.editContext === 'body') {
-            // Exit table downward (body only — see the upward case).
+          } else {
+            // Exit table downward (region-aware: body, header, or footer).
             const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
             if (parentCellInfo) {
               // Nested table — move to the block after this table in parent cell
@@ -3867,8 +3871,10 @@ export class TextEditor {
   }
 
   private getPositionBeforeTable(tableBlockId: string): DocPosition | undefined {
-    // For nested tables, find the previous block in the parent cell
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    // For nested tables, find the previous block in the parent cell. Use the
+    // active layout so a nested table inside a header/footer cell resolves its
+    // parent (the body layout map omits header/footer cells).
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
@@ -3882,15 +3888,16 @@ export class TextEditor {
     }
     const idx = this.doc.getBlockIndex(tableBlockId);
     if (idx > 0) {
-      const prev = this.doc.document.blocks[idx - 1];
+      const prev = this.doc.getContextBlocks()[idx - 1];
       return { blockId: prev.id, offset: getBlockTextLength(prev) };
     }
     return undefined;
   }
 
   private getPositionAfterTable(tableBlockId: string): DocPosition | undefined {
-    // For nested tables, find the next block in the parent cell
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    // For nested tables, find the next block in the parent cell. Active layout
+    // so header/footer nested tables resolve their parent cell.
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
@@ -3902,7 +3909,7 @@ export class TextEditor {
       return this.getNextCellFirstPosition(parentCellInfo);
     }
     const idx = this.doc.getBlockIndex(tableBlockId);
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (idx < blocks.length - 1) {
       return { blockId: blocks[idx + 1].id, offset: 0 };
     }
@@ -4611,11 +4618,9 @@ export class TextEditor {
     }
     // At last cell
     if (addRowAtEnd) {
-      // Structural row insertion targets the body table store path; header/
-      // footer table row/column ops are not wired (resolveTableBlock assumes
-      // the body). Tab at the last header/footer cell is a no-op rather than
-      // a crash.
-      if (this.editContext !== 'body') return false;
+      // Tab at the last cell inserts a new row. The table store ops are keyed
+      // by block id (region-aware via findBlock), so this works in the body,
+      // header, and footer alike.
       // Tab: insert a new row and move to it
       this.saveSnapshot();
       const newRowIndex = td.rows.length;
@@ -4647,10 +4652,8 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToNextCell(addRowAtEnd);
     }
-    // Header/footer: exiting the table into sibling blocks is not wired;
-    // keep the caret in the last cell rather than jumping into the body.
-    if (this.editContext !== 'body') return false;
-    // Top-level table — move to the block after the table
+    // Top-level table — move to the block after the table (region-aware:
+    // ensureBlockAfter / getBlockIndex resolve against the active context).
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     const nextId = this.doc.ensureBlockAfter(blockIndex);
     this.cursor.moveTo({ blockId: nextId, offset: 0 });
@@ -4707,12 +4710,10 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
       return this.moveToPrevCell();
     }
-    // Header/footer: don't exit the table into sibling blocks (not wired).
-    if (this.editContext !== 'body') return false;
-    // Top-level table — move to the block before the table
+    // Top-level table — move to the block before the table (region-aware).
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     if (blockIndex > 0) {
-      const prevBlock = this.doc.document.blocks[blockIndex - 1];
+      const prevBlock = this.doc.getContextBlocks()[blockIndex - 1];
       this.cursor.moveTo({ blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) });
       return true;
     }

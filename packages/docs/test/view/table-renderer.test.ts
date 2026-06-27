@@ -374,6 +374,148 @@ describe('renderTableContent image inlines', () => {
   });
 });
 
+describe('renderTableContent page-number fields', () => {
+  // A header/footer table cell can host a page-number field
+  // (`inline.style.pageNumber`). Its layout run carries a `#` placeholder;
+  // renderTableContent must substitute the resolved page number when one is
+  // threaded through, mirroring the flat header/footer paragraph path.
+  function makePageNumberCellTable(): {
+    tableData: TableData;
+    layout: LayoutTable;
+  } {
+    const pnStyle = { pageNumber: true };
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            {
+              blocks: [
+                {
+                  id: 'b1',
+                  type: 'paragraph',
+                  inlines: [{ text: '#', style: pnStyle }],
+                  style: { ...DEFAULT_BLOCK_STYLE },
+                },
+              ],
+              style: { ...DEFAULT_CELL_STYLE },
+            },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const layout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              {
+                y: 0,
+                height: 16,
+                width: 40,
+                runs: [
+                  {
+                    inline: { text: '#', style: pnStyle },
+                    text: '#',
+                    x: 0,
+                    width: 10,
+                    inlineIndex: 0,
+                    charStart: 0,
+                    charEnd: 1,
+                    charOffsets: [10],
+                  },
+                ],
+              },
+            ],
+            blockBoundaries: [0],
+            width: 40,
+            height: 16,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [40],
+      rowYOffsets: [0],
+      rowHeights: [16],
+      totalWidth: 40,
+      totalHeight: 16,
+      blockParentMap: new Map(),
+    };
+    return { tableData, layout };
+  }
+
+  it('substitutes the page number for the placeholder when pageNumber is supplied', () => {
+    const { ctx, fillText } = makeRecordingCtx();
+    const { tableData, layout } = makePageNumberCellTable();
+    renderTableContent(
+      ctx, tableData, layout, 0, 0,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, 7,
+    );
+    const drawn = fillText.mock.calls.map((c) => c[0]);
+    expect(drawn).toContain('7');
+    expect(drawn).not.toContain('#');
+  });
+
+  it('draws the literal placeholder when no page number is threaded (body path)', () => {
+    const { ctx, fillText } = makeRecordingCtx();
+    const { tableData, layout } = makePageNumberCellTable();
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    const drawn = fillText.mock.calls.map((c) => c[0]);
+    expect(drawn).toContain('#');
+  });
+
+  it('propagates the page number into a nested table cell', () => {
+    // The page-number run lives in a nested table inside an outer cell. The
+    // recursive renderTableContent call must thread pageNumber down so the
+    // nested cell substitutes the number, not its '#' placeholder.
+    const { ctx, fillText } = makeRecordingCtx();
+    const inner = makePageNumberCellTable();
+    const nestedBlock = {
+      id: 'nested',
+      type: 'table' as const,
+      inlines: [],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      tableData: inner.tableData,
+    };
+    const outerTableData: TableData = {
+      rows: [{ cells: [{ blocks: [nestedBlock], style: { ...DEFAULT_CELL_STYLE } }] }],
+      columnWidths: [1],
+    };
+    const outerLayout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              { y: 0, height: 16, width: 40, runs: [], nestedTable: inner.layout },
+            ],
+            blockBoundaries: [0],
+            width: 40,
+            height: 16,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [40],
+      rowYOffsets: [0],
+      rowHeights: [16],
+      totalWidth: 40,
+      totalHeight: 16,
+      blockParentMap: new Map(),
+    };
+    renderTableContent(
+      ctx, outerTableData, outerLayout, 0, 0,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, 9,
+    );
+    const drawn = fillText.mock.calls.map((c) => c[0]);
+    expect(drawn).toContain('9');
+    expect(drawn).not.toContain('#');
+  });
+});
+
 describe('DocCanvas ↔ table-renderer wiring', () => {
   // A full DocCanvas.render() test would need an HTMLCanvasElement, a
   // paginated layout, a selection object, and a request-render callback —

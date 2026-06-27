@@ -296,6 +296,7 @@ export interface EditorAPI {
  */
 function computeHFTableCellCaretPixel(
   position: DocPosition,
+  lineAffinity: 'forward' | 'backward',
   hfLayout: DocumentLayout,
   hf: HeaderFooter,
   region: 'header' | 'footer',
@@ -332,6 +333,17 @@ function computeHFTableCellCaretPixel(
     const line = cell.lines[li];
     let lineChars = 0;
     for (const run of line.runs) lineChars += run.text.length;
+    // At a wrap boundary, forward affinity belongs to the start of the
+    // next visual line rather than the end of this one. Mirrors the body
+    // caret resolver (`resolvePositionPixel`).
+    if (
+      lineAffinity === 'forward' &&
+      remaining === lineChars &&
+      li < blockEndLine - 1
+    ) {
+      remaining = 0;
+      continue;
+    }
     if (remaining <= lineChars || li === blockEndLine - 1) {
       lineIdx = li;
       lineHeight = line.height;
@@ -377,8 +389,11 @@ function computeHFTableCellCaretPixel(
   };
 }
 
-function computeHFCursorPixel(
+// Exported for unit tests only — not re-exported from the package index, so
+// this does not widen the published API surface.
+export function computeHFCursorPixel(
   position: DocPosition,
+  lineAffinity: 'forward' | 'backward',
   hfLayout: DocumentLayout,
   hf: HeaderFooter,
   region: 'header' | 'footer',
@@ -393,7 +408,7 @@ function computeHFCursorPixel(
     // The caret may be inside a header/footer table cell, whose inner block
     // is not a top-level hfLayout block. Resolve it via the cell map.
     return computeHFTableCellCaretPixel(
-      position, hfLayout, hf, region, paginatedLayout, measurer,
+      position, lineAffinity, hfLayout, hf, region, paginatedLayout, measurer,
       canvasWidth, activePageIndex, cursorVisible,
     );
   }
@@ -407,9 +422,20 @@ function computeHFCursorPixel(
   let lineHeight = lb.lines[0]?.height ?? 14;
   let offsetRemaining = position.offset;
 
-  for (const line of lb.lines) {
+  for (let li = 0; li < lb.lines.length; li++) {
+    const line = lb.lines[li];
     let lineChars = 0;
     for (const run of line.runs) lineChars += run.text.length;
+    // At a wrap boundary, forward affinity belongs to the start of the
+    // next visual line. Mirrors the body caret resolver.
+    if (
+      lineAffinity === 'forward' &&
+      offsetRemaining === lineChars &&
+      li < lb.lines.length - 1
+    ) {
+      offsetRemaining = 0;
+      continue;
+    }
     if (offsetRemaining <= lineChars) {
       lineHeight = line.height;
       cursorLineY = line.y;
@@ -553,14 +579,40 @@ function computeHFTableCellSelectionRects(
     return rects;
   }
 
-  // Otherwise: whole-cell highlight over the bounding row/col box. When one
-  // endpoint is outside the table, clamp that side to the table edge.
-  const a = anchorCell ?? focusCell!;
-  const b = focusCell ?? anchorCell!;
-  const r0 = Math.min(a.rowIndex, b.rowIndex);
-  const r1 = Math.max(a.rowIndex, b.rowIndex);
-  const c0 = Math.min(a.colIndex, b.colIndex);
-  const c1 = Math.max(a.colIndex, b.colIndex);
+  // Otherwise: whole-cell highlight over the bounding row/col box.
+  let r0: number, r1: number, c0: number, c1: number;
+  if (anchorCell && focusCell) {
+    r0 = Math.min(anchorCell.rowIndex, focusCell.rowIndex);
+    r1 = Math.max(anchorCell.rowIndex, focusCell.rowIndex);
+    c0 = Math.min(anchorCell.colIndex, focusCell.colIndex);
+    c1 = Math.max(anchorCell.colIndex, focusCell.colIndex);
+  } else {
+    // Mixed selection: one endpoint is an outside header/footer paragraph.
+    // Clamp the table coverage to the edge nearest that endpoint by document
+    // order so the whole run of cells between the edge and the in-table cell
+    // highlights. The outside paragraph portion itself is rendered separately
+    // by computeHFSelectionRects. (The bounding-box approximation matches the
+    // both-endpoints case above.)
+    const inCell = (anchorCell ?? focusCell)!;
+    const outsideBlockId = anchorCell
+      ? selectionRange.focus.blockId
+      : selectionRange.anchor.blockId;
+    const tableIdx = hfLayout.blocks.findIndex(
+      (bl) => bl.block.id === cellInfo.tableBlockId,
+    );
+    const outsideIdx = hfLayout.blocks.findIndex(
+      (bl) => bl.block.id === outsideBlockId,
+    );
+    const lastRow = tl.cells.length - 1;
+    const lastCol = tl.columnPixelWidths.length - 1;
+    if (outsideIdx !== -1 && outsideIdx < tableIdx) {
+      // Outside endpoint precedes the table: cover from the first cell.
+      r0 = 0; c0 = 0; r1 = inCell.rowIndex; c1 = inCell.colIndex;
+    } else {
+      // Outside endpoint follows the table (or unknown): cover to the last cell.
+      r0 = inCell.rowIndex; c0 = inCell.colIndex; r1 = lastRow; c1 = lastCol;
+    }
+  }
   for (let r = r0; r <= r1; r++) {
     for (let c = c0; c <= c1; c++) {
       if (tl.cells[r]?.[c]?.merged) continue;
@@ -577,59 +629,23 @@ function computeHFTableCellSelectionRects(
 }
 
 /**
- * Compute selection rects within a header/footer layout for all visible pages.
+ * Build layout-relative selection rects across a contiguous run of flat
+ * (non-table) header/footer blocks. `startBlockIdx`/`endBlockIdx` index into
+ * `hfLayout.blocks` and must already be ordered (`start <= end`). Returns
+ * rects in header/footer layout coordinates (caller maps them to the page).
  */
-function computeHFSelectionRects(
-  selectionRange: { anchor: DocPosition; focus: DocPosition },
+function hfFlatLayoutRects(
   hfLayout: DocumentLayout,
-  hf: HeaderFooter,
-  region: 'header' | 'footer',
-  paginatedLayout: PaginatedLayout,
+  startBlockIdx: number,
+  startOffset: number,
+  endBlockIdx: number,
+  endOffset: number,
   measurer: TextMeasurer,
-  canvasWidth: number,
-  activePageIndex: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  // If either endpoint is inside a header/footer table cell, route to the
-  // table-aware path (the cell's inner block is not a top-level hfLayout
-  // block, so the flat scan below would find nothing).
-  const anchorCell = hfLayout.blockParentMap.get(selectionRange.anchor.blockId);
-  const focusCell = hfLayout.blockParentMap.get(selectionRange.focus.blockId);
-  if (anchorCell || focusCell) {
-    return computeHFTableCellSelectionRects(
-      selectionRange, anchorCell, focusCell, hfLayout, hf, region,
-      paginatedLayout, measurer, canvasWidth, activePageIndex,
-    );
-  }
-
-  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-  const { margins } = paginatedLayout.pageSetup;
-
-  // Find start/end offsets across header/footer blocks
-  let startBlockIdx = -1, endBlockIdx = -1;
-  let startOffset = 0, endOffset = 0;
-  for (let i = 0; i < hfLayout.blocks.length; i++) {
-    if (hfLayout.blocks[i].block.id === selectionRange.anchor.blockId) {
-      startBlockIdx = i;
-      startOffset = selectionRange.anchor.offset;
-    }
-    if (hfLayout.blocks[i].block.id === selectionRange.focus.blockId) {
-      endBlockIdx = i;
-      endOffset = selectionRange.focus.offset;
-    }
-  }
-  if (startBlockIdx === -1 || endBlockIdx === -1) return rects;
-
-  // Normalize direction
-  if (startBlockIdx > endBlockIdx || (startBlockIdx === endBlockIdx && startOffset > endOffset)) {
-    [startBlockIdx, endBlockIdx] = [endBlockIdx, startBlockIdx];
-    [startOffset, endOffset] = [endOffset, startOffset];
-  }
-
-  // Build rects for each line in the selection range (layout-relative)
   const layoutRects: Array<{ x: number; y: number; width: number; height: number }> = [];
   for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
     const lb = hfLayout.blocks[bi];
+    if (!lb) continue;
     let blockCharsSoFar = 0;
     for (const line of lb.lines) {
       let lineChars = 0;
@@ -679,26 +695,130 @@ function computeHFSelectionRects(
       blockCharsSoFar += lineChars;
     }
   }
+  return layoutRects;
+}
 
-  // Map layout rects to the active page only
-  {
-    let baseY: number;
-    if (region === 'header') {
-      baseY = getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge);
-    } else {
-      baseY = getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
-    }
-    for (const r of layoutRects) {
-      rects.push({
-        x: pageX + margins.left + r.x,
-        y: baseY + r.y,
-        width: r.width,
-        height: r.height,
-      });
-    }
+/**
+ * Map header/footer layout-relative rects to absolute page coordinates on the
+ * active page.
+ */
+function mapHFLayoutRects(
+  layoutRects: Array<{ x: number; y: number; width: number; height: number }>,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  canvasWidth: number,
+  activePageIndex: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+  const baseY = region === 'header'
+    ? getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge)
+    : getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+  return layoutRects.map((r) => ({
+    x: pageX + margins.left + r.x,
+    y: baseY + r.y,
+    width: r.width,
+    height: r.height,
+  }));
+}
+
+/**
+ * Compute selection rects within a header/footer layout for all visible pages.
+ *
+ * Exported for unit tests only — not re-exported from the package index.
+ */
+export function computeHFSelectionRects(
+  selectionRange: { anchor: DocPosition; focus: DocPosition },
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  measurer: TextMeasurer,
+  canvasWidth: number,
+  activePageIndex: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const anchorCell = hfLayout.blockParentMap.get(selectionRange.anchor.blockId);
+  const focusCell = hfLayout.blockParentMap.get(selectionRange.focus.blockId);
+
+  // Both endpoints inside table cells: pure table-aware path.
+  if (anchorCell && focusCell) {
+    return computeHFTableCellSelectionRects(
+      selectionRange, anchorCell, focusCell, hfLayout, hf, region,
+      paginatedLayout, measurer, canvasWidth, activePageIndex,
+    );
   }
 
-  return rects;
+  // Mixed selection: one endpoint is a table cell and the other is an outside
+  // header/footer paragraph. Render both portions — the table cells clamped to
+  // the edge nearest the outside endpoint, plus the flat paragraph run between
+  // that endpoint and the table boundary.
+  if (anchorCell || focusCell) {
+    const tableRects = computeHFTableCellSelectionRects(
+      selectionRange, anchorCell, focusCell, hfLayout, hf, region,
+      paginatedLayout, measurer, canvasWidth, activePageIndex,
+    );
+    const cellInfo = (anchorCell ?? focusCell)!;
+    const outside = anchorCell ? selectionRange.focus : selectionRange.anchor;
+    const tableIdx = hfLayout.blocks.findIndex(
+      (bl) => bl.block.id === cellInfo.tableBlockId,
+    );
+    const outsideIdx = hfLayout.blocks.findIndex(
+      (bl) => bl.block.id === outside.blockId,
+    );
+    if (tableIdx === -1 || outsideIdx === -1) return tableRects;
+
+    let flatLayoutRects: Array<{ x: number; y: number; width: number; height: number }>;
+    if (outsideIdx < tableIdx) {
+      // Outside endpoint precedes the table: from it through the block just
+      // before the table.
+      const prev = hfLayout.blocks[tableIdx - 1];
+      flatLayoutRects = hfFlatLayoutRects(
+        hfLayout, outsideIdx, outside.offset,
+        tableIdx - 1, prev ? getBlockTextLength(prev.block) : 0, measurer,
+      );
+    } else {
+      // Outside endpoint follows the table: from the block just after the
+      // table through it.
+      flatLayoutRects = hfFlatLayoutRects(
+        hfLayout, tableIdx + 1, 0, outsideIdx, outside.offset, measurer,
+      );
+    }
+    const flatRects = mapHFLayoutRects(
+      flatLayoutRects, hfLayout, hf, region, paginatedLayout,
+      canvasWidth, activePageIndex,
+    );
+    return [...tableRects, ...flatRects];
+  }
+
+  // Neither endpoint in a table: flat scan across non-table blocks.
+  let startBlockIdx = -1, endBlockIdx = -1;
+  let startOffset = 0, endOffset = 0;
+  for (let i = 0; i < hfLayout.blocks.length; i++) {
+    if (hfLayout.blocks[i].block.id === selectionRange.anchor.blockId) {
+      startBlockIdx = i;
+      startOffset = selectionRange.anchor.offset;
+    }
+    if (hfLayout.blocks[i].block.id === selectionRange.focus.blockId) {
+      endBlockIdx = i;
+      endOffset = selectionRange.focus.offset;
+    }
+  }
+  if (startBlockIdx === -1 || endBlockIdx === -1) return [];
+
+  // Normalize direction
+  if (startBlockIdx > endBlockIdx || (startBlockIdx === endBlockIdx && startOffset > endOffset)) {
+    [startBlockIdx, endBlockIdx] = [endBlockIdx, startBlockIdx];
+    [startOffset, endOffset] = [endOffset, startOffset];
+  }
+
+  const layoutRects = hfFlatLayoutRects(
+    hfLayout, startBlockIdx, startOffset, endBlockIdx, endOffset, measurer,
+  );
+  return mapHFLayoutRects(
+    layoutRects, hfLayout, hf, region, paginatedLayout, canvasWidth, activePageIndex,
+  );
 }
 
 /**
@@ -1176,13 +1296,13 @@ export function initialize(
       ? undefined
       : editCtx === 'header' && headerLayout && doc.document.header
         ? computeHFCursorPixel(
-            cursor.position, headerLayout, doc.document.header, 'header',
+            cursor.position, cursor.lineAffinity, headerLayout, doc.document.header, 'header',
             paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
             cursor.isVisible(),
           )
         : editCtx === 'footer' && footerLayout && doc.document.footer
           ? computeHFCursorPixel(
-              cursor.position, footerLayout, doc.document.footer, 'footer',
+              cursor.position, cursor.lineAffinity, footerLayout, doc.document.footer, 'footer',
               paginatedLayout, measurer, logicalCanvasWidth, hfActivePageIndex,
               cursor.isVisible(),
             )
@@ -1358,7 +1478,7 @@ export function initialize(
     if (editCtx === 'header' && headerLayout && doc.document.header) {
       const hfPage = textEditor?.getHFActivePageIndex() ?? 0;
       const hfPixel = computeHFCursorPixel(
-        cursor.position, headerLayout, doc.document.header, 'header',
+        cursor.position, cursor.lineAffinity, headerLayout, doc.document.header, 'header',
         paginatedLayout, measurer, logicalCanvasWidth,
         hfPage, cursor.isVisible(),
       );
@@ -1383,7 +1503,7 @@ export function initialize(
     if (editCtx === 'footer' && footerLayout && doc.document.footer) {
       const hfPageF = textEditor?.getHFActivePageIndex() ?? 0;
       const hfPixel = computeHFCursorPixel(
-        cursor.position, footerLayout, doc.document.footer, 'footer',
+        cursor.position, cursor.lineAffinity, footerLayout, doc.document.footer, 'footer',
         paginatedLayout, measurer, logicalCanvasWidth,
         hfPageF, cursor.isVisible(),
       );
@@ -2722,23 +2842,25 @@ export function initialize(
       render();
     },
     deleteTable: () => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       const tableBlockId = cellInfo.tableBlockId;
       docStore.snapshot();
 
       // Check if this table is itself nested inside a cell
-      const parentCellInfo = layout.blockParentMap.get(tableBlockId);
+      const parentCellInfo = doc.blockParentMap.get(tableBlockId);
       if (parentCellInfo) {
         // Nested table — remove from parent cell's blocks
         const cursorBlockId = doc.deleteTableInCell(tableBlockId);
         cursor.moveTo({ blockId: cursorBlockId, offset: 0 });
       } else {
-        // Top-level table (existing logic)
+        // Top-level table (existing logic). Re-home within the active context
+        // (body / header / footer) so deleting a header/footer table keeps the
+        // caret in that region.
         const blockIndex = doc.getBlockIndex(tableBlockId);
         doc.deleteBlock(tableBlockId);
         // Move cursor to nearest block
-        const blocks = doc.document.blocks;
+        const blocks = doc.getContextBlocks();
         if (blocks.length > 0) {
           const newIndex = Math.min(blockIndex, blocks.length - 1);
           cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
@@ -2747,14 +2869,14 @@ export function initialize(
       invalidateLayout();
       render();
     },
-    isInTable: () => layout.blockParentMap.has(cursor.position.blockId),
+    isInTable: () => doc.blockParentMap.has(cursor.position.blockId),
     getCellAddress: (): CellAddress | undefined => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return undefined;
       return { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex };
     },
     insertTableRow: (above: boolean) => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       const idx = above ? cellInfo.rowIndex : cellInfo.rowIndex + 1;
@@ -2763,7 +2885,7 @@ export function initialize(
       render();
     },
     deleteTableRow: () => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
@@ -2779,7 +2901,7 @@ export function initialize(
       render();
     },
     insertTableColumn: (left: boolean) => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       const idx = left ? cellInfo.colIndex : cellInfo.colIndex + 1;
@@ -2788,7 +2910,7 @@ export function initialize(
       render();
     },
     deleteTableColumn: () => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
@@ -2804,7 +2926,7 @@ export function initialize(
       render();
     },
     mergeTableCells: (range: CellRange) => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
@@ -2817,7 +2939,7 @@ export function initialize(
       render();
     },
     splitTableCell: () => {
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       docStore.snapshot();
       doc.splitCell(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex });
@@ -2825,7 +2947,7 @@ export function initialize(
       render();
     },
     getTableMergeContext: () =>
-      computeTableMergeContext(doc, layout.blockParentMap, cursor.position, selection.range),
+      computeTableMergeContext(doc, doc.blockParentMap, cursor.position, selection.range),
     applyTableCellStyle: (style: Partial<CellStyle>) => {
       docStore.snapshot();
       // Cell-range selection: apply to all cells in range
@@ -2845,7 +2967,7 @@ export function initialize(
         return;
       }
       // Single cell
-      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
       doc.applyCellStyle(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex }, style);
       markDirty(cellInfo.tableBlockId);
