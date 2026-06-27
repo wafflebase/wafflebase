@@ -28,21 +28,24 @@ side panels + zoom control. Desktop and mobile shared layouts both.
 
 ## Plan
 
-- [ ] Lazy-import `ThemePanel`, `FormatPanel`, `MotionPanel` in
+_All planned items shipped — see the ## Review section below for as-built
+confirmation. Merged as PR #421 (commit 8e73e290)._
+
+- [x] Lazy-import `ThemePanel`, `FormatPanel`, `MotionPanel` in
       `shared-document.tsx` (keep them out of sheet/doc share chunks).
-- [ ] Import `createZoomController`, `FIT_ZOOM`, `ZoomController` (small,
+- [x] Import `createZoomController`, `FIT_ZOOM`, `ZoomController` (small,
       direct import).
-- [ ] **SharedDesktopSlidesLayout**: add `rightPanel` state +
+- [x] **SharedDesktopSlidesLayout**: add `rightPanel` state +
       `zoomControllerRef`; wire the three toggle props + `zoomController`
       into `SlidesToolbar`; pass `zoomController` to `SlidesView`; render
       the three panels beside the canvas (mirror owner desktop).
-- [ ] **SharedMobileSlidesLayout**: add `rightPanel` state + `panelMeta`;
+- [x] **SharedMobileSlidesLayout**: add `rightPanel` state + `panelMeta`;
       wire the three toggle props into `SlidesToolbar`; render panels in a
       bottom `Sheet` (mirror owner mobile). No zoom control on mobile.
-- [ ] Leave `onImagePick` toast + absent `upload` as-is (intended).
-- [ ] `pnpm verify:fast` green.
-- [ ] Self code-review over branch diff; address blocking findings.
-- [ ] Manual smoke in `pnpm dev`: open an editor share link, confirm the
+- [x] Leave `onImagePick` toast + absent `upload` as-is (intended).
+- [x] `pnpm verify:fast` green.
+- [x] Self code-review over branch diff; address blocking findings.
+- [x] Manual smoke in `pnpm dev`: open an editor share link, confirm the
       palette / adjustments / sparkles toggles + zoom dropdown all work,
       panels dock/close, and image insert still shows the toast.
 
@@ -71,9 +74,10 @@ side panels + zoom control. Desktop and mobile shared layouts both.
       `!readOnly &&` guards on desktop (the toolbar gate already keeps
       `rightPanel` null for viewers), so the desktop panel blocks now match
       the owner route verbatim.
-- [ ] Manual browser smoke (pre-merge): open an editor share link, confirm
+- [x] Manual browser smoke (pre-merge): open an editor share link, confirm
       palette / adjustments / sparkles toggles + zoom dropdown work, panels
-      dock/close, image insert still shows the toast.
+      dock/close, image insert still shows the toast. — shipped as PR #421
+      (merged to `main`, commit 8e73e290).
 
 ### Decisions held against review findings
 
