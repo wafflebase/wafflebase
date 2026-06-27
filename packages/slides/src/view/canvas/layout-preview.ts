@@ -7,9 +7,41 @@ import { renderThumbnail } from './thumbnail';
 import { slotRefsForLayout } from '../../model/layout';
 
 const cache = new Map<string, HTMLCanvasElement>();
+/**
+ * Cap so live theme-builder editing (each edit mints a new content key)
+ * can't grow the cache without bound. Insertion-ordered Map → deleting the
+ * first key evicts the oldest entry.
+ */
+const CACHE_CAP = 128;
 
 /** Test-only handle to clear the module cache between cases. */
 export const _previewCacheForTest = cache;
+
+/**
+ * Cache key that reflects the rendered CONTENT, not just ids. The theme
+ * builder edits themes / masters / layouts in place (ids unchanged), so an
+ * id-only key would serve a stale bitmap after a color, font, background,
+ * or placeholder-geometry edit. Immutable built-ins still hash to a stable
+ * key, so the layout picker keeps its cache hits.
+ */
+function previewKey(
+  layout: Layout,
+  theme: Theme,
+  master: Master,
+  size: { w: number; h: number },
+  dpr: number,
+): string {
+  const sig = JSON.stringify([
+    theme.colors,
+    theme.fonts,
+    master.background,
+    master.placeholderStyles,
+    layout.placeholders,
+    layout.background ?? null,
+    layout.staticElements,
+  ]);
+  return `${theme.id}:${master.id}:${layout.id}:${size.w}x${size.h}@${dpr}:${sig}`;
+}
 
 function syntheticSlide(layout: Layout): Slide {
   const refs = slotRefsForLayout(layout);
@@ -51,7 +83,7 @@ export function renderLayoutPreview(
     typeof window !== 'undefined' && window.devicePixelRatio
       ? window.devicePixelRatio
       : 1;
-  const key = `${theme.id}:${master.id}:${layout.id}:${size.w}x${size.h}@${dpr}`;
+  const key = previewKey(layout, theme, master, size, dpr);
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -85,5 +117,12 @@ export function renderLayoutPreview(
     dpr,
   });
   cache.set(key, canvas);
+  // Evict the oldest entry once past the cap (Map preserves insertion
+  // order). Built-in previews stay hot; stale edited-layout bitmaps fall
+  // out over a long editing session.
+  if (cache.size > CACHE_CAP) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   return canvas;
 }

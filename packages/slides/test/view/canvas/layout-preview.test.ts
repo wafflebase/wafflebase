@@ -41,6 +41,47 @@ describe('renderLayoutPreview', () => {
     expect(b.width).toBe(80);
   });
 
+  it('busts the cache when a layout placeholder frame changes (same layout id)', () => {
+    _previewCacheForTest.clear();
+    const base = BUILT_IN_LAYOUTS[3]; // title-body
+    const size = { w: 160, h: 90 } as const;
+    const a = renderLayoutPreview(base, defaultLight, DEFAULT_MASTER, size);
+    // Theme-builder geometry edit: same layout id, moved placeholder.
+    const edited = {
+      ...base,
+      placeholders: base.placeholders.map((p, i) =>
+        i === 0 ? { ...p, frame: { ...p.frame, x: p.frame.x + 100 } } : p,
+      ),
+    };
+    const b = renderLayoutPreview(edited, defaultLight, DEFAULT_MASTER, size);
+    expect(b).not.toBe(a);
+  });
+
+  it('busts the cache when theme colors change (same theme id)', () => {
+    _previewCacheForTest.clear();
+    const layout = BUILT_IN_LAYOUTS[1];
+    const size = { w: 160, h: 90 } as const;
+    const a = renderLayoutPreview(layout, defaultLight, DEFAULT_MASTER, size);
+    const editedTheme = {
+      ...defaultLight,
+      colors: { ...defaultLight.colors, accent1: '#FF0000' },
+    };
+    const b = renderLayoutPreview(layout, editedTheme, DEFAULT_MASTER, size);
+    expect(b).not.toBe(a);
+  });
+
+  it('bounds the cache so live editing does not leak canvases', () => {
+    _previewCacheForTest.clear();
+    // Each distinct size is a distinct key; render well past the cap.
+    for (let i = 0; i < 200; i++) {
+      renderLayoutPreview(BUILT_IN_LAYOUTS[1], defaultLight, DEFAULT_MASTER, {
+        w: 100 + i,
+        h: 90,
+      });
+    }
+    expect(_previewCacheForTest.size).toBeLessThanOrEqual(128);
+  });
+
   it('renders all 11 layouts without throwing', () => {
     _previewCacheForTest.clear();
     for (const layout of BUILT_IN_LAYOUTS) {
