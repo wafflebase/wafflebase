@@ -13,19 +13,24 @@
 //
 // C1 controls are built with String.fromCharCode so no invisible bytes
 // live in the source; U+201B is referenced as ‛ for the same reason.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, type PDFFont } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { splitMixedScript } from '../../src/export/pdf-style-map.js';
 import { scanFontsUsed } from '../../src/export/pdf-fonts.js';
 import { PdfExporter } from '../../src/export/pdf-exporter.js';
 import { PdfFonts, type PdfFontKey } from '../../src/export/pdf-fonts.js';
+import { PdfPainter, type EmbeddedFonts } from '../../src/export/pdf-painter.js';
+import { computeLayout } from '../../src/view/layout.js';
+import { paginateLayout } from '../../src/view/pagination.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
   generateBlockId,
+  getEffectiveDimensions,
 } from '../../src/model/types.js';
 import type { Document } from '../../src/model/types.js';
 import { stubMeasurer } from '../view/_stub-measurer.js';
@@ -111,7 +116,10 @@ describe('scanFontsUsed — misclassified specials trigger KR embed', () => {
     expect(scanFontsUsed(para(REV_QUOTE)).needsKR).toBe(true);
   });
 
-  it('does not require the Korean font for C1 controls (stripped at paint)', () => {
+  it('does not pull in the Korean font for C1 controls', () => {
+    // scanFontsUsed classifies C1 as Latin-safe (it sits inside the
+    // U+0000–U+00FF range), so a stray C1 byte never triggers the heavy
+    // KR embed. The actual removal happens later, at paint time.
     expect(scanFontsUsed(para(`a${C1_A}b`)).needsKR).toBe(false);
   });
 });
@@ -139,5 +147,73 @@ describe('PdfExporter — never throws on misclassified characters', () => {
     const blob = await exportText(`Hello 안녕${REV_QUOTE} World`);
     const reloaded = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()));
     expect(reloaded.getPageCount()).toBe(1);
+  });
+});
+
+interface DrawCall {
+  text: string;
+  font: PDFFont;
+}
+
+// Paint a single-paragraph doc and capture every `drawText(text, opts)`
+// call with its resolved font. Lets the routing tests assert *which* font
+// each segment uses and that no character was silently dropped — the
+// no-throw `getPageCount` checks above can't distinguish "rendered" from
+// "dropped". Mirrors `collectPaintedText` in pdf-painter.test.ts, but also
+// records the font so we can verify the WinAnsi-vs-embedded split.
+async function collectDraws(
+  text: string,
+): Promise<{ draws: DrawCall[]; fonts: EmbeddedFonts }> {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest(), {
+    needsKR: true, needsKRSerif: true, needsLatinSerif: true,
+    needsBold: true, needsItalic: true, customFamilies: new Map(),
+  });
+
+  const doc = para(text);
+  const pageSetup = doc.pageSetup!;
+  const { width } = getEffectiveDimensions(pageSetup);
+  const contentWidth = width - pageSetup.margins.left - pageSetup.margins.right;
+  const { layout } = computeLayout(doc.blocks, stubMeasurer(), contentWidth);
+  const pagination = paginateLayout(layout, pageSetup);
+  const lp = pagination.pages[0];
+  const page = pdfDoc.addPage([(lp.width / 96) * 72, (lp.height / 96) * 72]);
+
+  const draws: DrawCall[] = [];
+  vi.spyOn(page, 'drawText').mockImplementation((t, opts) => {
+    // The painter always passes a font; `options` is optional only in
+    // pdf-lib's signature.
+    draws.push({ text: t, font: opts?.font as PDFFont });
+  });
+
+  PdfPainter.paintPage(page, lp, pagination.pageSetup, fonts, {
+    doc, imageMap: new Map(), layoutBlocks: layout.blocks,
+  });
+  return { draws, fonts };
+}
+
+describe('PdfPainter — routing of the fixed characters', () => {
+  it('routes U+201B + Korean to the embedded font and keeps Latin on the StandardFont', async () => {
+    const { draws, fonts } = await collectDraws(`Hello 안녕${REV_QUOTE} World`);
+
+    // Korean and U+201B are both non-WinAnsi, so they form one contiguous
+    // segment drawn with the embedded Korean font — and neither is dropped.
+    const krSegment = draws.find((d) => d.text.includes(REV_QUOTE));
+    expect(krSegment).toBeDefined();
+    expect(krSegment!.text).toContain('안녕');
+    expect(krSegment!.font).toBe(fonts['kr-sans-regular']);
+
+    // The Latin segments stay on the WinAnsi StandardFont.
+    const latinSegment = draws.find((d) => d.text.includes('Hello'));
+    expect(latinSegment?.font).toBe(fonts['sans-regular']);
+  });
+
+  it('drops C1 controls entirely — never handed to a font', async () => {
+    const { draws } = await collectDraws(`Hello${C1_A}World`);
+    const painted = draws.map((d) => d.text).join('');
+    expect(painted).not.toContain(C1_A);
+    // The surrounding Latin is preserved and re-joined after the strip.
+    expect(painted).toContain('HelloWorld');
   });
 });
