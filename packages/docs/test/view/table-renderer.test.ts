@@ -465,6 +465,55 @@ describe('renderTableContent page-number fields', () => {
     const drawn = fillText.mock.calls.map((c) => c[0]);
     expect(drawn).toContain('#');
   });
+
+  it('propagates the page number into a nested table cell', () => {
+    // The page-number run lives in a nested table inside an outer cell. The
+    // recursive renderTableContent call must thread pageNumber down so the
+    // nested cell substitutes the number, not its '#' placeholder.
+    const { ctx, fillText } = makeRecordingCtx();
+    const inner = makePageNumberCellTable();
+    const nestedBlock = {
+      id: 'nested',
+      type: 'table' as const,
+      inlines: [],
+      style: { ...DEFAULT_BLOCK_STYLE },
+      tableData: inner.tableData,
+    };
+    const outerTableData: TableData = {
+      rows: [{ cells: [{ blocks: [nestedBlock], style: { ...DEFAULT_CELL_STYLE } }] }],
+      columnWidths: [1],
+    };
+    const outerLayout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              { y: 0, height: 16, width: 40, runs: [], nestedTable: inner.layout },
+            ],
+            blockBoundaries: [0],
+            width: 40,
+            height: 16,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [40],
+      rowYOffsets: [0],
+      rowHeights: [16],
+      totalWidth: 40,
+      totalHeight: 16,
+      blockParentMap: new Map(),
+    };
+    renderTableContent(
+      ctx, outerTableData, outerLayout, 0, 0,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, 9,
+    );
+    const drawn = fillText.mock.calls.map((c) => c[0]);
+    expect(drawn).toContain('9');
+    expect(drawn).not.toContain('#');
+  });
 });
 
 describe('DocCanvas ↔ table-renderer wiring', () => {

@@ -688,6 +688,12 @@ describe('YorkieDocStore', () => {
     // Regression: resolveTableTreePath was body-only, so structural ops on a
     // header/footer table threw "Table block not found" in the real editor
     // (the MemDocStore path is region-aware, which masked it in unit tests).
+    //
+    // Assertions read through a FRESH YorkieDocStore so they parse the actual
+    // Yorkie tree rather than the mutating store's patched cache — otherwise a
+    // wrong-but-non-throwing tree path would still pass via the cache splice.
+    const fromTree = () => new YorkieDocStore(doc).getDocument();
+
     it('insertTableRow into a header table does not throw and grows the table', () => {
       const tableBlock = createTableBlock(2, 2);
       store.setDocument({
@@ -697,7 +703,7 @@ describe('YorkieDocStore', () => {
       expect(() =>
         store.insertTableRow(tableBlock.id, 2, { cells: [createTableCell(), createTableCell()] }),
       ).not.toThrow();
-      const headerTable = store.getDocument().header!.blocks.find((b) => b.type === 'table')!;
+      const headerTable = fromTree().header!.blocks.find((b) => b.type === 'table')!;
       expect(headerTable.tableData!.rows.length).toBe(3);
     });
 
@@ -708,12 +714,13 @@ describe('YorkieDocStore', () => {
         header: { blocks: [tableBlock], marginFromEdge: 48 },
       });
       const id = tableBlock.id;
+      const headerTd = () => fromTree().header!.blocks[0].tableData!;
       expect(() => store.insertTableColumn(id, 1, [createTableCell(), createTableCell()])).not.toThrow();
-      expect(store.getDocument().header!.blocks[0].tableData!.rows[0].cells.length).toBe(3);
+      expect(headerTd().rows[0].cells.length).toBe(3);
       expect(() => store.deleteTableColumn(id, 0)).not.toThrow();
-      expect(store.getDocument().header!.blocks[0].tableData!.rows[0].cells.length).toBe(2);
+      expect(headerTd().rows[0].cells.length).toBe(2);
       expect(() => store.deleteTableRow(id, 0)).not.toThrow();
-      expect(store.getDocument().header!.blocks[0].tableData!.rows.length).toBe(1);
+      expect(headerTd().rows.length).toBe(1);
     });
 
     it('insertTableRow into a footer table targets the footer region', () => {
@@ -725,10 +732,11 @@ describe('YorkieDocStore', () => {
       expect(() =>
         store.insertTableRow(tableBlock.id, 2, { cells: [createTableCell(), createTableCell()] }),
       ).not.toThrow();
-      const footerTable = store.getDocument().footer!.blocks.find((b) => b.type === 'table')!;
+      const tree = fromTree();
+      const footerTable = tree.footer!.blocks.find((b) => b.type === 'table')!;
       expect(footerTable.tableData!.rows.length).toBe(3);
       // Body untouched.
-      expect(store.getDocument().blocks.length).toBe(1);
+      expect(tree.blocks.length).toBe(1);
     });
   });
 

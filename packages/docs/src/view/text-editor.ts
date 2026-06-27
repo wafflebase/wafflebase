@@ -3871,8 +3871,10 @@ export class TextEditor {
   }
 
   private getPositionBeforeTable(tableBlockId: string): DocPosition | undefined {
-    // For nested tables, find the previous block in the parent cell
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    // For nested tables, find the previous block in the parent cell. Use the
+    // active layout so a nested table inside a header/footer cell resolves its
+    // parent (the body layout map omits header/footer cells).
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
@@ -3893,8 +3895,9 @@ export class TextEditor {
   }
 
   private getPositionAfterTable(tableBlockId: string): DocPosition | undefined {
-    // For nested tables, find the next block in the parent cell
-    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    // For nested tables, find the next block in the parent cell. Active layout
+    // so header/footer nested tables resolve their parent cell.
+    const parentCellInfo = this.getActiveLayout().blockParentMap.get(tableBlockId);
     if (parentCellInfo) {
       const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
       const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];

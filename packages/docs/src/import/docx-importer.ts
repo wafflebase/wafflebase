@@ -350,8 +350,10 @@ export class DocxImporter {
         if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
         const tcEl = tcNode as Element;
 
-        // Parse cell properties
-        const tcPr = tcEl.getElementsByTagNameNS(W, 'tcPr')[0];
+        // Parse cell properties. Direct-child only: getElementsByTagNameNS
+        // recurses, so an outer cell with no own <w:tcPr> would otherwise
+        // inherit a nested table cell's tcPr (gridSpan/vMerge/shd/borders).
+        const tcPr = DocxImporter.findDirectChild(tcEl, 'tcPr');
         let colSpan = 1;
         let vMerge: 'restart' | 'continue' | undefined;
         let cellProps: ReturnType<typeof mapTableCellProperties> = {};
@@ -570,7 +572,9 @@ export class DocxImporter {
         const tcNode = trEl.childNodes[j];
         if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
         const tcEl = tcNode as Element;
-        const tcPr = tcEl.getElementsByTagNameNS(W, 'tcPr')[0];
+        // Direct-child only so a nested table's tcW/gridSpan never leaks into
+        // the outer table's derived column widths.
+        const tcPr = DocxImporter.findDirectChild(tcEl, 'tcPr');
         const props = tcPr ? mapTableCellProperties(tcPr) : {};
         const span = props.colSpan && props.colSpan > 1 ? props.colSpan : 1;
         const total = props.widthTwips && props.widthTwips > 0 ? props.widthTwips : 0;
