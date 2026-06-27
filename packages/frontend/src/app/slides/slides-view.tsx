@@ -1,12 +1,16 @@
 import {
   initializeEditor,
   mountThumbnailPanel,
+  mountLayoutListPanel,
   mountNotesPanel,
+  LayoutEditStore,
+  layoutEditSlideId,
   SLIDES_RULER_SIZE,
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
   type SlidesEditor,
   type ThumbnailPanelHandle,
+  type LayoutListPanelHandle,
   type NotesPanelHandle,
 } from "@wafflebase/slides";
 import { useEffect, useRef, useState } from "react";
@@ -74,6 +78,20 @@ interface SlidesViewProps {
    * (e.g. a read-only share-link mount) those paths stay off.
    */
   uploadImage?: (file: File) => Promise<{ url: string; w: number; h: number }>;
+  /**
+   * Canvas layout-editing mode (PR3 theme builder). When set to a layout
+   * id, the left rail switches from slide thumbnails to a layouts list and
+   * the canvas edits that layout's placeholders via a `LayoutEditStore`.
+   * `null` (the default) is normal slide editing.
+   */
+  layoutEditTarget?: string | null;
+  /**
+   * Report the layout the view wants edited: a layout id when the user
+   * picks a different row in the layouts rail, or `null` when the editor
+   * is torn down (doc reload / unmount) while a session is active, so the
+   * parent's `layoutEditTarget` stays the single source of truth.
+   */
+  onLayoutEditTargetChange?: (layoutId: string | null) => void;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -143,9 +161,24 @@ export function SlidesView({
   onStartPresentation,
   zoomController,
   uploadImage,
+  layoutEditTarget = null,
+  onLayoutEditTargetChange,
 }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
+  // Refs shared with the layout-edit effect below (populated by the mount
+  // effect). The real store, the two left-rail hosts, and the live
+  // layout-edit session (proxy store + list panel + restore slide id).
+  const storeRef = useRef<YorkieSlidesStore | null>(null);
+  const thumbsHostRef = useRef<HTMLDivElement | null>(null);
+  const layoutListHostRef = useRef<HTMLDivElement | null>(null);
+  const layoutEditStoreRef = useRef<LayoutEditStore | null>(null);
+  const layoutListHandleRef = useRef<LayoutListPanelHandle | null>(null);
+  const prevSlideIdRef = useRef<string | null>(null);
+  // Freshest callback for the mount-effect cleanup (which is keyed on
+  // [didMount, doc], so it can't list this prop as a dep).
+  const onLayoutEditTargetChangeRef = useRef(onLayoutEditTargetChange);
+  onLayoutEditTargetChangeRef.current = onLayoutEditTargetChange;
   const [didMount, setDidMount] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const { doc, loading, error } = useDocument<YorkieSlidesRoot, SlidesPresence>();
@@ -284,6 +317,15 @@ export function SlidesView({
     left.style.paddingRight = "12px";
     const thumbsHost = document.createElement("div");
     left.appendChild(thumbsHost);
+    // Sibling host for the layout-edit rail. Hidden until layout-edit
+    // mode mounts the layouts list into it; toggling visibility (rather
+    // than disposing the thumbnail panel) keeps the store.onChange / rAF
+    // handlers below untouched.
+    const layoutListHost = document.createElement("div");
+    layoutListHost.style.display = "none";
+    left.appendChild(layoutListHost);
+    thumbsHostRef.current = thumbsHost;
+    layoutListHostRef.current = layoutListHost;
     layout.appendChild(left);
 
     // Drag handle between thumbnail panel and canvas. Visually a thin
@@ -581,6 +623,7 @@ export function SlidesView({
     document.head.appendChild(style);
 
     const store = new YorkieSlidesStore(doc);
+    storeRef.current = store;
     // Brand-new presentations land here with `slides: []`. The editor's
     // `render()` bails out when no current slide exists, so without this
     // seed the canvas would stay blank until the user clicked the
@@ -1044,6 +1087,19 @@ export function SlidesView({
       offPeers();
       thumbHandle?.dispose();
       notesHandle?.dispose();
+      // Tear down any active layout-edit session so its store.onChange
+      // subscription doesn't outlive the store. If a session was live (the
+      // editor is being rebuilt under us, e.g. doc reload), tell the parent
+      // to leave layout-edit mode — otherwise the new editor comes up on
+      // the real store while the banner/rail still claim layout editing.
+      const hadLayoutSession = layoutEditStoreRef.current !== null;
+      layoutListHandleRef.current?.dispose();
+      layoutListHandleRef.current = null;
+      layoutEditStoreRef.current = null;
+      if (hadLayoutSession) onLayoutEditTargetChangeRef.current?.(null);
+      thumbsHostRef.current = null;
+      layoutListHostRef.current = null;
+      storeRef.current = null;
       editor.detach();
       store.dispose();
       editorRef.current = null;
@@ -1058,6 +1114,53 @@ export function SlidesView({
     // it at runtime is not a supported scenario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
+
+  // Drive canvas layout-editing mode off the `layoutEditTarget` prop. The
+  // mount effect above owns the editor / store / rail hosts; this effect
+  // reacts to enter / switch / exit transitions using the shared refs.
+  useEffect(() => {
+    const editor = editorRef.current;
+    const store = storeRef.current;
+    const thumbsHost = thumbsHostRef.current;
+    const listHost = layoutListHostRef.current;
+    if (!editor || !store || !thumbsHost || !listHost) return;
+
+    if (layoutEditTarget) {
+      if (!layoutEditStoreRef.current) {
+        // ENTER: swap the editor onto a LayoutEditStore, hide the slide
+        // thumbnails, and mount the layouts list.
+        prevSlideIdRef.current = editor.getCurrentSlideId() ?? null;
+        const les = new LayoutEditStore(store, layoutEditTarget);
+        layoutEditStoreRef.current = les;
+        editor.enterLayoutEditMode(les);
+        thumbsHost.style.display = "none";
+        listHost.style.display = "";
+        layoutListHandleRef.current = mountLayoutListPanel(listHost, store, {
+          selectedLayoutId: layoutEditTarget,
+          // Route the pick through the parent so `layoutEditTarget` stays
+          // the single source of truth; this effect's SWITCH branch below
+          // then re-points the proxy + editor + marker.
+          onSelect: (id) => onLayoutEditTargetChange?.(id),
+        });
+      } else if (layoutEditStoreRef.current.getLayoutId() !== layoutEditTarget) {
+        // SWITCH: parent re-pointed the target while the session is live.
+        layoutEditStoreRef.current.setLayoutId(layoutEditTarget);
+        editor.setCurrentSlide(layoutEditSlideId(layoutEditTarget));
+        layoutListHandleRef.current?.setSelectedLayoutId(layoutEditTarget);
+      }
+    } else if (layoutEditStoreRef.current) {
+      // EXIT: dispose the list, restore the thumbnails, and put the
+      // editor back on the real store + the slide the user was on.
+      layoutListHandleRef.current?.dispose();
+      layoutListHandleRef.current = null;
+      listHost.style.display = "none";
+      thumbsHost.style.display = "";
+      const restoreId =
+        prevSlideIdRef.current ?? store.read().slides[0]?.id ?? "";
+      editor.exitLayoutEditMode(store, restoreId);
+      layoutEditStoreRef.current = null;
+    }
+  }, [layoutEditTarget, didMount, onLayoutEditTargetChange]);
 
   if (loading) {
     return (

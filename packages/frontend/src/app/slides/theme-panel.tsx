@@ -14,6 +14,11 @@ interface ThemePanelProps {
    * own header — so a mobile bottom `Sheet` owns the chrome.
    */
   variant?: "drawer" | "sheet";
+  /**
+   * Enter canvas layout-editing mode from the Customize tab. Omitted on
+   * surfaces without a canvas drag target (mobile sheet).
+   */
+  onEditLayouts?: () => void;
 }
 
 type View = "themes" | "customize";
@@ -34,6 +39,7 @@ export function ThemePanel({
   currentThemeId,
   onClose,
   variant = "drawer",
+  onEditLayouts,
 }: ThemePanelProps) {
   const [view, setView] = useState<View>("themes");
 
@@ -117,7 +123,11 @@ export function ThemePanel({
         </section>
       </div>
     ) : (
-      <ThemeBuilderPanel store={store} currentThemeId={currentThemeId} />
+      <ThemeBuilderPanel
+        store={store}
+        currentThemeId={currentThemeId}
+        onEditLayouts={onEditLayouts}
+      />
     );
 
   if (variant === "sheet") {

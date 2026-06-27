@@ -138,7 +138,16 @@ export {
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, framesApproxEqual, toLocal } from './model/frame';
 
-export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
+export {
+  BUILT_IN_LAYOUTS,
+  applyLayoutToSlide,
+  buildLayoutSlide,
+  getLayout,
+  layoutEditSlideId,
+  parsePlaceholderElementId,
+  placeholderElementId,
+  slotRefsForLayout,
+} from './model/layout';
 
 export { migrateDocument } from './model/migrate';
 
@@ -161,6 +170,7 @@ export type {
   LayoutPatch,
 } from './store/store';
 export { MemSlidesStore } from './store/memory';
+export { LayoutEditStore } from './store/layout-edit-store';
 
 // View — Canvas renderers (Phase 2)
 export { GHOST_ALPHA, SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';
@@ -202,6 +212,7 @@ export type { AlignDirection, DistributeAxis, AlignReference } from './view/edit
 
 // View — Editor (Phase 3b additions)
 export { mountThumbnailPanel, type ThumbnailPanelHandle, type MountThumbnailPanelOptions } from './view/editor/thumbnail-panel';
+export { mountLayoutListPanel, type LayoutListPanelHandle, type MountLayoutListPanelOptions } from './view/editor/layout-list-panel';
 export { mountNotesPanel, type MountNotesPanelOptions, type NotesPanelHandle } from './view/editor/notes-panel';
 export { showLayoutPicker, type LayoutPickerOptions } from './view/editor/layout-picker';
 export { showContextMenu, dismiss as dismissContextMenu, type ContextMenuItem } from './view/editor/context-menu';

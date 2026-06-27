@@ -10,9 +10,8 @@
  * undo step (wrapped in store.batch).
  *
  * v1 surface: theme color roles, theme heading/body fonts, master
- * background fill. Per-layout placeholder geometry editing (canvas drag)
- * is the remaining builder piece; the store methods for it already exist
- * (updateLayout / updateLayoutPlaceholderFrame).
+ * background fill, and an entry point into canvas layout-editing mode
+ * (drag a layout's placeholders), driven by `onEditLayouts`.
  */
 
 import { useEffect, useState } from "react";
@@ -32,6 +31,12 @@ interface ThemeBuilderPanelProps {
   store: SlidesStore;
   /** Active theme id, kept in sync by the parent via store.onChange. */
   currentThemeId: string;
+  /**
+   * Enter canvas layout-editing mode (drag layout placeholders). When
+   * omitted the Layouts section is hidden — e.g. the mobile sheet, which
+   * has no canvas drag surface.
+   */
+  onEditLayouts?: () => void;
 }
 
 /** The 12 theme color roles, in editing order, with human labels. */
@@ -69,6 +74,7 @@ function toColorInputValue(hex: string): string {
 export function ThemeBuilderPanel({
   store,
   currentThemeId,
+  onEditLayouts,
 }: ThemeBuilderPanelProps) {
   // Re-render on any store change (local commit or remote peer edit) so
   // the controls reflect the current theme/master. The store reads below
@@ -206,6 +212,25 @@ export function ThemeBuilderPanel({
           Applies to slides that haven&apos;t set their own background.
         </p>
       </section>
+
+      {onEditLayouts && (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold text-muted-foreground">
+            Layouts
+          </h3>
+          <button
+            type="button"
+            onClick={onEditLayouts}
+            className="rounded border px-2 py-1.5 text-xs font-medium hover:bg-muted"
+          >
+            Edit layout positions
+          </button>
+          <p className="text-[11px] text-muted-foreground">
+            Drag a layout&apos;s placeholders on the canvas. Changes flow to
+            slides using that layout.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

@@ -128,4 +128,61 @@ shipped code:
   recovered it. Commit (or at least don't stash) before reaching for
   comparison tricks on a dirty tree.
 
+## PR3 commit 5 (canvas layout-editing mode) — 2026-06-27
+
+Shipped the remaining builder piece: drag a layout's placeholders on the
+canvas. Lessons from reusing the slide editor for a non-slide target:
+
+- **A store proxy is the cleanest "virtual-slide gate."** The editor
+  funnels every slide read through one method (`currentSlide()` →
+  `store.read().slides`) and reads `this.options.store` *dynamically* at
+  every commit site. So a `SlidesStore` proxy that serves one synthetic
+  slide from `read()` and reroutes `updateElementFrame` →
+  `updateLayoutPlaceholderFrame` reuses the entire drag/resize/snap/overlay
+  stack with zero edits to the 5000-line editor. Structural mutations
+  become guarded no-ops on the proxy, so layout edits can't leak into
+  slide content — data safety lives in the proxy, not in UI gating.
+- **But `buildKeyRules` captures the store ref.** It's the one place the
+  editor doesn't read `this.options.store` lazily — keyboard nudge/delete
+  close over the store passed at construction. A store swap MUST rebuild
+  the key rules (extracted `installKeyRules`), or arrow-nudge keeps writing
+  to the pre-swap store. `handleKeyDown` reads `this.keyRules` dynamically,
+  so reassigning the field is enough.
+- **Synthetic element ids must be deterministic.** `applyLayoutToSlide`
+  stamps `generateId()` ids; the editor holds an element id between reading
+  the slide and committing a drag, so a fresh id per `read()` breaks the
+  ref mapping. `buildLayoutSlide` overwrites ids with
+  `placeholderElementId(ref)` so the synthetic slide is reproducible.
+- **One UX gate covers all text-edit paths.** Every entry route (1-click,
+  dblclick, P1.5 slow-double-click, Enter, type-to-edit) funnels through
+  `private enterEditMode` — a single early-return on the mode flag gates
+  them all.
+- **Toolbar was already safe by construction.** In layout-edit mode the
+  current slide id is synthetic and absent from the *real* store the
+  toolbar reads; `getToolbarState` returns `idle` when the slide isn't
+  found, and each control guards on `!slide`. No extra gating needed — the
+  toolbar is inert without a single change. Worth checking shared surfaces
+  for this kind of free safety before adding new gates.
+- **Toggle host visibility, don't dispose the live panel.** The mount
+  effect's `store.onChange` / rAF handlers call `thumbHandle.refreshContent`
+  directly. Hiding the thumbnail host and mounting the layout list into a
+  sibling host (instead of disposing the thumbnail panel) kept those
+  handlers correct and untouched — disposing would have forced
+  null-guards through the whole effect.
+- **Editor IS unit-testable in jsdom.** `test/view/editor/*.test.ts` use
+  `src/view/canvas/test-canvas-env` + `initialize(...)` and simulate
+  pointer gestures — contrary to the earlier assumption that editor
+  behavior only had browser-lane coverage. Use this harness for editor
+  changes (gate + store-swap got 4 real gesture tests).
+
+- **Smoke test caught an id-keyed cache going stale under in-place edits.**
+  `renderLayoutPreview` cached by `theme.id:master.id:layout.id` — fine when
+  those were immutable, but the theme builder edits them in place, so the
+  rail preview served the pre-edit bitmap (data saved, preview stale). The
+  canvas updated because the editor has its own rAF render loop; the rail
+  has none and relied on the cache. Fix: key the cache on rendered *content*
+  (colors/fonts/background/geometry) + cap it. Lesson: when a feature makes
+  a previously-immutable object editable, audit every id-keyed cache /
+  memo of that object — they silently go stale.
+
 ## Brainstorming

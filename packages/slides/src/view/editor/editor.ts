@@ -358,6 +358,19 @@ export interface SlidesEditor {
   getCurrentSlideId(): string | undefined;
   setCurrentSlide(id: string): void;
   /**
+   * Enter canvas layout-editing mode (PR3 theme builder). The editor
+   * swaps to the given `LayoutEditStore` so it renders + edits a synthetic
+   * layout slide; placeholder drag / resize / nudge route through that
+   * store to `updateLayoutPlaceholderFrame`, and text editing is
+   * suppressed. The current slide becomes the store's synthetic slide.
+   */
+  enterLayoutEditMode(store: SlidesStore): void;
+  /**
+   * Leave layout-editing mode, restoring the real store and making
+   * `slideId` current again. Inverse of `enterLayoutEditMode`.
+   */
+  exitLayoutEditMode(store: SlidesStore, slideId: string): void;
+  /**
    * The id of the text element currently in edit mode, or null if no
    * text-box editor is active. Exposed primarily for tests + future
    * UI affordances (e.g. disabling toolbar actions while editing).
@@ -639,6 +652,12 @@ class SlidesEditorImpl implements SlidesEditor {
   private disposed = false;
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
+  /**
+   * True while canvas layout-editing mode is active (PR3 theme builder).
+   * Gates text-edit entry; the swapped `LayoutEditStore` already no-ops
+   * structural mutations, so this only covers the UX the proxy can't.
+   */
+  private layoutEditMode = false;
   private currentSlideListeners = new Set<() => void>();
   private insertModeListeners = new Set<() => void>();
   /**
@@ -922,32 +941,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.repaintOverlay();
     });
-    this.keyRules = buildKeyRules({
-      store: this.options.store,
-      selection: this.selection,
-      currentSlideId: () => this.getCurrentSlideId(),
-      setCurrentSlide: (id: string) => this.setCurrentSlide(id),
-      enterEditMode: (
-        slideId: string,
-        elementId: string,
-        options?: { initialText?: string },
-      ) => this.enterEditMode(slideId, elementId, options),
-      requestRender: () => this.requestRender(),
-      onStartPresentation: this.options.onStartPresentation,
-      onShowShortcutsHelp: this.options.onShowShortcutsHelp,
-      getInsertMode: () => this.getInsertMode(),
-      setInsertMode: (kind) => this.setInsertMode(kind),
-      group: () => this.group(),
-      ungroup: () => this.ungroup(),
-      isPaintingFormat: () => this.isPaintingFormat(),
-      cancelFormatPaint: () => this.cancelFormatPaint(),
-      getCellSelection: () => this.cellSelection,
-      clearCellSelection: () => {
-        if (this.cellSelection === null) return;
-        this.setCellSelection(null);
-        this.repaintOverlay();
-      },
-    });
+    this.installKeyRules();
     // Read-only mounts (viewer-role share links) skip every pointer +
     // keyboard binding. The renderer still paints, including remote
     // peer edits, but the user cannot mutate. The editor's
@@ -1311,6 +1305,80 @@ class SlidesEditorImpl implements SlidesEditor {
     this.render();
     this.repaintOverlay();
     for (const cb of this.currentSlideListeners) cb();
+  }
+
+  /**
+   * Build (or rebuild) the keyboard rules against the current
+   * `this.options.store`. Rebuilt by `setStore` because `buildKeyRules`
+   * captures the store reference — arrow-nudge / delete would otherwise
+   * keep writing to the pre-swap store.
+   */
+  private installKeyRules(): void {
+    this.keyRules = buildKeyRules({
+      store: this.options.store,
+      selection: this.selection,
+      currentSlideId: () => this.getCurrentSlideId(),
+      setCurrentSlide: (id: string) => this.setCurrentSlide(id),
+      enterEditMode: (
+        slideId: string,
+        elementId: string,
+        options?: { initialText?: string },
+      ) => this.enterEditMode(slideId, elementId, options),
+      requestRender: () => this.requestRender(),
+      onStartPresentation: this.options.onStartPresentation,
+      onShowShortcutsHelp: this.options.onShowShortcutsHelp,
+      getInsertMode: () => this.getInsertMode(),
+      setInsertMode: (kind) => this.setInsertMode(kind),
+      group: () => this.group(),
+      ungroup: () => this.ungroup(),
+      isPaintingFormat: () => this.isPaintingFormat(),
+      cancelFormatPaint: () => this.cancelFormatPaint(),
+      getCellSelection: () => this.cellSelection,
+      clearCellSelection: () => {
+        if (this.cellSelection === null) return;
+        this.setCellSelection(null);
+        this.repaintOverlay();
+      },
+    });
+  }
+
+  /**
+   * Swap the editor's backing store and reset transient interaction
+   * state. Exits crop / text editing, clears selection, rebuilds the
+   * key rules against the new store, then makes `currentId` current
+   * (defaulting to the new store's first slide). Used by layout-edit
+   * mode to route the editor at a `LayoutEditStore` and back.
+   */
+  private setStore(store: SlidesStore, currentId?: string): void {
+    if (this.editingElementId !== null) this.exitEditMode('commit');
+    if (this.cropSession !== null) this.exitImageCrop(true);
+    this.selection.clear();
+    this.setCellSelection(null);
+    this.options.store = store;
+    this.installKeyRules();
+    // Resolve to a slide that actually exists in the new store. A caller-
+    // supplied id can be stale (e.g. a peer deleted the slide while the
+    // user was in layout-edit mode); fall back to the first slide rather
+    // than leaving a dangling current id and a blank canvas.
+    const slides = store.read().slides;
+    this.currentId =
+      currentId && slides.some((s) => s.id === currentId)
+        ? currentId
+        : slides[0]?.id;
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
+    for (const cb of this.currentSlideListeners) cb();
+  }
+
+  enterLayoutEditMode(store: SlidesStore): void {
+    this.layoutEditMode = true;
+    this.setStore(store);
+  }
+
+  exitLayoutEditMode(store: SlidesStore, slideId: string): void {
+    this.layoutEditMode = false;
+    this.setStore(store, slideId);
   }
 
   onSelectionChange(cb: () => void): () => void {
@@ -3533,6 +3601,10 @@ class SlidesEditorImpl implements SlidesEditor {
     elementId: string,
     options?: { initialText?: string; cell?: { row: number; col: number } },
   ): void {
+    // Layout-edit mode repositions placeholders only — no text editing.
+    // This is the single chokepoint for every entry path (1-click,
+    // dblclick, P1.5 slow double-click, Enter, type-to-edit).
+    if (this.layoutEditMode) return;
     // If we're already editing some other text-box, commit it first so
     // the text in flight is not lost when focus moves.
     if (this.editingElementId !== null) {
