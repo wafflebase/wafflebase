@@ -69,6 +69,25 @@ Insert a table from the toolbar to lay out structured content. Click the **Table
 
 When a table is taller than the remaining space on a page, its rows split across the page boundary automatically.
 
+## Images
+
+Click the **Insert image** button in the toolbar and choose:
+
+- **Upload from computer** — pick an image file from your device.
+- **By URL…** — paste the address of an image on the web.
+
+You can also drag an image file straight onto the page, or paste one copied
+from another app.
+
+Once an image is placed, click it to select it. Eight square handles appear
+around the edges:
+
+- Drag a **corner** handle to resize while keeping the aspect ratio (hold
+  **Shift** to resize freely).
+- Drag a **side** handle to stretch one dimension.
+- **Arrow keys** nudge the image a pixel at a time (**Shift** for larger steps).
+- **Delete** / **Backspace** removes it; **Esc** deselects.
+
 ## Pagination
 
 Documents use a page-based layout similar to a printed document. Pages default to A4 with standard margins, and text flows across pages as you type.
@@ -76,6 +95,26 @@ Documents use a page-based layout similar to a printed document. Pages default t
 - Long paragraphs and tables break naturally at the page boundary — line splitting keeps headings, table headers, and partial rows in sync with the layout.
 - The editor renders one page per "sheet" so you can scroll through the deck of pages exactly as they will print or export.
 - Export to PDF preserves the same pagination — what you see on screen matches the exported document.
+
+## Headers & Footers
+
+Add content that repeats on every page — a title, a date, or a page number.
+
+- **Double-click** the margin area above the body (header) or below it (footer)
+  to start editing it. Click back into the body, or press **Esc**, to leave.
+- While editing a header or footer, click **Insert page number** in the toolbar
+  to drop in a number that updates automatically on each page.
+
+A header or footer applies to the whole document. Tables, page breaks, and
+horizontal rules can't be placed inside them.
+
+## Spell Check
+
+Misspelled words are underlined with a red squiggle as you type — spell check
+is on by default. Right-click an underlined word to see suggestions and click
+one to replace it.
+
+Spell check currently covers English (Latin-script) words in the body text.
 
 ## Undo and Redo
 

@@ -1,6 +1,6 @@
 # REST API
 
-The Wafflebase REST API lets you read and write spreadsheet and document data programmatically. All endpoints are under `/api/v1/`.
+The Wafflebase REST API lets you read and write spreadsheet, document, and presentation data programmatically. All endpoints are under `/api/v1/`.
 
 ## Authentication
 
@@ -32,17 +32,17 @@ Replace `:workspaceId` with your workspace ID.
 
 ## API Surface by Document Type
 
-A workspace holds two kinds of documents — **sheets** (spreadsheets) and **docs** (word-processor documents). The endpoints below are grouped accordingly:
+A workspace holds three kinds of documents — **sheets** (spreadsheets), **docs** (word-processor documents), and **slides** (presentations). The endpoints below are grouped accordingly:
 
-| Section | Sheet | Doc |
-|---------|:-----:|:---:|
-| [Documents](#documents) | ✅ | ✅ |
-| [Images](#images) | ✅ | ✅ |
-| [Tabs](#tabs-sheets-only) | ✅ | — |
-| [Cells](#cells-sheets-only) | ✅ | — |
-| [Document Content](#document-content-docs-only) | — | ✅ |
+| Section | Sheet | Doc | Slides |
+|---------|:-----:|:---:|:------:|
+| [Documents](#documents) | ✅ | ✅ | ✅ |
+| [Images](#images) | ✅ | ✅ | ✅ |
+| [Tabs](#tabs-sheets-only) | ✅ | — | — |
+| [Cells](#cells-sheets-only) | ✅ | — | — |
+| [Document Content](#document-content-docs-and-slides) | — | ✅ | ✅ |
 
-Calling a sheet-only endpoint on a doc — or a doc-only endpoint on a sheet — returns `HTTP 409` with code `TYPE_MISMATCH`.
+Calling an endpoint against the wrong document type — e.g. a tabs/cells call on a doc, or a content call on a sheet — returns `HTTP 409` with code `TYPE_MISMATCH`.
 
 ## Documents
 
@@ -79,12 +79,19 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"title": "Meeting Notes", "type": "doc"}' \
   https://api.wafflebase.io/api/v1/workspaces/:wid/documents
+
+# Create a slides deck
+curl -X POST \
+  -H "Authorization: Bearer wfb_..." \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Launch Deck", "type": "slides"}' \
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `title` | string | Yes | Document title |
-| `type` | string | No | `"sheet"` (default) or `"doc"` |
+| `type` | string | No | `"sheet"` (default), `"doc"`, or `"slides"` |
 
 ### Get Document
 
@@ -114,7 +121,7 @@ DELETE /api/v1/workspaces/:wid/documents/:did
 
 ## Images
 
-Workspace-scoped image storage. Images are stored under the workspace and may be referenced by both sheets and docs.
+Workspace-scoped image storage. Images are stored under the workspace and may be referenced by sheets, docs, and slides.
 
 ### Upload Image
 
@@ -279,11 +286,11 @@ curl -X PATCH \
   .../tabs/:tid/cells
 ```
 
-## Document Content (docs only)
+## Document Content (docs and slides)
 
-Read or replace the full content tree of a **doc** (word-processor) document. The content is the live Yorkie CRDT document — collaborators in the editor see updates from `PUT` immediately.
+Read or replace the full content tree of a **doc** (word-processor) or **slides** (presentation) document. The content is the live Yorkie CRDT document — collaborators in the editor see updates from `PUT` immediately.
 
-Calling these endpoints against a sheet returns `HTTP 409` with code `TYPE_MISMATCH`.
+Calling these endpoints against a sheet returns `HTTP 409` with code `TYPE_MISMATCH`. The body shape depends on the document type: docs use the block-tree `Document` JSON described below, while slides use the deck's `SlidesDocument` JSON (slides, elements, theme). Read the content first to see the exact shape before writing it back.
 
 ### Get Document Content
 

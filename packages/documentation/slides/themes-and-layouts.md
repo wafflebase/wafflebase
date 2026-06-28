@@ -14,9 +14,18 @@ Each theme defines:
 
 ## Built-in Themes
 
-Wafflebase ships with several Google-Slides-parity themes covering light, dark, and accent variations. Open the **Theme** panel from the right sidebar to see thumbnails and apply one with a click.
+Wafflebase ships with **23 built-in themes** covering neutral, light,
+editorial, vibrant, and dark looks. Open the **Theme** panel from the right
+sidebar to see thumbnails and apply one with a click.
 
-You can switch themes at any time. The theme picker shows a live preview of the active deck under each theme.
+- **Simple Light** *(default)* and **Simple Dark** — neutral baselines
+- Streamline, Swiss, Paradigm, Material, Shift, Momentum, Focus, Luxe, Modern
+  Writer, Coral, Spearmint, Pop, Tropic, Marina, Geometric, Plum, Slate,
+  Forest, Spotlight, Beach Day
+- **Wafflebase** — the Wafflebase brand palette
+
+New decks start on **Simple Light**. You can switch themes at any time — the
+theme picker shows a live preview of the active deck under each one.
 
 ## Layouts
 

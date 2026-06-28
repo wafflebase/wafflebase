@@ -1,6 +1,6 @@
 # Collaboration & Sharing
 
-Wafflebase lets multiple people edit the same sheet or document at the same time. Share via link — no account required for recipients.
+Wafflebase lets multiple people edit the same sheet, document, or presentation at the same time. Share via link — no account required for recipients.
 
 ## Share a Document
 
@@ -37,6 +37,57 @@ When a collaborator opens your shared link, you'll see:
 
 ::: tip
 Each collaborator gets a unique color. If your collaborators sign in with GitHub, their name will appear next to their cursor.
+:::
+
+## Comments & Mentions
+
+Leave feedback without changing the content. Comments work on cells in sheets
+and on selected text in documents.
+
+### Add a comment
+
+**In a sheet:**
+
+1. Select the cell you want to comment on
+2. Right-click and choose **Insert comment**, or press **⌘+Option+M** /
+   **Ctrl+Alt+M**
+3. Type your comment and click **Comment**
+
+**In a document:**
+
+1. Select the text you want to comment on
+2. Right-click and choose **Insert comment**, press **⌘+Option+M** /
+   **Ctrl+Alt+M**, or click the comment icon in the toolbar
+3. Type your comment and click **Comment**
+
+The commented text is highlighted so everyone can see where the discussion is.
+
+### Reply, resolve, edit
+
+- **Reply** — Open a comment and click **Reply** to continue the thread.
+- **Resolve** — Hover the thread and click the check (✓) to resolve it.
+  Resolved threads are tucked away but never lost.
+- **Edit / Delete** — Hover your own comment and use the **⋯** menu. Deleting
+  the first comment removes the whole thread.
+
+### The comments panel (documents)
+
+In a document, click the comment icon in the toolbar — or press
+**⌘+Option+Shift+M** / **Ctrl+Alt+Shift+M** — to open the comments panel. It
+lists every thread under **Open** and **Resolved** tabs; click a thread to jump
+to its text. If the text a comment was attached to is later deleted, the thread
+moves to an orphaned list so the conversation is preserved.
+
+### Mention a teammate
+
+Type **@** inside a comment to mention a workspace member. An autocomplete list
+appears — keep typing to filter, then use **↑ / ↓** and **Enter** (or **Tab**)
+to pick someone. The mention is inserted as a blue chip so it stands out in the
+thread.
+
+::: tip
+Mentions highlight who a comment is for. Only people who are members of the
+workspace can be mentioned.
 :::
 
 ## How Conflicts Work
