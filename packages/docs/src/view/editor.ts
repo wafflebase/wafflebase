@@ -20,6 +20,7 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
+import type { SpellSession } from '../spell/session.js';
 import { resolveNestedTableLayout } from './table-layout.js';
 import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
 import type { BlockCellInfo } from '../model/types.js';
@@ -184,6 +185,16 @@ export interface EditorAPI {
    * marker drawn last wins.
    */
   getCommentMarkerAt(clientX: number, clientY: number): string | null;
+  /**
+   * Attach a live SpellSession whose errors are drawn as red wavy
+   * underlines on the next render. Pass `null` to detach.
+   */
+  setSpellSession(session: SpellSession | null): void;
+  /**
+   * Return the cached spell-error rects from the last render pass.
+   * Reserved for hit-testing in a future task.
+   */
+  getSpellErrorRects(): ReadonlyArray<{ x: number; y: number; width: number; height: number }>;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -1044,6 +1055,10 @@ export function initialize(
   let commentMarkers: CommentMarker[] = [];
   // Cache of rects from the last render(). Read by getCommentMarkerAt.
   let commentMarkerRects: HighlightRect[] = [];
+  // View-local spell state. Never serialized to the CRDT.
+  let spellSession: SpellSession | null = null;
+  // Cache of spell-error rects from the last render(). Reserved for hit-testing in Task 8.
+  let lastSpellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -1469,6 +1484,25 @@ export function initialize(
       }
     }
 
+    // Compute spell-error rectangles (view-local; never persisted).
+    let spellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    if (spellSession) {
+      for (const err of spellSession.errors) {
+        const rects = computeSelectionRects(
+          {
+            anchor: { blockId: err.blockId, offset: err.start },
+            focus: { blockId: err.blockId, offset: err.end },
+          },
+          paginatedLayout,
+          layout,
+          measurer,
+          logicalCanvasWidth,
+        );
+        spellErrorRects.push(...rects);
+      }
+    }
+    lastSpellErrorRects = spellErrorRects; // cache for hit-testing (Task 8)
+
     // Compute header/footer cursor and selection (editCtx / hfActivePageIndex
     // are hoisted above for the textarea-tracking cursor pixel).
     let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
@@ -1621,6 +1655,7 @@ export function initialize(
       imageResizeHudText,
       dragImageRun,
       commentMarkerRects,
+      spellErrorRects,
     );
 
     // Draw drag guideline if active. Guideline coords are in unscaled
@@ -2766,6 +2801,11 @@ export function initialize(
         }
       }
     },
+    setSpellSession: (session: SpellSession | null) => {
+      spellSession = session;
+      render();
+    },
+    getSpellErrorRects: () => lastSpellErrorRects,
     setCommentMarkers: (markers: CommentMarker[]) => {
       // Clone so callers can keep their own list (e.g. memoize the
       // marker array between renders) without our cached rect pass

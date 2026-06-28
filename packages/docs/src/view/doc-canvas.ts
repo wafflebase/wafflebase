@@ -101,6 +101,33 @@ export function collectTableRenderRanges(
 }
 
 /**
+ * Generate the zigzag (squiggle) points for a red wavy underline.
+ * Exported so it can be unit-tested without a canvas environment.
+ *
+ * @param x     Left edge of the underline in document coordinates.
+ * @param w     Width of the underline.
+ * @param baseY Y coordinate of the baseline (bottom of the glyph rect).
+ * @param amp   Amplitude of the zigzag in pixels (default 1.5).
+ * @param step  Horizontal distance between zigzag vertices (default 2).
+ * @returns     Array of [x, y] points starting at [x, baseY].
+ */
+export function squigglePoints(
+  x: number,
+  w: number,
+  baseY: number,
+  amp = 1.5,
+  step = 2,
+): Array<[number, number]> {
+  const pts: Array<[number, number]> = [[x, baseY]];
+  let up = true;
+  for (let px = x; px <= x + w; px += step) {
+    pts.push([px, baseY + (up ? -amp : 0)]);
+    up = !up;
+  }
+  return pts;
+}
+
+/**
  * Canvas rendering engine for the document editor.
  * Paints paginated pages with shadows, styled text runs, cursor, and selection highlights.
  */
@@ -190,6 +217,9 @@ export class DocCanvas {
       width: number;
       height: number;
     }>,
+    /** Red wavy underlines for misspelled words. View-local; the canvas
+     *  is spell-naive — it just strokes the rects it is given. */
+    spellErrorRects?: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -395,6 +425,25 @@ export class DocCanvas {
           this.ctx.fillStyle = '#fbbc04';
           this.ctx.fillRect(rect.x, rect.y + rect.height - 1, rect.width, 1);
         }
+      }
+
+      // Draw red wavy underlines for spell errors on this page.
+      if (spellErrorRects) {
+        this.ctx.save();
+        this.ctx.strokeStyle = '#e53935';
+        this.ctx.lineWidth = 1;
+        for (const rect of spellErrorRects) {
+          if (rect.y + rect.height <= pageY || rect.y >= pageY + page.height) continue;
+          const baseY = rect.y + rect.height - 1;
+          const pts = squigglePoints(rect.x, rect.width, baseY);
+          this.ctx.beginPath();
+          this.ctx.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i++) {
+            this.ctx.lineTo(pts[i][0], pts[i][1]);
+          }
+          this.ctx.stroke();
+        }
+        this.ctx.restore();
       }
 
       // Draw peer selection highlights for this page (behind local selection)
