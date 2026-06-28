@@ -403,6 +403,31 @@ describe('DocxExporter', () => {
     expect(new Set(mediaFiles).size).toBe(2);
   });
 
+  it('reports per-image progress ending at total', async () => {
+    const PNG = new Blob(
+      [Uint8Array.from(atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII='
+      ), (c) => c.charCodeAt(0))],
+      { type: 'image/png' },
+    );
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: '', style: { image: { src: 'a.png', width: 10, height: 10 } } },
+          { text: '', style: { image: { src: 'b.png', width: 10, height: 10 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+    const calls: Array<[number, number, string]> = [];
+    await DocxExporter.export(doc, async () => PNG, (d, t, p) => calls.push([d, t, p]));
+    expect(calls[0]).toEqual([0, 2, 'images']);
+    expect(calls[calls.length - 1]).toEqual([2, 2, 'images']);
+    expect(calls.every((c) => c[2] === 'images')).toBe(true);
+  });
+
   it('should export and re-import a table inside a header', async () => {
     const doc: Document = {
       blocks: [{
