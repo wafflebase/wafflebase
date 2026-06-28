@@ -54,6 +54,56 @@ In presentation mode:
 - `←` / `Page Up` — go back
 - `Esc` — exit
 
+## Add a Table
+
+Click the **Insert table** button in the toolbar and drag across the grid
+picker to choose the number of rows and columns, then click to drop the table
+on the slide.
+
+- **Double-click** a cell to edit its text; the text-formatting toolbar appears
+  while you type.
+- **Tab** / **Shift+Tab** move between cells — pressing Tab in the last cell
+  adds a new row.
+- **Right-click** a cell for structure changes: **Insert row above/below**,
+  **Insert column left/right**, **Delete row/column**, and **Merge cells** /
+  **Unmerge cells**.
+
+## Connect Shapes
+
+Use connectors to link shapes — handy for flowcharts and diagrams. Click the
+**Line** dropdown in the toolbar and pick a tool:
+
+- **Line** and **Arrow** — straight connectors.
+- **Elbow connector** — right-angled routing.
+- **Curved connector** — a smooth curve.
+
+Drag from the start point to the end point. As you approach a shape, connection
+points appear and the endpoint snaps to it, so the connector stays attached when
+you later move the shape. To change the routing of a selected connector,
+right-click it and choose **Straight**, **Elbow**, or **Curved**.
+
+## Animations & Transitions
+
+Open the **Motion** panel from the right sidebar to add motion to a deck.
+
+**Slide transitions** (how one slide gives way to the next):
+
+1. In the **Transition** section, pick a type — Fade, Dissolve, Slide, Flip,
+   Cube, Wipe, or Push.
+2. Choose a speed (Slow / Medium / Fast).
+3. Click **Apply to all slides** to use the same transition everywhere.
+
+**Object animations** (how an element enters, exits, or is emphasized):
+
+1. Select an element on the slide.
+2. In the **Animation** section, click **+ Add animation**.
+3. Pick a **Category** (Entrance, Exit, or Emphasis) and an **Effect**, then set
+   when it runs with **Start** — **On Click**, **With Previous**, or **After
+   Previous**. Fine-tune **Duration**, **Delay**, and **Easing** as needed.
+
+Click the **▶ Play** button to preview the animations right in the editor.
+They also run when you present the deck.
+
 ## What's Next
 
 - [Themes & Layouts](./themes-and-layouts) — Catalog of themes, layouts, and placeholders

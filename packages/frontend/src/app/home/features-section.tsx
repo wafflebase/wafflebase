@@ -2,9 +2,9 @@ import {
   BarChart3,
   FileText,
   FunctionSquare,
+  MessageSquare,
   Palette,
   Presentation,
-  Rows3,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { FeatureGlyph, type GlyphKind } from "./primitives/feature-glyph";
@@ -57,36 +57,35 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
   },
   {
     Icon: BarChart3,
-    title: "Charts & Pivot Tables",
-    description: "Built-in data visualization and aggregation",
+    title: "Charts, Pivots & SQL Datasources",
+    description: "Visualize, aggregate, and pull live data from PostgreSQL",
     href: "/docs/sheets/charts",
   },
   {
     Icon: FileText,
     title: "Page-Based Document Editor",
     description:
-      "Write and format documents with a clean, paginated editor",
+      "Paginated editor with rich tables, page breaks, and headers/footers",
     href: "/docs/docs-editor/writing-a-document",
   },
   {
-    Icon: Rows3,
-    title: "Tables & Pagination",
-    description:
-      "Rich tables, page breaks, and pagination for long-form documents",
-    href: "/docs/docs-editor/writing-a-document#tables",
+    Icon: MessageSquare,
+    title: "Comments, Mentions & Spell Check",
+    description: "Inline threads, @mentions, and live spell checking",
+    href: "/docs/guide/collaboration",
   },
   {
     Icon: Palette,
-    title: "Themes & Layouts",
+    title: "Themes, Layouts & Shapes",
     description:
-      "Four-tier theme system and Google-Slides-parity layouts for decks",
+      "Built-in themes, Google-Slides-parity layouts, 55+ shapes & connectors",
     href: "/docs/slides/themes-and-layouts",
   },
   {
     Icon: Presentation,
-    title: "Presentation Mode",
+    title: "Animations & Presentation Mode",
     description:
-      "Full-screen player with keyboard navigation and click-to-advance",
+      "Object and slide animations plus a full-screen keyboard-driven player",
     href: "/docs/slides/build-a-deck",
   },
 ];

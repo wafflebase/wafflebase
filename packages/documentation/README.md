@@ -8,8 +8,9 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 
 | Page | Description |
 |------|-------------|
-| [Getting Started](guide/getting-started.md) | Sign in, create sheets or documents, first steps |
+| [Getting Started](guide/getting-started.md) | Sign in, create sheets, docs, or slides, first steps |
 | [Collaboration](guide/collaboration.md) | Share documents, real-time editing, permissions |
+| [Import & Export](guide/import-export.md) | XLSX/DOCX/PPTX import, DOCX/PPTX/PDF export, CLI automation |
 
 ### Sheets
 
@@ -18,6 +19,7 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 | [Build a Budget](sheets/build-a-budget.md) | Learn formulas, formatting, and layout |
 | [Formulas](sheets/formulas.md) | Formula syntax, function reference, examples |
 | [Charts](sheets/charts.md) | Chart types, creation, editing, pivot tables |
+| [External Datasources](sheets/datasources.md) | Connect PostgreSQL, run SQL, read-only result tabs |
 | [Keyboard Shortcuts](sheets/keyboard-shortcuts.md) | Spreadsheet shortcut reference |
 
 ### Docs
@@ -26,6 +28,14 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 |------|-------------|
 | [Writing a Document](docs-editor/writing-a-document.md) | Text editing, formatting, page layout |
 | [Keyboard Shortcuts](docs-editor/keyboard-shortcuts.md) | Document editor shortcut reference |
+
+### Slides
+
+| Page | Description |
+|------|-------------|
+| [Build a Deck](slides/build-a-deck.md) | Slides, elements, themes, presenting |
+| [Themes & Layouts](slides/themes-and-layouts.md) | Theme system and slide layouts |
+| [Keyboard Shortcuts](slides/keyboard-shortcuts.md) | Presentation editor shortcut reference |
 
 ### Developers
 
@@ -50,7 +60,7 @@ Site configuration is in `.vitepress/config.ts`:
 
 - **Base path**: `/docs/` (deployed as subpath of the main site)
 - **Search**: Local search provider (no external service)
-- **Navigation**: Four sidebar sections — Guide, Sheets, Docs, and Developers
+- **Navigation**: Five sidebar sections — Guide, Sheets, Docs, Slides, and Developers
 - **Theme**: Default VitePress theme with custom CSS overrides
 
 ## Tech Stack

@@ -1,11 +1,20 @@
 import {
+  exportPptx,
   importPptx,
   type ImportReport,
   type SlidesDocument,
   type UploadImage,
 } from "@wafflebase/slides";
-import { docsImageUploader } from "../docs/export-utils";
-import { pickFile } from "../docs/export-utils";
+import {
+  docsImageFetcher,
+  docsImageUploader,
+  downloadBlob,
+  pickFile,
+  safeFilename,
+} from "../docs/export-utils";
+
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 const MIME_TO_EXT: Record<string, string> = {
   "image/png": "png",
@@ -57,4 +66,39 @@ export async function pickAndImportPptx(
       : undefined,
   });
   return { document, report, fileName: file.name };
+}
+
+/**
+ * Export the presentation to a `.pptx` archive and trigger a browser
+ * download.
+ *
+ * Unlike the PDF path, PPTX is vector DrawingML XML — there is no canvas
+ * raster step, so fonts need no preloading; PowerPoint resolves the family
+ * names at open time. Images are embedded as `ppt/media/` parts: `exportPptx`
+ * asks for each unique image `src`'s bytes through `fetchImage`, which we
+ * satisfy with the same credentialed `docsImageFetcher` used by the docs and
+ * slides PDF exporters (backend images are same-origin-fetched with cookies).
+ *
+ * `exportPptx` is re-exported from the browser entry of `@wafflebase/slides`
+ * and is DOM-free, so it is safe to call from the editor. `onProgress` is
+ * forwarded to the per-slide progress callback so the caller can drive an
+ * export toast, mirroring the PDF path.
+ */
+export async function exportSlidesPptxAndDownload(
+  doc: SlidesDocument,
+  title: string,
+  onProgress?: (done: number, total: number, phase: string) => void,
+): Promise<void> {
+  const bytes = await exportPptx(doc, {
+    fetchImage: async (src) => {
+      const blob = await docsImageFetcher(src);
+      return {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        mime: blob.type || "image/png",
+      };
+    },
+    onProgress,
+  });
+  const blob = new Blob([bytes], { type: PPTX_MIME });
+  downloadBlob(blob, safeFilename(title, "pptx"));
 }

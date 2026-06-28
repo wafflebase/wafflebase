@@ -49,7 +49,7 @@ if (gaId) {
 export default defineConfig({
   title: "Wafflebase Docs",
   description:
-    "Documentation for Wafflebase — collaborative spreadsheet and document editor",
+    "Documentation for Wafflebase — collaborative spreadsheets, documents, and presentations",
   base: "/docs/",
 
   head,
@@ -81,6 +81,7 @@ export default defineConfig({
             text: "Collaboration & Sharing",
             link: "/guide/collaboration",
           },
+          { text: "Import & Export", link: "/guide/import-export" },
         ],
       },
       {
@@ -89,6 +90,7 @@ export default defineConfig({
           { text: "Build a Budget", link: "/sheets/build-a-budget" },
           { text: "Formulas", link: "/sheets/formulas" },
           { text: "Charts & Pivot Tables", link: "/sheets/charts" },
+          { text: "External Datasources", link: "/sheets/datasources" },
           {
             text: "Keyboard Shortcuts",
             link: "/sheets/keyboard-shortcuts",

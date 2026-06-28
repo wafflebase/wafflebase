@@ -142,7 +142,10 @@ export function updateExportToast(
  * Build a filesystem-safe filename for export downloads.
  * Adds the extension if not already present.
  */
-export function safeFilename(title: string, ext: "docx" | "pdf"): string {
+export function safeFilename(
+  title: string,
+  ext: "docx" | "pdf" | "pptx",
+): string {
   // Strip filesystem-unsafe characters; if nothing usable is left,
   // fall back to "document" so we don't return a hidden file like ".pdf".
   const sanitized = (title || "").replace(/[\\/:*?"<>|]+/g, "_").trim();
