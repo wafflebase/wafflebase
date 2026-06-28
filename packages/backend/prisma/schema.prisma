@@ -10,6 +10,14 @@ model User {
   workspaceMembers  WorkspaceMember[]
   workspaceInvites  WorkspaceInvite[]
   apiKeys           ApiKey[]
+  userDocStyles     UserDocStyles?
+}
+
+model UserDocStyles {
+  userId    Int      @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  styles    Json
+  updatedAt DateTime @updatedAt
 }
 
 model DataSource {
