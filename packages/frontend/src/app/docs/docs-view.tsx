@@ -24,7 +24,7 @@ import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsShortcutsHelp } from "./docs-shortcuts-help";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
-import { DocsCommentContextMenu } from "./comments/DocsCommentContextMenu";
+import { DocsContextMenu } from "./docs-context-menu";
 import { DocsCommentPopover } from "./comments/DocsCommentPopover";
 import { useDocsComments } from "./comments/docs-comments-controller";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
@@ -585,7 +585,7 @@ export function DocsView({
           comments.beginCompose();
         }}
       />
-      <DocsCommentContextMenu
+      <DocsContextMenu
         editor={mountedEditor}
         containerRef={containerRef}
         readOnly={readOnly}

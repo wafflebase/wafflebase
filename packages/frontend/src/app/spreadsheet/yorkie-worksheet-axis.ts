@@ -13,9 +13,12 @@ function ensureAxisLength(
 ): void {
   const order = axis === "row" ? ws.rowOrder : ws.colOrder;
   const prefix = axis === "row" ? "r" : "c";
+  const existing = new Set(order);
 
   while (order.length < minLength) {
-    order.push(createWorksheetAxisId(prefix));
+    const id = createWorksheetAxisId(prefix, existing);
+    existing.add(id);
+    order.push(id);
   }
 }
 
@@ -29,10 +32,13 @@ export function insertYorkieWorksheetAxis(
 
   const order = axis === "row" ? ws.rowOrder : ws.colOrder;
   const prefix = axis === "row" ? "r" : "c";
+  const existing = new Set(order);
   const created: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    created.push(createWorksheetAxisId(prefix));
+    const id = createWorksheetAxisId(prefix, existing);
+    existing.add(id);
+    created.push(id);
   }
 
   order.splice(Math.max(0, index - 1), 0, ...created);

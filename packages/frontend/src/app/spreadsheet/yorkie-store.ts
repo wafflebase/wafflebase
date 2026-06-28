@@ -671,13 +671,17 @@ export class YorkieStore implements Store {
       if (!ws) return;
       ws.rowOrder ??= [];
       ws.colOrder ??= [];
-      const rowPrefix = "r";
-      const colPrefix = "c";
+      const rowIds = new Set(ws.rowOrder);
+      const colIds = new Set(ws.colOrder);
       while (ws.rowOrder.length < minRows) {
-        ws.rowOrder.push(createWorksheetAxisId(rowPrefix));
+        const id = createWorksheetAxisId("r", rowIds);
+        rowIds.add(id);
+        ws.rowOrder.push(id);
       }
       while (ws.colOrder.length < minCols) {
-        ws.colOrder.push(createWorksheetAxisId(colPrefix));
+        const id = createWorksheetAxisId("c", colIds);
+        colIds.add(id);
+        ws.colOrder.push(id);
       }
     });
   }

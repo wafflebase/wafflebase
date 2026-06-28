@@ -16,9 +16,12 @@ function ensureAxisLength(
 ): void {
   const order = axis === 'row' ? (ws.rowOrder ??= []) : (ws.colOrder ??= []);
   const prefix = axis === 'row' ? 'r' : 'c';
+  const existing = new Set(order);
 
   while (order.length < minLength) {
-    order.push(createWorksheetAxisId(prefix));
+    const id = createWorksheetAxisId(prefix, existing);
+    existing.add(id);
+    order.push(id);
   }
 }
 

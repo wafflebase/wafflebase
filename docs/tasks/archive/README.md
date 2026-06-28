@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 322
+Total archived tasks: 323
 
-## 2026/06 (71 tasks)
+## 2026/06 (72 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs spell check (2026-06-28) | [20260628-docs-spell-check-todo.md](./2026/06/20260628-docs-spell-check-todo.md) | [20260628-docs-spell-check-lessons.md](./2026/06/20260628-docs-spell-check-lessons.md) |
 | slides shared editor toolbar parity (2026-06-27) | [20260627-slides-shared-editor-toolbar-parity-todo.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-todo.md) | [20260627-slides-shared-editor-toolbar-parity-lessons.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-lessons.md) |
 | docx table deferred (2026-06-26) | [20260626-docx-table-deferred-todo.md](./2026/06/20260626-docx-table-deferred-todo.md) | [20260626-docx-table-deferred-lessons.md](./2026/06/20260626-docx-table-deferred-lessons.md) |
 | callout ooxml fidelity (2026-06-25) | [20260625-callout-ooxml-fidelity-todo.md](./2026/06/20260625-callout-ooxml-fidelity-todo.md) | [20260625-callout-ooxml-fidelity-lessons.md](./2026/06/20260625-callout-ooxml-fidelity-lessons.md) |

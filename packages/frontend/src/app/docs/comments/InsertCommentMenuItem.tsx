@@ -8,8 +8,8 @@ interface Props {
 }
 
 /**
- * Shared "Insert comment" row. Both the text context menu
- * (`DocsCommentContextMenu`) and the table context menu
+ * Shared "Insert comment" row. Both the unified body context menu
+ * (`DocsContextMenu`) and the table context menu
  * (`DocsTableContextMenu`) render it, so the label, icon, and ⌘⌥M
  * shortcut hint live in one place and can't drift apart.
  */

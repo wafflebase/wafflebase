@@ -10,13 +10,14 @@ describe('createWorksheetAxisId', () => {
     expect(colId).toMatch(/^c[a-z0-9]{4}$/);
   });
 
-  it('should generate unique IDs across typical batch size', () => {
-    // A single user operation creates at most ~100 rows at once.
-    // With 36^4 ≈ 1.68M combinations, 100 IDs should never collide.
+  it('should generate IDs unique against the provided existing set', () => {
+    // The random space (36^4 ≈ 1.68M) is small enough to hit the birthday
+    // paradox, so callers pass the IDs already in use to guarantee no
+    // collision. Threading the growing set must yield N distinct IDs.
     const ids = new Set<string>();
-    for (let i = 0; i < 100; i++) {
-      ids.add(createWorksheetAxisId('r'));
+    for (let i = 0; i < 1000; i++) {
+      ids.add(createWorksheetAxisId('r', ids));
     }
-    expect(ids.size).toBe(100);
+    expect(ids.size).toBe(1000);
   });
 });

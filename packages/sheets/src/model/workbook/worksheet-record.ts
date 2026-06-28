@@ -77,13 +77,29 @@ export function safeWorksheetRecordValues<T>(obj?: Record<string, T>): T[] {
 const AXIS_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const AXIS_ID_LENGTH = 4;
 
-export function createWorksheetAxisId(prefix: 'r' | 'c'): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(AXIS_ID_LENGTH));
-  let id = prefix;
-  for (let i = 0; i < AXIS_ID_LENGTH; i++) {
-    id += AXIS_ID_CHARS[bytes[i] % 36];
+/**
+ * Generates a random axis ID with the given prefix (e.g. `r3k9`).
+ *
+ * IDs are random so concurrently-editing clients are unlikely to mint the
+ * same ID (see #127). Within a single client the random space (36⁴ ≈ 1.68M)
+ * is small enough that batches of rows/cols hit the birthday paradox, so pass
+ * `existing` — the IDs already in use — to retry until the result is unique.
+ * Cells are keyed by `rowId+colId`, so a duplicate axis ID corrupts data.
+ */
+export function createWorksheetAxisId(
+  prefix: 'r' | 'c',
+  existing?: ReadonlySet<string>,
+): string {
+  for (;;) {
+    const bytes = crypto.getRandomValues(new Uint8Array(AXIS_ID_LENGTH));
+    let id = prefix;
+    for (let i = 0; i < AXIS_ID_LENGTH; i++) {
+      id += AXIS_ID_CHARS[bytes[i] % 36];
+    }
+    if (!existing || !existing.has(id)) {
+      return id;
+    }
   }
-  return id;
 }
 
 export function createWorksheetCellKey(rowId: string, colId: string): string {

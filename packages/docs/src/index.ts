@@ -149,6 +149,13 @@ export {
   type ShortcutCategory,
 } from './view/shortcuts-catalog.js';
 export { findMarkerAt } from './view/comment-markers.js';
+
+// Spell check (view-local; never serialized to the CRDT)
+export { SpellSession } from './spell/session.js';
+export type { SpellError, DocLike } from './spell/session.js';
+export { SpellRouter } from './spell/router.js';
+export { LocalSpellProvider } from './spell/local-provider.js';
+export type { SpellChecker, Lang, Script } from './spell/spell-checker.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';

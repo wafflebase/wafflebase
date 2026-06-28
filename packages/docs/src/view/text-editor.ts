@@ -1017,77 +1017,40 @@ export class TextEditor {
     this.requestRender();
   };
 
-  private handlePaste = (e: ClipboardEvent): void => {
-    this.pending?.clear();
-    e.preventDefault();
-
-    // Image file paste — takes priority over any text payload. Many
-    // screenshot tools populate both `image/png` and `text/plain` on
-    // the clipboard; the text is usually garbage ("Image") and the
-    // user expects the picture to land in the doc.
-    if (this.imageFilePasteHandler && e.clipboardData) {
-      for (const item of e.clipboardData.items) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            this.imageFilePasteHandler(file, { blockId: this.cursor.position.blockId, offset: this.cursor.position.offset });
-            return;
-          }
-        }
-      }
-    }
-
-    // Try rich internal paste first
-    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
-    if (json) {
-      const data = deserializeClipboard(json);
-      if (data.tableCells && data.tableCells.length > 0) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.pasteTableCells(data.tableCells);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-      if (data.blocks.length > 0) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.insertBlocks(data.blocks);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-    }
-
+  /**
+   * Shared HTML/text paste logic used by both the keyboard paste path
+   * (`handlePaste`) and the programmatic paste API (`pasteContent`).
+   * `html` and `text` are the respective clipboard payloads; both may be
+   * undefined when the caller could not read the clipboard format.
+   * `shiftHeld` suppresses HTML/markdown processing (force plain-text paste).
+   */
+  private pasteFromParts(opts: { html?: string; text?: string }): void {
     // Try HTML paste (unless shift is held for plain-text paste)
-    if (!this.shiftHeld) {
-      const html = e.clipboardData?.getData('text/html');
-      if (html) {
-        // Try HTML table first
-        const tableCells = parseHtmlTableToTableCells(html);
-        if (tableCells) {
-          this.saveSnapshot();
-          this.deleteSelection();
-          this.pasteTableCells(tableCells);
-          this.selection.setRange(null);
-          this.requestRender();
-          return;
-        }
+    if (!this.shiftHeld && opts.html) {
+      // Try HTML table first
+      const tableCells = parseHtmlTableToTableCells(opts.html);
+      if (tableCells) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.pasteTableCells(tableCells);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
 
-        const blocks = parseHtmlToBlocks(html);
-        if (blocks.length > 0) {
-          this.saveSnapshot();
-          this.deleteSelection();
-          this.insertBlocks(blocks);
-          this.selection.setRange(null);
-          this.requestRender();
-          return;
-        }
+      const blocks = parseHtmlToBlocks(opts.html);
+      if (blocks.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(blocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
       }
     }
 
     // Fall through to plain text handling
-    const text = e.clipboardData?.getData('text/plain');
+    const text = opts.text;
     if (!text) return;
 
     // Try markdown table parsers (skip when shift is held — force plain-text)
@@ -1120,6 +1083,70 @@ export class TextEditor {
     this.insertPlainText(text);
     this.selection.setRange(null);
     this.requestRender();
+  }
+
+  /**
+   * Paste rich content obtained externally (e.g. via `navigator.clipboard.read()`).
+   * Called by `EditorAPI.paste()` so the frontend context menu can trigger a
+   * paste without synthesizing a ClipboardEvent. Prefers HTML; falls back to
+   * plain text. Skips the internal WAFFLEDOCS_MIME format (not available from
+   * the Clipboard API) and image-file handling (the caller is responsible for
+   * routing image items separately). `shiftHeld` is read from the current
+   * keyboard state to respect the "paste as plain text" modifier.
+   */
+  pasteContent(opts: { html?: string; text?: string }): void {
+    this.pending?.clear();
+    this.pasteFromParts(opts);
+  }
+
+  private handlePaste = (e: ClipboardEvent): void => {
+    this.pending?.clear();
+    e.preventDefault();
+
+    // Image file paste — takes priority over any text payload. Many
+    // screenshot tools populate both `image/png` and `text/plain` on
+    // the clipboard; the text is usually garbage ("Image") and the
+    // user expects the picture to land in the doc.
+    if (this.imageFilePasteHandler && e.clipboardData) {
+      for (const item of e.clipboardData.items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            this.imageFilePasteHandler(file, { blockId: this.cursor.position.blockId, offset: this.cursor.position.offset });
+            return;
+          }
+        }
+      }
+    }
+
+    // Try rich internal paste first (editor-to-editor copy within the same
+    // browser tab; not available from navigator.clipboard.read()).
+    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
+    if (json) {
+      const data = deserializeClipboard(json);
+      if (data.tableCells && data.tableCells.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.pasteTableCells(data.tableCells);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+      if (data.blocks.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(data.blocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+    }
+
+    // Delegate HTML/text/markdown handling to the shared paste-from-parts path.
+    this.pasteFromParts({
+      html: e.clipboardData?.getData('text/html') || undefined,
+      text: e.clipboardData?.getData('text/plain') || undefined,
+    });
   };
 
   private resolveTableFromMouse(e: MouseEvent): {

@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -20,6 +20,9 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
+import { SpellSession, type SpellError } from '../spell/session.js';
+import { SpellRouter } from '../spell/router.js';
+import { LocalSpellProvider } from '../spell/local-provider.js';
 import { resolveNestedTableLayout } from './table-layout.js';
 import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
 import type { BlockCellInfo } from '../model/types.js';
@@ -184,6 +187,51 @@ export interface EditorAPI {
    * marker drawn last wins.
    */
   getCommentMarkerAt(clientX: number, clientY: number): string | null;
+  /**
+   * Attach a live SpellSession whose errors are drawn as red wavy
+   * underlines on the next render. Pass `null` to detach.
+   */
+  setSpellSession(session: SpellSession | null): void;
+  /**
+   * Return the cached spell-error rects from the last render pass.
+   * Used for hit-testing the spell-suggestions context menu.
+   */
+  getSpellErrorRects(): ReadonlyArray<{ x: number; y: number; width: number; height: number }>;
+  /**
+   * Enable or disable the built-in spell checker. On by default. When
+   * disabled, existing squiggles are cleared and no rechecks run until
+   * re-enabled.
+   */
+  setSpellCheckEnabled(enabled: boolean): void;
+  /**
+   * Return the spell error under viewport coordinates (clientX, clientY),
+   * or undefined when there is no misspelling at that point or no active
+   * spell session.
+   */
+  getSpellErrorAt(clientX: number, clientY: number): SpellError | undefined;
+  /**
+   * Fetch spelling suggestions for `word` from the active session.
+   * Returns `[]` when no session is active or the router fails.
+   */
+  getSpellSuggestions(word: string): Promise<string[]>;
+  /**
+   * Apply a spelling suggestion: replace the error text in the document,
+   * drop the error synchronously from the session's error list, repaint,
+   * and schedule a background recheck. No-op in read-only mode or when no
+   * session is active.
+   */
+  applySpellSuggestion(err: SpellError, replacement: string): void;
+  /** Copy the current selection to the system clipboard. */
+  copy(): void;
+  /** Cut the current selection to the system clipboard. */
+  cut(): void;
+  /**
+   * Paste from the system clipboard at the current caret position.
+   * Prefers rich HTML content (via `navigator.clipboard.read()`) and
+   * falls back to plain text. Never throws — clipboard permission errors
+   * are silently swallowed.
+   */
+  paste(): Promise<void>;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -1037,6 +1085,10 @@ export function initialize(
     selection?: Parameters<CursorMoveCallback>[1],
   ): void {
     for (const cb of cursorMoveCallbacks) cb(pos, selection);
+    // Edits and cursor moves both flow through here, so this is the
+    // single place to debounce spell re-checks. `scheduleSpellRecheck`
+    // is a hoisted declaration and no-ops while the session is unset.
+    scheduleSpellRecheck();
   }
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
@@ -1044,6 +1096,15 @@ export function initialize(
   let commentMarkers: CommentMarker[] = [];
   // Cache of rects from the last render(). Read by getCommentMarkerAt.
   let commentMarkerRects: HighlightRect[] = [];
+  // View-local spell state. Never serialized to the CRDT.
+  let spellSession: SpellSession | null = null;
+  // Cache of spell-error rects from the last render(). Read by the
+  // spell context-menu hit-test path.
+  let lastSpellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  // Whether the built-in spell checker is active. On by default.
+  let spellEnabled = true;
+  // Debounce handle for re-checking after edits / cursor moves.
+  let spellTimer: ReturnType<typeof setTimeout> | null = null;
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -1469,6 +1530,25 @@ export function initialize(
       }
     }
 
+    // Compute spell-error rectangles (view-local; never persisted).
+    let spellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    if (spellSession) {
+      for (const err of spellSession.errors) {
+        const rects = computeSelectionRects(
+          {
+            anchor: { blockId: err.blockId, offset: err.start },
+            focus: { blockId: err.blockId, offset: err.end },
+          },
+          paginatedLayout,
+          layout,
+          measurer,
+          logicalCanvasWidth,
+        );
+        spellErrorRects.push(...rects);
+      }
+    }
+    lastSpellErrorRects = spellErrorRects; // cache for hit-testing (Task 8)
+
     // Compute header/footer cursor and selection (editCtx / hfActivePageIndex
     // are hoisted above for the textarea-tracking cursor pixel).
     let hfCursorHeader: { x: number; y: number; height: number; visible: boolean; color?: string } | undefined;
@@ -1621,6 +1701,7 @@ export function initialize(
       imageResizeHudText,
       dragImageRun,
       commentMarkerRects,
+      spellErrorRects,
     );
 
     // Draw drag guideline if active. Guideline coords are in unscaled
@@ -2196,6 +2277,61 @@ export function initialize(
   container.addEventListener('dragover', handleImageDragOver);
   container.addEventListener('drop', handleImageDrop);
 
+  // ---- Spell check: debounced recheck + suggestions context menu -------
+  //
+  // View-local only: errors live on `spellSession`, rects are recomputed
+  // per render (Task 7). Nothing here is ever written to the CRDT — the
+  // replace path goes through plain `deleteText`/`insertText` so it is a
+  // normal, undoable edit.
+
+  // Debounce a recheck. Hoisted so `fireCursorMoveCallbacks` (declared
+  // earlier) can call it. No-ops while the session is unset or disabled.
+  function scheduleSpellRecheck(): void {
+    if (!spellSession || !spellEnabled) return;
+    if (spellTimer) clearTimeout(spellTimer);
+    spellTimer = setTimeout(() => {
+      spellTimer = null;
+      void runSpellRecheck();
+    }, 300);
+  }
+
+  async function runSpellRecheck(): Promise<void> {
+    if (!spellSession || !spellEnabled) return;
+    // Body blocks only — the spell-rect computation in render() resolves
+    // each error through the body `layout`/`paginatedLayout`, so the ids
+    // we feed must come from the same set. Tables expose empty
+    // `getBlockText`, so they contribute no words.
+    const blocks = doc.document.blocks.map((b) => ({
+      id: b.id,
+      text: getBlockText(b),
+    }));
+    await spellSession.recheckBlocks(blocks, {
+      composing: textEditor?.isComposing() ?? false,
+    });
+    // Repaint-only: errors changed but layout did not.
+    renderPaintOnly();
+  }
+
+  const handleEditorContextMenu = (e: MouseEvent): void => {
+    // The editor surface is a Canvas; the browser's native context menu is
+    // never meaningful over it. Suppress it unconditionally so a right-click
+    // on plain text doesn't fall through to the system menu. The frontend's
+    // unified context menu opens its own UI on top — preventDefault only
+    // kills the native menu, not those JS-driven listeners.
+    e.preventDefault();
+  };
+
+  container.addEventListener('contextmenu', handleEditorContextMenu);
+
+  // Construct the view-local spell session (default ON). The session never
+  // touches the CRDT; `snapshot` routes its replace through the doc store's
+  // undo stack so corrections are normal undoable edits.
+  spellSession = new SpellSession(
+    new SpellRouter([new LocalSpellProvider()]),
+    { snapshot: () => docStore.snapshot() },
+  );
+  scheduleSpellRecheck();
+
   // Resize cursor hint for image handles. Installed as a pre-handler
   // on TextEditor.handleMouseMove rather than as a separate listener
   // so that TextEditor's own `setCanvasCursor('text')` reset doesn't
@@ -2766,6 +2902,104 @@ export function initialize(
         }
       }
     },
+    setSpellSession: (session: SpellSession | null) => {
+      spellSession = session;
+      // Clear stale hit-test rects so callers that read
+      // getSpellErrorRects() before the next render don't see rects
+      // from the previous session.
+      lastSpellErrorRects = [];
+      render();
+    },
+    getSpellErrorRects: () => lastSpellErrorRects,
+    setSpellCheckEnabled: (enabled: boolean) => {
+      spellEnabled = enabled;
+      if (enabled) {
+        scheduleSpellRecheck();
+      } else {
+        if (spellTimer) {
+          clearTimeout(spellTimer);
+          spellTimer = null;
+        }
+        if (spellSession) spellSession.errors = [];
+        renderPaintOnly();
+      }
+    },
+    getSpellErrorAt: (clientX: number, clientY: number): SpellError | undefined => {
+      if (!spellSession || !layout) return undefined;
+      const { x: docX, y: docY } = clientToDocCoords(clientX, clientY);
+      const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
+      const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
+      if (!hit) return undefined;
+      return spellSession.errorAt(hit.blockId, hit.offset);
+    },
+    getSpellSuggestions: async (word: string): Promise<string[]> => {
+      if (!spellSession) return [];
+      try {
+        return await spellSession.router.suggest(word);
+      } catch {
+        return [];
+      }
+    },
+    applySpellSuggestion: (err: SpellError, replacement: string): void => {
+      if (!spellSession || readOnly) return;
+      // replace() snapshots (undo) then deletes+inserts the correction.
+      spellSession.replace(doc, err, replacement);
+      // Drop the replaced error synchronously before render() so that
+      // computeSelectionRects is not called with its now-stale `end`
+      // offset (which can be out-of-range when the correction is
+      // shorter than the original word).
+      spellSession.errors = spellSession.errors.filter((e) => e !== err);
+      cursor.moveTo({ blockId: err.blockId, offset: err.start + replacement.length });
+      markDirty(err.blockId);
+      invalidateLayout();
+      render();
+      void runSpellRecheck();
+    },
+    copy: (): void => {
+      // Focus the hidden textarea so the browser routes the execCommand
+      // to it; the existing textarea 'copy' listener (handleCopy) then
+      // writes the rich + plain clipboard data via ClipboardEvent.clipboardData.
+      textEditor?.focus();
+      document.execCommand('copy');
+    },
+    cut: (): void => {
+      textEditor?.focus();
+      document.execCommand('cut');
+    },
+    paste: async (): Promise<void> => {
+      if (!textEditor) return;
+      // Try navigator.clipboard.read() for rich HTML content first.
+      try {
+        if (navigator.clipboard && 'read' in navigator.clipboard) {
+          const items = await navigator.clipboard.read();
+          let html: string | undefined;
+          let text: string | undefined;
+          for (const item of items) {
+            if (item.types.includes('text/html') && html === undefined) {
+              try {
+                const blob = await item.getType('text/html');
+                html = await blob.text();
+              } catch { /* type unavailable */ }
+            }
+            if (item.types.includes('text/plain') && text === undefined) {
+              try {
+                const blob = await item.getType('text/plain');
+                text = await blob.text();
+              } catch { /* type unavailable */ }
+            }
+          }
+          if (html !== undefined || text !== undefined) {
+            textEditor.pasteContent({ html, text });
+            return;
+          }
+        }
+      } catch { /* Clipboard API blocked or unavailable */ }
+      // Fallback: navigator.clipboard.readText()
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) textEditor.pasteContent({ text });
+      } catch { /* Clipboard blocked — no-op */ }
+    },
     setCommentMarkers: (markers: CommentMarker[]) => {
       // Clone so callers can keep their own list (e.g. memoize the
       // marker array between renders) without our cached rect pass
@@ -3153,7 +3387,13 @@ export function initialize(
       document.removeEventListener('mousemove', handleImageResizeMouseMove);
       document.removeEventListener('mouseup', handleImageResizeMouseUp);
       container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener('contextmenu', handleEditorContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
+      if (spellTimer) {
+        clearTimeout(spellTimer);
+        spellTimer = null;
+      }
+      spellSession = null;
       resizeObserver.disconnect();
       canvas.remove();
     },
