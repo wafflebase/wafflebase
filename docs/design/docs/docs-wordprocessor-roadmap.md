@@ -62,7 +62,8 @@ planned item links to (or will link to) its own design doc.
 | Table of contents | ❌ Planned |
 | Suggestion mode (track changes) | ❌ Planned |
 | Version history | ❌ Planned |
-| Multi-column layout, footnotes, spell check, named styles | ❌ Planned |
+| Spell check (English: red squiggles + suggestions popover; Korean/ignore/add-to-dictionary deferred) | ✅ |
+| Multi-column layout, footnotes, named styles | ❌ Planned |
 
 ## Shipped Phases
 
@@ -78,6 +79,7 @@ in the README index — the roadmap no longer duplicates their content.
 | Phase 3.1: Images | Insert, resize, rotate, crop, Image Options panel | [`docs-image-editing.md`](docs-image-editing.md) |
 | Phase 4.1: Header / Footer | Editable per-page header/footer regions | [`docs-header-footer.md`](docs-header-footer.md) |
 | Phase 5.1: Comments | Text-range threads, posRange anchors, orphan preservation | [`docs-comments.md`](docs-comments.md) |
+| Phase 6.3: Spell check | English red squiggles + suggestions popover; vendored en_US Hunspell dict lazy-loaded as a separate chunk; per-word script routing; Korean/ignore/add-to-dictionary deferred | [`docs-spell-check.md`](docs-spell-check.md) |
 
 ## Planned Phases
 
@@ -120,9 +122,9 @@ previous versions, name versions.
 
 ### Phase 6: Advanced
 
-Multi-column layouts (2–3 columns), footnotes / endnotes, spell check
-(external API), named styles (cascading style edits), shortcut help
-dialog (`Ctrl+/`).
+Multi-column layouts (2–3 columns), footnotes / endnotes, named styles
+(cascading style edits), shortcut help dialog (`Ctrl+/`). (Spell check
+shipped as Phase 6.3.)
 
 ## Risks and Mitigation
 
