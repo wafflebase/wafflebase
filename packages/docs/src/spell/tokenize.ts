@@ -9,11 +9,22 @@ export interface WordToken {
 // A run of letters (any script), digits, apostrophes/hyphens kept internal.
 const TOKEN_RE = /[\p{L}\p{N}][\p{L}\p{N}''\-]*/gu;
 
-// Pre-scan patterns — matched spans are excluded before word tokenisation.
-// URLs: http(s):// or www. prefix followed by non-whitespace chars.
-// Emails: local@domain.tld (no whitespace or @ in either part).
+// Pre-scan patterns — matched spans mark URL/email tokens so that their
+// constituent words are suppressed by the spell-checker.
+//
+// Both arms exclude commas and semicolons from their character classes so
+// that "https://a.com,nextword" or "me@x.io,nextword" stops the span at
+// the comma and does NOT absorb the following real word.
+//
+// buildSkipRanges() additionally strips trailing prose-punctuation characters
+// (e.g. a sentence-ending period or closing paren) from each matched span
+// before recording its range, preventing a URL like "https://a.com." from
+// suppressing a following word that shares no whitespace separator.
 const PRESCAN_RE =
-  /(?:https?:\/\/|www\.)\S+|[^\s@]+@[^\s@]+\.[^\s@]+/g;
+  /(?:https?:\/\/|www\.)[^\s,;]+|[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+/g;
+
+// Prose punctuation that may trail a URL/email but is not part of it.
+const TRAILING_PUNCT_RE = /[.,;:!?)}\]'"]+$/;
 
 const HAS_LETTER_RE = /\p{L}/u;
 const HAS_DIGIT_RE = /\p{N}/u;
@@ -23,7 +34,11 @@ type Range = [number, number]; // [inclusive-start, exclusive-end]
 function buildSkipRanges(text: string): Range[] {
   const ranges: Range[] = [];
   for (const m of text.matchAll(PRESCAN_RE)) {
-    ranges.push([m.index!, m.index! + m[0].length]);
+    // Strip trailing prose punctuation (e.g. "https://a.com." → "https://a.com")
+    // so that sentence-ending characters after a URL are not part of the skip span.
+    const trimmed = m[0].replace(TRAILING_PUNCT_RE, '');
+    const start = m.index!;
+    ranges.push([start, start + trimmed.length]);
   }
   return ranges;
 }

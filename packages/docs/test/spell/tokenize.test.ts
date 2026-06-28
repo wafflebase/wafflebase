@@ -33,4 +33,30 @@ describe('tokenizeWords', () => {
   it('keeps Hangul and CJK tokens (routing decides later)', () => {
     expect(words('안녕 world 日本')).toEqual(['안녕', 'world', '日本']);
   });
+
+  // Regression: PRESCAN_RE must not swallow a real word that follows
+  // an email/URL when separated only by a comma or semicolon.
+  it('does not suppress a word following an email+comma', () => {
+    const ws = words('email me@x.io,nextword now');
+    expect(ws).toContain('nextword');
+    expect(ws).toContain('now');
+    expect(ws).toContain('email');
+    // Constituents of me@x.io must remain suppressed
+    expect(ws).not.toContain('io');
+    expect(ws).not.toContain('me');
+  });
+
+  it('does not suppress words following a URL+comma', () => {
+    const ws = words('visit https://a.com, then leave');
+    expect(ws).toContain('visit');
+    expect(ws).toContain('then');
+    expect(ws).toContain('leave');
+  });
+
+  it('does not emit URL fragments from a trailing-period URL', () => {
+    const ws = words('go to https://a.com.');
+    expect(ws).toContain('go');
+    expect(ws).toContain('to');
+    expect(ws).not.toContain('com');
+  });
 });
