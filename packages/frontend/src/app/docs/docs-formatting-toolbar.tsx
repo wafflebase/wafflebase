@@ -58,6 +58,8 @@ import {
   ensureFontLink,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
+import { fetchMyDocStyles, saveMyDocStyles } from "@/api/doc-styles";
+import { toast } from "sonner";
 import { isMac, modKey } from "@/components/text-formatting/platform";
 
 // ─── Docs-specific sub-components ────────────────────────────────────────────
@@ -261,6 +263,27 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
 
   const handleUndo = useCallback(() => editor?.undo(), [editor]);
   const handleRedo = useCallback(() => editor?.redo(), [editor]);
+
+  const handleSaveDefaultStyles = useCallback(async () => {
+    if (!editor) return;
+    try {
+      await saveMyDocStyles(editor.getDocStyles());
+      toast.success("Saved as your default styles");
+    } catch {
+      toast.error("Failed to save default styles");
+    }
+  }, [editor]);
+
+  const handleUseDefaultStyles = useCallback(async () => {
+    if (!editor) return;
+    try {
+      const styles = await fetchMyDocStyles();
+      editor.setDocStyles(styles);
+      toast.success("Applied your default styles");
+    } catch {
+      toast.error("Failed to load default styles");
+    }
+  }, [editor]);
 
   const handleInsertPageNumber = useCallback(() => {
     editor?.insertPageNumber();
@@ -584,7 +607,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
       {/* ── Styles (desktop only) ── */}
       {!isMobile && (
         <>
-          <TextStyleGroup editor={editor} />
+          <TextStyleGroup
+            editor={editor}
+            onSaveDefaultStyles={handleSaveDefaultStyles}
+            onUseDefaultStyles={handleUseDefaultStyles}
+          />
           <ToolbarSeparator />
           <FontFamilyPicker
             value={familyValue}

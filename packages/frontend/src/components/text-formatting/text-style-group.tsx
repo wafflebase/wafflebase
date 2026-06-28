@@ -1,7 +1,12 @@
 /**
- * Shared text style controls: block-type dropdown (Normal text, Heading 1–3,
- * Title, Subtitle). Shared between the docs toolbar and the slides text-edit
- * state toolbar.
+ * Shared text style controls: block-type dropdown (Normal text, Title,
+ * Subtitle, Heading 1–6). Shared between the docs toolbar and the slides
+ * text-edit state toolbar.
+ *
+ * When the editor supports named styles (docs `EditorAPI`), an "Options"
+ * submenu adds Google-Docs-style redefine / reset / save-default actions.
+ * Slides text-box editors omit those methods, so the submenu is hidden and
+ * the dropdown stays a plain one-click block-type picker.
  */
 
 import { useRef } from "react";
@@ -12,6 +17,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
@@ -19,7 +28,11 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { IconChevronDown } from "@tabler/icons-react";
-import { getFilteredStyleOptions, getBlockLabel } from "./text-style-options";
+import {
+  getFilteredStyleOptions,
+  getBlockLabel,
+  blockTypeToStyleId,
+} from "./text-style-options";
 import { modKey } from "./platform";
 
 interface TextStyleGroupProps {
@@ -32,13 +45,27 @@ interface TextStyleGroupProps {
    * have no Title/Subtitle); pass `['paragraph', 'heading']` to hide them.
    */
   allowedBlockTypes?: ReadonlyArray<BlockType>;
+  /**
+   * "Save as my default styles" — persist the current document registry to
+   * the user account. Omit to hide the entry (e.g. when unauthenticated).
+   */
+  onSaveDefaultStyles?: () => void;
+  /** "Use my default styles" — load the saved registry into the document. */
+  onUseDefaultStyles?: () => void;
 }
 
 export function TextStyleGroup({
   editor,
   disabled = false,
   allowedBlockTypes,
+  onSaveDefaultStyles,
+  onUseDefaultStyles,
 }: TextStyleGroupProps) {
+  // Stash the action on click, replay it from `onCloseAutoFocus` so the
+  // caller's `editor.focus()` runs after Radix's FocusScope teardown and
+  // sticks (same deferral pattern as FontFamilyPicker).
+  const pendingActionRef = useRef<(() => void) | null>(null);
+
   const handleBlockType = (
     type: BlockType,
     opts?: { headingLevel?: HeadingLevel }
@@ -48,16 +75,18 @@ export function TextStyleGroup({
     editor.focus();
   };
 
-  // Same deferral pattern as FontFamilyPicker: stash the pick on click,
-  // replay it from `onCloseAutoFocus` so the caller's `editor.focus()`
-  // runs after Radix's FocusScope teardown and sticks.
-  const pendingPickRef = useRef<{
-    type: BlockType;
-    headingLevel?: HeadingLevel;
-  } | null>(null);
-
   const blockType = editor ? editor.getBlockType() : null;
   const visibleOptions = getFilteredStyleOptions(allowedBlockTypes);
+
+  // Named-style redefinition is docs-only (slides text-boxes omit the
+  // methods). Gate the whole Options submenu on capability detection.
+  const supportsNamedStyles = !!editor?.updateStyleToMatch;
+  const currentLabel = blockType
+    ? getBlockLabel(blockType.type, blockType.headingLevel)
+    : "Normal text";
+  const currentStyleId = blockType
+    ? blockTypeToStyleId(blockType.type, blockType.headingLevel)
+    : "normal";
 
   return (
     <DropdownMenu>
@@ -70,11 +99,7 @@ export function TextStyleGroup({
               disabled={disabled || !editor}
               data-text-edit-keepalive
             >
-              <span className="truncate">
-                {blockType
-                  ? getBlockLabel(blockType.type, blockType.headingLevel)
-                  : "Normal text"}
-              </span>
+              <span className="truncate">{currentLabel}</span>
               <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
             </button>
           </DropdownMenuTrigger>
@@ -82,21 +107,18 @@ export function TextStyleGroup({
         <TooltipContent>Styles</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
-        className="w-[210px]"
+        className="w-[230px]"
         data-text-edit-keepalive
         onCloseAutoFocus={(e) => {
-          const pick = pendingPickRef.current;
-          if (pick === null) {
+          const action = pendingActionRef.current;
+          if (action === null) {
             // No pick — let Radix restore focus to the trigger so Esc /
             // outside-click dismiss does not strand focus on <body>.
             return;
           }
           e.preventDefault();
-          pendingPickRef.current = null;
-          handleBlockType(
-            pick.type,
-            pick.headingLevel ? { headingLevel: pick.headingLevel } : undefined,
-          );
+          pendingActionRef.current = null;
+          action();
         }}
       >
         {visibleOptions.map((opt) => (
@@ -104,10 +126,13 @@ export function TextStyleGroup({
             key={opt.label}
             className="flex items-center justify-between py-1"
             onClick={() => {
-              pendingPickRef.current = {
-                type: opt.type,
-                headingLevel: opt.headingLevel,
-              };
+              pendingActionRef.current = () =>
+                handleBlockType(
+                  opt.type,
+                  opt.headingLevel
+                    ? { headingLevel: opt.headingLevel }
+                    : undefined
+                );
             }}
           >
             <span className={opt.className}>{opt.label}</span>
@@ -118,6 +143,75 @@ export function TextStyleGroup({
             )}
           </DropdownMenuItem>
         ))}
+
+        {supportsNamedStyles && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Options</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-[230px]">
+                <DropdownMenuItem
+                  onClick={() => {
+                    pendingActionRef.current = () => {
+                      editor?.updateStyleToMatch?.(currentStyleId);
+                      editor?.focus();
+                    };
+                  }}
+                >
+                  {`Update '${currentLabel}' to match`}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    pendingActionRef.current = () => {
+                      editor?.resetNamedStyle?.(currentStyleId);
+                      editor?.focus();
+                    };
+                  }}
+                >
+                  {`Reset '${currentLabel}'`}
+                </DropdownMenuItem>
+                {(onSaveDefaultStyles || onUseDefaultStyles) && (
+                  <DropdownMenuSeparator />
+                )}
+                {onSaveDefaultStyles && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      pendingActionRef.current = () => {
+                        onSaveDefaultStyles();
+                        editor?.focus();
+                      };
+                    }}
+                  >
+                    Save as my default styles
+                  </DropdownMenuItem>
+                )}
+                {onUseDefaultStyles && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      pendingActionRef.current = () => {
+                        onUseDefaultStyles();
+                        editor?.focus();
+                      };
+                    }}
+                  >
+                    Use my default styles
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    pendingActionRef.current = () => {
+                      editor?.resetAllNamedStyles?.();
+                      editor?.focus();
+                    };
+                  }}
+                >
+                  Reset styles
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

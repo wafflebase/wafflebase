@@ -12,7 +12,7 @@
  * full `EditorAPI` and are not part of this interface.
  */
 
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel } from "@wafflebase/docs";
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, DocStyles, StyleId } from "@wafflebase/docs";
 
 export interface TextFormattingEditor {
   /** Focus the underlying editor after a toolbar click. */
@@ -90,6 +90,20 @@ export interface TextFormattingEditor {
 
   /** Programmatically trigger the link request (same as Ctrl+K). */
   requestLink(): void;
+
+  // --- Named styles (Google Docs paragraph styles) ---
+  // Optional: only the docs `EditorAPI` implements these. Slides text-box
+  // editors omit them, so the Styles dropdown hides the redefine/reset UI.
+  /** Read the document's named-style overrides registry. */
+  getDocStyles?(): DocStyles;
+  /** Replace the whole registry (e.g. "Use my default styles"). */
+  setDocStyles?(styles: DocStyles): void;
+  /** Redefine a style from the caret block ("Update '<style>' to match"). */
+  updateStyleToMatch?(styleId: StyleId): void;
+  /** Reset a single style to its built-in definition. */
+  resetNamedStyle?(styleId: StyleId): void;
+  /** Reset every style to its built-in definition. */
+  resetAllNamedStyles?(): void;
 
   /**
    * Strip all character-level inline styles (bold, italic, underline,
