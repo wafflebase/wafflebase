@@ -221,6 +221,7 @@ export function RightGlobals({
                 value={backgroundFill}
                 theme={theme}
                 onChange={onBackgroundChange}
+                allowAlpha
                 recentColors={store?.read().meta.recentColors}
               />
             )}

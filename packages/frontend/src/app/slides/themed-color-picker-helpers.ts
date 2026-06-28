@@ -71,6 +71,37 @@ export function makeSrgbColor(value: string): ThemeColor {
 }
 
 /**
+ * Transparency percent (0–100) for the picker's Transparency slider, the
+ * inverse of `ThemeColor.alpha` (opacity). A missing `alpha` (or `undefined`
+ * color) is fully opaque ⇒ 0% transparent; `alpha: 0` ⇒ 100% transparent.
+ * Mirrors the Google Slides "Transparency" convention (0% = solid).
+ */
+export function colorTransparencyPercent(
+  color: ThemeColor | undefined,
+): number {
+  const alpha = color?.alpha ?? 1;
+  return Math.round((1 - alpha) * 100);
+}
+
+/**
+ * Return `color` with its `alpha` (opacity, 0–1) set, clamping into range.
+ * A fully-opaque result drops the field entirely so `resolveColor` keeps
+ * taking its no-alpha fast path (and exports stay clean) — opaque is the
+ * absence of alpha, not `alpha: 1`.
+ */
+export function withAlpha(color: ThemeColor, alpha: number): ThemeColor {
+  const clamped = Math.max(0, Math.min(1, alpha));
+  const next = { ...color };
+  if (clamped >= 1) {
+    // Opaque is the absence of alpha, not `alpha: 1` — drop the field.
+    delete next.alpha;
+  } else {
+    next.alpha = clamped;
+  }
+  return next;
+}
+
+/**
  * Apply a fill color to a shape element via the store. Wrapped in
  * `store.batch` so undo collapses the change into a single entry,
  * matching the convention used by `applyBuiltInTheme` in

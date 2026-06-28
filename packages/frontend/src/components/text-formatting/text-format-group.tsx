@@ -338,6 +338,7 @@ function HighlightSwatch({
           colors={BG_COLORS}
           onSelect={handleColor}
           onReset={() => handleColor("")}
+          noneLabel="None"
         />
       </DropdownMenuContent>
     </DropdownMenu>
