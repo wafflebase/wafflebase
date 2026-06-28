@@ -18,7 +18,7 @@ toggle — deferred.
 - [x] A3 `local-provider.ts` — nspell + lazy en_US dict; check/suggest
 - [x] A4 `backend-provider.ts` — fetch-based provider (mock-tested)
 - [x] A5 `router.ts` — script → provider routing (word-boundary categories)
-- [x] A6 `session.ts` — view-local range set, debounce, word cache, visible-only
+- [x] A6 `session.ts` — view-local range set, debounce, word cache (visible-only scoping deferred; v1 scans all body blocks)
 
 ### B. Dependencies
 - [x] B1 Add `nspell` + en_US Hunspell dict to `packages/docs`
@@ -51,9 +51,12 @@ toggle — deferred.
 **What shipped (Phase 6.3):** English spell-check is live in the Docs
 editor — red wavy squiggles under misspelled words, right-click
 suggestions popover with one-click replacement (single undoable edit).
-The session debounces and restricts checking to the visible viewport.
-Per-word script detection routes words to the appropriate provider
-(English → LocalSpellProvider; non-Latin → backend stub).
+The session debounces rechecks (~300ms) on edit/cursor-move and dedupes
+concurrent runs via a generation guard. v1 re-tokenizes all body blocks
+per recheck (a word→result cache keeps repeats cheap); visible-only
+scoping is a deferred optimization. Per-word script detection routes
+words to the appropriate provider (Latin → LocalSpellProvider;
+Hangul → wired-but-deferred backend; CJK → skipped).
 
 **Dictionary strategy:** `dictionary-en` (npm) is Node-only and its
 `exports` map blocks subpath access in bundlers. The solution was to
