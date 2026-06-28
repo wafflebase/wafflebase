@@ -18,11 +18,19 @@ describe('BackendSpellProvider', () => {
     expect(f).toHaveBeenCalledWith('/api/v1/spell/check', expect.objectContaining({ method: 'POST' }));
   });
   it('returns suggestions via the endpoint', async () => {
-    const p = new BackendSpellProvider({ endpoint: '/api/v1/spell', fetchImpl: mockFetch({ suggestions: ['안녕'] }) });
+    const f = mockFetch({ suggestions: ['안녕'] });
+    const p = new BackendSpellProvider({ endpoint: '/api/v1/spell', fetchImpl: f });
     expect(await p.suggest('안뇽', 'ko')).toEqual(['안녕']);
+    expect(f).toHaveBeenCalledWith('/api/v1/spell/suggest', expect.objectContaining({ method: 'POST' }));
   });
   it('fails open (treats as correct) on network error', async () => {
     const f = vi.fn(async () => { throw new Error('net'); }) as unknown as typeof fetch;
+    const p = new BackendSpellProvider({ endpoint: '/api/v1/spell', fetchImpl: f });
+    expect(await p.check('안뇽', 'ko')).toBe(true);
+    expect(await p.suggest('안뇽', 'ko')).toEqual([]);
+  });
+  it('fails open (treats as correct) on non-ok HTTP response', async () => {
+    const f = vi.fn(async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch;
     const p = new BackendSpellProvider({ endpoint: '/api/v1/spell', fetchImpl: f });
     expect(await p.check('안뇽', 'ko')).toBe(true);
     expect(await p.suggest('안뇽', 'ko')).toEqual([]);
