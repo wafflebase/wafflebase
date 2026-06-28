@@ -42,6 +42,7 @@
 
 import type { SlidesDocument } from '../../model/presentation.js';
 import { resolveBackgroundFill } from '../../model/presentation.js';
+import { yieldToPaint } from '../yield.js';
 import type { ImageElement } from '../../model/element.js';
 import { flattenElements, buildElementWorldLookup } from '../../model/group.js';
 import { computeConnectorFrame } from '../../view/canvas/connector-frame.js';
@@ -69,6 +70,8 @@ export interface ExportPptxOptions {
    * this option throws a clear error rather than writing broken XML.
    */
   fetchImage?: (src: string) => Promise<{ bytes: Uint8Array; mime: string }>;
+  /** Progress callback: `(done, total, 'slides')` once before work, then after each serialized slide. */
+  onProgress?: (done: number, total: number, phase: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +267,10 @@ export async function exportPptx(
   // -------------------------------------------------------------------------
   const slideRIds: string[] = [];
 
+  const onProgress = opts.onProgress;
+  const slideTotal = deck.slides.length;
+  onProgress?.(0, slideTotal, 'slides');
+
   for (let i = 0; i < deck.slides.length; i++) {
     const slide = deck.slides[i];
     const slidePath = `ppt/slides/slide${i + 1}.xml`;
@@ -338,6 +345,8 @@ export async function exportPptx(
       `slides/slide${i + 1}.xml`,
     );
     slideRIds.push(slideRId);
+    onProgress?.(i + 1, slideTotal, 'slides');
+    if (i + 1 < slideTotal) await yieldToPaint();
   }
 
   // -------------------------------------------------------------------------
