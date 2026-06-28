@@ -19,9 +19,9 @@ editorial, vibrant, and dark looks. Open the **Theme** panel from the right
 sidebar to see thumbnails and apply one with a click.
 
 - **Simple Light** *(default)* and **Simple Dark** — neutral baselines
-- Streamline, Swiss, Paradigm, Material, Shift, Momentum, Focus, Luxe, Modern
-  Writer, Coral, Spearmint, Pop, Tropic, Marina, Geometric, Plum, Slate,
-  Forest, Spotlight, Beach Day
+- Streamline, Swiss, Paradigm, Material, Shift, Momentum, Focus, Luxe,
+  Modern Writer, Coral, Spearmint, Pop, Tropic, Marina, Geometric, Plum,
+  Slate, Forest, Spotlight, Beach Day
 - **Wafflebase** — the Wafflebase brand palette
 
 New decks start on **Simple Light**. You can switch themes at any time — the

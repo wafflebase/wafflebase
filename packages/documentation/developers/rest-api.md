@@ -46,7 +46,7 @@ Calling an endpoint against the wrong document type — e.g. a tabs/cells call o
 
 ## Documents
 
-Document CRUD works for both sheets and docs. Each document carries a `type` field (`"sheet"` or `"doc"`).
+Document CRUD works for sheets, docs, and slides. Each document carries a `type` field (`"sheet"`, `"doc"`, or `"slides"`).
 
 ### List Documents
 

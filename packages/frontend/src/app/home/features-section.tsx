@@ -72,7 +72,7 @@ const SECONDARY_FEATURES: SecondaryFeature[] = [
     Icon: MessageSquare,
     title: "Comments, Mentions & Spell Check",
     description: "Inline threads, @mentions, and live spell checking",
-    href: "/docs/docs-editor/writing-a-document",
+    href: "/docs/guide/collaboration",
   },
   {
     Icon: Palette,

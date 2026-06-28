@@ -1,6 +1,6 @@
 # Homepage Refresh — content + interop section
 
-Status: **planning**
+Status: **shipped — PR #429** (see Review section for the authoritative final state)
 Branch: `homepage-refresh`
 
 ## Context
@@ -22,10 +22,10 @@ Import/export matrix actually shipped in code:
 | Capability | Import | Export |
 |---|---|---|
 | Sheets (XLSX) | ✅ `packages/sheets/src/import/xlsx-importer.ts` | ❌ (none yet) |
-| Docs (DOCX)   | ✅ `packages/docs/src/import/docx-importer.ts` | ✅ `export/docx-exporter.ts` |
-| Docs (PDF)    | — | ✅ `export/pdf-exporter.ts` |
-| Slides (PPTX) | ✅ `packages/slides/src/import/pptx/` | ✅ `export/pptx/` |
-| Slides (PDF)  | — | ✅ `export/pdf.ts` |
+| Docs (DOCX)   | ✅ `packages/docs/src/import/docx-importer.ts` | ✅ `packages/docs/src/export/docx-exporter.ts` |
+| Docs (PDF)    | — | ✅ `packages/docs/src/export/pdf-exporter.ts` |
+| Slides (PPTX) | ✅ `packages/slides/src/import/pptx/` | ✅ `packages/slides/src/export/pptx/` |
+| Slides (PDF)  | — | ✅ `packages/slides/src/export/pdf.ts` |
 
 → Honest framing: **Import** XLSX, DOCX, PPTX · **Export** DOCX, PPTX, PDF.
 Do NOT claim XLSX export (not implemented).
@@ -39,7 +39,7 @@ writing-a-document}`, `guide/{collaboration,getting-started}`,
 ## Work items
 
 ### 1. Fix broken link 🔴
-- [ ] `use-cases-section.tsx:15` — `/docs/sheets/sheet` does not exist.
+- [x] `use-cases-section.tsx:15` — `/docs/sheets/sheet` does not exist.
       Replace with `/docs/sheets/build-a-budget` (closest matching the
       "embed an editable grid" internal-tools use case).
 
@@ -47,42 +47,43 @@ writing-a-document}`, `guide/{collaboration,getting-started}`,
 Keep the 3 hero pillars (Collaboration / REST API & CLI / Self-hosted).
 Update the 6 secondary cards (2 per product) to current breadth:
 
-- [ ] Sheets · Formulas & Cross-Sheet References — keep (`/docs/sheets/formulas`)
-- [ ] Sheets · Charts, Pivots & SQL Datasources (BarChart3) —
+- [x] Sheets · Formulas & Cross-Sheet References — keep (`/docs/sheets/formulas`)
+- [x] Sheets · Charts, Pivots & SQL Datasources (BarChart3) —
       "Visualize, aggregate, and pull live data from PostgreSQL" → `/docs/sheets/charts`
-- [ ] Docs · Page-Based Document Editor — keep (`/docs/docs-editor/writing-a-document`)
-- [ ] Docs · Comments, Mentions & Spell Check (MessageSquare) —
+- [x] Docs · Page-Based Document Editor — keep (`/docs/docs-editor/writing-a-document`)
+- [x] Docs · Comments, Mentions & Spell Check (MessageSquare) —
       "Inline threads, @mentions, and live spell checking" → `/docs/docs-editor/writing-a-document`
       (no dedicated comments page yet; anchor TBD)
-- [ ] Slides · Themes, Layouts & Shapes (Palette) —
+- [x] Slides · Themes, Layouts & Shapes (Palette) —
       "23 built-in themes, Google-Slides-parity layouts, 55+ shapes & connectors" → `/docs/slides/themes-and-layouts`
-- [ ] Slides · Animations & Presentation Mode (Presentation) —
+- [x] Slides · Animations & Presentation Mode (Presentation) —
       "Object/slide animations plus a full-screen keyboard-driven player" → `/docs/slides/build-a-deck`
 
 ### 3. New Interop section 🟡
-- [ ] New component `interop-section.tsx`, mounted in `page.tsx` between
+- [x] New component `interop-section.tsx`, mounted in `page.tsx` between
       `UseCasesSection` and `WhySection` (pairs with the no-lock-in message).
-- [ ] Reuse `<SectionHead>` + the existing paper-card style (no new tokens).
-- [ ] Content: kicker "No lock-in", title "Bring your files — and take
+- [x] Reuse `<SectionHead>` + the existing paper-card style (no new tokens).
+- [x] Content: kicker "No lock-in", title "Bring your files — and take
       them with you.", two columns: **Import** (XLSX → Sheets, DOCX → Docs,
       PPTX → Slides) and **Export** (DOCX, PPTX, PDF). lucide file icons.
-- [ ] Add one row to the WhySection table: "Import & export PPTX, DOCX, PDF"
-      → Wafflebase ✅ / Google Workspace = Limited.
+- [~] Add one row to the WhySection table: "Import & export PPTX, DOCX, PDF"
+      → added, then **reverted at user request** (interop story lives only in
+      the dedicated InteropSection, not duplicated in the comparison table).
 
 ### 4. Design doc + verify
-- [ ] Update `docs/design/homepage.md`: add InteropSection to the section
+- [x] Update `docs/design/homepage.md`: add InteropSection to the section
       table + file structure; refresh FeaturesSection card list.
-- [ ] `pnpm verify:fast` green.
-- [ ] Self-review via `/code-review` over the branch diff.
-- [ ] Manual smoke in `pnpm dev` (homepage renders, new section + links).
+- [x] `pnpm verify:fast` green.
+- [x] Self-review via `/code-review` over the branch diff.
+- [x] Manual smoke in `pnpm dev` (homepage renders, new section + links).
 
-## Open decisions (confirm before coding)
+## Decisions (resolved with user before coding)
 
-1. Interop section placement: UseCases → **Interop** → Why (proposed) — OK?
-2. Secondary-card swaps: drop "Tables & Pagination" for "Comments/Mentions/
-   Spell Check"? (Tables still mentioned via Docs editor card description.)
-3. Docs link for the comments card — no dedicated page exists; point at
-   `writing-a-document` for now, or omit the link?
+1. Interop section placement → UseCases → **Interop** → Why. ✅
+2. Secondary-card swaps → dropped "Tables & Pagination" for "Comments/Mentions/
+   Spell Check" (tables still noted in the Docs editor card). ✅
+3. Docs link for the comments card → points at `/docs/guide/collaboration`
+   (where comments/mentions are documented; updated per PR #429 review). ✅
 
 ## Phase 2 — Documentation parity (`packages/documentation`)
 
