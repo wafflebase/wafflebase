@@ -40,8 +40,26 @@ Deferred: Select all, Ignore/Add-to-dictionary, Define, Smart chips, Format opti
 - [x] C1 `pnpm verify:fast` green; `pnpm --filter @wafflebase/docs build` + frontend build
 - [ ] C2 Manual smoke: body right-click shows unified menu; misspelled word shows suggestions at top; Cut/Copy with selection; Add link/comment work; in-table right-click still shows table menu
 - [x] C3 Update `docs/design/docs/docs-spell-check.md` (suggestions now live in the unified menu) + add a short `docs-context-menu` note
-- [ ] C4 Self code-review; lessons; archive
+- [x] C4 Self code-review (final whole-branch, opus) + lessons; archive at merge
 
 ## Review
 
 _(filled on completion)_
+
+**What shipped:** One Google-Docs-style body right-click menu
+(`DocsContextMenu`, frontend) replacing the standalone spell popover and
+`DocsCommentContextMenu`: spell suggestions (top, async) + Cut/Copy
+(selection-gated, editable-only) + Paste (best-effort) + Add link / Add
+comment. The docs package exposes `getSpellErrorAt` /
+`getSpellSuggestions` / `applySpellSuggestion` / `copy` / `cut` / `paste`
+on `EditorAPI` and always suppresses the native menu; `DocsTableContextMenu`
+still owns in-table right-click.
+
+**Notable fix:** removed the SpellSession caret-word skip — clicking into
+a misspelling no longer erased its squiggle, which broke right-click-to-fix.
+
+**Known limitations / deferred:** menu Paste is best-effort (browser blocks
+programmatic rich paste; ⌘V is full-fidelity); read-only Copy is hidden
+(textarea is null in read-only — pre-existing gap); Select all,
+Ignore/Add-to-dictionary, Define, Smart chips, Format options deferred;
+mid-word typing pause can briefly flash a squiggle on the incomplete prefix.
