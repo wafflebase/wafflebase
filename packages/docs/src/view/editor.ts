@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -20,7 +20,9 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
-import type { SpellSession } from '../spell/session.js';
+import { SpellSession, type SpellError } from '../spell/session.js';
+import { SpellRouter } from '../spell/router.js';
+import { LocalSpellProvider } from '../spell/local-provider.js';
 import { resolveNestedTableLayout } from './table-layout.js';
 import { computeMergedCellLineLayouts, cellOriginPx } from './table-geometry.js';
 import type { BlockCellInfo } from '../model/types.js';
@@ -192,9 +194,15 @@ export interface EditorAPI {
   setSpellSession(session: SpellSession | null): void;
   /**
    * Return the cached spell-error rects from the last render pass.
-   * Reserved for hit-testing in a future task.
+   * Used for hit-testing the spell-suggestions context menu.
    */
   getSpellErrorRects(): ReadonlyArray<{ x: number; y: number; width: number; height: number }>;
+  /**
+   * Enable or disable the built-in spell checker. On by default. When
+   * disabled, existing squiggles are cleared and no rechecks run until
+   * re-enabled.
+   */
+  setSpellCheckEnabled(enabled: boolean): void;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -1048,6 +1056,10 @@ export function initialize(
     selection?: Parameters<CursorMoveCallback>[1],
   ): void {
     for (const cb of cursorMoveCallbacks) cb(pos, selection);
+    // Edits and cursor moves both flow through here, so this is the
+    // single place to debounce spell re-checks. `scheduleSpellRecheck`
+    // is a hoisted declaration and no-ops while the session is unset.
+    scheduleSpellRecheck();
   }
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
@@ -1057,8 +1069,16 @@ export function initialize(
   let commentMarkerRects: HighlightRect[] = [];
   // View-local spell state. Never serialized to the CRDT.
   let spellSession: SpellSession | null = null;
-  // Cache of spell-error rects from the last render(). Reserved for hit-testing in Task 8.
+  // Cache of spell-error rects from the last render(). Read by the
+  // spell context-menu hit-test path.
   let lastSpellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  // Whether the built-in spell checker is active. On by default.
+  let spellEnabled = true;
+  // Debounce handle for re-checking after edits / cursor moves.
+  let spellTimer: ReturnType<typeof setTimeout> | null = null;
+  // Currently open suggestions popover (DOM), if any.
+  let spellPopover: HTMLDivElement | null = null;
+  let closeSpellPopover: () => void = () => {};
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -2231,6 +2251,183 @@ export function initialize(
   container.addEventListener('dragover', handleImageDragOver);
   container.addEventListener('drop', handleImageDrop);
 
+  // ---- Spell check: debounced recheck + suggestions context menu -------
+  //
+  // View-local only: errors live on `spellSession`, rects are recomputed
+  // per render (Task 7). Nothing here is ever written to the CRDT — the
+  // replace path goes through plain `deleteText`/`insertText` so it is a
+  // normal, undoable edit.
+
+  // Debounce a recheck. Hoisted so `fireCursorMoveCallbacks` (declared
+  // earlier) can call it. No-ops while the session is unset or disabled.
+  function scheduleSpellRecheck(): void {
+    if (!spellSession || !spellEnabled) return;
+    if (spellTimer) clearTimeout(spellTimer);
+    spellTimer = setTimeout(() => {
+      spellTimer = null;
+      void runSpellRecheck();
+    }, 300);
+  }
+
+  async function runSpellRecheck(): Promise<void> {
+    if (!spellSession || !spellEnabled) return;
+    // Body blocks only — the spell-rect computation in render() resolves
+    // each error through the body `layout`/`paginatedLayout`, so the ids
+    // we feed must come from the same set. Tables expose empty
+    // `getBlockText`, so they contribute no words.
+    const blocks = doc.document.blocks.map((b) => ({
+      id: b.id,
+      text: getBlockText(b),
+    }));
+    const caret = { blockId: cursor.position.blockId, offset: cursor.position.offset };
+    await spellSession.recheckBlocks(blocks, {
+      caret,
+      composing: textEditor?.isComposing() ?? false,
+    });
+    // Repaint-only: errors changed but layout did not.
+    renderPaintOnly();
+  }
+
+  // Map a context-menu event to the spell error under the pointer, reusing
+  // the exact click→position pipeline the editor uses elsewhere
+  // (clientToDocCoords + paginatedPixelToPosition).
+  const spellErrorAtEvent = (e: MouseEvent): SpellError | undefined => {
+    if (!spellSession || !layout) return undefined;
+    const { x: docX, y: docY } = clientToDocCoords(e.clientX, e.clientY);
+    const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
+    const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
+    if (!hit) return undefined;
+    return spellSession.errorAt(hit.blockId, hit.offset);
+  };
+
+  const handleSpellContextMenu = (e: MouseEvent): void => {
+    if (readOnly || !spellSession || !spellEnabled) return;
+    const err = spellErrorAtEvent(e);
+    if (!err) return; // no squiggle here → let the browser's menu through
+    e.preventDefault();
+    // Stop the app's own context menu (Radix) from also opening on top of
+    // our suggestions popover when the click lands on a misspelling.
+    e.stopPropagation();
+    void openSpellPopover(e.clientX, e.clientY, err);
+  };
+
+  async function openSpellPopover(
+    clientX: number,
+    clientY: number,
+    err: SpellError,
+  ): Promise<void> {
+    if (!spellSession) return;
+    closeSpellPopover();
+    const session = spellSession;
+
+    const menu = document.createElement('div');
+    menu.style.cssText = [
+      'position:fixed',
+      `left:${clientX}px`,
+      `top:${clientY}px`,
+      'z-index:2147483647',
+      'min-width:160px',
+      'max-height:280px',
+      'overflow-y:auto',
+      'padding:4px 0',
+      'background:#fff',
+      'border:1px solid rgba(0,0,0,0.15)',
+      'border-radius:6px',
+      'box-shadow:0 2px 10px rgba(0,0,0,0.2)',
+      'font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+      'color:#202124',
+      'user-select:none',
+    ].join(';');
+
+    const addItem = (label: string, onClick?: () => void): void => {
+      const item = document.createElement('div');
+      item.textContent = label;
+      item.style.cssText = [
+        'padding:6px 16px',
+        'white-space:nowrap',
+        onClick ? 'cursor:pointer' : 'cursor:default',
+        onClick ? 'color:#202124' : 'color:#9aa0a6',
+      ].join(';');
+      if (onClick) {
+        item.addEventListener('mouseenter', () => {
+          item.style.background = '#f1f3f4';
+        });
+        item.addEventListener('mouseleave', () => {
+          item.style.background = '';
+        });
+        // mousedown (not click) so the popover acts before the
+        // outside-mousedown listener tears it down.
+        item.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          onClick();
+        });
+      }
+      menu.appendChild(item);
+    };
+
+    // Loading placeholder while suggestions resolve (dict load is async).
+    addItem('Checking…');
+    document.body.appendChild(menu);
+    spellPopover = menu;
+
+    // Outside-click / Escape / scroll dismiss. Registered now so the menu
+    // closes even while suggestions are still loading.
+    const onOutside = (ev: MouseEvent): void => {
+      if (spellPopover && !spellPopover.contains(ev.target as Node)) {
+        closeSpellPopover();
+      }
+    };
+    const onKey = (ev: KeyboardEvent): void => {
+      if (ev.key === 'Escape') closeSpellPopover();
+    };
+    closeSpellPopover = (): void => {
+      document.removeEventListener('mousedown', onOutside, true);
+      document.removeEventListener('keydown', onKey, true);
+      container.removeEventListener('scroll', closeSpellPopover);
+      menu.remove();
+      if (spellPopover === menu) spellPopover = null;
+      closeSpellPopover = () => {};
+    };
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onKey, true);
+    container.addEventListener('scroll', closeSpellPopover);
+
+    const suggestions = await session.router.suggest(err.word);
+    // The popover may have been dismissed while suggestions loaded.
+    if (spellPopover !== menu) return;
+    menu.replaceChildren();
+
+    if (suggestions.length === 0) {
+      addItem('No suggestions');
+      return;
+    }
+    for (const suggestion of suggestions) {
+      addItem(suggestion, () => {
+        // `replace` snapshots (undo) then deletes+inserts. Mark the block
+        // dirty and re-layout so the squiggle and text update, then
+        // re-check immediately.
+        session.replace(doc, err, suggestion);
+        cursor.moveTo({ blockId: err.blockId, offset: err.start + suggestion.length });
+        markDirty(err.blockId);
+        invalidateLayout();
+        render();
+        closeSpellPopover();
+        void runSpellRecheck();
+      });
+    }
+  }
+
+  container.addEventListener('contextmenu', handleSpellContextMenu);
+
+  // Construct the view-local spell session (default ON). The session never
+  // touches the CRDT; `snapshot` routes its replace through the doc store's
+  // undo stack so corrections are normal undoable edits.
+  spellSession = new SpellSession(
+    new SpellRouter([new LocalSpellProvider()]),
+    { snapshot: () => docStore.snapshot() },
+  );
+  scheduleSpellRecheck();
+
   // Resize cursor hint for image handles. Installed as a pre-handler
   // on TextEditor.handleMouseMove rather than as a separate listener
   // so that TextEditor's own `setCanvasCursor('text')` reset doesn't
@@ -2806,6 +3003,20 @@ export function initialize(
       render();
     },
     getSpellErrorRects: () => lastSpellErrorRects,
+    setSpellCheckEnabled: (enabled: boolean) => {
+      spellEnabled = enabled;
+      if (enabled) {
+        scheduleSpellRecheck();
+      } else {
+        if (spellTimer) {
+          clearTimeout(spellTimer);
+          spellTimer = null;
+        }
+        closeSpellPopover();
+        if (spellSession) spellSession.errors = [];
+        renderPaintOnly();
+      }
+    },
     setCommentMarkers: (markers: CommentMarker[]) => {
       // Clone so callers can keep their own list (e.g. memoize the
       // marker array between renders) without our cached rect pass
@@ -3193,7 +3404,14 @@ export function initialize(
       document.removeEventListener('mousemove', handleImageResizeMouseMove);
       document.removeEventListener('mouseup', handleImageResizeMouseUp);
       container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener('contextmenu', handleSpellContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
+      if (spellTimer) {
+        clearTimeout(spellTimer);
+        spellTimer = null;
+      }
+      closeSpellPopover();
+      spellSession = null;
       resizeObserver.disconnect();
       canvas.remove();
     },

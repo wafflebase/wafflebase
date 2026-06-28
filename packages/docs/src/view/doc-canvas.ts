@@ -428,7 +428,7 @@ export class DocCanvas {
       }
 
       // Draw red wavy underlines for spell errors on this page.
-      if (spellErrorRects) {
+      if (spellErrorRects?.length) {
         this.ctx.save();
         this.ctx.strokeStyle = '#e53935';
         this.ctx.lineWidth = 1;

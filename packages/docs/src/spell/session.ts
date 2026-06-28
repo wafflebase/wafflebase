@@ -27,7 +27,7 @@ export class SpellSession {
   private generation = 0;
 
   constructor(
-    private router: SpellRouter,
+    readonly router: SpellRouter,
     private opts: { snapshot?: () => void } = {},
   ) {}
 
