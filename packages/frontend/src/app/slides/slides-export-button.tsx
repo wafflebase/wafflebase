@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { IconFileTypePdf, IconDownload, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconFileTypePdf,
+  IconFileTypePpt,
+  IconDownload,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 import type { SlidesStore } from "@wafflebase/slides";
 import {
@@ -14,6 +19,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { exportSlidesPdfAndDownload } from "./pdf-actions";
+import { exportSlidesPptxAndDownload } from "./pptx-actions";
 import { updateExportToast } from "../docs/export-utils";
 
 interface SlidesExportButtonProps {
@@ -23,10 +29,10 @@ interface SlidesExportButtonProps {
 }
 
 /**
- * Header "Export" menu for the slides editor. P0 offers PDF only (one
- * slide per page, raster). The dynamic-imported pdf-lib + per-slide
- * canvas render can take a few seconds on large decks, so the trigger
- * shows a spinner and stays disabled until the download fires.
+ * Header "Export" menu for the slides editor. Offers PDF (one slide per
+ * page, raster) and PPTX (vector DrawingML round-trip). Either path can
+ * take a few seconds on large decks — the trigger shows a spinner and
+ * stays disabled until the download fires.
  */
 export function SlidesExportButton({
   store,
@@ -35,20 +41,27 @@ export function SlidesExportButton({
 }: SlidesExportButtonProps) {
   const [exporting, setExporting] = useState(false);
 
-  const handleExportPdf = async () => {
+  const runExport = async (
+    label: string,
+    fn: (
+      doc: ReturnType<SlidesStore["read"]>,
+      title: string,
+      onProgress: (done: number, total: number, phase: string) => void,
+    ) => Promise<void>,
+  ) => {
     if (!store || exporting) return;
     setExporting(true);
     const t = title || "presentation";
     let toastId: string | number | undefined;
     try {
-      await exportSlidesPdfAndDownload(store.read(), t, (done, total, phase) => {
+      await fn(store.read(), t, (done, total, phase) => {
         toastId = updateExportToast(toastId, t, done, total, phase);
       });
       const message = `Exported "${t}"`;
       if (toastId !== undefined) toast.success(message, { id: toastId });
       else toast.success(message);
     } catch (err) {
-      console.error("Slides PDF export failed", err);
+      console.error(`Slides ${label} export failed`, err);
       const message =
         err instanceof Error ? `Export failed: ${err.message}` : "Export failed";
       if (toastId !== undefined) toast.error(message, { id: toastId });
@@ -83,10 +96,18 @@ export function SlidesExportButton({
         <DropdownMenuItem
           className="cursor-pointer"
           disabled={exporting}
-          onSelect={handleExportPdf}
+          onSelect={() => runExport("PDF", exportSlidesPdfAndDownload)}
         >
           <IconFileTypePdf size={16} />
           PDF (.pdf)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer"
+          disabled={exporting}
+          onSelect={() => runExport("PPTX", exportSlidesPptxAndDownload)}
+        >
+          <IconFileTypePpt size={16} />
+          PowerPoint (.pptx)
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
