@@ -99,6 +99,9 @@ export class MemDocStore implements DocStore {
 
   setDocStyles(styles: DocStyles): void {
     this.doc.styles = JSON.parse(JSON.stringify(styles));
+    // Re-materialize spacing across all styled blocks so "Use my default
+    // styles" applies paragraph spacing too (inline defaults reflow lazily).
+    rematerializeDocSpacing(this.doc);
   }
 
   updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void {

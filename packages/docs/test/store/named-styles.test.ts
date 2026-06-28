@@ -69,6 +69,17 @@ describe('MemDocStore named styles', () => {
     expect(block.style.marginTop).toBe(BUILTIN_STYLES['heading-1'].block.marginTop);
   });
 
+  it('setDocStyles re-materializes block spacing across styled blocks', () => {
+    const h1 = createBlock('heading', { headingLevel: 1 });
+    h1.id = 'h';
+    const store = new MemDocStore(docWith(h1 as Block));
+    store.setDocStyles({ 'heading-1': { block: { marginTop: 50, marginBottom: 9 } } });
+    expect(store.getBlock('h')!.style.marginTop).toBe(50);
+    // Clearing the registry re-materializes back to the built-in H1 spacing.
+    store.setDocStyles({});
+    expect(store.getBlock('h')!.style.marginTop).toBe(BUILTIN_STYLES['heading-1'].block.marginTop);
+  });
+
   it('resetAllStyles clears the whole registry', () => {
     const store = new MemDocStore(docWith(para('a')));
     store.updateStyleDefinition('title', { inline: { color: '#ff0000' }, block: {} });

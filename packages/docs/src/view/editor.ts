@@ -2735,10 +2735,11 @@ export function initialize(
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return;
-      // Capture the caret block's direct character formatting + spacing as
-      // the new definition. Character props only — structural inline kinds
-      // (href / pageNumber / image) never belong to a paragraph style.
-      const s = block.inlines[0]?.style ?? {};
+      // Capture the run at the caret (not blindly the first run) plus the
+      // block spacing as the new definition. Only character props are copied
+      // below, so structural inline kinds (href / pageNumber / image) never
+      // leak into a paragraph style.
+      const s = getSelectionStyleImpl();
       const def: NamedStyleDef = {
         inline: {
           bold: s.bold,

@@ -2524,11 +2524,10 @@ export class YorkieDocStore implements DocStore {
   }
 
   setDocStyles(styles: DocStyles): void {
-    this.doc.update((root) => {
-      root.stylesJson = JSON.stringify(styles ?? {});
-    });
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Re-materialize spacing across every styled block (one undo unit) so
+    // "Use my default styles" applies paragraph spacing too — inline defaults
+    // reflow lazily, but block spacing is materialized.
+    this.writeStylesAndRematerialize(styles ?? {}, undefined);
   }
 
   updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void {
