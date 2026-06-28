@@ -4,6 +4,7 @@ import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockT
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
+import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
@@ -979,21 +980,39 @@ export function initialize(
    * Used by both the public getSelectionStyle (which layers pending on
    * top) and applyStyleImpl (which seeds the pending merge base).
    */
-  function getSelectionStyleImpl(): Partial<InlineStyle> {
+  /**
+   * Effective inline defaults a block inherits from its named style. Used to
+   * present the *computed* style (what the user sees rendered) in the toolbar
+   * pickers — a Heading 1 with no explicit run style still reads as 20pt.
+   */
+  function styleDefaultsForBlock(block: Block): Partial<InlineStyle> {
+    return resolveStyleInline(blockStyleId(block), doc.document.styles);
+  }
+
+  /**
+   * Read the inline style at the caret. With `withStyleDefaults`, the block's
+   * named-style inline defaults are layered underneath the explicit run style
+   * so the toolbar reflects the rendered (computed) style. Without it — the
+   * default — the raw explicit style is returned, so pending-style capture and
+   * style application never bake a style default into a stored run (which would
+   * break the lazy cascade when the style is later redefined).
+   */
+  function getSelectionStyleImpl(withStyleDefaults = false): Partial<InlineStyle> {
     const block = layout.blockParentMap.has(cursor.position.blockId)
       ? doc.getBlock(cursor.position.blockId)
       : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
     if (!block) return {};
+    const defaults = withStyleDefaults ? styleDefaultsForBlock(block) : undefined;
     let pos = 0;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;
       if (cursor.position.offset <= inlineEnd) {
-        return { ...inline.style };
+        return { ...defaults, ...inline.style };
       }
       pos = inlineEnd;
     }
     const last = block.inlines[block.inlines.length - 1];
-    return last ? { ...last.style } : {};
+    return last ? { ...defaults, ...last.style } : { ...defaults };
   }
 
   function applyStyleImpl(style: Partial<InlineStyle>): void {
@@ -2433,7 +2452,7 @@ export function initialize(
     getDoc: () => doc,
     getStore: () => docStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
-      const base = getSelectionStyleImpl();
+      const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
         return { ...base, ...pending.get()! };
       }
@@ -2455,16 +2474,19 @@ export function initialize(
       const styleAtCaret = (): Partial<InlineStyle> => {
         const block = doc.findBlock(cursor.position.blockId);
         if (!block) return {};
+        // Layer the block's named-style inline defaults underneath the run
+        // style so the pickers show the computed (rendered) value.
+        const defaults = styleDefaultsForBlock(block);
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
           if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style };
+            return { ...defaults, ...inline.style };
           }
           pos = inlineEnd;
         }
         const last = block.inlines[block.inlines.length - 1];
-        return last ? { ...last.style } : {};
+        return last ? { ...defaults, ...last.style } : { ...defaults };
       };
 
       // No range — return the caret style, layered with any pending
@@ -2506,6 +2528,11 @@ export function initialize(
       ): void => {
         const block = doc.findBlock(blockId);
         if (!block) return;
+        // Effective style per run = the block's named-style inline defaults
+        // under the run's explicit style, so the summary reflects the
+        // computed (rendered) formatting — and a selection spanning blocks of
+        // different styles correctly reads as 'mixed'.
+        const defaults = styleDefaultsForBlock(block);
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
@@ -2513,8 +2540,9 @@ export function initialize(
           // zero-width inlines (empty placeholder runs) as out of
           // range — they don't contribute style information.
           if (inlineEnd > from && pos < to && inline.text.length > 0) {
+            const effective = { ...defaults, ...inline.style };
             for (const key of KEYS) {
-              const raw = (inline.style as Record<string, unknown>)[key];
+              const raw = (effective as Record<string, unknown>)[key];
               const token = tokenize(raw);
               if (!seen[key].has(token)) {
                 seen[key].add(token);

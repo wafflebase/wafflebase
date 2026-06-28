@@ -268,3 +268,74 @@ describe('getRangeStyleSummary', () => {
     editor.dispose();
   });
 });
+
+describe('getRangeStyleSummary reflects named-style defaults', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('a Heading 1 with no explicit run style reports the built-in H1 size', () => {
+    const blockId = 'h1';
+    const { editor } = setupEditor([
+      {
+        id: blockId,
+        type: 'heading',
+        headingLevel: 1,
+        inlines: [{ text: 'Title', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 5 },
+    });
+    const summary = editor.getRangeStyleSummary();
+    // Built-in Heading 1 is 20pt, non-bold (Google Docs).
+    expect(summary.fontSize).toBe(20);
+    expect(summary.bold).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('an explicit run size overrides the named-style default', () => {
+    const blockId = 'h1';
+    const { editor } = setupEditor([
+      {
+        id: blockId,
+        type: 'heading',
+        headingLevel: 1,
+        inlines: [{ text: 'Title', style: { fontSize: 30 } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 5 },
+    });
+    expect(editor.getRangeStyleSummary().fontSize).toBe(30);
+    editor.dispose();
+  });
+
+  test('a collapsed caret in a styled paragraph reports the effective size', () => {
+    const blockId = 'h2';
+    const { editor } = setupEditor([
+      {
+        id: blockId,
+        type: 'heading',
+        headingLevel: 2,
+        inlines: [{ text: 'Sub', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 2 },
+      focus: { blockId, offset: 2 },
+    });
+    // Built-in Heading 2 is 16pt.
+    expect(editor.getRangeStyleSummary().fontSize).toBe(16);
+    editor.dispose();
+  });
+});
