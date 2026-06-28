@@ -42,8 +42,10 @@ should stay as-is.
 
 - **CSV import (quick win)** — wire up the already-present `papaparse` for
   small local CSV → editable sheet, mirroring the XLSX path. No DuckDB.
-- **Parquet & JSON import** — formats with no practical client-side reader;
-  parse via the **backend embedded DuckDB** engine and materialize.
+- **Parquet & JSON import** — small local files parse client-side (`hyparquet`
+  for Parquet, `JSON.parse` for JSON); large/remote files parse via the
+  **backend embedded DuckDB** engine and materialize. The split is by
+  size/location, not format (see §1).
 - **Remote / object-storage Connect** — point at `https://…` or `s3://…`
   (CSV/Parquet/JSON, glob/partitioned) and render a read-only tab via DuckDB +
   `ReadOnlyStore`.
@@ -69,27 +71,33 @@ The key design decision: **don't force everything through one path.**
 
 | Engine | Best for | Mode | Round-trip |
 |--------|----------|------|-----------|
-| **Client-side parsers** (existing XLSX; CSV via `papaparse`) | small local uploads of "spreadsheet-shaped" files | Import (materialize, editable) | none — runs in browser |
-| **Backend DuckDB** (new) | Parquet, JSON, large CSV, remote/object files | Import (large) **and** Connect (read-only) | upload or read-in-place |
+| **Client-side parsers** (existing XLSX; CSV via `papaparse`; small Parquet via `hyparquet`; small JSON via `JSON.parse`) | small local uploads | Import (materialize, editable) | none — runs in browser |
+| **Backend DuckDB** (new) | large CSV/Parquet/JSON, remote/object files | Import (large) **and** Connect (read-only) | upload or read-in-place |
 
-XLSX stays client-side (it works and avoids a server hop). CSV gets the same
-client-side treatment for small files. DuckDB is added only where the browser
-can't reasonably go: Parquet, JSON, big files, and remote/object sources.
+XLSX stays client-side (it works and avoids a server hop). CSV, and small
+Parquet/JSON, get the same client-side treatment. DuckDB is added only where the
+browser can't reasonably go: large files and remote/object sources.
 
 ### 2. CSV import (client-side, quick win)
 
 - Add a CSV branch beside `pickAndImportXlsx` in
   `packages/frontend/src/app/spreadsheet/xlsx-actions.ts` (or a sibling
   `csv-actions.ts`) using the already-installed `papaparse`.
-- Parse → build a one-sheet `SpreadsheetDocument` via the same
-  `createSpreadsheetDocumentFromImportedXlsxSheets` shape → editable sheet.
+- Parse → build a one-sheet `SpreadsheetDocument` → editable sheet. The existing
+  `createSpreadsheetDocumentFromImportedXlsxSheets` is typed for
+  `ImportedXlsxSheet[]` (multi-sheet, XLSX-specific metadata like `cellCount`),
+  so CSV either gets a small generic helper extracted from it
+  (`createSpreadsheetDocumentFromImportedSheets`, taking a flat sheet shape) or a
+  CSV-specific builder — don't force CSV through the XLSX-shaped abstraction.
 - Header detection + basic type coercion (numbers/dates) on import.
 
-### 3. Parquet / JSON / large-file import (backend DuckDB)
+### 3. Large / remote Parquet / JSON / CSV import (backend DuckDB)
 
-- **Upload endpoint** stores the file via the existing S3 bucket infra
-  (`packages/backend/src/image/image.service.ts` pattern: `S3Client`, MinIO
-  `forcePathStyle`, bucket auto-create) under a short-lived `imports/` key.
+- **Upload endpoint** stores the file in S3. Reuse only the underlying
+  `S3Client` configuration from `image.service.ts` (endpoint, credentials,
+  bucket, MinIO `forcePathStyle`, bucket auto-create) — not its image-specific
+  processing. Extract a generic `StorageService` / `S3Service` rather than
+  depending on the image domain. Store under a short-lived `imports/` key.
 - **Parse via DuckDB**: `read_parquet(...)`, `read_json_auto(...)`,
   `read_csv_auto(...)` for large CSV.
 - **Preview** returns first N rows + inferred columns (the datasource
@@ -114,8 +122,8 @@ OTF table:
   field → detect format from extension/content → route:
   - `.xlsx` → existing client-side importer (unchanged).
   - `.csv` (small) → client-side `papaparse`.
-  - `.parquet` / `.json` / large / remote → backend DuckDB (preview →
-    Import or Connect).
+  - `.parquet` (small) → client-side `hyparquet`; `.json` (small) → `JSON.parse`.
+  - large / remote / object → backend DuckDB (preview → Import or Connect).
 - Reuse `tab-bar.tsx` for the resulting tab and the datasource/lakehouse view
   shell for the Connect preview.
 
@@ -126,8 +134,10 @@ OTF table:
 | Excel `.xlsx` (multi-sheet) | ✅ **already shipped** | — | client-side (sheets pkg) |
 | CSV / TSV (small) | ➕ quick win | — | client-side `papaparse` |
 | CSV / TSV (large / remote / object) | ➕ new | ➕ new | backend DuckDB |
-| Parquet (single / partitioned glob) | ➕ new | ➕ new | backend DuckDB |
-| JSON (ndjson / array) | ➕ new | ➕ new | backend DuckDB |
+| Parquet (small local) | ➕ new | — | client-side `hyparquet` |
+| Parquet (large / partitioned glob / remote) | ➕ new | ➕ new | backend DuckDB |
+| JSON (small local, ndjson / array) | ➕ new | — | client-side `JSON.parse` |
+| JSON (large / remote) | ➕ new | ➕ new | backend DuckDB |
 
 (✅ shipped · ➕ proposed)
 
@@ -154,7 +164,7 @@ OTF table:
 | Risk | Mitigation |
 |------|------------|
 | Duplicating the existing XLSX importer | Explicitly out of scope; new work targets only CSV + DuckDB-backed formats. |
-| Untrusted uploaded files | Size limits; DuckDB read-only scan; isolate the `imports/` S3 prefix; TTL cleanup. |
+| Untrusted uploaded files | A restricted DuckDB connection: disable extensions that can fetch/exfiltrate (`httpfs`, `sqlite_scanner`, `fts`), cap `memory_limit` + `threads=1`, and expose only an allowlist of import functions (`read_parquet`/`read_csv_auto`/`read_json_auto`) — **no raw SQL passthrough** on the import path. Magic-number check before ingestion (e.g. Parquet `PAR1`). Isolate the `imports/` S3 prefix with TTL cleanup; run DuckDB in a sandboxed process/container where feasible. |
 | Huge files bloating the Yorkie document | Materialize cap; suggest Connect mode above the cap. |
 | Two engines diverging in behavior | Both produce the same `SpreadsheetDocument` / `{ columns, rows, … }` shape; share header/type-coercion helpers where possible. |
 | S3 temp storage growth | Short-lived `imports/` keys, deleted post-import or by lifecycle/TTL. |

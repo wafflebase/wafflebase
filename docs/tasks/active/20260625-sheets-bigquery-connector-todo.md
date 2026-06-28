@@ -25,7 +25,7 @@ Each task lists **what / files / reuse / done**. Mirror
 `packages/backend/src/bigquery/` (new module), reuse `datasource/crypto.util.ts`.
 
 - [ ] **`BigQuerySource` model + migration** — project, dataset, location,
-  `credentials` (service-account JSON, AES-256-GCM), optional `maxBytesBilled`,
+  `credentials` (service-account JSON, AES-256-GCM), optional `maximumBytesBilled`,
   workspaceId, authorID. Done: CRUD; key encrypted + masked.
 - [ ] **Module scaffold (controller/dto/service)** — workspace-scoped CRUD +
   `POST /:id/test`. Done: controller-contract e2e green.

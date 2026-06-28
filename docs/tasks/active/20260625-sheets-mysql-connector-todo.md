@@ -55,9 +55,12 @@ one extra driver.
 **Goal:** browse MySQL tables/columns.
 **Files:** `datasource.service.ts` (+ existing schema endpoint if present), frontend sidebar.
 
-- [ ] **`information_schema` listing (engine-agnostic)** — the same
-  `information_schema.tables/columns` queries work for MySQL. Done: browse + click
-  to insert.
+- [ ] **`information_schema` listing (per-engine template)** — reuse the Postgres
+  `information_schema.tables/columns` query patterns, adjusting for MySQL dialect
+  (backtick quoting, identifier case sensitivity, `table_type`/`table_schema`
+  value differences). Keep an engine-keyed query template rather than assuming
+  one query string works unchanged. Done: browse + click to insert on both
+  engines.
 
 ### M4 — Test
 

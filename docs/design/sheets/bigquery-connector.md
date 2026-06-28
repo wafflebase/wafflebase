@@ -71,7 +71,7 @@ model BigQuerySource {
   location    String?  // e.g. "US", "asia-northeast3"
   // service-account JSON key, AES-256-GCM encrypted (reuse crypto.util.ts)
   credentials String
-  maxBytesBilled BigInt? // per-connection ceiling (optional)
+  maximumBytesBilled BigInt? // per-connection ceiling (matches the BigQuery API name; optional)
   authorID    Int
   author      User      @relation(fields: [authorID], references: [id])
   workspaceId String

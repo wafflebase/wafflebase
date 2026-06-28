@@ -135,15 +135,22 @@ type LakehouseTableRef = {
 };
 
 type TimeTravelPoint =
-  | { kind: "version"; version: number }      // Delta version / Iceberg sequence
+  | { kind: "version"; version: number }      // integer; interpreted per the source format (Delta version / Iceberg sequence)
   | { kind: "snapshot"; snapshotId: string }  // Iceberg snapshot id
   | { kind: "timestamp"; iso: string };       // point-in-time
 ```
 
+A bare integer is ambiguous on its own, but `asOf` is always resolved in the
+context of the connection's `format` (Delta vs Iceberg), so `kind: "version"`
+needs no further split; Iceberg's stable snapshot id is the `"snapshot"` variant.
+
 Lakehouse tabs store **only metadata** in `tabs[tabId]`; the rows are ephemeral
 and loaded into a `ReadOnlyStore` on read, exactly like datasource tabs.
 Persisting `lakehouseRef` + `asOf` to Yorkie means collaborators open the same
-table at the same point in time.
+table at the same point in time. Because these are new Yorkie-persisted
+`TabMeta` fields, `worksheet-shape-migration.ts` must tolerate old documents
+that lack them (treat missing `lakehouseSourceId`/`lakehouseRef`/`asOf` as
+`undefined` — no backfill needed); cover this in the migration's tests.
 
 ### 2. Connection Model (Prisma)
 
@@ -162,9 +169,12 @@ model LakehouseSource {
   region        String?
   bucket        String?
   basePath      String?  // table root or metadata path
-  catalogMode   String   @default("direct-metadata") // | "rest-catalog" | "s3-tables" | "unity"
+  catalogMode   CatalogMode @default(direct_metadata)
   catalogUri    String?
-  // credentials, AES-256-GCM encrypted (one packed JSON blob: accessKey/secretKey/sasToken/oauth)
+  // credentials, AES-256-GCM encrypted (one packed JSON blob: accessKey/secretKey/sasToken/oauth).
+  // Optional only because the credential blob is written in a second step after
+  // the row is created (matching the datasource create→test→save flow); a saved,
+  // usable connection always has credentials.
   credentials   String?
   authorID      Int
   author        User      @relation(fields: [authorID], references: [id])
@@ -172,6 +182,15 @@ model LakehouseSource {
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, name]) // no duplicate connection names within a workspace
+}
+
+enum CatalogMode {
+  direct_metadata
+  rest_catalog
+  s3_tables
+  unity
 }
 ```
 

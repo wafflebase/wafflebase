@@ -17,7 +17,7 @@ and `packages/frontend/src/app/spreadsheet/datasource-view.tsx`.
 ```
   LH-0 · DuckDB engine  ── foundational; also unblocks File Import FI-2/3/4
    ├─► LH-1 · Iceberg read + connection model
-   │     ├─► LH-2 · format auto-detect (needs LH-3 too)
+   │     ├─► LH-2 · format auto-detect (needs LH-1; Delta cases mockable until LH-3)
    │     ├─► LH-3 · Delta read
    │     ├─► LH-4 · catalog mode ──► LH-7 · catalog/table browser + polish
    │     ├─► LH-5 · time-travel slider ──► LH-9 · Hudi via XTable (later)
@@ -91,11 +91,15 @@ read-only in a new tab.
   Reuse: `src/datasource/sql-validator.ts`. Output the shared
   `{ columns:[{name,dataTypeID}], rows, rowCount, truncated, executionTime }`.
   Done: returns correct rows for the Iceberg fixture.
-- [ ] **Sheets: lakehouse tab type + `TabMeta` fields.**
+- [ ] **Sheets: lakehouse tab type + `TabMeta` fields + Yorkie migration.**
   Scope: add `"lakehouse"` to `TabType`; add `lakehouseSourceId`,
-  `lakehouseRef`, `asOf` to `TabMeta` (design §1).
-  Files: `packages/sheets/src/model/workbook/worksheet-document.ts`.
-  Done: types compile; a lakehouse tab round-trips through Yorkie.
+  `lakehouseRef`, `asOf` to `TabMeta` (design §1). Make
+  `worksheet-shape-migration.ts` tolerate old documents missing these fields
+  (leave them `undefined`; no backfill) and add a migration test case.
+  Files: `packages/sheets/src/model/workbook/worksheet-document.ts`,
+  `packages/backend/src/yorkie/worksheet-shape-migration.ts` (+ its `.spec.ts`).
+  Done: types compile; old docs migrate cleanly; a lakehouse tab round-trips
+  through Yorkie.
 - [ ] **Frontend: dialog + selector + view + tab entry.**
   Scope: `LakehouseDialog` (create/edit connection + Test), `LakehouseSelector`
   (pick when adding a tab), `LakehouseView` (loads `/read` results into a

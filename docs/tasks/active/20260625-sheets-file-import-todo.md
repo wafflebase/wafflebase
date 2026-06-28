@@ -30,11 +30,16 @@ Each subissue is one PR. Every task lists **what / files / reuse / done**.
 the import entry point that calls `pickAndImportXlsx`, `packages/sheets` for the
 header/coercion helper.
 
+- [ ] **Generalize the document builder (prerequisite refactor).**
+  Scope: `createSpreadsheetDocumentFromImportedXlsxSheets` in `xlsx-actions.ts`
+  is typed for `ImportedXlsxSheet[]` (XLSX-specific, e.g. `cellCount`). Extract a
+  generic `createSpreadsheetDocumentFromImportedSheets` taking a flat sheet shape
+  (or add a CSV-specific builder) so CSV isn't forced through the XLSX-shaped
+  helper. Done: XLSX path still works; a generic builder exists for CSV.
 - [ ] **`csv-actions.ts` (parse + map).**
   Scope: pick a `.csv`, parse with `papaparse` (already a `@wafflebase/sheets`
   dep), build a one-sheet `SpreadsheetDocument`.
-  Reuse: `createSpreadsheetDocumentFromImportedXlsxSheets` shape in
-  `xlsx-actions.ts`.
+  Reuse: the generic builder above.
   Done: a CSV file produces an editable sheet document.
 - [ ] **Header detect + basic type coercion.**
   Scope: first row → bold header; coerce obvious number/date columns.
