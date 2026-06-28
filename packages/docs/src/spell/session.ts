@@ -24,6 +24,7 @@ interface RecheckOpts {
 export class SpellSession {
   errors: SpellError[] = [];
   private cache = new Map<string, boolean>(); // word → correct?
+  private generation = 0;
 
   constructor(
     private router: SpellRouter,
@@ -34,8 +35,9 @@ export class SpellSession {
     blocks: Array<{ id: string; text: string }>,
     opts: RecheckOpts = {},
   ): Promise<void> {
+    const gen = ++this.generation;
     if (opts.composing) {
-      this.errors = [];
+      if (gen === this.generation) this.errors = [];
       return;
     }
     const next: SpellError[] = [];
@@ -56,7 +58,9 @@ export class SpellSession {
         }
       }
     }
-    this.errors = next;
+    if (gen === this.generation) {
+      this.errors = next;
+    }
   }
 
   private async isCorrect(word: string): Promise<boolean> {
@@ -67,6 +71,11 @@ export class SpellSession {
     return correct;
   }
 
+  /**
+   * Returns the error whose range contains `offset`.
+   * The end bound is inclusive — an offset one past the last character of a
+   * word still matches, consistent with caret-skip semantics in recheckBlocks.
+   */
   errorAt(blockId: string, offset: number): SpellError | undefined {
     return this.errors.find(
       (e) => e.blockId === blockId && offset >= e.start && offset <= e.end,

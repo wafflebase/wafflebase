@@ -54,4 +54,50 @@ describe('SpellSession', () => {
     expect(doc.deleteText).toHaveBeenCalledWith({ blockId: 'b1', offset: 0 }, 6);
     expect(doc.insertText).toHaveBeenCalledWith({ blockId: 'b1', offset: 0 }, 'hello');
   });
+
+  it('generation guard: second overlapping recheck wins', async () => {
+    // A router that pauses on each check until manually flushed.
+    const resolvers: Array<() => void> = [];
+    const controlled = {
+      check(word: string): Promise<boolean> {
+        return new Promise<boolean>(resolve => {
+          resolvers.push(() => resolve(word !== 'helllo'));
+        });
+      },
+    };
+
+    const s = new SpellSession(controlled as any);
+
+    // First call: block containing a misspelling ("helllo").
+    const p1 = s.recheckBlocks([{ id: 'b1', text: 'helllo' }]);
+    // p1 is now suspended at the first router.check() await.
+
+    // Second call supersedes the first before p1 resolves.
+    const p2 = s.recheckBlocks([{ id: 'b1', text: 'good' }]);
+    // p2 is suspended at its own router.check() await.
+
+    // Flush all pending checks in order (p1's first, then p2's).
+    const pending = resolvers.splice(0);
+    pending.forEach(r => r());
+
+    await Promise.all([p1, p2]);
+
+    // Only the second call's result should be visible; p1 must not clobber it.
+    expect(s.errors).toEqual([]);
+  });
+
+  it('caret exactly at word start or end suppresses that word', async () => {
+    const s = new SpellSession(router());
+    // "helllo" tokenizes to { start: 0, end: 6 }
+
+    await s.recheckBlocks([{ id: 'b1', text: 'helllo' }], {
+      caret: { blockId: 'b1', offset: 0 }, // at the very start of the word
+    });
+    expect(s.errors).toEqual([]);
+
+    await s.recheckBlocks([{ id: 'b1', text: 'helllo' }], {
+      caret: { blockId: 'b1', offset: 6 }, // one past the last char (inclusive end)
+    });
+    expect(s.errors).toEqual([]);
+  });
 });
