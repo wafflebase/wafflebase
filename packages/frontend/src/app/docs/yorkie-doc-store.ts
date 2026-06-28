@@ -20,6 +20,9 @@ import type {
   BorderStyle,
   DocPosition,
   DocRange,
+  DocStyles,
+  NamedStyleDef,
+  StyleId,
 } from '@wafflebase/docs';
 import {
   resolvePageSetup,
@@ -32,6 +35,8 @@ import {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  blockStyleId,
+  resolveStyleBlock,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -551,9 +556,29 @@ export class YorkieDocStore implements DocStore {
     parsed.pageSetup = root.pageSetup
       ? readPageSetup(root.pageSetup)
       : undefined;
+    const styles = this.readDocStyles();
+    parsed.styles = Object.keys(styles).length > 0 ? styles : undefined;
     this.cachedDoc = parsed;
     this.dirty = false;
     return cloneDocument(parsed);
+  }
+
+  /**
+   * Read the named-style registry from the Yorkie root. The registry is
+   * stored as a single JSON string (`root.stylesJson`) rather than a nested
+   * CRDT object: it is tiny and rarely concurrently edited, so whole-blob LWW
+   * is acceptable, and a scalar string sidesteps Yorkie proxy double-encoding
+   * and the variable/`StoredColor` key shapes inside a style definition.
+   */
+  private readDocStyles(): DocStyles {
+    const root = this.doc.getRoot();
+    const json = root.stylesJson;
+    if (!json) return {};
+    try {
+      return JSON.parse(json) as DocStyles;
+    } catch {
+      return {};
+    }
   }
 
   private findBlockRecursive(blocks: Block[], id: string): Block | undefined {
@@ -590,6 +615,10 @@ export class YorkieDocStore implements DocStore {
     return resolvePageSetup(
       root.pageSetup ? readPageSetup(root.pageSetup) : undefined,
     );
+  }
+
+  getDocStyles(): DocStyles {
+    return this.readDocStyles();
   }
 
   getHeader(): HeaderFooter | undefined {
@@ -1346,8 +1375,10 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    const prevStyleId = blockStyleId(block);
 
-    // Build only type-specific attributes (not style — it's unchanged)
+    // Build only type-specific attributes (style is added below only when the
+    // named style changes).
     const attrs: Record<string, string> = { type };
     if (type === 'heading') {
       attrs.headingLevel = String(opts?.headingLevel ?? 1);
@@ -1355,6 +1386,20 @@ export class YorkieDocStore implements DocStore {
     if (type === 'list-item') {
       attrs.listKind = opts?.listKind ?? 'unordered';
       attrs.listLevel = String(opts?.listLevel ?? 0);
+    }
+
+    // Applying a different named style re-materializes the block's style-owned
+    // spacing into the same styleByPath write (Google Docs parity). A bullet
+    // toggle (both 'normal') leaves spacing untouched.
+    const nextHeadingLevel = type === 'heading' ? (opts?.headingLevel ?? 1) : undefined;
+    const nextStyleId = blockStyleId({ ...block, type, headingLevel: nextHeadingLevel } as Block);
+    let materializedStyle: BlockStyle | undefined;
+    if (nextStyleId !== prevStyleId) {
+      materializedStyle = normalizeBlockStyle({
+        ...block.style,
+        ...resolveStyleBlock(nextStyleId, this.readDocStyles()),
+      });
+      Object.assign(attrs, serializeBlockStyle(materializedStyle));
     }
 
     // Determine stale attributes to remove (styleByPath merges, not replaces)
@@ -1414,6 +1459,7 @@ export class YorkieDocStore implements DocStore {
     } else if (block.inlines.length === 0) {
       block.inlines = [{ text: '', style: {} }];
     }
+    if (materializedStyle) block.style = materializedStyle;
     this.setBlockByRegion(currentDoc, blockPath, region, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -2477,6 +2523,65 @@ export class YorkieDocStore implements DocStore {
     this.cachedDoc = null;
   }
 
+  setDocStyles(styles: DocStyles): void {
+    this.doc.update((root) => {
+      root.stylesJson = JSON.stringify(styles ?? {});
+    });
+    this.dirty = true;
+    this.cachedDoc = null;
+  }
+
+  updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void {
+    const next: DocStyles = { ...this.readDocStyles(), [styleId]: def };
+    this.writeStylesAndRematerialize(next, styleId);
+  }
+
+  resetStyle(styleId: StyleId): void {
+    const next: DocStyles = { ...this.readDocStyles() };
+    delete next[styleId];
+    this.writeStylesAndRematerialize(next, styleId);
+  }
+
+  resetAllStyles(): void {
+    this.writeStylesAndRematerialize({}, undefined);
+  }
+
+  /**
+   * Persist the registry and re-materialize block spacing onto every affected
+   * top-level block (body + header + footer) in a single `doc.update` so the
+   * whole change is one undo unit. Pass `styleId` to limit re-materialization
+   * to one style; omit it to re-materialize every styled block ("Reset all").
+   */
+  private writeStylesAndRematerialize(next: DocStyles, styleId: StyleId | undefined): void {
+    const currentDoc = this.getDocument();
+    const edits: Array<{ path: number[]; attrs: Record<string, string> }> = [];
+    const collect = (blocks: Block[]) => {
+      for (const block of blocks) {
+        const id = blockStyleId(block);
+        if (styleId && id !== styleId) continue;
+        const merged = normalizeBlockStyle({ ...block.style, ...resolveStyleBlock(id, next) });
+        const { path } = this.resolveBlockTreePath(block.id, currentDoc);
+        edits.push({ path, attrs: serializeBlockStyle(merged) });
+        block.style = merged;
+      }
+    };
+    collect(currentDoc.blocks);
+    if (currentDoc.header) collect(currentDoc.header.blocks);
+    if (currentDoc.footer) collect(currentDoc.footer.blocks);
+
+    this.doc.update((root) => {
+      root.stylesJson = JSON.stringify(next);
+      const tree = root.content;
+      if (tree && typeof tree.getRootTreeNode === 'function') {
+        for (const edit of edits) tree.styleByPath(edit.path, edit.attrs);
+      }
+    });
+
+    currentDoc.styles = Object.keys(next).length > 0 ? next : undefined;
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   // -----------------------------------------------------------------------
   // Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
@@ -2580,6 +2685,11 @@ export class YorkieDocStore implements DocStore {
           orientation: document.pageSetup.orientation,
           margins: { ...document.pageSetup.margins },
         };
+      }
+
+      // Named-style registry (stored as a JSON string outside the tree).
+      if (document.styles && Object.keys(document.styles).length > 0) {
+        root.stylesJson = JSON.stringify(document.styles);
       }
     });
   }

@@ -6,6 +6,10 @@ import type { DocsRangeAnchor, Thread } from '@/types/comments.ts';
  *
  * - `content`: yorkie.Tree holding the block/inline structure
  * - `pageSetup`: document-level metadata (paper size, margins)
+ * - `stylesJson`: named-style overrides registry (`DocStyles`) serialized as
+ *   a JSON string. A tiny, rarely-concurrent registry — whole-blob LWW is
+ *   acceptable and a scalar string avoids Yorkie proxy double-encoding.
+ *   Existing documents without the field resolve to built-in styles.
  * - `comments`: threaded comments keyed by thread id, materialized on
  *   first insertion. Existing documents without the field stay valid.
  */
@@ -16,6 +20,7 @@ export type YorkieDocsRoot = {
     orientation: 'portrait' | 'landscape';
     margins: { top: number; bottom: number; left: number; right: number };
   };
+  stylesJson?: string;
   comments?: { [threadId: string]: Thread<DocsRangeAnchor> };
 };
 
