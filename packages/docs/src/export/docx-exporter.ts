@@ -34,6 +34,7 @@ export class DocxExporter {
   static async export(
     doc: Document,
     imageFetcher?: ImageFetcher,
+    onProgress?: (done: number, total: number, phase: string) => void,
   ): Promise<Blob> {
     const zip = new JSZip();
     // rIds are scoped per .rels file in OOXML, so give each part its own
@@ -55,10 +56,35 @@ export class DocxExporter {
     let mediaSeq = 0;
     const nextMediaName = (ext: string) => `media/image_${++mediaSeq}.${ext}`;
 
+    // Progress: only report when we will actually fetch images — i.e. both a
+    // fetcher and a callback are present. Reporting on `onProgress` alone
+    // would emit `(0, N)` and then never advance (no fetches happen), leaving
+    // the bar stuck. total = unique image srcs per part (matches the per-part
+    // dedupe in collectImages). Wrap the fetcher to emit after each fetch, in
+    // a `finally` so a failed fetch still advances the bar.
+    const reportProgress = Boolean(imageFetcher && onProgress);
+    let imagesDone = 0;
+    const imagesTotal = reportProgress
+      ? DocxExporter.countImageSrcs(doc.blocks) +
+        DocxExporter.countImageSrcs(doc.header?.blocks) +
+        DocxExporter.countImageSrcs(doc.footer?.blocks)
+      : 0;
+    if (reportProgress) onProgress!(0, imagesTotal, 'images');
+    const fetcher: ImageFetcher | undefined = reportProgress
+      ? async (url: string) => {
+          try {
+            return await imageFetcher!(url);
+          } finally {
+            imagesDone += 1;
+            onProgress!(imagesDone, imagesTotal, 'images');
+          }
+        }
+      : imageFetcher;
+
     // Collect and fetch images referenced from the main document body.
-    if (imageFetcher) {
+    if (fetcher) {
       for (const block of doc.blocks) {
-        await DocxExporter.collectImages(block, imageFetcher, zip, docImageEntries, nextDocRId, nextMediaName);
+        await DocxExporter.collectImages(block, fetcher, zip, docImageEntries, nextDocRId, nextMediaName);
       }
     }
 
@@ -71,9 +97,9 @@ export class DocxExporter {
 
     if (doc.header && doc.header.blocks.length > 0) {
       headerRId = nextDocRId();
-      if (imageFetcher) {
+      if (fetcher) {
         for (const block of doc.header.blocks) {
-          await DocxExporter.collectImages(block, imageFetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName);
         }
       }
       const headerXml = DocxExporter.buildHeaderFooterXml(doc.header, 'header', headerImageEntries);
@@ -83,9 +109,9 @@ export class DocxExporter {
     }
     if (doc.footer && doc.footer.blocks.length > 0) {
       footerRId = nextDocRId();
-      if (imageFetcher) {
+      if (fetcher) {
         for (const block of doc.footer.blocks) {
-          await DocxExporter.collectImages(block, imageFetcher, zip, footerImageEntries, nextFooterRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, footerImageEntries, nextFooterRId, nextMediaName);
         }
       }
       const footerXml = DocxExporter.buildHeaderFooterXml(doc.footer, 'footer', footerImageEntries);
@@ -363,6 +389,27 @@ ${blocks}
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 ${rels}
 </Relationships>`;
+  }
+
+  /** Unique image srcs in a block list (incl. table cells), matching the
+   *  per-part dedupe in `collectImages` so the count equals fetch calls. */
+  private static countImageSrcs(blocks: Block[] | undefined): number {
+    if (!blocks) return 0;
+    const srcs = new Set<string>();
+    const walk = (block: Block): void => {
+      for (const inline of block.inlines) {
+        if (inline.style.image) srcs.add(inline.style.image.src);
+      }
+      if (block.tableData) {
+        for (const row of block.tableData.rows) {
+          for (const cell of row.cells) {
+            for (const cellBlock of cell.blocks) walk(cellBlock);
+          }
+        }
+      }
+    };
+    for (const block of blocks) walk(block);
+    return srcs.size;
   }
 
   private static async collectImages(

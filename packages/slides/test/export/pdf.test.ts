@@ -245,3 +245,19 @@ describe('exportSlidesPdf', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+describe('exportSlidesPdf progress', () => {
+  it('reports monotonic per-slide progress ending at total', async () => {
+    const { exportSlidesPdf } = await import('../../src/export/pdf');
+    const doc = baseDoc([blankSlide('s1'), blankSlide('s2'), blankSlide('s3')]);
+    const calls: Array<[number, number, string]> = [];
+    await exportSlidesPdf(doc, {
+      onProgress: (done, total, phase) => calls.push([done, total, phase]),
+    });
+    expect(calls[0]).toEqual([0, 3, 'slides']);
+    expect(calls[calls.length - 1]).toEqual([3, 3, 'slides']);
+    const dones = calls.map((c) => c[0]);
+    expect(dones).toEqual([...dones].sort((a, b) => a - b)); // non-decreasing
+    expect(calls.every((c) => c[1] === 3 && c[2] === 'slides')).toBe(true);
+  });
+});

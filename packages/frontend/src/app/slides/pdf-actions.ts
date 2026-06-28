@@ -25,6 +25,7 @@ import { docsImageFetcher, downloadBlob, safeFilename } from "../docs/export-uti
 export async function exportSlidesPdfAndDownload(
   doc: SlidesDocument,
   title: string,
+  onProgress?: (done: number, total: number, phase: string) => void,
 ): Promise<void> {
   const families = collectFontFamilies(doc);
   for (const family of families) ensureFontLink(family);
@@ -41,6 +42,7 @@ export async function exportSlidesPdfAndDownload(
   const bytes = await exportSlidesPdf(doc, {
     imageFetcher: docsImageFetcher,
     title,
+    onProgress,
   });
   const blob = new Blob([bytes], { type: "application/pdf" });
   downloadBlob(blob, safeFilename(title, "pdf"));

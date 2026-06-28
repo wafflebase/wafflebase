@@ -1,5 +1,6 @@
 import type { ImageFetcher, ImageUploader } from "@wafflebase/docs";
 import { fetchWithAuth } from "@/api/auth";
+import { toast } from "sonner";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
 
@@ -108,6 +109,33 @@ export function pickFile(accept: string): Promise<File | null> {
     document.body.appendChild(input);
     input.click();
   });
+}
+
+/**
+ * Lazily create (first tick) or update the export progress toast, mirroring
+ * the import toast. `unit` is the exporter's phase string ("slides" | "pages"
+ * | "images"). Returns the toast id so the caller can thread it to
+ * success/error. Returns `undefined` when there is nothing to show yet (a
+ * zero-unit export, e.g. an image-less DOCX) so the caller falls back to a
+ * fresh success/error toast instead of flashing a descriptionless spinner.
+ */
+export function updateExportToast(
+  toastId: string | number | undefined,
+  title: string,
+  done: number,
+  total: number,
+  unit: string,
+): string | number | undefined {
+  const description =
+    total > 0 ? `${Math.min(done, total)} / ${total} ${unit}` : undefined;
+  if (toastId === undefined) {
+    // Nothing to report yet (total 0) — don't create a loading toast that
+    // would immediately be replaced by success, producing a visible flash.
+    if (total === 0) return undefined;
+    return toast.loading(`Exporting "${title}"…`, { description });
+  }
+  toast.loading(`Exporting "${title}"…`, { id: toastId, description });
+  return toastId;
 }
 
 /**

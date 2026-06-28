@@ -50,7 +50,8 @@ export async function pickAndImportDocx(
 export async function exportDocxAndDownload(
   doc: DocsDocument,
   title: string,
+  onProgress?: (done: number, total: number, phase: string) => void,
 ): Promise<void> {
-  const blob = await DocxExporter.export(doc, docsImageFetcher);
+  const blob = await DocxExporter.export(doc, docsImageFetcher, onProgress);
   downloadBlob(blob, safeFilename(title, "docx"));
 }

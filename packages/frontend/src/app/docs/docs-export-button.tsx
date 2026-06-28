@@ -12,9 +12,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Document as DocsDocument } from "@wafflebase/docs";
 import type { EditorAPI } from "./docs-view";
 import { exportDocxAndDownload } from "./docx-actions";
 import { exportPdfAndDownload } from "./pdf-actions";
+import { updateExportToast } from "./export-utils";
 
 interface DocsExportButtonProps {
   editor: EditorAPI | null;
@@ -30,19 +32,30 @@ interface DocsExportButtonProps {
 export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   const [exporting, setExporting] = useState(false);
 
-  const runExport = async (
-    kind: "docx" | "pdf",
-    fn: typeof exportDocxAndDownload | typeof exportPdfAndDownload,
-  ) => {
+  type ExportAction = (
+    doc: DocsDocument,
+    title: string,
+    onProgress?: (d: number, t: number, p: string) => void,
+  ) => Promise<void>;
+
+  const runExport = async (kind: "docx" | "pdf", fn: ExportAction) => {
     if (!editor || exporting) return;
     setExporting(true);
+    const t = title || "document";
+    let toastId: string | number | undefined;
     try {
-      await fn(editor.getStore().getDocument(), title || "document");
+      await fn(editor.getStore().getDocument(), t, (done, total, phase) => {
+        toastId = updateExportToast(toastId, t, done, total, phase);
+      });
+      const message = `Exported "${t}"`;
+      if (toastId !== undefined) toast.success(message, { id: toastId });
+      else toast.success(message);
     } catch (err) {
       console.error(`${kind.toUpperCase()} export failed`, err);
-      toast.error(
-        err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
-      );
+      const message =
+        err instanceof Error ? `Export failed: ${err.message}` : "Export failed";
+      if (toastId !== undefined) toast.error(message, { id: toastId });
+      else toast.error(message);
     } finally {
       setExporting(false);
     }
