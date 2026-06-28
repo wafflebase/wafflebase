@@ -49,4 +49,4 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor
 - [ ] 6.3 Spell Check
 - [x] 6.4 Print / PDF Export
 - [ ] 6.5 Named Styles
-- [ ] 6.6 Full Keyboard Shortcuts mapping
+- [x] 6.6 Full Keyboard Shortcuts mapping — single catalog (`shortcuts-catalog.ts`) + shared help modal (⌘/Ctrl+/); catalog drift fixed (heading 1–6, paste-formatting, word nav/delete now exposed). See [20260628-docs-shortcuts-catalog-todo.md](20260628-docs-shortcuts-catalog-todo.md)

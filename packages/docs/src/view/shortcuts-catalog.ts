@@ -4,8 +4,14 @@
  * few in the frontend, e.g. comments toggle); this catalog drives the
  * help modal opened by Cmd/Ctrl+/.
  *
+ * Keep this list in sync with `text-editor.ts handleKeyDown` whenever a
+ * binding is added or removed. The runtime handler is a `switch`, not a
+ * symbolic table, so there is no automated assertion that every binding
+ * has a catalog entry — dual-edit is the convention.
+ *
  * Keys use platform-neutral tokens:
- *   - `Mod`  — Cmd on macOS, Ctrl elsewhere
+ *   - `Mod`      — Cmd on macOS, Ctrl elsewhere
+ *   - `WordMod`  — Option (⌥) on macOS, Ctrl elsewhere (word-level nav/delete)
  *   - `Shift`, `Alt`
  *   - Named keys (`Enter`, `Tab`, `Esc`, `Arrow ↑`, …)
  *   - Printable letters in upper case (`A`, `B`, …)
@@ -37,9 +43,13 @@ export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { category: 'Editing', keys: ['Mod+V'],               description: 'Paste' },
   { category: 'Editing', keys: ['Mod+Shift+V'],         description: 'Paste without formatting' },
   { category: 'Editing', keys: ['Mod+Shift+C'],         description: 'Copy formatting (format painter)' },
+  { category: 'Editing', keys: ['Mod+Alt+V'],           description: 'Paste formatting (apply format painter)' },
+  { category: 'Editing', keys: ['WordMod+Backspace'],   description: 'Delete previous word' },
+  { category: 'Editing', keys: ['WordMod+Delete'],      description: 'Delete next word' },
 
   // Navigation ----------------------------------------------------------
   { category: 'Navigation', keys: ['Arrow ←/→'],         description: 'Move caret by character' },
+  { category: 'Navigation', keys: ['WordMod+Arrow ←/→'], description: 'Move caret by word' },
   { category: 'Navigation', keys: ['Arrow ↑/↓'],         description: 'Move caret by line' },
   { category: 'Navigation', keys: ['Home', 'End'],       description: 'Go to start / end of line' },
   { category: 'Navigation', keys: ['Mod+Home', 'Mod+End'], description: 'Go to start / end of document' },
@@ -64,6 +74,7 @@ export const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { category: 'Paragraph', keys: ['Mod+Shift+8'],       description: 'Unordered (bulleted) list' },
   { category: 'Paragraph', keys: ['Mod+]', 'Mod+['],    description: 'Increase / decrease indent' },
   { category: 'Paragraph', keys: ['Mod+Alt+0'],         description: 'Reset block to paragraph' },
+  { category: 'Paragraph', keys: ['Mod+Alt+1', 'Mod+Alt+2', 'Mod+Alt+3', 'Mod+Alt+4', 'Mod+Alt+5', 'Mod+Alt+6'], description: 'Apply heading 1 – 6' },
   { category: 'Paragraph', keys: ['Mod+Enter'],         description: 'Insert page break' },
 
   // Find ---------------------------------------------------------------
@@ -93,6 +104,7 @@ export function formatCombo(combo: string, isMac: boolean): string {
     .map((part) => part.trim())
     .map((part) => {
       if (part === 'Mod') return mod;
+      if (part === 'WordMod') return isMac ? '⌥' : 'Ctrl';
       if (part === 'Shift') return isMac ? '⇧' : 'Shift';
       if (part === 'Alt') return isMac ? '⌥' : 'Alt';
       return part;
