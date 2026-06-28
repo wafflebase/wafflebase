@@ -19,7 +19,7 @@
  *    `resolveStyleBlock`.
  */
 
-import type { Block, BlockStyle, HeadingLevel, InlineStyle } from './types.js';
+import type { Block, BlockStyle, Document, HeadingLevel, InlineStyle } from './types.js';
 
 /**
  * Stable identifier for each built-in named style.
@@ -128,4 +128,38 @@ export function resolveStyleBlock(
   docStyles?: DocStyles,
 ): Partial<BlockStyle> {
   return { ...BUILTIN_STYLES[id].block, ...docStyles?.[id]?.block };
+}
+
+/**
+ * Materialize a single block's spacing from its style. Returns a new
+ * `BlockStyle` with the style's block (spacing) defaults applied over the
+ * block's current style — preserving direct paragraph formatting (alignment,
+ * indent, lineHeight) while resetting the style-owned spacing fields.
+ */
+export function materializeBlockSpacing(
+  block: Block,
+  docStyles?: DocStyles,
+): BlockStyle {
+  return { ...block.style, ...resolveStyleBlock(blockStyleId(block), docStyles) };
+}
+
+/**
+ * Re-materialize block spacing in place across a document's top-level body
+ * and header/footer blocks. Pass a `styleId` to limit it to blocks governed
+ * by that style; omit it to re-materialize every styled block (used by
+ * "Reset styles"). Reads the spacing from `doc.styles`.
+ *
+ * Table-cell blocks are not walked in v1 — cell content is overwhelmingly
+ * Normal text and cell paragraph spacing is rarely style-authored.
+ */
+export function rematerializeDocSpacing(doc: Document, styleId?: StyleId): void {
+  const apply = (blocks: Block[]) => {
+    for (const block of blocks) {
+      if (styleId && blockStyleId(block) !== styleId) continue;
+      block.style = materializeBlockSpacing(block, doc.styles);
+    }
+  };
+  apply(doc.blocks);
+  if (doc.header) apply(doc.header.blocks);
+  if (doc.footer) apply(doc.footer.blocks);
 }

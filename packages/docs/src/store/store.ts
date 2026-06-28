@@ -1,4 +1,5 @@
 import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -25,6 +26,21 @@ export interface DocStore {
   deleteBlockByIndex(index: number): void;
   getPageSetup(): PageSetup;
   setPageSetup(setup: PageSetup): void;
+
+  // --- Named styles (Google Docs paragraph styles) ---
+  /** Return the document's named-style overrides registry (built-ins omitted). */
+  getDocStyles(): DocStyles;
+  /** Replace the named-style overrides registry wholesale. */
+  setDocStyles(styles: DocStyles): void;
+  /**
+   * Redefine a style ("Update '<style>' to match"): store the override and
+   * re-materialize block spacing onto every block governed by it.
+   */
+  updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void;
+  /** Reset a single style to its built-in definition. */
+  resetStyle(styleId: StyleId): void;
+  /** Reset every style to its built-in definition. */
+  resetAllStyles(): void;
   getHeader(): HeaderFooter | undefined;
   getFooter(): HeaderFooter | undefined;
   setHeader(header: HeaderFooter | undefined): void;
