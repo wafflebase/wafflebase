@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs named styles (2026-06-29) | [20260629-docs-named-styles-todo.md](./active/20260629-docs-named-styles-todo.md) | [20260629-docs-named-styles-lessons.md](./active/20260629-docs-named-styles-lessons.md) |
 | color picker none swatch (2026-06-28) | [20260628-color-picker-none-swatch-todo.md](./active/20260628-color-picker-none-swatch-todo.md) | [20260628-color-picker-none-swatch-lessons.md](./active/20260628-color-picker-none-swatch-lessons.md) |
 | docs context menu (2026-06-28) | [20260628-docs-context-menu-todo.md](./active/20260628-docs-context-menu-todo.md) | [20260628-docs-context-menu-lessons.md](./active/20260628-docs-context-menu-lessons.md) |
 | docs shortcuts catalog (2026-06-28) | [20260628-docs-shortcuts-catalog-todo.md](./active/20260628-docs-shortcuts-catalog-todo.md) | [20260628-docs-shortcuts-catalog-lessons.md](./active/20260628-docs-shortcuts-catalog-lessons.md) |

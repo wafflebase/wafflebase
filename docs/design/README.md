@@ -41,6 +41,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-intent-preserving-edits.md](docs/docs-intent-preserving-edits.md)          | Intent-preserving Yorkie edits — character-level Tree editing for concurrent same-paragraph edits |
 | [docs-presence.md](docs/docs-presence.md)                                        | Docs presence — peer cursor carets + name labels and avatar click-to-jump in the collaborative docs editor |
 | [docs-wordprocessor-roadmap.md](docs/docs-wordprocessor-roadmap.md)              | Docs word processor roadmap — current state + remaining phases for Google Docs parity              |
+| [docs-named-styles.md](docs/docs-named-styles.md)                                | Docs named styles — Google-Docs paragraph-style model: redefinable per-document style registry (Normal/Title/Subtitle/Heading 1–6), "Update to match"/"Reset", refreshed GS built-in values, per-user default styles |
 | [docs-ruler.md](docs/docs-ruler.md)                                              | Docs ruler design                                                                                 |
 | [docs-comments.md](docs/docs-comments.md)                                        | Docs comments — text-range threads, CRDT-stable posRange anchors, orphan preservation, shared frontend module |
 | [docs-font-controls.md](docs/docs-font-controls.md)                              | Docs font controls — curated family picker (14 fonts), Google-Docs-style size input, line spacing, clear formatting, shared text-formatting components |
