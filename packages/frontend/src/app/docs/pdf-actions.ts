@@ -13,6 +13,7 @@ import { docsImageFetcher, downloadBlob, safeFilename } from "./export-utils";
 export async function exportPdfAndDownload(
   doc: DocsDocument,
   title: string,
+  onProgress?: (done: number, total: number, phase: string) => void,
   metadata?: { title?: string; author?: string },
 ): Promise<void> {
   // Dynamic import keeps pdf-lib + fontkit out of the initial bundle.
@@ -31,6 +32,7 @@ export async function exportPdfAndDownload(
     metadata: { title: metadata?.title ?? title, author: metadata?.author },
     measurer: new CanvasTextMeasurer(),
     fontResolver: (family) => FONT_FILES[family],
+    onProgress,
   });
   downloadBlob(blob, safeFilename(title, "pdf"));
 }

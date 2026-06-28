@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { exportSlidesPdfAndDownload } from "./pdf-actions";
+import { updateExportToast } from "../docs/export-utils";
 
 interface SlidesExportButtonProps {
   store: SlidesStore | null;
@@ -37,13 +38,21 @@ export function SlidesExportButton({
   const handleExportPdf = async () => {
     if (!store) return;
     setExporting(true);
+    const t = title || "presentation";
+    let toastId: string | number | undefined;
     try {
-      await exportSlidesPdfAndDownload(store.read(), title || "presentation");
+      await exportSlidesPdfAndDownload(store.read(), t, (done, total, phase) => {
+        toastId = updateExportToast(toastId, t, done, total, phase);
+      });
+      const message = `Exported "${t}"`;
+      if (toastId !== undefined) toast.success(message, { id: toastId });
+      else toast.success(message);
     } catch (err) {
       console.error("Slides PDF export failed", err);
-      toast.error(
-        err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
-      );
+      const message =
+        err instanceof Error ? `Export failed: ${err.message}` : "Export failed";
+      if (toastId !== undefined) toast.error(message, { id: toastId });
+      else toast.error(message);
     } finally {
       setExporting(false);
     }
