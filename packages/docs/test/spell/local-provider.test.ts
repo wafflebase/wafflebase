@@ -1,16 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { join, dirname } from 'node:path';
 import { LocalSpellProvider } from '../../src/spell/local-provider.js';
 
-// Resolve the dictionary-en data files directly for the Node test.
-// dictionary-en v4 ships index.aff and index.dic alongside index.js.
-const require = createRequire(import.meta.url);
+// Use the vendored dictionary files so tests exercise what we actually ship.
+const dictDir = join(dirname(fileURLToPath(import.meta.url)), '../../src/spell/dict');
 function loadDict() {
-  const dir = require.resolve('dictionary-en').replace(/index\.[a-z]+$/, '');
   return Promise.resolve({
-    aff: readFileSync(dir + 'index.aff'),
-    dic: readFileSync(dir + 'index.dic'),
+    aff: readFileSync(join(dictDir, 'en_US.aff'), 'utf-8'),
+    dic: readFileSync(join(dictDir, 'en_US.dic'), 'utf-8'),
   });
 }
 

@@ -1,17 +1,21 @@
 import nspell from 'nspell';
 import type { Lang, SpellChecker } from './spell-checker.js';
 
-// dictionary-en returns Uint8Array; at runtime in Node these are Buffers,
-// but the @types/nspell Dictionary type only lists Buffer|string.
-type Dict = { aff: Uint8Array | Buffer; dic: Uint8Array | Buffer };
+// nspell accepts string | Buffer for aff/dic.
+type Dict = { aff: string | Buffer; dic: string | Buffer };
 type NSpell = ReturnType<typeof nspell>;
 
-/** Default loader: lazy dynamic import keeps the dictionary out of the
- *  main bundle (Vite emits it as a separate chunk).
- *  dictionary-en v4 exports the dict object directly as default. */
+/** Default loader: lazy ?raw imports keep the dictionary files out of the
+ *  main bundle (Vite emits them as a separate chunk).
+ *  The vendored .aff/.dic files live next to this source so the browser
+ *  can fetch them — dictionary-en v4 uses node:fs/promises internally and
+ *  cannot be imported in a browser environment. */
 async function defaultLoadDict(): Promise<Dict> {
-  const mod = await import('dictionary-en');
-  return mod.default;
+  const [aff, dic] = await Promise.all([
+    import('./dict/en_US.aff?raw').then((m) => m.default),
+    import('./dict/en_US.dic?raw').then((m) => m.default),
+  ]);
+  return { aff, dic };
 }
 
 /** In-process English spell checker backed by nspell + a Hunspell dict. */
@@ -26,10 +30,7 @@ export class LocalSpellProvider implements SpellChecker {
 
   private getSpeller(): Promise<NSpell> {
     if (!this.speller) {
-      // Cast to Buffer: at runtime Node's fs returns Buffer (extends Uint8Array).
-      this.speller = this.loadDict().then((d) =>
-        nspell(d.aff as Buffer, d.dic as Buffer),
-      );
+      this.speller = this.loadDict().then((d) => nspell(d.aff, d.dic));
     }
     return this.speller;
   }
