@@ -4,6 +4,7 @@ import { HeroSection } from "./hero-section";
 import { DemoSection } from "./demo-section";
 import { FeaturesSection } from "./features-section";
 import { UseCasesSection } from "./use-cases-section";
+import { InteropSection } from "./interop-section";
 import { WhySection } from "./why-section";
 import { DeveloperSection } from "./developer-section";
 import { OpenSourceSection } from "./opensource-section";
@@ -25,6 +26,7 @@ export default function HomePage({
       <DemoSection />
       <FeaturesSection />
       <UseCasesSection />
+      <InteropSection />
       <WhySection />
       <DeveloperSection />
       <OpenSourceSection />

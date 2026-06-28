@@ -12,7 +12,7 @@ const USE_CASES: UseCase[] = [
     tag: "Internal tools",
     title: "Replace the 'export to Excel, edit, paste back' loop",
     body: "Embed an editable grid right inside your dashboard. Users get the spreadsheet they wanted; you keep the schema you wanted.",
-    href: "/docs/sheets/sheet",
+    href: "/docs/sheets/build-a-budget",
   },
   {
     tag: "Pitch decks & all-hands",

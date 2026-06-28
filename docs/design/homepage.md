@@ -89,10 +89,11 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 | 3 | DemoSection | Sheets / Docs / Slides tab card — three tabs embed live `/shared/{token}` iframes (Docs + Slides tabs lazy-mount on first activation) with theme sync via `postMessage` |
 | 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + 6 compact secondary cards (3×2, product-balanced: 2 Sheets / 2 Docs / 2 Slides) |
 | 5 | UseCasesSection | 3 scenarios (Internal tools / Customer dashboards / Specs & launch plans) |
-| 6 | WhySection | Comparison table vs Google Workspace inside a paper card |
-| 7 | DeveloperSection | Single dark code card with REST API / CLI tabs |
-| 8 | OpenSourceSection | Apache-2.0 callout with `<BigWaffle>` illustration + Star/Contribute CTAs |
-| 9 | Footer | Brand block + 3 link columns + bottom copyright row |
+| 6 | InteropSection | Import/Export format matrix — "no lock-in" paper cards |
+| 7 | WhySection | Comparison table vs Google Workspace inside a paper card |
+| 8 | DeveloperSection | Single dark code card with REST API / CLI tabs |
+| 9 | OpenSourceSection | Apache-2.0 callout with `<BigWaffle>` illustration + Star/Contribute CTAs |
+| 10 | Footer | Brand block + 3 link columns + bottom copyright row |
 
 #### NavBar
 
@@ -156,9 +157,9 @@ Two-tier layout. 3 large cards (waffle-pocket glyphs):
 Plus 6 compact cards in a 3×2 grid (`md:grid-cols-2`), product-balanced at
 2 per module so the 3-product suite reads visually:
 
-- **Sheets** — Formulas (FunctionSquare), Charts & Pivot Tables (BarChart3)
-- **Docs** — Page-Based Document Editor (FileText), Tables & Pagination (Rows3)
-- **Slides** — Themes & Layouts (Palette), Presentation Mode (Presentation)
+- **Sheets** — Formulas (FunctionSquare), Charts/Pivots/SQL Datasources (BarChart3)
+- **Docs** — Page-Based Document Editor (FileText), Comments/Mentions/Spell Check (MessageSquare)
+- **Slides** — Themes/Layouts/Shapes (Palette), Animations & Presentation Mode (Presentation)
 
 Each card uses a butter-tinted lucide icon chip. All cards use the handoff
 card shadow (`0 1px 0 rgba(42,30,18,0.04), 0 12px 28px -16px
@@ -171,12 +172,22 @@ title + sub copy + "Read the docs →" syrup link. Hover translates -2px.
 Cards are: Internal tools (Sheets embed), Pitch decks & all-hands (Slides
 theming + self-host), Specs & launch plans (Docs + Sheets references).
 
+#### InteropSection
+
+"No lock-in" format matrix. Two `--wb-paper` cards (handoff card shadow)
+inside a `max-w-[760px]` 2-column grid: **Import** (XLSX → Sheets, DOCX →
+Docs, PPTX → Slides) and **Export** (DOCX, PPTX, PDF). Each format is a
+rule-bordered chip with a lucide file icon. Reflects the shipped
+import/export code only — Sheets is import-only (no XLSX export yet), so
+it is listed under Import but not Export.
+
 #### WhySection
 
 Wafflebase vs Google Workspace comparison. Inside a `--wb-paper` card with rule
 borders. Leaf check / berry cross / butter "Limited" pill markers. The
 "single app" row reads "Slides, Docs & Sheets in one app" to match the
-3-product suite framing.
+3-product suite framing. Import/export differentiation lives in the
+dedicated InteropSection above, not in this table.
 
 #### DeveloperSection
 
@@ -250,6 +261,7 @@ packages/frontend/src/app/home/
 ├── demo-section.tsx
 ├── features-section.tsx
 ├── use-cases-section.tsx
+├── interop-section.tsx
 ├── why-section.tsx
 ├── developer-section.tsx
 ├── opensource-section.tsx
