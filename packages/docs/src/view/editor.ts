@@ -2392,7 +2392,17 @@ export function initialize(
     document.addEventListener('keydown', onKey, true);
     container.addEventListener('scroll', closeSpellPopover);
 
-    const suggestions = await session.router.suggest(err.word);
+    let suggestions: string[];
+    try {
+      suggestions = await session.router.suggest(err.word);
+    } catch {
+      // Dictionary failure — treat as empty suggestions rather than leaving
+      // the popover stuck on "Checking…" forever.
+      if (spellPopover !== menu) return;
+      menu.replaceChildren();
+      addItem('No suggestions');
+      return;
+    }
     // The popover may have been dismissed while suggestions loaded.
     if (spellPopover !== menu) return;
     menu.replaceChildren();
