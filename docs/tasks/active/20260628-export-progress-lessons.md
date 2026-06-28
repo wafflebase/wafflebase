@@ -37,11 +37,37 @@
   per-part `entries.some(...)`. A global dedupe would have under-counted and
   left `done > total`.
 
-## Known minor limitations (non-blocking, from final review)
+## Code-review pass (high-effort, 7 finder angles)
 
-- `exportPdfAndDownload`'s `metadata` param is now unreachable via the UI
-  (onProgress inserted before it); harmless, candidate for a tidy-up.
-- `yieldToPaint()` allocates a fresh `MessageChannel` per call (GC-eligible;
-  React's scheduler reuses one — optional micro-opt).
-- PPTX/Docs-PDF progress tests assert the contract loosely (no exact call
-  count / `>0` not `>1`); fixtures make them pass reliably.
+After the branch was green, a `/code-review` pass surfaced findings. Fixed the
+high-value, low-risk ones in commit "Address export-progress code-review
+findings":
+
+- **DOCX stuck at `0/N`**: the initial `(0, N)` emit was gated on `onProgress`
+  alone, but fetching is gated on `imageFetcher && onProgress`. A caller with
+  `onProgress` but no fetcher emitted `(0, N)` then never advanced. Now both
+  the total and the emit are gated on `reportProgress = imageFetcher &&
+  onProgress`.
+- **Zero-image DOCX toast flash**: `updateExportToast` now returns `undefined`
+  (creates no toast) when `total === 0`, so an image-less DOCX no longer
+  flashes a descriptionless loading spinner before success.
+- **Slides button re-entrancy**: added the `if (exporting) return` guard the
+  docs button already had.
+- **PPTX loop**: loops on the captured `slideTotal` rather than re-reading
+  `deck.slides.length`.
+
+## Known minor limitations (deliberately not fixed)
+
+- **100%-then-save gap**: PDF exporters emit `(total, total)` after the last
+  page/slide, but `pdf.save()` still runs for a moment after — the toast reads
+  100% during final serialization. Still strictly better than a frozen
+  spinner; a true "finalizing" state is out of scope.
+- **`exportPdfAndDownload`'s `metadata` param** is unreachable via the UI
+  (onProgress inserted before it). No caller passes it; harmless.
+- **`yieldToPaint()` allocates a `MessageChannel` per call.** A module-level
+  reused channel (React-scheduler style) would save allocations, but the
+  queue/state it needs adds more risk than the cheap allocation costs — left
+  simple per the design's accepted per-call shape.
+- **Cross-part duplicate image** (same src in body + header) counts as 2 and is
+  fetched twice — pre-existing per-part dedupe behavior; count still matches
+  fetches so the bar is correct.
