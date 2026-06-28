@@ -48,5 +48,5 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor
 - [ ] 6.2 Footnotes / Endnotes
 - [ ] 6.3 Spell Check
 - [x] 6.4 Print / PDF Export
-- [ ] 6.5 Named Styles
+- [x] **6.5 Named Styles** — Google Docs paragraph-style model: redefinable per-document registry (Normal/Title/Subtitle/Heading 1–6), Update to match / Reset, refreshed GS built-in values, per-user default styles. See [20260629-docs-named-styles-todo.md](20260629-docs-named-styles-todo.md)
 - [x] 6.6 Full Keyboard Shortcuts mapping — single catalog (`shortcuts-catalog.ts`) + shared help modal (⌘/Ctrl+/); catalog drift fixed (heading 1–6, paste-formatting, word nav/delete now exposed). See [20260628-docs-shortcuts-catalog-todo.md](20260628-docs-shortcuts-catalog-todo.md)
