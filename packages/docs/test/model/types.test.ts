@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { HeadingLevel, Document, Inline, InlineStyle, Block } from '../../src/model/types.js';
+import type { Document, Inline, InlineStyle, Block } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -9,7 +9,6 @@ import {
   getEffectiveDimensions,
   createBlock,
   createEmptyBlock,
-  getHeadingDefaults,
   inlineStylesEqual,
   createTableCell,
   createTableBlock,
@@ -109,27 +108,6 @@ describe('createBlock', () => {
     expect(block.type).toBe('list-item');
     expect(block.listKind).toBe('unordered');
     expect(block.listLevel).toBe(0);
-  });
-});
-
-describe('getHeadingDefaults', () => {
-  it('returns fontSize 24 and bold for level 1', () => {
-    expect(getHeadingDefaults(1)).toEqual({ fontSize: 24, bold: true });
-  });
-
-  it('returns fontSize 11 (no bold) for level 6', () => {
-    expect(getHeadingDefaults(6)).toEqual({ fontSize: 11 });
-  });
-
-  it.each([
-    [1, { fontSize: 24, bold: true }],
-    [2, { fontSize: 20, bold: true }],
-    [3, { fontSize: 16, bold: true }],
-    [4, { fontSize: 14, bold: true }],
-    [5, { fontSize: 12 }],
-    [6, { fontSize: 11 }],
-  ] as const)('returns correct defaults for level %i', (level, expected) => {
-    expect(getHeadingDefaults(level as HeadingLevel)).toEqual(expected);
   });
 });
 

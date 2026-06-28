@@ -1,5 +1,6 @@
 import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
+import type { DocStyles } from '../model/named-styles.js';
 import type { ComposingContext, LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
 import { ptToPx, Theme } from './theme.js';
@@ -40,6 +41,7 @@ function layoutCellBlocks(
   maxWidth: number,
   blockParentMap?: Map<string, BlockCellInfo>,
   composingContext?: ComposingContext,
+  docStyles?: DocStyles,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
@@ -62,6 +64,7 @@ function layoutCellBlocks(
         measurer,
         maxWidth,
         composingContext,
+        docStyles,
       );
       if (blockParentMap) {
         for (const [k, v] of nestedLayout.blockParentMap) {
@@ -92,8 +95,8 @@ function layoutCellBlocks(
           },
         };
 
-    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth, composingContext);
-    assignLineHeights(blockLines, effectiveBlock);
+    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth, composingContext, docStyles);
+    assignLineHeights(blockLines, effectiveBlock, docStyles);
 
     const alignWidth = maxWidth - (effectiveBlock.style.marginLeft ?? 0);
     const alignment = effectiveBlock.style.alignment ?? 'left';
@@ -127,6 +130,7 @@ export function computeTableLayout(
   measurer: TextMeasurer,
   contentWidth: number,
   composingContext?: ComposingContext,
+  docStyles?: DocStyles,
 ): LayoutTable {
   const { rows, columnWidths } = tableData;
   const numCols = columnWidths.length;
@@ -169,7 +173,7 @@ export function computeTableLayout(
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
       const { lines, blockBoundaries } = layoutCellBlocks(
-        cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext,
+        cell?.blocks ?? [], measurer, innerWidth, blockParentMap, composingContext, docStyles,
       );
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 

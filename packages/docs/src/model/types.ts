@@ -7,6 +7,7 @@
 
 import type { StoredColor } from './color.js';
 import { storedColorsEqual } from './color.js';
+import type { DocStyles } from './named-styles.js';
 
 /**
  * Top-level document container.
@@ -16,6 +17,12 @@ export interface Document {
   pageSetup?: PageSetup;
   header?: HeaderFooter;
   footer?: HeaderFooter;
+  /**
+   * Per-document named-style overrides (Google Docs "Paragraph styles").
+   * Absent → all styles resolve to their built-in definitions. See
+   * `model/named-styles.ts`.
+   */
+  styles?: DocStyles;
 }
 
 /**
@@ -254,25 +261,9 @@ export function createEmptyBlock(): Block {
   };
 }
 
-// --- Heading defaults ---
-
-const HEADING_DEFAULTS: Record<HeadingLevel, Partial<InlineStyle>> = {
-  1: { fontSize: 24, bold: true },
-  2: { fontSize: 20, bold: true },
-  3: { fontSize: 16, bold: true },
-  4: { fontSize: 14, bold: true },
-  5: { fontSize: 12 },
-  6: { fontSize: 11 },
-};
-
-export function getHeadingDefaults(level: HeadingLevel): Partial<InlineStyle> {
-  return { ...HEADING_DEFAULTS[level] };
-}
-
-// --- Title / Subtitle defaults ---
-
-export const TITLE_DEFAULTS: Partial<InlineStyle> = { fontSize: 26 };
-export const SUBTITLE_DEFAULTS: Partial<InlineStyle> = { fontSize: 15, color: '#666666' };
+// Named-style defaults live in `model/named-styles.ts` (the redefinable
+// Google Docs paragraph-style registry). Use `resolveStyleInline` /
+// `resolveStyleBlock` there instead of hardcoded per-type constants.
 
 // --- List constants ---
 

@@ -9,18 +9,30 @@ describe('heading layout', () => {
     block.inlines = [{ text: 'Title', style: {} }];
     const { layout } = computeLayout([block], stubMeasurer(), 600);
     const run = layout.blocks[0].lines[0].runs[0];
-    // The run's inline should have heading defaults applied
-    expect(run.inline.style.fontSize).toBe(24);
-    expect(run.inline.style.bold).toBe(true);
+    // The run's inline should have the Google Docs H1 default (20pt, non-bold)
+    expect(run.inline.style.fontSize).toBe(20);
+    expect(run.inline.style.bold).toBeUndefined();
   });
 
   it('should let explicit inline styles override heading defaults', () => {
     const block = createBlock('heading', { headingLevel: 1 });
-    block.inlines = [{ text: 'Custom', style: { fontSize: 30 } }];
+    block.inlines = [{ text: 'Custom', style: { fontSize: 30, bold: true } }];
     const { layout } = computeLayout([block], stubMeasurer(), 600);
     const run = layout.blocks[0].lines[0].runs[0];
-    expect(run.inline.style.fontSize).toBe(30);
-    expect(run.inline.style.bold).toBe(true); // still gets bold from defaults
+    expect(run.inline.style.fontSize).toBe(30); // explicit size wins
+    expect(run.inline.style.bold).toBe(true); // explicit bold wins
+  });
+
+  it('should apply a document style override over the built-in default', () => {
+    const block = createBlock('heading', { headingLevel: 1 });
+    block.inlines = [{ text: 'Title', style: {} }];
+    const { layout } = computeLayout(
+      [block], stubMeasurer(), 600, undefined, undefined, undefined,
+      { 'heading-1': { inline: { fontSize: 32, bold: true } } },
+    );
+    const run = layout.blocks[0].lines[0].runs[0];
+    expect(run.inline.style.fontSize).toBe(32);
+    expect(run.inline.style.bold).toBe(true);
   });
 
   it('should produce larger line height for H1 than paragraph', () => {

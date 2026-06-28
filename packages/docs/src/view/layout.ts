@@ -1,14 +1,15 @@
 import {
-  getHeadingDefaults,
-  TITLE_DEFAULTS,
-  SUBTITLE_DEFAULTS,
   LIST_INDENT_PX,
   type Block,
   type BlockCellInfo,
-  type HeadingLevel,
   type Inline,
   type InlineStyle,
 } from '../model/types.js';
+import {
+  blockStyleId,
+  resolveStyleInline,
+  type DocStyles,
+} from '../model/named-styles.js';
 import { Theme, ptToPx } from './theme.js';
 import type { ResolvedFont, TextMeasurer } from './measurer.js';
 import { computeTableLayout, type LayoutTable } from './table-layout.js';
@@ -100,25 +101,21 @@ export function resolveInlineFont(style: InlineStyle): ResolvedFont {
 }
 
 /**
- * For heading blocks, return inlines with heading default styles merged in.
- * Heading defaults act as a base layer; explicit inline styles override them.
+ * Return a block's inlines with its named-style inline defaults merged in as
+ * a base layer; explicit inline styles override them. The style's definition
+ * comes from the document `docStyles` registry (falling back to the built-in
+ * defaults), so a redefined style reflows every block using it without any
+ * stored-inline rewrite.
  */
-export function resolveBlockInlines(block: Block): Inline[] {
-  let defaults: Partial<InlineStyle> | undefined;
-  if (block.type === 'heading' && block.headingLevel) {
-    defaults = getHeadingDefaults(block.headingLevel as HeadingLevel);
-  } else if (block.type === 'title') {
-    defaults = TITLE_DEFAULTS;
-  } else if (block.type === 'subtitle') {
-    defaults = SUBTITLE_DEFAULTS;
+export function resolveBlockInlines(block: Block, docStyles?: DocStyles): Inline[] {
+  const defaults = resolveStyleInline(blockStyleId(block), docStyles);
+  if (Object.keys(defaults).length === 0) {
+    return block.inlines;
   }
-  if (defaults) {
-    return block.inlines.map((inline) => ({
-      text: inline.text,
-      style: { ...defaults, ...inline.style },
-    }));
-  }
-  return block.inlines;
+  return block.inlines.map((inline) => ({
+    text: inline.text,
+    style: { ...defaults, ...inline.style },
+  }));
 }
 
 /**
@@ -299,6 +296,7 @@ export function computeLayout(
   dirtyBlockIds?: Set<string>,
   cache?: LayoutCache,
   composingContext?: ComposingContext,
+  docStyles?: DocStyles,
 ): { layout: DocumentLayout; cache: LayoutCache } {
   const availableWidth = contentWidth;
   const canUseCache = cache != null
@@ -330,7 +328,7 @@ export function computeLayout(
 
     if (block.type === 'table' && block.tableData) {
       const tableLayout = computeTableLayout(
-        block.tableData, block.id, measurer, availableWidth, composingContext,
+        block.tableData, block.id, measurer, availableWidth, composingContext, docStyles,
       );
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
@@ -358,8 +356,8 @@ export function computeLayout(
     } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext);
-      assignLineHeights(lines, effectiveBlock);
+      lines = layoutBlock(effectiveBlock, measurer, availableWidth, composingContext, docStyles);
+      assignLineHeights(lines, effectiveBlock, docStyles);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
       for (let li = 0; li < lines.length; li++) {
@@ -413,9 +411,10 @@ export function layoutBlock(
   measurer: TextMeasurer,
   maxWidth: number,
   composingContext?: ComposingContext,
+  docStyles?: DocStyles,
 ): LayoutLine[] {
-  // Resolve heading defaults into inlines before measurement
-  const resolved = resolveBlockInlines(block);
+  // Resolve named-style inline defaults into inlines before measurement
+  const resolved = resolveBlockInlines(block, docStyles);
   // Splice in view-local IME composing text for this block, if any, so it
   // reflows like real text without being written to the document model.
   const inlines = composingContext?.blockId === block.id
@@ -599,7 +598,7 @@ export function layoutBlock(
  * Body paragraphs and cell paragraphs both use this so wrapped-line
  * heights are computed identically.
  */
-export function assignLineHeights(lines: LayoutLine[], block: Block): void {
+export function assignLineHeights(lines: LayoutLine[], block: Block, docStyles?: DocStyles): void {
   // Floor at 1.0: a sub-1.0 multiplier collapses the line below the font's
   // own pixel height, so characters from adjacent lines overlap. The DOCX
   // import path can plant such values when <w:spacing w:line="N"
@@ -607,7 +606,7 @@ export function assignLineHeights(lines: LayoutLine[], block: Block): void {
   const lineHeightMultiplier = Math.max(1, block.style.lineHeight ?? 1.5);
   let blockY = 0;
   for (const line of lines) {
-    const maxFontSize = getLineMaxFontSizePx(line, block);
+    const maxFontSize = getLineMaxFontSizePx(line, block, docStyles);
     let lineHeight = lineHeightMultiplier * maxFontSize;
     for (const run of line.runs) {
       if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
@@ -785,7 +784,7 @@ export function applyAlignment(
  * Get the maximum font size across all runs in a line.
  * Falls back to the block's first inline or the theme default.
  */
-function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
+function getLineMaxFontSizePx(line: LayoutLine, block: Block, docStyles?: DocStyles): number {
   let max = 0;
   for (const run of line.runs) {
     const size = ptToPx(run.inline.style.fontSize ?? Theme.defaultFontSize);
@@ -793,15 +792,9 @@ function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
   }
   if (max > 0) return max;
 
-  // For empty lines, resolve font size from block type defaults
-  let fallbackSize: number | undefined;
-  if (block.type === 'title') {
-    fallbackSize = TITLE_DEFAULTS.fontSize;
-  } else if (block.type === 'subtitle') {
-    fallbackSize = SUBTITLE_DEFAULTS.fontSize;
-  } else if (block.type === 'heading' && block.headingLevel) {
-    fallbackSize = getHeadingDefaults(block.headingLevel as HeadingLevel).fontSize;
-  }
+  // For empty lines, resolve font size from the block's named-style default,
+  // overridden by an explicit size on the (empty) first inline.
+  let fallbackSize = resolveStyleInline(blockStyleId(block), docStyles).fontSize;
   if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
     fallbackSize = block.inlines[0].style.fontSize;
   }

@@ -1161,6 +1161,7 @@ export function initialize(
       dirtyBlockIds,
       layoutCache,
       composingContext ?? undefined,
+      doc.document.styles,
     );
     layout = result.layout;
     layoutCache = result.cache;
@@ -1176,6 +1177,7 @@ export function initialize(
         undefined,
         undefined,
         composingContext ?? undefined,
+        doc.document.styles,
       ).layout;
     } else {
       headerLayout = null;
@@ -1188,6 +1190,7 @@ export function initialize(
         undefined,
         undefined,
         composingContext ?? undefined,
+        doc.document.styles,
       ).layout;
     } else {
       footerLayout = null;

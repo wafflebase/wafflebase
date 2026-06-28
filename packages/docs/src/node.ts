@@ -69,9 +69,6 @@ export {
   generateBlockId,
   getBlockText,
   getBlockTextLength,
-  getHeadingDefaults,
-  TITLE_DEFAULTS,
-  SUBTITLE_DEFAULTS,
   inlineStylesEqual,
   resolvePageSetup,
   getEffectiveDimensions,
@@ -83,6 +80,14 @@ export {
   getCellText,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
+export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
+export {
+  BUILTIN_STYLES,
+  STYLE_IDS,
+  blockStyleId,
+  resolveStyleInline,
+  resolveStyleBlock,
+} from './model/named-styles.js';
 
 // Block-level edit helpers. These are pure data-model transforms — the
 // source module only imports from `model/types.js`, so it carries no
