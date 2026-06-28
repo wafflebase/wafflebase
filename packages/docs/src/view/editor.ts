@@ -2300,13 +2300,19 @@ export function initialize(
     return spellSession.errorAt(hit.blockId, hit.offset);
   };
 
-  const handleSpellContextMenu = (e: MouseEvent): void => {
+  const handleEditorContextMenu = (e: MouseEvent): void => {
+    // The editor surface is a Canvas; the browser's native context menu is
+    // never meaningful over it. Suppress it unconditionally so a right-click
+    // on plain text doesn't fall through to the system menu. The frontend's
+    // own menus (comment / table) and the spell suggestions popover open
+    // their own UI on top — preventDefault only kills the native menu, not
+    // those JS-driven listeners.
+    e.preventDefault();
     if (readOnly || !spellSession || !spellEnabled) return;
     const err = spellErrorAtEvent(e);
-    if (!err) return; // no squiggle here → let the browser's menu through
-    e.preventDefault();
-    // Stop the app's own context menu (Radix) from also opening on top of
-    // our suggestions popover when the click lands on a misspelling.
+    if (!err) return; // no misspelling here → native menu already suppressed
+    // Stop the app's own context menu (comment / table) from also opening on
+    // top of our suggestions popover when the click lands on a misspelling.
     e.stopPropagation();
     void openSpellPopover(e.clientX, e.clientY, err);
   };
@@ -2432,7 +2438,7 @@ export function initialize(
     }
   }
 
-  container.addEventListener('contextmenu', handleSpellContextMenu);
+  container.addEventListener('contextmenu', handleEditorContextMenu);
 
   // Construct the view-local spell session (default ON). The session never
   // touches the CRDT; `snapshot` routes its replace through the doc store's
@@ -3423,7 +3429,7 @@ export function initialize(
       document.removeEventListener('mousemove', handleImageResizeMouseMove);
       document.removeEventListener('mouseup', handleImageResizeMouseUp);
       container.removeEventListener('scroll', handleScroll);
-      container.removeEventListener('contextmenu', handleSpellContextMenu);
+      container.removeEventListener('contextmenu', handleEditorContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
       if (spellTimer) {
         clearTimeout(spellTimer);
