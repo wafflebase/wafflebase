@@ -40,6 +40,7 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@types/nspell": "^2.1.6",
     "@vitest/coverage-v8": "4.1.8",
     "@wafflebase/tokens": "workspace:*",
     "jsdom": "^28.0.0",
@@ -52,7 +53,9 @@
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
+    "dictionary-en": "^4.0.0",
     "jszip": "^3.10.1",
+    "nspell": "^2.1.5",
     "pdf-lib": "^1.17.1"
   }
 }
