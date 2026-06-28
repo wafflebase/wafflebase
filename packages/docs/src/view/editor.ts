@@ -2305,9 +2305,7 @@ export function initialize(
       id: b.id,
       text: getBlockText(b),
     }));
-    const caret = { blockId: cursor.position.blockId, offset: cursor.position.offset };
     await spellSession.recheckBlocks(blocks, {
-      caret,
       composing: textEditor?.isComposing() ?? false,
     });
     // Repaint-only: errors changed but layout did not.

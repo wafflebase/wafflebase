@@ -16,7 +16,6 @@ export interface DocLike {
 }
 
 interface RecheckOpts {
-  caret?: { blockId: string; offset: number };
   composing?: boolean;
 }
 
@@ -43,15 +42,6 @@ export class SpellSession {
     const next: SpellError[] = [];
     for (const block of blocks) {
       for (const tok of tokenizeWords(block.text)) {
-        // skip the word the caret is currently inside
-        if (
-          opts.caret &&
-          opts.caret.blockId === block.id &&
-          opts.caret.offset >= tok.start &&
-          opts.caret.offset <= tok.end
-        ) {
-          continue;
-        }
         const correct = await this.isCorrect(tok.word);
         if (!correct) {
           next.push({ blockId: block.id, start: tok.start, end: tok.end, word: tok.word });
@@ -74,7 +64,7 @@ export class SpellSession {
   /**
    * Returns the error whose range contains `offset`.
    * The end bound is inclusive — an offset one past the last character of a
-   * word still matches, consistent with caret-skip semantics in recheckBlocks.
+   * word still matches.
    */
   errorAt(blockId: string, offset: number): SpellError | undefined {
     return this.errors.find(

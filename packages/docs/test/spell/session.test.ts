@@ -24,12 +24,13 @@ describe('SpellSession', () => {
     ]);
   });
 
-  it('skips the word currently under the caret', async () => {
+  it('flags a misspelled word even when the caret is inside it', async () => {
+    // No caret param — recheckBlocks no longer takes one.
     const s = new SpellSession(router());
-    await s.recheckBlocks([{ id: 'b1', text: 'helllo there' }], {
-      caret: { blockId: 'b1', offset: 3 }, // inside "helllo"
-    });
-    expect(s.errors).toEqual([]);
+    await s.recheckBlocks([{ id: 'b1', text: 'helllo there' }]);
+    expect(s.errors).toEqual([
+      { blockId: 'b1', start: 0, end: 6, word: 'helllo' },
+    ]);
   });
 
   it('skips all blocks while composing', async () => {
@@ -86,18 +87,4 @@ describe('SpellSession', () => {
     expect(s.errors).toEqual([]);
   });
 
-  it('caret exactly at word start or end suppresses that word', async () => {
-    const s = new SpellSession(router());
-    // "helllo" tokenizes to { start: 0, end: 6 }
-
-    await s.recheckBlocks([{ id: 'b1', text: 'helllo' }], {
-      caret: { blockId: 'b1', offset: 0 }, // at the very start of the word
-    });
-    expect(s.errors).toEqual([]);
-
-    await s.recheckBlocks([{ id: 'b1', text: 'helllo' }], {
-      caret: { blockId: 'b1', offset: 6 }, // one past the last char (inclusive end)
-    });
-    expect(s.errors).toEqual([]);
-  });
 });

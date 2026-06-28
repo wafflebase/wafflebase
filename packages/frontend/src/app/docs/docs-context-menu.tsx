@@ -73,10 +73,21 @@ export function DocsContextMenu({
         : editor.getSpellErrorAt(e.clientX, e.clientY);
       const hasSelection = !!editor.getActiveSelection();
 
+      // Compute group visibility before opening so we can bail if empty.
+      const hasSpellGroup = !!spellErr;
+      const hasClipboardGroup = (hasSelection) || !readOnly; // copy/cut needs selection; paste needs editable
+      const hasInsertGroup = !readOnly;
+
+      // Don't open a blank overlay — every group is empty.
+      if (!hasSpellGroup && !hasClipboardGroup && !hasInsertGroup) return;
+
+      // Increment generation on every open so a slow getSpellSuggestions
+      // from a prior open can never land in state after this new open.
+      const gen = ++genRef.current;
+
       setOpen({ position: { x: e.clientX, y: e.clientY }, spellErr, hasSelection });
 
       if (spellErr && !readOnly) {
-        const gen = ++genRef.current;
         setSuggestions({ status: "loading" });
         editor.getSpellSuggestions(spellErr.word).then((items) => {
           if (genRef.current !== gen) return; // stale — menu reopened
