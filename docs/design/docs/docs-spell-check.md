@@ -163,16 +163,22 @@ Mirror the search/comment highlight path exactly:
 
 ### Suggestions popover
 
-- Hook `contextmenu` on the editor element. Hit-test the cursor point
-  against the session's misspelled rects (cached like
-  `commentMarkerRects`).
-- If hit: `preventDefault()`, open a small popover anchored at the word
-  showing `provider.suggest(word, lang)` results.
+- Hook `contextmenu` on the editor element (`handleEditorContextMenu`).
+  The handler **always** `preventDefault()`s — the Canvas surface should
+  never fall through to the browser's native context menu — then hit-tests
+  the pointer (`clientToDocCoords` + `paginatedPixelToPosition` →
+  `SpellSession.errorAt`).
+- If a misspelling is hit: open a small popover anchored at the word
+  showing `provider.suggest(word, lang)` results, and `stopPropagation()`
+  so the frontend's comment/table menus don't also open.
 - Click a suggestion → replace the word range through `DocStore` as a
   single undoable edit (same path find-&-replace uses for replace).
 - Empty suggestions → disabled "No suggestions" item.
-- No hit → let the native menu through (or nothing); v1 adds no other
-  items.
+- No misspelling under the pointer → no popover; the native menu stays
+  suppressed (right-click on plain text does nothing). The frontend's own
+  comment (text-selection) and table context menus still open their UI on
+  top, since `preventDefault` only suppresses the native menu, not those
+  JS-driven listeners.
 
 ### Dependencies
 
