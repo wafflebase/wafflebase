@@ -34,8 +34,9 @@ The misspelled-range set is view-local session state (like
   wired to the same interface for languages not bundled locally.
 - Per-word language auto-detection via script classification, reusing
   `word-boundary.ts` categories.
-- Performance-safe: debounced, visible-blocks-only, IME-aware,
-  word-cache.
+- Performance-safe: debounced (~300ms), IME-aware, per-word result
+  cache. (v1 re-tokenizes all body blocks per recheck; visible-only
+  scoping is a deferred optimization.)
 
 ### Non-Goals (v1 — deferred)
 
@@ -89,9 +90,14 @@ provider resolves synchronously-fast but still returns promises.
 ### Providers
 
 - **`LocalSpellProvider`** — wraps `nspell`. The en_US `.aff`/`.dic`
-  payload is **lazy-loaded** on first check (dynamic `import()` of a
-  dictionary module) so it stays out of the initial bundle. Caches the
-  nspell instance. `supports('en')`.
+  payload is **vendored** into `src/spell/dict/` and **lazy-loaded** on
+  first check via `import('./dict/en_US.dic?raw')` so it stays out of the
+  initial bundle (Vite emits it as a separate dynamic-import chunk). The
+  npm `dictionary-en` package can't be imported at runtime in the
+  browser — it is Node-only (top-level-await `node:fs`) and its `exports`
+  map blocks subpath access — so the raw files are vendored instead.
+  `nspell` accepts the dict as a string. Caches the nspell instance.
+  `supports('en')`.
 - **`BackendSpellProvider`** — POSTs unknown words to a backend endpoint
   (`/api/v1/spell/check`, `/suggest` — contract documented, server
   deferred). Batches and caches. `supports('ko')` etc. The class is
@@ -102,8 +108,10 @@ provider resolves synchronously-fast but still returns promises.
 
 ### SpellRouter
 
-Classifies each word's dominant script using the same categories as
-`word-boundary.ts`:
+Classifies each word's dominant script via its own `scriptOf` helper in
+`spell-checker.ts` (a Unicode-range classifier; `word-boundary.ts` does
+not separate Hangul from other "word" characters, so spell check needs
+its own):
 
 - **Latin** → local English provider.
 - **Hangul** → backend Korean provider (absent in v1 → un-flagged).
@@ -129,10 +137,12 @@ Walk a paragraph's text, emit `{start, end, word}` for each candidate.
 
 Per editor view, analogous to `FindReplaceState`:
 
-- Owns `Map<blockId, Array<{start, end, word}>>` of misspelled ranges.
-- `recheck()` is **debounced ~300ms** after document mutation and
-  triggered on scroll; only walks blocks intersecting the **visible**
-  viewport.
+- Owns `errors: SpellError[]` ({blockId, start, end, word}) of misspelled
+  ranges.
+- `recheckBlocks()` is **debounced ~300ms** after edits / cursor moves;
+  v1 walks all body blocks (visible-only scoping deferred). A monotonic
+  generation guard discards a stale recheck whose result would otherwise
+  clobber a newer one.
 - Per-word result cache (`Map<word, boolean>`) avoids re-querying
   providers for repeated words.
 - Pure state — never serialized to Yorkie.
@@ -166,10 +176,13 @@ Mirror the search/comment highlight path exactly:
 
 ### Dependencies
 
-Add `nspell` and an en_US Hunspell dictionary source to
-`packages/docs`. Dictionary payload loaded via dynamic import so it is a
-lazy chunk, not in the main bundle. Confirm chunk-gate (`harness.config.json`)
-tolerances or mark the dict as an allowed lazy chunk.
+Add `nspell` to `packages/docs` dependencies; keep `dictionary-en` as a
+dev dependency (provenance for the vendored files). The en_US `.aff`/
+`.dic` are vendored into `src/spell/dict/` and loaded via `?raw` dynamic
+import so they form a lazy chunk, not part of the main bundle. The two
+dict chunks bump the frontend chunk count 108 → 110 in
+`harness.config.json` (with a reason entry); the main docs entry stays
+~346 KB with no dict inlined.
 
 ## Testing
 
@@ -180,19 +193,22 @@ tolerances or mark the dict as an allowed lazy chunk.
     word, IME).
   - `LocalSpellProvider`: check/suggest against fixtures (known good +
     known misspelling → expected suggestions).
-  - `SpellSession`: range set updates on mutation; cache hits; visible-
-    only scoping.
-- **Integration**
-  - squiggle rects equal `computeSelectionRects` for the same range.
-  - replace-via-suggestion yields the correct store edit and a single
-    undo step.
+  - `SpellSession`: range set updates on mutation; caret-word & IME
+    skips; hit-test; generation guard (stale recheck discarded); replace
+    calls only `snapshot`+`deleteText`+`insertText` (view-local invariant).
+  - `squigglePoints` geometry (zigzag alternation).
+- **Deferred / manual**
+  - Squiggle-rect-vs-`computeSelectionRects` equivalence and the editor
+    glue (contextmenu hit-test, popover, debounce, teardown) are DOM/
+    canvas-bound; covered by manual smoke, not unit tests, in v1.
 
 ## Risks and Mitigation
 
 - **Bundle size** — en_US dict is hundreds of KB. *Mitigation:* dynamic
   import → lazy chunk; verify chunk-gate.
-- **Perf on large docs** — *Mitigation:* visible-blocks-only + debounce
-  + word cache.
+- **Perf on large docs** — *Mitigation:* debounce + per-word cache (v1
+  re-tokenizes all body blocks; visible-only scoping is a deferred
+  optimization).
 - **False positives (proper nouns, code)** — accepted in v1; ignore /
   add-to-dictionary deferred. Skip rules reduce noise (acronyms, URLs,
   numbers).
