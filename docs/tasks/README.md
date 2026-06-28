@@ -26,7 +26,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 322
+- Archived task count: 323
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: color picker none swatch (2026-06-28)

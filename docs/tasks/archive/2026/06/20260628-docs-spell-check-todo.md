@@ -42,9 +42,9 @@ toggle — deferred.
 
 ### F. Wrap-up
 - [x] F1 `pnpm verify:fast` green
-- [ ] F2 Self code-review over branch diff
+- [x] F2 Self code-review over branch diff (per-task + final whole-branch review; all blocking findings fixed)
 - [x] F3 Update roadmap doc (6.3 → done) + design README spell-check entry
-- [ ] F4 Lessons file + archive + index
+- [x] F4 Lessons file + archive + index
 
 ## Review
 
