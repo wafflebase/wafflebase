@@ -685,6 +685,7 @@ function SlideBackgroundSheet({
             value={backgroundFill}
             theme={theme}
             onChange={onChange}
+            allowAlpha
             recentColors={store.read().meta.recentColors}
           />
         </div>

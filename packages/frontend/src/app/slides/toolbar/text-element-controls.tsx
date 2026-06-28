@@ -139,6 +139,7 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
               value={firstElement?.data.fill}
               theme={theme}
               onChange={onBackgroundFill}
+              allowAlpha
               recentColors={store?.read().meta.recentColors}
             />
           )}

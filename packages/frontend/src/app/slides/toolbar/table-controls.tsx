@@ -297,27 +297,24 @@ export function TableControls({
         </Tooltip>
         <DropdownMenuContent onCloseAutoFocus={fillMenu.onCloseAutoFocus}>
           {theme && (
-            <>
-              <ThemedColorPicker
-                theme={theme}
-                value={
-                  typeof sampleCell?.style.fill === 'object'
+            <ThemedColorPicker
+              theme={theme}
+              value={
+                typeof sampleCell?.style.fill === 'string'
+                  ? { kind: 'srgb', value: sampleCell.style.fill }
+                  : typeof sampleCell?.style.fill === 'object'
                     ? (sampleCell.style.fill as ThemeColor)
                     : undefined
-                }
-                onChange={applyFill}
-                recentColors={store?.read().meta.recentColors}
-              />
-              <DropdownMenuItem
-                onSelect={() => {
-                  applyStyle({ fill: undefined });
-                  fillMenu.markSwatchClicked();
-                  setFillOpen(false);
-                }}
-              >
-                No fill
-              </DropdownMenuItem>
-            </>
+              }
+              onChange={applyFill}
+              onClear={() => {
+                applyStyle({ fill: undefined });
+                fillMenu.markSwatchClicked();
+                setFillOpen(false);
+              }}
+              allowAlpha
+              recentColors={store?.read().meta.recentColors}
+            />
           )}
         </DropdownMenuContent>
       </DropdownMenu>

@@ -1,12 +1,16 @@
-import { useId, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import type { Theme, ThemeColor } from "@wafflebase/slides";
 import {
   PICKER_THEME_ROLES,
+  colorTransparencyPercent,
   isRoleSelected,
   makeRoleColor,
   makeSrgbColor,
+  withAlpha,
 } from "./themed-color-picker-helpers";
 import { TEXT_COLORS } from "@/components/formatting-colors";
+import { NoneSwatch } from "@/components/none-swatch";
+import { Slider } from "@/components/ui/slider";
 
 interface ThemedColorPickerProps {
   /**
@@ -38,6 +42,23 @@ interface ThemedColorPickerProps {
     opts?: { commit?: boolean; record?: boolean },
   ) => void;
   /**
+   * Optional "no fill / none" callback. When provided, a red-diagonal
+   * `NoneSwatch` row is rendered at the top; clicking it clears the value.
+   * Fill-like contexts (shape fill, cell fill, slide background) pass this;
+   * text-color contexts omit it (transparent text isn't meaningful).
+   */
+  onClear?: () => void;
+  /** Label for the clear row. Defaults to "No fill". */
+  clearLabel?: string;
+  /**
+   * Opt into the Transparency (alpha) slider in the Custom section, matching
+   * Google Slides' fill/border custom-color dialog. Fill-like contexts
+   * (shape fill, border, cell fill, slide background) set this; text color
+   * omits it (transparent text isn't meaningful). The slider is disabled
+   * when there is no current color to make transparent.
+   */
+  allowAlpha?: boolean;
+  /**
    * Recently used srgb hex colors, most-recent-first. Rendered as a
    * "Recent" row above Standard when non-empty. Defaults to none.
    */
@@ -65,6 +86,9 @@ export function ThemedColorPicker({
   value,
   theme,
   onChange,
+  onClear,
+  clearLabel = "No fill",
+  allowAlpha = false,
   recentColors,
   hint,
 }: ThemedColorPickerProps) {
@@ -78,6 +102,11 @@ export function ThemedColorPicker({
   // `#000000`. Track whether a live change actually happened since focus, and
   // only record on blur when it did.
   const customDirty = useRef(false);
+  // Transient slider position during a Transparency drag. While non-null it
+  // drives the slider so the thumb / `%` track the gesture, but no store
+  // write happens until `onValueCommit` (pointer release / keyboard) — one
+  // drag collapses to a single undo unit, mirroring the drop-shadow slider.
+  const [dragTransparency, setDragTransparency] = useState<number | null>(null);
   const isSrgbSelected = (hex: string) =>
     value?.kind === "srgb" && value.value.toLowerCase() === hex.toLowerCase();
 
@@ -87,6 +116,20 @@ export function ThemedColorPicker({
         <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
           {hint}
         </p>
+      )}
+
+      {onClear && (
+        <button
+          type="button"
+          data-clear-control
+          aria-label={clearLabel}
+          aria-pressed={value === undefined}
+          onClick={onClear}
+          className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-xs hover:bg-muted"
+        >
+          <NoneSwatch selected={value === undefined} />
+          {clearLabel}
+        </button>
       )}
 
       <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -216,6 +259,35 @@ export function ThemedColorPicker({
           }}
           className="h-7 w-full cursor-pointer rounded border border-border bg-transparent"
         />
+
+        {allowAlpha && (
+          <div data-alpha-control className="mt-2 px-0.5 text-[10px]">
+            <div className="mb-1 flex items-center justify-between font-medium uppercase tracking-wide text-muted-foreground">
+              <span>Transparency</span>
+              <span className="font-mono normal-case text-foreground">
+                {dragTransparency ?? colorTransparencyPercent(value)}%
+              </span>
+            </div>
+            <Slider
+              aria-label="Transparency"
+              min={0}
+              max={100}
+              step={1}
+              // No current color ⇒ nothing to make transparent. Disable
+              // rather than apply alpha to a phantom fill.
+              disabled={value === undefined}
+              value={[dragTransparency ?? colorTransparencyPercent(value)]}
+              // Track the gesture locally (no store write); commit once on
+              // release so a drag is a single undo unit. Alpha rides on the
+              // current color's kind (role or srgb).
+              onValueChange={([v]) => setDragTransparency(v)}
+              onValueCommit={([v]) => {
+                setDragTransparency(null);
+                if (value !== undefined) onChange(withAlpha(value, 1 - v / 100));
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

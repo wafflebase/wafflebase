@@ -81,6 +81,20 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     [store, slideId, slide, ids, fillMenu],
   );
 
+  const onFillClear = useCallback(() => {
+    if (!store || !slideId || !slide) return;
+    store.batch(() => {
+      for (const id of ids) {
+        const el = slide.elements.find((e) => e.id === id);
+        if (el?.type === 'shape') {
+          store.updateElementData(slideId, id, { fill: undefined });
+        }
+      }
+    });
+    fillMenu.markSwatchClicked();
+    setFillOpen(false);
+  }, [store, slideId, slide, ids, fillMenu]);
+
   const onStrokeChange = useCallback(
     (stroke: Stroke | undefined, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
@@ -153,6 +167,8 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
                 }
                 theme={theme}
                 onChange={onFillChange}
+                onClear={onFillClear}
+                allowAlpha
                 recentColors={store?.read().meta.recentColors}
               />
             )}

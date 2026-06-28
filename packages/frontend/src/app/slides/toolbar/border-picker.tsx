@@ -128,6 +128,7 @@ export function BorderPicker({
               value={pickerColor}
               theme={theme}
               onChange={onColorChange}
+              allowAlpha
               recentColors={recentColors}
             />
           )}

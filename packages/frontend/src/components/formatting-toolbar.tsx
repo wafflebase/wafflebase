@@ -541,7 +541,7 @@ export function FormattingToolbar({
           <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
-          <ColorPickerGrid colors={BG_COLORS} onSelect={handleBgColor} onReset={handleResetBgColor} />
+          <ColorPickerGrid colors={BG_COLORS} onSelect={handleBgColor} onReset={handleResetBgColor} noneLabel="None" />
         </DropdownMenuContent>
       </DropdownMenu>
 

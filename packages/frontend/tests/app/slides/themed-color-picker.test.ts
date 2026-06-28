@@ -3,10 +3,12 @@ import { MemSlidesStore } from "@wafflebase/slides";
 import {
   THEME_ROLES,
   applyShapeFill,
+  colorTransparencyPercent,
   isRoleSelected,
   makeRoleColor,
   makeSrgbColor,
   readShapeFill,
+  withAlpha,
 } from "@/app/slides/themed-color-picker-helpers.ts";
 
 /**
@@ -119,6 +121,46 @@ describe("themed-color-picker helpers", () => {
     applyShapeFill(store, slideId, text, makeSrgbColor("#ff0000"));
     // canUndo state is unchanged — no new batch was committed.
     expect(store.canUndo()).toBe(canUndoBefore);
+  });
+
+  it("colorTransparencyPercent maps alpha to a 0–100 transparency value", () => {
+    // No alpha field ⇒ fully opaque ⇒ 0% transparent.
+    expect(colorTransparencyPercent({ kind: "srgb", value: "#fff" })).toBe(0);
+    expect(colorTransparencyPercent(undefined)).toBe(0);
+    // alpha 1 ⇒ 0%, alpha 0 ⇒ 100%, alpha 0.4 ⇒ 60%.
+    expect(colorTransparencyPercent({ kind: "srgb", value: "#fff", alpha: 1 })).toBe(0);
+    expect(colorTransparencyPercent({ kind: "srgb", value: "#fff", alpha: 0 })).toBe(100);
+    expect(colorTransparencyPercent({ kind: "role", role: "accent1", alpha: 0.4 })).toBe(60);
+  });
+
+  it("withAlpha sets alpha, clamps, and drops the field when opaque", () => {
+    // Sets alpha on srgb and role colors, preserving the other fields.
+    expect(withAlpha({ kind: "srgb", value: "#abcdef" }, 0.5)).toEqual({
+      kind: "srgb",
+      value: "#abcdef",
+      alpha: 0.5,
+    });
+    expect(withAlpha({ kind: "role", role: "accent2", shade: 0.2 }, 0.25)).toEqual({
+      kind: "role",
+      role: "accent2",
+      shade: 0.2,
+      alpha: 0.25,
+    });
+    // alpha ≥ 1 drops the field so opaque colors take resolveColor's fast path.
+    expect(withAlpha({ kind: "srgb", value: "#abcdef", alpha: 0.3 }, 1)).toEqual({
+      kind: "srgb",
+      value: "#abcdef",
+    });
+    // Out-of-range inputs clamp into [0, 1].
+    expect(withAlpha({ kind: "srgb", value: "#000" }, -0.5)).toEqual({
+      kind: "srgb",
+      value: "#000",
+      alpha: 0,
+    });
+    expect(withAlpha({ kind: "srgb", value: "#000" }, 2)).toEqual({
+      kind: "srgb",
+      value: "#000",
+    });
   });
 
   it("readShapeFill returns the shape's fill, or undefined", () => {

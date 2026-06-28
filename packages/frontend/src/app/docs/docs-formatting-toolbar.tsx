@@ -470,7 +470,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             className="w-auto p-2"
             onCloseAutoFocus={slimHighlightMenu.onCloseAutoFocus}
           >
-            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
+            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} noneLabel="None" />
           </DropdownMenuContent>
         </DropdownMenu>
 
