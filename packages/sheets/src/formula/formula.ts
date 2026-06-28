@@ -629,6 +629,11 @@ export const ErrNode = {
   ERROR: Object.freeze({ t: 'err', v: ErrValue.ERROR }) as ErrNode,
 } as const;
 
+export function numNode(v: number): EvalNode {
+  if (!isFinite(v)) return ErrNode.NUM;
+  return { t: 'num', v };
+}
+
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
 export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
@@ -726,10 +731,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitNumber(ctx: NumberContext): EvalNode {
-    return {
-      t: 'num',
-      v: Number(ctx.text),
-    };
+    return numNode(Number(ctx.text));
   }
 
   visitBoolean(ctx: BooleanContext): EvalNode {
@@ -751,10 +753,10 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.ADD) {
-      return { t: 'num', v: left.v + right.v };
+      return numNode(left.v + right.v);
     }
 
-    return { t: 'num', v: left.v - right.v };
+    return numNode(left.v - right.v);
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
@@ -769,14 +771,14 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.MUL) {
-      return { t: 'num', v: left.v * right.v };
+      return numNode(left.v * right.v);
     }
 
     if (right.v === 0) {
       return ErrNode.DIV0;
     }
 
-    return { t: 'num', v: left.v / right.v };
+    return numNode(left.v / right.v);
   }
 
   visitPercent(ctx: PercentContext): EvalNode {
@@ -906,7 +908,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.SUB) {
-      return { t: 'num', v: -operand.v };
+      return numNode(-operand.v);
     }
 
     return operand;
