@@ -42,6 +42,7 @@ import {
   getOrLoadImage,
   isImageFailed,
 } from '../view/canvas/image-cache';
+import { yieldToPaint } from './yield';
 
 /**
  * Fetches the raw bytes of an image `src`. Supplied by the frontend so
@@ -69,6 +70,8 @@ export interface ExportSlidesPdfOptions {
   assetTimeoutMs?: number;
   /** Title written into the PDF metadata. */
   title?: string;
+  /** Progress callback: `(done, total, 'slides')` once before work, then after each rendered slide. */
+  onProgress?: (done: number, total: number, phase: string) => void;
 }
 
 // 1×1 transparent PNG. Used as a taint-free stand-in for images whose
@@ -126,7 +129,12 @@ export async function exportSlidesPdf(
   const pageWidth = PAGE_WIDTH_PT;
   const pageHeight = (SLIDE_HEIGHT / SLIDE_WIDTH) * PAGE_WIDTH_PT;
 
+  const onProgress = opts.onProgress;
+  const total = doc.slides.length;
+  onProgress?.(0, total, 'slides');
+
   try {
+    let done = 0;
     for (const slide of doc.slides) {
       const cloned = prepareExportSlide(slide, doc, map);
 
@@ -154,6 +162,10 @@ export async function exportSlidesPdf(
         format === 'jpeg' ? await pdf.embedJpg(bytes) : await pdf.embedPng(bytes);
       const page = pdf.addPage([pageWidth, pageHeight]);
       page.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+
+      done += 1;
+      onProgress?.(done, total, 'slides');
+      if (done < total) await yieldToPaint();
     }
   } finally {
     if (temp.length > 0) {
