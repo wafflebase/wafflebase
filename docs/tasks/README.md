@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | color picker none swatch (2026-06-28) | [20260628-color-picker-none-swatch-todo.md](./active/20260628-color-picker-none-swatch-todo.md) | [20260628-color-picker-none-swatch-lessons.md](./active/20260628-color-picker-none-swatch-lessons.md) |
+| docs context menu (2026-06-28) | [20260628-docs-context-menu-todo.md](./active/20260628-docs-context-menu-todo.md) | [20260628-docs-context-menu-lessons.md](./active/20260628-docs-context-menu-lessons.md) |
 | docs shortcuts catalog (2026-06-28) | [20260628-docs-shortcuts-catalog-todo.md](./active/20260628-docs-shortcuts-catalog-todo.md) | [20260628-docs-shortcuts-catalog-lessons.md](./active/20260628-docs-shortcuts-catalog-lessons.md) |
 | release v0.4.8 (2026-06-28) | [20260628-release-v0.4.8-todo.md](./active/20260628-release-v0.4.8-todo.md) | - |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
