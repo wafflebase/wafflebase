@@ -145,7 +145,39 @@ comments side panel, @mention notifications, connector arrowhead picker.
 
 ## Review
 
-Status: **Phase 1 (homepage) implemented + verified; Phase 2 (docs) in progress**
+Status: **Shipped as PR #429** (homepage-refresh → main). CI `verify-self`
+running; MERGEABLE.
+
+### Commits (3, rebased onto origin/main)
+1. Refresh homepage for the three-product suite
+2. Add PPTX export to the slides editor toolbar
+3. Refresh documentation for Slides and import/export
+
+### Rebase conflict with #428 (resolved by integration, not just merge)
+While the branch was in review, `origin/main` gained **#428 "Show progress
+toast during docs/slides export"**, which touched the same export files
+(`slides-export-button.tsx`, `export-utils.ts`, and added an `onProgress`
+option to `exportPptx`). Rather than pick a side:
+- Merged `runExport(label, fn)` with #428's progress-toast pattern so **both**
+  PDF and PPTX exports now drive `updateExportToast` + success/error toast id.
+- Added an `onProgress?` param to `exportSlidesPptxAndDownload`, forwarded to
+  `exportPptx`'s new per-slide progress callback.
+- `export-utils.ts` auto-merged cleanly (#428's `updateExportToast` + this
+  branch's `safeFilename` `"pptx"` union).
+Re-verified post-rebase: `verify:fast` green, frontend build green, docs build
+green.
+
+### Lesson
+Long-lived branches touching a hot area (exports) should `git fetch` + check
+`origin/main` before the final commit — #428 landed mid-task and would have
+been a silent semantic conflict (PPTX export with no progress toast) if merged
+naively instead of integrated.
+
+### Non-blocking review notes (from /code-review, accepted)
+- PPTX image-fetch failure aborts the export — same behavior as the PDF path,
+  not a regression.
+- Home card-shadow / card-shell duplication mirrors the existing home/ pattern;
+  promoting a shared primitive is a separate cleanup.
 
 ### What changed
 - `use-cases-section.tsx` — broken `/docs/sheets/sheet` → `/docs/sheets/build-a-budget`.
