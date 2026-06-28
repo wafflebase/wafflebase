@@ -56,27 +56,30 @@ export class DocxExporter {
     let mediaSeq = 0;
     const nextMediaName = (ext: string) => `media/image_${++mediaSeq}.${ext}`;
 
-    // Progress: total = unique image srcs per part (matches the per-part
-    // dedupe in collectImages). Wrap the fetcher to emit after each fetch,
-    // in a `finally` so a failed fetch still advances the bar.
+    // Progress: only report when we will actually fetch images — i.e. both a
+    // fetcher and a callback are present. Reporting on `onProgress` alone
+    // would emit `(0, N)` and then never advance (no fetches happen), leaving
+    // the bar stuck. total = unique image srcs per part (matches the per-part
+    // dedupe in collectImages). Wrap the fetcher to emit after each fetch, in
+    // a `finally` so a failed fetch still advances the bar.
+    const reportProgress = Boolean(imageFetcher && onProgress);
     let imagesDone = 0;
-    const imagesTotal = onProgress
+    const imagesTotal = reportProgress
       ? DocxExporter.countImageSrcs(doc.blocks) +
         DocxExporter.countImageSrcs(doc.header?.blocks) +
         DocxExporter.countImageSrcs(doc.footer?.blocks)
       : 0;
-    onProgress?.(0, imagesTotal, 'images');
-    const fetcher: ImageFetcher | undefined =
-      imageFetcher && onProgress
-        ? async (url: string) => {
-            try {
-              return await imageFetcher(url);
-            } finally {
-              imagesDone += 1;
-              onProgress(imagesDone, imagesTotal, 'images');
-            }
+    if (reportProgress) onProgress!(0, imagesTotal, 'images');
+    const fetcher: ImageFetcher | undefined = reportProgress
+      ? async (url: string) => {
+          try {
+            return await imageFetcher!(url);
+          } finally {
+            imagesDone += 1;
+            onProgress!(imagesDone, imagesTotal, 'images');
           }
-        : imageFetcher;
+        }
+      : imageFetcher;
 
     // Collect and fetch images referenced from the main document body.
     if (fetcher) {

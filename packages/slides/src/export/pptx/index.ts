@@ -271,7 +271,7 @@ export async function exportPptx(
   const slideTotal = deck.slides.length;
   onProgress?.(0, slideTotal, 'slides');
 
-  for (let i = 0; i < deck.slides.length; i++) {
+  for (let i = 0; i < slideTotal; i++) {
     const slide = deck.slides[i];
     const slidePath = `ppt/slides/slide${i + 1}.xml`;
 

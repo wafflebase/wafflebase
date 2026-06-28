@@ -36,7 +36,7 @@ export function SlidesExportButton({
   const [exporting, setExporting] = useState(false);
 
   const handleExportPdf = async () => {
-    if (!store) return;
+    if (!store || exporting) return;
     setExporting(true);
     const t = title || "presentation";
     let toastId: string | number | undefined;

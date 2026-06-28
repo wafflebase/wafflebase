@@ -428,6 +428,45 @@ describe('DocxExporter', () => {
     expect(calls.every((c) => c[2] === 'images')).toBe(true);
   });
 
+  it('emits no progress when onProgress is given without an imageFetcher', async () => {
+    // A doc with images but no fetcher still throws the existing guard. The
+    // point of this test: we must NOT emit a misleading (0, N) beforehand —
+    // that would briefly show a progress bar stuck at 0 before the error.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: '', style: { image: { src: 'a.png', width: 10, height: 10 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+    const calls: Array<[number, number, string]> = [];
+    await expect(
+      DocxExporter.export(doc, undefined, (d, t, p) => calls.push([d, t, p])),
+    ).rejects.toThrow(/imageFetcher/);
+    expect(calls).toEqual([]);
+  });
+
+  it('emits no progress for an image-free document', async () => {
+    // total would be 0; reporting (0, 0) then nothing is pointless noise, and
+    // the toast layer would flash a descriptionless spinner. Emit nothing.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'No images here', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+    const calls: Array<[number, number, string]> = [];
+    await DocxExporter.export(doc, async () => new Blob(), (d, t, p) =>
+      calls.push([d, t, p]),
+    );
+    expect(calls).toEqual([[0, 0, 'images']]);
+  });
+
   it('should export and re-import a table inside a header', async () => {
     const doc: Document = {
       blocks: [{
