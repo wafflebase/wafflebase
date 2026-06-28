@@ -46,6 +46,9 @@ The misspelled-range set is view-local session state (like
 - **Ignore / Ignore all.**
 - **Add to personal dictionary (persisted).**
 - **Toggle spell check on/off** (UI control).
+- **Tables and headers/footers.** Only top-level body blocks are scanned;
+  `getBlockText` returns empty for table blocks, so misspellings inside
+  table cells and header/footer regions are not flagged in v1.
 - A general docs context-menu framework. The suggestions menu is a small
   purpose-built popover, not a reusable context menu.
 

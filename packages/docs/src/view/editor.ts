@@ -2417,6 +2417,11 @@ export function initialize(
         // dirty and re-layout so the squiggle and text update, then
         // re-check immediately.
         session.replace(doc, err, suggestion);
+        // Drop the replaced error synchronously before render() so that
+        // computeSelectionRects is not called with its now-stale `end`
+        // offset (which can be out-of-range when the correction is
+        // shorter than the original word).
+        session.errors = session.errors.filter((e) => e !== err);
         cursor.moveTo({ blockId: err.blockId, offset: err.start + suggestion.length });
         markDirty(err.blockId);
         invalidateLayout();
@@ -3010,6 +3015,10 @@ export function initialize(
     },
     setSpellSession: (session: SpellSession | null) => {
       spellSession = session;
+      // Clear stale hit-test rects so callers that read
+      // getSpellErrorRects() before the next render don't see rects
+      // from the previous session.
+      lastSpellErrorRects = [];
       render();
     },
     getSpellErrorRects: () => lastSpellErrorRects,
