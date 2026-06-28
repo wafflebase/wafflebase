@@ -37,7 +37,8 @@ flow ("Exporting … 12 / 50 slides").
 ### A. Progress callback in exporters
 
 Each exporter gains an optional callback, mirroring the import
-wrapped-callback pattern (`docx-importer.ts`, `pptx/index.ts`):
+wrapped-callback pattern (`packages/docs/src/import/docx-importer.ts`,
+`packages/slides/src/import/pptx/index.ts`):
 
 ```ts
 onProgress?: (done: number, total: number, phase: string) => void;
@@ -50,12 +51,12 @@ toast never sticks.
 
 Per-export progress unit:
 
-| Export        | Unit        | Phase label | Loop location                              |
-| ------------- | ----------- | ----------- | ------------------------------------------ |
-| Slides PDF    | slide       | `slides`    | `slides/src/export/pdf.ts` per-slide loop  |
-| Slides PPTX   | slide       | `slides`    | `slides/src/export/pptx/index.ts` per-slide |
-| Docs PDF      | page        | `pages`     | `docs/src/export/pdf-exporter.ts` per-page |
-| Docs DOCX     | image fetch | `images`    | `docs/src/export/docx-exporter.ts` images  |
+| Export        | Unit        | Phase label | Loop location                                          |
+| ------------- | ----------- | ----------- | ------------------------------------------------------ |
+| Slides PDF    | slide       | `slides`    | `packages/slides/src/export/pdf.ts` per-slide loop     |
+| Slides PPTX   | slide       | `slides`    | `packages/slides/src/export/pptx/index.ts` per-slide   |
+| Docs PDF      | page        | `pages`     | `packages/docs/src/export/pdf-exporter.ts` per-page    |
+| Docs DOCX     | image fetch | `images`    | `packages/docs/src/export/docx-exporter.ts` per-image  |
 
 DOCX reports on image fetches (the actual bottleneck for large files,
 identical to import's "Embedding images X / Y"); when a document has no
@@ -94,7 +95,7 @@ units" — but start with per-unit for the smoothest progress.
 
 A shared `updateExportToast` helper (added to
 `packages/frontend/src/app/docs/export-utils.ts`) mirrors `updateImportToast`
-in `document-list.tsx`:
+in `packages/frontend/src/app/documents/document-list.tsx`:
 
 ```ts
 function updateExportToast(id, title, done, total, unit): string | number {
@@ -105,7 +106,8 @@ function updateExportToast(id, title, done, total, unit): string | number {
 }
 ```
 
-Each export button (`docs-export-button.tsx`, `slides-export-button.tsx`)
+Each export button (`packages/frontend/src/app/docs/docs-export-button.tsx`,
+`packages/frontend/src/app/slides/slides-export-button.tsx`)
 threads an `onProgress` into its export action, which calls
 `updateExportToast`. On success the toast becomes `toast.success`; on failure
 the existing `toast.error` path is preserved. The current spinner icon and
