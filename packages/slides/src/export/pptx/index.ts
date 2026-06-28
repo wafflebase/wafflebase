@@ -346,7 +346,9 @@ export async function exportPptx(
     );
     slideRIds.push(slideRId);
     onProgress?.(i + 1, slideTotal, 'slides');
-    if (i + 1 < slideTotal) await yieldToPaint();
+    // Only yield on the interactive (progress-reporting) path; headless/CLI
+    // exports gain nothing from the extra event-loop turn per slide.
+    if (onProgress && i + 1 < slideTotal) await yieldToPaint();
   }
 
   // -------------------------------------------------------------------------

@@ -164,7 +164,9 @@ export class PdfExporter {
       }
 
       onProgress?.(i + 1, pageTotal, 'pages');
-      if (i + 1 < pageTotal) await yieldToPaint();
+      // Only yield on the interactive (progress-reporting) path; headless/CLI
+      // exports gain nothing from the extra event-loop turn per page.
+      if (onProgress && i + 1 < pageTotal) await yieldToPaint();
     }
 
     // 7. Outline tree. Built after all pages exist so getPage(i) works.

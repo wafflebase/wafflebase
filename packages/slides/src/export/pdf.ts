@@ -131,10 +131,12 @@ export async function exportSlidesPdf(
 
   const onProgress = opts.onProgress;
   const total = doc.slides.length;
-  onProgress?.(0, total, 'slides');
 
   try {
+    // Emit inside the try so a throwing callback can't skip the finally that
+    // revokes the temp object URLs allocated by resolveDeckImages() above.
     let done = 0;
+    onProgress?.(0, total, 'slides');
     for (const slide of doc.slides) {
       const cloned = prepareExportSlide(slide, doc, map);
 
@@ -165,7 +167,10 @@ export async function exportSlidesPdf(
 
       done += 1;
       onProgress?.(done, total, 'slides');
-      if (done < total) await yieldToPaint();
+      // Only yield when progress is being reported — i.e. the interactive
+      // (browser) path. Headless/CLI exports gain nothing from the extra
+      // event-loop turn.
+      if (onProgress && done < total) await yieldToPaint();
     }
   } finally {
     if (temp.length > 0) {

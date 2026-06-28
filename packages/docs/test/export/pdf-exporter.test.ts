@@ -349,6 +349,8 @@ describe('PdfExporter (progress)', () => {
     expect(last[1]).toBeGreaterThan(0);
     const dones = calls.map((c) => c[0]);
     expect(dones).toEqual([...dones].sort((a, b) => a - b));
+    // Lock the contract for every callback: constant total, constant phase.
+    expect(calls.every((c) => c[1] === last[1] && c[2] === 'pages')).toBe(true);
   });
 });
 

@@ -425,7 +425,9 @@ describe('DocxExporter', () => {
     await DocxExporter.export(doc, async () => PNG, (d, t, p) => calls.push([d, t, p]));
     expect(calls[0]).toEqual([0, 2, 'images']);
     expect(calls[calls.length - 1]).toEqual([2, 2, 'images']);
-    expect(calls.every((c) => c[2] === 'images')).toBe(true);
+    const dones = calls.map((c) => c[0]);
+    expect(dones).toEqual([...dones].sort((a, b) => a - b));
+    expect(calls.every((c) => c[1] === 2 && c[2] === 'images')).toBe(true);
   });
 
   it('emits no progress when onProgress is given without an imageFetcher', async () => {

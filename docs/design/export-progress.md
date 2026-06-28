@@ -117,7 +117,7 @@ exports only flash briefly.
 
 ### Data flow (slides PDF example)
 
-```
+```text
 slides-export-button → exportSlidesPdf(doc, { onProgress })
   loop slides: drawSlide → emit(done, total, 'slides') → await yieldToPaint()
 onProgress(done, total, 'slides') → updateExportToast(id, title, done, total, 'slides')

@@ -32,5 +32,7 @@ describe('exportPptx progress', () => {
     expect(calls[0]).toEqual([0, 2, 'slides']);
     expect(calls[calls.length - 1]).toEqual([2, 2, 'slides']);
     expect(calls.every((c) => c[1] === 2 && c[2] === 'slides')).toBe(true);
+    const dones = calls.map((c) => c[0]);
+    expect(dones).toEqual([...dones].sort((a, b) => a - b));
   });
 });
