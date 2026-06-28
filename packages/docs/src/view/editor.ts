@@ -203,6 +203,35 @@ export interface EditorAPI {
    * re-enabled.
    */
   setSpellCheckEnabled(enabled: boolean): void;
+  /**
+   * Return the spell error under viewport coordinates (clientX, clientY),
+   * or undefined when there is no misspelling at that point or no active
+   * spell session.
+   */
+  getSpellErrorAt(clientX: number, clientY: number): SpellError | undefined;
+  /**
+   * Fetch spelling suggestions for `word` from the active session.
+   * Returns `[]` when no session is active or the router fails.
+   */
+  getSpellSuggestions(word: string): Promise<string[]>;
+  /**
+   * Apply a spelling suggestion: replace the error text in the document,
+   * drop the error synchronously from the session's error list, repaint,
+   * and schedule a background recheck. No-op in read-only mode or when no
+   * session is active.
+   */
+  applySpellSuggestion(err: SpellError, replacement: string): void;
+  /** Copy the current selection to the system clipboard. */
+  copy(): void;
+  /** Cut the current selection to the system clipboard. */
+  cut(): void;
+  /**
+   * Paste from the system clipboard at the current caret position.
+   * Prefers rich HTML content (via `navigator.clipboard.read()`) and
+   * falls back to plain text. Never throws — clipboard permission errors
+   * are silently swallowed.
+   */
+  paste(): Promise<void>;
   /** Insert a table at the current cursor position */
   insertTable(rows: number, cols: number): void;
   /** Insert a row above or below current cell */
@@ -1076,9 +1105,6 @@ export function initialize(
   let spellEnabled = true;
   // Debounce handle for re-checking after edits / cursor moves.
   let spellTimer: ReturnType<typeof setTimeout> | null = null;
-  // Currently open suggestions popover (DOM), if any.
-  let spellPopover: HTMLDivElement | null = null;
-  let closeSpellPopover: () => void = () => {};
   let scaleFactor = 1;
   let lastCanvasHeight = 0;
   let lastLogicalCanvasWidth = 0;
@@ -2288,155 +2314,14 @@ export function initialize(
     renderPaintOnly();
   }
 
-  // Map a context-menu event to the spell error under the pointer, reusing
-  // the exact click→position pipeline the editor uses elsewhere
-  // (clientToDocCoords + paginatedPixelToPosition).
-  const spellErrorAtEvent = (e: MouseEvent): SpellError | undefined => {
-    if (!spellSession || !layout) return undefined;
-    const { x: docX, y: docY } = clientToDocCoords(e.clientX, e.clientY);
-    const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
-    const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
-    if (!hit) return undefined;
-    return spellSession.errorAt(hit.blockId, hit.offset);
-  };
-
   const handleEditorContextMenu = (e: MouseEvent): void => {
     // The editor surface is a Canvas; the browser's native context menu is
     // never meaningful over it. Suppress it unconditionally so a right-click
     // on plain text doesn't fall through to the system menu. The frontend's
-    // own menus (comment / table) and the spell suggestions popover open
-    // their own UI on top — preventDefault only kills the native menu, not
-    // those JS-driven listeners.
+    // unified context menu opens its own UI on top — preventDefault only
+    // kills the native menu, not those JS-driven listeners.
     e.preventDefault();
-    if (readOnly || !spellSession || !spellEnabled) return;
-    const err = spellErrorAtEvent(e);
-    if (!err) return; // no misspelling here → native menu already suppressed
-    // Stop the app's own context menu (comment / table) from also opening on
-    // top of our suggestions popover when the click lands on a misspelling.
-    e.stopPropagation();
-    void openSpellPopover(e.clientX, e.clientY, err);
   };
-
-  async function openSpellPopover(
-    clientX: number,
-    clientY: number,
-    err: SpellError,
-  ): Promise<void> {
-    if (!spellSession) return;
-    closeSpellPopover();
-    const session = spellSession;
-
-    const menu = document.createElement('div');
-    menu.style.cssText = [
-      'position:fixed',
-      `left:${clientX}px`,
-      `top:${clientY}px`,
-      'z-index:2147483647',
-      'min-width:160px',
-      'max-height:280px',
-      'overflow-y:auto',
-      'padding:4px 0',
-      'background:#fff',
-      'border:1px solid rgba(0,0,0,0.15)',
-      'border-radius:6px',
-      'box-shadow:0 2px 10px rgba(0,0,0,0.2)',
-      'font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-      'color:#202124',
-      'user-select:none',
-    ].join(';');
-
-    const addItem = (label: string, onClick?: () => void): void => {
-      const item = document.createElement('div');
-      item.textContent = label;
-      item.style.cssText = [
-        'padding:6px 16px',
-        'white-space:nowrap',
-        onClick ? 'cursor:pointer' : 'cursor:default',
-        onClick ? 'color:#202124' : 'color:#9aa0a6',
-      ].join(';');
-      if (onClick) {
-        item.addEventListener('mouseenter', () => {
-          item.style.background = '#f1f3f4';
-        });
-        item.addEventListener('mouseleave', () => {
-          item.style.background = '';
-        });
-        // mousedown (not click) so the popover acts before the
-        // outside-mousedown listener tears it down.
-        item.addEventListener('mousedown', (ev) => {
-          ev.preventDefault();
-          onClick();
-        });
-      }
-      menu.appendChild(item);
-    };
-
-    // Loading placeholder while suggestions resolve (dict load is async).
-    addItem('Checking…');
-    document.body.appendChild(menu);
-    spellPopover = menu;
-
-    // Outside-click / Escape / scroll dismiss. Registered now so the menu
-    // closes even while suggestions are still loading.
-    const onOutside = (ev: MouseEvent): void => {
-      if (spellPopover && !spellPopover.contains(ev.target as Node)) {
-        closeSpellPopover();
-      }
-    };
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape') closeSpellPopover();
-    };
-    closeSpellPopover = (): void => {
-      document.removeEventListener('mousedown', onOutside, true);
-      document.removeEventListener('keydown', onKey, true);
-      container.removeEventListener('scroll', closeSpellPopover);
-      menu.remove();
-      if (spellPopover === menu) spellPopover = null;
-      closeSpellPopover = () => {};
-    };
-    document.addEventListener('mousedown', onOutside, true);
-    document.addEventListener('keydown', onKey, true);
-    container.addEventListener('scroll', closeSpellPopover);
-
-    let suggestions: string[];
-    try {
-      suggestions = await session.router.suggest(err.word);
-    } catch {
-      // Dictionary failure — treat as empty suggestions rather than leaving
-      // the popover stuck on "Checking…" forever.
-      if (spellPopover !== menu) return;
-      menu.replaceChildren();
-      addItem('No suggestions');
-      return;
-    }
-    // The popover may have been dismissed while suggestions loaded.
-    if (spellPopover !== menu) return;
-    menu.replaceChildren();
-
-    if (suggestions.length === 0) {
-      addItem('No suggestions');
-      return;
-    }
-    for (const suggestion of suggestions) {
-      addItem(suggestion, () => {
-        // `replace` snapshots (undo) then deletes+inserts. Mark the block
-        // dirty and re-layout so the squiggle and text update, then
-        // re-check immediately.
-        session.replace(doc, err, suggestion);
-        // Drop the replaced error synchronously before render() so that
-        // computeSelectionRects is not called with its now-stale `end`
-        // offset (which can be out-of-range when the correction is
-        // shorter than the original word).
-        session.errors = session.errors.filter((e) => e !== err);
-        cursor.moveTo({ blockId: err.blockId, offset: err.start + suggestion.length });
-        markDirty(err.blockId);
-        invalidateLayout();
-        render();
-        closeSpellPopover();
-        void runSpellRecheck();
-      });
-    }
-  }
 
   container.addEventListener('contextmenu', handleEditorContextMenu);
 
@@ -3037,10 +2922,85 @@ export function initialize(
           clearTimeout(spellTimer);
           spellTimer = null;
         }
-        closeSpellPopover();
         if (spellSession) spellSession.errors = [];
         renderPaintOnly();
       }
+    },
+    getSpellErrorAt: (clientX: number, clientY: number): SpellError | undefined => {
+      if (!spellSession || !layout) return undefined;
+      const { x: docX, y: docY } = clientToDocCoords(clientX, clientY);
+      const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
+      const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
+      if (!hit) return undefined;
+      return spellSession.errorAt(hit.blockId, hit.offset);
+    },
+    getSpellSuggestions: async (word: string): Promise<string[]> => {
+      if (!spellSession) return [];
+      try {
+        return await spellSession.router.suggest(word);
+      } catch {
+        return [];
+      }
+    },
+    applySpellSuggestion: (err: SpellError, replacement: string): void => {
+      if (!spellSession || readOnly) return;
+      // replace() snapshots (undo) then deletes+inserts the correction.
+      spellSession.replace(doc, err, replacement);
+      // Drop the replaced error synchronously before render() so that
+      // computeSelectionRects is not called with its now-stale `end`
+      // offset (which can be out-of-range when the correction is
+      // shorter than the original word).
+      spellSession.errors = spellSession.errors.filter((e) => e !== err);
+      cursor.moveTo({ blockId: err.blockId, offset: err.start + replacement.length });
+      markDirty(err.blockId);
+      invalidateLayout();
+      render();
+      void runSpellRecheck();
+    },
+    copy: (): void => {
+      // Focus the hidden textarea so the browser routes the execCommand
+      // to it; the existing textarea 'copy' listener (handleCopy) then
+      // writes the rich + plain clipboard data via ClipboardEvent.clipboardData.
+      textEditor?.focus();
+      document.execCommand('copy');
+    },
+    cut: (): void => {
+      textEditor?.focus();
+      document.execCommand('cut');
+    },
+    paste: async (): Promise<void> => {
+      if (!textEditor) return;
+      // Try navigator.clipboard.read() for rich HTML content first.
+      try {
+        if (navigator.clipboard && 'read' in navigator.clipboard) {
+          const items = await navigator.clipboard.read();
+          let html: string | undefined;
+          let text: string | undefined;
+          for (const item of items) {
+            if (item.types.includes('text/html') && html === undefined) {
+              try {
+                const blob = await item.getType('text/html');
+                html = await blob.text();
+              } catch { /* type unavailable */ }
+            }
+            if (item.types.includes('text/plain') && text === undefined) {
+              try {
+                const blob = await item.getType('text/plain');
+                text = await blob.text();
+              } catch { /* type unavailable */ }
+            }
+          }
+          if (html !== undefined || text !== undefined) {
+            textEditor.pasteContent({ html, text });
+            return;
+          }
+        }
+      } catch { /* Clipboard API blocked or unavailable */ }
+      // Fallback: navigator.clipboard.readText()
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) textEditor.pasteContent({ text });
+      } catch { /* Clipboard blocked — no-op */ }
     },
     setCommentMarkers: (markers: CommentMarker[]) => {
       // Clone so callers can keep their own list (e.g. memoize the
@@ -3435,7 +3395,6 @@ export function initialize(
         clearTimeout(spellTimer);
         spellTimer = null;
       }
-      closeSpellPopover();
       spellSession = null;
       resizeObserver.disconnect();
       canvas.remove();
