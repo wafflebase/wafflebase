@@ -24,6 +24,7 @@ import {
   collectAndEmbedImages,
   type ImageFetcher,
 } from './pdf-image-painter.js';
+import { yieldToPaint } from './yield.js';
 
 const PX_PER_PT = 96 / 72;
 
@@ -47,6 +48,8 @@ export interface PdfExportOptions {
    * can't import the frontend catalog). Omit and export behaves as before.
    */
   fontResolver?: PdfFontResolver;
+  /** Progress callback: `(done, total, 'pages')` once before paint, then after each painted page. */
+  onProgress?: (done: number, total: number, phase: string) => void;
 }
 
 export class PdfExporter {
@@ -134,7 +137,10 @@ export class PdfExporter {
     // body block id → page index (the first page on which the block
     // appears) so the outline tree can later resolve heading targets.
     const blockIdToPage = new Map<string, number>();
-    for (let i = 0; i < pagination.pages.length; i++) {
+    const onProgress = opts.onProgress;
+    const pageTotal = pagination.pages.length;
+    onProgress?.(0, pageTotal, 'pages');
+    for (let i = 0; i < pageTotal; i++) {
       const lp = pagination.pages[i];
       const pageWidthPt = lp.width / PX_PER_PT;
       const pageHeightPt = lp.height / PX_PER_PT;
@@ -156,6 +162,9 @@ export class PdfExporter {
           blockIdToPage.set(block.id, i);
         }
       }
+
+      onProgress?.(i + 1, pageTotal, 'pages');
+      if (i + 1 < pageTotal) await yieldToPaint();
     }
 
     // 7. Outline tree. Built after all pages exist so getPage(i) works.

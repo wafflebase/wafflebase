@@ -328,6 +328,30 @@ describe('PdfExporter (metadata)', () => {
   });
 });
 
+describe('PdfExporter (progress)', () => {
+  it('reports per-page progress ending at total', async () => {
+    const longDoc: Document = {
+      blocks: Array.from({ length: 200 }, (_, i) => ({
+        id: `p${i}`,
+        type: 'paragraph' as const,
+        inlines: [{ text: `Paragraph ${i}: lorem ipsum dolor sit amet consectetur adipiscing elit.`, style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      })),
+    };
+    const calls: Array<[number, number, string]> = [];
+    await PdfExporter.export(longDoc, exportOpts({
+      onProgress: (done, total, phase) => calls.push([done, total, phase]),
+    }));
+    expect(calls[0][0]).toBe(0);
+    expect(calls[0][2]).toBe('pages');
+    const last = calls[calls.length - 1];
+    expect(last[0]).toBe(last[1]); // done === total at the end
+    expect(last[1]).toBeGreaterThan(0);
+    const dones = calls.map((c) => c[0]);
+    expect(dones).toEqual([...dones].sort((a, b) => a - b));
+  });
+});
+
 describe('PdfExporter (outline)', () => {
   it('emits a heading outline tree', async () => {
     const blob = await PdfExporter.export(headingFixture, exportOpts());
