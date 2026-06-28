@@ -36,7 +36,9 @@ export class SpellSession {
   ): Promise<void> {
     const gen = ++this.generation;
     if (opts.composing) {
-      if (gen === this.generation) this.errors = [];
+      // Synchronous branch — no await before the clear, so gen === this.generation
+      // is always true here. Simplify to an unconditional clear.
+      this.errors = [];
       return;
     }
     const next: SpellError[] = [];

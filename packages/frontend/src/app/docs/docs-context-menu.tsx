@@ -75,7 +75,7 @@ export function DocsContextMenu({
 
       // Compute group visibility before opening so we can bail if empty.
       const hasSpellGroup = !!spellErr;
-      const hasClipboardGroup = (hasSelection) || !readOnly; // copy/cut needs selection; paste needs editable
+      const hasClipboardGroup = !readOnly; // paste always shows when editable; cut/copy also need selection but paste covers the group
       const hasInsertGroup = !readOnly;
 
       // Don't open a blank overlay — every group is empty.
@@ -172,8 +172,9 @@ export function DocsContextMenu({
 
   // Cut: needs selection + editable
   const showCut = hasSelection && !readOnly;
-  // Copy: needs selection (allowed in readOnly)
-  const showCopy = hasSelection;
+  // Copy: needs selection + editable (editor.copy() uses the hidden textarea,
+  // which is null in read-only mode — same limitation as keyboard ⌘C)
+  const showCopy = hasSelection && !readOnly;
   // Paste: editable only
   const showPaste = !readOnly;
   const hasClipboardGroup = showCut || showCopy || showPaste;
