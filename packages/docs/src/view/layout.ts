@@ -177,6 +177,14 @@ export interface DocumentLayout {
 export interface LayoutCache {
   blocks: Map<string, LayoutBlock>;
   contentWidth: number;
+  /**
+   * Fingerprint of the named-style registry the cached lines were resolved
+   * against. A named-style redefinition changes the inline defaults baked into
+   * cached runs without dirtying any block, so the cache must invalidate when
+   * this changes (the editor also calls `invalidateLayout`, but this keeps the
+   * function self-consistent for any caller that reuses a cache).
+   */
+  docStylesKey?: string;
 }
 
 /**
@@ -299,9 +307,11 @@ export function computeLayout(
   docStyles?: DocStyles,
 ): { layout: DocumentLayout; cache: LayoutCache } {
   const availableWidth = contentWidth;
+  const docStylesKey = JSON.stringify(docStyles ?? {});
   const canUseCache = cache != null
     && dirtyBlockIds != null
-    && cache.contentWidth === contentWidth;
+    && cache.contentWidth === contentWidth
+    && cache.docStylesKey === docStylesKey;
 
   const newCacheBlocks = new Map<string, LayoutBlock>();
   const layoutBlocks: LayoutBlock[] = [];
@@ -382,7 +392,7 @@ export function computeLayout(
 
   return {
     layout: { blocks: layoutBlocks, totalHeight: y, blockParentMap },
-    cache: { blocks: newCacheBlocks, contentWidth },
+    cache: { blocks: newCacheBlocks, contentWidth, docStylesKey },
   };
 }
 

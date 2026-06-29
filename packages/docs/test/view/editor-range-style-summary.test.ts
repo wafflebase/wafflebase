@@ -319,6 +319,34 @@ describe('getRangeStyleSummary reflects named-style defaults', () => {
     editor.dispose();
   });
 
+  test('reports a document-level style override over the built-in default', () => {
+    const blockId = 'h1';
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        {
+          id: blockId,
+          type: 'heading',
+          headingLevel: 1,
+          inlines: [{ text: 'Title', style: {} }],
+          style: EMPTY_BLOCK_STYLE,
+        },
+      ],
+      styles: { 'heading-1': { inline: { fontSize: 30 } } },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId, offset: 0 },
+      focus: { blockId, offset: 5 },
+    });
+    // The H1 run has no explicit size; the doc override (30) must win over the
+    // built-in (20).
+    expect(editor.getRangeStyleSummary().fontSize).toBe(30);
+    editor.dispose();
+  });
+
   test('a collapsed caret in a styled paragraph reports the effective size', () => {
     const blockId = 'h2';
     const { editor } = setupEditor([

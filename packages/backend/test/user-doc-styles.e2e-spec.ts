@@ -124,6 +124,24 @@ describeDb('User doc styles HTTP integration (JWT + controller + Prisma)', () =>
     expect(getResponse.body).toEqual({ styles });
   });
 
+  it('rejects a PUT whose body is missing the styles field', async () => {
+    const user = await createUser();
+    await request(app.getHttpServer())
+      .put('/auth/me/doc-styles')
+      .set('Cookie', authCookie(user))
+      .send({})
+      .expect(400);
+  });
+
+  it('rejects a PUT whose styles is not a plain object', async () => {
+    const user = await createUser();
+    await request(app.getHttpServer())
+      .put('/auth/me/doc-styles')
+      .set('Cookie', authCookie(user))
+      .send({ styles: [] })
+      .expect(400);
+  });
+
   it('overwrites an existing styles blob on a second PUT', async () => {
     const user = await createUser();
 

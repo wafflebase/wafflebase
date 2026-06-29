@@ -2547,20 +2547,30 @@ export class YorkieDocStore implements DocStore {
 
   /**
    * Persist the registry and re-materialize block spacing onto every affected
-   * top-level block (body + header + footer) in a single `doc.update` so the
-   * whole change is one undo unit. Pass `styleId` to limit re-materialization
-   * to one style; omit it to re-materialize every styled block ("Reset all").
+   * block — body, header/footer, and table cells (recursively) — in a single
+   * `doc.update` so the whole change is one undo unit. Pass `styleId` to limit
+   * re-materialization to one style; omit it to re-materialize every styled
+   * block ("Reset all"). Mirrors `rematerializeDocSpacing` in the model so the
+   * Mem and Yorkie stores agree on which blocks are touched.
    */
   private writeStylesAndRematerialize(next: DocStyles, styleId: StyleId | undefined): void {
     const currentDoc = this.getDocument();
     const edits: Array<{ path: number[]; attrs: Record<string, string> }> = [];
     const collect = (blocks: Block[]) => {
       for (const block of blocks) {
-        if (styleId && blockStyleId(block) !== styleId) continue;
-        const merged = normalizeBlockStyle(materializeBlockSpacing(block, next));
-        const { path } = this.resolveBlockTreePath(block.id, currentDoc);
-        edits.push({ path, attrs: serializeBlockStyle(merged) });
-        block.style = merged;
+        if (!styleId || blockStyleId(block) === styleId) {
+          const merged = normalizeBlockStyle(materializeBlockSpacing(block, next));
+          const { path } = this.resolveBlockTreePath(block.id, currentDoc);
+          edits.push({ path, attrs: serializeBlockStyle(merged) });
+          block.style = merged;
+        }
+        if (block.tableData) {
+          for (const row of block.tableData.rows) {
+            for (const cell of row.cells) {
+              collect(cell.blocks);
+            }
+          }
+        }
       }
     };
     collect(currentDoc.blocks);
@@ -2644,6 +2654,17 @@ export class YorkieDocStore implements DocStore {
         return children;
       };
 
+      // Named-style registry (a JSON string outside the tree) — written in
+      // every full-document path, including the treeless initial-load branch
+      // below, so a styled document isn't silently dropped on first write.
+      const writeStylesJson = (): void => {
+        if (document.styles && Object.keys(document.styles).length > 0) {
+          root.stylesJson = JSON.stringify(document.styles);
+        } else if (root.stylesJson !== undefined) {
+          delete root.stylesJson;
+        }
+      };
+
       // If tree isn't a Tree CRDT yet, create one with the document content.
       if (!tree || typeof tree.getRootTreeNode !== 'function') {
         const children = buildTreeChildren();
@@ -2659,6 +2680,7 @@ export class YorkieDocStore implements DocStore {
             margins: { ...document.pageSetup.margins },
           };
         }
+        writeStylesJson();
         return;
       }
 
@@ -2685,10 +2707,7 @@ export class YorkieDocStore implements DocStore {
         };
       }
 
-      // Named-style registry (stored as a JSON string outside the tree).
-      if (document.styles && Object.keys(document.styles).length > 0) {
-        root.stylesJson = JSON.stringify(document.styles);
-      }
+      writeStylesJson();
     });
   }
 

@@ -151,19 +151,28 @@ export function materializeBlockSpacing(
 }
 
 /**
- * Re-materialize block spacing in place across a document's top-level body
- * and header/footer blocks. Pass a `styleId` to limit it to blocks governed
- * by that style; omit it to re-materialize every styled block (used by
- * "Reset styles"). Reads the spacing from `doc.styles`.
+ * Re-materialize block spacing in place across a document's body, header/footer,
+ * and table-cell blocks (recursively, including nested tables). Pass a `styleId`
+ * to limit it to blocks governed by that style; omit it to re-materialize every
+ * styled block (used by "Reset styles"). Reads the spacing from `doc.styles`.
  *
- * Table-cell blocks are not walked in v1 — cell content is overwhelmingly
- * Normal text and cell paragraph spacing is rarely style-authored.
+ * Cells are walked so a styled paragraph inside a table cell tracks spacing
+ * changes the same way its inline defaults already reflow (the inline cascade
+ * reaches cells via `computeTableLayout`).
  */
 export function rematerializeDocSpacing(doc: Document, styleId?: StyleId): void {
   const apply = (blocks: Block[]) => {
     for (const block of blocks) {
-      if (styleId && blockStyleId(block) !== styleId) continue;
-      block.style = materializeBlockSpacing(block, doc.styles);
+      if (!styleId || blockStyleId(block) === styleId) {
+        block.style = materializeBlockSpacing(block, doc.styles);
+      }
+      if (block.tableData) {
+        for (const row of block.tableData.rows) {
+          for (const cell of row.cells) {
+            apply(cell.blocks);
+          }
+        }
+      }
     }
   };
   apply(doc.blocks);

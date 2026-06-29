@@ -5,9 +5,11 @@ import {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  rematerializeDocSpacing,
   type DocStyles,
 } from '../../src/model/named-styles.js';
-import { createBlock } from '../../src/model/types.js';
+import { createBlock, createTableBlock } from '../../src/model/types.js';
+import type { Document } from '../../src/model/types.js';
 
 describe('blockStyleId', () => {
   it('maps paragraph and list-item to normal', () => {
@@ -64,6 +66,21 @@ describe('built-in style values (Google Docs defaults)', () => {
     expect(BUILTIN_STYLES['heading-1'].inline.fontSize).toBe(20);
     expect(BUILTIN_STYLES['heading-3'].inline.color).toBe('#434343');
     expect(BUILTIN_STYLES['heading-6'].inline.italic).toBe(true);
+  });
+});
+
+describe('rematerializeDocSpacing', () => {
+  it('recurses into table-cell blocks', () => {
+    const cellHeading = createBlock('heading', { headingLevel: 1 });
+    const table = createTableBlock(1, 1);
+    table.tableData!.rows[0].cells[0].blocks = [cellHeading];
+    const doc: Document = {
+      blocks: [table],
+      styles: { 'heading-1': { block: { marginTop: 44, marginBottom: 7 } } },
+    };
+    rematerializeDocSpacing(doc);
+    expect(cellHeading.style.marginTop).toBe(44);
+    expect(cellHeading.style.marginBottom).toBe(7);
   });
 });
 

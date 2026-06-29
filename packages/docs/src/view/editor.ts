@@ -998,9 +998,9 @@ export function initialize(
    * break the lazy cascade when the style is later redefined).
    */
   function getSelectionStyleImpl(withStyleDefaults = false): Partial<InlineStyle> {
-    const block = layout.blockParentMap.has(cursor.position.blockId)
-      ? doc.getBlock(cursor.position.blockId)
-      : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
+    // `findBlock` walks body + header + footer + table cells, so a caret in a
+    // header/footer block resolves too (a body-only lookup returned {}).
+    const block = doc.findBlock(cursor.position.blockId);
     if (!block) return {};
     const defaults = withStyleDefaults ? styleDefaultsForBlock(block) : undefined;
     let pos = 0;
@@ -2731,6 +2731,7 @@ export function initialize(
       doc.refresh();
       invalidateLayout();
       render();
+      notifyStyleApplied();
     },
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
@@ -2763,6 +2764,7 @@ export function initialize(
       doc.refresh();
       invalidateLayout();
       render();
+      notifyStyleApplied();
     },
     resetNamedStyle(styleId: StyleId) {
       docStore.snapshot();
@@ -2770,6 +2772,7 @@ export function initialize(
       doc.refresh();
       invalidateLayout();
       render();
+      notifyStyleApplied();
     },
     resetAllNamedStyles() {
       docStore.snapshot();
@@ -2777,6 +2780,7 @@ export function initialize(
       doc.refresh();
       invalidateLayout();
       render();
+      notifyStyleApplied();
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
