@@ -1,6 +1,6 @@
 ---
 title: docs-named-styles
-target-version: 0.2.0
+target-version: 0.4.9
 ---
 
 # Docs Named Styles
