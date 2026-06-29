@@ -79,7 +79,7 @@ export class PdfExporter {
     const { width: wPx } = getEffectiveDimensions(setup);
     const contentWidth = wPx - setup.margins.left - setup.margins.right;
     const measurer = opts.measurer;
-    const { layout } = computeLayout(doc.blocks, measurer, contentWidth);
+    const { layout } = computeLayout(doc.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles);
     const pagination = paginateLayout(layout, setup);
 
     // Header/footer block lists are independent of body pagination —
@@ -87,10 +87,10 @@ export class PdfExporter {
     // headers/footers appear identically across the document (with only
     // `pageNumber` substituted per page in the painter).
     const headerLayout = doc.header && doc.header.blocks.length > 0
-      ? computeLayout(doc.header.blocks, measurer, contentWidth).layout
+      ? computeLayout(doc.header.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles).layout
       : null;
     const footerLayout = doc.footer && doc.footer.blocks.length > 0
-      ? computeLayout(doc.footer.blocks, measurer, contentWidth).layout
+      ? computeLayout(doc.footer.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles).layout
       : null;
 
     // 3. Ordered list counters: computed once over the body block list

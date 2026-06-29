@@ -1,5 +1,7 @@
 import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
+import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
+import { blockStyleId, materializeBlockSpacing, rematerializeDocSpacing } from '../model/named-styles.js';
 import type { DocStore } from './store.js';
 import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applyInsertInline, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
 
@@ -89,6 +91,33 @@ export class MemDocStore implements DocStore {
 
   setPageSetup(setup: PageSetup): void {
     this.doc.pageSetup = JSON.parse(JSON.stringify(setup));
+  }
+
+  getDocStyles(): DocStyles {
+    return this.doc.styles ? JSON.parse(JSON.stringify(this.doc.styles)) : {};
+  }
+
+  setDocStyles(styles: DocStyles): void {
+    this.doc.styles = JSON.parse(JSON.stringify(styles));
+    // Re-materialize spacing across all styled blocks so "Use my default
+    // styles" applies paragraph spacing too (inline defaults reflow lazily).
+    rematerializeDocSpacing(this.doc);
+  }
+
+  updateStyleDefinition(styleId: StyleId, def: NamedStyleDef): void {
+    if (!this.doc.styles) this.doc.styles = {};
+    this.doc.styles[styleId] = JSON.parse(JSON.stringify(def));
+    rematerializeDocSpacing(this.doc, styleId);
+  }
+
+  resetStyle(styleId: StyleId): void {
+    if (this.doc.styles) delete this.doc.styles[styleId];
+    rematerializeDocSpacing(this.doc, styleId);
+  }
+
+  resetAllStyles(): void {
+    this.doc.styles = {};
+    rematerializeDocSpacing(this.doc);
   }
 
   getHeader(): HeaderFooter | undefined {
@@ -208,6 +237,7 @@ export class MemDocStore implements DocStore {
     opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
   ): void {
     const block = this.findBlock(blockId);
+    const prevStyleId = blockStyleId(block);
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
@@ -223,6 +253,12 @@ export class MemDocStore implements DocStore {
       block.inlines = [];
     } else if (block.inlines.length === 0) {
       block.inlines = [{ text: '', style: {} }];
+    }
+    // Applying a different named style resets the block's style-owned spacing
+    // to that style's definition (Google Docs parity). A bullet toggle
+    // (paragraph↔list-item, both 'normal') leaves spacing untouched.
+    if (blockStyleId(block) !== prevStyleId) {
+      block.style = materializeBlockSpacing(block, this.doc.styles);
     }
   }
 

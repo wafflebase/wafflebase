@@ -13,6 +13,7 @@ import { YorkieModule } from './yorkie/yorkie.module';
 import { ApiV1Module } from './api/v1/api-v1.module';
 import { ImageModule } from './image/image.module';
 import { HealthModule } from './health/health.module';
+import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { HealthModule } from './health/health.module';
     ApiV1Module,
     ImageModule,
     HealthModule,
+    UserDocStylesModule,
   ],
   controllers: [],
   providers: [

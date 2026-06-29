@@ -3,6 +3,8 @@ import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMat
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
+import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
@@ -137,6 +139,20 @@ export interface EditorAPI {
   getBlockStyle(): Partial<BlockStyle>;
   /** Set the block type for the block at cursor */
   setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+  /** Read the document's named-style overrides registry (built-ins omitted). */
+  getDocStyles(): DocStyles;
+  /** Replace the whole named-style registry (e.g. "Use my default styles"). */
+  setDocStyles(styles: DocStyles): void;
+  /**
+   * Redefine a named style from the caret block's current formatting
+   * ("Update '<style>' to match"). One undo unit; reflows every block of
+   * that style.
+   */
+  updateStyleToMatch(styleId: StyleId): void;
+  /** Reset a single named style to its built-in definition. */
+  resetNamedStyle(styleId: StyleId): void;
+  /** Reset every named style to its built-in definition. */
+  resetAllNamedStyles(): void;
   /** Toggle list type on the block at cursor */
   toggleList(kind: 'ordered' | 'unordered'): void;
   /** Increase indent of the block at cursor */
@@ -964,21 +980,39 @@ export function initialize(
    * Used by both the public getSelectionStyle (which layers pending on
    * top) and applyStyleImpl (which seeds the pending merge base).
    */
-  function getSelectionStyleImpl(): Partial<InlineStyle> {
-    const block = layout.blockParentMap.has(cursor.position.blockId)
-      ? doc.getBlock(cursor.position.blockId)
-      : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
+  /**
+   * Effective inline defaults a block inherits from its named style. Used to
+   * present the *computed* style (what the user sees rendered) in the toolbar
+   * pickers — a Heading 1 with no explicit run style still reads as 20pt.
+   */
+  function styleDefaultsForBlock(block: Block): Partial<InlineStyle> {
+    return resolveStyleInline(blockStyleId(block), doc.document.styles);
+  }
+
+  /**
+   * Read the inline style at the caret. With `withStyleDefaults`, the block's
+   * named-style inline defaults are layered underneath the explicit run style
+   * so the toolbar reflects the rendered (computed) style. Without it — the
+   * default — the raw explicit style is returned, so pending-style capture and
+   * style application never bake a style default into a stored run (which would
+   * break the lazy cascade when the style is later redefined).
+   */
+  function getSelectionStyleImpl(withStyleDefaults = false): Partial<InlineStyle> {
+    // `findBlock` walks body + header + footer + table cells, so a caret in a
+    // header/footer block resolves too (a body-only lookup returned {}).
+    const block = doc.findBlock(cursor.position.blockId);
     if (!block) return {};
+    const defaults = withStyleDefaults ? styleDefaultsForBlock(block) : undefined;
     let pos = 0;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;
       if (cursor.position.offset <= inlineEnd) {
-        return { ...inline.style };
+        return { ...defaults, ...inline.style };
       }
       pos = inlineEnd;
     }
     const last = block.inlines[block.inlines.length - 1];
-    return last ? { ...last.style } : {};
+    return last ? { ...defaults, ...last.style } : { ...defaults };
   }
 
   function applyStyleImpl(style: Partial<InlineStyle>): void {
@@ -1161,6 +1195,7 @@ export function initialize(
       dirtyBlockIds,
       layoutCache,
       composingContext ?? undefined,
+      doc.document.styles,
     );
     layout = result.layout;
     layoutCache = result.cache;
@@ -1176,6 +1211,7 @@ export function initialize(
         undefined,
         undefined,
         composingContext ?? undefined,
+        doc.document.styles,
       ).layout;
     } else {
       headerLayout = null;
@@ -1188,6 +1224,7 @@ export function initialize(
         undefined,
         undefined,
         composingContext ?? undefined,
+        doc.document.styles,
       ).layout;
     } else {
       footerLayout = null;
@@ -2415,7 +2452,7 @@ export function initialize(
     getDoc: () => doc,
     getStore: () => docStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
-      const base = getSelectionStyleImpl();
+      const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
         return { ...base, ...pending.get()! };
       }
@@ -2437,16 +2474,19 @@ export function initialize(
       const styleAtCaret = (): Partial<InlineStyle> => {
         const block = doc.findBlock(cursor.position.blockId);
         if (!block) return {};
+        // Layer the block's named-style inline defaults underneath the run
+        // style so the pickers show the computed (rendered) value.
+        const defaults = styleDefaultsForBlock(block);
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
           if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style };
+            return { ...defaults, ...inline.style };
           }
           pos = inlineEnd;
         }
         const last = block.inlines[block.inlines.length - 1];
-        return last ? { ...last.style } : {};
+        return last ? { ...defaults, ...last.style } : { ...defaults };
       };
 
       // No range — return the caret style, layered with any pending
@@ -2488,6 +2528,11 @@ export function initialize(
       ): void => {
         const block = doc.findBlock(blockId);
         if (!block) return;
+        // Effective style per run = the block's named-style inline defaults
+        // under the run's explicit style, so the summary reflects the
+        // computed (rendered) formatting — and a selection spanning blocks of
+        // different styles correctly reads as 'mixed'.
+        const defaults = styleDefaultsForBlock(block);
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
@@ -2495,8 +2540,9 @@ export function initialize(
           // zero-width inlines (empty placeholder runs) as out of
           // range — they don't contribute style information.
           if (inlineEnd > from && pos < to && inline.text.length > 0) {
+            const effective = { ...defaults, ...inline.style };
             for (const key of KEYS) {
-              const raw = (inline.style as Record<string, unknown>)[key];
+              const raw = (effective as Record<string, unknown>)[key];
               const token = tokenize(raw);
               if (!seen[key].has(token)) {
                 seen[key].add(token);
@@ -2677,6 +2723,64 @@ export function initialize(
       doc.setBlockType(cursor.position.blockId, type, opts);
       invalidateLayout();
       render();
+    },
+    getDocStyles: () => docStore.getDocStyles(),
+    setDocStyles(styles: DocStyles) {
+      docStore.snapshot();
+      docStore.setDocStyles(styles);
+      doc.refresh();
+      invalidateLayout();
+      render();
+      notifyStyleApplied();
+    },
+    updateStyleToMatch(styleId: StyleId) {
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) return;
+      // Capture the *computed* style at the caret (run style layered over the
+      // current named-style defaults) so a redefine preserves values the run
+      // inherited rather than reverting them to the built-in — e.g. updating a
+      // Heading 1 already redefined to 30pt, after changing only its color,
+      // must keep 30pt, not fall back to 20pt. Only character props are copied
+      // below, so structural inline kinds (href / pageNumber / image) never
+      // leak into a paragraph style.
+      const s = getSelectionStyleImpl(true);
+      const def: NamedStyleDef = {
+        inline: {
+          bold: s.bold,
+          italic: s.italic,
+          underline: s.underline,
+          strikethrough: s.strikethrough,
+          fontSize: s.fontSize,
+          fontFamily: s.fontFamily,
+          color: s.color,
+          backgroundColor: s.backgroundColor,
+          superscript: s.superscript,
+          subscript: s.subscript,
+        },
+        block: { marginTop: block.style.marginTop, marginBottom: block.style.marginBottom },
+      };
+      docStore.snapshot();
+      docStore.updateStyleDefinition(styleId, def);
+      doc.refresh();
+      invalidateLayout();
+      render();
+      notifyStyleApplied();
+    },
+    resetNamedStyle(styleId: StyleId) {
+      docStore.snapshot();
+      docStore.resetStyle(styleId);
+      doc.refresh();
+      invalidateLayout();
+      render();
+      notifyStyleApplied();
+    },
+    resetAllNamedStyles() {
+      docStore.snapshot();
+      docStore.resetAllStyles();
+      doc.refresh();
+      invalidateLayout();
+      render();
+      notifyStyleApplied();
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();

@@ -39,9 +39,6 @@ export {
   generateBlockId,
   getBlockText,
   getBlockTextLength,
-  getHeadingDefaults,
-  TITLE_DEFAULTS,
-  SUBTITLE_DEFAULTS,
   inlineStylesEqual,
   resolvePageSetup,
   getEffectiveDimensions,
@@ -53,6 +50,16 @@ export {
   getCellText,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
+export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
+export {
+  BUILTIN_STYLES,
+  STYLE_IDS,
+  blockStyleId,
+  resolveStyleInline,
+  resolveStyleBlock,
+  materializeBlockSpacing,
+  rematerializeDocSpacing,
+} from './model/named-styles.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';
 export type { StoredColor, ColorResolver } from './model/color.js';

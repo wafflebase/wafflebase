@@ -183,6 +183,35 @@ describe('docs-tree', () => {
     expect(result).toEqual(withoutPageSetup);
   });
 
+  it('round-trips the named-style overrides registry', () => {
+    const original: DocsDocument = {
+      ...makeDoc(),
+      styles: {
+        'heading-1': { inline: { fontSize: 30, bold: true }, block: { marginTop: 40, marginBottom: 12 } },
+        'title': { inline: { color: '#ff0000' } },
+      },
+    };
+
+    doc.update((root) => writeDocsRoot(root, original));
+    const result = readDocsRoot(doc.getRoot());
+
+    expect(result.styles).toEqual(original.styles);
+  });
+
+  it('clears the style registry on the root when a follow-up write omits it', () => {
+    const withStyles: DocsDocument = {
+      ...makeDoc(),
+      styles: { 'heading-1': { inline: { fontSize: 30 } } },
+    };
+    const withoutStyles: DocsDocument = { ...makeDoc() };
+
+    doc.update((root) => writeDocsRoot(root, withStyles));
+    doc.update((root) => writeDocsRoot(root, withoutStyles));
+    const result = readDocsRoot(doc.getRoot());
+
+    expect(result.styles).toBeUndefined();
+  });
+
   it('preserves pageSetup and header/footer regions', () => {
     const original: DocsDocument = {
       ...makeDoc(),

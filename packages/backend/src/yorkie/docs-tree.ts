@@ -47,6 +47,8 @@ import type {
 export interface DocsYorkieRoot extends Record<string, unknown> {
   content?: Tree;
   pageSetup?: DocsPageSetup;
+  /** Named-style overrides registry serialized as JSON (see frontend root). */
+  stylesJson?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +457,13 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
   if (root.pageSetup) {
     doc.pageSetup = readPageSetup(root.pageSetup);
   }
+  if (typeof root.stylesJson === 'string' && root.stylesJson.length > 0) {
+    try {
+      doc.styles = JSON.parse(root.stylesJson);
+    } catch {
+      // Malformed registry → fall back to built-in styles.
+    }
+  }
   return doc;
 }
 
@@ -545,5 +554,12 @@ export function writeDocsRoot(
     // editByPath/editBulkByPath replacement above, so they don't need an
     // explicit clear here.
     delete root.pageSetup;
+  }
+
+  // Named-style registry — same destructive-replace contract as pageSetup.
+  if (document.styles && Object.keys(document.styles).length > 0) {
+    root.stylesJson = JSON.stringify(document.styles);
+  } else if (root.stylesJson !== undefined) {
+    delete root.stylesJson;
   }
 }
