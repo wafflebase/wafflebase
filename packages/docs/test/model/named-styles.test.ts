@@ -31,6 +31,15 @@ describe('blockStyleId', () => {
     expect(blockStyleId(b)).toBe('heading-1');
   });
 
+  it('clamps an out-of-range heading level (e.g. DOCX Heading 7–9) into the catalog', () => {
+    const b = createBlock('heading');
+    (b as { headingLevel?: number }).headingLevel = 9;
+    expect(blockStyleId(b)).toBe('heading-6');
+    // Resolution must not throw even if a corrupt registry key sneaks through.
+    expect(resolveStyleInline('heading-9' as never)).toEqual({});
+    expect(resolveStyleBlock('heading-9' as never)).toEqual({});
+  });
+
   it('maps structural blocks to normal', () => {
     expect(blockStyleId(createBlock('horizontal-rule'))).toBe('normal');
     expect(blockStyleId(createBlock('page-break'))).toBe('normal');

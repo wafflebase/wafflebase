@@ -87,6 +87,8 @@ export {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  materializeBlockSpacing,
+  rematerializeDocSpacing,
 } from './model/named-styles.js';
 
 // Block-level edit helpers. These are pure data-model transforms — the

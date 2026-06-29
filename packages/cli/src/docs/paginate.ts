@@ -27,6 +27,8 @@ export function paginateForCli(
   const { width: paperWidth } = getEffectiveDimensions(pageSetup);
   const contentWidth =
     paperWidth - pageSetup.margins.left - pageSetup.margins.right;
-  const { layout } = computeLayout(doc.blocks, measurer, contentWidth);
+  const { layout } = computeLayout(
+    doc.blocks, measurer, contentWidth, undefined, undefined, undefined, doc.styles,
+  );
   return paginateLayout(layout, pageSetup);
 }

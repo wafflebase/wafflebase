@@ -36,7 +36,7 @@ import {
   applySplitBlock,
   applyMergeBlocks,
   blockStyleId,
-  resolveStyleBlock,
+  materializeBlockSpacing,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -1392,13 +1392,13 @@ export class YorkieDocStore implements DocStore {
     // spacing into the same styleByPath write (Google Docs parity). A bullet
     // toggle (both 'normal') leaves spacing untouched.
     const nextHeadingLevel = type === 'heading' ? (opts?.headingLevel ?? 1) : undefined;
-    const nextStyleId = blockStyleId({ ...block, type, headingLevel: nextHeadingLevel } as Block);
+    const nextBlock = { ...block, type, headingLevel: nextHeadingLevel } as Block;
+    const nextStyleId = blockStyleId(nextBlock);
     let materializedStyle: BlockStyle | undefined;
     if (nextStyleId !== prevStyleId) {
-      materializedStyle = normalizeBlockStyle({
-        ...block.style,
-        ...resolveStyleBlock(nextStyleId, this.readDocStyles()),
-      });
+      materializedStyle = normalizeBlockStyle(
+        materializeBlockSpacing(nextBlock, this.readDocStyles()),
+      );
       Object.assign(attrs, serializeBlockStyle(materializedStyle));
     }
 
@@ -2556,9 +2556,8 @@ export class YorkieDocStore implements DocStore {
     const edits: Array<{ path: number[]; attrs: Record<string, string> }> = [];
     const collect = (blocks: Block[]) => {
       for (const block of blocks) {
-        const id = blockStyleId(block);
-        if (styleId && id !== styleId) continue;
-        const merged = normalizeBlockStyle({ ...block.style, ...resolveStyleBlock(id, next) });
+        if (styleId && blockStyleId(block) !== styleId) continue;
+        const merged = normalizeBlockStyle(materializeBlockSpacing(block, next));
         const { path } = this.resolveBlockTreePath(block.id, currentDoc);
         edits.push({ path, attrs: serializeBlockStyle(merged) });
         block.style = merged;

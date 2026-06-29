@@ -102,8 +102,12 @@ export function blockStyleId(block: Block): StyleId {
       return 'title';
     case 'subtitle':
       return 'subtitle';
-    case 'heading':
-      return `heading-${(block.headingLevel ?? 1) as HeadingLevel}` as StyleId;
+    case 'heading': {
+      // Clamp to 1–6: DOCX import (`docx-style-map.ts`) reads `Heading N` from
+      // Word where N can be 7–9, so the raw level may fall outside our catalog.
+      const level = Math.min(6, Math.max(1, block.headingLevel ?? 1)) as HeadingLevel;
+      return `heading-${level}` as StyleId;
+    }
     default:
       return 'normal';
   }
@@ -116,7 +120,10 @@ export function resolveStyleInline(
   id: StyleId,
   docStyles?: DocStyles,
 ): Partial<InlineStyle> {
-  return { ...BUILTIN_STYLES[id].inline, ...docStyles?.[id]?.inline };
+  // `?.` guards an unknown id (e.g. a corrupt persisted registry key) so
+  // resolution degrades to built-in/empty instead of throwing in the layout
+  // hot path. `blockStyleId` already clamps heading levels into range.
+  return { ...BUILTIN_STYLES[id]?.inline, ...docStyles?.[id]?.inline };
 }
 
 /**
@@ -127,7 +134,7 @@ export function resolveStyleBlock(
   id: StyleId,
   docStyles?: DocStyles,
 ): Partial<BlockStyle> {
-  return { ...BUILTIN_STYLES[id].block, ...docStyles?.[id]?.block };
+  return { ...BUILTIN_STYLES[id]?.block, ...docStyles?.[id]?.block };
 }
 
 /**

@@ -57,6 +57,8 @@ export {
   blockStyleId,
   resolveStyleInline,
   resolveStyleBlock,
+  materializeBlockSpacing,
+  rematerializeDocSpacing,
 } from './model/named-styles.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';

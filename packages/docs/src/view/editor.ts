@@ -2735,11 +2735,14 @@ export function initialize(
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return;
-      // Capture the run at the caret (not blindly the first run) plus the
-      // block spacing as the new definition. Only character props are copied
+      // Capture the *computed* style at the caret (run style layered over the
+      // current named-style defaults) so a redefine preserves values the run
+      // inherited rather than reverting them to the built-in — e.g. updating a
+      // Heading 1 already redefined to 30pt, after changing only its color,
+      // must keep 30pt, not fall back to 20pt. Only character props are copied
       // below, so structural inline kinds (href / pageNumber / image) never
       // leak into a paragraph style.
-      const s = getSelectionStyleImpl();
+      const s = getSelectionStyleImpl(true);
       const def: NamedStyleDef = {
         inline: {
           bold: s.bold,
