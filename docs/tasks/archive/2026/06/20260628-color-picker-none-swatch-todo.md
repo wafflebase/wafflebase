@@ -33,29 +33,29 @@ theme-color sections for docs/sheets.
 
 ## Plan
 
-- [ ] Shared `NoneSwatch` visual (white box + red diagonal), reusable,
+- [x] Shared `NoneSwatch` visual (white box + red diagonal), reusable,
       supports `selected` + `aria-label`/`title`.
-- [ ] `ColorPickerGrid`: render the reset/none affordance using the
+- [x] `ColorPickerGrid`: render the reset/none affordance using the
       NoneSwatch; add optional `noneLabel` (default "Reset"); show selected
       state when no color is set. Keep `onReset` API (zero call-site churn).
       - highlight (docs) / bg (sheets) call sites pass `noneLabel="None"`.
-- [ ] `ThemedColorPicker`: add optional `onClear?` + `clearLabel?`
+- [x] `ThemedColorPicker`: add optional `onClear?` + `clearLabel?`
       (default "No fill"). When `onClear` given, render a "No fill" row with
       NoneSwatch at top; selected ring when `value === undefined`.
-- [ ] Wire `onClear`:
-      - [ ] shape fill (`shape-controls`) → `fill: undefined`
-      - [ ] cell fill (`table-controls`) → `applyStyle({ fill: undefined })`,
+- [x] Wire `onClear`:
+      - [x] shape fill (`shape-controls`) → `fill: undefined`
+      - [x] cell fill (`table-controls`) → `applyStyle({ fill: undefined })`,
             and **remove** the now-redundant "No fill" `DropdownMenuItem`.
-      - [ ] slide background (`global-controls`) → clear background fill
-            (if `useSlideBackground` supports it cleanly; else defer).
-- [ ] Tests (TDD, `tests/` runner, `React.createElement` style):
-      - [ ] `ColorPickerGrid` renders None affordance, honors `noneLabel`,
+      - **Deferred** (see Review): slide background (`global-controls`) clear —
+            inherited background, not a no-fill case; not wired.
+- [x] Tests (TDD, `tests/` runner, `React.createElement` style):
+      - [x] `ColorPickerGrid` renders None affordance, honors `noneLabel`,
             calls `onReset`.
-      - [ ] `ThemedColorPicker` renders "No fill" row only when `onClear`
+      - [x] `ThemedColorPicker` renders "No fill" row only when `onClear`
             given; click calls `onClear`; selected when `value` undefined.
-- [ ] `pnpm verify:fast` green.
-- [ ] Self-review (code-review skill) over branch diff.
-- [ ] Note: visual baselines may need refresh if any open-picker scenario
+- [x] `pnpm verify:fast` green.
+- [x] Self-review (code-review skill) over branch diff.
+- [x] Note: visual baselines may need refresh if any open-picker scenario
       snapshots the new row (harness ThemedColorPicker scenario passes no
       `onClear`, so default render is unchanged).
 
