@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
+  evaluateWithSpill,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
@@ -195,6 +196,42 @@ describe('Formula', () => {
     expect(evaluate('=1/0')).toBe('#DIV/0!');
     expect(evaluate('=0/0')).toBe('#DIV/0!');
     expect(evaluate('=-5/0')).toBe('#DIV/0!');
+  });
+
+  it('should return #NUM! for numeric overflow', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1E200' } as Cell);
+    grid.set('A2', { v: '1E200' } as Cell);
+    grid.set('B1', { v: '1E200' } as Cell);
+    grid.set('B2', { v: '1E200' } as Cell);
+
+    expect(evaluate('=1.7976931348623157E308')).toBe(Number.MAX_VALUE.toString());
+    expect(evaluate('=1.7976931348623159E308')).toBe('#NUM!');
+    expect(evaluate('=1.5E308 * 10')).toBe('#NUM!');
+    expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
+    expect(evaluate('=EXP(1000)')).toBe('#NUM!');
+    expect(evaluate('=FACT(200)')).toBe('#NUM!');
+    expect(evaluate('=FACTDOUBLE(310)')).toBe('#NUM!');
+    expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=POWER(10, 400)')).toBe('#NUM!');
+    expect(evaluate('=SUMSQ(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=SUMPRODUCT(A1:A2, B1:B2)', grid)).toBe('#NUM!');
+    expect(evaluate('=MMULT({1E200,0;0,0},{1E200,0;0,0})')).toBe('#NUM!');
+    expect(evaluate('=VALUE("1E309")')).toBe('#NUM!');
+    expect(evaluate('=NUMBERVALUE("1E309")')).toBe('#NUM!');
+    expect(evaluate('=LET(x, VALUE("1E309"), x)')).toBe('#NUM!');
+    expect(evaluate('=LAMBDA(x, VALUE(x))("1E309")')).toBe('#NUM!');
+
+    expect(
+      evaluateWithSpill('=MMULT({1E200,0;0,1E200},{1E200,0;0,1E200})'),
+    ).toEqual({
+      values: [
+        ['#NUM!', '0'],
+        ['0', '#NUM!'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
   });
 
   it('should unescape doubled quotes in string literals', () => {
