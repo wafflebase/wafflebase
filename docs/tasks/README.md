@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pivot format inheritance (2026-07-01) | [20260701-pivot-format-inheritance-todo.md](./active/20260701-pivot-format-inheritance-todo.md) | [20260701-pivot-format-inheritance-lessons.md](./active/20260701-pivot-format-inheritance-lessons.md) |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
@@ -26,4 +27,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 330
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs collaboration convergence (2026-06-25)
+Latest active task: pivot format inheritance (2026-07-01)

@@ -278,11 +278,22 @@ export type PivotCellType =
   | 'empty';
 
 /**
+ * PivotCellFormat is the subset of CellStyle that a pivot cell inherits from
+ * its source column (number format, decimal places, currency code).
+ */
+export type PivotCellFormat = Pick<CellStyle, 'nf' | 'dp' | 'cu'>;
+
+/**
  * PivotCell represents a single cell in the pivot table output.
  */
 export type PivotCell = {
   value: string;
   type: PivotCellType;
+  /**
+   * Format inherited from the source column, applied to the materialized
+   * cell so labels/values render with the source's number/date format.
+   */
+  format?: PivotCellFormat;
 };
 
 /**

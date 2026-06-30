@@ -24,6 +24,7 @@ import {
   type GroupNode,
   type PivotCellType,
   type PivotCell,
+  type PivotCellFormat,
   type PivotResult,
   type Ref,
   type Sref,
@@ -134,6 +135,7 @@ import {
   writeWorksheetCell,
   updateWorksheetCell,
   replaceWorksheetCells,
+  resolveWorksheetCellStyle,
 } from './model/workbook/worksheet-grid';
 import {
   safeWorksheetRecordKeys,
@@ -263,6 +265,7 @@ export {
   writeWorksheetCell,
   updateWorksheetCell,
   replaceWorksheetCells,
+  resolveWorksheetCellStyle,
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
   safeWorksheetRecordValues,
@@ -318,6 +321,7 @@ export type {
   GroupNode,
   PivotCellType,
   PivotCell,
+  PivotCellFormat,
   PivotResult,
   Ref,
   Sref,

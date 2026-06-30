@@ -187,8 +187,20 @@ type PivotRecord = string[];  // values indexed by source column
 function parseSourceData(
   grid: Grid,
   sourceRange: Range,
-): { headers: string[]; records: PivotRecord[] };
+): {
+  headers: string[];
+  records: PivotRecord[];
+  columnFormats: (PivotCellFormat | undefined)[];  // per source column
+};
 ```
+
+`columnFormats[i]` is the number format (`nf`/`dp`/`cu`) of source column
+`i`, taken from the first data cell carrying one. It drives format
+inheritance (see Step 6). The input `grid` must hold the **resolved
+effective style** per cell: number/date formats are usually stored as a
+range-style (or column/row/sheet) layer rather than on `cell.s`, so the
+caller builds the source grid with `resolveWorksheetCellStyle(ws, ref)`
+(sheet → col → row → range → cell merge) instead of reading `cell.s` alone.
 
 #### Step 2: Apply Filters
 
@@ -238,9 +250,12 @@ type PivotCellType =
   | 'total'
   | 'empty';
 
+type PivotCellFormat = Pick<CellStyle, 'nf' | 'dp' | 'cu'>;
+
 type PivotCell = {
   value: string;
   type: PivotCellType;
+  format?: PivotCellFormat;  // inherited from the source column
 };
 
 type PivotResult = {
@@ -258,6 +273,16 @@ starting at A1. Apply default styling:
 - Row/column headers: bold
 - Grand total row/column: bold
 - Value cells: plain (no styling)
+
+**Format inheritance** (matches Google Sheets / Excel): a `PivotCell.format`
+is merged into the output cell style so labels and values render with the
+source's number/date format rather than the raw value:
+
+- Single-field row/column **labels** inherit that field's source column
+  format (composite "A / B" multi-field labels stay plain — no single format
+  applies).
+- **Value / total** cells inherit the value field's source column format,
+  except `COUNT`/`COUNTA`, which stay plain (a count is a plain integer).
 
 All writes are wrapped in a single batch transaction for atomic undo/redo.
 
