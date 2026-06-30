@@ -27,7 +27,7 @@ keep the UI responsive by yielding the event loop between work units.
 - [x] Unit test each exporter: `onProgress` starts (0,total), monotonic, ends (total,total)
 - [x] Rebuild producer packages (docs/slides) before frontend typecheck
 - [x] `pnpm verify:fast` — green
-- [ ] Manual smoke in `pnpm dev`: large deck/doc, toast counts up, UI responsive (human to verify)
+- [x] Manual smoke in `pnpm dev`: large deck/doc, toast counts up, UI responsive (satisfied at merge — PR #428)
 
 ## Review
 

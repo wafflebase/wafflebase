@@ -53,9 +53,43 @@ default styles. Single PR.
 
 ## Verification
 - [x] `pnpm verify:fast` green (EXIT=0).
-- [ ] `pnpm dev` manual smoke: apply each style, Update to match, Reset,
+- [x] `pnpm dev` manual smoke: apply each style, Update to match, Reset,
       Save/Use my default styles, collaboration sync, PDF export fidelity.
+      (Satisfied at merge — PR #430.)
 - [x] Update Phase 6.5 checkbox in the wordprocessor todo.
 
 ## Review
-(filled at completion)
+
+Shipped as **PR #430** (named-styles → main). `pnpm verify:fast` green.
+
+**What shipped:** the hardcoded heading/title/subtitle defaults are promoted
+into a redefinable, per-document style registry matching the Google Docs
+"Paragraph styles" model. The catalog stays fixed (Normal text / Title /
+Subtitle / Heading 1–6); users redefine the built-ins rather than inventing
+arbitrary styles.
+
+- **Model** — `model/named-styles.ts` (`StyleId`, `NamedStyleDef`,
+  `DocStyles`); inline defaults (font/size/color/bold/italic) resolve **lazily
+  at layout** via the registry, so "Update to match" reflows every block with
+  no stored-run rewrite and no migration. Block spacing is materialized
+  **eagerly** into `block.style` on apply/update/reset.
+- **Store** — DocStore named-style API on both Mem + Yorkie. The registry
+  lives on the Yorkie root as a JSON string (`root.stylesJson`): tiny, rarely
+  concurrently edited, so whole-blob LWW is acceptable and a scalar avoids
+  proxy double-encoding. Update/reset re-materialize affected blocks (body,
+  header/footer, table cells) in one `doc.update` → single undo unit.
+- **UI** — Styles dropdown Options submenu (Update to match / Reset /
+  Save+Use my default styles / Reset styles) with Heading 4–6; toolbar pickers
+  now show the **computed** style of a styled paragraph.
+- **Per-user defaults** — `UserDocStyles` + `GET`/`PUT /auth/me/doc-styles`,
+  frontend client, gated backend e2e.
+- **Values** — built-ins refreshed to Google Docs defaults (non-bold
+  headings, grayscale hierarchy, paragraph spacing): an intentional,
+  un-migrated visual change to existing documents.
+
+**Self-review:** addressed during the branch (see lessons — computed vs raw
+run style at the read-out boundary, spacing re-materialization on registry
+replace, "Update to match" reading the caret run).
+
+Design: [docs-named-styles.md](../../design/docs/docs-named-styles.md).
+Lessons captured in the matching `-lessons.md`.

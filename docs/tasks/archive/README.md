@@ -6,13 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 323
+Total archived tasks: 330
 
-## 2026/06 (72 tasks)
+## 2026/06 (79 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs named styles (2026-06-29) | [20260629-docs-named-styles-todo.md](./2026/06/20260629-docs-named-styles-todo.md) | [20260629-docs-named-styles-lessons.md](./2026/06/20260629-docs-named-styles-lessons.md) |
+| color picker none swatch (2026-06-28) | [20260628-color-picker-none-swatch-todo.md](./2026/06/20260628-color-picker-none-swatch-todo.md) | [20260628-color-picker-none-swatch-lessons.md](./2026/06/20260628-color-picker-none-swatch-lessons.md) |
+| docs context menu (2026-06-28) | [20260628-docs-context-menu-todo.md](./2026/06/20260628-docs-context-menu-todo.md) | [20260628-docs-context-menu-lessons.md](./2026/06/20260628-docs-context-menu-lessons.md) |
+| docs shortcuts catalog (2026-06-28) | [20260628-docs-shortcuts-catalog-todo.md](./2026/06/20260628-docs-shortcuts-catalog-todo.md) | [20260628-docs-shortcuts-catalog-lessons.md](./2026/06/20260628-docs-shortcuts-catalog-lessons.md) |
 | docs spell check (2026-06-28) | [20260628-docs-spell-check-todo.md](./2026/06/20260628-docs-spell-check-todo.md) | [20260628-docs-spell-check-lessons.md](./2026/06/20260628-docs-spell-check-lessons.md) |
+| export progress (2026-06-28) | [20260628-export-progress-todo.md](./2026/06/20260628-export-progress-todo.md) | [20260628-export-progress-lessons.md](./2026/06/20260628-export-progress-lessons.md) |
+| homepage refresh (2026-06-28) | [20260628-homepage-refresh-todo.md](./2026/06/20260628-homepage-refresh-todo.md) | - |
+| release v0.4.8 (2026-06-28) | [20260628-release-v0.4.8-todo.md](./2026/06/20260628-release-v0.4.8-todo.md) | - |
 | slides shared editor toolbar parity (2026-06-27) | [20260627-slides-shared-editor-toolbar-parity-todo.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-todo.md) | [20260627-slides-shared-editor-toolbar-parity-lessons.md](./2026/06/20260627-slides-shared-editor-toolbar-parity-lessons.md) |
 | docx table deferred (2026-06-26) | [20260626-docx-table-deferred-todo.md](./2026/06/20260626-docx-table-deferred-todo.md) | [20260626-docx-table-deferred-lessons.md](./2026/06/20260626-docx-table-deferred-lessons.md) |
 | callout ooxml fidelity (2026-06-25) | [20260625-callout-ooxml-fidelity-todo.md](./2026/06/20260625-callout-ooxml-fidelity-todo.md) | [20260625-callout-ooxml-fidelity-lessons.md](./2026/06/20260625-callout-ooxml-fidelity-lessons.md) |

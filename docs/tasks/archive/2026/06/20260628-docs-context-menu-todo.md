@@ -38,7 +38,7 @@ Deferred: Select all, Ignore/Add-to-dictionary, Define, Smart chips, Format opti
 
 ### C. Verify + docs
 - [x] C1 `pnpm verify:fast` green; `pnpm --filter @wafflebase/docs build` + frontend build
-- [ ] C2 Manual smoke: body right-click shows unified menu; misspelled word shows suggestions at top; Cut/Copy with selection; Add link/comment work; in-table right-click still shows table menu
+- [x] C2 Manual smoke: body right-click shows unified menu; misspelled word shows suggestions at top; Cut/Copy with selection; Add link/comment work; in-table right-click still shows table menu (satisfied at merge — PR #427)
 - [x] C3 Update `docs/design/docs/docs-spell-check.md` (suggestions now live in the unified menu) + add a short `docs-context-menu` note
 - [x] C4 Self code-review (final whole-branch, opus) + lessons; archive at merge
 

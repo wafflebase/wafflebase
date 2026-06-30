@@ -18,17 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| docs named styles (2026-06-29) | [20260629-docs-named-styles-todo.md](./active/20260629-docs-named-styles-todo.md) | [20260629-docs-named-styles-lessons.md](./active/20260629-docs-named-styles-lessons.md) |
-| color picker none swatch (2026-06-28) | [20260628-color-picker-none-swatch-todo.md](./active/20260628-color-picker-none-swatch-todo.md) | [20260628-color-picker-none-swatch-lessons.md](./active/20260628-color-picker-none-swatch-lessons.md) |
-| docs context menu (2026-06-28) | [20260628-docs-context-menu-todo.md](./active/20260628-docs-context-menu-todo.md) | [20260628-docs-context-menu-lessons.md](./active/20260628-docs-context-menu-lessons.md) |
-| docs shortcuts catalog (2026-06-28) | [20260628-docs-shortcuts-catalog-todo.md](./active/20260628-docs-shortcuts-catalog-todo.md) | [20260628-docs-shortcuts-catalog-lessons.md](./active/20260628-docs-shortcuts-catalog-lessons.md) |
-| release v0.4.8 (2026-06-28) | [20260628-release-v0.4.8-todo.md](./active/20260628-release-v0.4.8-todo.md) | - |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 323
+- Archived task count: 330
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: color picker none swatch (2026-06-28)
+Latest active task: docs collaboration convergence (2026-06-25)
