@@ -63,7 +63,14 @@ planned item links to (or will link to) its own design doc.
 | Suggestion mode (track changes) | ❌ Planned |
 | Version history | ❌ Planned |
 | Spell check (English: red squiggles + suggestions popover; Korean/ignore/add-to-dictionary deferred) | ✅ |
-| Multi-column layout, footnotes, named styles | ❌ Planned |
+| Named styles (redefinable Normal/Title/Subtitle/Heading 1–6, per-user defaults) | ✅ |
+| DOCX import / export, PDF export | ✅ |
+| Multi-column layout, footnotes | ❌ Planned |
+| Insert: special characters, emoji, equations, drawing/shapes, charts, bookmarks, watermark | ❌ Planned |
+| Page setup dialog, tab stops, paragraph spacing UI (models exist, UI missing) | ❌ Planned |
+| Word count, document outline, AutoCorrect/substitutions, citations | ❌ Planned |
+| Smart chips, document tabs, building-block templates (Google Docs) | ❌ Planned |
+| Formatting marks, pageless view | ❌ Planned |
 
 ## Shipped Phases
 
@@ -122,9 +129,27 @@ previous versions, name versions.
 
 ### Phase 6: Advanced
 
-Multi-column layouts (2–3 columns), footnotes / endnotes, named styles
-(cascading style edits), shortcut help dialog (`Ctrl+/`). (Spell check
-shipped as Phase 6.3.)
+Multi-column layouts (2–3 columns), footnotes / endnotes. (Named styles
+shipped as Phase 6.5, shortcut help dialog as 6.6, spell check as 6.3.)
+
+### Parity gaps beyond the original 6 phases
+
+A 2026-07-01 audit against the Google Docs **Insert / Format / Tools** menus
+and the MS Word **Insert / Layout / References / Review** ribbons surfaced a
+parity surface wider than the original 6-phase plan: an Insert menu (special
+characters, emoji, equations, drawing/shapes, charts, bookmarks &
+cross-references, watermark), page/paragraph controls (a Page Setup **dialog**
+over the already-modeled `PageSetup`, tab stops, first-line/hanging indent and
+paragraph-spacing UI, page color), tools (word count, document outline,
+AutoCorrect/substitutions, citations), Google-Docs smart content (smart chips,
+document tabs, building-block templates), structural UX (formatting marks,
+pageless view), and export wiring (Markdown / plain-text serializers exist in
+the engine but aren't surfaced). Wafflebase stays toolbar-driven — a
+File/Edit/View/Insert/Format/Tools menu bar is an explicit non-goal; new
+actions surface through the toolbar, context menus, and `@`-style pickers. The full itemized backlog, with which items already have
+model/engine support and a suggested sequencing, lives in the task tracker:
+[`20260325-docs-wordprocessor-todo.md`](../../tasks/active/20260325-docs-wordprocessor-todo.md).
+Out of scope: voice typing, AI/Gemini features, translate, and mail merge.
 
 ## Risks and Mitigation
 
