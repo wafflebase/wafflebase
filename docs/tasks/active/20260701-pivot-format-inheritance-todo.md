@@ -65,6 +65,25 @@ Both inherit source data formatting into the pivot output:
       merges layers.
 - [x] `pnpm verify:fast` green.
 
+## Follow-up: charts have the same bug
+
+Charts ("차트") render the same way: `getCellDisplayValue` in
+`packages/frontend/src/app/spreadsheet/chart-utils.ts` read only `cell.v`, so
+date/number category labels showed raw values. The Recharts category `XAxis`
+has no `tickFormatter`, so the fix belongs in the extraction layer.
+
+- [x] **chart-utils.ts** — split into `getCellRawValue` (raw, for numeric
+      series values fed to `toNumeric`) and `getCellDisplayValue` (resolves
+      effective style + `formatValue`, for category / pie / series labels).
+- [x] **chart-utils.ts** — labels use the formatted getter; numeric series
+      values use the raw getter (formatted `"$300.00"` would break parsing).
+- [x] **sheets index** — export `formatValue` (the chart path needs it; it was
+      previously internal-only).
+- [x] Tests in `packages/frontend/tests/spreadsheet/chart-utils.test.ts`:
+      labels inherit number/date format; currency-formatted value columns stay
+      numeric (rows not dropped); pie labels formatted + values numeric.
+- [x] `pnpm verify:fast` green.
+
 ## Non-goals
 
 - Field-level format override UI (Excel "Value Field Settings" number format).

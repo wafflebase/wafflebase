@@ -119,7 +119,10 @@ import {
   resolveSystemLocale,
   type LocaleFormatPreview,
 } from './model/core/locale';
-import { type FormatValueOptions } from './model/worksheet/format';
+import {
+  formatValue,
+  type FormatValueOptions,
+} from './model/worksheet/format';
 import {
   inferInput,
   defaultAlign,
@@ -256,6 +259,7 @@ export {
   resolveSystemLocale,
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
+  formatValue,
   inferInput,
   defaultAlign,
   getWorksheetCell,

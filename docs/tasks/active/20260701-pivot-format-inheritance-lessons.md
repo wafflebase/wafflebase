@@ -48,3 +48,22 @@
   skip a redundant `getWorksheetCell` (mirrors `Sheet.resolveEffectiveStyle`).
   The per-cell range-style scan over the configured source range is inherent
   (same pattern the renderer uses for the viewport).
+
+## Charts: the same bug in a second derived view
+
+- The original report said "표" (table) but the actual surface was **charts**.
+  Every view that re-reads source cells and re-emits values (pivot, chart, and
+  likely export) repeats the "read `cell.v`, drop the format" mistake. When one
+  is reported, check the siblings — `resolveWorksheetCellStyle` + `formatValue`
+  is the shared fix.
+- In charts, the SAME extraction helper fed both **labels** and **numeric
+  values**. Formatting must apply to labels only — a currency/number format on
+  the value column would turn `"100"` into `"$100.00"`/`"1,234"` and break
+  `toNumeric`, silently dropping data points. Split label vs value getters.
+- `formatValue` was internal to the sheets package; the chart fix required
+  exporting it from the package index (it's the canonical formatter the grid
+  and pivot already use internally). Runtime symptom of a missing export is
+  `formatValue is not a function` — the dist simply doesn't re-export it.
+- Frontend vitest only runs `tests/**/*.test.ts` (see `vite.config.ts` →
+  `test.include`); a `*.test.ts` placed under `src/` is NOT executed. Put
+  frontend tests under `packages/frontend/tests/`.
