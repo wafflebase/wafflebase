@@ -26,6 +26,7 @@ import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 import { setupSlidesImagePaths } from "./slides-image-input";
 import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
+import { needsForcedRepaintAfterRefit } from "./refit-repaint";
 import { useGoogleFontsLink } from "@/components/text-formatting/font-catalog";
 
 export type { SlidesEditor } from "@wafflebase/slides";
@@ -798,6 +799,11 @@ export function SlidesView({
       const sameSlide = nextW === hostW && nextH === hostH;
       const sameCanvas =
         nextCanvasW === canvasFullW && nextCanvasH === canvasFullH;
+      // Captured against the *previous* offsets, before the reassignment
+      // below, to decide whether `setSlideOffset` will repaint the
+      // freshly-cleared bitmap or early-return.
+      const offsetChanged =
+        nextOffsetX !== slideOffsetCssX || nextOffsetY !== slideOffsetCssY;
       // Resync the ruler even when sizes match: a right-pane resize
       // (devtools open/close, sidebar collapse, notes-pane drag) can
       // shrink scrollHost without changing the canvas, leaving the
@@ -833,6 +839,28 @@ export function SlidesView({
         slideOffsetCssX / scaleCssPerLogical,
         slideOffsetCssY / scaleCssPerLogical,
       );
+      // Reassigning `canvas.width`/`canvas.height` above wiped the
+      // backing store to transparent. On a pasteboard-only resize (canvas
+      // grew/shrank while the fitted slide + offset held steady — e.g. the
+      // global sidebar collapsing at Fit zoom) both setters early-return
+      // and nothing repaints the cleared bitmap, leaving it black until an
+      // unrelated event re-dirties the renderer. Force one repaint here.
+      //
+      // `offsetChanged` is measured in CSS px while `setSlideOffset`
+      // compares logical units (cssOffset / scaleCssPerLogical). That is
+      // sound only because we skip the forced repaint when the host is
+      // unchanged: host-invariant ⇒ `scaleCssPerLogical` invariant, so
+      // CSS-offset equality tracks logical-offset equality exactly.
+      if (
+        needsForcedRepaintAfterRefit({
+          canvasChanged: !sameCanvas,
+          hostChanged: !sameSlide,
+          offsetChanged,
+        })
+      ) {
+        editor.markDirty();
+        editor.render();
+      }
       // After a size change the browser may or may not emit a scroll
       // event (e.g. shrinking back to Fit clamps scrollLeft to 0
       // implicitly). Sync the ruler explicitly so its tick origin
