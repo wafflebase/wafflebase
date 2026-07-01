@@ -4,9 +4,11 @@ import type { Cell, Grid, PivotResult } from '../core/types';
 /**
  * `materialize` converts a PivotResult into a Grid (Map<Sref, Cell>).
  *
- * - rowHeader / colHeader / empty cells get bold styling.
- * - total cells get bold styling.
- * - value cells are plain (no styling); empty value cells are skipped.
+ * - rowHeader / colHeader / empty / total cells get bold styling.
+ * - value cells are plain unless they carry an inherited format.
+ * - cells with an inherited source format (`pivotCell.format`) merge it into
+ *   the style so labels/values render with the source's number/date format.
+ * - empty value cells are skipped.
  *
  * Grid positions are 1-based: cells[r][c] maps to {r: r+1, c: c+1}.
  */
@@ -24,14 +26,14 @@ export function materialize(result: PivotResult): Grid {
         case 'rowHeader':
         case 'colHeader':
         case 'empty':
-          cell = { v: pivotCell.value, s: { b: true } };
-          break;
         case 'total':
-          cell = { v: pivotCell.value, s: { b: true } };
+          cell = { v: pivotCell.value, s: { b: true, ...pivotCell.format } };
           break;
         case 'value':
           if (pivotCell.value !== '') {
-            cell = { v: pivotCell.value };
+            cell = pivotCell.format
+              ? { v: pivotCell.value, s: { ...pivotCell.format } }
+              : { v: pivotCell.value };
           }
           break;
       }

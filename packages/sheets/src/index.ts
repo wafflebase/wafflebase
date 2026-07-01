@@ -24,6 +24,7 @@ import {
   type GroupNode,
   type PivotCellType,
   type PivotCell,
+  type PivotCellFormat,
   type PivotResult,
   type Ref,
   type Sref,
@@ -118,7 +119,10 @@ import {
   resolveSystemLocale,
   type LocaleFormatPreview,
 } from './model/core/locale';
-import { type FormatValueOptions } from './model/worksheet/format';
+import {
+  formatValue,
+  type FormatValueOptions,
+} from './model/worksheet/format';
 import {
   inferInput,
   defaultAlign,
@@ -134,6 +138,7 @@ import {
   writeWorksheetCell,
   updateWorksheetCell,
   replaceWorksheetCells,
+  resolveWorksheetCellStyle,
 } from './model/workbook/worksheet-grid';
 import {
   safeWorksheetRecordKeys,
@@ -254,6 +259,7 @@ export {
   resolveSystemLocale,
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
+  formatValue,
   inferInput,
   defaultAlign,
   getWorksheetCell,
@@ -263,6 +269,7 @@ export {
   writeWorksheetCell,
   updateWorksheetCell,
   replaceWorksheetCells,
+  resolveWorksheetCellStyle,
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
   safeWorksheetRecordValues,
@@ -318,6 +325,7 @@ export type {
   GroupNode,
   PivotCellType,
   PivotCell,
+  PivotCellFormat,
   PivotResult,
   Ref,
   Sref,

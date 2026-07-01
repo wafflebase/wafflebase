@@ -105,6 +105,21 @@ Scatter reuses the existing `ChartDataset` structure. Both X and Y values
 are numeric. The `xKey` field references numeric X values instead of
 categorical labels.
 
+#### Label Formatting
+
+Category / x-axis labels, pie slice names, and series header labels are
+produced with `getCellDisplayValue` in `chart-utils.ts`, which resolves the
+cell's effective number/date format (sheet → col → row → range → cell via
+`resolveWorksheetCellStyle`) and applies `formatValue`. This makes a date
+column with a Locale Date format show the formatted date rather than the raw
+value, matching the on-sheet appearance.
+
+Numeric **series values** instead use `getCellRawValue` (raw `cell.v`): they
+are parsed by `toNumeric`, so a formatted string like `"$300.00"` or `"1,234"`
+must not reach the parser. Labels are formatted; values stay raw. The Recharts
+category `XAxis` has no `tickFormatter`, so the formatting must happen in this
+extraction layer.
+
 ### 3. Chart Registry
 
 A central registry maps each `ChartType` to its renderer component,

@@ -1,4 +1,10 @@
-import { getWorksheetCell, parseRef, toSref } from "@wafflebase/sheets";
+import {
+  formatValue,
+  getWorksheetCell,
+  parseRef,
+  resolveWorksheetCellStyle,
+  toSref,
+} from "@wafflebase/sheets";
 import type { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 export { COLOR_PALETTES, getSeriesColor } from "./chart-colors";
 import { getSeriesColor } from "./chart-colors";
@@ -124,7 +130,9 @@ export function resolveChartColumns(
     columns.push({
       column,
       index: c,
-      label: getCellDisplayValue(sourceSheet, from.r, c) || column,
+      // Header cell = series/column title (an identifier), kept raw so a
+      // numeric-looking header in a formatted column isn't reformatted.
+      label: getCellRawValue(sourceSheet, from.r, c) || column,
     });
   }
 
@@ -217,7 +225,8 @@ export function buildChartDataset(
       continue;
     }
 
-    const label = getCellDisplayValue(sourceSheet, from.r, colIndex) || column;
+    // Header cell = series title (an identifier), kept raw like the axis label.
+    const label = getCellRawValue(sourceSheet, from.r, colIndex) || column;
     const key = `series_${column}`;
     const chartSeries: ChartSeries = { key, label };
     series.push(chartSeries);
@@ -242,7 +251,7 @@ export function buildChartDataset(
     let hasNumericSeries = false;
     for (const seriesInfo of resolvedSeries) {
       const numeric = toNumeric(
-        getCellDisplayValue(sourceSheet, r, seriesInfo.index),
+        getCellRawValue(sourceSheet, r, seriesInfo.index),
       );
       if (numeric !== null) {
         row[seriesInfo.key] = numeric;
@@ -293,7 +302,7 @@ export function buildPieDataset(
   for (let r = from.r + 1; r <= to.r; r++) {
     const label = getCellDisplayValue(sourceSheet, r, labelColIndex);
     const numeric = toNumeric(
-      getCellDisplayValue(sourceSheet, r, valueColIndex),
+      getCellRawValue(sourceSheet, r, valueColIndex),
     );
 
     if (numeric === null || numeric <= 0) {
@@ -310,7 +319,12 @@ export function buildPieDataset(
   return { entries };
 }
 
-function getCellDisplayValue(
+/**
+ * Returns the raw stored cell value as a string. Use this for values fed into
+ * `toNumeric` (series data), which must stay numeric-parseable — a formatted
+ * string like "$300.00" or "1,234" would break parsing in unexpected ways.
+ */
+function getCellRawValue(
   sheet: ChartSourceSheet,
   row: number,
   col: number,
@@ -324,6 +338,30 @@ function getCellDisplayValue(
   }
 
   return String(value);
+}
+
+/**
+ * Returns the formatted display value of a cell, applying the resolved
+ * effective number/date format (sheet/col/row/range/cell layers). Use this for
+ * data labels — axis/category values and pie slice names — so a date column
+ * with a Locale Date format shows the formatted date rather than the raw value.
+ * Non-numeric values (e.g. text labels) pass through `formatValue` unchanged.
+ * (Header cells — series/column titles — use `getCellRawValue` instead.)
+ */
+function getCellDisplayValue(
+  sheet: ChartSourceSheet,
+  row: number,
+  col: number,
+): string {
+  const cell = getWorksheetCell(sheet, { r: row, c: col });
+  const value = cell?.v;
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+
+  const raw = typeof value === "string" ? value : String(value);
+  const style = resolveWorksheetCellStyle(sheet, { r: row, c: col }, cell?.s);
+  return formatValue(raw, style?.nf, style?.dp, { currency: style?.cu });
 }
 
 function toNumeric(value: unknown): number | null {

@@ -53,6 +53,34 @@ describe('materialize', () => {
     expect(cell?.s).toEqual({ b: true });
   });
 
+  it('merges inherited format into header and value cell styles', () => {
+    const result: PivotResult = {
+      cells: [
+        [
+          { value: '2026-07-01', type: 'rowHeader', format: { nf: 'date' } },
+          {
+            value: '100',
+            type: 'value',
+            format: { nf: 'currency', cu: 'USD' },
+          },
+        ],
+      ],
+      rowCount: 1,
+      colCount: 2,
+    };
+    const grid = materialize(result);
+    // Header keeps bold and gains the date format.
+    expect(grid.get(toSref({ r: 1, c: 1 }))).toEqual({
+      v: '2026-07-01',
+      s: { b: true, nf: 'date' },
+    });
+    // Value cell (no bold) gains the currency format.
+    expect(grid.get(toSref({ r: 1, c: 2 }))).toEqual({
+      v: '100',
+      s: { nf: 'currency', cu: 'USD' },
+    });
+  });
+
   it('skips value cells with empty value', () => {
     const result: PivotResult = {
       cells: [

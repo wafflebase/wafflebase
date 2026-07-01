@@ -1,5 +1,7 @@
 import { toSref } from '../core/coordinates';
-import type { Axis, Cell, Ref, Sref } from '../core/types';
+import type { Axis, Cell, CellStyle, Ref, Sref } from '../core/types';
+import { resolveRangeStyleAt } from '../worksheet/range-styles';
+import type { RangeStylePatch } from '../worksheet/range-styles';
 import {
   createWorksheetAxisId,
   createWorksheetCellKey,
@@ -8,6 +10,17 @@ import {
   safeWorksheetRecordKeys,
   type WorksheetGridShape,
 } from './worksheet-record';
+
+/**
+ * WorksheetStyleShape augments the grid shape with the style layers stored on
+ * a worksheet document (keyed by index, mirroring `Sheet`'s in-memory maps).
+ */
+export type WorksheetStyleShape = WorksheetGridShape & {
+  sheetStyle?: CellStyle;
+  colStyles?: Record<string, CellStyle>;
+  rowStyles?: Record<string, CellStyle>;
+  rangeStyles?: RangeStylePatch[];
+};
 
 function ensureAxisLength(
   ws: WorksheetGridShape,
@@ -51,6 +64,38 @@ export function getWorksheetCell(
     return undefined;
   }
   return ws.cells?.[createWorksheetCellKey(rowId, colId)];
+}
+
+/**
+ * `resolveWorksheetCellStyle` computes the effective style of a cell from a raw
+ * worksheet document, merging sheet → column → row → range → cell layers (later
+ * layers win), mirroring `Sheet.resolveEffectiveStyle`.
+ *
+ * Use this when you need a cell's resolved format outside the live `Sheet`
+ * instance — e.g. building a source grid for a pivot table from a different
+ * tab, where number formats often live in `rangeStyles`/`colStyles` rather
+ * than on `cell.s`.
+ *
+ * Pass `cellStyle` when the caller has already read the cell (e.g. in a grid
+ * build loop) to skip a redundant `getWorksheetCell` lookup, matching
+ * `Sheet.resolveEffectiveStyle(row, col, cellStyle)`.
+ */
+export function resolveWorksheetCellStyle(
+  ws: WorksheetStyleShape,
+  ref: Ref,
+  cellStyle?: CellStyle,
+): CellStyle | undefined {
+  const cell = cellStyle ?? getWorksheetCell(ws, ref)?.s;
+  const sheetStyle = ws.sheetStyle;
+  const colStyle = ws.colStyles?.[String(ref.c)];
+  const rowStyle = ws.rowStyles?.[String(ref.r)];
+  const rangeStyle = ws.rangeStyles
+    ? resolveRangeStyleAt(ws.rangeStyles, ref.r, ref.c)
+    : undefined;
+  if (!sheetStyle && !colStyle && !rowStyle && !rangeStyle && !cell) {
+    return undefined;
+  }
+  return { ...sheetStyle, ...colStyle, ...rowStyle, ...rangeStyle, ...cell };
 }
 
 function setWorksheetGridCell(

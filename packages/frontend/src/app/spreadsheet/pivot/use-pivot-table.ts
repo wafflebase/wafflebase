@@ -18,6 +18,7 @@ import {
   parseRange,
   parseRef,
   replaceWorksheetCells,
+  resolveWorksheetCellStyle,
   toSref,
 } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@/types/worksheet";
@@ -148,7 +149,13 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
             const plain: Cell = {};
             if (cell.v !== undefined) plain.v = cell.v;
             if (cell.f !== undefined) plain.f = cell.f;
-            if (cell.s !== undefined) plain.s = { ...cell.s };
+            // Resolve the effective style (sheet/col/row/range/cell layers) so
+            // number/date formats stored as range or column layers — not just
+            // per-cell — are inherited by pivot labels and value cells. Pass
+            // the already-read `cell.s` to avoid a second cell lookup. The
+            // result is a fresh plain object, detached from the CRDT proxy.
+            const style = resolveWorksheetCellStyle(sourceWs, { r, c }, cell.s);
+            if (style !== undefined) plain.s = style;
             grid.set(sref, plain);
           }
         }

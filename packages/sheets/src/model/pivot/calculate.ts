@@ -3,8 +3,10 @@ import type {
   Grid,
   GroupNode,
   PivotCell,
+  PivotCellFormat,
   PivotResult,
   PivotTableDefinition,
+  PivotValueField,
 } from '../core/types';
 import { parseSourceData } from './parse';
 import { applyFilters, buildGroups } from './group';
@@ -64,7 +66,27 @@ export function calculatePivot(
 ): PivotResult {
   // 1. Parse source range and extract data.
   const range = parseRange(def.sourceRange);
-  const { records } = parseSourceData(sourceGrid, range);
+  const { records, columnFormats } = parseSourceData(sourceGrid, range);
+
+  // Label format is inherited only when an axis has a single grouping field;
+  // composite "A / B" labels join multiple columns and have no single format.
+  const rowFormat =
+    def.rowFields.length === 1
+      ? columnFormats[def.rowFields[0].sourceColumn]
+      : undefined;
+  const colFormat =
+    def.columnFields.length === 1
+      ? columnFormats[def.columnFields[0].sourceColumn]
+      : undefined;
+
+  // Value cells inherit their source column's format, except counts, which are
+  // plain integers regardless of the source format.
+  const valueFormat = (vf: PivotValueField): PivotCellFormat | undefined => {
+    if (vf.aggregation === 'COUNT' || vf.aggregation === 'COUNTA') {
+      return undefined;
+    }
+    return columnFormats[vf.sourceColumn];
+  };
 
   // 2. Apply filters.
   const filtered = applyFilters(records, def.filterFields);
@@ -113,7 +135,11 @@ export function calculatePivot(
       // Single value field with columns: column header shows group value.
       const headerRow: PivotCell[] = [{ value: '', type: 'empty' }];
       for (const colLeaf of colLeaves) {
-        headerRow.push({ value: colLeaf.label, type: 'colHeader' });
+        headerRow.push({
+          value: colLeaf.label,
+          type: 'colHeader',
+          format: colFormat,
+        });
       }
       if (def.showTotals.columns) {
         headerRow.push({ value: 'Grand Total', type: 'colHeader' });
@@ -135,7 +161,7 @@ export function calculatePivot(
   // 6. Build data rows.
   for (const rowLeaf of rowLeaves) {
     const dataRow: PivotCell[] = [
-      { value: rowLeaf.label, type: 'rowHeader' },
+      { value: rowLeaf.label, type: 'rowHeader', format: rowFormat },
     ];
 
     if (hasColumns) {
@@ -149,12 +175,14 @@ export function calculatePivot(
             dataRow.push({
               value: aggregateValues(filtered, intersection, vf),
               type: 'value',
+              format: valueFormat(vf),
             });
           }
         } else {
           dataRow.push({
             value: aggregateValues(filtered, intersection, valueFields[0]),
             type: 'value',
+            format: valueFormat(valueFields[0]),
           });
         }
       }
@@ -166,12 +194,14 @@ export function calculatePivot(
             dataRow.push({
               value: aggregateValues(filtered, rowLeaf.indices, vf),
               type: 'total',
+              format: valueFormat(vf),
             });
           }
         } else {
           dataRow.push({
             value: aggregateValues(filtered, rowLeaf.indices, valueFields[0]),
             type: 'total',
+            format: valueFormat(valueFields[0]),
           });
         }
       }
@@ -181,6 +211,7 @@ export function calculatePivot(
         dataRow.push({
           value: aggregateValues(filtered, rowLeaf.indices, vf),
           type: 'value',
+          format: valueFormat(vf),
         });
       }
     }
@@ -202,6 +233,7 @@ export function calculatePivot(
             totalRow.push({
               value: aggregateValues(filtered, colLeaf.indices, vf),
               type: 'total',
+              format: valueFormat(vf),
             });
           }
         } else {
@@ -212,6 +244,7 @@ export function calculatePivot(
               valueFields[0],
             ),
             type: 'total',
+            format: valueFormat(valueFields[0]),
           });
         }
       }
@@ -223,6 +256,7 @@ export function calculatePivot(
             totalRow.push({
               value: aggregateValues(filtered, allRowIndices, vf),
               type: 'total',
+              format: valueFormat(vf),
             });
           }
         } else {
@@ -233,6 +267,7 @@ export function calculatePivot(
               valueFields[0],
             ),
             type: 'total',
+            format: valueFormat(valueFields[0]),
           });
         }
       }
@@ -241,6 +276,7 @@ export function calculatePivot(
         totalRow.push({
           value: aggregateValues(filtered, allRowIndices, vf),
           type: 'total',
+          format: valueFormat(vf),
         });
       }
     }
