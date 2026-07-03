@@ -207,12 +207,17 @@ export function paintTextBody(
   } = {},
 ): void {
   if (isTextBodyEmpty(body)) return;
-  const inset = opts.inset ?? {
-    left: opts.padding?.x ?? 0,
-    right: opts.padding?.x ?? 0,
-    top: opts.padding?.y ?? 0,
-    bottom: opts.padding?.y ?? 0,
-  };
+  // Precedence: an explicit caller inset (shapes pass `shapeTextInset`) wins;
+  // otherwise honor the body's own imported `<a:bodyPr>` inset (text elements
+  // pass no inset, so this is where number-in-circle labels get centered);
+  // finally fall back to the symmetric `padding` / zero.
+  const inset = opts.inset ??
+    body.inset ?? {
+      left: opts.padding?.x ?? 0,
+      right: opts.padding?.x ?? 0,
+      top: opts.padding?.y ?? 0,
+      bottom: opts.padding?.y ?? 0,
+    };
   const innerW = Math.max(0, size.w - inset.left - inset.right);
   const innerH = Math.max(0, size.h - inset.top - inset.bottom);
 

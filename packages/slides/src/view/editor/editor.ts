@@ -26,7 +26,7 @@ import {
 } from '../../model/image-crop';
 import type { Block } from '@wafflebase/docs';
 import { clearMeasureCache } from '@wafflebase/docs';
-import { shapeTextFrame } from '../canvas/shape-renderer';
+import { shapeTextFrame, type TextInset } from '../canvas/shape-renderer';
 import {
   computeTableLayout,
   nextCellInDirection,
@@ -6564,21 +6564,44 @@ type EditTarget = {
   cell?: { row: number; col: number };
 };
 
+/**
+ * Shrink a frame by per-side insets (deck px), keeping width/height
+ * non-negative. Mirrors `shapeTextFrame` for the text-element path, which
+ * has no preset text rectangle — only the imported `<a:bodyPr>` inset.
+ */
+function insetFrame(frame: Frame, inset?: TextInset): Frame {
+  if (!inset) return frame;
+  return {
+    x: frame.x + inset.left,
+    y: frame.y + inset.top,
+    w: Math.max(0, frame.w - inset.left - inset.right),
+    h: Math.max(0, frame.h - inset.top - inset.bottom),
+    rotation: frame.rotation,
+  };
+}
+
 function buildEditTarget(element: TextElement | ShapeElement): EditTarget {
   if (element.type === 'text') {
+    // A text element paints at `body.inset` when the source `<a:bodyPr>`
+    // declared one (else 0); inset the edit frame the same way so the
+    // caret + glyphs land where `paintTextBody` commits them.
     return {
       kind: 'text',
       blocks: element.data.blocks,
       autofit: element.data.autofit,
       verticalAnchor: element.data.verticalAnchor,
-      editFrame: element.frame,
+      editFrame: insetFrame(element.frame, element.data.inset),
     };
   }
   const body = element.data.text;
-  // Inset by the shape's text rectangle (preset `<rect>` + default
-  // padding) so the in-place editing box and caret land exactly where
-  // `paintShapeText` paints the committed glyphs.
-  const innerFrame: Frame = shapeTextFrame(element.data.kind, element.frame);
+  // Inset by the shape's text rectangle (preset `<rect>` + the imported
+  // `<a:bodyPr>` inset, or the default padding) so the in-place editing box
+  // and caret land exactly where `paintShapeText` paints the committed glyphs.
+  const innerFrame: Frame = shapeTextFrame(
+    element.data.kind,
+    element.frame,
+    body?.inset,
+  );
   return {
     kind: 'shape',
     blocks: body?.blocks ?? [makeDefaultSlidesTextBlock()],

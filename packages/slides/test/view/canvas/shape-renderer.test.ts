@@ -4,7 +4,12 @@ import type { Theme } from '../../../src/model/theme';
 import { asCtx, createCtxSpy } from '../../../src/view/canvas/ctx-spy';
 // Install Path2D global before importing the renderer/builders.
 import '../../../src/view/canvas/test-canvas-env';
-import { drawShape } from '../../../src/view/canvas/shape-renderer';
+import {
+  drawShape,
+  shapeTextInset,
+  shapeTextFrame,
+  SHAPE_TEXT_PADDING,
+} from '../../../src/view/canvas/shape-renderer';
 
 const THEME: Theme = {
   id: 't', name: 't',
@@ -142,5 +147,48 @@ describe('drawShape — donut (evenodd fill rule)', () => {
     expect(ctx.fill).toHaveBeenCalledTimes(1);
     expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
     expect(ctx.fill.mock.calls[0][1]).toBe('evenodd');
+  });
+});
+
+describe('shapeTextInset', () => {
+  it('defaults to the uniform SHAPE_TEXT_PADDING for a rect (no preset rect)', () => {
+    expect(shapeTextInset('rect', 200, 100)).toEqual({
+      left: SHAPE_TEXT_PADDING.x,
+      top: SHAPE_TEXT_PADDING.y,
+      right: SHAPE_TEXT_PADDING.x,
+      bottom: SHAPE_TEXT_PADDING.y,
+    });
+  });
+
+  it('uses a per-side pad override in place of SHAPE_TEXT_PADDING', () => {
+    const pad = { left: 20, top: 20, right: 20, bottom: 20 };
+    expect(shapeTextInset('rect', 200, 100, pad)).toEqual(pad);
+  });
+
+  it('composes the pad override with a shape preset rect', () => {
+    // A kind with a preset text rect insets by rect fractions plus the pad.
+    const pad = { left: 5, top: 5, right: 5, bottom: 5 };
+    const withPad = shapeTextInset('ellipse', 200, 100, pad);
+    const withDefault = shapeTextInset('ellipse', 200, 100);
+    // The preset-rect portion is identical; only the additive pad differs.
+    expect(withPad.left).toBeCloseTo(
+      withDefault.left - SHAPE_TEXT_PADDING.x + pad.left,
+    );
+    expect(withPad.top).toBeCloseTo(
+      withDefault.top - SHAPE_TEXT_PADDING.y + pad.top,
+    );
+  });
+
+  it('shapeTextFrame threads the pad override so edit frame matches paint', () => {
+    const frame = { x: 10, y: 20, w: 200, h: 100, rotation: 0 };
+    const pad = { left: 30, top: 30, right: 30, bottom: 30 };
+    // rect has no preset text rect, so the inner frame is the pad inset.
+    expect(shapeTextFrame('rect', frame, pad)).toEqual({
+      x: 40,
+      y: 50,
+      w: 140,
+      h: 40,
+      rotation: 0,
+    });
   });
 });

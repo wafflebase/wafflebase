@@ -156,6 +156,21 @@ in that order, where `paintTextBody` is exported from
 `<a:bodyPr lIns="91440" tIns="45720">` converted at the deck scale)
 and `defaultVerticalAnchor: 'middle'`.
 
+**Imported per-body insets.** When a PPTX `<a:bodyPr>` sets explicit
+`lIns/tIns/rIns/bIns`, `import/pptx/text.ts:detectBodyInset` converts them
+to deck px (per-axis `scale.sx/sy`, OOXML defaults filling absent sides)
+and stores them on `TextBody.inset`. The renderer prefers this over its
+default padding: shape callers thread it through `shapeTextInset(kind, w,
+h, pad)` (composed with the preset text rect), and text-element callers
+let `paintTextBody` fall back to `body.inset` (its native inset is
+otherwise `0`). This is what keeps Google-Slides-style number-in-circle
+labels — tiny `txBox="1"` boxes centered purely by large symmetric insets
+— centered instead of pinned to the top-left corner. Absent ⇒ prior
+per-kind default. The in-place editor stays consistent: `buildEditTarget`
+threads the same inset into the edit frame (`shapeTextFrame(kind, frame,
+inset)` for shapes, `insetFrame(frame, inset)` for text elements), so the
+caret and glyphs land where the committed paint puts them.
+
 **Editor entry.** Double-click and the type-to-edit / F2 / Enter
 keyboard rules accept `el.type === 'shape'` in addition to
 `'text'`. `enterEditMode` builds an `EditTarget` descriptor that

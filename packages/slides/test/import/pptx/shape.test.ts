@@ -112,6 +112,63 @@ const SLIDE_WITH_FILLED_TEXTBOX = `<?xml version="1.0"?>
   </p:cSld>
 </p:sld>`;
 
+/**
+ * A `txBox="1"` text box whose `<a:bodyPr>` sets explicit symmetric insets
+ * (`lIns=tIns=rIns=bIns`). Google-Slides-style number-in-circle labels rely
+ * on these large insets to visually center a single glyph; the importer must
+ * carry them into `TextBody.inset` so the renderer reproduces the centering
+ * instead of painting at the top-left corner.
+ */
+const SLIDE_WITH_TEXTBOX_INSETS = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Num"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="267900" cy="323100"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr anchor="t" lIns="91425" tIns="91425" rIns="91425" bIns="91425"/>
+          <a:lstStyle/>
+          <a:p><a:r><a:rPr lang="en-US"/><a:t>1</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+/**
+ * A prstGeom shape (not a text box) whose folded `<p:txBody>` carries explicit
+ * `<a:bodyPr>` insets. The importer must attach them to `data.text.inset`.
+ */
+const SLIDE_WITH_SHAPE_INSETS = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+          <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr lIns="45720" tIns="9144"/>
+          <a:lstStyle/>
+          <a:p><a:r><a:rPr lang="en-US"/><a:t>Hi</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
 describe('parseSlide — shape inline text', () => {
   it('folds <p:txBody> inside a prstGeom <p:sp> into ShapeElement.data.text', async () => {
     const slide = await parseSlide({
@@ -178,5 +235,71 @@ describe('parseSlide — shape inline text', () => {
     expect(el.data.blocks[0].inlines.map((i) => i.text).join('')).toBe(
       'Network Interruption',
     );
+  });
+
+  it('does not attach an inset when <a:bodyPr> declares none', async () => {
+    const slide = await parseSlide({
+      archive: makeArchive({
+        'ppt/slides/slide1.xml': SLIDE_WITH_FILLED_TEXTBOX,
+      }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('text');
+    if (el.type !== 'text') return;
+    // Empty `<a:bodyPr/>` — the renderer keeps its default; storing an inset
+    // here would shift every plain imported text box.
+    expect(el.data.inset).toBeUndefined();
+  });
+
+  it('carries explicit <a:bodyPr> insets into a text box\'s TextBody.inset', async () => {
+    const slide = await parseSlide({
+      archive: makeArchive({
+        'ppt/slides/slide1.xml': SLIDE_WITH_TEXTBOX_INSETS,
+      }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      // sx=sy=1 → inset px equals the raw EMU inset for easy assertion.
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('text');
+    if (el.type !== 'text') return;
+    expect(el.data.inset).toEqual({
+      left: 91425,
+      top: 91425,
+      right: 91425,
+      bottom: 91425,
+    });
+  });
+
+  it('carries explicit <a:bodyPr> insets into a shape\'s data.text.inset, filling absent sides with OOXML defaults', async () => {
+    const slide = await parseSlide({
+      archive: makeArchive({
+        'ppt/slides/slide1.xml': SLIDE_WITH_SHAPE_INSETS,
+      }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    // lIns / tIns explicit; rIns / bIns fall back to OOXML defaults
+    // (91440 / 45720) so the box stays symmetric with PowerPoint.
+    expect(el.data.text?.inset).toEqual({
+      left: 45720,
+      top: 9144,
+      right: 91440,
+      bottom: 45720,
+    });
   });
 });

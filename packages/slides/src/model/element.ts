@@ -229,6 +229,14 @@ export type PlaceholderRef = {
  */
 export type VerticalAnchorMode = 'top' | 'middle' | 'bottom';
 
+/** Per-side text insets, in deck-canvas px (left/top/right/bottom). */
+export type TextInset = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 /**
  * Text-box autofit behavior, mirroring OOXML `<a:bodyPr>` children:
  * - 'none'   ↔ <a:noAutofit/>   — box fixed, text overflows
@@ -275,6 +283,15 @@ export type TextBody = {
    * top / middle / bottom of the frame.
    */
   verticalAnchor?: VerticalAnchorMode;
+  /**
+   * Per-side text insets in deck-canvas px, mirroring OOXML
+   * `<a:bodyPr lIns/tIns/rIns/bIns>`. When present the renderer uses these
+   * instead of its per-kind default padding — decks that set large symmetric
+   * insets (e.g. Google-Slides number-in-circle labels) rely on them to
+   * center a single glyph. **Absent ⇒ renderer default** (0 for text
+   * elements, `SHAPE_TEXT_PADDING` for shapes), preserving prior behavior.
+   */
+  inset?: TextInset;
 };
 
 export type TextElement = ElementBase & {
