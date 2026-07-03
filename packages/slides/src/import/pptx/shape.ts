@@ -37,7 +37,12 @@ import { parseCustGeomPath } from './freeform';
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { ImportReport } from './report';
 import { parseTable } from './table';
-import { parseTextBody, detectAutofitMode, detectVerticalAnchor } from './text';
+import {
+  parseTextBody,
+  detectAutofitMode,
+  detectVerticalAnchor,
+  detectBodyInset,
+} from './text';
 import type { PptxArchive } from './unzip';
 import type { PptxRel } from './rels';
 import type { UploadImage } from './index';
@@ -683,9 +688,11 @@ function buildTextBody(
     placeholderTypeToTxStylesSlot(placeholderRef?.type),
   );
   const verticalAnchor = detectVerticalAnchor(txBody);
+  const inset = detectBodyInset(txBody, ctx.scale);
   return {
     autofit: detectAutofitMode(txBody),
     ...(verticalAnchor !== undefined ? { verticalAnchor } : {}),
+    ...(inset !== undefined ? { inset } : {}),
     blocks: parseTextBody(txBody, {
       rels: ctx.rels,
       report: ctx.report,

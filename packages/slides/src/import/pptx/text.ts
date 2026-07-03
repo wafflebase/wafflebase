@@ -79,6 +79,41 @@ export function detectVerticalAnchor(txBody: Element): VerticalAnchorMode | unde
 }
 
 /**
+ * OOXML default `<a:bodyPr>` insets (EMU): 0.1" left/right, 0.05" top/bottom.
+ * PowerPoint applies these when the corresponding attribute is omitted; we
+ * mirror that so a box that sets, say, only `lIns` stays symmetric with the
+ * source rather than collapsing the unset sides to zero.
+ */
+const DEFAULT_INS = { l: 91_440, t: 45_720, r: 91_440, b: 45_720 } as const;
+
+/**
+ * Read `<a:bodyPr lIns/tIns/rIns/bIns>` and convert EMU → deck-canvas px via
+ * the per-axis scale (horizontal insets use `sx`, vertical use `sy`), exactly
+ * like table-cell padding. Returns `undefined` when `<a:bodyPr>` declares no
+ * inset attribute at all — leaving the box on the renderer's per-kind default
+ * so plain imported text boxes are unaffected. When at least one inset is
+ * present, absent sides are filled with the OOXML defaults above.
+ */
+export function detectBodyInset(
+  txBody: Element,
+  scale: { sx: number; sy: number },
+): { left: number; top: number; right: number; bottom: number } | undefined {
+  const bodyPr = child(txBody, 'bodyPr');
+  if (!bodyPr) return undefined;
+  const l = attrInt(bodyPr, 'lIns');
+  const t = attrInt(bodyPr, 'tIns');
+  const r = attrInt(bodyPr, 'rIns');
+  const b = attrInt(bodyPr, 'bIns');
+  if (l == null && t == null && r == null && b == null) return undefined;
+  return {
+    left: (l ?? DEFAULT_INS.l) * scale.sx,
+    top: (t ?? DEFAULT_INS.t) * scale.sy,
+    right: (r ?? DEFAULT_INS.r) * scale.sx,
+    bottom: (b ?? DEFAULT_INS.b) * scale.sy,
+  };
+}
+
+/**
  * Parse `<p:txBody>` into a docs `Block[]`.
  *
  * Honors `<a:bodyPr><a:normAutofit fontScale=...>`: each run's `fontSize`

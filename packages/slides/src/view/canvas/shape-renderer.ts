@@ -1,4 +1,4 @@
-import type { ShapeElement, ShapeKind } from '../../model/element';
+import type { ShapeElement, ShapeKind, TextInset } from '../../model/element';
 import { applyShade, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { resolveStrokeColor } from './render-context';
@@ -15,6 +15,9 @@ import { GENERATED_SHAPE_TEXT_RECTS } from './shapes/shape-text-rects.generated'
 import { paintTextBody } from './text-renderer';
 
 export type { FrameSize } from './shapes/builder';
+// `TextInset` lives in the model layer (used by `TextBody.inset`); re-exported
+// here so existing view/editor callers keep importing it from the renderer.
+export type { TextInset } from '../../model/element';
 
 /**
  * Insets (in deck-canvas px at the default 1920×1080 size) applied when
@@ -31,14 +34,6 @@ export type { FrameSize } from './shapes/builder';
  * a visible "shift" on commit.
  */
 export const SHAPE_TEXT_PADDING = { x: 14.4, y: 7.2 } as const;
-
-/** Per-side text insets, in deck-canvas px (left/top/right/bottom). */
-export type TextInset = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
 
 /**
  * Per-`ShapeKind` text rectangle from the OOXML preset geometry's
@@ -69,21 +64,30 @@ export const SHAPE_TEXT_RECTS: Partial<
 // text box to zero width/height at small frame sizes — `paintTextBody` clamps
 // to `Math.max(0, …)`, so text simply doesn't render, matching PowerPoint's own
 // confinement of inline text to that narrow band rather than overflowing.
-export function shapeTextInset(kind: ShapeKind, w: number, h: number): TextInset {
+// `pad` overrides the default `SHAPE_TEXT_PADDING` term when supplied — used
+// to honor a shape's imported `<a:bodyPr>` insets (`data.text.inset`) while
+// still composing them with the kind's preset text rectangle.
+export function shapeTextInset(
+  kind: ShapeKind,
+  w: number,
+  h: number,
+  pad?: TextInset,
+): TextInset {
+  const p = pad ?? {
+    left: SHAPE_TEXT_PADDING.x,
+    top: SHAPE_TEXT_PADDING.y,
+    right: SHAPE_TEXT_PADDING.x,
+    bottom: SHAPE_TEXT_PADDING.y,
+  };
   const rect = SHAPE_TEXT_RECTS[kind];
   if (!rect) {
-    return {
-      left: SHAPE_TEXT_PADDING.x,
-      top: SHAPE_TEXT_PADDING.y,
-      right: SHAPE_TEXT_PADDING.x,
-      bottom: SHAPE_TEXT_PADDING.y,
-    };
+    return { ...p };
   }
   return {
-    left: rect.l * w + SHAPE_TEXT_PADDING.x,
-    top: rect.t * h + SHAPE_TEXT_PADDING.y,
-    right: (1 - rect.r) * w + SHAPE_TEXT_PADDING.x,
-    bottom: (1 - rect.b) * h + SHAPE_TEXT_PADDING.y,
+    left: rect.l * w + p.left,
+    top: rect.t * h + p.top,
+    right: (1 - rect.r) * w + p.right,
+    bottom: (1 - rect.b) * h + p.bottom,
   };
 }
 
@@ -95,8 +99,9 @@ export function shapeTextInset(kind: ShapeKind, w: number, h: number): TextInset
 export function shapeTextFrame(
   kind: ShapeKind,
   frame: { x: number; y: number; w: number; h: number; rotation: number },
+  pad?: TextInset,
 ): { x: number; y: number; w: number; h: number; rotation: number } {
-  const ins = shapeTextInset(kind, frame.w, frame.h);
+  const ins = shapeTextInset(kind, frame.w, frame.h, pad);
   return {
     x: frame.x + ins.left,
     y: frame.y + ins.top,
@@ -319,7 +324,9 @@ export function paintShapeText(
 ): void {
   if (!data.text) return;
   paintTextBody(ctx, size, data.text, theme, {
-    inset: shapeTextInset(data.kind, size.w, size.h),
+    // A shape's imported `<a:bodyPr>` insets (if any) replace the default
+    // per-kind padding while still composing with the preset text rect.
+    inset: shapeTextInset(data.kind, size.w, size.h, data.text.inset),
     defaultVerticalAnchor: 'middle',
     fontScale,
   });
