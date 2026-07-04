@@ -20,6 +20,10 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [batch-transactions.md](sheets/batch-transactions.md)                | Store-level batch transactions for atomic undo/redo grouping                                       |
 | [collaboration.md](sheets/collaboration.md)                          | Yorkie collaboration — worksheet storage, structural concurrency, and test strategy              |
 | [datasource.md](sheets/datasource.md)                                | External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore                    |
+| [lakehouse-connected-sheet.md](sheets/lakehouse-connected-sheet.md)  | Lakehouse connected sheet — read Iceberg/Delta open table formats from object storage via embedded DuckDB, time-travel slider over commit history, reuses datasource ReadOnlyStore spine |
+| [file-import.md](sheets/file-import.md)                              | File import — Excel `.xlsx` already ships (client-side, multi-sheet); adds CSV (papaparse) + Parquet/JSON via DuckDB; two-engine split (client-side parsers vs backend DuckDB), Import vs Connect |
+| [bigquery-connector.md](sheets/bigquery-connector.md)                | BigQuery connector — read-only BigQuery via native `@google-cloud/bigquery`; extends the datasource spine (not DuckDB); cost guardrails (dry-run + maximumBytesBilled) |
+| [mysql-connector.md](sheets/mysql-connector.md)                      | MySQL connector — read-only MySQL/MariaDB via native `mysql2`; extends the PostgreSQL datasource with an `engine` discriminator; smallest connector, reuses the datasource spine |
 | [axis-id-selection.md](sheets/axis-id-selection.md)                  | Axis ID based selection & presence — stable selection across remote structural edits              |
 | [comments.md](sheets/comments.md)                                    | Sheet cell comments — threaded comments, resolve flow, anchor stability, side panel UI            |
 
