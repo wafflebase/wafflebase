@@ -25,7 +25,7 @@
  * canvas, scaled by the editor zoom to get the screen tolerance).
  */
 
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type Guide } from '../../../model/presentation';
+import { SLIDE_WIDTH, type Guide } from '../../../model/presentation';
 
 /** Hit-test tolerance for grabbing an existing guide, in slide-logical px. */
 export const GUIDE_HIT_PX = 4;
@@ -55,6 +55,12 @@ export interface GuideDragHost {
    * commit-vs-cancel on mouseup.
    */
   isInsideSlide(x: number, y: number): boolean;
+  /**
+   * The deck's logical slide height in px. Width is fixed at
+   * {@link SLIDE_WIDTH}; height varies per deck (see `deckSlideHeight`),
+   * so a dragged horizontal guide clamps to this rather than a constant.
+   */
+  slideHeight(): number;
   /** Pointer position relative to the slide canvas (slide-logical px). */
   setBodyCursor(cursor: string | null): void;
 }
@@ -115,7 +121,7 @@ export function startRulerDragOut(
     host.setBodyCursor(null);
     const { x, y } = host.clientToLogical(e.clientX, e.clientY);
     if (host.isInsideSlide(x, y)) {
-      const position = clamp(axis === 'x' ? x : y, axis);
+      const position = clamp(axis === 'x' ? x : y, axis, host);
       host.commitAddGuide(axis, position);
     }
     host.setPendingGuide(null);
@@ -149,7 +155,7 @@ export function startGuideMove(
 
   const onMove = (e: PointerEvent) => {
     const { x, y } = host.clientToLogical(e.clientX, e.clientY);
-    const position = clamp(guide.axis === 'x' ? x : y, guide.axis);
+    const position = clamp(guide.axis === 'x' ? x : y, guide.axis, host);
     host.setPendingGuide({ id: guide.id, axis: guide.axis, position });
   };
   const onUp = (e: PointerEvent) => {
@@ -161,7 +167,7 @@ export function startGuideMove(
       host.commitRemoveGuide(guide.id);
     } else {
       const { x, y } = host.clientToLogical(e.clientX, e.clientY);
-      const position = clamp(guide.axis === 'x' ? x : y, guide.axis);
+      const position = clamp(guide.axis === 'x' ? x : y, guide.axis, host);
       if (position !== guide.position) {
         host.commitMoveGuide(guide.id, position);
       }
@@ -185,7 +191,7 @@ export function startGuideMove(
   };
 }
 
-function clamp(value: number, axis: 'x' | 'y'): number {
-  const max = axis === 'x' ? SLIDE_WIDTH : SLIDE_HEIGHT;
+function clamp(value: number, axis: 'x' | 'y', host: GuideDragHost): number {
+  const max = axis === 'x' ? SLIDE_WIDTH : host.slideHeight();
   return Math.max(0, Math.min(max, value));
 }

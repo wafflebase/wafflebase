@@ -17,6 +17,8 @@ function makeHost(initialGuides: Guide[] = []): {
     cursor: string | null;
     isInside: boolean;
     overRuler: 'h' | 'v' | null;
+    /** Per-deck logical slide height fed to the guide clamp. */
+    slideHeight: number;
     /** Last (x, y) returned by clientToLogical; tests override via the
      * `cursor*` helpers below by mutating this directly. */
     logical: { x: number; y: number };
@@ -36,6 +38,7 @@ function makeHost(initialGuides: Guide[] = []): {
     cursor: null as string | null,
     isInside: true,
     overRuler: null as 'h' | 'v' | null,
+    slideHeight: 1080,
     logical: { x: 0, y: 0 },
   };
   const addGuide = vi.fn((axis: 'x' | 'y', position: number) => {
@@ -59,6 +62,7 @@ function makeHost(initialGuides: Guide[] = []): {
     clientToLogical: () => ({ ...state.logical }),
     isOverRuler: () => state.overRuler,
     isInsideSlide: () => state.isInside,
+    slideHeight: () => state.slideHeight,
     setBodyCursor: (c) => {
       state.cursor = c;
     },
@@ -197,5 +201,18 @@ describe('startGuideMove', () => {
     expect(env.state.pendingGuide?.position).toBe(1920);
     document.dispatchEvent(pointerEvent('pointerup', { x: 9999, y: 0 }));
     expect(env.moveGuide).toHaveBeenCalledWith('a', 1920);
+  });
+
+  it('clamps a horizontal guide to the per-deck height, not a fixed 1080', () => {
+    // A 4:3 deck is 1440 logical px tall. Dragging a y-guide past the
+    // bottom clamps to 1440 — the old fixed-1080 clamp would cut it short.
+    const ySeed: Guide = { id: 'y', axis: 'y', position: 200 };
+    const env = makeHost([ySeed]);
+    env.state.slideHeight = 1440;
+    env.state.logical = { x: 0, y: 200 };
+    startGuideMove(env.host, ySeed, pointerEvent('pointerdown', { x: 0, y: 200 }));
+    env.state.logical = { x: 0, y: 9999 };
+    document.dispatchEvent(pointerEvent('pointermove', { x: 0, y: 9999 }));
+    expect(env.state.pendingGuide?.position).toBe(1440);
   });
 });

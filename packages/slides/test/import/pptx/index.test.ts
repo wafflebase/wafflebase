@@ -39,6 +39,30 @@ describe('importPptx', () => {
     expect(document.meta.pxPerPt).toBeCloseTo(2.6667, 3);
   });
 
+  it('records `meta.slideHeight` for a 4:3 deck and imports without distortion', async () => {
+    // "Yorkie branding_v1.pptx" is 10"×7.5" (4:3). imageCount:1 ships a
+    // 2"×1" (2:1) picture; a correct import keeps that 2:1 aspect instead
+    // of stretching it 1.333× wider.
+    const buffer = await buildMinimalPptx({
+      sldSz: { cx: 9_144_000, cy: 6_858_000 },
+      imageCount: 1,
+    });
+    const { document } = await importPptx(buffer, {
+      uploadImage: async () => 'https://cdn/img.png',
+    });
+    expect(document.meta.slideHeight).toBe(1440);
+    const img = document.slides[0].elements.find((el) => el.type === 'image');
+    expect(img).toBeDefined();
+    // Source ext is cx=1828800 cy=914400 → 2:1. Frame must stay 2:1.
+    expect(img!.frame.w / img!.frame.h).toBeCloseTo(2, 6);
+  });
+
+  it('omits `meta.slideHeight` for a 16:9 deck (absent ⇒ 1080)', async () => {
+    const buffer = await buildMinimalPptx(); // default 13.333×7.5 widescreen
+    const { document } = await importPptx(buffer);
+    expect(document.meta.slideHeight).toBeUndefined();
+  });
+
   it('throws on a buffer without presentation.xml', async () => {
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();

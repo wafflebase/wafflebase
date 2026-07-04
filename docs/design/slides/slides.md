@@ -230,10 +230,22 @@ type Crop = { x: number; y: number; w: number; h: number }; // fraction 0..1
 type PlaceholderSpec = Omit<Element, 'id'>;
 ```
 
-The slide canvas uses a fixed logical coordinate system (default
-1920×1080). All editing, presentation, and PDF export operate in this
-space; the editor only differs by zoom factor. This keeps DPR, zoom,
-and export rendering consistent.
+The slide canvas uses a logical coordinate system with a **fixed width**
+of `SLIDE_WIDTH = 1920` px and a **per-deck height**. The height defaults
+to 1080 (16:9) and is recorded on `meta.slideHeight` when a non-16:9 deck
+is imported — a 4:3 (10"×7.5") PPTX yields `round(1920 × cy/cx) = 1440`.
+Read it everywhere via `deckSlideHeight(meta)` (absent ⇒ 1080); the
+constant `SLIDE_HEIGHT` is only the default. All editing, presentation,
+and PDF/PPTX export operate in this space; the editor only differs by
+zoom factor. This keeps DPR, zoom, and export rendering consistent.
+
+The PPTX importer scales geometry **isotropically** (`emuScale` →
+`sy = sx = 1920/cx`) so an imported deck keeps its true aspect ratio
+rather than being stretched into a 16:9 box. Built-in layout placeholders
+(authored against 1080) are rescaled to the deck height at the import
+merge via `scaleLayoutsToHeight`. PPTX export inverts this: the logical
+space maps isotropically to EMU (6350 EMU/px on both axes) and
+`<p:sldSz cy>` is derived from `deckSlideHeight`.
 
 #### Store interface
 

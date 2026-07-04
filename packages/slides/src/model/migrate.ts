@@ -31,6 +31,17 @@ export function migrateDocument(input: unknown): SlidesDocument {
   ) {
     meta.pxPerPt = raw.meta.pxPerPt;
   }
+  // Preserve the per-deck logical height. Like pxPerPt, non-16:9 decks
+  // set this from `<p:sldSz>`; without the migrate-time copy the field is
+  // dropped on every Yorkie read and the deck renders stretched into the
+  // default 1080 canvas — the exact distortion this field fixes.
+  if (
+    typeof raw?.meta?.slideHeight === 'number' &&
+    Number.isFinite(raw.meta.slideHeight) &&
+    raw.meta.slideHeight > 0
+  ) {
+    meta.slideHeight = raw.meta.slideHeight;
+  }
   // Preserve recent colors. Like unit/pxPerPt, `migrateDocument` runs on
   // every Yorkie read, so without the copy the list would be dropped each
   // time. Re-enforce the same normalization `pushRecent` applies on write

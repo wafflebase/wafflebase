@@ -198,6 +198,32 @@ export function getLayout(layoutId: string): Layout {
 }
 
 /**
+ * Rescale layout placeholders from the canonical {@link SLIDE_HEIGHT}
+ * (1080) canvas to a deck's logical height. Built-in layouts author
+ * their placeholder frames against 1080; on a non-16:9 deck (e.g. an
+ * imported 4:3 deck, height 1440) the vertical position/size must scale
+ * so placeholders stay proportionally placed instead of clustering in
+ * the top region. Width is untouched ({@link SLIDE_WIDTH} is fixed).
+ *
+ * A default 16:9 deck (`slideHeight === SLIDE_HEIGHT`) returns the input
+ * unchanged, so authored decks and new blank decks are unaffected.
+ */
+export function scaleLayoutsToHeight(
+  layouts: Layout[],
+  slideHeight: number,
+): Layout[] {
+  const factor = slideHeight / SLIDE_HEIGHT;
+  if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return layouts;
+  return layouts.map((l) => ({
+    ...l,
+    placeholders: l.placeholders.map((p) => ({
+      ...p,
+      frame: { ...p.frame, y: p.frame.y * factor, h: p.frame.h * factor },
+    })),
+  }));
+}
+
+/**
  * Stable synthetic slide id for layout-edit mode (PR3 commit 5). Derived
  * from the layout id so the same layout always maps to the same id —
  * `setCurrentSlide` short-circuits on an unchanged id, so a fixed id lets

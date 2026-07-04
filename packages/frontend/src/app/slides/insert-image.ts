@@ -1,4 +1,9 @@
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type SlidesStore } from '@wafflebase/slides';
+import {
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  deckSlideHeight,
+  type SlidesStore,
+} from '@wafflebase/slides';
 
 export interface InsertImageArgs {
   store: SlidesStore;
@@ -12,9 +17,12 @@ const MAX_INSERT_RATIO = 0.8;
 
 /**
  * Default frame for a freshly-inserted image. Aspect-preserved, capped
- * at 80 % of the slide (1920×1080 logical) in each dimension, and
- * centred. Images smaller than the cap keep their natural size 1:1 (no
- * upscaling), so what the user dropped in is what they see.
+ * at 80 % of the slide (SLIDE_WIDTH × `slideHeight` logical) in each
+ * dimension, and centred. Images smaller than the cap keep their natural
+ * size 1:1 (no upscaling), so what the user dropped in is what they see.
+ *
+ * `slideHeight` defaults to the 16:9 {@link SLIDE_HEIGHT}; callers pass
+ * the deck's own height so a 4:3 import caps/centres against 1440.
  *
  * Without the cap, a large source (e.g. a 3840×2160 screenshot) would
  * insert at natural size and spill off every edge of the slide.
@@ -22,9 +30,10 @@ const MAX_INSERT_RATIO = 0.8;
 export function computeImageFrame(
   naturalWidth: number,
   naturalHeight: number,
+  slideHeight: number = SLIDE_HEIGHT,
 ): { x: number; y: number; w: number; h: number; rotation: number } {
   const maxW = SLIDE_WIDTH * MAX_INSERT_RATIO;
-  const maxH = SLIDE_HEIGHT * MAX_INSERT_RATIO;
+  const maxH = slideHeight * MAX_INSERT_RATIO;
   // Guard against a non-finite or 0 natural dimension (a failed
   // preflight): collapse to a finite, centred 0×0 frame rather than
   // letting Infinity/NaN reach the CRDT. `Infinity > 0` is true but
@@ -41,7 +50,7 @@ export function computeImageFrame(
   const h = valid ? naturalHeight * scale : 0;
   return {
     x: (SLIDE_WIDTH - w) / 2,
-    y: (SLIDE_HEIGHT - h) / 2,
+    y: (slideHeight - h) / 2,
     w,
     h,
     rotation: 0,
@@ -58,11 +67,12 @@ export function computeImageFrame(
  */
 export async function insertImageOnSlide(args: InsertImageArgs): Promise<string> {
   const { url, w, h } = await args.upload(args.file);
+  const slideHeight = deckSlideHeight(args.store.read().meta);
   let elementId = '';
   args.store.batch(() => {
     elementId = args.store.addElement(args.slideId, {
       type: 'image',
-      frame: computeImageFrame(w, h),
+      frame: computeImageFrame(w, h, slideHeight),
       data: { src: url },
     });
   });

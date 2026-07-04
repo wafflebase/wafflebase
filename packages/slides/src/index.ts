@@ -24,6 +24,7 @@ export type {
   SlidesDocument,
 } from './model/presentation';
 export {
+  deckSlideHeight,
   DEFAULT_BACKGROUND,
   MAX_RECENT_COLORS,
   pushRecent,
