@@ -3300,6 +3300,12 @@ class SlidesEditorImpl implements SlidesEditor {
     }
     const handle = this.handleAtClient(e.clientX, e.clientY);
     if (handle !== null) {
+      // Suppress the browser's native selection start so dragging a
+      // resize / rotate / adjustment handle never bleeds a text selection
+      // onto the canvas (notably on iPad Safari trackpad). The handle DOM
+      // also carries `user-select: none`; this covers the mouse-like
+      // pointer path the same way the move-drag branches below do.
+      e.preventDefault();
       this.onPointerDownHandle(handle, e.clientX, e.clientY);
       return;
     }
