@@ -45,6 +45,51 @@ export const RESIZE_HANDLE_CURSORS: Readonly<Record<ResizeHandle, string>> = {
   w: 'ew-resize',
 };
 
+/**
+ * Each resize handle's outward-normal angle in screen space (x→right,
+ * y→down), degrees. Used to rotate the cursor with the element: opposing
+ * directions share a cursor, so the values below reduce mod 180° to the
+ * same four buckets as `RESIZE_HANDLE_CURSORS`.
+ */
+const RESIZE_HANDLE_BASE_ANGLE_DEG: Readonly<Record<ResizeHandle, number>> = {
+  e: 0,
+  se: 45,
+  s: 90,
+  sw: 135,
+  w: 180,
+  nw: 225,
+  n: 270,
+  ne: 315,
+};
+
+/** Cursors indexed by 45° bucket over [0, 180): 0°, 45°, 90°, 135°. */
+const ANGLE_BUCKET_CURSORS: readonly string[] = [
+  'ew-resize',
+  'nwse-resize',
+  'ns-resize',
+  'nesw-resize',
+];
+
+/**
+ * CSS resize cursor for a handle on a frame rotated by `rotation` radians.
+ * The eight handles map to four cursors that repeat every 45°, so we add
+ * the frame rotation to the handle's base normal angle and quantise to the
+ * nearest 45° bucket (mod 180°, since opposing directions share a cursor).
+ *
+ * At `rotation === 0` this returns exactly `RESIZE_HANDLE_CURSORS[handle]`
+ * (asserted by the unit test) — the static map stays the single source of
+ * truth for the axis-aligned / edge-zone paths, and this is its rotated
+ * generalisation for the single-element rotated overlay.
+ */
+export function rotatedResizeCursor(
+  handle: ResizeHandle,
+  rotation: number,
+): string {
+  const deg = RESIZE_HANDLE_BASE_ANGLE_DEG[handle] + (rotation * 180) / Math.PI;
+  const bucket = Math.round((((deg % 180) + 180) % 180) / 45) % 4;
+  return ANGLE_BUCKET_CURSORS[bucket];
+}
+
 /** Fold an arbitrary rotation (radians) into `[-π, π]`. */
 function normalizeRotation(rotation: number): number {
   const twoPi = 2 * Math.PI;
