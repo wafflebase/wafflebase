@@ -162,7 +162,25 @@ function storedColorToThemeColor(c: StoredColor): ThemeColor {
 }
 
 function runToXml(inline: Inline): string {
-  const s = inline.style;
+  const rPr = rPrXml(inline.style);
+  // Soft line breaks (`\n`, imported from `<a:br>`) must round-trip back to
+  // `<a:br>`, not a literal newline in `<a:t>` — PowerPoint collapses raw
+  // newlines as insignificant whitespace, losing the break. Split on `\n`
+  // and emit an `<a:br>` (carrying the run's props) between text segments.
+  if (inline.text.includes('\n')) {
+    const segs = inline.text.split('\n');
+    const parts: string[] = [];
+    segs.forEach((seg, i) => {
+      if (i > 0) parts.push(`<a:br>${rPr}</a:br>`);
+      if (seg) parts.push(`<a:r>${rPr}<a:t>${escapeXmlText(seg)}</a:t></a:r>`);
+    });
+    return parts.join('');
+  }
+  return `<a:r>${rPr}<a:t>${escapeXmlText(inline.text)}</a:t></a:r>`;
+}
+
+/** Build the `<a:rPr>` node for a run/break from an inline style. */
+function rPrXml(s: Inline['style']): string {
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
@@ -187,9 +205,7 @@ function runToXml(inline: Inline): string {
   }
   // s.href: hyperlink wiring is deferred (Phase 2). Do not emit any
   // <a:hlinkClick> node — an empty r:id="" produces an invalid relationship.
-  const rPr =
-    attrs.length || children.length
-      ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`
-      : `<a:rPr/>`;
-  return `<a:r>${rPr}<a:t>${escapeXmlText(inline.text)}</a:t></a:r>`;
+  return attrs.length || children.length
+    ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`
+    : `<a:rPr/>`;
 }

@@ -182,19 +182,28 @@ function parseParagraph(
   const { style, list, marker } = parseParagraphProperties(pPr, ctx);
 
   const inlines: Inline[] = [];
+  // Font size of the most recent real run — a bare `<a:br/>` inherits it so
+  // the break line matches the surrounding text (PowerPoint sizes the break
+  // from the adjacent run's formatting).
+  let lastRunFontSize: number | undefined;
   for (let i = 0; i < p.childNodes.length; i++) {
     const n = p.childNodes[i];
     if (n.nodeType !== 1) continue;
     const el = n as Element;
-    if (el.localName === 'r') inlines.push(parseRun(el, fontScale, ctx));
-    else if (el.localName === 'br') {
+    if (el.localName === 'r') {
+      const inline = parseRun(el, fontScale, ctx);
+      inlines.push(inline);
+      if (inline.style.fontSize != null) lastRunFontSize = inline.style.fontSize;
+    } else if (el.localName === 'br') {
       // `<a:br>` carries its own `<a:rPr>` (font size, weight, …). Lift it
       // onto the soft-break inline so the blank/broken line is sized to the
       // surrounding text — a bare `{}` style would fall back to the docs
       // default (11 pt) and drop the newline visibly too far below small text.
-      inlines.push({ text: '\n', style: parseRunStyle(child(el, 'rPr'), fontScale, ctx) });
-    }
-    else if (el.localName === 'fld') {
+      // When the break has no explicit size, inherit the preceding run's.
+      const style = parseRunStyle(child(el, 'rPr'), fontScale, ctx);
+      if (style.fontSize == null && lastRunFontSize != null) style.fontSize = lastRunFontSize;
+      inlines.push({ text: '\n', style });
+    } else if (el.localName === 'fld') {
       // `<a:fld>` is a field (slide number, date, …). v1 dumps the
       // pre-rendered text and ignores the field semantics.
       const t = child(el, 't');
@@ -202,20 +211,24 @@ function parseParagraph(
     }
   }
 
-  // A blank paragraph — no runs at all, or only empty `<a:t/>` runs — is
-  // one empty visual line whose height PowerPoint takes from
-  // `<a:endParaRPr>` (the paragraph-mark run). Collapse it to a single
-  // placeholder carrying that size: docs's `computeLayout` needs at least
-  // one inline per block, and without the endParaRPr size the line falls
-  // back to the docs default (11 pt), opening a gap that's too large next
-  // to small-point body text. Paragraphs that hold a `<a:br>` newline keep
+  // A blank paragraph — no runs at all, or only empty `<a:t/>` runs — is one
+  // empty visual line that still needs a height. Collapse it to a single
+  // placeholder (docs's `computeLayout` needs at least one inline per block)
+  // and give it a font size, else the line falls back to the docs default
+  // (11 pt) and opens a gap that's too large next to small-point body text.
+  // Prefer a size an empty run already carries — this is what an exported
+  // blank line round-trips as (`<a:r sz=…/>` with no `<a:endParaRPr>`), so
+  // reading only endParaRPr here would drop the size on the second import.
+  // Otherwise fall back to `<a:endParaRPr>`, the paragraph-mark run PowerPoint
+  // uses to size a blank line. Paragraphs holding a `<a:br>` newline keep
   // their own already-sized inlines and are untouched here.
   if (!inlines.some((i) => i.text !== '')) {
+    const sized = inlines.find((i) => i.style.fontSize != null);
+    const style = sized
+      ? sized.style
+      : parseRunStyle(child(p, 'endParaRPr'), fontScale, ctx);
     inlines.length = 0;
-    inlines.push({
-      text: '',
-      style: parseRunStyle(child(p, 'endParaRPr'), fontScale, ctx),
-    });
+    inlines.push({ text: '', style });
   }
 
   const block: Block = {

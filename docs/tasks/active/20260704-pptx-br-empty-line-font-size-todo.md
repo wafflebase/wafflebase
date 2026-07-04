@@ -56,7 +56,25 @@ and no `<a:lnSpc>` (PPTX default is single spacing, zero para gap).
       the v0.3 line + blank line, `mBot=21.3px` (=16pt spcAft) on the
       bullet paragraph.
 
+## Code review (high effort, workflow) — findings addressed
+
+- [x] **Empty-paragraph round-trip regression (blocking).** The collapse
+      guard read size only from `<a:endParaRPr>`, discarding an empty run's
+      own `sz`; since export writes a blank line as `<a:r sz=…/>` (no
+      endParaRPr), the second import lost the size. Fixed: prefer a size an
+      empty run already carries, fall back to endParaRPr.
+- [x] **Soft break exported as literal `\n`.** `runToXml` emitted `\n`
+      inside `<a:t>` (PowerPoint collapses it, dropping the break). Fixed:
+      split on `\n` and emit `<a:br>` (with the run's `<a:rPr>`) between
+      segments — the exact inverse of the importer.
+- [x] **Bare `<a:br/>` (no rPr).** Now inherits the preceding run's font
+      size instead of falling back to the docs 11 pt default.
+- [x] Regression tests for all three (import + export + a full
+      export→re-import blank-line size round-trip).
+
 ## Still out of scope
 
 - `<a:lnSpc>` absolute `spcPts` line spacing (docs lineHeight is a ratio).
-- `<a:spcBef>`/`<a:spcAft>` percent-of-line (`spcPct`) form (rare).
+- `<a:spcBef>`/`<a:spcAft>` percent-of-line (`spcPct`) form — can't be a
+  faithful fixed-px margin without per-run line height, so left at 0 (a
+  documented review finding; rare in practice).
