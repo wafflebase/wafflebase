@@ -235,6 +235,51 @@ describe('parseSlide — freeform line-end arrowheads', () => {
     expect(el.data.arrowheads).toBeUndefined();
   });
 
+  it('drops arrowheads on a compound (multi-subpath) freeform — ambiguous ends', async () => {
+    // Two subpaths (closed triangle, then an open line). "The start"/"the end"
+    // is ambiguous, so arrowheads are not anchored to a guessed subpath.
+    const compound = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Compound freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:custGeom><a:pathLst><a:path w="200" h="100">
+          <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+          <a:lnTo><a:pt x="50" y="100"/></a:lnTo>
+          <a:lnTo><a:pt x="0" y="100"/></a:lnTo>
+          <a:close/>
+          <a:moveTo><a:pt x="100" y="0"/></a:moveTo>
+          <a:lnTo><a:pt x="200" y="100"/></a:lnTo>
+        </a:path></a:pathLst></a:custGeom>
+        <a:ln w="9525">
+          <a:solidFill><a:srgbClr val="292929"/></a:solidFill>
+          <a:tailEnd len="med" w="med" type="triangle"/>
+        </a:ln>
+      </p:spPr>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': compound }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    const ms = (el.data.path?.commands ?? []).filter((c) => c.c === 'M');
+    expect(ms.length).toBe(2);
+    expect(el.data.arrowheads).toBeUndefined();
+  });
+
   it('drops arrowheads when the line has no stroke (noFill) — nothing to decorate', async () => {
     const noStroke = SLIDE_WITH_ARROWED_FREEFORM.replace(
       '<a:solidFill><a:srgbClr val="292929"/></a:solidFill>',

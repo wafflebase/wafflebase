@@ -253,6 +253,10 @@ type Pt = { x: number; y: number };
  * so the tip lands exactly on the stroked endpoint and the tangent matches
  * the drawn curve. The start tangent is reversed to point out of the body,
  * mirroring `connector-renderer`'s `endpointPose`.
+ *
+ * Assumes a single open subpath: the importer only sets `arrowheads` for a
+ * one-`M`, non-`Z` path (see `buildFreeformElement`), so `first` is the
+ * subpath's start and `endTip` its end with no interior `M` to straddle.
  */
 function drawFreeformArrowheads(
   ctx: CanvasRenderingContext2D,

@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { ArrowheadStyle, ConnectorElement } from './connector';
+import type { ArrowheadPair, ConnectorElement } from './connector';
 import type { ThemeColor } from './theme';
 
 export type Frame = {
@@ -372,9 +372,9 @@ export type ShapeElement = ElementBase & {
      * first anchor, `end` the last. Only meaningful on stroked open
      * freeforms (PowerPoint exports arrowed curves as `<p:sp>` custGeom, not
      * `<p:cxnSp>`); parametric kinds ignore it. Shares the connector
-     * {@link ArrowheadStyle} model and renderer.
+     * {@link ArrowheadPair} model and renderer.
      */
-    arrowheads?: { start?: ArrowheadStyle; end?: ArrowheadStyle };
+    arrowheads?: ArrowheadPair;
     /**
      * Inline text body painted on top of the shape's fill/stroke.
      * Absent on freshly-inserted shapes; lazily initialised when the

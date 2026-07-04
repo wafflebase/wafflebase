@@ -67,6 +67,25 @@ Verification: `pnpm verify:fast` EXIT=0 (lint + typecheck + all unit tests;
 slides +3 tests). Real deck `slide10.xml` re-parse confirmed ≥2 freeform
 shapes now carry an end triangle arrowhead.
 
+### Review round 2 (post smoke test — code-review: high, 4 findings + 1 refuted)
+
+- **Compound / multi-subpath freeform** (correctness, 2 findings) — the
+  import "open" check only looked at the last command and the renderer
+  anchored the start arrowhead to the first `M` regardless of subpath, so a
+  freeform with >1 subpath could drop (import) or misplace (render) tips.
+  Fixed by gating arrowheads to a **single open subpath** (exactly one `M`,
+  no trailing `Z`); compound arrowed freeforms are a documented best-effort
+  limitation (dropped, not misplaced). Test added.
+- **Inline arrowhead-pair type duplicated** (cleanup) — extracted
+  `ArrowheadPair` in `model/connector.ts`, used by both `ConnectorElement`
+  and freeform `ShapeElement.data`.
+- **Duplicated endpoint-tangent logic** (cleanup) — *declined again*: same
+  reasoning (unifying means rewriting the stable connector `endpointPose`
+  path, different data shape). Non-blocking.
+- **`Pt` vs `Point`** — refuted by the verifier; left as the local helper type.
+
+Verification: `pnpm verify:fast` EXIT=0 (slides +1 test = 2469 pass).
+
 ## Notes / decisions
 
 - Arrowhead size stays the fixed `sm/md/lg` (8/12/18px) model shared with
