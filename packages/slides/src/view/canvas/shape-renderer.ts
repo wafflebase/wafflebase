@@ -1,6 +1,7 @@
-import type { ShapeElement, ShapeKind, TextInset } from '../../model/element';
+import type { FreeformPath, ShapeElement, ShapeKind, TextInset } from '../../model/element';
 import { applyShade, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
+import { drawArrowhead } from './arrowhead-renderer';
 import { resolveStrokeColor } from './render-context';
 import {
   FACE_BUILDERS,
@@ -184,6 +185,18 @@ export function drawShape(
       return;
     }
     paintFillStroke(ctx, buildFreeformPath(size, data.path), data, theme);
+    // Line-end arrowheads on an open freeform path (OOXML `<a:tailEnd>` /
+    // `<a:headEnd>`). Painted after the stroke so the triangle sits on top,
+    // filled with the stroke color — same primitive as connectors.
+    if (data.arrowheads && data.stroke) {
+      drawFreeformArrowheads(
+        ctx,
+        size,
+        data.path,
+        data.arrowheads,
+        resolveStrokeColor(data.stroke.color, theme),
+      );
+    }
     return;
   }
 
@@ -229,6 +242,109 @@ export function drawShape(
     ctx.lineJoin = 'round';
     ctx.stroke(leaderBuilder(size, data.adjustments));
   }
+}
+
+type Pt = { x: number; y: number };
+
+/**
+ * Draw the start/end arrowheads of an open freeform path. Coordinates are
+ * the path's normalized `[0,1]` commands scaled anisotropically by the
+ * frame (`x*w`, `y*h`) — the same space `buildFreeformPath` strokes into —
+ * so the tip lands exactly on the stroked endpoint and the tangent matches
+ * the drawn curve. The start tangent is reversed to point out of the body,
+ * mirroring `connector-renderer`'s `endpointPose`.
+ *
+ * Assumes a single open subpath: the importer only sets `arrowheads` for a
+ * one-`M`, non-`Z` path (see `buildFreeformElement`), so `first` is the
+ * subpath's start and `endTip` its end with no interior `M` to straddle.
+ */
+function drawFreeformArrowheads(
+  ctx: CanvasRenderingContext2D,
+  { w, h }: FrameSize,
+  path: FreeformPath,
+  arrowheads: NonNullable<ShapeElement['data']['arrowheads']>,
+  fillColor: string,
+): void {
+  let first: Pt | undefined; // path's very first anchor (M)
+  let startCtrl: Pt | undefined; // outgoing tangent handle of the first segment
+  let endTip: Pt | undefined; // last segment's endpoint
+  let endCtrl: Pt | undefined; // incoming tangent handle at the last endpoint
+  let cur: Pt | undefined; // running current point
+  const s = (x: number, y: number): Pt => ({ x: x * w, y: y * h });
+
+  for (const cmd of path.commands) {
+    switch (cmd.c) {
+      case 'M':
+        cur = s(cmd.x, cmd.y);
+        if (!first) first = cur;
+        break;
+      case 'L': {
+        const to = s(cmd.x, cmd.y);
+        if (!startCtrl) startCtrl = to;
+        endCtrl = cur;
+        endTip = cur = to;
+        break;
+      }
+      case 'Q': {
+        const c1 = s(cmd.x1, cmd.y1);
+        const to = s(cmd.x, cmd.y);
+        if (!startCtrl) startCtrl = c1;
+        endCtrl = c1;
+        endTip = cur = to;
+        break;
+      }
+      case 'C': {
+        const c1 = s(cmd.x1, cmd.y1);
+        const to = s(cmd.x, cmd.y);
+        if (!startCtrl) startCtrl = c1;
+        endCtrl = s(cmd.x2, cmd.y2);
+        endTip = cur = to;
+        break;
+      }
+      case 'A': {
+        // True ellipse tangent at each endpoint (not the chord). For the
+        // centre-parametric arc P(θ)=(cx+rx·cosθ, cy+ry·sinθ) scaled by the
+        // frame, dP/dθ = (−rx·sinθ·w, ry·cosθ·h); the direction of travel
+        // flips with the sweep sign. Synthesize a control point one tangent
+        // step behind the anchor so `arrowPose` yields the curve tangent.
+        const a0 = cmd.start;
+        const a1 = cmd.start + cmd.sweep;
+        const dir = cmd.sweep >= 0 ? 1 : -1;
+        const end = { x: (cmd.cx + cmd.rx * Math.cos(a1)) * w, y: (cmd.cy + cmd.ry * Math.sin(a1)) * h };
+        // Outgoing tangent at the arc start (into the body from `cur`).
+        const t0 = { x: dir * -cmd.rx * Math.sin(a0) * w, y: dir * cmd.ry * Math.cos(a0) * h };
+        // Direction of travel at the arc end (out of `end`).
+        const t1 = { x: dir * -cmd.rx * Math.sin(a1) * w, y: dir * cmd.ry * Math.cos(a1) * h };
+        if (!startCtrl && cur) startCtrl = { x: cur.x + t0.x, y: cur.y + t0.y };
+        endCtrl = { x: end.x - t1.x, y: end.y - t1.y };
+        endTip = cur = end;
+        break;
+      }
+      // 'Z' closes the outline; arrowheads decorate open ends, so ignore it.
+    }
+  }
+
+  // Both ends resolve the same way: the tip sits on the anchor and the angle
+  // points from the tangent handle toward the tip, which is "away from the
+  // body" at the start (handle = outgoing control) and "direction of travel"
+  // at the end (handle = incoming control).
+  if (arrowheads.start && first && startCtrl) {
+    drawArrowhead(ctx, arrowPose(first, startCtrl, endTip ?? startCtrl), arrowheads.start, fillColor);
+  }
+  if (arrowheads.end && endTip && endCtrl) {
+    drawArrowhead(ctx, arrowPose(endTip, endCtrl, first ?? endCtrl), arrowheads.end, fillColor);
+  }
+}
+
+/** Tip at `p`, angle from `ctrl` → `p`; `fallback` covers a degenerate handle. */
+function arrowPose(p: Pt, ctrl: Pt, fallback: Pt): { x: number; y: number; angle: number } {
+  let dx = p.x - ctrl.x;
+  let dy = p.y - ctrl.y;
+  if (dx === 0 && dy === 0) {
+    dx = p.x - fallback.x;
+    dy = p.y - fallback.y;
+  }
+  return { x: p.x, y: p.y, angle: Math.atan2(dy, dx) };
 }
 
 /**

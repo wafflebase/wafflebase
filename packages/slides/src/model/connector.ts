@@ -17,12 +17,19 @@ export type ArrowheadStyle = {
   size: 'sm' | 'md' | 'lg';
 };
 
+/**
+ * Line-end arrowhead pair — `start` decorates the first anchor, `end` the
+ * last. Shared by {@link ConnectorElement} and freeform `ShapeElement`s so
+ * the renderer and PPTX round-trip treat both identically.
+ */
+export type ArrowheadPair = { start?: ArrowheadStyle; end?: ArrowheadStyle };
+
 export type ConnectorElement = ElementBase & {
   type: 'connector';
   routing: ConnectorRouting;
   start: Endpoint;
   end: Endpoint;
-  arrowheads: { start?: ArrowheadStyle; end?: ArrowheadStyle };
+  arrowheads: ArrowheadPair;
   stroke?: ShapeStroke;
   /** Present only when the user manually dragged the elbow handle. */
   elbowBend?: number;

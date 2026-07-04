@@ -5,6 +5,8 @@ import { parseSlide } from '../../../src/import/pptx/slide';
 import { ImportReport } from '../../../src/import/pptx/report';
 import { parseXml } from '../../../src/import/pptx/xml';
 import type { PptxArchive } from '../../../src/import/pptx/unzip';
+import { shapeToXml } from '../../../src/export/pptx/shape';
+import type { ShapeElement } from '../../../src/model/element';
 
 function makeArchive(files: Record<string, string>): PptxArchive {
   return {
@@ -137,5 +139,198 @@ describe('parseSlide — custGeom freeform dispatch', () => {
     expect(el.data.fill).toBeDefined();
     expect(el.data.path?.commands.length).toBe(5);
     expect(el.data.path?.commands[0]).toEqual({ c: 'M', x: 0, y: 0 });
+  });
+});
+
+const SLIDE_WITH_ARROWED_FREEFORM = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Freeform 9"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+          <a:custGeom>
+            <a:pathLst>
+              <a:path w="200" h="100">
+                <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+                <a:cubicBezTo>
+                  <a:pt x="50" y="100"/><a:pt x="150" y="100"/><a:pt x="200" y="0"/>
+                </a:cubicBezTo>
+              </a:path>
+            </a:pathLst>
+          </a:custGeom>
+          <a:noFill/>
+          <a:ln w="9525">
+            <a:solidFill><a:srgbClr val="292929"/></a:solidFill>
+            <a:headEnd len="med" w="med" type="none"/>
+            <a:tailEnd len="med" w="med" type="triangle"/>
+          </a:ln>
+        </p:spPr>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+
+describe('parseSlide — freeform line-end arrowheads', () => {
+  it('parses <a:tailEnd> on a custGeom shape into data.arrowheads.end', async () => {
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': SLIDE_WITH_ARROWED_FREEFORM }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    expect(el.data.kind).toBe('freeform');
+    // headEnd type="none" → no start arrowhead; tailEnd triangle → end.
+    expect(el.data.arrowheads?.start).toBeUndefined();
+    expect(el.data.arrowheads?.end).toEqual({ kind: 'triangle', size: 'md' });
+  });
+
+  it('drops arrowheads on a closed (Z) custGeom — a loop has no open ends', async () => {
+    const closed = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Closed freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:custGeom><a:pathLst><a:path w="200" h="100">
+          <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+          <a:lnTo><a:pt x="200" y="0"/></a:lnTo>
+          <a:lnTo><a:pt x="200" y="100"/></a:lnTo>
+          <a:close/>
+        </a:path></a:pathLst></a:custGeom>
+        <a:ln w="9525">
+          <a:solidFill><a:srgbClr val="292929"/></a:solidFill>
+          <a:tailEnd len="med" w="med" type="triangle"/>
+        </a:ln>
+      </p:spPr>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': closed }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    const cmds = el.data.path?.commands ?? [];
+    expect(cmds[cmds.length - 1]?.c).toBe('Z');
+    expect(el.data.arrowheads).toBeUndefined();
+  });
+
+  it('drops arrowheads on a compound (multi-subpath) freeform — ambiguous ends', async () => {
+    // Two subpaths (closed triangle, then an open line). "The start"/"the end"
+    // is ambiguous, so arrowheads are not anchored to a guessed subpath.
+    const compound = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Compound freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:custGeom><a:pathLst><a:path w="200" h="100">
+          <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+          <a:lnTo><a:pt x="50" y="100"/></a:lnTo>
+          <a:lnTo><a:pt x="0" y="100"/></a:lnTo>
+          <a:close/>
+          <a:moveTo><a:pt x="100" y="0"/></a:moveTo>
+          <a:lnTo><a:pt x="200" y="100"/></a:lnTo>
+        </a:path></a:pathLst></a:custGeom>
+        <a:ln w="9525">
+          <a:solidFill><a:srgbClr val="292929"/></a:solidFill>
+          <a:tailEnd len="med" w="med" type="triangle"/>
+        </a:ln>
+      </p:spPr>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': compound }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    const ms = (el.data.path?.commands ?? []).filter((c) => c.c === 'M');
+    expect(ms.length).toBe(2);
+    expect(el.data.arrowheads).toBeUndefined();
+  });
+
+  it('drops arrowheads when the line has no stroke (noFill) — nothing to decorate', async () => {
+    const noStroke = SLIDE_WITH_ARROWED_FREEFORM.replace(
+      '<a:solidFill><a:srgbClr val="292929"/></a:solidFill>',
+      '<a:noFill/>',
+    );
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': noStroke }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    expect(el.data.stroke).toBeUndefined();
+    expect(el.data.arrowheads).toBeUndefined();
+  });
+
+  it('round-trips a freeform arrowhead through export → import', async () => {
+    const el: ShapeElement = {
+      id: 'f', type: 'shape',
+      frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+      data: {
+        kind: 'freeform',
+        path: { commands: [{ c: 'M', x: 0, y: 0 }, { c: 'C', x1: 0.3, y1: 1, x2: 0.7, y2: 1, x: 1, y: 0 }] },
+        stroke: { color: { kind: 'srgb', value: '#292929' }, width: 1 },
+        arrowheads: { end: { kind: 'triangle', size: 'md' } },
+      },
+    };
+    const slideXml = `<?xml version="1.0"?>
+      <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:cSld><p:spTree>
+          <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+          <p:grpSpPr/>
+          ${shapeToXml(el)}
+        </p:spTree></p:cSld>
+      </p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': slideXml }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const back = slide!.elements[0];
+    expect(back.type).toBe('shape');
+    if (back.type !== 'shape') return;
+    expect(back.data.arrowheads?.end).toEqual({ kind: 'triangle', size: 'md' });
   });
 });

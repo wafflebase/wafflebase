@@ -25,6 +25,23 @@ describe('shape', () => {
     const el: ShapeElement = { id: 's', frame, type: 'shape', data: { kind: 'freeform', path: { commands: [{ c: 'M', x: 0, y: 0 }, { c: 'L', x: 1, y: 1 }, { c: 'Z' }] } } };
     expect(shapeToXml(el)).toContain('<a:custGeom>');
   });
+  it('emits tailEnd/headEnd on a freeform shape with arrowheads', () => {
+    const el: ShapeElement = {
+      id: 's', frame, type: 'shape',
+      data: {
+        kind: 'freeform',
+        path: { commands: [{ c: 'M', x: 0, y: 0 }, { c: 'C', x1: 0.3, y1: 0, x2: 0.7, y2: 0, x: 1, y: 0 }] },
+        stroke: { color: { kind: 'srgb', value: '#292929' }, width: 1 },
+        arrowheads: { end: { kind: 'triangle', size: 'md' } },
+      },
+    };
+    const xml = shapeToXml(el);
+    expect(xml).toContain('<a:tailEnd');
+    expect(xml).toContain('type="triangle"');
+    expect(xml).toContain('len="med"');
+    // No start arrowhead → no headEnd emitted.
+    expect(xml).not.toContain('<a:headEnd');
+  });
   it('emits empty p:txBody when shape has no text', () => {
     const el: ShapeElement = { id: 's', frame, type: 'shape', data: { kind: 'ellipse' } };
     const xml = shapeToXml(el);

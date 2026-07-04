@@ -4,6 +4,7 @@ import { solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml } from './text.js';
 import { effectsToXml } from './effects.js';
 import { freeformToCustGeom } from './freeform.js';
+import { arrowXml } from './connector.js';
 import { attr, escapeXmlAttr } from './xml.js';
 
 /**
@@ -45,8 +46,15 @@ const DASH_VAL: Record<string, string> = {
 
 /**
  * Serialize a {@link Stroke} to an `<a:ln>` element, or `''` if absent.
+ *
+ * `arrowheads` (freeform line ends) map to `<a:headEnd>`/`<a:tailEnd>`,
+ * inverse of the importer — see {@link arrowXml}. Emitted only when a
+ * stroke is present, since arrowheads have no meaning without a line.
  */
-export function lineXml(stroke: Stroke | undefined): string {
+export function lineXml(
+  stroke: Stroke | undefined,
+  arrowheads?: ShapeElement['data']['arrowheads'],
+): string {
   if (!stroke) return '';
   const w = pxToEmuX(stroke.width);
   const fill = solidFillXml(colorFromStringOrTheme(stroke.color));
@@ -54,7 +62,9 @@ export function lineXml(stroke: Stroke | undefined): string {
     stroke.dash && stroke.dash !== 'solid'
       ? `<a:prstDash val="${DASH_VAL[stroke.dash] ?? 'dash'}"/>`
       : '';
-  return `<a:ln w="${w}">${fill}${dash}</a:ln>`;
+  const head = arrowXml('headEnd', arrowheads?.start);
+  const tail = arrowXml('tailEnd', arrowheads?.end);
+  return `<a:ln w="${w}">${fill}${dash}${head}${tail}</a:ln>`;
 }
 
 /**
@@ -87,7 +97,10 @@ export function shapeToXml(el: ShapeElement): string {
     xfrmXml(frame) +
     geom +
     fill +
-    lineXml(data.stroke) +
+    // Arrowheads are a freeform-only concept (only freeform import populates
+    // them and only freeform rendering draws them); don't emit head/tailEnd
+    // onto a parametric shape's line even if the field were somehow set.
+    lineXml(data.stroke, data.kind === 'freeform' ? data.arrowheads : undefined) +
     effectsToXml(data.effects) +
     `</p:spPr>`;
 
