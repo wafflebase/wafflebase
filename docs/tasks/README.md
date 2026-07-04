@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides freeform arrowheads (2026-07-04) | [20260704-slides-freeform-arrowheads-todo.md](./active/20260704-slides-freeform-arrowheads-todo.md) | - |
 | pptx text body insets (2026-07-03) | [20260703-pptx-text-body-insets-todo.md](./active/20260703-pptx-text-body-insets-todo.md) | [20260703-pptx-text-body-insets-lessons.md](./active/20260703-pptx-text-body-insets-lessons.md) |
 | slides canvas black on resize (2026-07-02) | [20260702-slides-canvas-black-on-resize-todo.md](./active/20260702-slides-canvas-black-on-resize-todo.md) | [20260702-slides-canvas-black-on-resize-lessons.md](./active/20260702-slides-canvas-black-on-resize-lessons.md) |
 | pivot format inheritance (2026-07-01) | [20260701-pivot-format-inheritance-todo.md](./active/20260701-pivot-format-inheritance-todo.md) | [20260701-pivot-format-inheritance-lessons.md](./active/20260701-pivot-format-inheritance-lessons.md) |
@@ -29,4 +30,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 330
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: pptx text body insets (2026-07-03)
+Latest active task: slides freeform arrowheads (2026-07-04)

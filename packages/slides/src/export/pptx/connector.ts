@@ -50,7 +50,7 @@ const SIZE_TO_OOXML: Record<string, string> = {
   lg: 'lg',
 };
 
-function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefined): string {
+export function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefined): string {
   if (!a) return '';
   const type = KIND_TO_OOXML[a.kind] ?? 'triangle';
   const sz = SIZE_TO_OOXML[a.size] ?? 'med';

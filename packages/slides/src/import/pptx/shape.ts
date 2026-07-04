@@ -766,6 +766,20 @@ function buildFreeformElement(
   const fill = parseShapeFill(spPr, ctx);
   const stroke = parseShapeStroke(spPr, ctx);
 
+  // Line-end arrowheads live on `<a:ln>` (`<a:headEnd>`/`<a:tailEnd>`),
+  // exactly like connectors. PowerPoint exports arrowed curves as freeform
+  // `<p:sp>` custGeom, so parse them here rather than dropping the tips.
+  // Only meaningful on a *stroked* *open* path: no stroke ⇒ no visible line
+  // to decorate; a closed outline (`<a:close/>` ⇒ trailing 'Z') has no open
+  // ends, so PowerPoint draws nothing there. Gating here keeps import,
+  // render, and export symmetric (all three require a stroke).
+  const cmds = path.commands;
+  const open = cmds.length > 0 && cmds[cmds.length - 1].c !== 'Z';
+  const ln = stroke && open && spPr ? child(spPr, 'ln') : undefined;
+  const start = ln ? parseArrowhead(child(ln, 'headEnd')) : undefined;
+  const end = ln ? parseArrowhead(child(ln, 'tailEnd')) : undefined;
+  const arrowheads = start || end ? { ...(start ? { start } : {}), ...(end ? { end } : {}) } : undefined;
+
   return {
     id,
     type: 'shape',
@@ -775,6 +789,7 @@ function buildFreeformElement(
       path,
       ...(fill ? { fill } : {}),
       ...(stroke ? { stroke } : {}),
+      ...(arrowheads ? { arrowheads } : {}),
     },
   };
 }

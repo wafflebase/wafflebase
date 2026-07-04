@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { ConnectorElement } from './connector';
+import type { ArrowheadStyle, ConnectorElement } from './connector';
 import type { ThemeColor } from './theme';
 
 export type Frame = {
@@ -366,6 +366,15 @@ export type ShapeElement = ElementBase & {
     path?: FreeformPath;
     fill?: ThemeColor;
     stroke?: Stroke;
+    /**
+     * Line-end arrowheads for an open `kind === 'freeform'` path, mirroring
+     * OOXML `<a:ln><a:headEnd>/<a:tailEnd>`. `start` decorates the path's
+     * first anchor, `end` the last. Only meaningful on stroked open
+     * freeforms (PowerPoint exports arrowed curves as `<p:sp>` custGeom, not
+     * `<p:cxnSp>`); parametric kinds ignore it. Shares the connector
+     * {@link ArrowheadStyle} model and renderer.
+     */
+    arrowheads?: { start?: ArrowheadStyle; end?: ArrowheadStyle };
     /**
      * Inline text body painted on top of the shape's fill/stroke.
      * Absent on freshly-inserted shapes; lazily initialised when the

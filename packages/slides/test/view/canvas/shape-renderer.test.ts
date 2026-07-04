@@ -138,6 +138,69 @@ describe('drawShape — freeform', () => {
     drawShape(asCtx(ctx), size, shape({ kind: 'freeform', fill: srgb('#abc') }), THEME);
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
   });
+
+  // Open path along +x so the end tangent is unambiguous: the tip lands on
+  // the last anchor (scaled to frame) and the arrowhead is filled with the
+  // stroke color.
+  const openLine = {
+    commands: [
+      { c: 'M' as const, x: 0, y: 0.5 },
+      { c: 'C' as const, x1: 0.3, y1: 0.5, x2: 0.7, y2: 0.5, x: 1, y: 0.5 },
+    ],
+  };
+
+  it('draws the end arrowhead tip at the last anchor, filled with stroke color', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({
+      kind: 'freeform', path: openLine,
+      stroke: { color: srgb('#292929'), width: 1 },
+      arrowheads: { end: { kind: 'triangle', size: 'md' } },
+    }), THEME);
+    // Only the arrowhead uses ctx.fill (freeform body has no fill here);
+    // the triangle tip is moveTo'd at the scaled last anchor (100, 30).
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fillStyle).toBe('#292929');
+    const tip = ctx.moveTo.mock.calls.find(
+      (c: number[]) => Math.abs(c[0] - 100) < 1e-6 && Math.abs(c[1] - 30) < 1e-6,
+    );
+    expect(tip).toBeTruthy();
+  });
+
+  it('draws no arrowhead when arrowheads is absent', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({
+      kind: 'freeform', path: openLine, stroke: { color: srgb('#292929'), width: 1 },
+    }), THEME);
+    expect(ctx.fill).not.toHaveBeenCalled();
+  });
+
+  it('uses the true ellipse tangent (not the chord) for an arc endpoint', () => {
+    // Quarter arc, isotropic 100x100 frame: start θ=0 at (100,50), end θ=π/2
+    // at (50,100). True travel tangent at the end points -x (angle π), so the
+    // triangle base extends back toward +x (baseX = 100 - cos(π)*12 = 62).
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), { w: 100, h: 100 }, shape({
+      kind: 'freeform',
+      path: {
+        commands: [
+          { c: 'M', x: 1, y: 0.5 },
+          { c: 'A', cx: 0.5, cy: 0.5, rx: 0.5, ry: 0.5, start: 0, sweep: Math.PI / 2 },
+        ],
+      },
+      stroke: { color: srgb('#292929'), width: 1 },
+      arrowheads: { end: { kind: 'triangle', size: 'md' } },
+    }), THEME);
+    // Tip on the arc end (50,100).
+    const tip = ctx.moveTo.mock.calls.find(
+      (c: number[]) => Math.abs(c[0] - 50) < 1e-6 && Math.abs(c[1] - 100) < 1e-6,
+    );
+    expect(tip).toBeTruthy();
+    // A chord approximation would give angle ≈ atan2(50,-50)=135°, base to the
+    // lower-right; the true tangent puts both base corners at x≈62 (>50).
+    const [c1, c2] = ctx.lineTo.mock.calls as number[][];
+    expect(c1[0]).toBeCloseTo(62);
+    expect(c2[0]).toBeCloseTo(62);
+  });
 });
 
 describe('drawShape — donut (evenodd fill rule)', () => {
