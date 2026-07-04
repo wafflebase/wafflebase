@@ -1962,37 +1962,47 @@ export class YorkieSlidesStore implements SlidesStore {
     });
   }
 
-  bakeGroupResize(slideId: string, groupId: string): void {
-    this.requireBatch();
-    this.withUpdate((r) => {
-      const s = r.slides.find((s) => s.id === slideId);
-      if (!s) return;
+  /**
+   * Bake a proxy group's render-scale into its children and recurse into
+   * any child group so the whole subtree rests at scale 1 (resting-scale
+   * invariant, docs/design/slides/slides-group.md §6.1). Mirrors
+   * `bakeGroupTree` in the in-memory store. Must be called inside an
+   * active `withUpdate`.
+   */
+  private bakeProxyGroupTree(group: YorkieElement): void {
+    const plainGroup = unwrapElement(group) as unknown as GroupElement;
+    const gAny = group as unknown as {
+      frame: Frame;
+      data: { refSize: { w: number; h: number }; children: ProxyArray };
+    };
 
-      const proxyElements = s.elements as unknown as ProxyArray;
-      const path = yorkieFindElementPath(proxyElements, groupId);
-      if (!path) return;
+    if (plainGroup.data.children.length === 0) {
+      gAny.data.refSize = { w: plainGroup.frame.w, h: plainGroup.frame.h };
+      return;
+    }
 
-      const group = path[path.length - 1];
-      if (group.type !== 'group') return;
+    // Seed a missing child-group refSize with its pre-scale frame before
+    // baking, so the DFS below computes the child's scale correctly for
+    // legacy documents. See the matching comment in memory.ts
+    // `bakeGroupTree` — keep the two in sync.
+    const pRefW = plainGroup.data.refSize?.w ?? plainGroup.frame.w;
+    const pRefH = plainGroup.data.refSize?.h ?? plainGroup.frame.h;
+    const psx = pRefW > 0 ? plainGroup.frame.w / pRefW : 1;
+    const psy = pRefH > 0 ? plainGroup.frame.h / pRefH : 1;
+    if (psx !== 1 || psy !== 1) {
+      gAny.data.children.forEach((ch, i) => {
+        const plainCh = plainGroup.data.children[i];
+        if (plainCh.type === 'group' && !plainCh.data.refSize) {
+          (ch as unknown as { data: { refSize: { w: number; h: number } } }).data.refSize = {
+            w: plainCh.frame.w,
+            h: plainCh.frame.h,
+          };
+        }
+      });
+    }
 
-      const plainGroup = unwrapElement(group) as unknown as GroupElement;
-      const gAny = group as unknown as {
-        frame: Frame;
-        data: { refSize: { w: number; h: number }; children: ProxyArray };
-      };
-
-      if (plainGroup.data.children.length === 0) {
-        gAny.data.refSize = { w: plainGroup.frame.w, h: plainGroup.frame.h };
-        return;
-      }
-
-      const { children: bakedChildren, refSize } = bakeGroupScale(plainGroup);
-      if (bakedChildren === plainGroup.data.children) {
-        // bakeGroupScale returned identity — sync refSize defensively.
-        gAny.data.refSize = refSize;
-        return;
-      }
-
+    const { children: bakedChildren, refSize } = bakeGroupScale(plainGroup);
+    if (bakedChildren !== plainGroup.data.children) {
       gAny.data.children.forEach((ch, i) => {
         const next = bakedChildren[i];
         const chAny = ch as unknown as {
@@ -2007,7 +2017,32 @@ export class YorkieSlidesStore implements SlidesStore {
           (chAny as unknown as Record<'start' | 'end', Endpoint>).end = next.end;
         }
       });
-      gAny.data.refSize = refSize;
+    }
+    gAny.data.refSize = refSize;
+
+    // Child groups were frame-scaled but keep their stale refSize, so they
+    // now carry the parent's scale — settle them too (DFS).
+    gAny.data.children.forEach((ch) => {
+      if ((ch as unknown as { type: string }).type === 'group') {
+        this.bakeProxyGroupTree(ch as unknown as YorkieElement);
+      }
+    });
+  }
+
+  bakeGroupResize(slideId: string, groupId: string): void {
+    this.requireBatch();
+    this.withUpdate((r) => {
+      const s = r.slides.find((s) => s.id === slideId);
+      if (!s) return;
+
+      const proxyElements = s.elements as unknown as ProxyArray;
+      const path = yorkieFindElementPath(proxyElements, groupId);
+      if (!path) return;
+
+      const group = path[path.length - 1];
+      if (group.type !== 'group') return;
+
+      this.bakeProxyGroupTree(group as unknown as YorkieElement);
     });
   }
 
@@ -2040,6 +2075,13 @@ export class YorkieSlidesStore implements SlidesStore {
       }
 
       const groupIndex = parentArray.findIndex(e => e.id === groupId);
+
+      // Settle any residual render-scale to 1 first (recursively) so the
+      // bake below applies only translate/rotate. Otherwise a rotated
+      // child under a non-uniform group scale would distort on ungroup
+      // (the "smiley squishes" bug; see slides-group.md §6.1). No-op when
+      // the invariant already holds.
+      this.bakeProxyGroupTree(group as unknown as YorkieElement);
 
       // Unwrap the group proxy to a plain GroupElement so we can do math.
       const plainGroup = unwrapElement(group) as unknown as GroupElement;

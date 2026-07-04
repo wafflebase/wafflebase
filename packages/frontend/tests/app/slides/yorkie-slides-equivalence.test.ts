@@ -415,3 +415,113 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (group / ungroup)', () => {
     expect(yo.slides[0].elements).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Resting-scale invariant on the REAL Yorkie proxy path — smoke coverage for
+// bakeProxyGroupTree + ungroup settle (docs/design/slides/slides-group.md
+// §6.1). The in-memory store is unit-tested exhaustively; these prove the
+// live-app store produces identical results on Yorkie proxies.
+// ---------------------------------------------------------------------------
+
+/** True when every group in the tree rests at scale 1 (refSize ≈ frame). */
+function allGroupsSettled(doc: SlidesDocument): boolean {
+  const eps = 0.01;
+  const walk = (
+    els: readonly { type: string; frame: { w: number; h: number }; data?: unknown }[],
+  ): boolean =>
+    els.every((el) => {
+      if (el.type !== 'group') return true;
+      const g = el as unknown as {
+        frame: { w: number; h: number };
+        data: { refSize?: { w: number; h: number }; children: typeof els };
+      };
+      const ref = g.data.refSize;
+      const settled =
+        !ref ||
+        (Math.abs(ref.w - g.frame.w) <= eps && Math.abs(ref.h - g.frame.h) <= eps);
+      return settled && walk(g.data.children);
+    });
+  return doc.slides.every((s) => walk(s.elements as never));
+}
+
+/**
+ * Group a rotated 60×40 "smiley" + a plain rect, force a residual
+ * non-uniform scale (updateElementFrame WITHOUT bake — the dirty state a
+ * pre-fix commit left behind), then ungroup. Returns the final snapshot.
+ */
+function dirtyGroupThenUngroup(store: SlidesStore): SlidesDocument {
+  let sid!: string;
+  store.batch(() => { sid = store.addSlide('blank'); });
+  let aId!: string; let bId!: string;
+  store.batch(() => {
+    aId = store.addElement(sid, {
+      type: 'shape',
+      frame: { x: 0, y: 0, w: 60, h: 40, rotation: Math.PI / 9 },
+      data: { kind: 'smileyFace' },
+    });
+    bId = store.addElement(sid, {
+      type: 'shape',
+      frame: { x: 160, y: 0, w: 50, h: 50, rotation: 0 },
+      data: { kind: 'rect' },
+    });
+  });
+  let groupId!: string;
+  store.batch(() => { ({ groupId } = store.group(sid, [aId, bId])); });
+  const g0 = store.read().slides[0].elements.find((e) => e.id === groupId)!;
+  store.batch(() =>
+    store.updateElementFrame(sid, groupId, { w: g0.frame.w * 1.5, h: g0.frame.h }),
+  );
+  store.batch(() => store.ungroup(sid, groupId));
+  return store.read();
+}
+
+describe('YorkieSlidesStore resting-scale invariant (live proxy path)', () => {
+  it('ungroup settles a dirty non-uniform group identically to MemSlidesStore', () => {
+    const mem = dirtyGroupThenUngroup(new MemSlidesStore());
+    const yo = dirtyGroupThenUngroup(makeYorkie());
+
+    // No group survives (was flat) and nothing leaked a residual scale.
+    expect(allGroupsSettled(yo)).toBe(true);
+    expect(yo.slides[0].elements.some((e) => e.type === 'group')).toBe(false);
+
+    // The rotated smiley's baked frame matches the proven-correct Mem path
+    // (same rotation identifies it — ids differ per store).
+    const rot = (d: SlidesDocument) =>
+      d.slides[0].elements.find(
+        (e) => e.type === 'shape' && Math.abs(e.frame.rotation - Math.PI / 9) < 1e-9,
+      )!;
+    const yChild = rot(yo);
+    const mChild = rot(mem);
+    expect(yChild).toBeTruthy();
+    expect(yChild.frame.w).toBeCloseTo(mChild.frame.w, 4);
+    expect(yChild.frame.h).toBeCloseTo(mChild.frame.h, 4);
+    expect(yChild.frame.x).toBeCloseTo(mChild.frame.x, 4);
+    expect(yChild.frame.y).toBeCloseTo(mChild.frame.y, 4);
+    expect(yChild.frame.rotation).toBeCloseTo(Math.PI / 9, 6);
+  });
+
+  it('bakeGroupResize settles a group on the Yorkie proxy path', () => {
+    const store = makeYorkie();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank'); });
+    let aId!: string; let bId!: string;
+    store.batch(() => {
+      aId = store.addElement(sid, {
+        type: 'shape', frame: { x: 0, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape', frame: { x: 60, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let groupId!: string;
+    store.batch(() => { ({ groupId } = store.group(sid, [aId, bId])); });
+    const g0 = store.read().slides[0].elements.find((e) => e.id === groupId)!;
+    store.batch(() => {
+      store.updateElementFrame(sid, groupId, { w: g0.frame.w * 2, h: g0.frame.h });
+      store.bakeGroupResize(sid, groupId);
+    });
+    expect(allGroupsSettled(store.read())).toBe(true);
+  });
+});

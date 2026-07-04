@@ -10,6 +10,7 @@ import '../../../../src/view/canvas/test-canvas-env';
 import { MemSlidesStore } from '../../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../../src/view/editor/editor';
 import type { Selection } from '../../../../src/view/editor/selection';
+import { collectUnsettledGroups } from '../../../support/group-invariant';
 
 // ---------------------------------------------------------------------------
 // Shared fixture helpers (inlined — no new shared helpers per plan)
@@ -77,13 +78,17 @@ describe('Multi-resize integration — non-trivial selections', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test A: Group + shape multi-resize — group's refSize is unchanged
+  // Test A: Group + shape multi-resize — the group is baked to scale 1 on
+  // commit (resting-scale invariant, slides-group.md §6.1). Children scale
+  // into their frames and refSize is re-anchored to the new frame, matching
+  // the single-resize path — so a later ungroup can't distort them.
   // -------------------------------------------------------------------------
-  it("group child scales as a frame; its refSize is unchanged after multi-resize", () => {
+  it("bakes a group's render-scale into its children after multi-resize", () => {
     const { canvas, overlay, store } = makeFixture();
     let sid!: string;
     let aId!: string;
     let groupId!: string;
+    let g1Id!: string;
 
     store.batch(() => {
       sid = store.read().slides[0].id;
@@ -97,7 +102,7 @@ describe('Multi-resize integration — non-trivial selections', () => {
 
       // Two shapes that will be grouped to create group 'g' at roughly
       // (200, 100, 100, 100). Use two shapes that produce that AABB.
-      const g1 = store.addElement(sid, {
+      g1Id = store.addElement(sid, {
         type: 'shape',
         frame: { x: 200, y: 100, w: 100, h: 50, rotation: 0 },
         data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0f0' } },
@@ -107,16 +112,14 @@ describe('Multi-resize integration — non-trivial selections', () => {
         frame: { x: 200, y: 150, w: 100, h: 50, rotation: 0 },
         data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#00f' } },
       });
-      ({ groupId } = store.group(sid, [g1, g2]));
+      ({ groupId } = store.group(sid, [g1Id, g2]));
     });
 
-    // The group's frame and refSize are now set. Capture refSize before.
     const groupBefore = store.read().slides[0].elements.find((e) => e.id === groupId)!;
     expect(groupBefore.type).toBe('group');
     if (groupBefore.type !== 'group') throw new Error('unreachable');
-    const refSizeBefore = { ...groupBefore.data.refSize! };
-    expect(refSizeBefore.w).toBeGreaterThan(0);
-    expect(refSizeBefore.h).toBeGreaterThan(0);
+    const childBefore = groupBefore.data.children.find((c) => c.id === g1Id)!;
+    const childWBefore = childBefore.frame.w;
 
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
     editor.setSelection([aId, groupId]);
@@ -125,17 +128,25 @@ describe('Multi-resize integration — non-trivial selections', () => {
     // Drag the SE handle to grow the multi-selection bounding box.
     dragHandle(canvas, overlay, 'se', 40, 30);
 
-    const groupAfter = store.read().slides[0].elements.find((e) => e.id === groupId)!;
+    const els = store.read().slides[0].elements;
+    const groupAfter = els.find((e) => e.id === groupId)!;
     expect(groupAfter.type).toBe('group');
     if (groupAfter.type !== 'group') throw new Error('unreachable');
 
     // The group's frame width should have grown (SE drag).
     expect(groupAfter.frame.w).toBeGreaterThan(groupBefore.frame.w);
 
-    // The refSize must NOT change — it is the stable anchor for child scaling.
-    expect(groupAfter.data.refSize).toBeDefined();
-    expect(groupAfter.data.refSize!.w).toBeCloseTo(refSizeBefore.w, 3);
-    expect(groupAfter.data.refSize!.h).toBeCloseTo(refSizeBefore.h, 3);
+    // Invariant: the group now rests at scale 1 (refSize == frame), i.e.
+    // the render-scale was baked into the children on commit.
+    expect(collectUnsettledGroups(els)).toEqual([]);
+    expect(groupAfter.data.refSize!.w).toBeCloseTo(groupAfter.frame.w, 3);
+    expect(groupAfter.data.refSize!.h).toBeCloseTo(groupAfter.frame.h, 3);
+
+    // The child's own frame grew by the same horizontal ratio (baked),
+    // rather than staying fixed with a live scale on the group.
+    const childAfter = groupAfter.data.children.find((c) => c.id === g1Id)!;
+    const ratio = groupAfter.frame.w / groupBefore.frame.w;
+    expect(childAfter.frame.w).toBeCloseTo(childWBefore * ratio, 2);
   });
 
   // -------------------------------------------------------------------------

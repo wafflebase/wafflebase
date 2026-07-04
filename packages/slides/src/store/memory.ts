@@ -1138,6 +1138,19 @@ export class MemSlidesStore implements SlidesStore {
     // Unreachable: findElementPath succeeded, so the group must be in the
     // parent array we derived from the same path.
 
+    // Step 4.5: settle the group's render-scale to 1 before baking.
+    // If the group rests with a non-uniform scale (refSize != frame),
+    // `applyGroupTransform` below would bake that scale as an
+    // axis-aligned bbox-preserving rect — which cannot reproduce the
+    // sheared way the renderer draws a ROTATED child under non-uniform
+    // scale, so the child would visibly distort on ungroup (the "smiley
+    // squishes" bug; see docs/design/slides/slides-group.md §6.1).
+    // Baking the scale into the children first (recursively, so nested
+    // child groups don't leak a residual scale either) makes the group
+    // scale identity, so the step below only applies translate/rotate.
+    // In the common case (invariant already held) this is a no-op.
+    bakeGroupTree(group as GroupElement);
+
     // Step 5: bake the group's transform into each child's frame.
     // applyGroupTransform converts a child's group-local frame into the
     // group's parent (= "one level up") coordinate space — exactly what we
@@ -1239,33 +1252,10 @@ export class MemSlidesStore implements SlidesStore {
     if (!path) return; // Stale group id — tolerate.
     const group = path[path.length - 1];
     if (group.type !== 'group') return;
-    if (group.data.children.length === 0) {
-      // No children to bake; just sync refSize to the current frame so
-      // subsequent renders read scale=1.
-      group.data.refSize = { w: group.frame.w, h: group.frame.h };
-      return;
-    }
-
-    const { children, refSize } = bakeGroupScale(group);
-    if (children === group.data.children) {
-      // bakeGroupScale returned identity (scale was already 1) — sync
-      // refSize defensively in case it was undefined.
-      group.data.refSize = refSize;
-      return;
-    }
-    // Mutate children in place (preserve object identity per ungroup /
-    // refitGroup convention so Yorkie path stability holds inside a
-    // batch).
-    for (let i = 0; i < group.data.children.length; i++) {
-      const next = children[i];
-      const cur = group.data.children[i];
-      cur.frame = { ...next.frame };
-      if (cur.type === 'connector' && next.type === 'connector') {
-        cur.start = next.start;
-        cur.end = next.end;
-      }
-    }
-    group.data.refSize = refSize;
+    // Bake this group's render-scale into its children and settle every
+    // descendant group so the whole subtree rests at scale 1
+    // (resting-scale invariant, docs/design/slides/slides-group.md §6.1).
+    bakeGroupTree(group);
   }
 
   // --- text bridges ---
@@ -1936,6 +1926,70 @@ function resolveAncestorTransform(
  */
 function applyFrameWithTransform(frame: Frame, t: GroupTransform): Frame {
   return applyMatrix(frame, t);
+}
+
+/**
+ * Bake a group's render-scale into its children in place, then recurse
+ * into any child that is itself a group. After this returns, `group`
+ * and every descendant group rest at scale 1 (`refSize == frame`) — the
+ * resting-scale invariant (docs/design/slides/slides-group.md §6.1).
+ *
+ * `bakeGroupScale` scales a child group's `frame` by the parent's
+ * `(sx, sy)` but leaves that child's own `refSize` untouched (its
+ * per-level contract is non-recursive), so a scaled child group emerges
+ * with `frame != refSize`. Recursing settles it: its scale is exactly
+ * `(sx, sy)` and baking pushes it down into ITS children, and so on.
+ *
+ * Object identity of every child is preserved (mutate-in-place), which
+ * matters for Yorkie path stability inside a batch — matching the
+ * conventions in `ungroup` / `refitGroup`.
+ *
+ * NOTE: `YorkieSlidesStore.bakeProxyGroupTree` is a line-for-line mirror
+ * of this over Yorkie proxies. Keep the two in sync — any change here
+ * (recursion, refSize seeding, connector handling) must be applied there.
+ */
+function bakeGroupTree(group: GroupElement): void {
+  if (group.data.children.length === 0) {
+    group.data.refSize = { w: group.frame.w, h: group.frame.h };
+    return;
+  }
+  // When this group carries a real scale, seed any child GROUP that lacks
+  // a `refSize` (legacy / backward-compat documents) with its CURRENT
+  // frame first. `bakeGroupScale` is about to scale that child's frame; if
+  // its `refSize` stayed absent it would default to the already-scaled
+  // frame, making the recursion below read scale = 1 and never scale the
+  // grandchildren — the child group's box would grow while its contents
+  // stayed put. Capturing the pre-scale frame keeps the child's scale
+  // ratio correct so the DFS settles it properly.
+  const refW = group.data.refSize?.w ?? group.frame.w;
+  const refH = group.data.refSize?.h ?? group.frame.h;
+  const sx = refW > 0 ? group.frame.w / refW : 1;
+  const sy = refH > 0 ? group.frame.h / refH : 1;
+  if (sx !== 1 || sy !== 1) {
+    for (const child of group.data.children) {
+      if (child.type === 'group' && !child.data.refSize) {
+        child.data.refSize = { w: child.frame.w, h: child.frame.h };
+      }
+    }
+  }
+  const { children, refSize } = bakeGroupScale(group);
+  if (children !== group.data.children) {
+    for (let i = 0; i < group.data.children.length; i++) {
+      const next = children[i];
+      const cur = group.data.children[i];
+      cur.frame = { ...next.frame };
+      if (cur.type === 'connector' && next.type === 'connector') {
+        cur.start = next.start;
+        cur.end = next.end;
+      }
+    }
+  }
+  group.data.refSize = refSize;
+  // Child groups were frame-scaled but keep their stale refSize, so they
+  // now carry the parent's scale — settle them too (DFS).
+  for (const child of group.data.children) {
+    if (child.type === 'group') bakeGroupTree(child);
+  }
 }
 
 /**
