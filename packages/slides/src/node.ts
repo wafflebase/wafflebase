@@ -34,6 +34,7 @@ export type {
   Slide,
   SlidesDocument,
 } from './model/presentation';
+export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
   deckSlideHeight,
   DEFAULT_BACKGROUND,

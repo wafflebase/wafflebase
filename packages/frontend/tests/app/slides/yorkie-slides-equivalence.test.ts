@@ -156,6 +156,48 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     expect(grp.frame.h).toBeCloseTo(300 * (4 / 3), 2);
   });
 
+  it('setSlideHeight keeps a connector attached to a grouped element in sync', () => {
+    // Regression: Pass-2 connector recompute must use a group-recursive
+    // lookup in BOTH stores. A top-level-only lookup collapsed a connector
+    // attached to a nested element to the origin in the Yorkie store,
+    // diverging from mem.
+    const { mem, yo } = runBoth((store) => {
+      let sid = '';
+      let a = '';
+      let b = '';
+      store.batch(() => { sid = store.addSlide('blank'); });
+      store.batch(() => {
+        a = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 100, y: 200, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        b = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 300, y: 400, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+      });
+      // Connector attaches to shape `a` (site 0), then `a` is grouped —
+      // the connector stays top-level with an endpoint into the group.
+      store.batch(() => {
+        store.addElement(sid, {
+          type: 'connector',
+          routing: 'straight',
+          arrowheads: {},
+          frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+          start: { kind: 'attached', elementId: a, siteIndex: 0 },
+          end: { kind: 'free', x: 800, y: 500 },
+        });
+      });
+      store.batch(() => { store.group(sid, [a, b]); });
+      store.batch(() => store.setSlideHeight(1440));
+    });
+    // stripIds compares every top-level frame — including the connector's
+    // recomputed cached frame. Divergence here would fail this.
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+  });
+
   it('add element, updateElementFrame, reorderElement, remove', () => {
     const { mem, yo } = runBoth((store) => {
       let slideId = '';

@@ -23,6 +23,7 @@ export type {
   SlideTransition,
   SlidesDocument,
 } from './model/presentation';
+export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
   deckSlideHeight,
   DEFAULT_BACKGROUND,

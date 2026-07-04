@@ -38,6 +38,7 @@ import {
   applyInversePoint,
   applyLayoutToSlide,
   composeAncestorTransform,
+  buildElementWorldLookup,
   computeConnectorFrame,
   deckSlideHeight,
   defaultDark,
@@ -53,6 +54,7 @@ import {
   normalizeToGroupLocal,
   pushRecent,
   resolveEndpoint,
+  scaleElementHeight,
   seedPlaceholderBlocks,
   slotRefsForLayout,
   worldTightFrame,
@@ -183,12 +185,6 @@ function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
 }
 
-/** Scale a connector endpoint's y by `factor`; attached endpoints (which
- * track their element) are returned unchanged. Mirrors the MemSlidesStore
- * helper for the deck-height rescale. */
-function scaleEndpointY(ep: Endpoint, factor: number): Endpoint {
-  return ep.kind === 'free' ? { ...ep, y: ep.y * factor } : ep;
-}
 
 // ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
@@ -1153,39 +1149,22 @@ export class YorkieSlidesStore implements SlidesStore {
       if (height === oldH) return;
       const factor = height / oldH;
       for (const s of r.slides) {
-        // Pass 1: scale every top-level element vertically. Mirrors
-        // MemSlidesStore.setSlideHeight — groups scale their children via
-        // the frame → refSize transform (pin refSize when absent); tables
-        // scale row heights in place; connector free endpoints scale.
+        // Pass 1: scale every top-level element vertically via the shared
+        // helper (identical logic runs against MemSlidesStore's plain
+        // model and this live CRDT proxy — the mutations are the same).
         for (const el of s.elements) {
-          if (el.type === 'connector') {
-            const c = el as unknown as { start: Endpoint; end: Endpoint };
-            c.start = scaleEndpointY(c.start, factor);
-            c.end = scaleEndpointY(c.end, factor);
-            continue;
-          }
-          const eAny = el as unknown as {
-            type: string;
-            frame: Frame;
-            data?: { refSize?: { w: number; h: number } };
-          };
-          if (el.type === 'group' && eAny.data && eAny.data.refSize == null) {
-            eAny.data.refSize = { w: eAny.frame.w, h: eAny.frame.h };
-          }
-          eAny.frame = {
-            ...eAny.frame,
-            y: eAny.frame.y * factor,
-            h: eAny.frame.h * factor,
-          };
-          if (el.type === 'table') {
-            const rows = (el as unknown as { data: { rows: { height: number }[] } })
-              .data.rows;
-            for (const row of rows) row.height = row.height * factor;
-          }
+          scaleElementHeight(el as unknown as ModelElement, factor);
         }
         // Pass 2: recompute connector frames off the moved endpoints /
-        // targets, using the same lookup pattern as updateElementFrame.
-        const lookup = this.slideElementsLookup(s);
+        // targets. Build a RECURSIVE lookup (unwrap each top-level element
+        // to plain, then `buildElementWorldLookup` descends into groups) so
+        // a connector attached to a grouped element resolves — matching
+        // MemSlidesStore's `elementsLookup`. A top-level-only lookup would
+        // collapse such a connector to the origin and diverge from mem.
+        const plainEls = s.elements.map(
+          (e) => unwrapElement(e) as unknown as ModelElement,
+        );
+        const lookup = buildElementWorldLookup(plainEls);
         for (const el of s.elements) {
           if (el.type !== 'connector') continue;
           const plain = unwrapElement(el) as unknown as ConnectorElement;

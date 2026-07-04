@@ -8,7 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { UnitInput } from './size-position-section';
-import type { DisplayUnit } from './units';
+import { formatDisplay, type DisplayUnit } from './units';
 
 /**
  * Deck-level slide-size presets. Width is fixed at {@link SLIDE_WIDTH}
@@ -92,7 +92,17 @@ export function SlideSizeSection({ heightPx, unit, onCommit }: SlideSizeSectionP
           unit={unit}
           onCommit={(px) => {
             const next = Math.round(px);
-            if (next > 0 && next !== heightPx) onCommit(next);
+            // UnitInput commits on every blur; the px→unit→px round-trip
+            // (toFixed(2)) drifts, so a no-change blur on the default
+            // 1080 px ("5.63" in) would come back as 1081 and rescale the
+            // whole deck. Only commit when the *displayed* value actually
+            // changed.
+            if (
+              next > 0 &&
+              formatDisplay(next, unit) !== formatDisplay(heightPx, unit)
+            ) {
+              onCommit(next);
+            }
           }}
         />
       </div>

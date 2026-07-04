@@ -94,7 +94,10 @@ export function FormatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [store, editor, tick],
   );
-  const unit: DisplayUnit = store.read().meta.unit ?? 'in';
+  // One read per render serves both the display unit and the deck height
+  // (the idle Slide-size section) — avoids a second full-document clone.
+  const meta = store.read().meta;
+  const unit: DisplayUnit = meta.unit ?? 'in';
   const sections = pickSections(selection);
 
   const commitFrame = useCallback(
@@ -238,7 +241,7 @@ export function FormatPanel({
       {selection.kind === 'idle' && (
           <>
             <SlideSizeSection
-              heightPx={deckSlideHeight(store.read().meta)}
+              heightPx={deckSlideHeight(meta)}
               unit={unit}
               onCommit={commitSlideHeight}
             />

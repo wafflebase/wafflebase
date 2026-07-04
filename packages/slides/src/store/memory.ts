@@ -31,6 +31,7 @@ import type {
 import { generateId, isBlocksEmpty } from '../model/element';
 import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { deckSlideHeight, pushRecent } from '../model/presentation';
+import { scaleElementHeight } from '../model/slide-size';
 import { DEFAULT_MASTER } from '../model/master';
 import type { Master } from '../model/master';
 import { framesApproxEqual } from '../model/frame';
@@ -111,12 +112,6 @@ function findMergeAnchor(
     }
   }
   return null;
-}
-
-/** Scale a connector endpoint's y by `factor`; attached endpoints (which
- * track their element) are returned unchanged. */
-function scaleEndpointY(ep: Endpoint, factor: number): Endpoint {
-  return ep.kind === 'free' ? { ...ep, y: ep.y * factor } : ep;
 }
 
 function emptyDocument(): SlidesDocument {
@@ -459,37 +454,16 @@ export class MemSlidesStore implements SlidesStore {
     if (height === oldH) return;
     const factor = height / oldH;
     for (const slide of this.doc.slides) {
-      // Pass 1: scale every top-level element vertically. Groups scale
-      // their children through the frame → refSize transform, so only the
-      // group frame changes here; tables scale their row heights;
-      // connectors scale their free endpoints (attached ones follow the
-      // element they attach to, which just moved).
+      // Pass 1: scale every top-level element vertically via the shared
+      // helper (identical logic drives the Yorkie store — see
+      // `scaleElementHeight`).
       for (const el of slide.elements) {
-        if (el.type === 'connector') {
-          el.start = scaleEndpointY(el.start, factor);
-          el.end = scaleEndpointY(el.end, factor);
-          continue;
-        }
-        if (el.type === 'group' && el.data.refSize == null) {
-          // The group→child transform scales children by frame.h / refSize.h.
-          // Absent refSize means "frame IS the reference" (scale 1), so pin
-          // refSize to the pre-scale frame; then growing frame.h by `factor`
-          // scales every child vertically by `factor`.
-          el.data = {
-            ...el.data,
-            refSize: { w: el.frame.w, h: el.frame.h },
-          };
-        }
-        el.frame = { ...el.frame, y: el.frame.y * factor, h: el.frame.h * factor };
-        if (el.type === 'table') {
-          el.data = {
-            ...el.data,
-            rows: el.data.rows.map((r) => ({ ...r, height: r.height * factor })),
-          };
-        }
+        scaleElementHeight(el, factor);
       }
       // Pass 2: recompute connector frames now that free endpoints moved
-      // and attached targets carry their new positions.
+      // and attached targets carry their new positions. `elementsLookup`
+      // recurses into groups so a connector attached to a grouped element
+      // still resolves.
       const lookup = this.elementsLookup(slide.id);
       for (const el of slide.elements) {
         if (el.type === 'connector') {

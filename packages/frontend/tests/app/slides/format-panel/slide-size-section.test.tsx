@@ -28,6 +28,17 @@ describe('SlideSizeSection', () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
+  it('a no-change blur on the default 1080 height does not rescale (px drift)', () => {
+    // Regression: 1080 px shows "5.63" in inches; the unit→px round-trip
+    // is 1080.96 → round 1081, which used to slip past a `!== heightPx`
+    // guard and rescale the whole deck on a mere focus/blur.
+    const onCommit = vi.fn();
+    render(<SlideSizeSection heightPx={1080} unit="in" onCommit={onCommit} />);
+    const h = screen.getByLabelText('Height') as HTMLInputElement;
+    fireEvent.blur(h); // no edit, just blur
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
   it('width is disabled (fixed) — typing into it cannot commit', () => {
     render(<SlideSizeSection heightPx={1080} unit="in" onCommit={vi.fn()} />);
     expect((screen.getByLabelText('Width') as HTMLInputElement).disabled).toBe(true);
