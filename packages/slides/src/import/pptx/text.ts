@@ -87,6 +87,37 @@ export function detectVerticalAnchor(txBody: Element): VerticalAnchorMode | unde
 const DEFAULT_INS = { l: 91_440, t: 45_720, r: 91_440, b: 45_720 } as const;
 
 /**
+ * Points → CSS px at 96 dpi. The docs layout engine renders `fontSize`
+ * (points) via the same 96/72 factor, so paragraph margins derived from
+ * point-valued `<a:spcBef>`/`<a:spcAft>` must use it too to scale in step
+ * with the text they space.
+ */
+const PX_PER_PT = 96 / 72;
+
+/**
+ * Line-height multiplier for PowerPoint "single" line spacing (a paragraph
+ * with no `<a:lnSpc>`). PowerPoint's single spacing includes the font's
+ * natural leading, rendering at roughly 1.2× the em — so 1.0 packs text too
+ * tight and the docs 1.5 word-processor default spreads it too far. Explicit
+ * `<a:lnSpc>` percentages still override this per paragraph.
+ */
+const PPTX_SINGLE_LINE_HEIGHT = 1.2;
+
+/**
+ * Convert an `<a:spcBef>` / `<a:spcAft>` container to a px margin. Reads
+ * absolute `<a:spcPts>` (hundredths of a point) only; returns `undefined`
+ * when the element is absent or uses the rare percent-of-line form so the
+ * caller can leave the axis at its default.
+ */
+function parseSpacingPx(spc: Element | undefined): number | undefined {
+  if (!spc) return undefined;
+  const pts = child(spc, 'spcPts');
+  if (!pts) return undefined;
+  const v = attrInt(pts, 'val');
+  return v != null ? (v / 100) * PX_PER_PT : undefined;
+}
+
+/**
  * Read `<a:bodyPr lIns/tIns/rIns/bIns>` and convert EMU → deck-canvas px via
  * the per-axis scale (horizontal insets use `sx`, vertical use `sy`), exactly
  * like table-cell padding. Returns `undefined` when `<a:bodyPr>` declares no
@@ -151,13 +182,28 @@ function parseParagraph(
   const { style, list, marker } = parseParagraphProperties(pPr, ctx);
 
   const inlines: Inline[] = [];
+  // Font size of the most recent real run — a bare `<a:br/>` inherits it so
+  // the break line matches the surrounding text (PowerPoint sizes the break
+  // from the adjacent run's formatting).
+  let lastRunFontSize: number | undefined;
   for (let i = 0; i < p.childNodes.length; i++) {
     const n = p.childNodes[i];
     if (n.nodeType !== 1) continue;
     const el = n as Element;
-    if (el.localName === 'r') inlines.push(parseRun(el, fontScale, ctx));
-    else if (el.localName === 'br') inlines.push({ text: '\n', style: {} });
-    else if (el.localName === 'fld') {
+    if (el.localName === 'r') {
+      const inline = parseRun(el, fontScale, ctx);
+      inlines.push(inline);
+      if (inline.style.fontSize != null) lastRunFontSize = inline.style.fontSize;
+    } else if (el.localName === 'br') {
+      // `<a:br>` carries its own `<a:rPr>` (font size, weight, …). Lift it
+      // onto the soft-break inline so the blank/broken line is sized to the
+      // surrounding text — a bare `{}` style would fall back to the docs
+      // default (11 pt) and drop the newline visibly too far below small text.
+      // When the break has no explicit size, inherit the preceding run's.
+      const style = parseRunStyle(child(el, 'rPr'), fontScale, ctx);
+      if (style.fontSize == null && lastRunFontSize != null) style.fontSize = lastRunFontSize;
+      inlines.push({ text: '\n', style });
+    } else if (el.localName === 'fld') {
       // `<a:fld>` is a field (slide number, date, …). v1 dumps the
       // pre-rendered text and ignores the field semantics.
       const t = child(el, 't');
@@ -165,9 +211,25 @@ function parseParagraph(
     }
   }
 
-  // Empty paragraphs need a placeholder inline so layout doesn't NaN —
-  // docs's `computeLayout` requires at least one inline per block.
-  if (inlines.length === 0) inlines.push({ text: '', style: {} });
+  // A blank paragraph — no runs at all, or only empty `<a:t/>` runs — is one
+  // empty visual line that still needs a height. Collapse it to a single
+  // placeholder (docs's `computeLayout` needs at least one inline per block)
+  // and give it a font size, else the line falls back to the docs default
+  // (11 pt) and opens a gap that's too large next to small-point body text.
+  // Prefer a size an empty run already carries — this is what an exported
+  // blank line round-trips as (`<a:r sz=…/>` with no `<a:endParaRPr>`), so
+  // reading only endParaRPr here would drop the size on the second import.
+  // Otherwise fall back to `<a:endParaRPr>`, the paragraph-mark run PowerPoint
+  // uses to size a blank line. Paragraphs holding a `<a:br>` newline keep
+  // their own already-sized inlines and are untouched here.
+  if (!inlines.some((i) => i.text !== '')) {
+    const sized = inlines.find((i) => i.style.fontSize != null);
+    const style = sized
+      ? sized.style
+      : parseRunStyle(child(p, 'endParaRPr'), fontScale, ctx);
+    inlines.length = 0;
+    inlines.push({ text: '', style });
+  }
 
   const block: Block = {
     id: generateBlockId(),
@@ -202,7 +264,21 @@ function parseParagraphProperties(
   list: ListInfo | undefined;
   marker: BlockMarker | undefined;
 } {
-  const style: BlockStyle = { ...DEFAULT_BLOCK_STYLE };
+  // PPTX paragraphs carry no implicit inter-paragraph gap, and their
+  // default line spacing is PowerPoint "single" — which renders at ~1.2×
+  // the font size (it folds in the font's natural leading), NOT 1.0.
+  // `DEFAULT_BLOCK_STYLE` is the docs *word-processor* default (1.5 line
+  // height, 8 px bottom margin); inheriting it made every imported line
+  // 25 % too tall and injected an 8 px gap the source never asked for —
+  // visible as over-wide blank lines. But 1.0 is the opposite error: it
+  // strips the leading and packs body text too tight. Reset to the PPTX
+  // single-spacing defaults, then layer on whatever the deck specifies.
+  const style: BlockStyle = {
+    ...DEFAULT_BLOCK_STYLE,
+    lineHeight: PPTX_SINGLE_LINE_HEIGHT,
+    marginTop: 0,
+    marginBottom: 0,
+  };
   if (!pPr) return { style, list: undefined, marker: undefined };
 
   const algn = attr(pPr, 'algn');
@@ -219,10 +295,20 @@ function parseParagraphProperties(
       const v = attrInt(pct, 'val');
       if (v != null) style.lineHeight = v / 100_000;
     }
-    // spcPts (absolute points) is rare; ignore for v1 — design doc says
-    // docs's lineHeight is a ratio, not an absolute, so the closest
-    // faithful translation is keeping the default 1.5.
+    // spcPts (absolute points) is rare; ignore for v1 — docs's lineHeight is
+    // a ratio, not an absolute, so the closest faithful translation is
+    // keeping the single-spacing default.
   }
+
+  // Paragraph spacing — `<a:spcBef>`/`<a:spcAft>` map to the block's top /
+  // bottom margins. Reading these is also what stops a source `spcAft="0"`
+  // from silently keeping the docs 8 px default. Absolute `<a:spcPts>` is the
+  // common form and the only one docs px margins can represent faithfully;
+  // `<a:spcPct>` (percent of a line) is rare and skipped.
+  const before = parseSpacingPx(child(pPr, 'spcBef'));
+  if (before != null) style.marginTop = before;
+  const after = parseSpacingPx(child(pPr, 'spcAft'));
+  if (after != null) style.marginBottom = after;
 
   // Indent / left margin — PPTX values are in EMU; docs values are px.
   // We don't have the slide scale at parse time, so we approximate with
@@ -320,7 +406,34 @@ function parseRun(
   ctx: TextParseContext,
   textOverride?: string,
 ): Inline {
-  const rPr = child(r, 'rPr');
+  const style = parseRunStyle(child(r, 'rPr'), fontScale, ctx);
+  const text = textOverride ?? textOf(child(r, 't') ?? r);
+
+  // No script-specific fontFamily override here. The renderer
+  // (`@wafflebase/docs` `resolveFontFamily`) splices a Korean-capable
+  // family into every non-monospace fallback chain, so the browser picks
+  // a Hangul face per-glyph even when this run's typeface (e.g. Arial or
+  // a brand font we don't have) carries no Korean glyphs.
+
+  return { text, style };
+}
+
+/**
+ * Parse an `<a:rPr>`-shaped element into an `InlineStyle`.
+ *
+ * The element is the run-property container itself: `<a:rPr>` for a run,
+ * the `<a:rPr>` child of an `<a:br>`, or the paragraph's `<a:endParaRPr>`
+ * (whose attributes/children mirror `<a:rPr>` exactly). Sharing this path
+ * is what lets line breaks and empty paragraphs carry their real font
+ * size instead of collapsing to the docs default — a blank line sized at
+ * 11 pt next to 8 pt body text is what makes an imported `<a:br>` drop
+ * visibly too far.
+ */
+function parseRunStyle(
+  rPr: Element | undefined,
+  fontScale: number,
+  ctx: TextParseContext,
+): InlineStyle {
   const style: InlineStyle = {};
 
   // Apply placeholder-derived default first so an explicit `sz` below
@@ -383,15 +496,7 @@ function parseRun(
     }
   }
 
-  const text = textOverride ?? textOf(child(r, 't') ?? r);
-
-  // No script-specific fontFamily override here. The renderer
-  // (`@wafflebase/docs` `resolveFontFamily`) splices a Korean-capable
-  // family into every non-monospace fallback chain, so the browser picks
-  // a Hangul face per-glyph even when this run's typeface (e.g. Arial or
-  // a brand font we don't have) carries no Korean glyphs.
-
-  return { text, style };
+  return style;
 }
 
 /**

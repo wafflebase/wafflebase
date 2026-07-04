@@ -125,6 +125,41 @@ describe('parseTextBody — paragraphs', () => {
     expect(block.style.textIndent).toBe(-48);
   });
 
+  it('defaults to PowerPoint single spacing and no paragraph margins', () => {
+    // The docs word-processor defaults (1.5 line height, 8 px bottom margin)
+    // must not leak into imported slides. PPTX single spacing renders at
+    // ~1.2× (not 1.0, which packs body text too tight), with no implicit
+    // inter-paragraph gap.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    expect(block.style.lineHeight).toBe(1.2);
+    expect(block.style.marginTop).toBe(0);
+    expect(block.style.marginBottom).toBe(0);
+  });
+
+  it('maps <a:spcBef>/<a:spcAft> spcPts to top/bottom margins in px', () => {
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:pPr>
+        <a:spcBef><a:spcPts val="600"/></a:spcBef>
+        <a:spcAft><a:spcPts val="1600"/></a:spcAft>
+      </a:pPr>
+      <a:r><a:t>x</a:t></a:r>
+    </a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    // 6pt × 96/72 = 8; 16pt × 96/72 = 21.333…
+    expect(block.style.marginTop).toBeCloseTo(8, 6);
+    expect(block.style.marginBottom).toBeCloseTo(21.3333, 3);
+  });
+
+  it('honors an explicit <a:spcAft val="0"> instead of the docs 8 px default', () => {
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:pPr><a:spcAft><a:spcPts val="0"/></a:spcAft></a:pPr>
+      <a:r><a:t>x</a:t></a:r>
+    </a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    expect(block.style.marginBottom).toBe(0);
+  });
+
   it('classifies bulleted and numbered paragraphs as list-items', () => {
     const t = txBody(`<a:txBody>
       <a:bodyPr/>
@@ -313,6 +348,67 @@ describe('parseTextBody — paragraphs', () => {
     const blocks = parseTextBody(t, { report: new ImportReport() });
     expect(blocks).toHaveLength(1);
     expect(blocks[0].inlines.map((i) => i.text)).toEqual(['line1', '\n', 'line2']);
+  });
+
+  it('carries the <a:br> font size onto the soft-break inline', () => {
+    // Without this the blank/broken line falls back to the docs default
+    // (11 pt) and drops visibly too far below small-point body text.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:r><a:rPr sz="800"/><a:t>x</a:t></a:r>
+      <a:br><a:rPr sz="800"/></a:br>
+    </a:p></a:txBody>`);
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    const br = blocks[0].inlines.find((i) => i.text === '\n');
+    expect(br?.style.fontSize).toBe(8);
+  });
+
+  it('inherits the preceding run size for a bare <a:br/> (no rPr)', () => {
+    // PowerPoint sizes a bare break from the adjacent run; without this the
+    // break line jumps to the docs 11 pt default above small body text.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:r><a:rPr sz="800"/><a:t>x</a:t></a:r>
+      <a:br/>
+    </a:p></a:txBody>`);
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    const br = blocks[0].inlines.find((i) => i.text === '\n');
+    expect(br?.style.fontSize).toBe(8);
+  });
+
+  it('keeps an empty run’s own size over an absent endParaRPr', () => {
+    // Round-trip guard: an exported blank line comes back as `<a:r sz=…/>`
+    // with no endParaRPr. The size must survive the second import, not
+    // collapse to the docs default.
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:r><a:rPr sz="800"/><a:t></a:t></a:r></a:p></a:txBody>`,
+    );
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].inlines).toHaveLength(1);
+    expect(blocks[0].inlines[0].text).toBe('');
+    expect(blocks[0].inlines[0].style.fontSize).toBe(8);
+  });
+
+  it('sizes an empty paragraph from <a:endParaRPr>', () => {
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:endParaRPr sz="800"/></a:p></a:txBody>`,
+    );
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].inlines).toHaveLength(1);
+    expect(blocks[0].inlines[0].text).toBe('');
+    expect(blocks[0].inlines[0].style.fontSize).toBe(8);
+  });
+
+  it('collapses an empty <a:t/> run to one endParaRPr-sized placeholder', () => {
+    // Google Slides exports blank lines as `<a:r><a:t/></a:r>` + endParaRPr,
+    // not a bare `<a:p/>`. The empty run carries no size, so the line must
+    // still take its height from endParaRPr rather than the docs default.
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:r><a:t></a:t></a:r>` +
+        `<a:endParaRPr sz="800"/></a:p></a:txBody>`,
+    );
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].inlines).toHaveLength(1);
+    expect(blocks[0].inlines[0].text).toBe('');
+    expect(blocks[0].inlines[0].style.fontSize).toBe(8);
   });
 });
 

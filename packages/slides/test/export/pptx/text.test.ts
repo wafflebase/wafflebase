@@ -1,5 +1,9 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { textBodyToXml } from '../../../src/export/pptx/text.js';
+import { parseTextBody } from '../../../src/import/pptx/text.js';
+import { ImportReport } from '../../../src/import/pptx/report.js';
+import { parseXml } from '../../../src/import/pptx/xml.js';
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 
 function para(text: string, style: Record<string, unknown> = {}): Block {
@@ -96,6 +100,69 @@ describe('textBodyToXml', () => {
     };
     const xml = textBodyToXml({ blocks: [block] });
     expect(xml).toContain('algn="ctr"');
+  });
+
+  it('emits spcBef/spcAft from top/bottom margins (px → spcPts)', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: 'A', style: {} }],
+      // 8 px → 6pt (val 600); 21.333 px → 16pt (val 1600).
+      style: { ...DEFAULT_BLOCK_STYLE, marginTop: 8, marginBottom: 21.3333 },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('<a:spcBef><a:spcPts val="600"/></a:spcBef>');
+    expect(xml).toContain('<a:spcAft><a:spcPts val="1600"/></a:spcAft>');
+  });
+
+  it('omits spcBef/spcAft when margins are zero', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: 'A', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE, marginTop: 0, marginBottom: 0 },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).not.toContain('<a:spcBef>');
+    expect(xml).not.toContain('<a:spcAft>');
+  });
+
+  it('exports a soft break (\\n) as <a:br>, not a literal newline', () => {
+    // A literal newline in <a:t> is collapsed by PowerPoint as insignificant
+    // whitespace, dropping the break; it must round-trip through <a:br>.
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [
+        { text: 'line1', style: { fontSize: 8 } },
+        { text: '\n', style: { fontSize: 8 } },
+        { text: 'line2', style: { fontSize: 8 } },
+      ],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('<a:br><a:rPr sz="800"></a:rPr></a:br>');
+    expect(xml).toContain('<a:t>line1</a:t>');
+    expect(xml).toContain('<a:t>line2</a:t>');
+    expect(xml).not.toContain('<a:t>\n</a:t>');
+  });
+
+  it('round-trips a blank-line font size through export → re-import', () => {
+    // Blank paragraph sized at 8pt (as an empty run) must survive a full
+    // export → import cycle without collapsing to the docs default.
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: '', style: { fontSize: 8 } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    };
+    const xml = textBodyToXml({ blocks: [block] }, 'p:txBody');
+    const el = parseXml(
+      `<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+        `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${xml}</root>`,
+    ).documentElement.firstElementChild!;
+    const reimported = parseTextBody(el, { report: new ImportReport() });
+    expect(reimported[0].inlines[0].style.fontSize).toBe(8);
   });
 
   it('emits ordered list bullet', () => {

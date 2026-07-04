@@ -74,6 +74,16 @@ function blockToXml(block: Block): string {
       ? `<a:lnSpc><a:spcPct val="${Math.round(block.style.lineHeight * 100_000)}"/></a:lnSpc>`
       : '';
 
+  // spcBef / spcAft — importer reads <a:spcPts val> (hundredths of a point)
+  // and scales by 96/72 into px. Invert: px → points × 100. Emit only when
+  // non-zero (zero is the PPTX default). OOXML pPr order: lnSpc, spcBef, spcAft.
+  const spcBef = block.style.marginTop
+    ? `<a:spcBef><a:spcPts val="${Math.round((block.style.marginTop * 72) / 96 * 100)}"/></a:spcBef>`
+    : '';
+  const spcAft = block.style.marginBottom
+    ? `<a:spcAft><a:spcPts val="${Math.round((block.style.marginBottom * 72) / 96 * 100)}"/></a:spcAft>`
+    : '';
+
   // Bullet marker style — emit buClr, buSzPts, buFont BEFORE buAutoNum/buChar
   // per OOXML pPr child order. Only meaningful on list items; only emit when present.
   const markerXml = block.listKind ? markerToXml(block.marker) : '';
@@ -82,7 +92,7 @@ function blockToXml(block: Block): string {
   if (block.listKind === 'ordered') buType = '<a:buAutoNum type="arabicPeriod"/>';
   else if (block.listKind === 'unordered') buType = '<a:buChar char="•"/>';
 
-  const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${markerXml}${buType}</a:pPr>`;
+  const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${spcBef}${spcAft}${markerXml}${buType}</a:pPr>`;
   const runs = block.inlines.map(runToXml).join('');
   return `<a:p>${pPr}${runs}</a:p>`;
 }
@@ -152,7 +162,25 @@ function storedColorToThemeColor(c: StoredColor): ThemeColor {
 }
 
 function runToXml(inline: Inline): string {
-  const s = inline.style;
+  const rPr = rPrXml(inline.style);
+  // Soft line breaks (`\n`, imported from `<a:br>`) must round-trip back to
+  // `<a:br>`, not a literal newline in `<a:t>` — PowerPoint collapses raw
+  // newlines as insignificant whitespace, losing the break. Split on `\n`
+  // and emit an `<a:br>` (carrying the run's props) between text segments.
+  if (inline.text.includes('\n')) {
+    const segs = inline.text.split('\n');
+    const parts: string[] = [];
+    segs.forEach((seg, i) => {
+      if (i > 0) parts.push(`<a:br>${rPr}</a:br>`);
+      if (seg) parts.push(`<a:r>${rPr}<a:t>${escapeXmlText(seg)}</a:t></a:r>`);
+    });
+    return parts.join('');
+  }
+  return `<a:r>${rPr}<a:t>${escapeXmlText(inline.text)}</a:t></a:r>`;
+}
+
+/** Build the `<a:rPr>` node for a run/break from an inline style. */
+function rPrXml(s: Inline['style']): string {
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
@@ -177,9 +205,7 @@ function runToXml(inline: Inline): string {
   }
   // s.href: hyperlink wiring is deferred (Phase 2). Do not emit any
   // <a:hlinkClick> node — an empty r:id="" produces an invalid relationship.
-  const rPr =
-    attrs.length || children.length
-      ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`
-      : `<a:rPr/>`;
-  return `<a:r>${rPr}<a:t>${escapeXmlText(inline.text)}</a:t></a:r>`;
+  return attrs.length || children.length
+    ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`
+    : `<a:rPr/>`;
 }
