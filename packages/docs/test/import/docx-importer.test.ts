@@ -866,6 +866,75 @@ describe('DocxImporter', () => {
     expect(inline!.style.image!.height).toBe(48);
   });
 
+  it('should size VML images from non-pt CSS units', async () => {
+    // 1in x 0.5in → 96 x 48 px. Verifies parseVmlExtent handles inch units,
+    // not just points.
+    const pictXml = `
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape style="width:1in;height:0.5in">
+            <v:imagedata r:id="rId5"/>
+          </v:shape>
+        </w:pict>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const buffer = await createMinimalDocx(`<w:p>${pictXml}</w:p>`, {
+      relsXml,
+      extraFiles: { 'word/media/image1.png': pngBytes },
+    });
+    const doc = await DocxImporter.import(buffer, async () => 'https://example.com/image1.png');
+    const inline = doc.blocks[0].inlines.find((i) => !!i.style.image);
+    expect(inline).toBeDefined();
+    expect(inline!.style.image!.width).toBe(96);
+    expect(inline!.style.image!.height).toBe(48);
+  });
+
+  it('should keep sibling text when a <w:pict> is not an embedded image', async () => {
+    // A VML shape with no <v:imagedata> (e.g. a horizontal rule) plus text in
+    // the same run: the text must survive rather than be swallowed by the
+    // image branch's early continue.
+    const pictXml = `
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:rect style="width:400pt;height:1pt"/>
+        </w:pict>
+        <w:t>Visible text</w:t>
+      </w:r>`;
+    const buffer = await createMinimalDocx(`<w:p>${pictXml}</w:p>`);
+    const doc = await DocxImporter.import(buffer);
+    const text = doc.blocks[0].inlines.map((i) => i.text).join('');
+    expect(text).toContain('Visible text');
+    expect(doc.blocks[0].inlines.some((i) => !!i.style.image)).toBe(false);
+  });
+
+  it('should skip floating (position:absolute) VML images', async () => {
+    // Watermark / behind-text VML images are absolutely positioned. Mirroring
+    // the DrawingML inline-only path, these are not imported inline.
+    const pictXml = `
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape style="position:absolute;width:72pt;height:72pt">
+            <v:imagedata r:id="rId5"/>
+          </v:shape>
+        </w:pict>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const buffer = await createMinimalDocx(`<w:p>${pictXml}</w:p>`, {
+      relsXml,
+      extraFiles: { 'word/media/image1.png': pngBytes },
+    });
+    const doc = await DocxImporter.import(buffer, async () => 'https://example.com/image1.png');
+    expect(doc.blocks[0].inlines.some((i) => !!i.style.image)).toBe(false);
+  });
+
   it('should pass a typed image Blob to the uploader', async () => {
     // Regression for DOCX import failing with 400 from /images because the
     // Blob returned by JSZip has an empty `type`, which FormData then sends
