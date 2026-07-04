@@ -205,7 +205,10 @@ export class WorkspaceService {
   }
 
   private async generateUniqueSlug(name: string): Promise<string> {
-    const base = this.generateSlug(name);
+    // Names with no ASCII alphanumerics (e.g. all-CJK or emoji) reduce to an
+    // empty string, which would produce an unroutable `/w/` slug. Fall back to
+    // a neutral base so the slug is always non-empty and well-formed.
+    const base = this.generateSlug(name) || 'workspace';
     const existing = await this.prisma.workspace.findUnique({
       where: { slug: base },
     });
