@@ -314,6 +314,42 @@ describe('parseTextBody — paragraphs', () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0].inlines.map((i) => i.text)).toEqual(['line1', '\n', 'line2']);
   });
+
+  it('carries the <a:br> font size onto the soft-break inline', () => {
+    // Without this the blank/broken line falls back to the docs default
+    // (11 pt) and drops visibly too far below small-point body text.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:r><a:rPr sz="800"/><a:t>x</a:t></a:r>
+      <a:br><a:rPr sz="800"/></a:br>
+    </a:p></a:txBody>`);
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    const br = blocks[0].inlines.find((i) => i.text === '\n');
+    expect(br?.style.fontSize).toBe(8);
+  });
+
+  it('sizes an empty paragraph from <a:endParaRPr>', () => {
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:endParaRPr sz="800"/></a:p></a:txBody>`,
+    );
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].inlines).toHaveLength(1);
+    expect(blocks[0].inlines[0].text).toBe('');
+    expect(blocks[0].inlines[0].style.fontSize).toBe(8);
+  });
+
+  it('collapses an empty <a:t/> run to one endParaRPr-sized placeholder', () => {
+    // Google Slides exports blank lines as `<a:r><a:t/></a:r>` + endParaRPr,
+    // not a bare `<a:p/>`. The empty run carries no size, so the line must
+    // still take its height from endParaRPr rather than the docs default.
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:r><a:t></a:t></a:r>` +
+        `<a:endParaRPr sz="800"/></a:p></a:txBody>`,
+    );
+    const blocks = parseTextBody(t, { report: new ImportReport() });
+    expect(blocks[0].inlines).toHaveLength(1);
+    expect(blocks[0].inlines[0].text).toBe('');
+    expect(blocks[0].inlines[0].style.fontSize).toBe(8);
+  });
 });
 
 describe('detectAutofitMode', () => {

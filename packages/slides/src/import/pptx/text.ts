@@ -156,7 +156,13 @@ function parseParagraph(
     if (n.nodeType !== 1) continue;
     const el = n as Element;
     if (el.localName === 'r') inlines.push(parseRun(el, fontScale, ctx));
-    else if (el.localName === 'br') inlines.push({ text: '\n', style: {} });
+    else if (el.localName === 'br') {
+      // `<a:br>` carries its own `<a:rPr>` (font size, weight, …). Lift it
+      // onto the soft-break inline so the blank/broken line is sized to the
+      // surrounding text — a bare `{}` style would fall back to the docs
+      // default (11 pt) and drop the newline visibly too far below small text.
+      inlines.push({ text: '\n', style: parseRunStyle(child(el, 'rPr'), fontScale, ctx) });
+    }
     else if (el.localName === 'fld') {
       // `<a:fld>` is a field (slide number, date, …). v1 dumps the
       // pre-rendered text and ignores the field semantics.
@@ -165,9 +171,21 @@ function parseParagraph(
     }
   }
 
-  // Empty paragraphs need a placeholder inline so layout doesn't NaN —
-  // docs's `computeLayout` requires at least one inline per block.
-  if (inlines.length === 0) inlines.push({ text: '', style: {} });
+  // A blank paragraph — no runs at all, or only empty `<a:t/>` runs — is
+  // one empty visual line whose height PowerPoint takes from
+  // `<a:endParaRPr>` (the paragraph-mark run). Collapse it to a single
+  // placeholder carrying that size: docs's `computeLayout` needs at least
+  // one inline per block, and without the endParaRPr size the line falls
+  // back to the docs default (11 pt), opening a gap that's too large next
+  // to small-point body text. Paragraphs that hold a `<a:br>` newline keep
+  // their own already-sized inlines and are untouched here.
+  if (!inlines.some((i) => i.text !== '')) {
+    inlines.length = 0;
+    inlines.push({
+      text: '',
+      style: parseRunStyle(child(p, 'endParaRPr'), fontScale, ctx),
+    });
+  }
 
   const block: Block = {
     id: generateBlockId(),
@@ -320,7 +338,34 @@ function parseRun(
   ctx: TextParseContext,
   textOverride?: string,
 ): Inline {
-  const rPr = child(r, 'rPr');
+  const style = parseRunStyle(child(r, 'rPr'), fontScale, ctx);
+  const text = textOverride ?? textOf(child(r, 't') ?? r);
+
+  // No script-specific fontFamily override here. The renderer
+  // (`@wafflebase/docs` `resolveFontFamily`) splices a Korean-capable
+  // family into every non-monospace fallback chain, so the browser picks
+  // a Hangul face per-glyph even when this run's typeface (e.g. Arial or
+  // a brand font we don't have) carries no Korean glyphs.
+
+  return { text, style };
+}
+
+/**
+ * Parse an `<a:rPr>`-shaped element into an `InlineStyle`.
+ *
+ * The element is the run-property container itself: `<a:rPr>` for a run,
+ * the `<a:rPr>` child of an `<a:br>`, or the paragraph's `<a:endParaRPr>`
+ * (whose attributes/children mirror `<a:rPr>` exactly). Sharing this path
+ * is what lets line breaks and empty paragraphs carry their real font
+ * size instead of collapsing to the docs default — a blank line sized at
+ * 11 pt next to 8 pt body text is what makes an imported `<a:br>` drop
+ * visibly too far.
+ */
+function parseRunStyle(
+  rPr: Element | undefined,
+  fontScale: number,
+  ctx: TextParseContext,
+): InlineStyle {
   const style: InlineStyle = {};
 
   // Apply placeholder-derived default first so an explicit `sz` below
@@ -383,15 +428,7 @@ function parseRun(
     }
   }
 
-  const text = textOverride ?? textOf(child(r, 't') ?? r);
-
-  // No script-specific fontFamily override here. The renderer
-  // (`@wafflebase/docs` `resolveFontFamily`) splices a Korean-capable
-  // family into every non-monospace fallback chain, so the browser picks
-  // a Hangul face per-glyph even when this run's typeface (e.g. Arial or
-  // a brand font we don't have) carries no Korean glyphs.
-
-  return { text, style };
+  return style;
 }
 
 /**
