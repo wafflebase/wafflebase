@@ -445,6 +445,21 @@ function renderConnectorEndpointHandles(
   }
 }
 
+/**
+ * Suppress native text/element selection and touch gestures on a drag
+ * handle. Handles float over the canvas with `pointer-events: auto`; on
+ * iPad Safari a trackpad drag that crosses a handle would otherwise let
+ * the browser start a selection that visually bleeds onto the canvas.
+ * `user-select: none` (+ the `-webkit-` alias iOS Safari still needs)
+ * kills the selection highlight; `touch-action: none` keeps a touch-drag
+ * on the handle from scrolling the page instead of dragging.
+ */
+function styleHandleInteraction(el: HTMLElement): void {
+  el.style.userSelect = 'none';
+  el.style.setProperty('-webkit-user-select', 'none');
+  el.style.touchAction = 'none';
+}
+
 function makeEndpointHandle(
   kind: 'start' | 'end',
   endpoint: Endpoint,
@@ -453,6 +468,7 @@ function makeEndpointHandle(
 ): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
+  styleHandleInteraction(el);
   const attached = endpoint.kind === 'attached';
   el.className = `wfb-slides-handle wfb-slides-endpoint wfb-slides-endpoint-${kind} ${
     attached ? 'wfb-slides-endpoint-attached' : 'wfb-slides-endpoint-free'
@@ -600,6 +616,7 @@ function renderCropHandles(
 function makeCropHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
+  styleHandleInteraction(el);
   el.className = `wfb-slides-handle wfb-slides-crop-handle ${kind}`;
   el.style.position = 'absolute';
   el.style.left = `${cx - HANDLE_SIZE / 2}px`;
@@ -864,6 +881,7 @@ function renderPeerOverlays(
 function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
+  styleHandleInteraction(el);
   el.className = `wfb-slides-handle wfb-slides-handle-${kind}`;
   el.style.position = 'absolute';
   el.style.left = `${cx - HANDLE_SIZE / 2}px`;
@@ -1144,6 +1162,7 @@ function renderAdjustmentHandles(
 function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
+  styleHandleInteraction(el);
   el.className = `wfb-slides-handle wfb-slides-adjust ${kind}`;
   el.style.position = 'absolute';
   el.style.left = `${cx - ADJUST_HANDLE_SIZE / 2}px`;
@@ -1160,6 +1179,7 @@ function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElem
 function makeBendHandle(cx: number, cy: number): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = 'bend';
+  styleHandleInteraction(el);
   el.className = 'wfb-slides-handle wfb-slides-bend';
   el.style.position = 'absolute';
   el.style.left = `${cx - ADJUST_HANDLE_SIZE / 2}px`;
