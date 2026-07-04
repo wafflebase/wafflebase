@@ -236,7 +236,7 @@ interface UnitInputProps {
   onCommit: (px: number) => void;
 }
 
-function UnitInput({
+export function UnitInput({
   label,
   valuePx,
   unit,

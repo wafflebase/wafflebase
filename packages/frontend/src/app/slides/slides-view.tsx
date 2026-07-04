@@ -893,6 +893,20 @@ export function SlidesView({
     const unsubscribeZoom =
       zoomController?.subscribe(() => refitCanvas()) ?? (() => {});
 
+    // Re-fit when the deck's slide height changes (the "Slide size"
+    // control writes meta.slideHeight). No ResizeObserver / zoom event
+    // fires for a pure meta edit, so without this the canvas keeps the
+    // old aspect until the next resize. Guarded on the height so ordinary
+    // edits (which also fire onChange) don't pay a refit.
+    let lastSlideHeightSeen = deckSlideHeight(store.read().meta);
+    const unsubscribeHeight = store.onChange(() => {
+      const h = deckSlideHeight(store.read().meta);
+      if (h !== lastSlideHeightSeen) {
+        lastSlideHeightSeen = h;
+        refitCanvas();
+      }
+    });
+
     // Mirror the scroll host's scroll offset into the editor's ruler.
     // The ruler is pinned at the canvas-area edges (so it stays visible
     // during scroll), but its tick origin needs to track the slide's
@@ -1109,6 +1123,7 @@ export function SlidesView({
     return () => {
       resizeObserver.disconnect();
       unsubscribeZoom();
+      unsubscribeHeight();
       scrollHost.removeEventListener("scroll", onScrollHostScroll);
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);

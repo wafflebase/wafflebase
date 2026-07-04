@@ -106,6 +106,56 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     check(yo, 'yorkie');
   });
 
+  it('setSlideHeight scales content + meta equivalently across stores', () => {
+    const { mem, yo } = runBoth((store) => {
+      let sid = '';
+      let a = '';
+      let b = '';
+      store.batch(() => { sid = store.addSlide('blank'); });
+      store.batch(() => {
+        a = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 100, y: 200, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        b = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 300, y: 400, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        store.addElement(sid, {
+          type: 'table',
+          frame: { x: 0, y: 600, w: 400, h: 200, rotation: 0 },
+          data: {
+            columnWidths: [200, 200],
+            rows: [
+              { height: 100, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+              { height: 100, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+            ],
+          },
+        });
+        store.addElement(sid, {
+          type: 'connector',
+          routing: 'straight',
+          arrowheads: {},
+          frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+          start: { kind: 'free', x: 100, y: 300 },
+          end: { kind: 'free', x: 500, y: 600 },
+        });
+      });
+      store.batch(() => { store.group(sid, [a, b]); });
+      store.batch(() => store.setSlideHeight(1440)); // 1080 → 1440
+    });
+    // stripIds compares meta (→ slideHeight) and every top-level frame.
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(mem.meta.slideHeight).toBe(1440);
+    expect(yo.meta.slideHeight).toBe(1440);
+    // Group frame (the two shapes' bbox y=200..500 → y*4/3, h*4/3).
+    const grp = mem.slides[0].elements.find((e) => e.type === 'group')!;
+    expect(grp.frame.y).toBeCloseTo(200 * (4 / 3), 2);
+    expect(grp.frame.h).toBeCloseTo(300 * (4 / 3), 2);
+  });
+
   it('add element, updateElementFrame, reorderElement, remove', () => {
     const { mem, yo } = runBoth((store) => {
       let slideId = '';

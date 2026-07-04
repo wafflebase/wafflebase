@@ -149,3 +149,38 @@ unchanged (`sy` already equalled `sx`; `slideHeight` left absent).
 but it is only hit when a layout id is absent from `doc.layouts` (which,
 post-import, already carries scaled copies) — not reachable on the normal
 paths. Manual UI smoke in `pnpm dev` still pending before merge.
+
+---
+
+## Follow-up: user-facing "Slide size" control
+
+The import fix set `meta.slideHeight` automatically; this adds a UI to
+change it. Decisions (with the user): **placement** = Format options
+panel's idle (no-selection) "Slide" section (no menu bar; deck-level
+belongs with the panel that already owns Size & Position). **Resize
+policy** = proportional scale of existing content.
+
+### Store — `setSlideHeight(height)` (deck-wide, one undo step)
+- [x] `SlidesStore` interface (`store/store.ts`).
+- [x] `MemSlidesStore` — scales every top-level element y/h by
+      `height/oldHeight`; groups pin `data.refSize` (absent) so the
+      frame→refSize transform scales children (no recursion); tables scale
+      row heights; connectors scale free-endpoint y then recompute frames.
+- [x] `YorkieSlidesStore` — CRDT mirror (in-place proxy mutation,
+      `slideElementsLookup` for connector recompute).
+- [x] `LayoutEditStore` delegate.
+
+### UI (`format-panel/`)
+- [x] `SlideSizeSection` — preset Select (16:9 / 4:3 / 16:10 / Custom) +
+      fixed Width + editable Height (`UnitInput`, exported from
+      `size-position-section`). Rendered in `FormatPanel` idle state.
+
+### Verify (follow-up)
+- [x] `mem-set-slide-height.test.ts` — shape/group/table/connector scale,
+      meta, no-op, undo (6).
+- [x] `yorkie-slides-equivalence.test.ts` — Mem ≡ Yorkie for
+      `setSlideHeight` over shape+table+group+connector.
+- [x] `slide-size-section.test.tsx` — width fixed, height commit/no-op (4).
+- [x] `pnpm verify:fast` — EXIT 0.
+- [ ] Manual UI smoke in `pnpm dev`: change size, confirm content scales
+      + peers see it (pending before merge).

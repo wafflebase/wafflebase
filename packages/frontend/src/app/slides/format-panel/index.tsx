@@ -9,8 +9,9 @@ import type {
   TextElement,
   AutofitMode,
 } from '@wafflebase/slides';
-import { findElementPath } from '@wafflebase/slides';
+import { deckSlideHeight, findElementPath } from '@wafflebase/slides';
 import { pickSections, type PanelSelection } from './pick-sections';
+import { SlideSizeSection } from './slide-size-section';
 import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
 import { RecolorSection } from './recolor-section';
@@ -163,6 +164,13 @@ export function FormatPanel({
     [store],
   );
 
+  const commitSlideHeight = useCallback(
+    (heightPx: number) => {
+      store.batch(() => store.setSlideHeight(heightPx));
+    },
+    [store],
+  );
+
   const commitElementData = useCallback(
     (ids: readonly string[], patch: object) => {
       if (selection.kind !== 'object') return;
@@ -228,9 +236,16 @@ export function FormatPanel({
   const content = (
     <>
       {selection.kind === 'idle' && (
-          <p className="p-4 text-xs text-muted-foreground">
-            Select an object to edit its format.
-          </p>
+          <>
+            <SlideSizeSection
+              heightPx={deckSlideHeight(store.read().meta)}
+              unit={unit}
+              onCommit={commitSlideHeight}
+            />
+            <p className="px-3 pb-3 text-[11px] text-muted-foreground">
+              Select an object to edit its format.
+            </p>
+          </>
         )}
         {selection.kind === 'object' &&
           sections.map((id) => {

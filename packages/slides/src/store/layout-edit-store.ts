@@ -128,6 +128,9 @@ export class LayoutEditStore implements SlidesStore {
   setUnit(unit: 'in' | 'cm'): void {
     this.real.setUnit(unit);
   }
+  setSlideHeight(height: number): void {
+    this.real.setSlideHeight(height);
+  }
   pushRecentColor(hex: string): void {
     this.real.pushRecentColor(hex);
   }

@@ -128,6 +128,17 @@ export interface SlidesStore {
   setUnit(unit: 'in' | 'cm'): void;
 
   /**
+   * Set the deck's logical slide height in px (width is fixed at
+   * {@link SLIDE_WIDTH}). Persisted on `meta.slideHeight` and applied
+   * deck-wide. Every top-level element on every slide is scaled
+   * vertically by `newHeight / currentHeight` so content stays
+   * proportionally placed (groups scale via their frame transform,
+   * tables via row heights, connectors via their free endpoints).
+   * A no-op when `height` equals the current height. One undo step.
+   */
+  setSlideHeight(height: number): void;
+
+  /**
    * Record a recently used srgb color (hex) on `meta.recentColors`,
    * most-recent-first, de-duped and capped at `MAX_RECENT_COLORS`.
    * Persisted per document so collaborators share the same recents.
