@@ -1,13 +1,30 @@
 import type { Inline, InlineStyle, BlockStyle, PageSetup, PageMargins, PaperSize } from '../model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import { mapRunProperties, mapParagraphProperties } from './docx-style-map.js';
-import { twipsToPx } from './units.js';
+import { twipsToPx, pointsToEmus } from './units.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const V = 'urn:schemas-microsoft-com:vml';
 const RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+
+/**
+ * Parse a legacy VML shape's CSS `style` attribute into an EMU extent so it
+ * shares the DrawingML `<wp:extent>` contract downstream. VML sizes are in
+ * points (e.g. "width:108pt;height:155.25pt"); anything without an explicit
+ * `pt` unit degrades to 0 so the natural image size is used instead.
+ */
+function parseVmlExtent(styleAttr: string | null): { cx: number; cy: number } {
+  if (!styleAttr) return { cx: 0, cy: 0 };
+  const w = /(?:^|;)\s*width:\s*([0-9.]+)pt/i.exec(styleAttr);
+  const h = /(?:^|;)\s*height:\s*([0-9.]+)pt/i.exec(styleAttr);
+  return {
+    cx: w ? pointsToEmus(parseFloat(w[1])) : 0,
+    cy: h ? pointsToEmus(parseFloat(h[1])) : 0,
+  };
+}
 
 export interface RelEntry {
   target: string;
@@ -88,6 +105,29 @@ export function parseParagraph(pEl: Element): {
         if (rId) {
           imageRefs.push({ rId, cx, cy });
           // Placeholder — the importer will fill in the actual URL after upload
+          inlines.push({
+            text: '\uFFFC',
+            style: { ...style, image: { src: `__pending__:${rId}`, width: 0, height: 0 } },
+          });
+        }
+      }
+      continue;
+    }
+
+    // Check for legacy VML image (<w:pict> → <v:shape> → <v:imagedata>).
+    // Older Word / Google-Docs exports embed pictures this way instead of
+    // DrawingML. The rId lives in <v:imagedata r:id> (namespaced `id`, not
+    // `r:embed`) and the size in the shape's CSS `style` (points).
+    const pict = r.getElementsByTagNameNS(W, 'pict')[0];
+    if (pict) {
+      const imagedata = pict.getElementsByTagNameNS(V, 'imagedata')[0];
+      if (imagedata) {
+        const rId =
+          imagedata.getAttributeNS(R_NS, 'id') || imagedata.getAttribute('r:id') || '';
+        if (rId) {
+          const shape = imagedata.parentElement;
+          const { cx, cy } = parseVmlExtent(shape?.getAttribute('style') ?? null);
+          imageRefs.push({ rId, cx, cy });
           inlines.push({
             text: '\uFFFC',
             style: { ...style, image: { src: `__pending__:${rId}`, width: 0, height: 0 } },

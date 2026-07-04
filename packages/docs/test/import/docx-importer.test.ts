@@ -826,6 +826,46 @@ describe('DocxImporter', () => {
     expect(inline!.style.image!.height).toBe(48);
   });
 
+  it('should import legacy VML <w:pict> images with pt-based dimensions', async () => {
+    // Some real-world .docx files (e.g. Google-Docs / older Word exports)
+    // embed images via legacy VML markup instead of DrawingML. The image
+    // reference lives in <v:imagedata r:id> and its size in the shape's CSS
+    // style (points), not in a <wp:extent> EMU pair. 72pt x 36pt → 96 x 48 px.
+    const pictXml = `
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:72pt;height:36pt">
+            <v:imagedata r:id="rId5" r:href="rId6"/>
+          </v:shape>
+        </w:pict>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const buffer = await createMinimalDocx(
+      `<w:p>${pictXml}</w:p>`,
+      {
+        relsXml,
+        extraFiles: { 'word/media/image1.png': pngBytes },
+      },
+    );
+    const doc = await DocxImporter.import(buffer, async () => 'https://example.com/image1.png');
+    const inline = doc.blocks[0].inlines.find((i) => !!i.style.image);
+    expect(inline).toBeDefined();
+    expect(inline!.style.image!.src).toBe('https://example.com/image1.png');
+    expect(inline!.style.image!.width).toBe(96);
+    expect(inline!.style.image!.height).toBe(48);
+  });
+
   it('should pass a typed image Blob to the uploader', async () => {
     // Regression for DOCX import failing with 400 from /images because the
     // Blob returned by JSZip has an empty `type`, which FormData then sends
