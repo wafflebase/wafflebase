@@ -101,8 +101,21 @@ export function FormatPanel({
       const slideId =
         selection.kind === 'object' ? selection.slideId : undefined;
       if (!slideId) return;
+      // A W/H change on a group leaves a residual non-uniform scale; bake
+      // it so the group rests at scale 1 (resting-scale invariant, see
+      // docs/design/slides/slides-group.md §6.1). x/y-only patches don't
+      // change scale, so only bake when the size actually changed.
+      const changesSize = patch.w !== undefined || patch.h !== undefined;
+      const groupIds =
+        changesSize && selection.kind === 'object'
+          ? ids.filter(
+              (id) =>
+                selection.elements.find((e) => e.id === id)?.type === 'group',
+            )
+          : [];
       store.batch(() => {
         for (const id of ids) store.updateElementFrame(slideId, id, patch);
+        for (const gid of groupIds) store.bakeGroupResize(slideId, gid);
       });
     },
     [store, selection],
@@ -199,6 +212,13 @@ export function FormatPanel({
               ? { w: newPx, h: newPx * ratio }
               : { h: newPx, w: ratio === 0 ? el.frame.w : newPx / ratio };
           store.updateElementFrame(selection.slideId, el.id, patch);
+        }
+        // Bake any resized group so it rests at scale 1 (resting-scale
+        // invariant, docs/design/slides/slides-group.md §6.1).
+        for (const el of elems) {
+          if (el.type === 'group') {
+            store.bakeGroupResize(selection.slideId, el.id);
+          }
         }
       });
     },

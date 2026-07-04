@@ -3,6 +3,8 @@ import { MemSlidesStore } from '../../src/store/memory';
 import type { GroupElement } from '../../src/model/element';
 import type { ConnectorElement } from '../../src/model/connector';
 import { applyGroupTransform } from '../../src/model/group';
+import type { Element } from '../../src/model/element';
+import { collectUnsettledGroups } from '../support/group-invariant';
 
 describe('group()', () => {
   it('requires at least two elements', () => {
@@ -1010,5 +1012,187 @@ describe('refitGroup()', () => {
         store.refitGroup(sid, aId);
       }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resting-scale invariant — regression for the "smiley squishes on ungroup"
+// bug. See docs/design/slides/slides-group.md §6.1 and
+// docs/tasks/active/20260704-ungroup-scale-invariant-todo.md.
+// ---------------------------------------------------------------------------
+
+describe('resting-scale invariant', () => {
+  function findDeep(els: Element[], id: string): Element | undefined {
+    for (const e of els) {
+      if (e.id === id) return e;
+      if (e.type === 'group') {
+        const r = findDeep(e.data.children, id);
+        if (r) return r;
+      }
+    }
+    return undefined;
+  }
+
+  it('bakeGroupResize recursively settles nested child groups', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string; let b!: string; let c!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape', frame: { x: 0, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape', frame: { x: 60, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      c = store.addElement(sid, {
+        type: 'shape', frame: { x: 0, y: 120, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let inner!: string;
+    store.batch(() => { inner = store.group(sid, [a, b]).groupId; });
+    let outer!: string;
+    store.batch(() => { outer = store.group(sid, [inner, c]).groupId; });
+
+    const g0 = findDeep(store.read().slides[0].elements, outer)! as GroupElement;
+    const w0 = g0.frame.w; const h0 = g0.frame.h;
+    const innerW0 = (findDeep(store.read().slides[0].elements, inner)! as GroupElement).frame.w;
+
+    // Non-uniform resize commit (updateElementFrame + bakeGroupResize),
+    // exactly the pattern the editor uses at resize onUp.
+    store.batch(() => {
+      store.updateElementFrame(sid, outer, { w: w0 * 2, h: h0 });
+      store.bakeGroupResize(sid, outer);
+    });
+
+    const els = store.read().slides[0].elements;
+    // The whole tree — outer AND inner — rests at scale 1.
+    expect(collectUnsettledGroups(els)).toEqual([]);
+    const innerG = findDeep(els, inner)! as GroupElement;
+    expect(innerG.data.refSize).toEqual({ w: innerG.frame.w, h: innerG.frame.h });
+    // The inner group's width was scaled by the outer's 2× (children
+    // follow the group), proving the bake actually descended.
+    expect(innerG.frame.w).toBeCloseTo(innerW0 * 2, 4);
+  });
+
+  // Build a group of a rotated "smiley" + a plain rect, then force a
+  // residual non-uniform scale WITHOUT baking — the exact state a pre-fix
+  // multi-resize / format-panel commit leaves behind.
+  function buildDirtyGroup(): {
+    store: MemSlidesStore; sid: string; groupId: string; aId: string;
+  } {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string; let b!: string;
+    store.batch(() => {
+      // Non-square (60×40) rotated 20° so scaleRotatedFrame's bbox solver
+      // produces a genuinely different result from the per-axis bake — a
+      // square child would hit the solver's degenerate fallback (which
+      // equals per-axis) and mask the bug.
+      a = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 60, h: 40, rotation: Math.PI / 9 },
+        data: { kind: 'smileyFace' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape', frame: { x: 160, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let groupId!: string;
+    store.batch(() => { groupId = store.group(sid, [a, b]).groupId; });
+    const g0 = store.read().slides[0].elements.find(
+      (e) => e.id === groupId,
+    ) as GroupElement;
+    // Mild 1.5× horizontal stretch (sx=1.5, sy=1) — keeps the solver in
+    // its positive-root branch instead of the degenerate fallback.
+    store.batch(() => {
+      store.updateElementFrame(sid, groupId, { w: g0.frame.w * 1.5, h: g0.frame.h });
+    });
+    return { store, sid, groupId, aId: a };
+  }
+
+  it('ungroup leaves no residual group scale even from a dirty group', () => {
+    const { store, sid, groupId } = buildDirtyGroup();
+    // Precondition: the group is genuinely dirty (scale ≈ 2×1).
+    expect(collectUnsettledGroups(store.read().slides[0].elements)).toHaveLength(1);
+
+    store.batch(() => { store.ungroup(sid, groupId); });
+    expect(collectUnsettledGroups(store.read().slides[0].elements)).toEqual([]);
+  });
+
+  it('ungroup(dirty) equals bakeGroupResize + ungroup (settle-first, no distortion)', () => {
+    // Path A: ungroup the dirty group directly.
+    const A = buildDirtyGroup();
+    A.store.batch(() => { A.store.ungroup(A.sid, A.groupId); });
+    const childA = A.store.read().slides[0].elements.find((e) => e.id === A.aId)!;
+
+    // Path B: bake the residual scale first, then ungroup.
+    const B = buildDirtyGroup();
+    B.store.batch(() => {
+      B.store.bakeGroupResize(B.sid, B.groupId);
+      B.store.ungroup(B.sid, B.groupId);
+    });
+    const childB = B.store.read().slides[0].elements.find((e) => e.id === B.aId)!;
+
+    // The rotated smiley's baked frame is identical either way — ungroup
+    // settles the scale internally instead of shearing it into a
+    // bbox-preserving rect.
+    expect(childA.frame.x).toBeCloseTo(childB.frame.x, 6);
+    expect(childA.frame.y).toBeCloseTo(childB.frame.y, 6);
+    expect(childA.frame.w).toBeCloseTo(childB.frame.w, 6);
+    expect(childA.frame.h).toBeCloseTo(childB.frame.h, 6);
+    expect(childA.frame.rotation).toBeCloseTo(childB.frame.rotation, 6);
+    // Rotation is preserved (not folded into a bbox).
+    expect(childA.frame.rotation).toBeCloseTo(Math.PI / 9, 6);
+  });
+
+  it('recursive bake scales grandchildren of a LEGACY nested group (no refSize)', () => {
+    const store = new MemSlidesStore();
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('blank', 0); });
+    let a!: string; let b!: string; let c!: string;
+    store.batch(() => {
+      a = store.addElement(sid, {
+        type: 'shape', frame: { x: 0, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      b = store.addElement(sid, {
+        type: 'shape', frame: { x: 60, y: 0, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      c = store.addElement(sid, {
+        type: 'shape', frame: { x: 0, y: 120, w: 40, h: 40, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+    });
+    let inner!: string;
+    store.batch(() => { inner = store.group(sid, [a, b]).groupId; });
+    // Simulate a legacy inner group created before the refSize field
+    // existed (the model documents refSize as optional / backward-compat).
+    store.batch(() => store.updateElementData(sid, inner, { refSize: undefined }));
+    let outer!: string;
+    store.batch(() => { outer = store.group(sid, [inner, c]).groupId; });
+
+    const grandBefore = (findDeep(store.read().slides[0].elements, a) as Element).frame.w;
+    const g0 = findDeep(store.read().slides[0].elements, outer) as GroupElement;
+
+    // Non-uniform 2× horizontal resize of the OUTER group + commit.
+    store.batch(() => {
+      store.updateElementFrame(sid, outer, { w: g0.frame.w * 2, h: g0.frame.h });
+      store.bakeGroupResize(sid, outer);
+    });
+
+    const els = store.read().slides[0].elements;
+    expect(collectUnsettledGroups(els)).toEqual([]);
+    // The grandchild inside the legacy inner group must have scaled with
+    // the group (width ×2), not been left at its original size inside a
+    // doubled inner frame.
+    const grandAfter = (findDeep(els, a) as Element).frame.w;
+    expect(grandAfter).toBeCloseTo(grandBefore * 2, 3);
   });
 });

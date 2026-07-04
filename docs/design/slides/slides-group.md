@@ -359,6 +359,94 @@ children within that group.
 All drags broadcast intermediate frames via presence and commit a
 single `store.batch` on `mouseup` — the existing pattern.
 
+#### 6.1 Resting-scale invariant (no residual non-uniform scale)
+
+**Invariant.** After any *committed* edit, every group at every nesting
+depth satisfies `data.refSize == { w: frame.w, h: frame.h }` — i.e. its
+render scale factor is exactly `1`. A non-uniform scale (`refSize !=
+frame`) is allowed to exist **only transiently during an active resize
+drag**, where it drives the renderer's proportional child scaling
+(`element-renderer.ts` applies `ctx.scale(frame.w/refSize.w,
+frame.h/refSize.h)`). On commit the scale is baked into the children via
+`store.bakeGroupResize` (→ `bakeGroupScale`), which multiplies every
+child frame by `(sx, sy)` and resets `refSize = frame`.
+
+**Why it matters (the ungroup-distortion bug).** The renderer composes
+the group scale *outside* a child's own rotation — a rotated child's
+geometry sees `Scale(sx,sy) · Rotate(φ)`, which for non-uniform `(sx,sy)`
+is a **shear** (a circle becomes a tilted ellipse). `ungroup()` bakes a
+child back to world space with `applyGroupTransform` →
+`scaleRotatedFrame`, an axis-aligned bbox-preserving rectangle that can
+only represent `Rotate(φ) · Scale(sx',sy')` — **no shear**. `Scale` and
+`Rotate` commute only when the scale is uniform *or* the child is
+unrotated, so a rotated child under a residual non-uniform group scale
+**visibly changes shape the instant it is ungrouped** (measured
+Frobenius Δ of the two 2×2 maps ≈ 0.71 for a 2:1 scale + 30° child).
+The classic symptom is a "smiley face" that squishes on ungroup.
+
+Holding the invariant makes this class of bug impossible: at rest every
+group has scale `1`, so the renderer applies no scale (no shear) and
+`ungroup` bakes only translate/rotate — a child's geometry is identical
+before and after ungroup, rotated or not, at any depth.
+
+**Enforcement.** `refSize` is seeded equal to `frame` at group creation
+(`store.group()`) and PPTX import already bakes `<a:chExt>/<a:ext>` into
+child world frames so imported groups also rest at scale `1`. The
+invariant only leaks through commit paths that change a group's `frame.w
+/ h` without baking. Every such path must call `bakeGroupResize` in the
+same `batch`:
+
+| Commit path | Site | Status before | Fix |
+| --- | --- | --- | --- |
+| Single-element resize | `editor.ts` `startResize` `onUp` | bakes ✓ | — |
+| Multi-select resize | `editor.ts` `startMultiResize` `onUp` | **no bake** | bake each group in selection |
+| Format panel W/H (`commitFrame`) | `format-panel/index.tsx` | **no bake** | bake if target is a group |
+| Format panel W/H (`lockedResize`) | `format-panel/index.tsx` | **no bake** | bake if target is a group |
+| Align / distribute / arrange / rotate / move / nudge / crop / autofit | various | x/y/rotation only — no scale | — (no bake needed) |
+
+`bakeGroupResize` is made **recursive**: after baking a group's scale
+into its direct children, any child that is itself a group now has a
+non-`1` scale (its `frame` was scaled but its `refSize` was not), so the
+bake descends into it (DFS). This keeps the per-level `bakeGroupScale`
+contract unchanged while holding the invariant through nested groups.
+The added subtree rewrite only happens at resize *commit* (not per
+`mousemove`), so CRDT churn stays bounded; nested groups are rare.
+
+**Ungroup settles first.** `ungroup()` calls the recursive bake on the
+target group *before* baking translate/rotate into its children. This is
+both a correctness step (child frames end up sensibly scaled) and a
+safety net: even if a future commit path forgets to bake, ungroup will
+not distort. It also fixes the **nested-child-group `refSize` leak** —
+previously a child group emerged from `ungroup` with `frame != refSize`
+because `applyGroupTransform` scaled its `frame` while `clone()` copied
+its stale `refSize`; settling to scale `1` first removes the scale that
+would have leaked.
+
+**Guard.** A DEV/test-only helper `assertGroupsSettled(elements)` walks
+the tree and asserts `refSize ≈ frame` for every group; regression tests
+call it after resize/ungroup commits so a future un-baked commit path
+fails loudly. Both stores implement the fix: `MemSlidesStore`
+(`store/memory.ts`, unit-tested) and `YorkieSlidesStore`
+(`frontend/.../yorkie-slides-store.ts`, live app); the shared math stays
+in `model/group.ts`.
+
+**Accepted trade-off — nested rotated children flatten on resize.**
+Because the bake is recursive, non-uniformly resizing an *outer* group
+now bakes the scale into a *nested* subgroup's rotated child as an
+axis-aligned rotated rect (`Rotate·Scale`), rather than leaving the
+subgroup with a residual scale that the renderer would compose as a
+shear (`Scale·Rotate`). The data model has no shear field, so a shape
+cannot be both a stored element and a sheared silhouette — this is the
+same "no shear at rest" limitation the single-level bake already accepts
+(the pre-existing single-resize commit at `editor.ts` already flattens a
+rotated *direct* child on resize). Extending it to nested children keeps
+the behavior consistent at every depth; the alternative (leave nested
+subgroups non-uniform) is exactly the residual-scale state that distorts
+those children the moment they are ungrouped. A legacy child group with
+no `refSize` is seeded with its pre-scale frame before baking so the
+recursion scales its grandchildren correctly instead of dropping the
+parent's scale for that subtree.
+
 ### 7. Connectors
 
 ConnectorElements can endpoint-reference other elements by id.

@@ -6233,6 +6233,21 @@ class SlidesEditorImpl implements SlidesEditor {
         this.repaintOverlay();
         return;
       }
+      // Groups in the selection had their frame.w/h changed above without
+      // baking, leaving a residual non-uniform scale. Bake it into their
+      // children so they rest at scale 1 — same as the single-resize path
+      // (startResize onUp) and required by the resting-scale invariant
+      // (docs/design/slides/slides-group.md §6.1). Without this, ungrouping
+      // a multi-resized group would distort rotated children (the "smiley
+      // squishes" bug).
+      const resizedGroupIds = snapshots
+        .filter(
+          (s) =>
+            s.kind === 'frame' &&
+            frames.has(s.id) &&
+            findElement(startSlide.elements, s.id)?.type === 'group',
+        )
+        .map((s) => s.id);
       this.options.store.batch(() => {
         for (const snap of snapshots) {
           const wf = frames.get(snap.id);
@@ -6248,6 +6263,9 @@ class SlidesEditorImpl implements SlidesEditor {
             snap.id,
             fromWorldFrame(wf, scope, startSlide),
           );
+        }
+        for (const gid of resizedGroupIds) {
+          this.options.store.bakeGroupResize(startSlide.id, gid);
         }
         for (const [id, eps] of connectorEndpoints) {
           this.options.store.updateConnectorEndpoint(startSlide.id, id, 'start', eps.start);
