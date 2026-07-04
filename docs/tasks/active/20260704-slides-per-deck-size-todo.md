@@ -99,8 +99,8 @@ centralizes the fallback.
 - [x] `pnpm verify:fast` — EXIT 0 (slides/frontend/docs/backend/sheets green).
 - [x] Real-file check: imported "Yorkie branding_v1.pptx" → `slideHeight
       =1440`, 16 slides, content spans full 1440 canvas (isotropic).
-- [ ] Manual UI smoke in `pnpm dev`: re-import the branding deck, confirm
-      no distortion (pending — do before merge).
+- [x] Manual UI smoke in `pnpm dev`: re-imported the branding deck, no
+      distortion.
 
 ## Review
 
@@ -182,5 +182,5 @@ policy** = proportional scale of existing content.
       `setSlideHeight` over shape+table+group+connector.
 - [x] `slide-size-section.test.tsx` — width fixed, height commit/no-op (4).
 - [x] `pnpm verify:fast` — EXIT 0.
-- [ ] Manual UI smoke in `pnpm dev`: change size, confirm content scales
-      + peers see it (pending before merge).
+- [x] Manual UI smoke in `pnpm dev`: changed size, content scales + peers
+      see it.
