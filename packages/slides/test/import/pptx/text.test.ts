@@ -125,6 +125,41 @@ describe('parseTextBody — paragraphs', () => {
     expect(block.style.textIndent).toBe(-48);
   });
 
+  it('defaults to PowerPoint single spacing and no paragraph margins', () => {
+    // The docs word-processor defaults (1.5 line height, 8 px bottom margin)
+    // must not leak into imported slides. PPTX single spacing renders at
+    // ~1.2× (not 1.0, which packs body text too tight), with no implicit
+    // inter-paragraph gap.
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    expect(block.style.lineHeight).toBe(1.2);
+    expect(block.style.marginTop).toBe(0);
+    expect(block.style.marginBottom).toBe(0);
+  });
+
+  it('maps <a:spcBef>/<a:spcAft> spcPts to top/bottom margins in px', () => {
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:pPr>
+        <a:spcBef><a:spcPts val="600"/></a:spcBef>
+        <a:spcAft><a:spcPts val="1600"/></a:spcAft>
+      </a:pPr>
+      <a:r><a:t>x</a:t></a:r>
+    </a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    // 6pt × 96/72 = 8; 16pt × 96/72 = 21.333…
+    expect(block.style.marginTop).toBeCloseTo(8, 6);
+    expect(block.style.marginBottom).toBeCloseTo(21.3333, 3);
+  });
+
+  it('honors an explicit <a:spcAft val="0"> instead of the docs 8 px default', () => {
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p>
+      <a:pPr><a:spcAft><a:spcPts val="0"/></a:spcAft></a:pPr>
+      <a:r><a:t>x</a:t></a:r>
+    </a:p></a:txBody>`);
+    const block = parseTextBody(t, { report: new ImportReport() })[0];
+    expect(block.style.marginBottom).toBe(0);
+  });
+
   it('classifies bulleted and numbered paragraphs as list-items', () => {
     const t = txBody(`<a:txBody>
       <a:bodyPr/>

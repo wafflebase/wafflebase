@@ -74,6 +74,16 @@ function blockToXml(block: Block): string {
       ? `<a:lnSpc><a:spcPct val="${Math.round(block.style.lineHeight * 100_000)}"/></a:lnSpc>`
       : '';
 
+  // spcBef / spcAft — importer reads <a:spcPts val> (hundredths of a point)
+  // and scales by 96/72 into px. Invert: px → points × 100. Emit only when
+  // non-zero (zero is the PPTX default). OOXML pPr order: lnSpc, spcBef, spcAft.
+  const spcBef = block.style.marginTop
+    ? `<a:spcBef><a:spcPts val="${Math.round((block.style.marginTop * 72) / 96 * 100)}"/></a:spcBef>`
+    : '';
+  const spcAft = block.style.marginBottom
+    ? `<a:spcAft><a:spcPts val="${Math.round((block.style.marginBottom * 72) / 96 * 100)}"/></a:spcAft>`
+    : '';
+
   // Bullet marker style — emit buClr, buSzPts, buFont BEFORE buAutoNum/buChar
   // per OOXML pPr child order. Only meaningful on list items; only emit when present.
   const markerXml = block.listKind ? markerToXml(block.marker) : '';
@@ -82,7 +92,7 @@ function blockToXml(block: Block): string {
   if (block.listKind === 'ordered') buType = '<a:buAutoNum type="arabicPeriod"/>';
   else if (block.listKind === 'unordered') buType = '<a:buChar char="•"/>';
 
-  const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${markerXml}${buType}</a:pPr>`;
+  const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${spcBef}${spcAft}${markerXml}${buType}</a:pPr>`;
   const runs = block.inlines.map(runToXml).join('');
   return `<a:p>${pPr}${runs}</a:p>`;
 }

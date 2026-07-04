@@ -87,6 +87,37 @@ export function detectVerticalAnchor(txBody: Element): VerticalAnchorMode | unde
 const DEFAULT_INS = { l: 91_440, t: 45_720, r: 91_440, b: 45_720 } as const;
 
 /**
+ * Points → CSS px at 96 dpi. The docs layout engine renders `fontSize`
+ * (points) via the same 96/72 factor, so paragraph margins derived from
+ * point-valued `<a:spcBef>`/`<a:spcAft>` must use it too to scale in step
+ * with the text they space.
+ */
+const PX_PER_PT = 96 / 72;
+
+/**
+ * Line-height multiplier for PowerPoint "single" line spacing (a paragraph
+ * with no `<a:lnSpc>`). PowerPoint's single spacing includes the font's
+ * natural leading, rendering at roughly 1.2× the em — so 1.0 packs text too
+ * tight and the docs 1.5 word-processor default spreads it too far. Explicit
+ * `<a:lnSpc>` percentages still override this per paragraph.
+ */
+const PPTX_SINGLE_LINE_HEIGHT = 1.2;
+
+/**
+ * Convert an `<a:spcBef>` / `<a:spcAft>` container to a px margin. Reads
+ * absolute `<a:spcPts>` (hundredths of a point) only; returns `undefined`
+ * when the element is absent or uses the rare percent-of-line form so the
+ * caller can leave the axis at its default.
+ */
+function parseSpacingPx(spc: Element | undefined): number | undefined {
+  if (!spc) return undefined;
+  const pts = child(spc, 'spcPts');
+  if (!pts) return undefined;
+  const v = attrInt(pts, 'val');
+  return v != null ? (v / 100) * PX_PER_PT : undefined;
+}
+
+/**
  * Read `<a:bodyPr lIns/tIns/rIns/bIns>` and convert EMU → deck-canvas px via
  * the per-axis scale (horizontal insets use `sx`, vertical use `sy`), exactly
  * like table-cell padding. Returns `undefined` when `<a:bodyPr>` declares no
@@ -220,7 +251,21 @@ function parseParagraphProperties(
   list: ListInfo | undefined;
   marker: BlockMarker | undefined;
 } {
-  const style: BlockStyle = { ...DEFAULT_BLOCK_STYLE };
+  // PPTX paragraphs carry no implicit inter-paragraph gap, and their
+  // default line spacing is PowerPoint "single" — which renders at ~1.2×
+  // the font size (it folds in the font's natural leading), NOT 1.0.
+  // `DEFAULT_BLOCK_STYLE` is the docs *word-processor* default (1.5 line
+  // height, 8 px bottom margin); inheriting it made every imported line
+  // 25 % too tall and injected an 8 px gap the source never asked for —
+  // visible as over-wide blank lines. But 1.0 is the opposite error: it
+  // strips the leading and packs body text too tight. Reset to the PPTX
+  // single-spacing defaults, then layer on whatever the deck specifies.
+  const style: BlockStyle = {
+    ...DEFAULT_BLOCK_STYLE,
+    lineHeight: PPTX_SINGLE_LINE_HEIGHT,
+    marginTop: 0,
+    marginBottom: 0,
+  };
   if (!pPr) return { style, list: undefined, marker: undefined };
 
   const algn = attr(pPr, 'algn');
@@ -237,10 +282,20 @@ function parseParagraphProperties(
       const v = attrInt(pct, 'val');
       if (v != null) style.lineHeight = v / 100_000;
     }
-    // spcPts (absolute points) is rare; ignore for v1 — design doc says
-    // docs's lineHeight is a ratio, not an absolute, so the closest
-    // faithful translation is keeping the default 1.5.
+    // spcPts (absolute points) is rare; ignore for v1 — docs's lineHeight is
+    // a ratio, not an absolute, so the closest faithful translation is
+    // keeping the single-spacing default.
   }
+
+  // Paragraph spacing — `<a:spcBef>`/`<a:spcAft>` map to the block's top /
+  // bottom margins. Reading these is also what stops a source `spcAft="0"`
+  // from silently keeping the docs 8 px default. Absolute `<a:spcPts>` is the
+  // common form and the only one docs px margins can represent faithfully;
+  // `<a:spcPct>` (percent of a line) is rare and skipped.
+  const before = parseSpacingPx(child(pPr, 'spcBef'));
+  if (before != null) style.marginTop = before;
+  const after = parseSpacingPx(child(pPr, 'spcAft'));
+  if (after != null) style.marginBottom = after;
 
   // Indent / left margin — PPTX values are in EMU; docs values are px.
   // We don't have the slide scale at parse time, so we approximate with

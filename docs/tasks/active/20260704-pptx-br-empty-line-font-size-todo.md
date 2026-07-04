@@ -34,11 +34,29 @@ also inflates the *preceding* content line (`max(8, 11) = 11`).
 - [x] Verified end-to-end against the real deck (all blank/newline
       inlines in the roadmap box now carry 8pt, no `undefined`).
 
-## Out of scope (separate fidelity gaps)
+## Follow-up: paragraph spacing (same box, second report)
 
-- Importer defaults `lineHeight` to docs `1.5` when `<a:lnSpc>` absent
-  (PPTX default is 1.0) — inflates all lines uniformly.
-- `<a:spcBef>` / `<a:spcAft>` / absolute `spcPts` line spacing unparsed.
+After the font-size fix the gap between "v0.3: SaaS 오픈" and
+"더 쉽고 빠른…" (which sandwich the empty paragraph) was still too wide.
+Measured the box's blocks: every block carried `lineHeight=1.5` and
+`marginBottom=8` — docs *word-processor* defaults inherited from
+`DEFAULT_BLOCK_STYLE`, even though the source sets `spcBef=0`/`spcAft=0`
+and no `<a:lnSpc>` (PPTX default is single spacing, zero para gap).
 
-These affect all imported text uniformly, not the reported
-disproportionate-newline symptom.
+- [x] Reset imported paragraph spacing to PPTX defaults: `lineHeight 1.2`
+      (PowerPoint "single" ≈ 1.2×, folds in the font's leading; 1.0 packs
+      body text too tight), `marginTop/marginBottom 0` (was 1.5 / 0 / 8).
+- [x] Parse `<a:spcBef>`/`<a:spcAft>` `spcPts` → `marginTop`/`marginBottom`
+      (points × 96/72 → px); honors an explicit `spcAft="0"`.
+- [x] Export inverse: emit `<a:spcBef>`/`<a:spcAft>` from margins (OOXML
+      order lnSpc → spcBef → spcAft) so round-trip holds.
+- [x] Tests: default single-spacing/zero-margin, spcBef/spcAft mapping,
+      explicit-zero, export emission + omission; round-trip suite green.
+- [x] Verified on the real deck: blocks now `lineHeight=1`, `mBot=0` on
+      the v0.3 line + blank line, `mBot=21.3px` (=16pt spcAft) on the
+      bullet paragraph.
+
+## Still out of scope
+
+- `<a:lnSpc>` absolute `spcPts` line spacing (docs lineHeight is a ratio).
+- `<a:spcBef>`/`<a:spcAft>` percent-of-line (`spcPct`) form (rare).

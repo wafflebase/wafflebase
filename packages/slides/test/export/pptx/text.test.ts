@@ -98,6 +98,31 @@ describe('textBodyToXml', () => {
     expect(xml).toContain('algn="ctr"');
   });
 
+  it('emits spcBef/spcAft from top/bottom margins (px → spcPts)', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: 'A', style: {} }],
+      // 8 px → 6pt (val 600); 21.333 px → 16pt (val 1600).
+      style: { ...DEFAULT_BLOCK_STYLE, marginTop: 8, marginBottom: 21.3333 },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).toContain('<a:spcBef><a:spcPts val="600"/></a:spcBef>');
+    expect(xml).toContain('<a:spcAft><a:spcPts val="1600"/></a:spcAft>');
+  });
+
+  it('omits spcBef/spcAft when margins are zero', () => {
+    const block: Block = {
+      id: 'b',
+      type: 'paragraph',
+      inlines: [{ text: 'A', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE, marginTop: 0, marginBottom: 0 },
+    };
+    const xml = textBodyToXml({ blocks: [block] });
+    expect(xml).not.toContain('<a:spcBef>');
+    expect(xml).not.toContain('<a:spcAft>');
+  });
+
   it('emits ordered list bullet', () => {
     const block: Block = {
       id: 'b',
