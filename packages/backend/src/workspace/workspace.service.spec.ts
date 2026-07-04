@@ -67,6 +67,29 @@ describe('WorkspaceService', () => {
         data: { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 1, role: 'owner' },
       });
     });
+
+    it('falls back to a non-empty slug when the name has no ASCII alphanumerics', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(null); // slug check
+      prisma.workspace.create.mockResolvedValue({ id: 'ws-1', name: '라라랄' });
+      prisma.workspaceMember.create.mockResolvedValue({});
+
+      await service.create(1, { name: '라라랄' });
+
+      const slug = prisma.workspace.create.mock.calls[0][0].data.slug as string;
+      expect(slug).toBe('workspace');
+    });
+
+    it('appends a suffix when the fallback slug is already taken', async () => {
+      // First lookup (the fallback base) collides; the suffixed slug is used.
+      prisma.workspace.findUnique.mockResolvedValue({ id: 'existing' });
+      prisma.workspace.create.mockResolvedValue({ id: 'ws-2', name: '🚀' });
+      prisma.workspaceMember.create.mockResolvedValue({});
+
+      await service.create(1, { name: '🚀' });
+
+      const slug = prisma.workspace.create.mock.calls[0][0].data.slug as string;
+      expect(slug).toMatch(/^workspace-[a-z0-9]{4}$/);
+    });
   });
 
   describe('findAllByUser', () => {
