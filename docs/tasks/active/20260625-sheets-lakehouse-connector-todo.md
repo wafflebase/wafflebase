@@ -1,8 +1,6 @@
 # TODO — Lakehouse connector in sheets (Roadmap ②)
 
-Design doc: [lakehouse-connected-sheet.md](../../design/sheets/lakehouse-connected-sheet.md) ·
-Issue bodies: [20260625-sheets-external-data-sources-issues.md](20260625-sheets-external-data-sources-issues.md) ·
-Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
+Design doc: [lakehouse-connected-sheet.md](../../design/sheets/lakehouse-connected-sheet.md) · Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
 
 Reads open table formats (Iceberg/Delta) from object storage via embedded
 DuckDB, with a time-travel slider. Reuses the datasource read-only spine.

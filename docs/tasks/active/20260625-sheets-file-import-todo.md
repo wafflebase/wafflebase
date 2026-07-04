@@ -1,8 +1,6 @@
 # TODO — File Import in sheets (Roadmap ①)
 
-Design doc: [file-import.md](../../design/sheets/file-import.md) ·
-Issue bodies: [20260625-sheets-external-data-sources-issues.md](20260625-sheets-external-data-sources-issues.md) ·
-Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
+Design doc: [file-import.md](../../design/sheets/file-import.md) · Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
 
 Engine split by **size/location, not format**: small local files parse
 client-side; large/remote/object-storage files use the backend DuckDB engine

@@ -4,8 +4,6 @@ Umbrella for the three "Connected Sheets over the open stack" roadmaps. This
 file is the **map**: strategy, master dependency graph, and links to each
 roadmap's design doc (architecture) and task doc (execution).
 
-Issue bodies (paste-ready): [20260625-sheets-external-data-sources-issues.md](20260625-sheets-external-data-sources-issues.md)
-
 **Strategy:** one embedded **DuckDB** engine (in the NestJS backend) + the
 existing datasource read-only spine unlock a family of sources — the open-stack
 equivalent of Connected Sheets. Two ingestion modes apply across all:
@@ -71,7 +69,7 @@ vision; not yet scoped into roadmaps):
 ## Cross-cutting
 
 - [ ] Design docs landed on `docs/ideation` branch.
-- [ ] Maintainer files 3 roadmap issues + subissues from the issue-bodies doc.
+- [ ] Maintainer files 3 roadmap issues + subissues.
 - [ ] Per roadmap completion: lessons in the paired `*-lessons.md`, then
       `pnpm tasks:archive && pnpm tasks:index`.
 

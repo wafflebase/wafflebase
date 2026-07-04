@@ -1,8 +1,6 @@
 # TODO — BigQuery connector in sheets (③, single feature issue)
 
-Design doc: [bigquery-connector.md](../../design/sheets/bigquery-connector.md) ·
-Issue bodies: [20260625-sheets-external-data-sources-issues.md](20260625-sheets-external-data-sources-issues.md) ·
-Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
+Design doc: [bigquery-connector.md](../../design/sheets/bigquery-connector.md) · Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
 
 Single feature issue (no subissues). The milestones below are internal, not
 separate issues; may ship in 1–2 PRs, each `pnpm verify:fast` green. Extends the
@@ -15,10 +13,10 @@ Each task lists **what / files / reuse / done**. Mirror
 ## Task breakdown (internal milestones, not subissues)
 
 ```
-  M1 connection ─► M2 query ─► { M3 cost guardrails ★, M4 schema browser, M5 frontend, M6 refresh(later) }
+  BQ-1 connection ─► BQ-2 query ─► { BQ-3 cost guardrails ★, BQ-4 schema browser, BQ-5 frontend, BQ-6 refresh(later) }
 ```
 
-### M1 — Connection model
+### BQ-1 — Connection model
 
 **Goal:** store an encrypted BigQuery connection.
 **Files:** `packages/backend/prisma/schema.prisma`,
@@ -30,7 +28,7 @@ Each task lists **what / files / reuse / done**. Mirror
 - [ ] **Module scaffold (controller/dto/service)** — workspace-scoped CRUD +
   `POST /:id/test`. Done: controller-contract e2e green.
 
-### M2 — Query execution
+### BQ-2 — Query execution
 
 **Goal:** run GoogleSQL and render read-only.
 **Files:** `packages/backend/src/bigquery/bigquery.service.ts`, reuse
@@ -43,7 +41,7 @@ Each task lists **what / files / reuse / done**. Mirror
   rowCount, truncated, executionTime }`; STRUCT/ARRAY → JSON-string via `toCell`.
   Done: a SELECT renders read-only in a tab.
 
-### M3 — Cost guardrails ★ (the defining BigQuery concern)
+### BQ-3 — Cost guardrails ★ (the defining BigQuery concern)
 
 **Goal:** never let a runaway scan bill.
 **Files:** `bigquery.service.ts`, frontend BigQuery view.
@@ -55,7 +53,7 @@ Each task lists **what / files / reuse / done**. Mirror
 - [ ] **Warning UI** — banner + confirm when estimate exceeds a threshold. Done:
   user confirms before an expensive run.
 
-### M4 — Schema browser
+### BQ-4 — Schema browser
 
 **Goal:** browse datasets/tables/columns.
 **Files:** `bigquery.service.ts` (+ endpoint), frontend sidebar.
@@ -63,7 +61,7 @@ Each task lists **what / files / reuse / done**. Mirror
 - [ ] **List datasets → tables → columns** — via the BigQuery metadata API. Done:
   sidebar lists; click inserts into the editor.
 
-### M5 — Frontend
+### BQ-5 — Frontend
 
 **Goal:** end-to-end UX.
 **Files:** `packages/frontend/src/components/bigquery-dialog.tsx`,
@@ -74,7 +72,7 @@ Each task lists **what / files / reuse / done**. Mirror
 - [ ] **SQL editor view + cost banner** — reuse the datasource view shell; show
   the dry-run estimate above Run. Done: create → query → results + estimate.
 
-### M6 — Scheduled refresh / result cache (later)
+### BQ-6 — Scheduled refresh / result cache (later)
 
 - [ ] **Cache last result per tab; manual + optional interval refresh** — re-run
   shows a fresh estimate. Done: cached results reused; refresh re-runs.

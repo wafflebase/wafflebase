@@ -1,8 +1,6 @@
 # TODO — MySQL connector in sheets (④, single feature issue)
 
-Design doc: [mysql-connector.md](../../design/sheets/mysql-connector.md) ·
-Issue bodies: [20260625-sheets-external-data-sources-issues.md](20260625-sheets-external-data-sources-issues.md) ·
-Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
+Design doc: [mysql-connector.md](../../design/sheets/mysql-connector.md) · Epic index: [20260625-sheets-external-data-sources-todo.md](20260625-sheets-external-data-sources-todo.md)
 
 Single feature issue (no subissues). Milestones below are internal; ~1 PR,
 `pnpm verify:fast` green. Extends the existing PostgreSQL datasource to
