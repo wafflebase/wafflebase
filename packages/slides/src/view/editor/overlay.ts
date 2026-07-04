@@ -20,7 +20,11 @@ import {
   SHAPE_HOVER_RADIUS,
   SITE_SNAP_RADIUS,
 } from './interactions/insert-connector';
-import { RESIZE_HANDLE_CURSORS, type ResizeHandle } from './hit-test';
+import {
+  RESIZE_HANDLE_CURSORS,
+  rotatedResizeCursor,
+  type ResizeHandle,
+} from './hit-test';
 import type { PeerOverlays } from './peers';
 
 const HANDLE_SIZE = 8;             // px
@@ -609,11 +613,18 @@ function renderCropHandles(
 
   for (const [kind, lx, ly] of handleLocalPositions(frame)) {
     const w = localToWorld(lx, ly);
-    overlay.appendChild(makeCropHandle(kind, w.x * scale, w.y * scale));
+    overlay.appendChild(
+      makeCropHandle(kind, w.x * scale, w.y * scale, frame.rotation),
+    );
   }
 }
 
-function makeCropHandle(kind: string, cx: number, cy: number): HTMLDivElement {
+function makeCropHandle(
+  kind: string,
+  cx: number,
+  cy: number,
+  rotation = 0,
+): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
   styleHandleInteraction(el);
@@ -626,7 +637,10 @@ function makeCropHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   el.style.background = '#000';
   el.style.border = '1px solid #fff';
   el.style.boxSizing = 'border-box';
-  el.style.cursor = RESIZE_HANDLE_CURSORS[kind as ResizeHandle] ?? 'default';
+  el.style.cursor =
+    kind in RESIZE_HANDLE_CURSORS
+      ? handleCursor(kind, rotation)
+      : 'default';
   return el;
 }
 
@@ -656,10 +670,11 @@ function renderRotatedHandles(
   outline.style.border = '1px solid #3a7';
   overlay.appendChild(outline);
 
-  // Eight resize handles at the rotated corners / edge midpoints.
+  // Eight resize handles at the rotated corners / edge midpoints. The
+  // cursor rotates with the frame so it matches the handle's real axis.
   for (const [kind, lx, ly] of handleLocalPositions(frame)) {
     const w = localToWorld(lx, ly);
-    overlay.appendChild(makeHandle(kind, w.x * scale, w.y * scale));
+    overlay.appendChild(makeHandle(kind, w.x * scale, w.y * scale, frame.rotation));
   }
 
   // Rotate handle: ROTATE_HANDLE_OFFSET (host px) above the rotated
@@ -878,7 +893,12 @@ function renderPeerOverlays(
   }
 }
 
-function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
+function makeHandle(
+  kind: string,
+  cx: number,
+  cy: number,
+  rotation = 0,
+): HTMLDivElement {
   const el = document.createElement('div');
   el.dataset.handle = kind;
   styleHandleInteraction(el);
@@ -891,7 +911,7 @@ function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {
   el.style.background = kind === 'rotate' ? '#fff' : '#3a7';
   el.style.border = kind === 'rotate' ? '1px solid #3a7' : '1px solid #fff';
   el.style.borderRadius = kind === 'rotate' ? '50%' : '0';
-  el.style.cursor = handleCursor(kind);
+  el.style.cursor = handleCursor(kind, rotation);
   return el;
 }
 
@@ -1122,13 +1142,17 @@ function makePermanentGuide(
  */
 const GUIDE_EXTEND_PX = 10_000;
 
-function handleCursor(kind: string): string {
+function handleCursor(kind: string, rotation = 0): string {
   // Resize cursors route through the single source of truth in
   // `hit-test.ts` so the P2.7 edge-zone affordance and the 8-px handle
   // DOM elements can never drift apart on a designer-driven cursor
-  // convention change. `rotate` and the fallback live here.
+  // convention change. When the element is rotated, the cursor rotates
+  // with it (`rotatedResizeCursor` reduces to the static map at 0).
+  // `rotate` and the fallback live here.
   if (kind in RESIZE_HANDLE_CURSORS) {
-    return RESIZE_HANDLE_CURSORS[kind as ResizeHandle];
+    return rotation === 0
+      ? RESIZE_HANDLE_CURSORS[kind as ResizeHandle]
+      : rotatedResizeCursor(kind as ResizeHandle, rotation);
   }
   if (kind === 'rotate') return 'crosshair';
   return 'default';
