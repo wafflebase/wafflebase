@@ -107,6 +107,24 @@ load, drifting from the painted glyphs until reload.
       fixes both the word-width and char-offset staleness.
 - [x] docs suite green (1071 pass); typecheck clean.
 
+### PR #444 CodeRabbit round
+
+- [x] **`knownCaches` retains dead Maps (Major).** The drain registry strongly
+      held every per-measurer Map forever, defeating the WeakMaps' GC intent —
+      one leaked cache pair per disposed editor (pre-existing for the width
+      cache, doubled by the offset cache). Added `disposeMeasureCache(measurer)`
+      to `layout.ts`, called from `editor.dispose()`; exported from the package
+      index.
+- [x] **`document.fonts.ready` fallback (Major).** `loadingdone` is unreliable
+      on WebKit/Safari. `initialize()` now also settles via `fonts.ready`,
+      armed only when `status === 'loading'` at mount, guarded on dispose.
+      (Mid-session Safari font picks would still want the slides-style per-apply
+      `fonts.load().then()` in the frontend picker — noted as follow-up.)
+- [x] **Stale task-doc `#2` "Still open" entry (Minor).** Removed.
+- [ ] Declined: extract shared `installCanvasShim` into `test-utils.ts` — CR
+      marked "Low value / Trivial"; the shims carry per-test variations and the
+      duplication is contained. Left to keep the PR focused.
+
 **Second finding (unbounded cache growth) — accepted as known limitation.**
 The offset cache shares the exact lifecycle of the pre-existing word-width
 cache, whose unbounded growth `docs-rendering-optimization.md` explicitly
@@ -143,7 +161,7 @@ mutation). Tables are not the perf-sensitive path, so this is a safe, minimal
 boundary.
 
 **Still open (separate fixes):**
-- #2 — `computeCharOffsets` bypasses `cachedMeasureText`; caret/selection
-  resolvers re-measure instead of reusing `LayoutRun.charOffsets`. Makes the
-  full-relayout paths (remote edits, undo/redo, resize) cheaper.
-- #3 — remote-edit / undo-redo / resize still force a full re-layout.
+- #3 — remote-edit / undo-redo / resize still force a full re-layout pass
+  (now measurement-free after #2, but still an O(blocks) walk).
+
+_(#2 and #2-B are completed above; see their sections.)_

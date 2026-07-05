@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { cachedMeasureText, clearMeasureCache } from '../../src/view/layout.js';
+import { cachedMeasureText, clearMeasureCache, disposeMeasureCache } from '../../src/view/layout.js';
 import type { ResolvedFont, TextMeasurer } from '../../src/view/measurer.js';
 
 const baseFont: ResolvedFont = {
@@ -80,6 +80,20 @@ describe('cachedMeasureText', () => {
     expect(cachedMeasureText(measurerB, 'hello', baseFont)).toBe(60);
     expect(aCalls).toBe(1);
     expect(bCalls).toBe(1);
+  });
+
+  it('disposeMeasureCache drops a measurer scope so it stops retaining maps', () => {
+    // Warm the cache, then dispose it: the next read must miss (re-measure),
+    // proving the measurer's map was released from the drain registry rather
+    // than merely emptied.
+    cachedMeasureText(measurer, 'hello', baseFont);
+    cachedMeasureText(measurer, 'hello', baseFont);
+    expect(callCount).toBe(1);
+
+    disposeMeasureCache(measurer);
+
+    cachedMeasureText(measurer, 'hello', baseFont);
+    expect(callCount).toBe(2);
   });
 
   it('clearMeasureCache clears every measurer scope', () => {

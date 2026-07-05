@@ -84,6 +84,25 @@ export function clearMeasureCache(): void {
 }
 
 /**
+ * Release a measurer's caches entirely. `clearMeasureCache` only empties the
+ * maps; the `knownCaches` set still strongly references them, so without this
+ * a per-editor measurer's cache maps would live for the module's lifetime —
+ * one leaked pair per disposed editor. Call from a host's dispose path.
+ */
+export function disposeMeasureCache(measurer: TextMeasurer): void {
+  const width = perMeasurerCache.get(measurer);
+  if (width) {
+    knownCaches.delete(width);
+    perMeasurerCache.delete(measurer);
+  }
+  const offsets = perMeasurerOffsetCache.get(measurer);
+  if (offsets) {
+    knownCaches.delete(offsets);
+    perMeasurerOffsetCache.delete(measurer);
+  }
+}
+
+/**
  * Convert an `InlineStyle` into the `ResolvedFont` measurement structure
  * used by `TextMeasurer`. Centralised here so layout, table-layout, and
  * hit-testing share the same conversion rules — getting these

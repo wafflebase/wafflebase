@@ -132,3 +132,92 @@ describe('docs editor — clears the measure cache and re-layouts on font load',
     editor = initialize(container, new MemDocStore());
   });
 });
+
+/**
+ * `loadingdone` is unreliable on WebKit/Safari, so the editor also settles via
+ * the Promise-based `document.fonts.ready` when fonts are still loading at
+ * mount. This suite installs a richer `FontFaceSet` stub with `status`/`ready`.
+ */
+class FakeFontFaceSet extends EventTarget {
+  status: 'loading' | 'loaded' = 'loading';
+  ready: Promise<void>;
+  private resolveReady!: () => void;
+  constructor() {
+    super();
+    this.ready = new Promise<void>((resolve) => {
+      this.resolveReady = resolve;
+    });
+  }
+  finish(): void {
+    this.status = 'loaded';
+    this.resolveReady();
+  }
+}
+
+describe('docs editor — fonts.ready fallback for browsers that miss loadingdone', () => {
+  let container: HTMLElement;
+  let editor: EditorAPI;
+  let origGetContext: HTMLCanvasElement['getContext'];
+  let origRAF: typeof window.requestAnimationFrame;
+  let origResizeObserver: unknown;
+  let origOffscreenCanvas: unknown;
+  let origFonts: PropertyDescriptor | undefined;
+  let fonts: FakeFontFaceSet;
+
+  beforeEach(() => {
+    origGetContext = HTMLCanvasElement.prototype.getContext;
+    origRAF = window.requestAnimationFrame;
+    origResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    origOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
+    installCanvasShim();
+    window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      queueMicrotask(() => cb(performance.now()));
+      return 0;
+    };
+    origFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+    fonts = new FakeFontFaceSet();
+    Object.defineProperty(document, 'fonts', {
+      value: fonts,
+      configurable: true,
+      writable: true,
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [makeBlock('Paragraph with several words here')] });
+    editor = initialize(container, store);
+  });
+
+  afterEach(() => {
+    editor.dispose();
+    document.body.removeChild(container);
+    HTMLCanvasElement.prototype.getContext = origGetContext;
+    window.requestAnimationFrame = origRAF;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = origResizeObserver;
+    (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = origOffscreenCanvas;
+    if (origFonts) {
+      Object.defineProperty(document, 'fonts', origFonts);
+    } else {
+      // @ts-expect-error — removing a configurable stub we installed.
+      delete document.fonts;
+    }
+  });
+
+  it('re-measures when fonts.ready settles (no loadingdone dispatched)', async () => {
+    measureTextCalls = 0;
+    fonts.finish();
+    await fonts.ready;
+    await Promise.resolve();
+    expect(measureTextCalls).toBeGreaterThan(0);
+  });
+
+  it('does not fire the ready fallback after dispose', async () => {
+    editor.dispose();
+    measureTextCalls = 0;
+    fonts.finish();
+    await fonts.ready;
+    await Promise.resolve();
+    expect(measureTextCalls).toBe(0);
+    editor = initialize(container, new MemDocStore());
+  });
+});

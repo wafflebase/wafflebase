@@ -143,7 +143,16 @@ the fallback face's metrics. The docs editor's `initialize()` therefore
 subscribes to `document.fonts` `'loadingdone'` and, on fire, calls
 `clearMeasureCache()` + `invalidateLayout()` + `render()` so layout and caret
 snap onto the real glyph advances once the face arrives (the same wiring
-slides uses). The listener is removed in `dispose()`.
+slides uses). Because `'loadingdone'` is unreliable on WebKit/Safari, when
+fonts are still loading at mount it *also* settles via the Promise-based
+`document.fonts.ready` (armed only while `status === 'loading'`, so an
+already-loaded document pays no extra relayout). The listener is removed and
+the `ready` continuation guarded in `dispose()`.
+
+`dispose()` also calls `disposeMeasureCache(measurer)` to release this
+editor's cache maps from the module-level `knownCaches` registry — otherwise
+the registry's strong references would keep every disposed editor's caches
+alive for the process lifetime (`clearMeasureCache` only empties the maps).
 
 ### 5. Incremental Layout (Dirty Block Tracking)
 

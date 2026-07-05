@@ -98,7 +98,7 @@ export {
 export { paintLayout, type PaintLayoutOpts } from './view/paint-layout.js';
 export { findPositionAtPixel, type PixelPosition } from './view/find-position-at-pixel.js';
 export type { TableMergeContext } from './view/table-merge-context.js';
-export { computeLayout, computeListCounters, clearMeasureCache } from './view/layout.js';
+export { computeLayout, computeListCounters, clearMeasureCache, disposeMeasureCache } from './view/layout.js';
 export type {
   DocumentLayout,
   LayoutBlock,

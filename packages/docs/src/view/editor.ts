@@ -9,7 +9,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, caretOffsetX, clearMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -2440,12 +2440,29 @@ export function initialize(
   // recompute so layout and caret match the painted glyphs (mirrors slides).
   const fontsTarget: EventTarget | undefined =
     typeof document !== 'undefined' ? document.fonts : undefined;
+  let fontsDisposed = false;
   const handleFontsLoaded = () => {
     clearMeasureCache();
     invalidateLayout();
     render();
   };
   fontsTarget?.addEventListener('loadingdone', handleFontsLoaded);
+  // `loadingdone` is unreliable on WebKit/Safari, so also settle via the
+  // Promise-based `fonts.ready` (broadly supported). Armed only when fonts
+  // are still loading at mount, so an already-loaded document pays no extra
+  // relayout. Covers the common case of opening a document whose web fonts
+  // are still arriving; mid-session picks rely on the `loadingdone` listener.
+  if (
+    typeof document !== 'undefined' &&
+    document.fonts &&
+    document.fonts.status === 'loading'
+  ) {
+    document.fonts.ready
+      .then(() => {
+        if (!fontsDisposed) handleFontsLoaded();
+      })
+      .catch(() => {});
+  }
 
   // Focus/blur handling
   const handleFocus = () => {
@@ -3514,7 +3531,11 @@ export function initialize(
       container.removeEventListener('scroll', handleScroll);
       container.removeEventListener('contextmenu', handleEditorContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
+      fontsDisposed = true;
       fontsTarget?.removeEventListener('loadingdone', handleFontsLoaded);
+      // Release this editor's measurer caches so the module-level knownCaches
+      // registry doesn't retain them for the process lifetime.
+      disposeMeasureCache(measurer);
       if (spellTimer) {
         clearTimeout(spellTimer);
         spellTimer = null;
