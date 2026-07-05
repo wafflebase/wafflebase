@@ -274,6 +274,106 @@ export function getFooterYStart(
   return pageY + pageHeight - marginFromEdge - footerHeight;
 }
 
+// ---------------------------------------------------------------------------
+// Memoized layout indexes
+//
+// Typing runs a full render() that recomputes decoration rects for every peer
+// selection / search match / comment marker / spell error in the document.
+// Each rect lookup used to `findIndex` over all blocks (O(blocks)) and scan
+// every page × line (O(pages·lines)). These indexes turn those scans into map
+// lookups. They are keyed on the layout / paginatedLayout objects, which
+// `computeLayout` / `paginateLayout` return fresh on every recompute, so a new
+// object automatically invalidates the cache while paint-only cursor renders
+// (which reuse the same objects) hit the warm cache. See #444 follow-up.
+// ---------------------------------------------------------------------------
+
+const blockIndexCache = new WeakMap<DocumentLayout, Map<string, number>>();
+
+/** Block id → document-order block index. Memoized per layout object. */
+export function getBlockIndex(layout: DocumentLayout, blockId: string): number {
+  let map = blockIndexCache.get(layout);
+  if (!map) {
+    map = new Map();
+    for (let i = 0; i < layout.blocks.length; i++) {
+      map.set(layout.blocks[i].block.id, i);
+    }
+    blockIndexCache.set(layout, map);
+  }
+  return map.get(blockId) ?? -1;
+}
+
+export interface BlockPageLine {
+  pageIndex: number;
+  pageLine: PageLine;
+}
+
+const blockPageLinesCache = new WeakMap<
+  PaginatedLayout,
+  Map<number, BlockPageLine[]>
+>();
+
+/**
+ * Block index → its PageLine occurrences in page order. A block spans multiple
+ * entries when it wraps across lines or a table row splits across pages.
+ * Memoized per paginatedLayout object.
+ */
+export function getBlockPageLines(
+  paginatedLayout: PaginatedLayout,
+): Map<number, BlockPageLine[]> {
+  let map = blockPageLinesCache.get(paginatedLayout);
+  if (!map) {
+    map = new Map();
+    for (const page of paginatedLayout.pages) {
+      for (const pl of page.lines) {
+        let arr = map.get(pl.blockIndex);
+        if (!arr) {
+          arr = [];
+          map.set(pl.blockIndex, arr);
+        }
+        arr.push({ pageIndex: page.pageIndex, pageLine: pl });
+      }
+    }
+    blockPageLinesCache.set(paginatedLayout, map);
+  }
+  return map;
+}
+
+const blockYExtentCache = new WeakMap<
+  PaginatedLayout,
+  Map<number, { top: number; bottom: number }>
+>();
+
+/**
+ * Block index → absolute [top, bottom] canvas Y bounds. Used to viewport-cull
+ * decorations before computing their rects. Memoized per paginatedLayout.
+ */
+export function getBlockYExtent(
+  paginatedLayout: PaginatedLayout,
+): Map<number, { top: number; bottom: number }> {
+  let map = blockYExtentCache.get(paginatedLayout);
+  if (!map) {
+    map = new Map();
+    // Reuse the memoized block → page-line grouping rather than making a
+    // second independent pass over pages × lines.
+    for (const [blockIndex, occurrences] of getBlockPageLines(paginatedLayout)) {
+      for (const { pageIndex, pageLine } of occurrences) {
+        const pageY = getPageYOffset(paginatedLayout, pageIndex);
+        const top = pageY + pageLine.y;
+        const bottom = top + (pageLine.rowSplitHeight ?? pageLine.line.height);
+        const cur = map.get(blockIndex);
+        if (!cur) {
+          map.set(blockIndex, { top, bottom });
+        } else {
+          if (top < cur.top) cur.top = top;
+          if (bottom > cur.bottom) cur.bottom = bottom;
+        }
+      }
+    }
+    blockYExtentCache.set(paginatedLayout, map);
+  }
+  return map;
+}
+
 /**
  * Find which page a given blockId + offset falls on.
  */
@@ -284,9 +384,7 @@ export function findPageForPosition(
   layout: DocumentLayout,
   lineAffinity: 'forward' | 'backward' = 'backward',
 ): { pageIndex: number; pageLine: PageLine } | undefined {
-  const blockIndex = layout.blocks.findIndex(
-    (lb) => lb.block.id === blockId,
-  );
+  const blockIndex = getBlockIndex(layout, blockId);
   if (blockIndex === -1) return undefined;
 
   const lb = layout.blocks[blockIndex];
@@ -322,14 +420,15 @@ export function findPageForPosition(
   const isTableBlock = lb.block.type === 'table';
   let result: { pageIndex: number; pageLine: PageLine } | undefined;
 
-  for (const page of paginatedLayout.pages) {
-    for (const pl of page.lines) {
-      if (pl.blockIndex === blockIndex && pl.lineIndex === targetLineIndex) {
+  const occurrences = getBlockPageLines(paginatedLayout).get(blockIndex);
+  if (occurrences) {
+    for (const { pageIndex, pageLine } of occurrences) {
+      if (pageLine.lineIndex === targetLineIndex) {
         if (!isTableBlock) {
-          return { pageIndex: page.pageIndex, pageLine: pl };
+          return { pageIndex, pageLine };
         }
         // For table blocks, keep scanning to find the last fragment.
-        result = { pageIndex: page.pageIndex, pageLine: pl };
+        result = { pageIndex, pageLine };
       }
     }
   }
