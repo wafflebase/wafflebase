@@ -22,15 +22,15 @@ cursor. At rotation 0 this reproduces `RESIZE_HANDLE_CURSORS` exactly.
 
 ## Tasks
 
-- [ ] Add `rotatedResizeCursor(handle, rotation)` to `hit-test.ts` with a
+- [x] Add `rotatedResizeCursor(handle, rotation)` to `hit-test.ts` with a
       base-angle map, `mod 180 → 45° bucket` quantisation.
-- [ ] Thread `rotation` into `overlay.ts` `handleCursor` / `makeHandle`;
+- [x] Thread `rotation` into `overlay.ts` `handleCursor` / `makeHandle`;
       pass `frame.rotation` from `renderRotatedHandles`.
-- [ ] Apply the same rotated cursor to crop handles (`makeCropHandle`,
+- [x] Apply the same rotated cursor to crop handles (`makeCropHandle`,
       `renderCropHandles` already has the rotated frame).
-- [ ] Unit test: rotated helper agrees with `RESIZE_HANDLE_CURSORS` at
+- [x] Unit test: rotated helper agrees with `RESIZE_HANDLE_CURSORS` at
       rotation 0, and rotates correctly at 45°/90°.
-- [ ] `pnpm verify:fast` green.
+- [x] `pnpm verify:fast` green.
 
 ## Out of scope
 
@@ -38,3 +38,13 @@ cursor. At rotation 0 this reproduces `RESIZE_HANDLE_CURSORS` exactly.
   geometry for the hover-band detection, so un-capping it needs rotated
   hit-band math, not just a rotated cursor. Separate change.
 - Multi-select rotated resize (v2 item, axis-aligned bbox).
+
+## Review
+
+Shipped: `rotatedResizeCursor(handle, rotation)` in `hit-test.ts`
+(base-angle map, `mod 180 → 45°` bucket), threaded through `overlay.ts`
+`handleCursor` / `makeHandle` and applied to crop handles. Unit test
+confirms parity with `RESIZE_HANDLE_CURSORS` at rotation 0 and correct
+rotation at 45°/90°. `pnpm verify:fast` green.
+
+PR: https://github.com/wafflebase/wafflebase/pull/440

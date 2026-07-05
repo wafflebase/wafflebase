@@ -52,9 +52,9 @@ predicate `needsForcedRepaintAfterRefit`.
       offset reassignment; force repaint when the predicate is true)
 - [x] Unit test the predicate incl. the exact bug case (failing-first)
 - [x] `pnpm verify:fast`
-- [ ] Manual smoke in `pnpm dev`: Fit zoom + toggle sidebar repeatedly
+- [x] Manual smoke in `pnpm dev`: Fit zoom + toggle sidebar repeatedly
 - [x] Self review over branch diff (code-reviewer subagent)
-- [ ] PR
+- [x] PR — merged as #434
 
 ## Review
 

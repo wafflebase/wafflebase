@@ -48,7 +48,7 @@ Add `pointsToEmus` helper to `units.ts` (1pt = 12700 EMU).
 - [x] #5 Support `in`/`cm`/`mm`/`px` VML CSS units, not just `pt`
 - [x] #6 Extract shared `pushPendingImage` helper (both image branches)
 - [x] #7 Add paired `-lessons.md`
-- [ ] #3/#4 first-imagedata-only + recursive lookup — accepted as known
+- [x] #3/#4 first-imagedata-only + recursive lookup — accepted as known
       limitations (symmetric with DrawingML); see lessons
 
 ## Notes

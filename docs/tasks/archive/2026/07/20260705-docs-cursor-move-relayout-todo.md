@@ -121,7 +121,7 @@ load, drifting from the painted glyphs until reload.
       (Mid-session Safari font picks would still want the slides-style per-apply
       `fonts.load().then()` in the frontend picker — noted as follow-up.)
 - [x] **Stale task-doc `#2` "Still open" entry (Minor).** Removed.
-- [ ] Declined: extract shared `installCanvasShim` into `test-utils.ts` — CR
+- [x] Declined: extract shared `installCanvasShim` into `test-utils.ts` — CR
       marked "Low value / Trivial"; the shims carry per-test variations and the
       duplication is contained. Left to keep the PR focused.
 
