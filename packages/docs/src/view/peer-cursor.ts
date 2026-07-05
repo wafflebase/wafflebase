@@ -3,7 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { PageLine, PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
-import { resolveInlineFont } from './layout.js';
+import { caretOffsetX } from './layout.js';
 import type { TextMeasurer } from './measurer.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 
@@ -212,10 +212,7 @@ export function resolvePositionPixel(
                 if (run.imageHeight !== undefined) {
                   cursorX = run.x + (localOff > 0 ? run.width : 0);
                 } else {
-                  const textBefore = run.text.slice(0, localOff);
-                  cursorX = run.x + measurer.measureWidth(
-                    textBefore, resolveInlineFont(run.inline.style),
-                  );
+                  cursorX = run.x + caretOffsetX(run, localOff, measurer);
                 }
                 break;
               }
@@ -365,10 +362,7 @@ export function resolvePositionPixel(
         // Image run: use display width, not measureText of the placeholder char
         xOffset = localOffset > 0 ? run.width : 0;
       } else {
-        const textBefore = run.text.slice(0, localOffset);
-        xOffset = measurer.measureWidth(
-          textBefore, resolveInlineFont(run.inline.style),
-        );
+        xOffset = caretOffsetX(run, localOffset, measurer);
       }
       const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };

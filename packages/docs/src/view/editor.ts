@@ -9,7 +9,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, resolveInlineFont, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, caretOffsetX, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -418,10 +418,7 @@ function computeHFTableCellCaretPixel(
           const localOff = remaining - chars;
           cursorXInCell = run.x + (run.imageHeight !== undefined
             ? (localOff > 0 ? run.width : 0)
-            : measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              ));
+            : caretOffsetX(run, localOff, measurer));
           break;
         }
         chars += run.text.length;
@@ -510,11 +507,7 @@ export function computeHFCursorPixel(
           if (run.imageHeight !== undefined) {
             cursorX = run.x + (localOff > 0 ? run.width : 0);
           } else {
-            const textBefore = run.text.slice(0, localOff);
-            cursorX = run.x + measurer.measureWidth(
-              textBefore,
-              resolveInlineFont(run.inline.style),
-            );
+            cursorX = run.x + caretOffsetX(run, localOff, measurer);
           }
           break;
         }
@@ -618,11 +611,10 @@ function computeHFTableCellSelectionRects(
         const lineSelEnd = Math.min(lineChars, selEnd - lineStart);
         let x0 = 0, x1 = 0, chars = 0;
         for (const run of line.runs) {
-          const font = resolveInlineFont(run.inline.style);
           const runOffsetX = (n: number): number =>
             run.x + (run.imageHeight !== undefined
               ? (n > 0 ? run.width : 0)
-              : measurer.measureWidth(run.text.slice(0, n), font));
+              : caretOffsetX(run, n, measurer));
           if (chars <= lineSelStart && lineSelStart <= chars + run.text.length) {
             x0 = runOffsetX(lineSelStart - chars);
           }
@@ -734,10 +726,7 @@ function hfFlatLayoutRects(
             if (run.imageHeight !== undefined) {
               x0 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              x0 = run.x + measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              );
+              x0 = run.x + caretOffsetX(run, localOff, measurer);
             }
           }
           if (chars + runLen >= lineSelEnd) {
@@ -745,10 +734,7 @@ function hfFlatLayoutRects(
             if (run.imageHeight !== undefined) {
               x1 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              x1 = run.x + measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              );
+              x1 = run.x + caretOffsetX(run, localOff, measurer);
             }
             break;
           }

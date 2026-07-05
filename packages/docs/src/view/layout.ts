@@ -444,6 +444,34 @@ export function computeCharOffsets(
 }
 
 /**
+ * Pixel x of a caret `localOffset` characters into a run, from the run's left
+ * edge. Reuses the run's precomputed cumulative `charOffsets`
+ * (charOffsets[i] = width of the first i+1 chars) instead of re-measuring
+ * `run.text.slice(0, localOffset)` — the same value with no canvas call, so
+ * caret and selection painting stays measurement-free every frame.
+ *
+ * `measurer` is only consulted on the fallback path — a run that somehow
+ * lacks a matching offset entry — so callers keep exactly the correctness
+ * they had before this optimization. Image runs are resolved by callers
+ * (they map the offset to the display width); pass only text runs here.
+ */
+export function caretOffsetX(
+  run: LayoutRun,
+  localOffset: number,
+  measurer: TextMeasurer,
+): number {
+  if (localOffset <= 0) return 0;
+  const offsets = run.charOffsets;
+  if (offsets.length >= localOffset) {
+    return offsets[localOffset - 1];
+  }
+  return measurer.measureWidth(
+    run.text.slice(0, localOffset),
+    resolveInlineFont(run.inline.style),
+  );
+}
+
+/**
  * Layout a single block into wrapped lines.
  */
 export function layoutBlock(

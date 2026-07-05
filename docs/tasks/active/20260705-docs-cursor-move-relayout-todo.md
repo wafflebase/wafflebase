@@ -69,13 +69,27 @@ uncached on every full re-layout — the remaining `measureText` hotspot.
       callsite mutates `LayoutRun.charOffsets`; verified by grep).
 - [x] `pnpm --filter @wafflebase/docs test` green (1067 pass).
 
+## Fix #2-B: caret/selection resolvers reuse charOffsets (no per-frame measure)
+
+The caret- and selection-pixel resolvers re-measured `run.text.slice(0, n)`
+on every paint frame instead of reading the run's already-computed
+`charOffsets`. Small per-frame cost, but redundant and a latent inconsistency
+(they re-resolved the font, which can differ from the layout's `seg.font`).
+
+- [x] Failing test for the shared helper: `caretOffsetX(run, n, measurer)`
+      returns `charOffsets[n-1]` (0 at n=0) with no `measureWidth` call, and
+      falls back to measuring only when offsets are missing/short.
+      → `test/view/caret-offset-x.test.ts`.
+- [x] Add `caretOffsetX` to `layout.ts`; route all 8 offset→x callsites
+      through it: `peer-cursor.ts` (body + table caret), `selection.ts` (body
+      selection), `editor.ts` (header/footer/table caret + selection rects,
+      5 sites). Image runs keep their own width handling. `measurer` stays in
+      the signatures (used by the fallback), so no API churn.
+- [x] `pnpm --filter @wafflebase/docs test` green (1069 pass); typecheck
+      clean.
+
 ## Non-goals here
 
-- Part B — caret/selection resolvers still re-measure a slice per paint frame
-  instead of reusing `LayoutRun.charOffsets` (`selection.ts:216`,
-  `peer-cursor.ts:369`, header/footer/table variants). Small per-frame cost;
-  delicate caret math across 6+ callsites → separate, carefully-tested
-  follow-up.
 - Fix #3 — remote-edit / undo-redo / structural-edit still force a full
   re-layout pass (now cheap thanks to fix #2, but still O(blocks) walk).
 - Layout-level virtualization (explicit design Non-Goal).

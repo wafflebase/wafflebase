@@ -1,7 +1,7 @@
 import type { DocPosition, DocRange, TableCellRange, TableData, CellAddress } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
-import { resolveInlineFont } from './layout.js';
+import { caretOffsetX } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
@@ -213,10 +213,7 @@ function positionToPagePixel(
       if (run.imageHeight !== undefined) {
         xOffset = localOff > 0 ? run.width : 0;
       } else {
-        xOffset = measurer.measureWidth(
-          run.text.slice(0, localOff),
-          resolveInlineFont(run.inline.style),
-        );
+        xOffset = caretOffsetX(run, localOff, measurer);
       }
       const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };
