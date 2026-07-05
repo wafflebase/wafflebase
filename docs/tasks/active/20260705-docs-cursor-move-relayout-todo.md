@@ -50,12 +50,35 @@ Pure caret navigation changes no document content, so it should paint-only
 - [x] `pnpm --filter @wafflebase/docs test` green (1064 pass); `pnpm
       verify:fast` green (exit 0).
 
+## Fix #2: make full re-layouts measurement-free (computeCharOffsets cache)
+
+After fix #1, a full re-layout still happens on every structural edit (Enter,
+paste, multi-block delete), remote collaborative edit, undo/redo, and resize.
+Word widths are already cached (`cachedMeasureText` in `measureSegments`), but
+`computeCharOffsets` (`layout.ts:403`) measured every character prefix
+uncached on every full re-layout — the remaining `measureText` hotspot.
+
+- [x] Failing test: a second `computeLayout` of unchanged blocks (full
+      recompute) must perform zero `measureWidth` calls.
+      → `test/view/char-offsets-cache.test.ts`. Before: 63 calls; after: 0.
+- [x] Memoise `computeCharOffsets` per `(measurer, font, text)` — whole
+      offsets array cached, keyed like `cachedMeasureText`. Offsets depend
+      only on font+text (not layout width), so the cache survives resizes.
+      Registered in the shared `knownCaches` drain so `clearMeasureCache`
+      clears it too. Returned array is shared and treated read-only (no
+      callsite mutates `LayoutRun.charOffsets`; verified by grep).
+- [x] `pnpm --filter @wafflebase/docs test` green (1067 pass).
+
 ## Non-goals here
 
-- `computeCharOffsets` caching / caret resolver reuse of `LayoutRun.charOffsets`
-  (fix #2).
-- Remote-edit full-relayout, undo/redo, resize (separate follow-ups).
-- Layout-level virtualization.
+- Part B — caret/selection resolvers still re-measure a slice per paint frame
+  instead of reusing `LayoutRun.charOffsets` (`selection.ts:216`,
+  `peer-cursor.ts:369`, header/footer/table variants). Small per-frame cost;
+  delicate caret math across 6+ callsites → separate, carefully-tested
+  follow-up.
+- Fix #3 — remote-edit / undo-redo / structural-edit still force a full
+  re-layout pass (now cheap thanks to fix #2, but still O(blocks) walk).
+- Layout-level virtualization (explicit design Non-Goal).
 
 ## Review
 

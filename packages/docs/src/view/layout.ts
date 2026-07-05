@@ -34,13 +34,27 @@ function fontKey(font: ResolvedFont): string {
  * per-measurer Map so we can drain them all at once.
  */
 const perMeasurerCache = new WeakMap<TextMeasurer, Map<string, number>>();
-const knownCaches = new Set<Map<string, number>>();
+const perMeasurerOffsetCache = new WeakMap<TextMeasurer, Map<string, number[]>>();
+// Tracks every per-measurer Map we've handed out so `clearMeasureCache` can
+// drain them all (a WeakMap is not iterable). Both the width cache and the
+// char-offset cache register here.
+const knownCaches = new Set<{ clear(): void }>();
 
 function cacheFor(measurer: TextMeasurer): Map<string, number> {
   let cache = perMeasurerCache.get(measurer);
   if (!cache) {
     cache = new Map<string, number>();
     perMeasurerCache.set(measurer, cache);
+    knownCaches.add(cache);
+  }
+  return cache;
+}
+
+function offsetCacheFor(measurer: TextMeasurer): Map<string, number[]> {
+  let cache = perMeasurerOffsetCache.get(measurer);
+  if (!cache) {
+    cache = new Map<string, number[]>();
+    perMeasurerOffsetCache.set(measurer, cache);
     knownCaches.add(cache);
   }
   return cache;
@@ -399,6 +413,16 @@ export function computeLayout(
 /**
  * Compute cumulative character pixel offsets for a run.
  * charOffsets[i] = width of text.slice(0, i + 1).
+ *
+ * Measured as growing prefixes (not a sum of per-char widths) so kerning and
+ * ligatures stay correct. The whole array is memoised per (measurer, font,
+ * text): re-laying-out unchanged content — every structural edit, remote
+ * change, undo/redo, and resize triggers a full recompute — then costs no
+ * canvas measurements. The offsets depend only on font + text, not on layout
+ * width, so the cache survives width changes too.
+ *
+ * The returned array is shared with the cache; callers store it in
+ * `LayoutRun.charOffsets` and must treat it as read-only.
  */
 export function computeCharOffsets(
   measurer: TextMeasurer,
@@ -406,9 +430,15 @@ export function computeCharOffsets(
   font: ResolvedFont,
 ): number[] {
   if (text.length === 0) return [];
-  const offsets = new Array<number>(text.length);
-  for (let i = 0; i < text.length; i++) {
-    offsets[i] = measurer.measureWidth(text.slice(0, i + 1), font);
+  const cache = offsetCacheFor(measurer);
+  const key = `${fontKey(font)}\t${text}`;
+  let offsets = cache.get(key);
+  if (offsets === undefined) {
+    offsets = new Array<number>(text.length);
+    for (let i = 0; i < text.length; i++) {
+      offsets[i] = measurer.measureWidth(text.slice(0, i + 1), font);
+    }
+    cache.set(key, offsets);
   }
   return offsets;
 }
