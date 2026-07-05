@@ -1909,9 +1909,10 @@ export function initialize(
   let cursorLinkChangeCallback: ((info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) | null = null;
   let textEditorRef: TextEditor | null = null;
 
-  const renderWithScroll = () => {
-    needsScrollIntoView = true;
-    render();
+  // Post-render side effects that must fire after any caret-moving render,
+  // whether it recomputed layout or only repainted: toolbar/presence cursor
+  // sync and link-under-cursor detection.
+  const afterCursorRender = () => {
     const selRange = selection.hasSelection() && selection.range
       ? {
           anchor: selection.range.anchor,
@@ -1941,6 +1942,23 @@ export function initialize(
         cursorLinkChangeCallback(undefined);
       }
     }
+  };
+
+  const renderWithScroll = () => {
+    needsScrollIntoView = true;
+    render();
+    afterCursorRender();
+  };
+
+  // Caret-only render: the caret/selection moved but no document content
+  // changed, so the cached layout is still valid. Repaint (which recomputes
+  // the caret pixel and selection rects from the cached layout and honors
+  // needsScrollIntoView) instead of re-measuring every block. This is what
+  // keeps arrow-key navigation O(1) instead of O(document) as the body grows.
+  const renderCursorMove = () => {
+    needsScrollIntoView = true;
+    renderPaintOnly();
+    afterCursorRender();
   };
 
   const textEditor = readOnly ? null : new TextEditor(
@@ -2001,6 +2019,9 @@ export function initialize(
     // Used by table border resize so resizing on page 2 with the caret
     // on page 1 doesn't snap the viewport back to page 1.
     textEditor.requestRenderNoCursorScroll = render;
+    // Caret-only navigation repaints from the cached layout instead of
+    // re-measuring the whole document (arrow keys, Home/End).
+    textEditor.requestCursorRender = renderCursorMove;
 
     // Image selection key routing. Delete/Backspace delete the selected
     // image inline and return to text mode; Escape clears the image
