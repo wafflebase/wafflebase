@@ -8,10 +8,21 @@
  */
 
 import type { SlidesDocument } from '../../model/presentation.js';
+import { deckSlideHeight } from '../../model/presentation.js';
+import { pxToEmuY } from './units.js';
 
-/** Default widescreen EMU dimensions (16:9, 13.333" × 7.5"). */
+/** Fixed page width — the logical 1920-px canvas maps to 13.333". */
 const SLIDE_CX = 12_192_000;
-const SLIDE_CY = 6_858_000;
+/** 16:9 and 4:3 heights, used to pick the `type` hint attribute. */
+const CY_16_9 = 6_858_000;
+const CY_4_3 = 9_144_000;
+
+/** PowerPoint `type` hint for a `<p:sldSz>` height, or '' (custom). */
+function slideSizeType(cy: number): string {
+  if (cy === CY_16_9) return ' type="screen16x9"';
+  if (cy === CY_4_3) return ' type="screen4x3"';
+  return '';
+}
 
 /** First slide id (PowerPoint convention; stays fixed for all slides). */
 const FIRST_SLIDE_ID = 256;
@@ -23,15 +34,15 @@ const MASTER_ID = 2147483648;
  * Serialize a `SlidesDocument` metadata into a complete `<p:presentation>`
  * XML string.
  *
- * @param deck - The slides document (only the slide count is used here; rels
- *   are provided separately via the rId parameters).
+ * @param deck - The slides document. Used for the per-deck slide size
+ *   (`meta.slideHeight`); rels are provided separately via the rId params.
  * @param slideRIds - Ordered list of relationship IDs for each slide (rId1,
  *   rId2, …) as emitted by the orchestrator's `addRel` calls on
  *   `ppt/presentation.xml`.
  * @param masterRId - Relationship ID for the single slide master.
  */
 export function presentationToXml(
-  _deck: SlidesDocument,
+  deck: SlidesDocument,
   slideRIds: string[],
   masterRId: string,
 ): string {
@@ -45,7 +56,11 @@ export function presentationToXml(
     .join('');
   const sldIdLst = `<p:sldIdLst>${sldIdEntries}</p:sldIdLst>`;
 
-  const sldSz = `<p:sldSz cx="${SLIDE_CX}" cy="${SLIDE_CY}" type="screen16x9"/>`;
+  // Per-deck height: the logical slide height maps isotropically to EMU
+  // (same 6350 EMU/px factor as width), so a 4:3 deck exports at 10" tall
+  // with a matching `type` hint rather than a forced 16:9 7.5".
+  const slideCy = pxToEmuY(deckSlideHeight(deck.meta));
+  const sldSz = `<p:sldSz cx="${SLIDE_CX}" cy="${slideCy}"${slideSizeType(slideCy)}/>`;
 
   // Notes size (standard A4-portrait proportions matching PowerPoint default).
   const notesSz = `<p:notesSz cx="6858000" cy="9144000"/>`;

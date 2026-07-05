@@ -34,7 +34,9 @@ export type {
   Slide,
   SlidesDocument,
 } from './model/presentation';
+export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
+  deckSlideHeight,
   DEFAULT_BACKGROUND,
   MAX_RECENT_COLORS,
   pushRecent,
@@ -117,7 +119,7 @@ export {
   CURVE_BEND_MIN,
 } from './view/canvas/routing';
 
-export { migrateDocument } from './model/migrate';
+export { migrateDocument, migrateMeta } from './model/migrate';
 export { defaultLight } from './themes/default-light';
 export { defaultDark } from './themes/default-dark';
 

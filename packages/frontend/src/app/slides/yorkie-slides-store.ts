@@ -13,6 +13,7 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type Meta,
   type PlaceholderStyle,
   type ObjectAnimation,
   type PlaceholderRef,
@@ -38,7 +39,9 @@ import {
   applyInversePoint,
   applyLayoutToSlide,
   composeAncestorTransform,
+  buildElementWorldLookup,
   computeConnectorFrame,
+  deckSlideHeight,
   defaultDark,
   defaultLight,
   flattenElements,
@@ -49,9 +52,11 @@ import {
   isBlocksEmpty,
   groupToTransform,
   migrateDocument,
+  migrateMeta,
   normalizeToGroupLocal,
   pushRecent,
   resolveEndpoint,
+  scaleElementHeight,
   seedPlaceholderBlocks,
   slotRefsForLayout,
   worldTightFrame,
@@ -181,6 +186,7 @@ function yorkieToPlain<T>(value: unknown): T {
 function unwrapElement(e: unknown): YorkieElement {
   return yorkieToPlain<YorkieElement>(e);
 }
+
 
 // ---------------------------------------------------------------------------
 // ensureSlidesRoot — initialise the Yorkie root with the slides shape. Safe
@@ -456,6 +462,14 @@ export class YorkieSlidesStore implements SlidesStore {
       layouts,
       guides,
     });
+  }
+
+  readMeta(): Meta {
+    // Unwrap + migrate only `meta` — skips the whole slide/element walk
+    // that `read()` does, for hot callers that just need the deck height.
+    const root = this.doc.getRoot();
+    const meta = yorkieToPlain<Record<string, unknown>>(root.meta) ?? {};
+    return migrateMeta(meta);
   }
 
   // --- read helpers ---
@@ -1130,6 +1144,56 @@ export class YorkieSlidesStore implements SlidesStore {
     }
     this.withUpdate((r) => {
       r.meta.unit = unit;
+    });
+  }
+
+  setSlideHeight(height: number): void {
+    this.requireBatch();
+    if (!Number.isFinite(height) || height <= 0) {
+      throw new Error(`[slides] invalid slide height '${height}'`);
+    }
+    this.withUpdate((r) => {
+      const oldH = deckSlideHeight(
+        r.meta as unknown as { slideHeight?: number },
+      );
+      if (height === oldH) return;
+      const factor = height / oldH;
+      for (const s of r.slides) {
+        // Pass 1: scale every top-level element vertically via the shared
+        // helper (identical logic runs against MemSlidesStore's plain
+        // model and this live CRDT proxy — the mutations are the same).
+        for (const el of s.elements) {
+          scaleElementHeight(el as unknown as ModelElement, factor);
+        }
+        // Pass 2: recompute connector frames off the moved endpoints /
+        // targets. Build a RECURSIVE lookup (unwrap each top-level element
+        // to plain, then `buildElementWorldLookup` descends into groups) so
+        // a connector attached to a grouped element resolves — matching
+        // MemSlidesStore's `elementsLookup`. A top-level-only lookup would
+        // collapse such a connector to the origin and diverge from mem.
+        const plainEls = s.elements.map(
+          (e) => unwrapElement(e) as unknown as ModelElement,
+        );
+        const lookup = buildElementWorldLookup(plainEls);
+        for (const el of s.elements) {
+          if (el.type !== 'connector') continue;
+          const plain = unwrapElement(el) as unknown as ConnectorElement;
+          (el as unknown as { frame: Frame }).frame = computeConnectorFrame(
+            plain,
+            lookup,
+          );
+        }
+      }
+      // Rescale the deck's layout placeholders in place so a later
+      // addSlide / layout-change seeds geometry in the new height space
+      // (mirrors MemSlidesStore's scaleLayoutsByFactor).
+      for (const layout of r.layouts ?? []) {
+        for (const p of (layout as { placeholders?: { frame: Frame }[] })
+          .placeholders ?? []) {
+          p.frame = { ...p.frame, y: p.frame.y * factor, h: p.frame.h * factor };
+        }
+      }
+      (r.meta as unknown as { slideHeight?: number }).slideHeight = height;
     });
   }
 

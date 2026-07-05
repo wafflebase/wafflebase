@@ -88,6 +88,17 @@ export type Meta = {
    */
   pxPerPt?: number;
   /**
+   * Logical slide height in px for this deck. The logical width is always
+   * {@link SLIDE_WIDTH} (1920); only the height varies with the source
+   * deck's aspect ratio. Absent ⇒ {@link SLIDE_HEIGHT} (1080, 16:9), which
+   * is what every in-app-authored deck records — so none of them shift.
+   *
+   * Set by the PPTX importer from `<p:sldSz>`: a 4:3 (10"×7.5") deck maps
+   * to `round(1920 × 7.5/10) = 1440`; a 16:9 deck stays 1080 (left absent).
+   * Read everywhere via {@link deckSlideHeight}.
+   */
+  slideHeight?: number;
+  /**
    * Recently used custom/standard colors as srgb hex strings, most
    * recent first, capped at {@link MAX_RECENT_COLORS}. Persisted per
    * document so collaborators share the same recents. Role colors are
@@ -222,5 +233,21 @@ export function resolveBackgroundImage(
   return master?.background.image;
 }
 
+/** Canonical logical slide width in px. Fixed across all decks. */
 export const SLIDE_WIDTH = 1920;
+/**
+ * Default logical slide height in px (16:9). A deck's actual height can
+ * differ — read it via {@link deckSlideHeight}, which falls back here.
+ */
 export const SLIDE_HEIGHT = 1080;
+
+/**
+ * Logical slide height in px for `meta`'s deck. Absent / invalid
+ * `slideHeight` ⇒ {@link SLIDE_HEIGHT}. Mirrors {@link deckFontScale}'s
+ * "absent ⇒ default" convention so authored decks stay 16:9.
+ */
+export function deckSlideHeight(meta: Pick<Meta, 'slideHeight'>): number {
+  const h = meta.slideHeight;
+  if (h == null || !Number.isFinite(h) || h <= 0) return SLIDE_HEIGHT;
+  return h;
+}

@@ -32,8 +32,8 @@ import type {
   SlidesDocument,
 } from '../model/presentation';
 import {
-  SLIDE_HEIGHT,
   SLIDE_WIDTH,
+  deckSlideHeight,
   resolveBackgroundImage,
 } from '../model/presentation';
 import { drawSlide } from '../view/canvas/slide-renderer';
@@ -126,8 +126,12 @@ export async function exportSlidesPdf(
   }
 
   const { map, temp } = await resolveDeckImages(doc, opts.imageFetcher);
+  // Per-deck logical height. Width maps to the fixed 13.333"/960-pt page;
+  // a 4:3 deck (height 1440) yields a taller 720-pt (10") page so the PDF
+  // preserves the deck's real aspect instead of forcing 16:9.
+  const slideH = deckSlideHeight(doc.meta);
   const pageWidth = PAGE_WIDTH_PT;
-  const pageHeight = (SLIDE_HEIGHT / SLIDE_WIDTH) * PAGE_WIDTH_PT;
+  const pageHeight = (slideH / SLIDE_WIDTH) * PAGE_WIDTH_PT;
 
   const onProgress = opts.onProgress;
   const total = doc.slides.length;
@@ -147,7 +151,7 @@ export async function exportSlidesPdf(
 
       const canvas = createExportCanvas(
         Math.round(SLIDE_WIDTH * scale),
-        Math.round(SLIDE_HEIGHT * scale),
+        Math.round(slideH * scale),
       );
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -155,7 +159,7 @@ export async function exportSlidesPdf(
       }
       drawSlide(ctx as unknown as CanvasRenderingContext2D, cloned, doc, {
         hostWidth: SLIDE_WIDTH,
-        hostHeight: SLIDE_HEIGHT,
+        hostHeight: slideH,
         dpr: scale,
       });
 

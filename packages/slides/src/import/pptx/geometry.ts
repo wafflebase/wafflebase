@@ -8,14 +8,21 @@ export const EMU_PER_INCH = 914_400;
 /** Default 16:9 widescreen size in EMU. Used as fallback when sldSz is missing. */
 export const DEFAULT_WIDESCREEN_EMU = { cx: 12_192_000, cy: 6_858_000 } as const;
 
-/** Per-axis EMU→px scale derived from the deck's `<p:sldSz>` and our 1920×1080 canvas. */
+/**
+ * EMU→px scale derived from the deck's `<p:sldSz>`. The logical canvas
+ * width is always 1920 px; the scale is **isotropic** (`sy === sx`) so a
+ * non-16:9 deck keeps its aspect ratio — its content simply spans a
+ * taller/shorter logical height (see {@link deckLogicalHeight}). Scaling
+ * X and Y independently to force every deck into 1920×1080 was the old
+ * bug that stretched 4:3 decks 1.333× horizontally.
+ */
 export interface EmuScale {
   sx: number;
   sy: number;
 }
 
 export function emuScale(slideSizeEmu: { cx: number; cy: number }): EmuScale {
-  // Defensively guard against a deck whose `<p:sldSz>` is missing,
+  // Defensively guard against a deck whose `<p:sldSz>` width is missing,
   // zero, or NaN. Without this, every frame multiplies by Infinity /
   // NaN and the entire import is unrecoverable. Fall through to the
   // widescreen default so the slides still render.
@@ -23,11 +30,25 @@ export function emuScale(slideSizeEmu: { cx: number; cy: number }): EmuScale {
     Number.isFinite(slideSizeEmu.cx) && slideSizeEmu.cx > 0
       ? slideSizeEmu.cx
       : DEFAULT_WIDESCREEN_EMU.cx;
-  const cy =
-    Number.isFinite(slideSizeEmu.cy) && slideSizeEmu.cy > 0
-      ? slideSizeEmu.cy
-      : DEFAULT_WIDESCREEN_EMU.cy;
-  return { sx: 1920 / cx, sy: 1080 / cy };
+  const s = 1920 / cx;
+  return { sx: s, sy: s };
+}
+
+/**
+ * Per-deck logical slide height in px. Width is fixed at 1920, so height
+ * follows the deck's aspect: `round(1920 × cy/cx)`. A 16:9 deck yields
+ * 1080; a 4:3 (10"×7.5") deck yields 1440. Invalid dimensions ⇒ 1080.
+ * The importer records this on `meta.slideHeight`.
+ */
+export function deckLogicalHeight(slideSizeEmu: { cx: number; cy: number }): number {
+  const { cx, cy } = slideSizeEmu;
+  if (
+    !Number.isFinite(cx) || cx <= 0 ||
+    !Number.isFinite(cy) || cy <= 0
+  ) {
+    return 1080;
+  }
+  return Math.round((1920 * cy) / cx);
 }
 
 /** OOXML rotation is in 60000ths of a degree (`rot="5400000"` = 90°). */

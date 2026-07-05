@@ -106,6 +106,106 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     check(yo, 'yorkie');
   });
 
+  it('setSlideHeight scales content + meta equivalently across stores', () => {
+    const { mem, yo } = runBoth((store) => {
+      let sid = '';
+      let a = '';
+      let b = '';
+      store.batch(() => { sid = store.addSlide('blank'); });
+      store.batch(() => {
+        a = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 100, y: 200, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        b = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 300, y: 400, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        store.addElement(sid, {
+          type: 'table',
+          frame: { x: 0, y: 600, w: 400, h: 200, rotation: 0 },
+          data: {
+            columnWidths: [200, 200],
+            rows: [
+              { height: 100, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+              { height: 100, cells: [{ body: { blocks: [] }, style: {} }, { body: { blocks: [] }, style: {} }] },
+            ],
+          },
+        });
+        store.addElement(sid, {
+          type: 'connector',
+          routing: 'straight',
+          arrowheads: {},
+          frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+          start: { kind: 'free', x: 100, y: 300 },
+          end: { kind: 'free', x: 500, y: 600 },
+        });
+      });
+      store.batch(() => { store.group(sid, [a, b]); });
+      store.batch(() => store.setSlideHeight(1440)); // 1080 → 1440
+    });
+    // stripIds compares meta (→ slideHeight) and every top-level frame.
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+    expect(mem.meta.slideHeight).toBe(1440);
+    expect(yo.meta.slideHeight).toBe(1440);
+    // Group frame (the two shapes' bbox y=200..500 → y*4/3, h*4/3).
+    const grp = mem.slides[0].elements.find((e) => e.type === 'group')!;
+    expect(grp.frame.y).toBeCloseTo(200 * (4 / 3), 2);
+    expect(grp.frame.h).toBeCloseTo(300 * (4 / 3), 2);
+    // Deck layouts are rescaled too — and identically across both stores.
+    // (stripIds only compares placeholderCount, so assert a frame directly.)
+    const subY = (doc: typeof mem) =>
+      doc.layouts
+        .find((l) => l.id === 'title-slide')!
+        .placeholders.find((p) => p.placeholder.type === 'subtitle')!.frame.y;
+    expect(subY(mem)).toBeCloseTo(800, 3); // 600 * 4/3
+    expect(subY(yo)).toBeCloseTo(subY(mem), 3);
+  });
+
+  it('setSlideHeight keeps a connector attached to a grouped element in sync', () => {
+    // Regression: Pass-2 connector recompute must use a group-recursive
+    // lookup in BOTH stores. A top-level-only lookup collapsed a connector
+    // attached to a nested element to the origin in the Yorkie store,
+    // diverging from mem.
+    const { mem, yo } = runBoth((store) => {
+      let sid = '';
+      let a = '';
+      let b = '';
+      store.batch(() => { sid = store.addSlide('blank'); });
+      store.batch(() => {
+        a = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 100, y: 200, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+        b = store.addElement(sid, {
+          type: 'shape',
+          frame: { x: 300, y: 400, w: 100, h: 100, rotation: 0 },
+          data: { kind: 'rect' },
+        });
+      });
+      // Connector attaches to shape `a` (site 0), then `a` is grouped —
+      // the connector stays top-level with an endpoint into the group.
+      store.batch(() => {
+        store.addElement(sid, {
+          type: 'connector',
+          routing: 'straight',
+          arrowheads: {},
+          frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+          start: { kind: 'attached', elementId: a, siteIndex: 0 },
+          end: { kind: 'free', x: 800, y: 500 },
+        });
+      });
+      store.batch(() => { store.group(sid, [a, b]); });
+      store.batch(() => store.setSlideHeight(1440));
+    });
+    // stripIds compares every top-level frame — including the connector's
+    // recomputed cached frame. Divergence here would fail this.
+    expect(stripIds(yo)).toEqual(stripIds(mem));
+  });
+
   it('add element, updateElementFrame, reorderElement, remove', () => {
     const { mem, yo } = runBoth((store) => {
       let slideId = '';

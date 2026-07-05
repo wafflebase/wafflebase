@@ -23,7 +23,9 @@ export type {
   SlideTransition,
   SlidesDocument,
 } from './model/presentation';
+export { scaleElementHeight, scaleEndpointY } from './model/slide-size';
 export {
+  deckSlideHeight,
   DEFAULT_BACKGROUND,
   MAX_RECENT_COLORS,
   pushRecent,
@@ -149,7 +151,7 @@ export {
   slotRefsForLayout,
 } from './model/layout';
 
-export { migrateDocument } from './model/migrate';
+export { migrateDocument, migrateMeta } from './model/migrate';
 
 // Themes — built-in theme registry (Phase 5 / themed authoring)
 export {

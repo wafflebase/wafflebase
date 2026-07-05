@@ -7,7 +7,7 @@ import {
   layoutEditSlideId,
   SLIDES_RULER_SIZE,
   SLIDE_WIDTH,
-  SLIDE_HEIGHT,
+  deckSlideHeight,
   type SlidesEditor,
   type ThumbnailPanelHandle,
   type LayoutListPanelHandle,
@@ -95,8 +95,10 @@ interface SlidesViewProps {
   onLayoutEditTargetChange?: (layoutId: string | null) => void;
 }
 
-// Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
-// the available width of the right column, preserving this aspect.
+// Default logical slide aspect (1920×1080 = 16:9), used for min-size
+// floors and the pre-load initial guess. The actual fit uses the deck's
+// own aspect (`SLIDE_WIDTH / deckSlideHeight(meta)`) — a 4:3 import is
+// taller — passed into `computeFitSize`.
 const SLIDE_ASPECT = 16 / 9;
 const MIN_HOST_W = 320;  // floor so very narrow viewports still paint something usable
 const MAX_HOST_W = 1600; // ceiling so on ultra-wide displays we don't paint a 4K bitmap
@@ -113,19 +115,23 @@ const MAX_HOST_W = 1600; // ceiling so on ultra-wide displays we don't paint a 4
  */
 const SLIDE_FRAME_GAP = 12;
 
-function computeFitSize(availWidth: number, availHeight: number): {
+function computeFitSize(
+  availWidth: number,
+  availHeight: number,
+  aspect: number = SLIDE_ASPECT,
+): {
   width: number;
   height: number;
 } {
   // Width-binding fit (typical case — the column is shorter than wide).
   const widthFit = {
     width: availWidth,
-    height: availWidth / SLIDE_ASPECT,
+    height: availWidth / aspect,
   };
   if (widthFit.height <= availHeight) return widthFit;
   // Height-binding fallback for tall narrow viewports.
   return {
-    width: availHeight * SLIDE_ASPECT,
+    width: availHeight * aspect,
     height: availHeight,
   };
 }
@@ -753,18 +759,23 @@ export function SlidesView({
       //
       // No MAX_HOST_W clamp at non-Fit zoom — the user is asking for an
       // absolute size and the slide must read at exactly that size.
+      // Per-deck logical height / aspect — a 4:3 import is taller than
+      // 1080, so both the Fit box and the absolute-zoom host must use the
+      // deck's own height rather than the 16:9 constant.
+      const slideH = deckSlideHeight(store.read().meta);
+      const slideAspect = SLIDE_WIDTH / slideH;
       const userZoom = zoomController?.get() ?? FIT_ZOOM;
       let nextW: number;
       let nextH: number;
       if (userZoom === FIT_ZOOM) {
-        const fit = computeFitSize(slideAvailW, slideAvailH);
+        const fit = computeFitSize(slideAvailW, slideAvailH, slideAspect);
         const clampedW = Math.min(MAX_HOST_W, Math.round(fit.width));
         const scale = fit.width > 0 ? clampedW / fit.width : 1;
         nextW = clampedW;
         nextH = Math.round(fit.height * scale);
       } else {
         nextW = Math.round(SLIDE_WIDTH * userZoom);
-        nextH = Math.round(SLIDE_HEIGHT * userZoom);
+        nextH = Math.round(slideH * userZoom);
       }
 
       // Pin each ruler canvas to the full frame extent — canvas
@@ -881,6 +892,22 @@ export function SlidesView({
     // at mount is sufficient.
     const unsubscribeZoom =
       zoomController?.subscribe(() => refitCanvas()) ?? (() => {});
+
+    // Re-fit when the deck's slide height changes (the "Slide size"
+    // control writes meta.slideHeight). No ResizeObserver / zoom event
+    // fires for a pure meta edit, so without this the canvas keeps the
+    // old aspect until the next resize. Guarded on the height so ordinary
+    // edits (which also fire onChange) don't pay a refit.
+    // `readMeta` (not `read`) so this per-commit listener doesn't clone the
+    // whole presentation just to compare one number on every edit.
+    let lastSlideHeightSeen = deckSlideHeight(store.readMeta());
+    const unsubscribeHeight = store.onChange(() => {
+      const h = deckSlideHeight(store.readMeta());
+      if (h !== lastSlideHeightSeen) {
+        lastSlideHeightSeen = h;
+        refitCanvas();
+      }
+    });
 
     // Mirror the scroll host's scroll offset into the editor's ruler.
     // The ruler is pinned at the canvas-area edges (so it stays visible
@@ -1098,6 +1125,7 @@ export function SlidesView({
     return () => {
       resizeObserver.disconnect();
       unsubscribeZoom();
+      unsubscribeHeight();
       scrollHost.removeEventListener("scroll", onScrollHostScroll);
       document.removeEventListener("mousemove", onDocMouseMove);
       document.removeEventListener("mouseup", onDocMouseUp);

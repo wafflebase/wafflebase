@@ -1,4 +1,5 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
+import { SLIDE_WIDTH, deckSlideHeight } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import type { SlidesEditor } from './editor';
 import { renderThumbnail, ThumbnailScheduler } from '../canvas/thumbnail';
@@ -44,9 +45,10 @@ type ThumbState = {
   painted: boolean;
 };
 
-// Thumbnails preserve the slide's 16:9 aspect and scale to fit the
-// container's measured width. Floor/ceiling keep them legible on a
-// very narrow panel and from ballooning on a very wide one.
+// Thumbnails preserve the deck's slide aspect (16:9 by default, taller
+// for a 4:3 import) and scale to fit the container's measured width.
+// Floor/ceiling keep them legible on a very narrow panel and from
+// ballooning on a very wide one.
 const THUMB_ASPECT = 16 / 9;
 const MIN_THUMB_W = 80;
 const MAX_THUMB_W = 320;
@@ -60,25 +62,33 @@ interface ThumbDims {
   /** Outer item box (border-box). */
   outerW: number;
   outerH: number;
-  /** Inner canvas box — derived to be EXACTLY 16:9 so the slide-renderer
-   * (which letterboxes via Math.min(scaleX, scaleY)) fills the canvas
-   * end-to-end with no background gap. */
+  /** Inner canvas box — derived to be EXACTLY the deck aspect so the
+   * slide-renderer (which letterboxes via Math.min(scaleX, scaleY)) fills
+   * the canvas end-to-end with no background gap. */
   innerW: number;
   innerH: number;
 }
 
-function computeThumbDims(containerWidth: number): ThumbDims {
+function computeThumbDims(
+  containerWidth: number,
+  aspect: number = THUMB_ASPECT,
+): ThumbDims {
   const available = containerWidth > 0 ? containerWidth : FALLBACK_THUMB_W;
   const outerW = Math.max(
     MIN_THUMB_W,
     Math.min(MAX_THUMB_W, Math.floor(available)),
   );
   const innerW = outerW - BORDER_PX * 2;
-  // Round innerH so the inner box stays as close to 16:9 as integer
-  // pixels allow. The outer height absorbs the rounding.
-  const innerH = Math.round(innerW / THUMB_ASPECT);
+  // Round innerH so the inner box stays as close to the deck aspect as
+  // integer pixels allow. The outer height absorbs the rounding.
+  const innerH = Math.round(innerW / aspect);
   const outerH = innerH + BORDER_PX * 2;
   return { outerW, outerH, innerW, innerH };
+}
+
+/** The deck's slide aspect (`SLIDE_WIDTH / height`) for thumbnail boxes. */
+function deckThumbAspect(store: SlidesStore): number {
+  return SLIDE_WIDTH / deckSlideHeight(store.read().meta);
 }
 
 export interface ThumbnailPanelHandle {
@@ -375,7 +385,7 @@ export function mountThumbnailPanel(
     activeRenderToken += 1;
     const myToken = activeRenderToken;
 
-    const dims = computeThumbDims(container.clientWidth);
+    const dims = computeThumbDims(container.clientWidth, deckThumbAspect(store));
     // Read DPR per render so a window dragged between Retina and a
     // non-Retina monitor mid-session also re-paints at the right density.
     const dpr =

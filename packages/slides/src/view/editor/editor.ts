@@ -40,9 +40,9 @@ import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
 import {
-  SLIDE_HEIGHT,
   SLIDE_WIDTH,
   deckFontScale,
+  deckSlideHeight,
   type Slide,
 } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
@@ -983,6 +983,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private repaintOverlay(): void {
     if (this.disposed) return;
     const doc = this.options.store.read();
+    const slideH = deckSlideHeight(doc.meta);
     const slide = this.currentId
       ? doc.slides.find((s) => s.id === this.currentId)
       : undefined;
@@ -990,7 +991,7 @@ class SlidesEditorImpl implements SlidesEditor {
       renderOverlay(this.options.overlay, [], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
-        slideHeight: SLIDE_HEIGHT,
+        slideHeight: slideH,
         permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
       });
@@ -1007,7 +1008,7 @@ class SlidesEditorImpl implements SlidesEditor {
       renderOverlay(this.options.overlay, [], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
-        slideHeight: SLIDE_HEIGHT,
+        slideHeight: slideH,
         cropWindow: { ...f, rotation: s.rotation },
       });
       return;
@@ -1120,7 +1121,7 @@ class SlidesEditorImpl implements SlidesEditor {
     renderOverlay(this.options.overlay, selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
-      slideHeight: SLIDE_HEIGHT,
+      slideHeight: slideH,
       peerOverlays: this.currentPeerOverlays(slide, deckFontScale(doc.meta)),
       // Pass the full slide so connector endpoint handles can resolve
       // `attached` endpoints to world positions via the host element's
@@ -1217,6 +1218,18 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private scale(): number {
     return this.options.hostWidth / SLIDE_WIDTH;
+  }
+
+  /**
+   * The deck's logical slide height in px (see {@link deckSlideHeight}).
+   * Width is fixed at {@link SLIDE_WIDTH}; only the height varies with the
+   * imported deck's aspect ratio. Read fresh from the store so a
+   * (rare) mid-session size change is picked up.
+   */
+  private slideHeight(): number {
+    // `readMeta` (not `read`) so the per-frame overlay / drag callers that
+    // hit this don't clone + migrate the whole presentation for one number.
+    return deckSlideHeight(this.options.store.readMeta());
   }
 
   render(): void {
@@ -1508,12 +1521,13 @@ class SlidesEditorImpl implements SlidesEditor {
     // height, big enough to read at 100% zoom. Picker UI can pass
     // custom dimensions; the cell heights are derived to keep the
     // CR#13 invariant (`frame.h == sum(row.height)`).
+    const slideH = this.slideHeight();
     const width = opts?.width ?? SLIDE_WIDTH * 0.5;
-    const height = opts?.height ?? SLIDE_HEIGHT * 0.25;
+    const height = opts?.height ?? slideH * 0.25;
     const colWidth = width / cols;
     const rowHeight = height / rows;
     const x = (SLIDE_WIDTH - width) / 2;
-    const y = (SLIDE_HEIGHT - height) / 2;
+    const y = (slideH - height) / 2;
     // Seed every cell with a light-gray border on all four sides so
     // the freshly-inserted table is visible right away. The
     // renderer's border-collapse rule de-duplicates shared edges, so
@@ -1558,12 +1572,12 @@ class SlidesEditorImpl implements SlidesEditor {
     const framesMap = this.collectSelectedFrames(slide);
     if (framesMap.size === 0) return;
     // Multi-select: align to the combined bbox of the selection.
-    // Single-select: align to the slide canvas (1920×1080).
+    // Single-select: align to the slide canvas (SLIDE_WIDTH × deck height).
     let reference: AlignReference;
     if (framesMap.size >= 2) {
       reference = combinedBoundingBox(Array.from(framesMap.values()))!;
     } else {
-      reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: SLIDE_HEIGHT };
+      reference = { x: 0, y: 0, w: SLIDE_WIDTH, h: this.slideHeight() };
     }
     const updates = alignFrames(framesMap, direction, reference);
     this.applyFrameUpdates(slide.id, updates);
@@ -2400,7 +2414,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
     const player = new AnimationPlayer(
       steps,
-      { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      { w: SLIDE_WIDTH, h: deckSlideHeight(doc.meta) },
       (states) => {
         if (this.disposed) return;
         this.renderer.forceRender(slide, doc, undefined, states);
@@ -2620,7 +2634,8 @@ class SlidesEditorImpl implements SlidesEditor {
         return null;
       },
       isInsideSlide: (x, y) =>
-        x >= 0 && x <= SLIDE_WIDTH && y >= 0 && y <= SLIDE_HEIGHT,
+        x >= 0 && x <= SLIDE_WIDTH && y >= 0 && y <= this.slideHeight(),
+      slideHeight: () => this.slideHeight(),
       setBodyCursor: (cursor) => {
         if (typeof document === 'undefined') return;
         document.body.style.cursor = cursor ?? '';
@@ -3787,7 +3802,7 @@ class SlidesEditorImpl implements SlidesEditor {
               left: target.editFrame.x,
               top: target.editFrame.y,
               width: SLIDE_WIDTH,
-              height: SLIDE_HEIGHT,
+              height: this.slideHeight(),
             },
       onContentHeightChange: (h: number): void => {
         const changed = this.lastEditingContentHeight !== h;
@@ -4955,13 +4970,15 @@ class SlidesEditorImpl implements SlidesEditor {
       const rawDy = cur.y - start.y;
       const locked = ev.shiftKey ? lockAxis(rawDx, rawDy) : { dx: rawDx, dy: rawDy };
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
+      // Single read clone serves both the slide height and the guides.
+      const doc = this.options.store.read();
       const snapped = snapDelta(
         bbox,
         locked.dx,
         locked.dy,
         otherFrames,
-        { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
-        this.options.store.read().guides,
+        { w: SLIDE_WIDTH, h: deckSlideHeight(doc.meta) },
+        doc.guides,
       );
       const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
       // Re-lock after snap + smart-guides: both evaluations run independently
@@ -5145,7 +5162,10 @@ class SlidesEditorImpl implements SlidesEditor {
         rows: startEl.data.rows.map((r) => ({ ...r, height: r.height * sy })),
       },
     };
-    this.renderer.forceRender(slide, this.options.store.read(), [ghostTable]);
+    // One read clone per frame serves the ghost render, slide height, and
+    // permanent guides.
+    const doc = this.options.store.read();
+    this.renderer.forceRender(slide, doc, [ghostTable]);
     // Overlay handles track the ghost frame so the user can keep dragging
     // smoothly — unlike move where handles stay anchored to the original
     // (move semantics are "where will it land vs. where it started";
@@ -5154,11 +5174,11 @@ class SlidesEditorImpl implements SlidesEditor {
     renderOverlay(this.options.overlay, [ghostWorld], {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
-      slideHeight: SLIDE_HEIGHT,
+      slideHeight: deckSlideHeight(doc.meta),
       guides,
       allElements: slide.elements,
       connectorAffordance: this.connectorAffordance(),
-      permanentGuides: this.options.store.read().guides,
+      permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
     });
   }
@@ -5179,13 +5199,14 @@ class SlidesEditorImpl implements SlidesEditor {
   ): void {
     const slide = this.currentSlide();
     if (!slide) return;
-    // One read clone serves the ghost render, peer font scale, and guides.
+    // One read clone serves the ghost render, peer font scale, slide
+    // height, and guides.
     const doc = this.options.store.read();
     this.renderer.forceRender(slide, doc, ghosts);
     renderOverlay(this.options.overlay, handleElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
-      slideHeight: SLIDE_HEIGHT,
+      slideHeight: deckSlideHeight(doc.meta),
       // Keep peer rings / name tags visible through the gesture preview —
       // this path rebuilds the overlay DOM, so omitting peers would drop
       // them on the first drag/resize/rotate repaint until the gesture ends.
@@ -5414,7 +5435,7 @@ class SlidesEditorImpl implements SlidesEditor {
       renderOverlay(this.options.overlay, selected, {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
-        slideHeight: SLIDE_HEIGHT,
+        slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
         connectorAffordance: this.connectorAffordance(),
       });
@@ -5612,7 +5633,7 @@ class SlidesEditorImpl implements SlidesEditor {
       renderOverlay(this.options.overlay, selected, {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
-        slideHeight: SLIDE_HEIGHT,
+        slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
       });
     };
@@ -5673,7 +5694,7 @@ class SlidesEditorImpl implements SlidesEditor {
     renderOverlay(this.options.overlay, [liveEl], {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
-      slideHeight: SLIDE_HEIGHT,
+      slideHeight: this.slideHeight(),
       allElements: synthetic.elements,
     });
   }

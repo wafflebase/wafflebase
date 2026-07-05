@@ -9,8 +9,9 @@ import type {
   TextElement,
   AutofitMode,
 } from '@wafflebase/slides';
-import { findElementPath } from '@wafflebase/slides';
+import { deckSlideHeight, findElementPath } from '@wafflebase/slides';
 import { pickSections, type PanelSelection } from './pick-sections';
+import { SlideSizeSection } from './slide-size-section';
 import { AltTextSection } from './alt-text-section';
 import { ImageAdjustmentsSection } from './image-adjustments-section';
 import { RecolorSection } from './recolor-section';
@@ -93,7 +94,10 @@ export function FormatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [store, editor, tick],
   );
-  const unit: DisplayUnit = store.read().meta.unit ?? 'in';
+  // One read per render serves both the display unit and the deck height
+  // (the idle Slide-size section) — avoids a second full-document clone.
+  const meta = store.read().meta;
+  const unit: DisplayUnit = meta.unit ?? 'in';
   const sections = pickSections(selection);
 
   const commitFrame = useCallback(
@@ -163,6 +167,13 @@ export function FormatPanel({
     [store],
   );
 
+  const commitSlideHeight = useCallback(
+    (heightPx: number) => {
+      store.batch(() => store.setSlideHeight(heightPx));
+    },
+    [store],
+  );
+
   const commitElementData = useCallback(
     (ids: readonly string[], patch: object) => {
       if (selection.kind !== 'object') return;
@@ -228,9 +239,16 @@ export function FormatPanel({
   const content = (
     <>
       {selection.kind === 'idle' && (
-          <p className="p-4 text-xs text-muted-foreground">
-            Select an object to edit its format.
-          </p>
+          <>
+            <SlideSizeSection
+              heightPx={deckSlideHeight(meta)}
+              unit={unit}
+              onCommit={commitSlideHeight}
+            />
+            <p className="px-3 pb-3 text-[11px] text-muted-foreground">
+              Select an object to edit its format.
+            </p>
+          </>
         )}
         {selection.kind === 'object' &&
           sections.map((id) => {

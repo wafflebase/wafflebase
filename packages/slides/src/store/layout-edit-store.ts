@@ -2,6 +2,7 @@ import type { Block } from '@wafflebase/docs';
 import type {
   Background,
   GuideAxis,
+  Meta,
   SlideAnimation,
   SlideTransition,
   SlidesDocument,
@@ -76,6 +77,10 @@ export class LayoutEditStore implements SlidesStore {
     return { ...doc, slides: [buildLayoutSlide(layout, master, theme)] };
   }
 
+  readMeta(): Meta {
+    return this.real.readMeta();
+  }
+
   private resolveMaster(doc: SlidesDocument): Master {
     return (
       doc.masters.find((m) => m.id === doc.meta.masterId) ?? doc.masters[0]
@@ -127,6 +132,9 @@ export class LayoutEditStore implements SlidesStore {
   }
   setUnit(unit: 'in' | 'cm'): void {
     this.real.setUnit(unit);
+  }
+  setSlideHeight(height: number): void {
+    this.real.setSlideHeight(height);
   }
   pushRecentColor(hex: string): void {
     this.real.pushRecentColor(hex);

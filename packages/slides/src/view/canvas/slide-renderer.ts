@@ -1,8 +1,8 @@
 import type { Element } from '../../model/element';
 import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
 import {
-  SLIDE_HEIGHT,
   SLIDE_WIDTH,
+  deckSlideHeight,
   resolveBackgroundFill,
   resolveBackgroundImage,
 } from '../../model/presentation';
@@ -148,6 +148,7 @@ export function drawSlide(
   cropPreview?: CropPreview,
 ): void {
   const theme = getActiveTheme(doc);
+  const slideH = deckSlideHeight(doc.meta);
   const { hostWidth, hostHeight, dpr } = options;
   const slideOffsetLogicalX = options.slideOffsetLogicalX ?? 0;
   const slideOffsetLogicalY = options.slideOffsetLogicalY ?? 0;
@@ -159,7 +160,7 @@ export function drawSlide(
   // from SLIDE_WIDTH:SLIDE_HEIGHT would have the slide stretched
   // horizontally if we derived the scale from `hostWidth` alone.
   const scaleX = (hostWidth / SLIDE_WIDTH) * dpr;
-  const scaleY = (hostHeight / SLIDE_HEIGHT) * dpr;
+  const scaleY = (hostHeight / slideH) * dpr;
   const scale = Math.min(scaleX, scaleY);
 
   // Reset to identity and clear the full bitmap. With pasteboard the
@@ -201,7 +202,7 @@ export function drawSlide(
     // — keeping them in CSS means they survive every paint mode
     // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
     ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
-    ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, SLIDE_HEIGHT + 2);
+    ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
   }
 
   // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted
@@ -212,7 +213,7 @@ export function drawSlide(
   // means; tile mode is a v3 problem.
   const bgImage = pickBackgroundImage(slide, doc);
   if (bgImage) {
-    drawImage(ctx, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT }, bgImage, onAssetLoad);
+    drawImage(ctx, { w: SLIDE_WIDTH, h: slideH }, bgImage, onAssetLoad);
   }
 
   // Iterate elements in array order = z-order, last is front. Built

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WIDESCREEN_EMU,
   EMU_PER_INCH,
+  deckLogicalHeight,
   emuScale,
   parseXfrm,
   prstToShapeKind,
@@ -28,15 +29,41 @@ describe('emuScale', () => {
     expect(5_143_500 * s.sy).toBeCloseTo(1080, 6);
   });
 
+  it('scales a 4:3 deck (10″×7.5″) isotropically — no horizontal stretch', () => {
+    // Google Slides' old default / "Yorkie branding_v1.pptx". Before the
+    // per-deck-size fix this stretched everything 1.333× horizontally.
+    const s = emuScale({ cx: 9_144_000, cy: 6_858_000 });
+    expect(s.sx).toBeCloseTo(s.sy, 12);
+    // Width still lands exactly at 1920; height overflows 1080 by design
+    // (the logical canvas is taller for a 4:3 deck — see deckLogicalHeight).
+    expect(9_144_000 * s.sx).toBeCloseTo(1920, 6);
+    expect(6_858_000 * s.sy).toBeCloseTo(1440, 6);
+  });
+
   it('falls back to widescreen defaults for invalid dimensions', () => {
     const widescreen = emuScale(DEFAULT_WIDESCREEN_EMU);
     expect(emuScale({ cx: 0, cy: 0 })).toEqual(widescreen);
-    expect(emuScale({ cx: -1, cy: 100 })).toEqual({ sx: widescreen.sx, sy: 1080 / 100 });
     expect(emuScale({ cx: Number.NaN, cy: Number.NaN })).toEqual(widescreen);
-    expect(emuScale({ cx: Number.POSITIVE_INFINITY, cy: 100 })).toEqual({
-      sx: widescreen.sx,
-      sy: 1080 / 100,
-    });
+    // Scale is now isotropic (width-derived); cy no longer skews sy.
+    const s = emuScale({ cx: -1, cy: 100 });
+    expect(s.sx).toBeCloseTo(widescreen.sx, 12);
+    expect(s.sy).toBeCloseTo(widescreen.sx, 12);
+  });
+});
+
+describe('deckLogicalHeight', () => {
+  it('keeps 16:9 decks at 1080', () => {
+    expect(deckLogicalHeight(DEFAULT_WIDESCREEN_EMU)).toBe(1080);
+    expect(deckLogicalHeight({ cx: 9_144_000, cy: 5_143_500 })).toBe(1080);
+  });
+
+  it('gives a 4:3 deck a taller 1440 logical canvas', () => {
+    expect(deckLogicalHeight({ cx: 9_144_000, cy: 6_858_000 })).toBe(1440);
+  });
+
+  it('falls back to 1080 for invalid dimensions', () => {
+    expect(deckLogicalHeight({ cx: 0, cy: 0 })).toBe(1080);
+    expect(deckLogicalHeight({ cx: Number.NaN, cy: 100 })).toBe(1080);
   });
 });
 

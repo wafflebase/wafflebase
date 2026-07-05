@@ -8,6 +8,7 @@ import type {
   Background,
   Guide,
   GuideAxis,
+  Meta,
   Slide,
   SlideAnimation,
   SlideTransition,
@@ -29,12 +30,13 @@ import type {
   TableCell,
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
-import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
-import { pushRecent } from '../model/presentation';
+import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, scaleLayoutsByFactor, slotRefsForLayout } from '../model/layout';
+import { deckSlideHeight, pushRecent } from '../model/presentation';
+import { scaleElementHeight } from '../model/slide-size';
 import { DEFAULT_MASTER } from '../model/master';
 import type { Master } from '../model/master';
 import { framesApproxEqual } from '../model/frame';
-import { migrateDocument } from '../model/migrate';
+import { migrateDocument, migrateMeta } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
 import { defaultLight } from '../themes/default-light';
@@ -152,6 +154,12 @@ export class MemSlidesStore implements SlidesStore {
     // shapes. `migrateDocument` is idempotent, so the second pass is
     // near no-op for already-migrated docs.
     return migrateDocument(clone(this.doc));
+  }
+
+  readMeta(): Meta {
+    // Migrate just the meta (not the whole doc) so the field-preservation
+    // guards — e.g. slideHeight — run without cloning every slide.
+    return migrateMeta(clone(this.doc.meta));
   }
 
   // --- slide ops ---
@@ -442,6 +450,39 @@ export class MemSlidesStore implements SlidesStore {
       throw new Error(`[slides] invalid unit '${unit}'`);
     }
     this.doc.meta.unit = unit;
+  }
+
+  setSlideHeight(height: number): void {
+    this.requireBatch();
+    if (!Number.isFinite(height) || height <= 0) {
+      throw new Error(`[slides] invalid slide height '${height}'`);
+    }
+    const oldH = deckSlideHeight(this.doc.meta);
+    if (height === oldH) return;
+    const factor = height / oldH;
+    for (const slide of this.doc.slides) {
+      // Pass 1: scale every top-level element vertically via the shared
+      // helper (identical logic drives the Yorkie store — see
+      // `scaleElementHeight`).
+      for (const el of slide.elements) {
+        scaleElementHeight(el, factor);
+      }
+      // Pass 2: recompute connector frames now that free endpoints moved
+      // and attached targets carry their new positions. `elementsLookup`
+      // recurses into groups so a connector attached to a grouped element
+      // still resolves.
+      const lookup = this.elementsLookup(slide.id);
+      for (const el of slide.elements) {
+        if (el.type === 'connector') {
+          el.frame = computeConnectorFrame(el, lookup);
+        }
+      }
+    }
+    // Rescale the deck's layouts too, so placeholders seeded by a later
+    // addSlide / layout-change land in the new height space rather than
+    // the old one.
+    this.doc.layouts = scaleLayoutsByFactor(this.doc.layouts, factor);
+    this.doc.meta.slideHeight = height;
   }
 
   pushRecentColor(hex: string): void {

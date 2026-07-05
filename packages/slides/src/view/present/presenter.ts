@@ -1,5 +1,5 @@
 import type { Slide, SlidesDocument } from '../../model/presentation';
-import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
+import { SLIDE_WIDTH, deckSlideHeight } from '../../model/presentation';
 import { SlideRenderer } from '../canvas/slide-renderer';
 import { AnimationPlayer, buildParagraphCounts, compileTimeline, sampleTransition } from '../../anim';
 import { flattenElements } from '../../model/group';
@@ -38,8 +38,6 @@ interface PresenterState {
   atEndScreen: boolean;
 }
 
-const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
-
 /** End-screen font size as a fraction of the host canvas height. */
 const END_SCREEN_FONT_RATIO = 0.04;
 /** User-visible end-screen copy. Single source for any future i18n pass. */
@@ -51,17 +49,18 @@ const OVERLAY_Z_INDEX = 9999;
 
 /**
  * Pick the largest box that fits inside `availWidth × availHeight`
- * while preserving the 16:9 slide aspect. Duplicated from
+ * while preserving the deck's slide aspect (`SLIDE_WIDTH / deck height`;
+ * 16:9 for a default deck, 4:3 for a 10"×7.5" import). Duplicated from
  * `packages/frontend/src/app/slides/slides-view.tsx` on purpose — the
  * slides package can't depend on the frontend, and the math is small.
  */
-function computeFitSize(availWidth: number, availHeight: number): {
+function computeFitSize(availWidth: number, availHeight: number, aspect: number): {
   width: number;
   height: number;
 } {
-  const widthFit = { width: availWidth, height: availWidth / SLIDE_ASPECT };
+  const widthFit = { width: availWidth, height: availWidth / aspect };
   if (widthFit.height <= availHeight) return widthFit;
-  return { width: availHeight * SLIDE_ASPECT, height: availHeight };
+  return { width: availHeight * aspect, height: availHeight };
 }
 
 export function startPresenter(options: PresenterOptions): Presenter {
@@ -77,6 +76,12 @@ export function startPresenter(options: PresenterOptions): Presenter {
         'responsible for guarding the empty-deck case before mounting.',
     );
   }
+  // Per-deck logical height / aspect. Fixed for the deck's lifetime, so
+  // capture once rather than re-reading meta on every fit/animation build.
+  // Per-deck logical height / aspect. Mutable: a collaborator can change
+  // the deck size mid-presentation, which arrives via `setDocument`.
+  let slideH = deckSlideHeight(options.doc.meta);
+  let slideAspect = SLIDE_WIDTH / slideH;
   // Validate startSlideId against the live doc. A peer can delete that
   // slide between the host computing the id and startPresenter
   // running; without this fallback, the presenter would mount on a
@@ -140,7 +145,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
   });
 
   function applyFit(): void {
-    const fit = computeFitSize(window.innerWidth, window.innerHeight);
+    const fit = computeFitSize(window.innerWidth, window.innerHeight, slideAspect);
     const cssWidth = Math.round(fit.width);
     const cssHeight = Math.round(fit.height);
     canvas.width = Math.round(fit.width * dpr);
@@ -325,7 +330,7 @@ export function startPresenter(options: PresenterOptions): Presenter {
     const steps = compileTimeline(slide, { existingElementIds, paragraphCounts });
     return new AnimationPlayer(
       steps,
-      { w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
+      { w: SLIDE_WIDTH, h: slideH },
       (states) => {
         if (disposed) return;
         renderer.forceRender(slide, state.doc, undefined, states);
@@ -490,6 +495,16 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (state.slides.length === 0) {
       options.onExit();
       return;
+    }
+
+    // A collaborator may have changed the deck's size. Recompute the fit
+    // aspect and re-fit the canvas so the letterbox matches the slides the
+    // renderer now paints (which already read the new `doc.meta`).
+    const newH = deckSlideHeight(doc.meta);
+    if (newH !== slideH) {
+      slideH = newH;
+      slideAspect = SLIDE_WIDTH / slideH;
+      applyFit(); // resizes the canvas + rebuilds the renderer, then paints
     }
 
     // End-screen survives any structural change short of emptying the

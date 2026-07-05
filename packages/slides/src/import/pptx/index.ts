@@ -1,12 +1,12 @@
 import type { SlidesDocument, Layout, Slide } from '../../model/presentation';
-import { SLIDE_WIDTH } from '../../model/presentation';
+import { SLIDE_WIDTH, SLIDE_HEIGHT } from '../../model/presentation';
 import type { Master } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
-import { BUILT_IN_LAYOUTS } from '../../model/layout';
+import { BUILT_IN_LAYOUTS, scaleLayoutsToHeight } from '../../model/layout';
 import { BUILT_IN_THEMES } from '../../themes';
 import type { Theme } from '../../model/theme';
 import type { ClrMap } from './color';
-import { emuScale, DEFAULT_WIDESCREEN_EMU, EMU_PER_INCH } from './geometry';
+import { emuScale, deckLogicalHeight, DEFAULT_WIDESCREEN_EMU, EMU_PER_INCH } from './geometry';
 import { parseSlide, type LayoutPathToInfo } from './slide';
 import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
@@ -104,6 +104,9 @@ export async function importPptx(
 
   const slideSizeEmu = readSlideSize(presentation);
   const scale = emuScale(slideSizeEmu);
+  // Per-deck logical height (width fixed at 1920). Drives both the layout
+  // placeholder rescale below and `meta.slideHeight` further down.
+  const logicalHeight = deckLogicalHeight(slideSizeEmu);
 
   // Resolve presentation.xml.rels → theme + master + slide targets.
   const presRelsXml = await archive.readText('ppt/_rels/presentation.xml.rels');
@@ -143,8 +146,13 @@ export async function importPptx(
   // Built-in layouts are always available; imported layouts ride on top
   // (deduped by id — multiple OOXML layouts can collapse onto the same
   // built-in, and storing duplicates would break BUILT_IN_LAYOUTS' usage
-  // as the picker's source of truth).
-  const layouts = dedupeLayouts([...BUILT_IN_LAYOUTS, ...masterAndLayouts.layouts]);
+  // as the picker's source of truth). Built-ins are rescaled to the deck's
+  // logical height so their placeholders stay centred on a non-16:9 deck;
+  // imported layouts already carry deck-space frames and are left as-is.
+  const layouts = dedupeLayouts([
+    ...scaleLayoutsToHeight(BUILT_IN_LAYOUTS, logicalHeight),
+    ...masterAndLayouts.layouts,
+  ]);
 
   // Slides — resolve in source order from `<p:sldIdLst>`. Each entry's
   // `r:id` points into `presRels` at the slide part path.
@@ -174,12 +182,16 @@ export async function importPptx(
   const pxPerPt =
     slideWidthInches > 0 ? SLIDE_WIDTH / (slideWidthInches * POINTS_PER_INCH) : undefined;
 
+  // `logicalHeight` (computed above) records a taller/shorter canvas for
+  // a non-16:9 deck; a 16:9 deck lands on 1080 and is left absent so
+  // authored decks keep their existing JSON shape.
   const document: SlidesDocument = {
     meta: {
       title: 'Imported deck',
       themeId: importedTheme?.id ?? 'default-light',
       masterId: masterAndLayouts.master?.id ?? 'default',
       ...(pxPerPt != null ? { pxPerPt } : {}),
+      ...(logicalHeight !== SLIDE_HEIGHT ? { slideHeight: logicalHeight } : {}),
     },
     themes,
     masters,

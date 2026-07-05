@@ -8,9 +8,9 @@ import {
 } from "react";
 import { IconPlus } from "@tabler/icons-react";
 import {
-  SLIDE_HEIGHT,
   SLIDE_WIDTH,
   SlideRenderer,
+  deckSlideHeight,
   initializeEditor,
   renderThumbnail,
   type SlidesDocument,
@@ -26,21 +26,29 @@ import {
   ensureSlidesRoot,
 } from "./yorkie-slides-store";
 
-const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
+// Default 16:9 aspect for the thumbnail box and as the fit fallback. The
+// actual slide fit uses the deck's own aspect (a 4:3 import is taller).
+const SLIDE_ASPECT = 16 / 9;
 
 /**
- * Picks the largest 16:9 box that fits inside the available area.
- * Duplicated from `view/present/presenter.ts` and `slides-view.tsx`
- * on purpose — the slides package can't depend on the frontend, and
- * the math is small (see slides-mobile-view design doc).
+ * Picks the largest box (at `aspect`, default 16:9) that fits inside the
+ * available area. Duplicated from `view/present/presenter.ts` and
+ * `slides-view.tsx` on purpose — the slides package can't depend on the
+ * frontend, and the math is small (see slides-mobile-view design doc).
  */
 function computeFitSize(
   availWidth: number,
   availHeight: number,
+  aspect: number = SLIDE_ASPECT,
 ): { width: number; height: number } {
-  const widthFit = { width: availWidth, height: availWidth / SLIDE_ASPECT };
+  const widthFit = { width: availWidth, height: availWidth / aspect };
   if (widthFit.height <= availHeight) return widthFit;
-  return { width: availHeight * SLIDE_ASPECT, height: availHeight };
+  return { width: availHeight * aspect, height: availHeight };
+}
+
+/** Deck slide aspect from the store's meta (`SLIDE_WIDTH / height`). */
+function deckAspect(store: YorkieSlidesStore): number {
+  return SLIDE_WIDTH / deckSlideHeight(store.read().meta);
 }
 
 /** Order-sensitive shallow equality for slide-id arrays. */
@@ -253,7 +261,7 @@ export function MobileSlidesView({
     function applyFit() {
       const rect = host!.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const fit = computeFitSize(rect.width, rect.height);
+      const fit = computeFitSize(rect.width, rect.height, deckAspect(store));
       const cssW = Math.round(fit.width);
       const cssH = Math.round(fit.height);
       canvas!.width = Math.round(cssW * dpr);
@@ -320,7 +328,7 @@ export function MobileSlidesView({
     function applyFit(): boolean {
       const rect = host!.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return false;
-      const fit = computeFitSize(rect.width, rect.height);
+      const fit = computeFitSize(rect.width, rect.height, deckAspect(store));
       hostW = Math.round(fit.width);
       hostH = Math.round(fit.height);
       canvas!.width = hostW * dpr;
@@ -364,7 +372,7 @@ export function MobileSlidesView({
         rafScheduled = false;
         const rect = host!.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return;
-        const fit = computeFitSize(rect.width, rect.height);
+        const fit = computeFitSize(rect.width, rect.height, deckAspect(store));
         const nextW = Math.round(fit.width);
         const nextH = Math.round(fit.height);
         if (nextW === hostW && nextH === hostH) return;
@@ -533,6 +541,12 @@ function ThumbnailStrip({
   const canvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
+  // Per-deck thumbnail height: a 4:3 import is taller than the 16:9
+  // default, so derive from the deck's own height instead of THUMB_H.
+  const thumbH = store
+    ? Math.round((THUMB_W * deckSlideHeight(store.read().meta)) / SLIDE_WIDTH)
+    : THUMB_H;
+
   // Single subscription painting every thumbnail on each store change.
   // ref callbacks attach by the time the debounce timer fires, so newly
   // added slides paint on their first commit without a separate path.
@@ -546,14 +560,14 @@ function ThumbnailStrip({
         const canvas = canvasRefs.current.get(slide.id);
         if (!canvas) continue;
         canvas.width = THUMB_W * dpr;
-        canvas.height = THUMB_H * dpr;
+        canvas.height = thumbH * dpr;
         canvas.style.width = `${THUMB_W}px`;
-        canvas.style.height = `${THUMB_H}px`;
+        canvas.style.height = `${thumbH}px`;
         const ctx = canvas.getContext("2d");
         if (!ctx) continue;
         renderThumbnail(ctx, slide, doc, {
           hostWidth: THUMB_W,
-          hostHeight: THUMB_H,
+          hostHeight: thumbH,
           dpr,
         });
       }
@@ -583,7 +597,7 @@ function ThumbnailStrip({
     // included `slideIds` (a fresh array per store.onChange), the
     // cleanup would clear the debounce timer on every change and
     // force an immediate repaint, defeating the 120 ms coalescing.
-  }, [store]);
+  }, [store, thumbH]);
 
   // Auto-scroll the active thumbnail into view when the current slide
   // changes from anywhere (footer tap, swipe, remote peer, editor).
@@ -625,7 +639,7 @@ function ThumbnailStrip({
                 else canvasRefs.current.delete(id);
               }}
               className="block bg-white"
-              style={{ width: THUMB_W, height: THUMB_H }}
+              style={{ width: THUMB_W, height: thumbH }}
             />
             <span className="text-[10px] tabular-nums text-muted-foreground">
               {idx + 1}
@@ -643,7 +657,7 @@ function ThumbnailStrip({
         >
           <div
             className="flex items-center justify-center rounded-sm border border-dashed text-muted-foreground"
-            style={{ width: THUMB_W, height: THUMB_H }}
+            style={{ width: THUMB_W, height: thumbH }}
           >
             <IconPlus size={20} />
           </div>
