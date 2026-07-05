@@ -9,7 +9,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, caretOffsetX, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, caretOffsetX, clearMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -2433,6 +2433,20 @@ export function initialize(
   // Attach to the document so we catch transitions anywhere in the tree.
   document.addEventListener('transitionend', handleTransitionEnd);
 
+  // Re-layout when a web font finishes loading. The measure cache keys widths
+  // and char offsets by (font, text) with no load-state key, so the initial
+  // layout against a not-yet-loaded face pins run positions and caret offsets
+  // to the fallback metrics. Once the real face arrives, drop the cache and
+  // recompute so layout and caret match the painted glyphs (mirrors slides).
+  const fontsTarget: EventTarget | undefined =
+    typeof document !== 'undefined' ? document.fonts : undefined;
+  const handleFontsLoaded = () => {
+    clearMeasureCache();
+    invalidateLayout();
+    render();
+  };
+  fontsTarget?.addEventListener('loadingdone', handleFontsLoaded);
+
   // Focus/blur handling
   const handleFocus = () => {
     focused = true;
@@ -3500,6 +3514,7 @@ export function initialize(
       container.removeEventListener('scroll', handleScroll);
       container.removeEventListener('contextmenu', handleEditorContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
+      fontsTarget?.removeEventListener('loadingdone', handleFontsLoaded);
       if (spellTimer) {
         clearTimeout(spellTimer);
         spellTimer = null;

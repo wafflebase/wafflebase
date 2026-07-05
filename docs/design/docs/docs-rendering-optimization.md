@@ -111,12 +111,39 @@ function cachedMeasureText(
 ```
 
 The cache key is `font\ttext`. Font strings include size, family, weight, and
-style — so identical visual text always hits the cache. The cache is never
-invalidated because `measureText` results are deterministic for a given
-font+text combination.
+style — so identical visual text always hits the cache. The cache is
+deterministic for a given font+text combination, but see the font-load caveat
+below.
 
 `measureSegments()` calls `cachedMeasureText()` instead of `ctx.measureText()`
 directly.
+
+#### Char-offset cache
+
+`computeCharOffsets()` (per-character caret x within a run) originally
+re-measured every character prefix on every layout, uncached — the dominant
+remaining `measureText` cost once cursor moves stopped forcing a full
+re-layout. It now memoises the whole offsets array per `(measurer, font,
+text)`, keyed like `cachedMeasureText` and drained by the same
+`clearMeasureCache`. Offsets depend only on font+text (not layout width), so
+the cache survives resizes. Effect: re-laying-out unchanged content (every
+structural edit, remote change, undo/redo, resize) costs zero canvas
+measurements.
+
+Caret/selection pixel resolvers (`peer-cursor.ts`, `selection.ts`, header/
+footer/table paths in `editor.ts`) read the run's precomputed
+`LayoutRun.charOffsets` via `caretOffsetX()` instead of re-measuring a slice
+each paint frame; the measurer is only consulted on a defensive fallback.
+
+#### Font-load invalidation
+
+Because both caches key by `(font, text)` with no load-state key, the initial
+layout of a not-yet-loaded web font pins run positions and caret offsets to
+the fallback face's metrics. The docs editor's `initialize()` therefore
+subscribes to `document.fonts` `'loadingdone'` and, on fire, calls
+`clearMeasureCache()` + `invalidateLayout()` + `render()` so layout and caret
+snap onto the real glyph advances once the face arrives (the same wiring
+slides uses). The listener is removed in `dispose()`.
 
 ### 5. Incremental Layout (Dirty Block Tracking)
 
@@ -205,8 +232,9 @@ recomputed (backward-compatible behavior).
 | Risk | Mitigation |
 |------|-----------|
 | Stale layout cache after structural edits | invalidateLayout() clears cache on splitBlock/mergeBlocks/multi-block delete; undo/redo also clears cache |
-| measureText cache unbounded growth | For typical documents, cache stays small (unique word+font combos). Monitor and add LRU eviction if needed. |
+| measureText / char-offset cache unbounded growth | For typical documents, caches stay small (unique word+font combos). The font-load `loadingdone` handler drains both. Monitor and add LRU eviction to both together if needed. |
 | Y-offset drift after incremental layout | Always recompute all Y offsets cumulatively — only block-internal layout is cached |
 | Race between dirty tracking and render | dirtyBlockIds is reset synchronously inside recomputeLayout |
 | Remote edits (future YorkieDocStore) bypass dirty tracking | When Yorkie integration is added, external mutations must clear layoutCache or mark affected blocks dirty |
 | DPI change / monitor switch invalidates measureText cache | Clear measureCache on `window.devicePixelRatio` change if needed (deferred — rare edge case) |
+| Async web-font load leaves layout/caret on fallback metrics | `document.fonts` `'loadingdone'` handler clears both caches and forces a full re-layout (see Font-load invalidation) |

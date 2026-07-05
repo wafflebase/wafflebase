@@ -88,10 +88,37 @@ on every paint frame instead of reading the run's already-computed
 - [x] `pnpm --filter @wafflebase/docs test` green (1069 pass); typecheck
       clean.
 
+## Code review follow-up: font-load cache invalidation
+
+High-effort review flagged that caching `computeCharOffsets` made a
+**pre-existing** docs bug observable: the measure cache keys by `(font, text)`
+with no load-state key, and docs — unlike slides — never cleared it when a web
+font finished loading. So layout (already, via the older word-width cache) and
+now caret offsets stayed pinned to fallback-font metrics after an async font
+load, drifting from the painted glyphs until reload.
+
+- [x] Failing test: dispatching `document.fonts` `loadingdone` on a warm
+      editor must re-measure the document; the listener must be removed on
+      dispose. → `test/view/font-load-invalidation.test.ts`.
+- [x] `editor.ts` `initialize`: add a `document.fonts` `loadingdone` listener
+      → `clearMeasureCache()` + `invalidateLayout()` + `render()` (mirrors
+      slides `editor.ts`), removed in `dispose`. `clearMeasureCache` already
+      drains the new offset cache via the shared `knownCaches`, so one wiring
+      fixes both the word-width and char-offset staleness.
+- [x] docs suite green (1071 pass); typecheck clean.
+
+**Second finding (unbounded cache growth) — accepted as known limitation.**
+The offset cache shares the exact lifecycle of the pre-existing word-width
+cache, whose unbounded growth `docs-rendering-optimization.md` explicitly
+deferred ("monitor and add LRU if needed"). The new font-load clearing also
+drains it periodically. Adding LRU to one cache but not its twin would be
+inconsistent; deferred to a joint follow-up if profiling shows real pressure.
+
 ## Non-goals here
 
 - Fix #3 — remote-edit / undo-redo / structural-edit still force a full
   re-layout pass (now cheap thanks to fix #2, but still O(blocks) walk).
+- Cache LRU eviction (see above; consistent with existing width-cache design).
 - Layout-level virtualization (explicit design Non-Goal).
 
 ## Review
