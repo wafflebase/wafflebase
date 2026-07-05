@@ -43,7 +43,7 @@ paint-only cursor renders. No public signatures change.
 - [x] Impl A: cull decoration loops in `editor.ts` `paint()` (preserve search-match array indices; runs on scroll via `renderPaintOnly`)
 - [x] `pnpm verify:fast` green
 - [x] Self code-review over branch diff (high effort; 2 findings, both fixed)
-- [ ] Manual smoke: `pnpm dev`, type in a long doc with spell errors + comments; caret/selection/peer/search/comment/spell all correct on and across page boundaries (incl. mobile zoom-to-fit)
+- [x] Manual smoke: `pnpm dev`, type in a long doc with spell errors + comments; caret/selection/peer/search/comment/spell all correct on and across page boundaries (incl. mobile zoom-to-fit) — confirmed by author
 - [x] Capture lessons; PR opened (#445) — archive after merge
 
 ## Key finding during impl
@@ -76,5 +76,6 @@ Shipped in PR #445 (branch `perf/docs-decoration-culling`).
   green; typecheck clean. No public signatures changed.
 
 **Outstanding**
-- Manual `pnpm dev` smoke (UI change) — pending.
+- Manual `pnpm dev` smoke — done (author-confirmed). Awaiting CI green + review
+  approval on #445, then archive.
 - Deferred: `cloneDocument` full-doc JSON clone per keystroke (see lessons).
