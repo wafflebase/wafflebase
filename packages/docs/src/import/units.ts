@@ -29,6 +29,14 @@ export function pxToEmus(px: number): number {
   return Math.round(px * 914400 / 96);
 }
 
+/**
+ * Points → EMUs. Used to normalize legacy VML shape sizes (CSS points) onto
+ * the same EMU extent contract as DrawingML `<wp:extent>`.
+ */
+export function pointsToEmus(points: number): number {
+  return Math.round(points * 914400 / 72);
+}
+
 /** OOXML half-points → points. */
 export function halfPointsToPoints(halfPts: number): number {
   return halfPts / 2;
