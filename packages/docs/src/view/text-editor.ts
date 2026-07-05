@@ -124,6 +124,18 @@ export class TextEditor {
    * `editor.ts`.
    */
   requestRenderNoCursorScroll?: () => void;
+  /**
+   * Render variant for pure caret navigation (arrow keys, Home/End) that
+   * moves the cursor/selection without changing any document content. The
+   * cached layout is still valid, so this can repaint instead of
+   * re-measuring the whole document — the difference between O(1) and
+   * O(document) per keypress on a large body.
+   *
+   * Falls back to `requestRender` when a host does not wire it (e.g. slides
+   * text boxes), which is always correct, just not optimized. Only wire it
+   * from callsites that are guaranteed not to mutate the document.
+   */
+  requestCursorRender?: () => void;
   private saveSnapshot: () => void;
   private undoAction: () => void;
   private redoAction: () => void;
@@ -2226,6 +2238,16 @@ export class TextEditor {
     this.markDirty(blockId);
   }
 
+  /**
+   * Repaint after a caret-only move (no document mutation). Prefers the
+   * host's paint-only `requestCursorRender` (reuses cached layout) and falls
+   * back to a full `requestRender` when unwired. Only call from paths that
+   * are guaranteed not to change document content.
+   */
+  private requestCaretRender(): void {
+    (this.requestCursorRender ?? this.requestRender)();
+  }
+
   private handleArrow(
     direction: 'left' | 'right' | 'up' | 'down',
     shiftKey: boolean,
@@ -2586,7 +2608,9 @@ export class TextEditor {
       this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
     }
 
-    this.requestRender();
+    // Non-table caret move: no document content changed, so reuse the cached
+    // layout instead of re-measuring the whole body.
+    this.requestCaretRender();
   }
 
   private handleHome(shiftKey: boolean): void {
@@ -2599,7 +2623,7 @@ export class TextEditor {
       this.selection.setRange(null);
     }
     this.cursor.moveTo(newPos, 'forward');
-    this.requestRender();
+    this.requestCaretRender();
   }
 
   private handleEnd(shiftKey: boolean): void {
@@ -2612,7 +2636,7 @@ export class TextEditor {
       this.selection.setRange(null);
     }
     this.cursor.moveTo(newPos);
-    this.requestRender();
+    this.requestCaretRender();
   }
 
   private handleDocStart(shiftKey: boolean): void {
@@ -2627,7 +2651,7 @@ export class TextEditor {
       this.selection.setRange(null);
     }
     this.cursor.moveTo(newPos);
-    this.requestRender();
+    this.requestCaretRender();
   }
 
   private handleDocEnd(shiftKey: boolean): void {
@@ -2643,7 +2667,7 @@ export class TextEditor {
       this.selection.setRange(null);
     }
     this.cursor.moveTo(newPos);
-    this.requestRender();
+    this.requestCaretRender();
   }
 
   private handleLineBackspace(): void {

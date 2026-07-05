@@ -9,7 +9,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, resolveInlineFont, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
@@ -418,10 +418,7 @@ function computeHFTableCellCaretPixel(
           const localOff = remaining - chars;
           cursorXInCell = run.x + (run.imageHeight !== undefined
             ? (localOff > 0 ? run.width : 0)
-            : measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              ));
+            : caretOffsetX(run, localOff, measurer));
           break;
         }
         chars += run.text.length;
@@ -510,11 +507,7 @@ export function computeHFCursorPixel(
           if (run.imageHeight !== undefined) {
             cursorX = run.x + (localOff > 0 ? run.width : 0);
           } else {
-            const textBefore = run.text.slice(0, localOff);
-            cursorX = run.x + measurer.measureWidth(
-              textBefore,
-              resolveInlineFont(run.inline.style),
-            );
+            cursorX = run.x + caretOffsetX(run, localOff, measurer);
           }
           break;
         }
@@ -618,11 +611,10 @@ function computeHFTableCellSelectionRects(
         const lineSelEnd = Math.min(lineChars, selEnd - lineStart);
         let x0 = 0, x1 = 0, chars = 0;
         for (const run of line.runs) {
-          const font = resolveInlineFont(run.inline.style);
           const runOffsetX = (n: number): number =>
             run.x + (run.imageHeight !== undefined
               ? (n > 0 ? run.width : 0)
-              : measurer.measureWidth(run.text.slice(0, n), font));
+              : caretOffsetX(run, n, measurer));
           if (chars <= lineSelStart && lineSelStart <= chars + run.text.length) {
             x0 = runOffsetX(lineSelStart - chars);
           }
@@ -734,10 +726,7 @@ function hfFlatLayoutRects(
             if (run.imageHeight !== undefined) {
               x0 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              x0 = run.x + measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              );
+              x0 = run.x + caretOffsetX(run, localOff, measurer);
             }
           }
           if (chars + runLen >= lineSelEnd) {
@@ -745,10 +734,7 @@ function hfFlatLayoutRects(
             if (run.imageHeight !== undefined) {
               x1 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              x1 = run.x + measurer.measureWidth(
-                run.text.slice(0, localOff),
-                resolveInlineFont(run.inline.style),
-              );
+              x1 = run.x + caretOffsetX(run, localOff, measurer);
             }
             break;
           }
@@ -1909,9 +1895,10 @@ export function initialize(
   let cursorLinkChangeCallback: ((info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) | null = null;
   let textEditorRef: TextEditor | null = null;
 
-  const renderWithScroll = () => {
-    needsScrollIntoView = true;
-    render();
+  // Post-render side effects that must fire after any caret-moving render,
+  // whether it recomputed layout or only repainted: toolbar/presence cursor
+  // sync and link-under-cursor detection.
+  const afterCursorRender = () => {
     const selRange = selection.hasSelection() && selection.range
       ? {
           anchor: selection.range.anchor,
@@ -1941,6 +1928,23 @@ export function initialize(
         cursorLinkChangeCallback(undefined);
       }
     }
+  };
+
+  const renderWithScroll = () => {
+    needsScrollIntoView = true;
+    render();
+    afterCursorRender();
+  };
+
+  // Caret-only render: the caret/selection moved but no document content
+  // changed, so the cached layout is still valid. Repaint (which recomputes
+  // the caret pixel and selection rects from the cached layout and honors
+  // needsScrollIntoView) instead of re-measuring every block. This is what
+  // keeps arrow-key navigation O(1) instead of O(document) as the body grows.
+  const renderCursorMove = () => {
+    needsScrollIntoView = true;
+    renderPaintOnly();
+    afterCursorRender();
   };
 
   const textEditor = readOnly ? null : new TextEditor(
@@ -2001,6 +2005,9 @@ export function initialize(
     // Used by table border resize so resizing on page 2 with the caret
     // on page 1 doesn't snap the viewport back to page 1.
     textEditor.requestRenderNoCursorScroll = render;
+    // Caret-only navigation repaints from the cached layout instead of
+    // re-measuring the whole document (arrow keys, Home/End).
+    textEditor.requestCursorRender = renderCursorMove;
 
     // Image selection key routing. Delete/Backspace delete the selected
     // image inline and return to text mode; Escape clears the image
@@ -2425,6 +2432,37 @@ export function initialize(
   };
   // Attach to the document so we catch transitions anywhere in the tree.
   document.addEventListener('transitionend', handleTransitionEnd);
+
+  // Re-layout when a web font finishes loading. The measure cache keys widths
+  // and char offsets by (font, text) with no load-state key, so the initial
+  // layout against a not-yet-loaded face pins run positions and caret offsets
+  // to the fallback metrics. Once the real face arrives, drop the cache and
+  // recompute so layout and caret match the painted glyphs (mirrors slides).
+  const fontsTarget: EventTarget | undefined =
+    typeof document !== 'undefined' ? document.fonts : undefined;
+  let fontsDisposed = false;
+  const handleFontsLoaded = () => {
+    clearMeasureCache();
+    invalidateLayout();
+    render();
+  };
+  fontsTarget?.addEventListener('loadingdone', handleFontsLoaded);
+  // `loadingdone` is unreliable on WebKit/Safari, so also settle via the
+  // Promise-based `fonts.ready` (broadly supported). Armed only when fonts
+  // are still loading at mount, so an already-loaded document pays no extra
+  // relayout. Covers the common case of opening a document whose web fonts
+  // are still arriving; mid-session picks rely on the `loadingdone` listener.
+  if (
+    typeof document !== 'undefined' &&
+    document.fonts &&
+    document.fonts.status === 'loading'
+  ) {
+    document.fonts.ready
+      .then(() => {
+        if (!fontsDisposed) handleFontsLoaded();
+      })
+      .catch(() => {});
+  }
 
   // Focus/blur handling
   const handleFocus = () => {
@@ -3493,6 +3531,11 @@ export function initialize(
       container.removeEventListener('scroll', handleScroll);
       container.removeEventListener('contextmenu', handleEditorContextMenu);
       document.removeEventListener('transitionend', handleTransitionEnd);
+      fontsDisposed = true;
+      fontsTarget?.removeEventListener('loadingdone', handleFontsLoaded);
+      // Release this editor's measurer caches so the module-level knownCaches
+      // registry doesn't retain them for the process lifetime.
+      disposeMeasureCache(measurer);
       if (spellTimer) {
         clearTimeout(spellTimer);
         spellTimer = null;

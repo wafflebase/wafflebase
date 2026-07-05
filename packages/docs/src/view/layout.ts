@@ -34,13 +34,27 @@ function fontKey(font: ResolvedFont): string {
  * per-measurer Map so we can drain them all at once.
  */
 const perMeasurerCache = new WeakMap<TextMeasurer, Map<string, number>>();
-const knownCaches = new Set<Map<string, number>>();
+const perMeasurerOffsetCache = new WeakMap<TextMeasurer, Map<string, number[]>>();
+// Tracks every per-measurer Map we've handed out so `clearMeasureCache` can
+// drain them all (a WeakMap is not iterable). Both the width cache and the
+// char-offset cache register here.
+const knownCaches = new Set<{ clear(): void }>();
 
 function cacheFor(measurer: TextMeasurer): Map<string, number> {
   let cache = perMeasurerCache.get(measurer);
   if (!cache) {
     cache = new Map<string, number>();
     perMeasurerCache.set(measurer, cache);
+    knownCaches.add(cache);
+  }
+  return cache;
+}
+
+function offsetCacheFor(measurer: TextMeasurer): Map<string, number[]> {
+  let cache = perMeasurerOffsetCache.get(measurer);
+  if (!cache) {
+    cache = new Map<string, number[]>();
+    perMeasurerOffsetCache.set(measurer, cache);
     knownCaches.add(cache);
   }
   return cache;
@@ -66,6 +80,25 @@ export function clearMeasureCache(): void {
   // so the parallel `knownCaches` set tracks each Map we've handed out.
   for (const cache of knownCaches) {
     cache.clear();
+  }
+}
+
+/**
+ * Release a measurer's caches entirely. `clearMeasureCache` only empties the
+ * maps; the `knownCaches` set still strongly references them, so without this
+ * a per-editor measurer's cache maps would live for the module's lifetime —
+ * one leaked pair per disposed editor. Call from a host's dispose path.
+ */
+export function disposeMeasureCache(measurer: TextMeasurer): void {
+  const width = perMeasurerCache.get(measurer);
+  if (width) {
+    knownCaches.delete(width);
+    perMeasurerCache.delete(measurer);
+  }
+  const offsets = perMeasurerOffsetCache.get(measurer);
+  if (offsets) {
+    knownCaches.delete(offsets);
+    perMeasurerOffsetCache.delete(measurer);
   }
 }
 
@@ -399,6 +432,16 @@ export function computeLayout(
 /**
  * Compute cumulative character pixel offsets for a run.
  * charOffsets[i] = width of text.slice(0, i + 1).
+ *
+ * Measured as growing prefixes (not a sum of per-char widths) so kerning and
+ * ligatures stay correct. The whole array is memoised per (measurer, font,
+ * text): re-laying-out unchanged content — every structural edit, remote
+ * change, undo/redo, and resize triggers a full recompute — then costs no
+ * canvas measurements. The offsets depend only on font + text, not on layout
+ * width, so the cache survives width changes too.
+ *
+ * The returned array is shared with the cache; callers store it in
+ * `LayoutRun.charOffsets` and must treat it as read-only.
  */
 export function computeCharOffsets(
   measurer: TextMeasurer,
@@ -406,11 +449,45 @@ export function computeCharOffsets(
   font: ResolvedFont,
 ): number[] {
   if (text.length === 0) return [];
-  const offsets = new Array<number>(text.length);
-  for (let i = 0; i < text.length; i++) {
-    offsets[i] = measurer.measureWidth(text.slice(0, i + 1), font);
+  const cache = offsetCacheFor(measurer);
+  const key = `${fontKey(font)}\t${text}`;
+  let offsets = cache.get(key);
+  if (offsets === undefined) {
+    offsets = new Array<number>(text.length);
+    for (let i = 0; i < text.length; i++) {
+      offsets[i] = measurer.measureWidth(text.slice(0, i + 1), font);
+    }
+    cache.set(key, offsets);
   }
   return offsets;
+}
+
+/**
+ * Pixel x of a caret `localOffset` characters into a run, from the run's left
+ * edge. Reuses the run's precomputed cumulative `charOffsets`
+ * (charOffsets[i] = width of the first i+1 chars) instead of re-measuring
+ * `run.text.slice(0, localOffset)` — the same value with no canvas call, so
+ * caret and selection painting stays measurement-free every frame.
+ *
+ * `measurer` is only consulted on the fallback path — a run that somehow
+ * lacks a matching offset entry — so callers keep exactly the correctness
+ * they had before this optimization. Image runs are resolved by callers
+ * (they map the offset to the display width); pass only text runs here.
+ */
+export function caretOffsetX(
+  run: LayoutRun,
+  localOffset: number,
+  measurer: TextMeasurer,
+): number {
+  if (localOffset <= 0) return 0;
+  const offsets = run.charOffsets;
+  if (offsets.length >= localOffset) {
+    return offsets[localOffset - 1];
+  }
+  return measurer.measureWidth(
+    run.text.slice(0, localOffset),
+    resolveInlineFont(run.inline.style),
+  );
 }
 
 /**
