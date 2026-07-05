@@ -41,8 +41,9 @@ change for connectors or parametric shapes.
 - [x] Round-trip: freeform + tailEnd triangle survives export→import.
 - [x] `pnpm verify:fast` green (EXIT=0). Real deck slide 10 re-parsed:
       ≥2 freeform shapes now carry an end triangle arrowhead (throwaway test).
-- [ ] Manual smoke on slide 10 via `pnpm dev` (re-upload the .pptx — the
-      already-stored shared doc won't re-import). Left for merge time.
+- [x] Manual smoke on slide 10 via `pnpm dev` (re-upload the .pptx — the
+      already-stored shared doc won't re-import). Done pre-merge; review
+      round 2 findings were filed post-smoke.
 - [x] Address code-review findings (high, workflow-backed).
 
 ## Review (code-review: high, 5 findings)
@@ -97,4 +98,10 @@ Verification: `pnpm verify:fast` EXIT=0 (slides +1 test = 2469 pass).
 
 ## Review
 
-(to fill in after implementation)
+Shipped: freeform line-end arrowheads imported from PPTX and rendered on
+slides, gated on a stroke and a single open subpath (closed/compound
+paths skip tips). Two code-review rounds (high, workflow-backed) resolved
+correctness findings on stroke gating, closed paths, and multi-subpath
+anchoring.
+
+PR: https://github.com/wafflebase/wafflebase/pull/436

@@ -31,40 +31,40 @@ transiently during a resize drag; it is baked on commit.
 ## Checklist
 
 ### Store / model
-- [ ] Make `bakeGroupResize` **recursive** in `store/memory.ts` (DFS into
+- [x] Make `bakeGroupResize` **recursive** in `store/memory.ts` (DFS into
       child groups after baking direct children). Keep `bakeGroupScale`
       (`model/group.ts`) per-level contract unchanged.
-- [ ] Mirror the recursive `bakeGroupResize` in
+- [x] Mirror the recursive `bakeGroupResize` in
       `frontend/.../yorkie-slides-store.ts`.
-- [ ] `ungroup()` (both stores) settles the target group's scale to 1
+- [x] `ungroup()` (both stores) settles the target group's scale to 1
       (recursive bake) **before** baking translate/rotate into children.
       Confirm this removes the nested-child-group `refSize` leak.
-- [ ] Add `assertGroupsSettled(elements)` DEV/test helper (walks tree,
+- [x] Add `assertGroupsSettled(elements)` DEV/test helper (walks tree,
       asserts `refSize ≈ frame` for every group).
 
 ### Editor / panel commit sites
-- [ ] Multi-select resize `onUp` (`editor.ts` `startMultiResize`): call
+- [x] Multi-select resize `onUp` (`editor.ts` `startMultiResize`): call
       `store.bakeGroupResize` for each selected element that is a group,
       inside the existing commit `batch`.
-- [ ] Format panel `commitFrame` (`format-panel/index.tsx`): bake if the
+- [x] Format panel `commitFrame` (`format-panel/index.tsx`): bake if the
       target element is a group.
-- [ ] Format panel `lockedResize` (`format-panel/index.tsx`): bake if the
+- [x] Format panel `lockedResize` (`format-panel/index.tsx`): bake if the
       target element is a group.
 
 ### Tests (packages/slides, MemSlidesStore)
-- [ ] Regression: group resting with non-uniform scale + rotated shape
+- [x] Regression: group resting with non-uniform scale + rotated shape
       child → `ungroup` → assert (a) no output group has residual scale,
       (b) rotated child's post-ungroup transform == its pre-ungroup
       *rendered* transform within eps (render-map == ungroup-map).
-- [ ] Multi-resize a group → assert `refSize == frame` after commit.
-- [ ] Nested: resize outer group → assert inner group also settled
+- [x] Multi-resize a group → assert `refSize == frame` after commit.
+- [x] Nested: resize outer group → assert inner group also settled
       (recursive bake).
-- [ ] Format panel `commitFrame` / `lockedResize` on a group → settled.
-- [ ] `assertGroupsSettled` used as the shared guard in the above.
+- [x] Format panel `commitFrame` / `lockedResize` on a group → settled.
+- [x] `assertGroupsSettled` used as the shared guard in the above.
 
 ### Verify
-- [ ] `pnpm verify:fast` green.
-- [ ] Manual smoke in `pnpm dev`: group a smiley (rotated) with another
+- [x] `pnpm verify:fast` green.
+- [x] Manual smoke in `pnpm dev`: group a smiley (rotated) with another
       shape, resize the group non-uniformly (single + multi + panel),
       ungroup → smiley unchanged.
 
