@@ -10,7 +10,7 @@ import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, caretOffsetX, clearMeasureCache, disposeMeasureCache, type ComposingContext, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
-import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, getBlockIndex, getBlockYExtent, type PaginatedLayout } from './pagination.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, DocRange, HeaderFooter } from '../model/types.js';
@@ -1425,6 +1425,31 @@ export function initialize(
 
     const scrollY = container.scrollTop / scaleFactor;
 
+    // Viewport culling for decorations. Peer selections, search matches,
+    // comment markers and spell errors are laid out for the whole document,
+    // but only those intersecting the visible band can be painted or hit-
+    // tested. Skip the rest so typing in a long document does not recompute
+    // rects for hundreds of off-screen decorations every keystroke. Keep one
+    // screenful of margin above/below to avoid edge popping during scroll.
+    // `scrollY` and `blockYExtent` are in logical (unscaled) document
+    // coordinates, so the band must be too: on mobile zoom-to-fit
+    // (scaleFactor < 1) the visible region spans canvasHeight/scaleFactor
+    // logical pixels, not canvasHeight.
+    const viewportLogicalHeight = canvasHeight / scaleFactor;
+    const cullTop = scrollY - viewportLogicalHeight;
+    const cullBottom = scrollY + viewportLogicalHeight * 2;
+    const blockYExtent = getBlockYExtent(paginatedLayout);
+    const isRangeVisible = (startBlockId: string, endBlockId: string): boolean => {
+      const a = getBlockIndex(layout, startBlockId);
+      const b = getBlockIndex(layout, endBlockId);
+      if (a < 0 || b < 0) return true; // unknown block: keep (defensive)
+      const top = blockYExtent.get(Math.min(a, b));
+      const bottom = blockYExtent.get(Math.max(a, b));
+      if (!top || !bottom) return true;
+      return bottom.bottom >= cullTop && top.top <= cullBottom;
+    };
+    const isBlockVisible = (blockId: string): boolean => isRangeVisible(blockId, blockId);
+
     // Keep the hidden textarea at the cursor's screen position so the
     // browser doesn't scroll the container to bring it into view.
     if (cursorPixel) {
@@ -1507,6 +1532,9 @@ export function initialize(
     }> = [];
     for (const peer of peerCursors) {
       if (peer.selection) {
+        if (!isRangeVisible(peer.selection.anchor.blockId, peer.selection.focus.blockId)) {
+          continue;
+        }
         const rects = computeSelectionRects(
           peer.selection,
           paginatedLayout,
@@ -1523,17 +1551,21 @@ export function initialize(
     // Compute search highlight rectangles
     let searchHighlightRects: Array<{ x: number; y: number; width: number; height: number }>[] | undefined;
     if (searchMatches.length > 0) {
+      // Return [] for off-screen matches rather than filtering the array so
+      // `activeMatchIndex` keeps indexing into it.
       searchHighlightRects = searchMatches.map((match) =>
-        computeSelectionRects(
-          {
-            anchor: { blockId: match.blockId, offset: match.startOffset },
-            focus: { blockId: match.blockId, offset: match.endOffset },
-          },
-          paginatedLayout,
-          layout,
-          measurer,
-          logicalCanvasWidth,
-        ),
+        isBlockVisible(match.blockId)
+          ? computeSelectionRects(
+              {
+                anchor: { blockId: match.blockId, offset: match.startOffset },
+                focus: { blockId: match.blockId, offset: match.endOffset },
+              },
+              paginatedLayout,
+              layout,
+              measurer,
+              logicalCanvasWidth,
+            )
+          : [],
       );
     }
 
@@ -1541,6 +1573,7 @@ export function initialize(
     // getCommentMarkerAt can hit-test the rects the user actually sees.
     commentMarkerRects = [];
     for (const marker of commentMarkers) {
+      if (!isRangeVisible(marker.anchor.blockId, marker.focus.blockId)) continue;
       const rects = computeSelectionRects(
         { anchor: marker.anchor, focus: marker.focus },
         paginatedLayout,
@@ -1557,6 +1590,7 @@ export function initialize(
     let spellErrorRects: Array<{ x: number; y: number; width: number; height: number }> = [];
     if (spellSession) {
       for (const err of spellSession.errors) {
+        if (!isBlockVisible(err.blockId)) continue;
         const rects = computeSelectionRects(
           {
             anchor: { blockId: err.blockId, offset: err.start },

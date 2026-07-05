@@ -3,7 +3,7 @@ import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import { caretOffsetX } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
+import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset, getBlockIndex } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import { resolveNestedTableLayout } from './table-layout.js';
@@ -432,12 +432,8 @@ function buildRects(
 
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-  const startBlockIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === start.blockId,
-  );
-  const endBlockIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === end.blockId,
-  );
+  const startBlockIdx = getBlockIndex(layout, start.blockId);
+  const endBlockIdx = getBlockIndex(layout, end.blockId);
   if (startBlockIdx === -1 || endBlockIdx === -1) return [];
 
   for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
