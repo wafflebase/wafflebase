@@ -2,6 +2,7 @@ import type { Block } from '@wafflebase/docs';
 import type {
   Background,
   GuideAxis,
+  Meta,
   SlideAnimation,
   SlideTransition,
   SlidesDocument,
@@ -74,6 +75,10 @@ export class LayoutEditStore implements SlidesStore {
     const master = this.resolveMaster(doc);
     const theme = this.resolveTheme(doc);
     return { ...doc, slides: [buildLayoutSlide(layout, master, theme)] };
+  }
+
+  readMeta(): Meta {
+    return this.real.readMeta();
   }
 
   private resolveMaster(doc: SlidesDocument): Master {

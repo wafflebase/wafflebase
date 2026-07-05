@@ -1227,7 +1227,9 @@ class SlidesEditorImpl implements SlidesEditor {
    * (rare) mid-session size change is picked up.
    */
   private slideHeight(): number {
-    return deckSlideHeight(this.options.store.read().meta);
+    // `readMeta` (not `read`) so the per-frame overlay / drag callers that
+    // hit this don't clone + migrate the whole presentation for one number.
+    return deckSlideHeight(this.options.store.readMeta());
   }
 
   render(): void {

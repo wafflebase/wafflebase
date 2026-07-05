@@ -131,6 +131,39 @@ describe('MemSlidesStore.setSlideHeight', () => {
     }
   });
 
+  it('rescales the deck layouts so slides added after a resize seed correctly', () => {
+    const [store] = seed();
+    // Built-in 'title-slide' subtitle is authored at y = 1080/2 + 60 = 600.
+    const before = store
+      .read()
+      .layouts.find((l) => l.id === 'title-slide')!
+      .placeholders.find((p) => p.placeholder.type === 'subtitle')!.frame.y;
+    expect(before).toBe(600);
+    store.batch(() => store.setSlideHeight(1440)); // factor 4/3
+    const after = store
+      .read()
+      .layouts.find((l) => l.id === 'title-slide')!
+      .placeholders.find((p) => p.placeholder.type === 'subtitle')!.frame.y;
+    expect(after).toBeCloseTo(800, 6); // 600 * 4/3
+    // A slide added post-resize seeds its placeholder in the 1440 space.
+    let sid!: string;
+    store.batch(() => { sid = store.addSlide('title-slide'); });
+    const sub = store
+      .read()
+      .slides.find((s) => s.id === sid)!
+      .elements.find(
+        (e) => e.type === 'text' && e.placeholderRef?.type === 'subtitle',
+      );
+    expect(sub!.frame.y).toBeCloseTo(800, 6);
+  });
+
+  it('readMeta reflects the height without cloning the whole doc', () => {
+    const [store] = seed();
+    expect(store.readMeta().slideHeight).toBeUndefined(); // absent ⇒ 1080
+    store.batch(() => store.setSlideHeight(1440));
+    expect(store.readMeta().slideHeight).toBe(1440);
+  });
+
   it('undo restores the prior height and frames in one step', () => {
     const [store, sid] = seed();
     let id!: string;

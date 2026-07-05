@@ -13,6 +13,7 @@ import {
   type GroupTransform,
   type Layout,
   type Master,
+  type Meta,
   type PlaceholderStyle,
   type ObjectAnimation,
   type PlaceholderRef,
@@ -51,6 +52,7 @@ import {
   isBlocksEmpty,
   groupToTransform,
   migrateDocument,
+  migrateMeta,
   normalizeToGroupLocal,
   pushRecent,
   resolveEndpoint,
@@ -460,6 +462,14 @@ export class YorkieSlidesStore implements SlidesStore {
       layouts,
       guides,
     });
+  }
+
+  readMeta(): Meta {
+    // Unwrap + migrate only `meta` — skips the whole slide/element walk
+    // that `read()` does, for hot callers that just need the deck height.
+    const root = this.doc.getRoot();
+    const meta = yorkieToPlain<Record<string, unknown>>(root.meta) ?? {};
+    return migrateMeta(meta);
   }
 
   // --- read helpers ---
@@ -1172,6 +1182,15 @@ export class YorkieSlidesStore implements SlidesStore {
             plain,
             lookup,
           );
+        }
+      }
+      // Rescale the deck's layout placeholders in place so a later
+      // addSlide / layout-change seeds geometry in the new height space
+      // (mirrors MemSlidesStore's scaleLayoutsByFactor).
+      for (const layout of r.layouts ?? []) {
+        for (const p of (layout as { placeholders?: { frame: Frame }[] })
+          .placeholders ?? []) {
+          p.frame = { ...p.frame, y: p.frame.y * factor, h: p.frame.h * factor };
         }
       }
       (r.meta as unknown as { slideHeight?: number }).slideHeight = height;

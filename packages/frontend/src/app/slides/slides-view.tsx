@@ -898,9 +898,11 @@ export function SlidesView({
     // fires for a pure meta edit, so without this the canvas keeps the
     // old aspect until the next resize. Guarded on the height so ordinary
     // edits (which also fire onChange) don't pay a refit.
-    let lastSlideHeightSeen = deckSlideHeight(store.read().meta);
+    // `readMeta` (not `read`) so this per-commit listener doesn't clone the
+    // whole presentation just to compare one number on every edit.
+    let lastSlideHeightSeen = deckSlideHeight(store.readMeta());
     const unsubscribeHeight = store.onChange(() => {
-      const h = deckSlideHeight(store.read().meta);
+      const h = deckSlideHeight(store.readMeta());
       if (h !== lastSlideHeightSeen) {
         lastSlideHeightSeen = h;
         refitCanvas();

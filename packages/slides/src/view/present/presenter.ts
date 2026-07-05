@@ -78,8 +78,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
   }
   // Per-deck logical height / aspect. Fixed for the deck's lifetime, so
   // capture once rather than re-reading meta on every fit/animation build.
-  const slideH = deckSlideHeight(options.doc.meta);
-  const slideAspect = SLIDE_WIDTH / slideH;
+  // Per-deck logical height / aspect. Mutable: a collaborator can change
+  // the deck size mid-presentation, which arrives via `setDocument`.
+  let slideH = deckSlideHeight(options.doc.meta);
+  let slideAspect = SLIDE_WIDTH / slideH;
   // Validate startSlideId against the live doc. A peer can delete that
   // slide between the host computing the id and startPresenter
   // running; without this fallback, the presenter would mount on a
@@ -493,6 +495,16 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (state.slides.length === 0) {
       options.onExit();
       return;
+    }
+
+    // A collaborator may have changed the deck's size. Recompute the fit
+    // aspect and re-fit the canvas so the letterbox matches the slides the
+    // renderer now paints (which already read the new `doc.meta`).
+    const newH = deckSlideHeight(doc.meta);
+    if (newH !== slideH) {
+      slideH = newH;
+      slideAspect = SLIDE_WIDTH / slideH;
+      applyFit(); // resizes the canvas + rebuilds the renderer, then paints
     }
 
     // End-screen survives any structural change short of emptying the

@@ -119,7 +119,7 @@ export {
   CURVE_BEND_MIN,
 } from './view/canvas/routing';
 
-export { migrateDocument } from './model/migrate';
+export { migrateDocument, migrateMeta } from './model/migrate';
 export { defaultLight } from './themes/default-light';
 export { defaultDark } from './themes/default-dark';
 

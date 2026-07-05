@@ -2,6 +2,7 @@ import type { Block } from '@wafflebase/docs';
 import type {
   Background,
   GuideAxis,
+  Meta,
   SlidesDocument,
 } from '../model/presentation';
 import type {
@@ -48,6 +49,14 @@ export type LayoutPatch = {
 export interface SlidesStore {
   /** Return a deep clone of the current presentation. */
   read(): SlidesDocument;
+
+  /**
+   * Return a clone of just the document metadata. Cheap — unlike
+   * {@link read} it doesn't walk / migrate the whole presentation — for
+   * hot paths that only need `meta` (e.g. the per-deck slide height read
+   * on every overlay repaint and the slide-height change listener).
+   */
+  readMeta(): Meta;
 
   // --- slide-level ---
 

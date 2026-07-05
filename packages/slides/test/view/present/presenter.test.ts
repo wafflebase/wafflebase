@@ -1142,6 +1142,30 @@ describe('startPresenter — setDocument remote changes', () => {
     return { doc: store.read(), ids: [aId, bId, cId], store };
   }
 
+  it('re-fits the canvas when a collaborator changes the deck height', () => {
+    const { doc, ids, store } = makeDocWithRemovals();
+    const [aId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      const canvas = testApi(presenter).getCanvas();
+      const aspectOf = () =>
+        parseFloat(canvas.style.width) / parseFloat(canvas.style.height);
+      // Default deck is 16:9.
+      expect(aspectOf()).toBeCloseTo(16 / 9, 2);
+      // A peer switches the deck to 4:3 (height 1440).
+      store.batch(() => store.setSlideHeight(1440));
+      presenter.setDocument(store.read());
+      expect(aspectOf()).toBeCloseTo(4 / 3, 2);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
   it('preserves currentSlideId and re-renders when the current slide still exists', () => {
     const renderSpy = vi.spyOn(SlideRenderer.prototype, 'render');
     const { doc, ids, store } = makeDocWithRemovals();

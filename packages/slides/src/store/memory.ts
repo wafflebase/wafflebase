@@ -8,6 +8,7 @@ import type {
   Background,
   Guide,
   GuideAxis,
+  Meta,
   Slide,
   SlideAnimation,
   SlideTransition,
@@ -29,13 +30,13 @@ import type {
   TableCell,
 } from '../model/element';
 import { generateId, isBlocksEmpty } from '../model/element';
-import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
+import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, scaleLayoutsByFactor, slotRefsForLayout } from '../model/layout';
 import { deckSlideHeight, pushRecent } from '../model/presentation';
 import { scaleElementHeight } from '../model/slide-size';
 import { DEFAULT_MASTER } from '../model/master';
 import type { Master } from '../model/master';
 import { framesApproxEqual } from '../model/frame';
-import { migrateDocument } from '../model/migrate';
+import { migrateDocument, migrateMeta } from '../model/migrate';
 import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
 import { defaultLight } from '../themes/default-light';
@@ -153,6 +154,12 @@ export class MemSlidesStore implements SlidesStore {
     // shapes. `migrateDocument` is idempotent, so the second pass is
     // near no-op for already-migrated docs.
     return migrateDocument(clone(this.doc));
+  }
+
+  readMeta(): Meta {
+    // Migrate just the meta (not the whole doc) so the field-preservation
+    // guards — e.g. slideHeight — run without cloning every slide.
+    return migrateMeta(clone(this.doc.meta));
   }
 
   // --- slide ops ---
@@ -471,6 +478,10 @@ export class MemSlidesStore implements SlidesStore {
         }
       }
     }
+    // Rescale the deck's layouts too, so placeholders seeded by a later
+    // addSlide / layout-change land in the new height space rather than
+    // the old one.
+    this.doc.layouts = scaleLayoutsByFactor(this.doc.layouts, factor);
     this.doc.meta.slideHeight = height;
   }
 

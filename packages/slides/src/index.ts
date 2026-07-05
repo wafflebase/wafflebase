@@ -151,7 +151,7 @@ export {
   slotRefsForLayout,
 } from './model/layout';
 
-export { migrateDocument } from './model/migrate';
+export { migrateDocument, migrateMeta } from './model/migrate';
 
 // Themes — built-in theme registry (Phase 5 / themed authoring)
 export {

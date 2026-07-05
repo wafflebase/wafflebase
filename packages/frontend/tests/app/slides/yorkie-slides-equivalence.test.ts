@@ -154,6 +154,14 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     const grp = mem.slides[0].elements.find((e) => e.type === 'group')!;
     expect(grp.frame.y).toBeCloseTo(200 * (4 / 3), 2);
     expect(grp.frame.h).toBeCloseTo(300 * (4 / 3), 2);
+    // Deck layouts are rescaled too — and identically across both stores.
+    // (stripIds only compares placeholderCount, so assert a frame directly.)
+    const subY = (doc: typeof mem) =>
+      doc.layouts
+        .find((l) => l.id === 'title-slide')!
+        .placeholders.find((p) => p.placeholder.type === 'subtitle')!.frame.y;
+    expect(subY(mem)).toBeCloseTo(800, 3); // 600 * 4/3
+    expect(subY(yo)).toBeCloseTo(subY(mem), 3);
   });
 
   it('setSlideHeight keeps a connector attached to a grouped element in sync', () => {

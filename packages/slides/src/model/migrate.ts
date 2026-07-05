@@ -9,48 +9,50 @@ const LAYOUT_ID_MIGRATIONS: Record<string, string> = {
   title: 'title-slide',
 };
 
-export function migrateDocument(input: unknown): SlidesDocument {
-  const raw = input as any;
+/**
+ * Migrate just the document metadata: fill defaults and preserve the
+ * optional fields (`unit`, `pxPerPt`, `slideHeight`, `recentColors`) that
+ * would otherwise be dropped on every read. Split out of
+ * {@link migrateDocument} so `SlidesStore.readMeta()` can migrate meta
+ * without scaffolding a whole default document (themes / masters / …).
+ */
+export function migrateMeta(rawMeta: unknown): import('./presentation').Meta {
+  const m = rawMeta as any;
   const meta: import('./presentation').Meta = {
-    title: raw?.meta?.title ?? 'Untitled presentation',
-    themeId: raw?.meta?.themeId ?? 'default-light',
-    masterId: raw?.meta?.masterId ?? 'default',
+    title: m?.title ?? 'Untitled presentation',
+    themeId: m?.themeId ?? 'default-light',
+    masterId: m?.masterId ?? 'default',
   };
   // Preserve the optional unit field if present and valid.
-  if (raw?.meta?.unit === 'in' || raw?.meta?.unit === 'cm') {
-    meta.unit = raw.meta.unit;
+  if (m?.unit === 'in' || m?.unit === 'cm') {
+    meta.unit = m.unit;
   }
   // Preserve the deck-DPI font scale. PPTX-imported decks set this
   // from `<p:sldSz>`; without the migrate-time copy the field is
   // dropped on every Yorkie read and the renderer falls back to the
   // 96-DPI docs default — which is exactly the original bug.
-  if (
-    typeof raw?.meta?.pxPerPt === 'number' &&
-    Number.isFinite(raw.meta.pxPerPt) &&
-    raw.meta.pxPerPt > 0
-  ) {
-    meta.pxPerPt = raw.meta.pxPerPt;
+  if (typeof m?.pxPerPt === 'number' && Number.isFinite(m.pxPerPt) && m.pxPerPt > 0) {
+    meta.pxPerPt = m.pxPerPt;
   }
   // Preserve the per-deck logical height. Like pxPerPt, non-16:9 decks
   // set this from `<p:sldSz>`; without the migrate-time copy the field is
   // dropped on every Yorkie read and the deck renders stretched into the
   // default 1080 canvas — the exact distortion this field fixes.
   if (
-    typeof raw?.meta?.slideHeight === 'number' &&
-    Number.isFinite(raw.meta.slideHeight) &&
-    raw.meta.slideHeight > 0
+    typeof m?.slideHeight === 'number' &&
+    Number.isFinite(m.slideHeight) &&
+    m.slideHeight > 0
   ) {
-    meta.slideHeight = raw.meta.slideHeight;
+    meta.slideHeight = m.slideHeight;
   }
-  // Preserve recent colors. Like unit/pxPerPt, `migrateDocument` runs on
-  // every Yorkie read, so without the copy the list would be dropped each
-  // time. Re-enforce the same normalization `pushRecent` applies on write
-  // (lower-case, de-dupe most-recent-first, cap at MAX_RECENT_COLORS) so an
-  // externally-authored or pre-cap deck can't surface a malformed list.
-  if (Array.isArray(raw?.meta?.recentColors)) {
+  // Preserve recent colors. Re-enforce the same normalization `pushRecent`
+  // applies on write (lower-case, de-dupe most-recent-first, cap at
+  // MAX_RECENT_COLORS) so an externally-authored or pre-cap deck can't
+  // surface a malformed list.
+  if (Array.isArray(m?.recentColors)) {
     const seen = new Set<string>();
     const colors: string[] = [];
-    for (const c of raw.meta.recentColors) {
+    for (const c of m.recentColors) {
       if (typeof c !== 'string') continue;
       const norm = c.toLowerCase();
       if (seen.has(norm)) continue;
@@ -60,6 +62,12 @@ export function migrateDocument(input: unknown): SlidesDocument {
     }
     if (colors.length > 0) meta.recentColors = colors;
   }
+  return meta;
+}
+
+export function migrateDocument(input: unknown): SlidesDocument {
+  const raw = input as any;
+  const meta = migrateMeta(raw?.meta);
   const themes = Array.isArray(raw?.themes) && raw.themes.length > 0
     ? raw.themes
     : [defaultLight];

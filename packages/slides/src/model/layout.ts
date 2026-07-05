@@ -212,7 +212,20 @@ export function scaleLayoutsToHeight(
   layouts: Layout[],
   slideHeight: number,
 ): Layout[] {
-  const factor = slideHeight / SLIDE_HEIGHT;
+  return scaleLayoutsByFactor(layouts, slideHeight / SLIDE_HEIGHT);
+}
+
+/**
+ * Scale layout placeholders' y/h by `factor` (x/w untouched). The
+ * factor-based core of {@link scaleLayoutsToHeight}; `setSlideHeight` uses
+ * it with `newHeight / oldHeight` to keep `doc.layouts` in the deck's
+ * current height space (so slides added after a resize seed correctly).
+ * A factor of 1 (or invalid) returns the input unchanged.
+ */
+export function scaleLayoutsByFactor(
+  layouts: Layout[],
+  factor: number,
+): Layout[] {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return layouts;
   return layouts.map((l) => ({
     ...l,
