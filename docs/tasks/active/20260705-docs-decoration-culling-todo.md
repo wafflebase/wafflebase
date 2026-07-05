@@ -42,9 +42,9 @@ paint-only cursor renders. No public signatures change.
 - [x] Impl B: `selection.ts buildRects` uses `getBlockIndex`
 - [x] Impl A: cull decoration loops in `editor.ts` `paint()` (preserve search-match array indices; runs on scroll via `renderPaintOnly`)
 - [x] `pnpm verify:fast` green
-- [ ] Self code-review over branch diff (running)
-- [ ] Manual smoke: `pnpm dev`, type in a long doc with spell errors + comments; caret/selection/peer/search/comment/spell all correct on and across page boundaries
-- [ ] Capture lessons; archive; PR
+- [x] Self code-review over branch diff (high effort; 2 findings, both fixed)
+- [ ] Manual smoke: `pnpm dev`, type in a long doc with spell errors + comments; caret/selection/peer/search/comment/spell all correct on and across page boundaries (incl. mobile zoom-to-fit)
+- [x] Capture lessons; PR opened (#445) — archive after merge
 
 ## Key finding during impl
 
@@ -56,4 +56,25 @@ computed on the scroll repaint, not left stale from the last full render.
 
 ## Review
 
-(filled at completion)
+Shipped in PR #445 (branch `perf/docs-decoration-culling`).
+
+**Changes**
+- `pagination.ts`: `getBlockIndex` / `getBlockPageLines` / `getBlockYExtent`
+  (WeakMap-memoized per layout object); `findPageForPosition` rewritten off the
+  `findIndex` + full page/line scan. `getBlockYExtent` reuses `getBlockPageLines`
+  (no second pages×lines pass — review finding #2).
+- `selection.ts`: `buildRects` uses `getBlockIndex`.
+- `editor.ts`: `paint()` culls peer/search/comment/spell decoration loops to the
+  visible band, sized in logical coords (`canvasHeight / scaleFactor`) so mobile
+  zoom-to-fit is correct (review finding #1). Search matches map to `[]` to keep
+  `activeMatchIndex` valid.
+
+**Result**
+- Decoration cost `O(N_decorations × doc_size)` → `O(N_visible × small)`; 1-page
+  typing latency decoupled from document length.
+- New tests: `test/view/decoration-index.test.ts` (9 cases). `pnpm verify:fast`
+  green; typecheck clean. No public signatures changed.
+
+**Outstanding**
+- Manual `pnpm dev` smoke (UI change) — pending.
+- Deferred: `cloneDocument` full-doc JSON clone per keystroke (see lessons).
