@@ -1,4 +1,11 @@
-import { FormEvent, MouseEvent, ReactNode, useMemo, useState } from "react";
+import {
+  ComponentType,
+  FormEvent,
+  MouseEvent,
+  ReactNode,
+  useMemo,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,7 +28,6 @@ import {
   ChevronsUpDown,
   FileDown,
   FileText,
-  FileType2,
   FolderOutput,
   MoreHorizontal,
   Pencil,
@@ -30,6 +36,7 @@ import {
   Sheet,
   Trash2,
 } from "lucide-react";
+import { IconFileTypePdf } from "@tabler/icons-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -107,12 +114,12 @@ import { setPendingImport as setPendingXlsxImport } from "@/app/spreadsheet/pend
  */
 const TYPE_META: Record<
   DocumentType,
-  { label: string; Icon: typeof Sheet; color: string }
+  { label: string; Icon: ComponentType<{ className?: string }>; color: string }
 > = {
   sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
   doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
-  pdf: { label: "PDF", Icon: FileType2, color: "text-red-500" },
+  pdf: { label: "PDF", Icon: IconFileTypePdf, color: "text-red-500" },
 };
 
 /** Document types offered as filter chips, in display order. */
@@ -160,7 +167,7 @@ function SortableHeader<TData>({
 
 /**
  * A right-aligned, time-based sortable column rendering a relative timestamp
- * (e.g. "3 days ago"). Shared by the Created and Modified columns.
+ * (e.g. "3 days ago"). Used by the Modified column.
  */
 function dateColumn(
   id: string,
@@ -258,7 +265,6 @@ export function DocumentList({
       },
     },
     dateColumn("updatedAt", "Modified", (doc) => lastModified(doc)),
-    dateColumn("createdAt", "Created", (doc) => doc.createdAt),
     {
       id: "actions",
       enableHiding: false,
@@ -686,7 +692,7 @@ export function DocumentList({
               Import PPTX
             </DropdownMenuItem>
             <DropdownMenuItem disabled={importing} onClick={handleUploadPdf}>
-              <FileType2 className="mr-2 h-4 w-4 text-red-500" />
+              <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
               Upload PDF
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -821,7 +827,7 @@ export function DocumentList({
                           disabled={importing}
                           onClick={handleUploadPdf}
                         >
-                          <FileType2 className="mr-2 h-4 w-4 text-red-500" />
+                          <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
                           Upload PDF
                         </DropdownMenuItem>
                       </DropdownMenuContent>
