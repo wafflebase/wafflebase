@@ -10,11 +10,8 @@ vi.mock("pdfjs-dist", () => {
   return {
     GlobalWorkerOptions: { workerSrc: "" },
     getDocument: () => ({
-      promise: Promise.resolve({
-        numPages: 2,
-        getPage: async () => page,
-        destroy: () => Promise.resolve(),
-      }),
+      promise: Promise.resolve({ numPages: 2, getPage: async () => page }),
+      destroy: () => Promise.resolve(),
     }),
   };
 });

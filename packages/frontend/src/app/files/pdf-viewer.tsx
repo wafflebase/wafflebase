@@ -60,6 +60,9 @@ async function fetchPdf(
  */
 export function PdfViewer({ fileUrl }: { fileUrl: string }) {
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
+  // The getDocument() loading task owns teardown (destroy) — the resolved
+  // document proxy does not expose it in every pdf.js version.
+  const loadingTaskRef = useRef<{ destroy?: () => Promise<void> } | null>(null);
   const [pages, setPages] = useState<PageDim[]>([]);
   const [progress, setProgress] = useState<number | null>(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -81,7 +84,9 @@ export function PdfViewer({ fileUrl }: { fileUrl: string }) {
           if (!cancelled) setProgress(p);
         });
         if (cancelled) return;
-        const pdf = await pdfjs.getDocument({ data }).promise;
+        const loadingTask = pdfjs.getDocument({ data });
+        loadingTaskRef.current = loadingTask;
+        const pdf = await loadingTask.promise;
         if (cancelled) return;
         pdfRef.current = pdf;
 
@@ -106,11 +111,15 @@ export function PdfViewer({ fileUrl }: { fileUrl: string }) {
     })();
     return () => {
       cancelled = true;
-      const doc = pdfRef.current;
       pdfRef.current = null;
-      // Release the pdf.js document + worker transport and its cached page
-      // bitmaps; otherwise each fileUrl change / unmount leaks them.
-      if (doc) void doc.destroy().catch(() => undefined);
+      // Release the pdf.js document + worker transport and cached page bitmaps
+      // via the loading task; otherwise each fileUrl change / unmount leaks
+      // them. Guard the method — some pdf.js versions omit it.
+      const task = loadingTaskRef.current;
+      loadingTaskRef.current = null;
+      if (task && typeof task.destroy === "function") {
+        void task.destroy().catch(() => undefined);
+      }
     };
   }, [fileUrl]);
 
