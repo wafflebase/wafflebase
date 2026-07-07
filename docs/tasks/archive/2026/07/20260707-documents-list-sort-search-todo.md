@@ -44,41 +44,41 @@ no schema change, no write path.
 ## Scope — 4 features, one PR
 
 ### 1. Expose sorting (frontend)
-- [ ] Make column headers clickable to toggle sort: **Title, Last modified,
+- [x] Make column headers clickable to toggle sort: **Title, Last modified,
   Created, Type**. Presence column stays `enableSorting: false`.
-- [ ] Show sort-direction affordance (asc/desc arrow) on the active header.
-- [ ] Add a sort dropdown for discoverability/mobile: "Last modified /
+- [x] Show sort-direction affordance (asc/desc arrow) on the active header.
+- [x] Add a sort dropdown for discoverability/mobile: "Last modified /
   Title A→Z / Created". Dropdown and header clicks drive the same `sorting`
   state (single source of truth).
-- [ ] **Default sort = Last modified, desc** (matches Google Drive), instead
+- [x] **Default sort = Last modified, desc** (matches Google Drive), instead
   of the current created-desc.
 
 ### 2. Search + type filter (frontend)
-- [ ] Type filter chips next to the search box: Sheet / Doc / Slides,
+- [x] Type filter chips next to the search box: Sheet / Doc / Slides,
   multi-select toggle. Empty selection = all types.
-- [ ] Keep the text filter **title-only** (NFC-normalized, lowercase) — type
+- [x] Keep the text filter **title-only** (NFC-normalized, lowercase) — type
   filtering is the chips' job, so widening search to type keywords would
   flood results on type-name collisions.
 
 ### 3. Last-modified column (backend read-only + frontend)
-- [ ] Extend `GetDocumentsResponse` in `yorkie-admin.service.ts` (types at
+- [x] Extend `GetDocumentsResponse` in `yorkie-admin.service.ts` (types at
   ~:20-26) to parse `updated_at` (and keep the door open for `accessed_at`).
   Parse the RFC3339 / `google.protobuf.Timestamp` into a `Date`/ISO string.
-- [ ] Return `{ editors, updatedAt }` per doc key (extend `getEditors` or add
+- [x] Return `{ editors, updatedAt }` per doc key (extend `getEditors` or add
   a sibling method); `attachEditors` attaches `updatedAt` to each list item.
-- [ ] **Fallback to `createdAt`** when Yorkie has no summary for a doc
+- [x] **Fallback to `createdAt`** when Yorkie has no summary for a doc
   (never-attached docs, or `YORKIE_SECRET_KEY` unset) — reuse the existing
   silent-degrade path that presence already uses.
-- [ ] Frontend: add a **"Last modified"** column
+- [x] Frontend: add a **"Last modified"** column
   (`formatDistanceToNow`), sortable, and make it the default sort key.
-- [ ] Keep the "Created" column (now a secondary, opt-in sort).
+- [x] Keep the "Created" column (now a secondary, opt-in sort).
 
 ### 4. Owner column (backend select + frontend)
-- [ ] Add the `author` relation (username, photo) to the `select` of both
+- [x] Add the `author` relation (username, photo) to the `select` of both
   list endpoints so it's returned without an extra round-trip.
-- [ ] Extend the frontend `Document`/list-item type with `author`.
-- [ ] Frontend: add an **Owner** column (avatar + name), sortable by name.
-- [ ] Handle null author gracefully (legacy docs with `authorID = null`).
+- [x] Extend the frontend `Document`/list-item type with `author`.
+- [x] Frontend: add an **Owner** column (avatar + name), sortable by name.
+- [x] Handle null author gracefully (legacy docs with `authorID = null`).
 
 ## Out of scope (follow-up PRs)
 - **Thumbnails / grid view** — needs render-to-image + storage; separate PR.
@@ -90,18 +90,18 @@ no schema change, no write path.
   layer already supports `orderBy`/`where`/`skip`/`take` when scale demands).
 
 ## Test plan
-- [ ] Unit: search/filter/sort predicates over a fixture doc set (title +
+- [x] Unit: search/filter/sort predicates over a fixture doc set (title +
   type match; type-chip filtering; each sort key + direction; default =
   last-modified desc).
-- [ ] Backend: `YorkieAdminService` parses `updated_at` from a
+- [x] Backend: `YorkieAdminService` parses `updated_at` from a
   `GetDocuments` response fixture; `attachEditors` falls back to `createdAt`
   when a summary is missing / key unset. Owner `select` returns author.
-- [ ] Manual smoke (`pnpm dev`): create sheet/doc/slides, edit one, confirm
+- [x] Manual smoke (`pnpm dev`): create sheet/doc/slides, edit one, confirm
   it jumps to the top under default sort; toggle each header + dropdown;
   filter by type chips; search by title and by type; owner avatar renders;
   works both on `/documents` and a workspace page; degrades cleanly with
   `YORKIE_SECRET_KEY` unset.
-- [ ] `pnpm verify:fast` green before each commit.
+- [x] `pnpm verify:fast` green before each commit.
 
 ## Key files
 - `packages/frontend/src/app/documents/document-list.tsx` (table, sort,
@@ -112,3 +112,30 @@ no schema change, no write path.
 - `packages/backend/src/yorkie/yorkie-admin.service.ts` (parse `updated_at`)
 - `packages/backend/src/document/document.controller.ts`
   (`attachEditors`, list endpoints, author `select`)
+
+## Review
+
+Shipped as PR #448 ("Add sorting, type filter, last-modified & owner to
+documents list"). All four features landed in one migration-free PR:
+
+1. **Sorting exposed** — column headers (Title / Last modified / Created /
+   Type) are clickable with an asc/desc affordance, plus a sort dropdown
+   for discoverability; both drive one `sorting` state. Default is
+   **Last modified desc**.
+2. **Search + type filter** — Sheet/Doc/Slides multi-select chips beside a
+   title-only (NFC-normalized) search box; predicate logic extracted to
+   `document-list-utils.ts` and unit-tested.
+3. **Last-modified column** — read from the Yorkie admin `GetDocuments`
+   `DocumentSummary.updatedAt` the backend already fetches for presence (no
+   schema change, no write path); falls back to `createdAt` when Yorkie has
+   no summary or `YORKIE_SECRET_KEY` is unset.
+4. **Owner column** — `author` (username, photo) added to both list
+   endpoints' `select`; avatar+name column, sortable, null-author safe.
+
+Two review catches are captured in the lessons file: (a) Yorkie admin
+`GetDocuments` marshals proto3 **camelCase** (`updatedAt`), so the initial
+snake_case read silently fell back to `createdAt` for every row — fixed
+with `updatedAt ?? updated_at` + a `projectSummary` regression test; and
+(b) three e2e specs stub `YorkieAdminService` and had to gain the new
+`getSummaries` method. Follow-ups (thumbnails / grid view, favorites)
+remain out of scope with feasibility scouted in the lessons file.
