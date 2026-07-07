@@ -33,9 +33,10 @@ describe("PdfViewer", () => {
     await waitFor(() =>
       expect(container.querySelectorAll("canvas").length).toBe(2),
     );
-    // The fit-to-width path sets an explicit CSS width per page (rather than
-    // leaving it at the intrinsic bitmap size).
-    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-    expect(canvas.style.width).not.toBe("");
+    // Each page is wrapped in an aspect-ratio placeholder so layout reserves
+    // correct space and reflows to the container width via CSS.
+    expect(
+      container.querySelectorAll('[style*="aspect-ratio"]').length,
+    ).toBe(2);
   });
 });
