@@ -204,14 +204,14 @@ gate.
   is seeded at bootstrap**, not created lazily — concurrent lazy
   `if (!root.comments)` creation lets Yorkie LWW discard one side (the
   same convergence lesson as docs).
-- New `packages/frontend/src/app/files/comments/yorkie-comment-store.ts`
-  — `YorkieCommentStore implements CommentStore<PdfRegionAnchor>` over
+- New `packages/frontend/src/app/files/comments/pdf-comment-store.ts`
+  — `PdfCommentStore implements CommentStore<PdfRegionAnchor>` over
   `root.comments`, copied from the docs
-  `app/docs/comments/yorkie-comment-store.ts`: all mutations inside
-  `doc.update()`, `doc.subscribe` → notify, timestamps coerced to BigInt
-  (`toYorkieMs`). Because a PDF anchor is plain numbers, `copyThread` is a
-  straight deep copy — no live-proxy special-casing like the docs
-  `posRange`.
+  `packages/frontend/src/app/docs/comments/yorkie-comment-store.ts`: all
+  mutations inside `doc.update()`, `doc.subscribe` → notify, timestamps
+  coerced to BigInt (`toYorkieMs`). Because a PDF anchor is plain numbers,
+  `copyThread` is a straight deep copy — no live-proxy special-casing like
+  the docs `posRange`.
 - Add one variant to the shared `CommentAnchor` union in
   `packages/frontend/src/types/comments.ts`:
   `{ kind: 'pdf-region'; pageIndex: number; rect: { x; y; w; h } }`.
