@@ -76,7 +76,7 @@ Mirror the existing `image/` module rather than overloading it (keeps
 - `packages/backend/src/file/file.service.ts` — S3-compatible
   (`@aws-sdk/client-s3`), dedicated bucket `wafflebase-files`, auto-create
   on boot. `upload(buffer, mime, name)` accepts **`application/pdf` only**,
-  size cap **50 MB**. Reuses the `image.config.ts` env pattern
+  size cap **50 MB**. Reuses the `packages/backend/src/image/image.config.ts` env pattern
   (`FILE_STORAGE_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, dev
   defaults to the same MinIO endpoint).
 - `packages/backend/src/file/file.controller.ts`:
@@ -154,7 +154,7 @@ Documented here only to confirm Phase 1 leaves clean seams:
 
 - Introduce a `pdf-<id>` Yorkie document holding **only** comment threads
   and presence (never the PDF bytes — those stay in the blob).
-- Reuse the shared frontend comments module (`docs-comments.md`) with
+- Reuse the shared frontend comments module (`docs/docs-comments.md`) with
   **page-index + rectangle anchors** instead of text `posRange`.
 - Add document-permission-aware presence, matching the existing viewer's
   access gate. No Phase 1 data migration required — the `fileId` column
