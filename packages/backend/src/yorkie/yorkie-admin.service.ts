@@ -17,12 +17,29 @@ type RawPresences = {
   [clientId: string]: { data: { [key: string]: string } };
 };
 
+type RawDocumentSummary = {
+  key: string;
+  presences?: RawPresences;
+  // RFC3339 timestamp of the last document change. Yorkie's connect-go
+  // protojson response emits camelCase (`updatedAt`); the snake_case name is
+  // accepted too for resilience across gateway/transcoding configs.
+  updatedAt?: string;
+  updated_at?: string;
+};
+
 type GetDocumentsResponse = {
-  documents?: Array<{
-    key: string;
-    presences?: RawPresences;
-  }>;
+  documents?: Array<RawDocumentSummary>;
   error?: { message?: string; code?: string };
+};
+
+/**
+ * Per-document metadata read from Yorkie's admin `GetDocuments`: the live
+ * editors and the last-modified time. `updatedAt` is an ISO string, or
+ * undefined when Yorkie has no valid timestamp for the document.
+ */
+export type DocumentSummary = {
+  editors: PresenceUser[];
+  updatedAt?: string;
 };
 
 const REQUEST_TIMEOUT_MS = 800;
@@ -54,14 +71,15 @@ export class YorkieAdminService implements OnModuleDestroy {
   }
 
   /**
-   * Fetch "currently editing" users for the given Yorkie document keys.
-   * Returns a map keyed by document key. Documents with no active clients
-   * are absent.
+   * Fetch per-document metadata (live editors + last-modified time) for the
+   * given Yorkie document keys. Returns a map keyed by document key;
+   * documents Yorkie has never seen (or when no admin key is configured)
+   * are absent, letting callers fall back to Postgres data.
    */
-  async getEditors(
+  async getSummaries(
     documentKeys: ReadonlyArray<string>,
-  ): Promise<Map<string, PresenceUser[]>> {
-    const out = new Map<string, PresenceUser[]>();
+  ): Promise<Map<string, DocumentSummary>> {
+    const out = new Map<string, DocumentSummary>();
     if (documentKeys.length === 0) return out;
     if (!this.secretKey) {
       // No admin key configured — degrade silently. Expected for local
@@ -72,13 +90,27 @@ export class YorkieAdminService implements OnModuleDestroy {
     try {
       const response = await this.requestGetDocuments(documentKeys);
       for (const doc of response.documents ?? []) {
-        const users = projectUsers(doc.presences);
-        if (users.length > 0) out.set(doc.key, users);
+        out.set(doc.key, projectSummary(doc));
       }
     } catch (err) {
       this.logger.warn(
-        `Yorkie admin getEditors failed: ${(err as Error).message}`,
+        `Yorkie admin getSummaries failed: ${(err as Error).message}`,
       );
+    }
+    return out;
+  }
+
+  /**
+   * Fetch "currently editing" users for the given Yorkie document keys.
+   * Returns a map keyed by document key. Documents with no active clients
+   * are absent. Thin projection over {@link getSummaries}.
+   */
+  async getEditors(
+    documentKeys: ReadonlyArray<string>,
+  ): Promise<Map<string, PresenceUser[]>> {
+    const out = new Map<string, PresenceUser[]>();
+    for (const [key, summary] of await this.getSummaries(documentKeys)) {
+      if (summary.editors.length > 0) out.set(key, summary.editors);
     }
     return out;
   }
@@ -217,6 +249,30 @@ function unwrap(value: string | undefined): string | undefined {
   }
   if (typeof next !== 'string') return undefined;
   return next;
+}
+
+/**
+ * Project a raw Yorkie `GetDocuments` entry into our backend-shaped summary.
+ * Reads the last-modified timestamp from camelCase `updatedAt` (protojson's
+ * output form), falling back to snake_case for resilience.
+ */
+export function projectSummary(doc: RawDocumentSummary): DocumentSummary {
+  return {
+    editors: projectUsers(doc.presences),
+    updatedAt: parseTimestamp(doc.updatedAt ?? doc.updated_at),
+  };
+}
+
+/**
+ * Normalize a Yorkie RFC3339 timestamp into an ISO string. Returns
+ * undefined for missing, empty, epoch-zero (Yorkie's "unset"), or
+ * unparseable values so callers can fall back to Postgres data.
+ */
+export function parseTimestamp(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms) || ms <= 0) return undefined;
+  return new Date(ms).toISOString();
 }
 
 function projectUsers(presences: RawPresences | undefined): PresenceUser[] {

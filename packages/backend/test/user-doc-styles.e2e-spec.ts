@@ -61,7 +61,10 @@ describeDb('User doc styles HTTP integration (JWT + controller + Prisma)', () =>
       .overrideProvider(YorkieService)
       .useValue(yorkieStub)
       .overrideProvider(YorkieAdminService)
-      .useValue({ getEditors: async () => new Map() })
+      .useValue({
+        getEditors: async () => new Map(),
+        getSummaries: async () => new Map(),
+      })
       .compile();
 
     app = moduleRef.createNestApplication();

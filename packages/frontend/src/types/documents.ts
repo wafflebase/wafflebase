@@ -11,13 +11,26 @@ export type DocumentEditor = {
   email?: string;
 };
 
+/**
+ * Document owner surfaced on the documents list. `select`ed server-side
+ * (never the full User). Null for legacy documents with no author.
+ */
+export type DocumentAuthor = {
+  id: number;
+  username: string;
+  photo?: string | null;
+};
+
 export type Document = {
   id: string;
   title: string;
   type: DocumentType;
   description: string;
   createdAt: string;
-  updatedAt: string;
+  // Last-modified time (ISO), populated only by the documents-list endpoints
+  // (from Yorkie). Absent on single-document / REST v1 responses.
+  updatedAt?: string;
   workspaceId: string;
+  author?: DocumentAuthor | null;
   editors?: DocumentEditor[];
 };

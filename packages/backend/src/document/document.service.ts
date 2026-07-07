@@ -2,6 +2,18 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Document, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 
+/**
+ * Author fields surfaced on the documents-list rows. `select`ed (not the
+ * whole User) so we never leak auth-provider internals to the client.
+ */
+export const documentListInclude = {
+  author: { select: { id: true, username: true, photo: true } },
+} satisfies Prisma.DocumentInclude;
+
+export type DocumentWithAuthor = Prisma.DocumentGetPayload<{
+  include: typeof documentListInclude;
+}>;
+
 @Injectable()
 export class DocumentService {
   constructor(private prisma: PrismaService) {}
@@ -36,6 +48,29 @@ export class DocumentService {
       cursor,
       where,
       orderBy,
+    });
+  }
+
+  /**
+   * Like {@link documents} but eager-loads the author for the documents-list
+   * "Owner" column. Kept separate so callers that don't need the join
+   * (e.g. the REST v1 listing) stay lean.
+   */
+  async listDocumentsWithAuthor(params: {
+    skip?: number;
+    take?: number;
+    cursor?: Prisma.DocumentWhereUniqueInput;
+    where?: Prisma.DocumentWhereInput;
+    orderBy?: Prisma.DocumentOrderByWithRelationInput;
+  }): Promise<DocumentWithAuthor[]> {
+    const { skip, take, cursor, where, orderBy } = params;
+    return this.prisma.document.findMany({
+      skip,
+      take,
+      cursor,
+      where,
+      orderBy,
+      include: documentListInclude,
     });
   }
 
