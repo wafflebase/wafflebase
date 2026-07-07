@@ -129,7 +129,7 @@ an orphan-sweep job is a follow-up.
 - New route in `packages/frontend/src/App.tsx` (`/f/:id`), sibling to
   `DocsDetail` / `SlidesDetail`. The component lives in
   `packages/frontend/src/app/files/file-detail.tsx` (read-only shell) with
-  the renderer in `pdf-viewer.tsx`.
+  the renderer in `packages/frontend/src/app/files/pdf-viewer.tsx`.
 - `FileDetail` auth-gates, fetches document metadata, then mounts
   `PdfViewer`, which loads the file via the document-scoped serving
   endpoint and renders pages to canvas using
