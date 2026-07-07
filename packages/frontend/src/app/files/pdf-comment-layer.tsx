@@ -1,4 +1,4 @@
-import { Fragment, useRef } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { IconMessage } from '@tabler/icons-react';
 
 import type { PdfRect, PdfRegionAnchor, Thread } from '@/types/comments.ts';
@@ -35,6 +35,9 @@ export function PdfCommentLayer({
   activeThreadId,
 }: Props) {
   const dragStart = useRef<{ x: number; y: number } | null>(null);
+  // Live rectangle drawn while dragging, so the region gets slides-style
+  // ghost feedback before it's committed on pointer-up.
+  const [ghost, setGhost] = useState<PdfRect | null>(null);
   const pageThreads = threads.filter(
     (t) => t.anchor.pageIndex === pageIndex && !t.resolved,
   );
@@ -87,12 +90,24 @@ export function PdfCommentLayer({
           onPointerDown={(e) => {
             const p = localPoint(e, e.currentTarget);
             dragStart.current = { x: p.x, y: p.y };
+            setGhost(null);
             // Some environments (jsdom) don't implement pointer capture.
             e.currentTarget.setPointerCapture?.(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const start = dragStart.current;
+            if (!start) return;
+            const p = localPoint(e, e.currentTarget);
+            setGhost(normalizeDragRect(start, { x: p.x, y: p.y }, p.w, p.h));
+          }}
+          onPointerCancel={() => {
+            dragStart.current = null;
+            setGhost(null);
           }}
           onPointerUp={(e) => {
             const start = dragStart.current;
             dragStart.current = null;
+            setGhost(null);
             if (!start) return;
             const p = localPoint(e, e.currentTarget);
             const rect = normalizeDragRect(start, { x: p.x, y: p.y }, p.w, p.h);
@@ -111,7 +126,16 @@ export function PdfCommentLayer({
             }
             onCreateRegion(pageIndex, rect);
           }}
-        />
+        >
+          {/* Live ghost of the region being dragged (slides-style). */}
+          {ghost && (ghost.w > 0 || ghost.h > 0) && (
+            <div
+              data-testid="pdf-region-ghost"
+              className="pointer-events-none absolute rounded-sm border-2 border-dashed border-yellow-500 bg-yellow-200/30"
+              style={rectToStyle(ghost)}
+            />
+          )}
+        </div>
       )}
     </div>
   );

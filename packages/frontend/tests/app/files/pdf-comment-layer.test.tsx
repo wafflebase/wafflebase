@@ -105,4 +105,40 @@ describe('PdfCommentLayer', () => {
     expect(rect.x).toBeCloseTo(0.44);
     expect(rect.y).toBeCloseTo(0.47);
   });
+
+  it('shows a live ghost while dragging and clears it on release', () => {
+    const onCreate = vi.fn();
+    render(
+      <PdfCommentLayer
+        pageIndex={0}
+        threads={[]}
+        creating
+        onCreateRegion={onCreate}
+        onSelectThread={vi.fn()}
+        activeThreadId={null}
+      />,
+    );
+    const surface = screen.getByTestId('pdf-region-capture');
+    surface.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 200, height: 400 }) as DOMRect;
+
+    // No ghost before dragging.
+    expect(screen.queryByTestId('pdf-region-ghost')).toBeNull();
+
+    fireEvent.pointerDown(surface, { clientX: 20, clientY: 40 });
+    fireEvent.pointerMove(surface, { clientX: 60, clientY: 80 });
+
+    // Ghost tracks the drawn rect: (20,40)->(60,80) on 200x400 == 10/10/20/10%.
+    const ghost = screen.getByTestId('pdf-region-ghost');
+    expect(ghost.style.left).toBe('10%');
+    expect(ghost.style.top).toBe('10%');
+    expect(ghost.style.width).toBe('20%');
+    expect(ghost.style.height).toBe('10%');
+
+    fireEvent.pointerUp(surface, { clientX: 60, clientY: 80 });
+
+    // Ghost cleared on release; the region is committed.
+    expect(screen.queryByTestId('pdf-region-ghost')).toBeNull();
+    expect(onCreate).toHaveBeenCalledWith(0, { x: 0.1, y: 0.1, w: 0.2, h: 0.1 });
+  });
 });
