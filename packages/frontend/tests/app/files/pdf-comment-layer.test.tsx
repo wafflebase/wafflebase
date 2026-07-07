@@ -42,6 +42,21 @@ describe('PdfCommentLayer', () => {
     expect(onSelect).toHaveBeenCalledWith('a');
   });
 
+  it('does not render a pin for a resolved thread', () => {
+    const resolved = { ...thread('a', 0), resolved: true };
+    render(
+      <PdfCommentLayer
+        pageIndex={0}
+        threads={[resolved]}
+        creating={false}
+        onCreateRegion={vi.fn()}
+        onSelectThread={vi.fn()}
+        activeThreadId={null}
+      />,
+    );
+    expect(screen.queryAllByRole('button', { name: /comment/i })).toHaveLength(0);
+  });
+
   it('a drag on the capture surface emits a normalized region', () => {
     const onCreate = vi.fn();
     render(
