@@ -8,12 +8,19 @@ import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
+import { ShareDialog } from "@/components/share-dialog";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { pdfFileUrl } from "@/api/files";
-import { PdfViewer } from "./pdf-viewer";
+import type { User } from "@/types/users";
+import { PdfCollab } from "./pdf-collab";
 
-function FileLayout({ documentId }: { documentId: string }) {
+function FileLayout({
+  documentId,
+  currentUser,
+}: {
+  documentId: string;
+  currentUser: User;
+}) {
   const navigate = useNavigate();
 
   const { data: documentData, isError: isDocumentError } = useQuery({
@@ -94,9 +101,21 @@ function FileLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
-        <SiteHeader title={documentData?.title ?? "Loading..."} />
+        <SiteHeader title={documentData?.title ?? "Loading..."}>
+          <ShareDialog documentId={documentId} />
+        </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <PdfViewer fileUrl={pdfFileUrl(documentId)} />
+          <PdfCollab
+            documentId={documentId}
+            title={documentData?.title ?? "PDF"}
+            readOnly={false}
+            presenceUser={{
+              userId: String(currentUser.id),
+              username: currentUser.username,
+              email: currentUser.email,
+              photo: currentUser.photo,
+            }}
+          />
         </div>
       </SidebarInset>
     </SidebarProvider>
@@ -104,9 +123,11 @@ function FileLayout({ documentId }: { documentId: string }) {
 }
 
 /**
- * FileDetail is the read-only PDF viewer route. Auth-gates on the current
- * user, then mounts the app shell + pdf.js viewer. No Yorkie/CRDT — the PDF
- * is static content served (permission-gated) from the blob store.
+ * FileDetail is the collaborative PDF route. Auth-gates on the current
+ * user, then mounts the app shell + `PdfCollab` (its own Yorkie providers,
+ * comments, and presence). The PDF bytes stay static, served
+ * (permission-gated) from the blob store; only comments + presence flow
+ * through Yorkie.
  */
 export function FileDetail() {
   const { id } = useParams();
@@ -125,7 +146,7 @@ export function FileDetail() {
   if (isLoading) return <Loader />;
   if (isError || !currentUser) return <Navigate to="/login" replace />;
 
-  return <FileLayout documentId={id!} />;
+  return <FileLayout documentId={id!} currentUser={currentUser} />;
 }
 
 export default FileDetail;
