@@ -6,15 +6,19 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 342
+Total archived tasks: 346
 
-## 2026/07 (12 tasks)
+## 2026/07 (16 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| cli bundle workspace deps (2026-07-07) | [20260707-cli-bundle-workspace-deps-todo.md](./2026/07/20260707-cli-bundle-workspace-deps-todo.md) | [20260707-cli-bundle-workspace-deps-lessons.md](./2026/07/20260707-cli-bundle-workspace-deps-lessons.md) |
+| documents list sort search (2026-07-07) | [20260707-documents-list-sort-search-todo.md](./2026/07/20260707-documents-list-sort-search-todo.md) | [20260707-documents-list-sort-search-lessons.md](./2026/07/20260707-documents-list-sort-search-lessons.md) |
+| pdf viewer (2026-07-07) | [20260707-pdf-viewer-todo.md](./2026/07/20260707-pdf-viewer-todo.md) | [20260707-pdf-viewer-lessons.md](./2026/07/20260707-pdf-viewer-lessons.md) |
 | docs cursor move relayout (2026-07-05) | [20260705-docs-cursor-move-relayout-todo.md](./2026/07/20260705-docs-cursor-move-relayout-todo.md) | - |
 | docs decoration culling (2026-07-05) | [20260705-docs-decoration-culling-todo.md](./2026/07/20260705-docs-decoration-culling-todo.md) | [20260705-docs-decoration-culling-lessons.md](./2026/07/20260705-docs-decoration-culling-lessons.md) |
 | docx vml image import (2026-07-05) | [20260705-docx-vml-image-import-todo.md](./2026/07/20260705-docx-vml-image-import-todo.md) | [20260705-docx-vml-image-import-lessons.md](./2026/07/20260705-docx-vml-image-import-lessons.md) |
+| release v0.4.9 (2026-07-05) | [20260705-release-v0.4.9-todo.md](./2026/07/20260705-release-v0.4.9-todo.md) | - |
 | empty workspace slug (2026-07-04) | [20260704-empty-workspace-slug-todo.md](./2026/07/20260704-empty-workspace-slug-todo.md) | [20260704-empty-workspace-slug-lessons.md](./2026/07/20260704-empty-workspace-slug-lessons.md) |
 | pptx br empty line font size (2026-07-04) | [20260704-pptx-br-empty-line-font-size-todo.md](./2026/07/20260704-pptx-br-empty-line-font-size-todo.md) | - |
 | slides freeform arrowheads (2026-07-04) | [20260704-slides-freeform-arrowheads-todo.md](./2026/07/20260704-slides-freeform-arrowheads-todo.md) | - |

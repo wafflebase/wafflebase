@@ -23,7 +23,7 @@
 
 ## Task 0: Create the feature branch
 
-- [ ] **Step 1: Branch from an up-to-date main**
+- [x] **Step 1: Branch from an up-to-date main**
 
 ```bash
 git fetch origin
@@ -45,7 +45,7 @@ git switch -c pdf-viewer origin/main
 **Interfaces:**
 - Produces: `yorkieDocKeyPrefix('pdf') === 'pdf-'`; `CreateDocumentDto`/`CreateDocumentInWorkspaceDto` accept optional `fileId?: string`; `Document.fileId` persisted on create.
 
-- [ ] **Step 1: Write the failing test for the reserved Yorkie prefix**
+- [x] **Step 1: Write the failing test for the reserved Yorkie prefix**
 
 Create `packages/backend/src/yorkie/yorkie-doc-key.spec.ts`:
 
@@ -70,12 +70,12 @@ describe('yorkie-doc-key', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm the pdf case fails**
+- [x] **Step 2: Run it and confirm the pdf case fails**
 
 Run: `pnpm --filter @wafflebase/backend test yorkie-doc-key`
 Expected: FAIL — `yorkieDocKeyPrefix('pdf')` throws "Unknown document type: pdf".
 
-- [ ] **Step 3: Register the `pdf` prefix**
+- [x] **Step 3: Register the `pdf` prefix**
 
 In `packages/backend/src/yorkie/yorkie-doc-key.ts`:
 
@@ -105,12 +105,12 @@ export function yorkieDocKeyPrefix(type: string): string {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm --filter @wafflebase/backend test yorkie-doc-key`
 Expected: PASS.
 
-- [ ] **Step 5: Add `"pdf"` to the DTO type list and add optional `fileId`**
+- [x] **Step 5: Add `"pdf"` to the DTO type list and add optional `fileId`**
 
 In `packages/backend/src/document/document.dto.ts`:
 
@@ -127,7 +127,7 @@ Add to **both** `CreateDocumentDto` and `CreateDocumentInWorkspaceDto`:
   fileId?: string;
 ```
 
-- [ ] **Step 6: Add the `fileId` column to the Prisma model**
+- [x] **Step 6: Add the `fileId` column to the Prisma model**
 
 In `packages/backend/prisma/schema.prisma`, add to the `Document` model:
 
@@ -135,7 +135,7 @@ In `packages/backend/prisma/schema.prisma`, add to the `Document` model:
   fileId    String?
 ```
 
-- [ ] **Step 7: Write the migration SQL**
+- [x] **Step 7: Write the migration SQL**
 
 Create `packages/backend/prisma/migrations/20260707000000_add_document_file_id/migration.sql`:
 
@@ -144,7 +144,7 @@ Create `packages/backend/prisma/migrations/20260707000000_add_document_file_id/m
 ALTER TABLE "Document" ADD COLUMN "fileId" TEXT;
 ```
 
-- [ ] **Step 8: Persist `fileId` on document creation**
+- [x] **Step 8: Persist `fileId` on document creation**
 
 In `packages/backend/src/document/document.controller.ts`, in both `createInWorkspace` and `createDocument`, add `fileId` to the `createDocument` data:
 
@@ -158,7 +158,7 @@ In `packages/backend/src/document/document.controller.ts`, in both `createInWork
     });
 ```
 
-- [ ] **Step 9: Regenerate the Prisma client and apply the migration**
+- [x] **Step 9: Regenerate the Prisma client and apply the migration**
 
 Run:
 ```bash
@@ -168,7 +168,7 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 ```
 Expected: migration `20260707000000_add_document_file_id` applied; `prisma generate` succeeds so `fileId` is on the `Document` type.
 
-- [ ] **Step 10: Verify and commit**
+- [x] **Step 10: Verify and commit**
 
 Run: `pnpm --filter @wafflebase/backend test yorkie-doc-key && pnpm --filter @wafflebase/backend build`
 Expected: PASS + build succeeds.
@@ -191,7 +191,7 @@ git commit -m "feat: add pdf document type and Document.fileId"
 **Interfaces:**
 - Produces: `FileService.upload(buffer, mimeType, originalName): Promise<{ id: string }>` (rejects non-`application/pdf`, rejects > 50 MB); `FileService.getObject(id): Promise<{ body: Uint8Array; contentType: string }>`; `FileService.delete(id): Promise<void>`. `VALID_FILE_ID_PATTERN` matches `<uuid>.pdf`.
 
-- [ ] **Step 1: Write the failing validation tests**
+- [x] **Step 1: Write the failing validation tests**
 
 Create `packages/backend/src/file/file.service.spec.ts`:
 
@@ -232,12 +232,12 @@ describe('FileService.upload validation', () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm it fails to compile (no FileService yet)**
+- [x] **Step 2: Run and confirm it fails to compile (no FileService yet)**
 
 Run: `pnpm --filter @wafflebase/backend test file.service`
 Expected: FAIL — cannot find `./file.service`.
 
-- [ ] **Step 3: Write the config**
+- [x] **Step 3: Write the config**
 
 Create `packages/backend/src/file/file.config.ts`:
 
@@ -260,7 +260,7 @@ export const fileConfig = registerAs('file', () => ({
 }));
 ```
 
-- [ ] **Step 4: Write the id-pattern constant**
+- [x] **Step 4: Write the id-pattern constant**
 
 Create `packages/backend/src/file/file.constants.ts`:
 
@@ -269,7 +269,7 @@ export const VALID_FILE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/i;
 ```
 
-- [ ] **Step 5: Write the service (mirrors ImageService)**
+- [x] **Step 5: Write the service (mirrors ImageService)**
 
 Create `packages/backend/src/file/file.service.ts`:
 
@@ -384,12 +384,12 @@ export class FileService implements OnModuleInit {
 }
 ```
 
-- [ ] **Step 6: Run the tests and confirm they pass**
+- [x] **Step 6: Run the tests and confirm they pass**
 
 Run: `pnpm --filter @wafflebase/backend test file.service`
 Expected: PASS (both validation branches throw before any S3 call).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/file
@@ -412,7 +412,7 @@ git commit -m "feat: add FileService blob storage for PDF uploads"
 - Consumes: `FileService` (Task 2); `WorkspaceService.assertMember`; `DocumentService.document`/`deleteDocument`.
 - Produces: `POST /files` → `{ id: string }`; `GET /documents/:id/file` streams the blob (404 if no `fileId`, 403 if not a member); deleting a PDF document deletes its blob.
 
-- [ ] **Step 1: Write the failing serving tests (controller unit)**
+- [x] **Step 1: Write the failing serving tests (controller unit)**
 
 Create `packages/backend/src/document/document.controller.spec.ts`:
 
@@ -513,12 +513,12 @@ describe('DocumentController.getDocumentFile', () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `pnpm --filter @wafflebase/backend test document.controller`
 Expected: FAIL — `getDocumentFile` does not exist / constructor arity mismatch.
 
-- [ ] **Step 3: Create the upload controller**
+- [x] **Step 3: Create the upload controller**
 
 Create `packages/backend/src/file/file.controller.ts`:
 
@@ -557,7 +557,7 @@ export class FileController {
 }
 ```
 
-- [ ] **Step 4: Create the module and register it**
+- [x] **Step 4: Create the module and register it**
 
 Create `packages/backend/src/file/file.module.ts`:
 
@@ -581,7 +581,7 @@ In `packages/backend/src/app.module.ts`, import `FileModule` and add it to the `
 
 In `packages/backend/src/document/document.module.ts`, add `FileModule` to that module's `imports` so `DocumentController` can inject `FileService`.
 
-- [ ] **Step 5: Add serving + delete cascade to DocumentController**
+- [x] **Step 5: Add serving + delete cascade to DocumentController**
 
 In `packages/backend/src/document/document.controller.ts`:
 
@@ -640,12 +640,12 @@ In `deleteDocument`, after the successful delete, remove the blob:
     return deleted;
 ```
 
-- [ ] **Step 6: Run the tests and confirm they pass**
+- [x] **Step 6: Run the tests and confirm they pass**
 
 Run: `pnpm --filter @wafflebase/backend test document.controller file.service`
 Expected: PASS.
 
-- [ ] **Step 7: Verify build + commit**
+- [x] **Step 7: Verify build + commit**
 
 Run: `pnpm --filter @wafflebase/backend build`
 Expected: succeeds.
@@ -668,7 +668,7 @@ git commit -m "feat: serve pdf blobs via document-gated /documents/:id/file"
 **Interfaces:**
 - Produces: `DocumentType` includes `"pdf"`; `uploadPdf(file: File): Promise<{ id: string }>`; `pdfFileUrl(documentId: string): string`; `createDocument`/`createWorkspaceDocument` payload accepts optional `fileId`.
 
-- [ ] **Step 1: Write the failing test for the upload helper + file URL**
+- [x] **Step 1: Write the failing test for the upload helper + file URL**
 
 Create `packages/frontend/src/api/files.test.ts`:
 
@@ -706,19 +706,19 @@ describe('files api', () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test files.test`
 Expected: FAIL — cannot resolve `./files`.
 
-- [ ] **Step 3: Add `"pdf"` to the DocumentType union**
+- [x] **Step 3: Add `"pdf"` to the DocumentType union**
 
 In `packages/frontend/src/types/documents.ts`:
 ```ts
 export type DocumentType = "sheet" | "doc" | "slides" | "pdf";
 ```
 
-- [ ] **Step 4: Create the files api helper**
+- [x] **Step 4: Create the files api helper**
 
 Create `packages/frontend/src/api/files.ts`:
 
@@ -747,16 +747,16 @@ export function pdfFileUrl(documentId: string): string {
 }
 ```
 
-- [ ] **Step 5: Thread `fileId` through createDocument**
+- [x] **Step 5: Thread `fileId` through createDocument**
 
 In `packages/frontend/src/api/documents.ts`, extend the `createDocument` payload type to include `fileId?: string` and pass it through in the POST body. Do the same for `createWorkspaceDocument` in `packages/frontend/src/api/workspaces.ts`. (Find the existing `{ title: string; type?: DocumentType }` payload type and add `fileId?: string`.)
 
-- [ ] **Step 6: Run the tests and confirm they pass**
+- [x] **Step 6: Run the tests and confirm they pass**
 
 Run: `pnpm --filter @wafflebase/frontend test files.test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/types packages/frontend/src/api
@@ -775,7 +775,7 @@ git commit -m "feat: frontend api helpers for pdf upload and file url"
 - Consumes: `uploadPdf` (Task 4); `pickFile` from `@/app/docs/export-utils`.
 - Produces: `getDocumentPath({ type: "pdf", id })` → `/f/:id`; a "New → Upload PDF" menu action.
 
-- [ ] **Step 1: Write the failing test for the pdf path**
+- [x] **Step 1: Write the failing test for the pdf path**
 
 If `getDocumentPath` is not exported/tested, first export it from `document-list.tsx` (or move it into `document-list-utils.ts` alongside `matchesTypes` and re-import). Then add to the utils test file:
 
@@ -787,19 +787,19 @@ it("routes pdf documents to /f/:id", () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test document-list-utils`
 Expected: FAIL — pdf falls through to the sheet default `/s/d1`.
 
-- [ ] **Step 3: Add the pdf branch to `getDocumentPath`**
+- [x] **Step 3: Add the pdf branch to `getDocumentPath`**
 
 ```ts
     case "pdf":
       return `/f/${doc.id}`;
 ```
 
-- [ ] **Step 4: Add the pdf type-meta entry and filter chip**
+- [x] **Step 4: Add the pdf type-meta entry and filter chip**
 
 In `document-list.tsx`, import a PDF icon from `lucide-react` (e.g. `FileType2` — pick an unused one) and add to `TYPE_META`:
 ```ts
@@ -810,7 +810,7 @@ Add `"pdf"` to `TYPE_OPTIONS`:
 const TYPE_OPTIONS: ReadonlyArray<DocumentType> = ["sheet", "doc", "slides", "pdf"];
 ```
 
-- [ ] **Step 5: Add the "Upload PDF" handler**
+- [x] **Step 5: Add the "Upload PDF" handler**
 
 Mirror `handleImportDocx` but upload the original instead of parsing. Add near the other import handlers:
 ```tsx
@@ -836,7 +836,7 @@ Mirror `handleImportDocx` but upload the original instead of parsing. Add near t
 ```
 Add imports: `import { uploadPdf } from "@/api/files";` and `import { pickFile } from "@/app/docs/export-utils";` (if not already imported).
 
-- [ ] **Step 6: Add the menu item to both New menus**
+- [x] **Step 6: Add the menu item to both New menus**
 
 In both the main dropdown (~lines 608-668) and the empty-state copy (~lines 734-796), add:
 ```tsx
@@ -846,12 +846,12 @@ In both the main dropdown (~lines 608-668) and the empty-state copy (~lines 734-
             </DropdownMenuItem>
 ```
 
-- [ ] **Step 7: Run tests + typecheck and confirm pass**
+- [x] **Step 7: Run tests + typecheck and confirm pass**
 
 Run: `pnpm --filter @wafflebase/frontend test document-list-utils && pnpm verify:fast`
 Expected: PASS (TS forces the `pdf` key on `TYPE_META` — confirm it compiles).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents
@@ -873,12 +873,12 @@ git commit -m "feat: add Upload PDF action and pdf type to documents list"
 - Consumes: `pdfFileUrl` (Task 4); `fetchDocument` from `@/api/documents`; app-shell components (`SidebarProvider`, `SidebarInset`, `AppSidebar`, `SiteHeader`, `Loader`) as used by `docs-detail.tsx`.
 - Produces: route `/f/:id` renders the stored PDF read-only.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Run: `pnpm --filter @wafflebase/frontend add pdfjs-dist`
 Expected: `pdfjs-dist` appears in `packages/frontend/package.json` dependencies.
 
-- [ ] **Step 2: Write the failing viewer test (pdfjs mocked)**
+- [x] **Step 2: Write the failing viewer test (pdfjs mocked)**
 
 Create `packages/frontend/src/app/files/pdf-viewer.test.tsx`:
 
@@ -918,12 +918,12 @@ describe("PdfViewer", () => {
 });
 ```
 
-- [ ] **Step 3: Run and confirm it fails**
+- [x] **Step 3: Run and confirm it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test pdf-viewer`
 Expected: FAIL — cannot resolve `./pdf-viewer`.
 
-- [ ] **Step 4: Write the PdfViewer (dynamic pdfjs import + canvas render)**
+- [x] **Step 4: Write the PdfViewer (dynamic pdfjs import + canvas render)**
 
 Create `packages/frontend/src/app/files/pdf-viewer.tsx`:
 
@@ -994,12 +994,12 @@ export function PdfViewer({ fileUrl }: { fileUrl: string }) {
 
 Note: the `?url` worker import is Vite-idiomatic; if the installed `pdfjs-dist` version ships the worker at a different path, adjust the specifier to the built worker file that exists under `node_modules/pdfjs-dist/build/` and update the test mock to match.
 
-- [ ] **Step 5: Run the viewer test and confirm it passes**
+- [x] **Step 5: Run the viewer test and confirm it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test pdf-viewer`
 Expected: PASS (mocked pdfjs yields one canvas).
 
-- [ ] **Step 6: Write the FileDetail shell**
+- [x] **Step 6: Write the FileDetail shell**
 
 Create `packages/frontend/src/app/files/file-detail.tsx`, mirroring the `DocsDetail`/`DocsLayout` skeleton from `packages/frontend/src/app/docs/docs-detail.tsx` but read-only and **without** the Yorkie `DocumentProvider`:
 
@@ -1010,7 +1010,7 @@ Create `packages/frontend/src/app/files/file-detail.tsx`, mirroring the `DocsDet
 - Import `pdfFileUrl` from `@/api/files` and `PdfViewer` from `./pdf-viewer`.
 - Default-export the component.
 
-- [ ] **Step 7: Wire the route**
+- [x] **Step 7: Wire the route**
 
 In `packages/frontend/src/App.tsx`, add near the other lazy detail imports (~line 25):
 ```tsx
@@ -1021,12 +1021,12 @@ Add inside the `<PrivateRoute>` block, right after the `/s/:id` route (~line 83)
                   <Route path="/f/:id" element={<FileDetail />} />
 ```
 
-- [ ] **Step 8: Verify build, chunk gate, and full fast lane**
+- [x] **Step 8: Verify build, chunk gate, and full fast lane**
 
 Run: `pnpm verify:self`
 Expected: PASS — builds succeed and the frontend chunk gate stays green (confirms `pdfjs-dist` landed in a lazy chunk, not the main bundle). If the chunk gate trips, verify the `pdfjs-dist` import is `await import(...)` inside `PdfViewer` and not statically imported anywhere.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/frontend/package.json packages/frontend/src/app/files packages/frontend/src/App.tsx pnpm-lock.yaml
@@ -1037,19 +1037,19 @@ git commit -m "feat: add pdf.js viewer at /f/:id"
 
 ## Task 7: End-to-end smoke + review + docs
 
-- [ ] **Step 1: Manual smoke in `pnpm dev`**
+- [x] **Step 1: Manual smoke in `pnpm dev`**
 
 `docker compose up -d` then `pnpm dev`. In the documents list: New → Upload PDF → pick a small PDF → lands on `/f/:id` and renders pages. Confirm: the row shows the PDF type/filter chip; deleting the document succeeds; opening the file URL while logged out (or as a non-member) is rejected.
 
-- [ ] **Step 2: Branch code review**
+- [x] **Step 2: Branch code review**
 
 Run `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff. Apply blocking findings; note non-blocking as known limitations.
 
-- [ ] **Step 3: Capture lessons + archive**
+- [x] **Step 3: Capture lessons + archive**
 
 Fill in `docs/tasks/active/20260707-pdf-viewer-lessons.md`, then `pnpm tasks:archive && pnpm tasks:index`. Commit task docs together.
 
-- [ ] **Step 4: Open the PR**
+- [x] **Step 4: Open the PR**
 
 `git fetch && git rebase origin/main`, push, open PR (title ≤70 chars; body = Summary + Test plan).
 
@@ -1057,4 +1057,39 @@ Fill in `docs/tasks/active/20260707-pdf-viewer-lessons.md`, then `pnpm tasks:arc
 
 ## Review
 
-_(fill in after implementation)_
+Shipped as PR #451 ("Add PDF viewer document type (upload, blob storage,
+/f/:id)") — the full Phase 1 plan above.
+
+- **Data model** — `Document.fileId` column (migration
+  `20260707000000_add_document_file_id`), `"pdf"` added to the backend DTO
+  and frontend `DocumentType` unions, and the `pdf-` prefix reserved in
+  `yorkie-doc-key.ts` (registered but unused in Phase 1) so the
+  documents-list key derivation never throws for a PDF row.
+- **Blob storage** — `FileService` (S3/MinIO via `@aws-sdk/client-s3`,
+  mirrors `ImageService`): `application/pdf`-only, 50 MB cap, dev-default
+  MinIO creds refused outside `NODE_ENV=production`. `POST /files` uploads
+  and returns an opaque `<uuid>.pdf` id.
+- **Permission-gated serving** — `GET /documents/:id/file` reuses the
+  document's own read gate (`assertMember`), so the file inherits the
+  document's access policy with no parallel permission logic; there is
+  deliberately no read-by-blob-id route. Deleting a PDF document cascades a
+  best-effort blob delete.
+- **Viewer** — `PdfViewer` dynamically `import()`s `pdfjs-dist` (worker as a
+  `?url` `.mjs` asset) so the ~444 KB engine stays in a lazy chunk off the
+  main bundle; the chunk gate change was a count-only bump (112→115) with
+  the KB cap unchanged, confirming nothing leaked. `FileDetail` mounts it at
+  `/f/:id` read-only (no Yorkie `DocumentProvider`). Documents list gained a
+  "New → Upload PDF" action and a PDF type chip.
+
+Review-caught fixes folded in before merge (detailed in the lessons file):
+pdf.js forbids concurrent `render()` on one canvas (keep + `cancel()` the
+`RenderTask`, catch `RenderingCancelledException`) and the
+`PDFDocumentProxy` must be `destroy()`ed on unmount to avoid leaking the
+worker; the named `import { version }` in `root.ts`; and frontend tests
+must live under `tests/**` (colocated `src/**` specs never run).
+
+**Phase 2 deferred** (`pdf-` Yorkie key already reserved): comments +
+presence, anonymous/share-token viewing (needs a token-accepting serving
+path), and the non-blocking hardening follow-ups logged in the lessons file
+(magic-byte `%PDF` sniff, blob-ownership record, `NoSuchKey`→404,
+`FileService` S3-mock tests, viewer zoom/download controls).
