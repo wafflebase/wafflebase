@@ -87,6 +87,14 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-animation.md](slides/slides-animation.md)                                     | Slides motion — slide transitions + object animations (entrance/exit/emphasis, on-click/with/after-previous, by-paragraph); flat per-slide animation sequence (CRDT-friendly) with OOXML preset/path preservation, pure `src/anim/` timeline+player engine shared by presentation mode and editor Play, stateless render injection, best-effort PPTX `<p:transition>`/`<p:timing>` import; 4-phase rollout |
 | [slides-pptx-export.md](slides/slides-pptx-export.md)                                  | Slides PPTX export — Node-safe DrawingML+jszip writer inverse to the PPTX importer (`src/export/pptx/`), full round-trip across text/shapes/freeform/images/tables/connectors/groups/effects/theme/master/layout/animation; `wafflebase slides export`; model-equivalence round-trip verification over importer fixtures |
 
+## PDF
+
+Static PDF documents — upload, store, and view (no CRDT editing).
+
+| Document          | Description                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| [pdf.md](pdf.md)  | PDF viewer — fourth document type (`"pdf"`), blob-stored original (no Yorkie CRDT), document-permission-gated serving, pdf.js viewer at `/f/:id`, `pdf-` key + comments/presence reserved for Phase 2 |
+
 ## Common
 
 Infrastructure, frontend/backend, and cross-cutting concerns.

@@ -1,6 +1,8 @@
 import {
   Req,
+  Res,
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -10,6 +12,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { DocumentService, DocumentWithAuthor } from './document.service';
 import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -25,6 +28,8 @@ import {
   YorkieAdminService,
 } from '../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
+import { FileService } from '../file/file.service';
+import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
 type DocumentListItem = DocumentWithAuthor & {
   editors?: PresenceUser[];
@@ -40,6 +45,7 @@ export class DocumentController {
     private readonly documentService: DocumentService,
     private readonly workspaceService: WorkspaceService,
     private readonly yorkieAdminService: YorkieAdminService,
+    private readonly fileService: FileService,
   ) {}
 
   private async attachMeta(
@@ -59,6 +65,17 @@ export class DocumentController {
     });
   }
 
+  /**
+   * Phase-1 contract: only PDF documents carry a `fileId`. Reject a `fileId`
+   * on any other type (including the defaulted `sheet`) so blob references
+   * can't be attached to editor documents.
+   */
+  private assertFileIdAllowed(type: string | undefined, fileId?: string): void {
+    if (fileId && (type ?? 'sheet') !== 'pdf') {
+      throw new BadRequestException('fileId is only allowed for pdf documents');
+    }
+  }
+
   // --- Workspace-scoped endpoints ---
 
   @Post('workspaces/:workspaceId/documents')
@@ -71,9 +88,11 @@ export class DocumentController {
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
+    this.assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
+      fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
     });
@@ -96,6 +115,33 @@ export class DocumentController {
   }
 
   // --- Legacy / backward-compatible endpoints ---
+
+  @Get('documents/:id/file')
+  async getDocumentFile(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const doc = await this.documentService.document({ id });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+    // Same read gate as GET /documents/:id — the file inherits the
+    // document's access policy.
+    await this.workspaceService.assertMember(
+      doc.workspaceId,
+      Number(req.user.id),
+    );
+    if (!doc.fileId || !VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+      throw new NotFoundException('Document has no file');
+    }
+    const { body, contentType } = await this.fileService.getObject(doc.fileId);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline');
+    res.end(Buffer.from(body));
+  }
 
   @Get('documents/:id')
   async getDocumentById(
@@ -134,9 +180,11 @@ export class DocumentController {
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
+    this.assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
+      fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
     });
@@ -184,6 +232,17 @@ export class DocumentController {
       doc.workspaceId,
       Number(req.user.id),
     );
-    return this.documentService.deleteDocument({ id });
+    const deleted = await this.documentService.deleteDocument({ id });
+    if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+      // Best-effort: a failed blob cleanup must not fail the delete, but log
+      // it so an orphaned object has operational visibility.
+      await this.fileService.delete(doc.fileId).catch((err) => {
+        console.warn(
+          `[DocumentController] Failed to delete blob ${doc.fileId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
+    return deleted;
   }
 }

@@ -227,7 +227,7 @@ export async function fetchWorkspaceDocuments(workspaceId: string) {
  */
 export async function createWorkspaceDocument(
   workspaceId: string,
-  data: { title: string; type?: DocumentType },
+  data: { title: string; type?: DocumentType; fileId?: string },
 ) {
   const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents`, {
     method: "POST",

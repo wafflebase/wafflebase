@@ -76,3 +76,21 @@ export function formatRelativeTime(value: string | undefined): string {
   if (Number.isNaN(date.getTime())) return "—";
   return formatDistanceToNow(date, { includeSeconds: true, addSuffix: true });
 }
+
+/** Maps a document to its editor/viewer route by type. */
+export function getDocumentPath(doc: {
+  id: number | string;
+  type?: DocumentType;
+}): string {
+  switch (doc.type) {
+    case "doc":
+      return `/d/${doc.id}`;
+    case "slides":
+      return `/p/${doc.id}`;
+    case "pdf":
+      return `/f/${doc.id}`;
+    case "sheet":
+    default:
+      return `/s/${doc.id}`;
+  }
+}
