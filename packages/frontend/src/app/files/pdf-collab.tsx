@@ -369,8 +369,10 @@ export function PdfCollabBody() {
  * New-comment composer rendered as a popover anchored to the drawn region on
  * the page (mirrors the Google-Docs add-comment popover). The parent page
  * wrapper is `position: relative`, so the normalized rect maps straight to a
- * percentage offset; the card is nudged just below the region's bottom edge
- * and its left is clamped so it doesn't run off the right side of the page.
+ * percentage offset; the card sits just below the region's bottom edge. When
+ * the region is on the right half of the page the card is right-anchored to
+ * the region's right edge (extending leftward) so it stays on-page instead of
+ * overflowing the right margin; otherwise it is left-anchored.
  */
 function PdfPendingComposer({
   rect,
@@ -381,11 +383,15 @@ function PdfPendingComposer({
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
 }) {
+  const rightAnchored = rect.x + rect.w / 2 > 0.5;
+  const horizontal = rightAnchored
+    ? { right: `${(1 - (rect.x + rect.w)) * 100}%` }
+    : { left: `${rect.x * 100}%` };
   return (
     <div
       className="pointer-events-auto absolute z-20 w-72 max-w-[90%] rounded-md border bg-background p-3 shadow-lg"
       style={{
-        left: `${Math.min(rect.x, 0.7) * 100}%`,
+        ...horizontal,
         top: `${(rect.y + rect.h) * 100}%`,
         marginTop: 6,
       }}
