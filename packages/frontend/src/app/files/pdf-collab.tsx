@@ -154,8 +154,9 @@ export function PdfCollabInner({
                 await store?.editComment(activeThread.id, commentId, body);
               }}
               onDelete={async (commentId) => {
+                const wasRoot = commentId === activeThread.comments[0]?.id;
                 await store?.deleteComment(activeThread.id, commentId);
-                closeThreadDetail();
+                if (wasRoot) closeThreadDetail();
               }}
             />
           ) : (
