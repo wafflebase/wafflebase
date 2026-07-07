@@ -21,6 +21,7 @@ import {
   ChevronsUpDown,
   FileDown,
   FileText,
+  FileType2,
   FolderOutput,
   MoreHorizontal,
   Pencil,
@@ -74,6 +75,7 @@ import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import {
   compareDates,
   formatRelativeTime,
+  getDocumentPath,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -90,23 +92,13 @@ import {
   type Workspace,
 } from "@/api/workspaces";
 import { pickAndImportDocx } from "@/app/docs/docx-actions";
+import { pickFile } from "@/app/docs/export-utils";
 import { setPendingImport } from "@/app/docs/pending-imports";
+import { uploadPdf } from "@/api/files";
 import { pickAndImportPptx } from "@/app/slides/pptx-actions";
 import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
 import { pickAndImportXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { setPendingImport as setPendingXlsxImport } from "@/app/spreadsheet/pending-imports";
-
-function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
-  switch (doc.type) {
-    case "doc":
-      return `/d/${doc.id}`;
-    case "slides":
-      return `/p/${doc.id}`;
-    case "sheet":
-    default:
-      return `/s/${doc.id}`;
-  }
-}
 
 /**
  * Single source of truth for each document type's label, icon, and color.
@@ -120,10 +112,16 @@ const TYPE_META: Record<
   sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
   doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
+  pdf: { label: "PDF", Icon: FileType2, color: "text-red-500" },
 };
 
 /** Document types offered as filter chips, in display order. */
-const TYPE_OPTIONS: ReadonlyArray<DocumentType> = ["sheet", "doc", "slides"];
+const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
+  "sheet",
+  "doc",
+  "slides",
+  "pdf",
+];
 
 /**
  * Clickable column header that toggles this column's sort and shows the
@@ -476,6 +474,29 @@ export function DocumentList({
     }
   };
 
+  const handleUploadPdf = async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const file = await pickFile("application/pdf");
+      if (!file) return;
+      const { id: fileId } = await uploadPdf(file);
+      const title = file.name.replace(/\.pdf$/i, "") || "Untitled PDF";
+      const payload = { title, type: "pdf" as const, fileId };
+      const created = workspaceId
+        ? await createWorkspaceDocument(workspaceId, payload)
+        : await createDocument(payload);
+      navigate(getDocumentPath(created));
+    } catch (err) {
+      console.error("PDF upload failed", err);
+      toast.error(
+        err instanceof Error ? `Upload failed: ${err.message}` : "Upload failed",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
     onSuccess: () => {
@@ -664,6 +685,10 @@ export function DocumentList({
               <FileDown className="mr-2 h-4 w-4 text-orange-500" />
               Import PPTX
             </DropdownMenuItem>
+            <DropdownMenuItem disabled={importing} onClick={handleUploadPdf}>
+              <FileType2 className="mr-2 h-4 w-4 text-red-500" />
+              Upload PDF
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -791,6 +816,13 @@ export function DocumentList({
                         >
                           <FileDown className="mr-2 h-4 w-4 text-orange-500" />
                           Import PPTX
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={importing}
+                          onClick={handleUploadPdf}
+                        >
+                          <FileType2 className="mr-2 h-4 w-4 text-red-500" />
+                          Upload PDF
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

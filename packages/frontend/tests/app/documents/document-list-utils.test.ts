@@ -4,6 +4,7 @@ import type { Document, DocumentType } from "@/types/documents";
 import {
   compareDates,
   formatRelativeTime,
+  getDocumentPath,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -115,5 +116,21 @@ describe("formatRelativeTime", () => {
 
   it("formats a valid date as a relative time", () => {
     expect(formatRelativeTime("2024-01-01T00:00:00.000Z")).toMatch(/ago$/);
+  });
+});
+
+describe("getDocumentPath", () => {
+  it("routes each type to its editor path", () => {
+    expect(getDocumentPath({ id: "d1", type: "sheet" })).toBe("/s/d1");
+    expect(getDocumentPath({ id: "d1", type: "doc" })).toBe("/d/d1");
+    expect(getDocumentPath({ id: "d1", type: "slides" })).toBe("/p/d1");
+  });
+
+  it("routes pdf documents to /f/:id", () => {
+    expect(getDocumentPath({ id: "d1", type: "pdf" })).toBe("/f/d1");
+  });
+
+  it("defaults an unknown/absent type to the sheet path", () => {
+    expect(getDocumentPath({ id: "d1" })).toBe("/s/d1");
   });
 });
