@@ -1,8 +1,8 @@
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument } from "@/api/documents";
+import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -27,6 +27,7 @@ function FileLayout({
   currentUser: User;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
@@ -96,6 +97,19 @@ function FileLayout({
     [navigate],
   );
 
+  const handleRenameDocument = useCallback(
+    async (newTitle: string) => {
+      try {
+        await renameDocument(documentId, newTitle);
+        queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+      } catch {
+        toast.error("Failed to rename document");
+      }
+    },
+    [documentId, queryClient],
+  );
+
   return (
     <PdfCollabProvider
       documentId={documentId}
@@ -116,7 +130,11 @@ function FileLayout({
           onWorkspaceChange={handleWorkspaceChange}
         />
         <SidebarInset>
-          <SiteHeader title={documentData?.title ?? "Loading..."}>
+          <SiteHeader
+            title={documentData?.title ?? "Loading..."}
+            editable
+            onRename={handleRenameDocument}
+          >
             <div className="flex items-center gap-2">
               <PdfHeaderActions />
               <ShareDialog documentId={documentId} />
