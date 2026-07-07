@@ -1,11 +1,14 @@
-import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { resolveConfig, type CliConfig } from '../config/config.js';
 import { HttpClient } from '../client/http-client.js';
 import type { OutputFormat } from '../output/formatter.js';
-
-const require = createRequire(import.meta.url);
-const { version } = require('../../package.json') as { version: string };
+// Named import so esbuild's JSON loader inlines only the `version` string
+// (tree-shaking the rest of the manifest, incl. workspace:* devDependencies,
+// out of the bundle) and resolves it at build time relative to this source
+// file — the bundled single-file `dist/bin.js` then has no runtime dependency
+// on package.json's on-disk location. No `with { type: 'json' }` attribute:
+// under that spec assertion esbuild exposes only a default export.
+import { version } from '../../package.json';
 
 export interface GlobalOpts {
   server?: string;
