@@ -1,5 +1,6 @@
 import {
   Req,
+  Res,
   Body,
   Controller,
   Delete,
@@ -10,6 +11,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { DocumentService, DocumentWithAuthor } from './document.service';
 import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -25,6 +27,8 @@ import {
   YorkieAdminService,
 } from '../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
+import { FileService } from '../file/file.service';
+import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
 type DocumentListItem = DocumentWithAuthor & {
   editors?: PresenceUser[];
@@ -40,6 +44,7 @@ export class DocumentController {
     private readonly documentService: DocumentService,
     private readonly workspaceService: WorkspaceService,
     private readonly yorkieAdminService: YorkieAdminService,
+    private readonly fileService: FileService,
   ) {}
 
   private async attachMeta(
@@ -97,6 +102,33 @@ export class DocumentController {
   }
 
   // --- Legacy / backward-compatible endpoints ---
+
+  @Get('documents/:id/file')
+  async getDocumentFile(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const doc = await this.documentService.document({ id });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+    // Same read gate as GET /documents/:id — the file inherits the
+    // document's access policy.
+    await this.workspaceService.assertMember(
+      doc.workspaceId,
+      Number(req.user.id),
+    );
+    if (!doc.fileId || !VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+      throw new NotFoundException('Document has no file');
+    }
+    const { body, contentType } = await this.fileService.getObject(
+      doc.fileId,
+    );
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(Buffer.from(body));
+  }
 
   @Get('documents/:id')
   async getDocumentById(
@@ -186,6 +218,10 @@ export class DocumentController {
       doc.workspaceId,
       Number(req.user.id),
     );
-    return this.documentService.deleteDocument({ id });
+    const deleted = await this.documentService.deleteDocument({ id });
+    if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+      await this.fileService.delete(doc.fileId).catch(() => undefined);
+    }
+    return deleted;
   }
 }
