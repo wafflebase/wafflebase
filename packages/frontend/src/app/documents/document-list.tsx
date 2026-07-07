@@ -14,7 +14,6 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -74,6 +73,7 @@ import type { Document, DocumentType } from "@/types/documents";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import {
   compareDates,
+  formatRelativeTime,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -108,22 +108,22 @@ function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   }
 }
 
-/** Document types offered as filter chips, with their list-row icons. */
-const TYPE_OPTIONS: ReadonlyArray<{
-  type: DocumentType;
-  label: string;
-  Icon: typeof Sheet;
-  color: string;
-}> = [
-  { type: "sheet", label: "Sheets", Icon: Sheet, color: "text-green-600" },
-  { type: "doc", label: "Docs", Icon: FileText, color: "text-blue-500" },
-  {
-    type: "slides",
-    label: "Slides",
-    Icon: Presentation,
-    color: "text-orange-500",
-  },
-];
+/**
+ * Single source of truth for each document type's label, icon, and color.
+ * The title cell and the filter chips both derive from this so a new type
+ * needs one edit, not several.
+ */
+const TYPE_META: Record<
+  DocumentType,
+  { label: string; Icon: typeof Sheet; color: string }
+> = {
+  sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
+  doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
+  slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
+};
+
+/** Document types offered as filter chips, in display order. */
+const TYPE_OPTIONS: ReadonlyArray<DocumentType> = ["sheet", "doc", "slides"];
 
 /**
  * Clickable column header that toggles this column's sort and shows the
@@ -181,10 +181,7 @@ function dateColumn(
       compareDates(a.getValue<string>(colId), b.getValue<string>(colId)),
     cell: ({ row }) => (
       <div className="text-right font-medium">
-        {formatDistanceToNow(new Date(row.getValue<string>(id)), {
-          includeSeconds: true,
-          addSuffix: true,
-        })}
+        {formatRelativeTime(row.getValue<string>(id))}
       </div>
     ),
   };
@@ -216,16 +213,10 @@ export function DocumentList({
       filterFn: (row, _columnId, filterValue) =>
         matchesSearch(row.original, String(filterValue ?? "")),
       cell: ({ row }) => {
-        const docType = row.original.type;
+        const { Icon, color } = TYPE_META[row.original.type];
         return (
           <div className="flex items-center gap-2">
-            {docType === "doc" ? (
-              <FileText className="h-4 w-4 shrink-0 text-blue-500" />
-            ) : docType === "slides" ? (
-              <Presentation className="h-4 w-4 shrink-0 text-orange-500" />
-            ) : (
-              <Sheet className="h-4 w-4 shrink-0 text-green-600" />
-            )}
+            <Icon className={`h-4 w-4 shrink-0 ${color}`} />
             <span className="capitalize">{row.getValue("title")}</span>
             {/* Live "currently editing" avatars sit next to the title rather
                 than in their own column. Presentational only — Title still
@@ -249,7 +240,12 @@ export function DocumentList({
         return (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Avatar className="h-6 w-6">
+              <Avatar
+                className="h-6 w-6"
+                role="img"
+                aria-label={author.username}
+                title={author.username}
+              >
                 {author.photo && (
                   <AvatarImage src={author.photo} alt={author.username} />
                 )}
@@ -589,7 +585,8 @@ export function DocumentList({
           className="w-full max-w-xs"
         />
         <div className="flex items-center gap-1">
-          {TYPE_OPTIONS.map(({ type, label, Icon, color }) => {
+          {TYPE_OPTIONS.map((type) => {
+            const { label, Icon, color } = TYPE_META[type];
             const active = typeFilters.has(type);
             return (
               <Button

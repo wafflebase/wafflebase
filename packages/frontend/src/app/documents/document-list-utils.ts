@@ -1,3 +1,5 @@
+import { formatDistanceToNow } from "date-fns";
+
 import type { Document, DocumentType } from "@/types/documents";
 
 /**
@@ -46,11 +48,31 @@ export function lastModified(
 }
 
 /**
- * Compare two ISO date strings chronologically. Undefined/empty sorts oldest.
+ * Compare two ISO date strings chronologically. Undefined/empty/unparseable
+ * values sort oldest, and the comparator always returns a real number so the
+ * sort stays stable even on malformed input.
  */
 export function compareDates(
   a: string | undefined,
   b: string | undefined,
 ): number {
-  return (a ? Date.parse(a) : 0) - (b ? Date.parse(b) : 0);
+  return toEpoch(a) - toEpoch(b);
+}
+
+function toEpoch(value: string | undefined): number {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * Render a relative timestamp (e.g. "3 days ago"). Guards against invalid or
+ * missing dates — `formatDistanceToNow` throws a RangeError on an invalid
+ * Date, which would blank the whole list — returning an em dash instead.
+ */
+export function formatRelativeTime(value: string | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return formatDistanceToNow(date, { includeSeconds: true, addSuffix: true });
 }

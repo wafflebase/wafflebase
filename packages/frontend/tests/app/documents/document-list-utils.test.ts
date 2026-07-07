@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Document, DocumentType } from "@/types/documents";
 import {
   compareDates,
+  formatRelativeTime,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -90,5 +91,29 @@ describe("compareDates", () => {
   it("sorts undefined/empty as oldest", () => {
     expect(compareDates(undefined, "2024-01-01T00:00:00Z")).toBeLessThan(0);
     expect(compareDates("2024-01-01T00:00:00Z", undefined)).toBeGreaterThan(0);
+  });
+
+  it("treats an unparseable date as oldest, never returning NaN", () => {
+    const result = compareDates("not-a-date", "2024-01-01T00:00:00Z");
+    expect(Number.isNaN(result)).toBe(false);
+    expect(result).toBeLessThan(0);
+  });
+});
+
+describe("formatRelativeTime", () => {
+  it("returns an em dash for missing values", () => {
+    expect(formatRelativeTime(undefined)).toBe("—");
+    expect(formatRelativeTime("")).toBe("—");
+  });
+
+  it("returns an em dash for an invalid date instead of throwing", () => {
+    // formatDistanceToNow throws RangeError on an invalid Date; the guard
+    // must swallow it so one bad row cannot blank the whole list.
+    expect(() => formatRelativeTime("not-a-date")).not.toThrow();
+    expect(formatRelativeTime("not-a-date")).toBe("—");
+  });
+
+  it("formats a valid date as a relative time", () => {
+    expect(formatRelativeTime("2024-01-01T00:00:00.000Z")).toMatch(/ago$/);
   });
 });

@@ -53,11 +53,12 @@ no schema change, no write path.
 - [ ] **Default sort = Last modified, desc** (matches Google Drive), instead
   of the current created-desc.
 
-### 2. Broaden search + type filter (frontend)
+### 2. Search + type filter (frontend)
 - [ ] Type filter chips next to the search box: Sheet / Doc / Slides,
   multi-select toggle. Empty selection = all types.
-- [ ] Broaden the text filter to match **title + type keyword**, keeping the
-  existing NFC-normalized lowercase behavior.
+- [ ] Keep the text filter **title-only** (NFC-normalized, lowercase) — type
+  filtering is the chips' job, so widening search to type keywords would
+  flood results on type-name collisions.
 
 ### 3. Last-modified column (backend read-only + frontend)
 - [ ] Extend `GetDocumentsResponse` in `yorkie-admin.service.ts` (types at
