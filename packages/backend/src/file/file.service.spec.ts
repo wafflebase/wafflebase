@@ -20,15 +20,15 @@ describe('FileService.upload validation', () => {
   it('rejects a non-pdf mime type', async () => {
     const svc = makeService();
     await expect(
-      svc.upload(Buffer.from('x'), 'image/png', 'x.png'),
+      svc.upload(Buffer.from('x'), 'image/png'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a file over the size cap', async () => {
     const svc = makeService();
     const tooBig = Buffer.alloc(50 * 1024 * 1024 + 1);
-    await expect(
-      svc.upload(tooBig, 'application/pdf', 'big.pdf'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.upload(tooBig, 'application/pdf')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });

@@ -45,7 +45,6 @@ export class FileService implements OnModuleInit {
       try {
         await this.s3.send(new CreateBucketCommand({ Bucket: this.bucket }));
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[FileService] Failed to ensure bucket "${this.bucket}":`,
           err instanceof Error ? err.message : err,
@@ -54,11 +53,7 @@ export class FileService implements OnModuleInit {
     }
   }
 
-  async upload(
-    file: Buffer,
-    mimeType: string,
-    _originalName: string,
-  ): Promise<{ id: string }> {
+  async upload(file: Buffer, mimeType: string): Promise<{ id: string }> {
     if (!this.allowedMimeTypes.includes(mimeType)) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
     }

@@ -2,6 +2,7 @@ import {
   Req,
   Res,
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -64,6 +65,17 @@ export class DocumentController {
     });
   }
 
+  /**
+   * Phase-1 contract: only PDF documents carry a `fileId`. Reject a `fileId`
+   * on any other type (including the defaulted `sheet`) so blob references
+   * can't be attached to editor documents.
+   */
+  private assertFileIdAllowed(type: string | undefined, fileId?: string): void {
+    if (fileId && (type ?? 'sheet') !== 'pdf') {
+      throw new BadRequestException('fileId is only allowed for pdf documents');
+    }
+  }
+
   // --- Workspace-scoped endpoints ---
 
   @Post('workspaces/:workspaceId/documents')
@@ -76,6 +88,7 @@ export class DocumentController {
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
+    this.assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
@@ -122,9 +135,7 @@ export class DocumentController {
     if (!doc.fileId || !VALID_FILE_ID_PATTERN.test(doc.fileId)) {
       throw new NotFoundException('Document has no file');
     }
-    const { body, contentType } = await this.fileService.getObject(
-      doc.fileId,
-    );
+    const { body, contentType } = await this.fileService.getObject(doc.fileId);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -169,6 +180,7 @@ export class DocumentController {
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
+    this.assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
@@ -222,7 +234,14 @@ export class DocumentController {
     );
     const deleted = await this.documentService.deleteDocument({ id });
     if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
-      await this.fileService.delete(doc.fileId).catch(() => undefined);
+      // Best-effort: a failed blob cleanup must not fail the delete, but log
+      // it so an orphaned object has operational visibility.
+      await this.fileService.delete(doc.fileId).catch((err) => {
+        console.warn(
+          `[DocumentController] Failed to delete blob ${doc.fileId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
     }
     return deleted;
   }

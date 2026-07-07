@@ -1,7 +1,10 @@
 import { registerAs } from '@nestjs/config';
+import { MAX_PDF_UPLOAD_BYTES } from './file.constants';
 
-// Mirrors image.config.ts. MinIO dev defaults only outside production so
-// misconfiguration fails fast in prod instead of using predictable creds.
+// Mirrors image.config.ts. MinIO dev defaults apply only outside production;
+// in production the fallbacks are empty strings (rather than predictable
+// credentials), so a misconfigured deployment surfaces as an explicit S3
+// error on first use instead of silently authenticating with dev creds.
 const isDev = process.env.NODE_ENV !== 'production';
 
 export const fileConfig = registerAs('file', () => ({
@@ -11,6 +14,6 @@ export const fileConfig = registerAs('file', () => ({
   region: process.env.FILE_STORAGE_REGION || (isDev ? 'us-east-1' : ''),
   accessKey: process.env.FILE_STORAGE_ACCESS_KEY || (isDev ? 'minioadmin' : ''),
   secretKey: process.env.FILE_STORAGE_SECRET_KEY || (isDev ? 'minioadmin' : ''),
-  maxFileSizeBytes: 50 * 1024 * 1024, // 50 MB
+  maxFileSizeBytes: MAX_PDF_UPLOAD_BYTES,
   allowedMimeTypes: ['application/pdf'],
 }));
