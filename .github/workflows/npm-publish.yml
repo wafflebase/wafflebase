@@ -34,23 +34,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build CLI (and workspace deps)
+      - name: Build CLI (bundles private workspace deps inline)
         run: pnpm --filter @wafflebase/cli... build
 
       - name: Run CLI tests
         run: pnpm --filter @wafflebase/cli test
 
-      - name: Publish @wafflebase/docs to npm
-        run: |
-          VERSION=$(node -p "require('./packages/docs/package.json').version")
-          if npm view "@wafflebase/docs@${VERSION}" version > /dev/null 2>&1; then
-            echo "@wafflebase/docs@${VERSION} already published, skipping"
-          else
-            pnpm --filter @wafflebase/docs publish --access public --no-git-checks
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+      # @wafflebase/docs, @wafflebase/slides and @wafflebase/tokens are private
+      # workspace packages bundled directly into dist/bin.js by the CLI build,
+      # so the CLI is the only npm artifact we publish.
       - name: Publish @wafflebase/cli to npm
         run: |
           VERSION=$(node -p "require('./packages/cli/package.json').version")

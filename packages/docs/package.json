@@ -1,6 +1,7 @@
 {
   "name": "@wafflebase/docs",
   "version": "0.4.9",
+  "private": true,
   "license": "Apache-2.0",
   "description": "Canvas-based document editor for Wafflebase",
   "type": "module",
