@@ -127,6 +127,8 @@ export class DocumentController {
     );
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline');
     res.end(Buffer.from(body));
   }
 

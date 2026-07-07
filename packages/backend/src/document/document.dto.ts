@@ -1,4 +1,12 @@
-import { IsIn, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+} from 'class-validator';
+import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
 const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf'] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
@@ -14,7 +22,7 @@ export class CreateDocumentDto {
 
   @IsOptional()
   @IsString()
-  @Length(1, 200)
+  @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
 }
 
@@ -29,7 +37,7 @@ export class CreateDocumentInWorkspaceDto {
 
   @IsOptional()
   @IsString()
-  @Length(1, 200)
+  @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
 
   @IsUUID()

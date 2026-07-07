@@ -89,6 +89,7 @@ describe('DocumentController.getDocumentFile', () => {
     await ctrl.getDocumentFile('d1', req, res as never);
     expect(res.headers['Content-Type']).toBe('application/pdf');
     expect(res.headers['Cache-Control']).toContain('private');
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
     expect(res.end).toHaveBeenCalled();
   });
 });
