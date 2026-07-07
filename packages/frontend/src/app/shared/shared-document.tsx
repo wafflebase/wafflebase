@@ -18,6 +18,7 @@ import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
+import { PdfCollab } from "@/app/files/pdf-collab";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
@@ -550,14 +551,36 @@ function SharedMobileSlidesLayout({
 
 function SharedDocumentInner({
   resolved,
+  token,
 }: {
   resolved: ResolvedShareLink;
+  token?: string;
 }) {
   const { data: currentUser } = useQuery({
     queryKey: ["me", "optional"],
     queryFn: fetchMeOptional,
     retry: false,
   });
+
+  // PdfCollab mounts its own YorkieProvider/DocumentProvider, so it must
+  // render before the shared provider wrapper below rather than nested
+  // inside it (nesting would create two competing Yorkie connections).
+  if (resolved.type === "pdf") {
+    return (
+      <PdfCollab
+        documentId={resolved.documentId}
+        title={resolved.title}
+        readOnly={resolved.role === "viewer"}
+        token={token}
+        presenceUser={{
+          userId: String(currentUser?.id ?? ""),
+          username: currentUser?.username || "Anonymous",
+          email: currentUser?.email || "",
+          photo: currentUser?.photo || "",
+        }}
+      />
+    );
+  }
 
   const presence = {
     username: currentUser?.username || "Anonymous",
@@ -656,7 +679,7 @@ export function SharedDocument() {
     );
   }
 
-  return <SharedDocumentInner resolved={resolved} />;
+  return <SharedDocumentInner resolved={resolved} token={token} />;
 }
 
 export default SharedDocument;
