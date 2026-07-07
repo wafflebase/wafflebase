@@ -1,8 +1,8 @@
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument } from "@/api/documents";
+import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -15,6 +15,7 @@ import { PdfViewer } from "./pdf-viewer";
 
 function FileLayout({ documentId }: { documentId: string }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
@@ -84,6 +85,19 @@ function FileLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
+  const handleRenameDocument = useCallback(
+    async (newTitle: string) => {
+      try {
+        await renameDocument(documentId, newTitle);
+        queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+      } catch {
+        toast.error("Failed to rename document");
+      }
+    },
+    [documentId, queryClient],
+  );
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -94,7 +108,11 @@ function FileLayout({ documentId }: { documentId: string }) {
         onWorkspaceChange={handleWorkspaceChange}
       />
       <SidebarInset>
-        <SiteHeader title={documentData?.title ?? "Loading..."} />
+        <SiteHeader
+          title={documentData?.title ?? "Loading..."}
+          editable
+          onRename={handleRenameDocument}
+        />
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <PdfViewer fileUrl={pdfFileUrl(documentId)} />
         </div>
