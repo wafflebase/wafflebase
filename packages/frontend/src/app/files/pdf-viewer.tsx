@@ -9,6 +9,9 @@ const MAX_PAGE_WIDTH = 1000;
 const PREFETCH_MARGIN = "600px 0px";
 
 type PageDim = { width: number; height: number };
+// Structural subset of pdf.js's RenderTask (avoids depending on the exported
+// type name across versions).
+type RenderTaskLike = { promise: Promise<void>; cancel: () => void };
 
 /**
  * Fetch the PDF while reporting download progress. Streams the body when the
@@ -34,7 +37,7 @@ async function fetchPdf(
     if (done) break;
     chunks.push(value);
     received += value.length;
-    onProgress(received / total);
+    onProgress(Math.min(1, received / total));
   }
   const out = new Uint8Array(received);
   let pos = 0;
@@ -103,7 +106,11 @@ export function PdfViewer({ fileUrl }: { fileUrl: string }) {
     })();
     return () => {
       cancelled = true;
+      const doc = pdfRef.current;
       pdfRef.current = null;
+      // Release the pdf.js document + worker transport and its cached page
+      // bitmaps; otherwise each fileUrl change / unmount leaks them.
+      if (doc) void doc.destroy().catch(() => undefined);
     };
   }, [fileUrl]);
 
@@ -168,6 +175,9 @@ function PdfPageView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Bitmap width already rendered; used to skip re-raster unless the page grew.
   const rasteredWidthRef = useRef(0);
+  // In-flight pdf.js render, so a wider re-raster can cancel it — pdf.js
+  // forbids two concurrent render() calls on one canvas.
+  const renderTaskRef = useRef<RenderTaskLike | null>(null);
   const [visible, setVisible] = useState(false);
 
   // Rasterize this page at its current display width × device pixel ratio.
@@ -184,6 +194,9 @@ function PdfPageView({
     // already scaled the existing bitmap to fit, so shrinking needs no work.
     if (targetBitmapWidth <= rasteredWidthRef.current) return;
 
+    // Cancel a still-running render before starting a wider one.
+    renderTaskRef.current?.cancel();
+
     const page = await pdf.getPage(pageNumber);
     const base = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: (cssWidth * dpr) / base.width });
@@ -192,8 +205,26 @@ function PdfPageView({
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     rasteredWidthRef.current = viewport.width;
-    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const task = page.render({ canvasContext: ctx, viewport });
+    renderTaskRef.current = task;
+    try {
+      await task.promise;
+    } catch (e) {
+      // A newer, wider raster cancelled this one — expected; ignore it.
+      if ((e as { name?: string } | null)?.name !== "RenderingCancelledException") {
+        // Genuine render failure: let a later resize retry this page.
+        if (rasteredWidthRef.current === viewport.width) {
+          rasteredWidthRef.current = 0;
+        }
+      }
+    } finally {
+      if (renderTaskRef.current === task) renderTaskRef.current = null;
+    }
   }, [pdfRef, pageNumber]);
+
+  // Cancel any in-flight render on unmount so it can't reject after teardown.
+  useEffect(() => () => renderTaskRef.current?.cancel(), []);
 
   // Lazy: mark visible when near the viewport (or eagerly where there's no
   // IntersectionObserver, e.g. jsdom).

@@ -5,12 +5,16 @@ import { render, waitFor } from "@testing-library/react";
 vi.mock("pdfjs-dist", () => {
   const page = {
     getViewport: () => ({ width: 100, height: 140 }),
-    render: () => ({ promise: Promise.resolve() }),
+    render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
   };
   return {
     GlobalWorkerOptions: { workerSrc: "" },
     getDocument: () => ({
-      promise: Promise.resolve({ numPages: 2, getPage: async () => page }),
+      promise: Promise.resolve({
+        numPages: 2,
+        getPage: async () => page,
+        destroy: () => Promise.resolve(),
+      }),
     }),
   };
 });
