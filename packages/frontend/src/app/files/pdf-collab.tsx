@@ -284,20 +284,46 @@ export function PdfCollabBody() {
           fileUrl={fileUrl}
           onActivePageChange={onActivePageChange}
           renderPageOverlay={(pageIndex) => (
-            <PdfCommentLayer
-              pageIndex={pageIndex}
-              threads={threads}
-              creating={creating}
-              activeThreadId={activeThreadId}
-              onSelectThread={(id) => {
-                setActiveThreadId(id);
-                setPanelOpen(true);
-              }}
-              onCreateRegion={(pi, rect) => {
-                setPending({ pageIndex: pi, rect });
-                setCreating(false);
-              }}
-            />
+            <>
+              <PdfCommentLayer
+                pageIndex={pageIndex}
+                threads={threads}
+                creating={creating}
+                activeThreadId={activeThreadId}
+                onSelectThread={(id) => {
+                  setActiveThreadId(id);
+                  setPanelOpen(true);
+                }}
+                onCreateRegion={(pi, rect) => {
+                  setPending({ pageIndex: pi, rect });
+                  setCreating(false);
+                }}
+              />
+              {/* New-thread composer, anchored next to the drawn region on
+                  this page (Google-Docs-style popover, not a docked bar). */}
+              {pending && pending.pageIndex === pageIndex && !readOnly && (
+                <PdfPendingComposer
+                  rect={pending.rect}
+                  onCancel={() => setPending(null)}
+                  onSubmit={async (body) => {
+                    const threadId = await addThread(
+                      {
+                        kind: 'pdf-region',
+                        pageIndex: pending.pageIndex,
+                        rect: pending.rect,
+                      },
+                      body,
+                      author,
+                    );
+                    setPending(null);
+                    if (threadId) {
+                      setActiveThreadId(threadId);
+                      setPanelOpen(true);
+                    }
+                  }}
+                />
+              )}
+            </>
           )}
         />
         {panelOpen &&
@@ -335,31 +361,43 @@ export function PdfCollabBody() {
             />
           ))}
       </div>
+    </div>
+  );
+}
 
-      {/* New-thread composer for the just-drawn region. */}
-      {pending && !readOnly && (
-        <div className="border-t p-3">
-          <CommentComposer
-            submitLabel="Comment"
-            autoFocus
-            onCancel={() => setPending(null)}
-            onSubmit={async (body) => {
-              const threadId = await addThread(
-                {
-                  kind: 'pdf-region',
-                  pageIndex: pending.pageIndex,
-                  rect: pending.rect,
-                },
-                body,
-                author,
-              );
-              setPending(null);
-              setPanelOpen(true);
-              if (threadId) setActiveThreadId(threadId);
-            }}
-          />
-        </div>
-      )}
+/**
+ * New-comment composer rendered as a popover anchored to the drawn region on
+ * the page (mirrors the Google-Docs add-comment popover). The parent page
+ * wrapper is `position: relative`, so the normalized rect maps straight to a
+ * percentage offset; the card is nudged just below the region's bottom edge
+ * and its left is clamped so it doesn't run off the right side of the page.
+ */
+function PdfPendingComposer({
+  rect,
+  onSubmit,
+  onCancel,
+}: {
+  rect: PdfRect;
+  onSubmit: (body: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="pointer-events-auto absolute z-20 w-72 max-w-[90%] rounded-md border bg-background p-3 shadow-lg"
+      style={{
+        left: `${Math.min(rect.x, 0.7) * 100}%`,
+        top: `${(rect.y + rect.h) * 100}%`,
+        marginTop: 6,
+      }}
+      // Keep pointer events inside the popover from reaching anything below.
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <CommentComposer
+        submitLabel="Comment"
+        autoFocus
+        onCancel={onCancel}
+        onSubmit={onSubmit}
+      />
     </div>
   );
 }
