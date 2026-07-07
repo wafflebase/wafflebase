@@ -5,9 +5,9 @@ import { Document } from '@yorkie-js/sdk';
 import { PdfCommentStore } from '@/app/files/comments/pdf-comment-store';
 import { initialPdfRoot, type YorkiePdfRoot } from '@/types/pdf-document';
 
-// Mock pdfjs-dist so PdfViewer never loads the real worker/engine (mirrors
-// the setup in pdf-viewer.test.tsx).
-vi.mock('pdfjs-dist', () => {
+// Mock the pdf.js legacy build (what PdfViewer imports at runtime) so it never
+// loads the real worker/engine (mirrors the setup in pdf-viewer.test.tsx).
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => {
   const page = {
     getViewport: () => ({ width: 100, height: 140 }),
     render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
@@ -20,7 +20,9 @@ vi.mock('pdfjs-dist', () => {
     }),
   };
 });
-vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: 'worker.js' }));
+vi.mock('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url', () => ({
+  default: 'worker.js',
+}));
 
 // `PdfCollabStateProvider` (and the shared `UserPresence` component) consume
 // Yorkie hooks straight from '@yorkie-js/react'; the full attach flow can't

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// Use the legacy build: it ships polyfills (e.g. `Uint8Array.prototype.toHex`,
+// which pdf.js calls when computing document fingerprints during
+// getDocument()). The modern build assumes those TC39 APIs exist and throws
+// "a.toHex is not a function" on browsers below Chrome ~140 / Safari 18.2 /
+// Firefox 133, breaking PDF loading entirely.
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 // Cap page width so pages don't grow unreadably wide on large viewports.
 const MAX_PAGE_WIDTH = 1000;
@@ -85,14 +90,23 @@ export function PdfViewer({
     setPages([]);
     (async () => {
       try {
-        const pdfjs = await import("pdfjs-dist");
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
         const data = await fetchPdf(fileUrl, (p) => {
           if (!cancelled) setProgress(p);
         });
         if (cancelled) return;
-        const loadingTask = pdfjs.getDocument({ data });
+        // cMapUrl/standardFontDataUrl point at pdf.js's bundled assets,
+        // served by the `pdfjs-assets` Vite plugin. Without them, CID-keyed
+        // fonts (e.g. CJK PDFs) render blank and non-embedded standard fonts
+        // fall back incorrectly.
+        const loadingTask = pdfjs.getDocument({
+          data,
+          cMapUrl: "/pdfjs/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: "/pdfjs/standard_fonts/",
+        });
         loadingTaskRef.current = loadingTask;
         const pdf = await loadingTask.promise;
         if (cancelled) return;
