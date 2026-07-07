@@ -74,6 +74,7 @@ export class DocumentController {
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
+      fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
     });
@@ -137,6 +138,7 @@ export class DocumentController {
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
+      fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
     });

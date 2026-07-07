@@ -1,6 +1,6 @@
 import { IsIn, IsOptional, IsString, IsUUID, Length } from 'class-validator';
 
-const DOCUMENT_TYPES = ['sheet', 'doc', 'slides'] as const;
+const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf'] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export class CreateDocumentDto {
@@ -11,6 +11,11 @@ export class CreateDocumentDto {
   @IsOptional()
   @IsIn(DOCUMENT_TYPES)
   type?: DocumentType;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  fileId?: string;
 }
 
 export class CreateDocumentInWorkspaceDto {
@@ -21,6 +26,11 @@ export class CreateDocumentInWorkspaceDto {
   @IsOptional()
   @IsIn(DOCUMENT_TYPES)
   type?: DocumentType;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  fileId?: string;
 
   @IsUUID()
   workspaceId: string;
