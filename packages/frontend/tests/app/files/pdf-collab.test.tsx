@@ -22,14 +22,13 @@ vi.mock('pdfjs-dist', () => {
 });
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: 'worker.js' }));
 
-// `PdfCollabInner` and the shared `UserPresence` component it renders both
-// consume Yorkie hooks straight from '@yorkie-js/react'; the full attach
-// flow can't run in jsdom. `UserPresence` calls `useDocument`/`usePresences`
-// internally (not via props), so a doc-injection prop on `PdfCollabInner`
-// alone wouldn't cover it — mocking the module is the seam that reaches
-// both call sites. The mock hands back a real local (unattached)
-// `Document<YorkiePdfRoot>`, built the same way the `PdfCommentStore` unit
-// tests build one.
+// `PdfCollabStateProvider` (and the shared `UserPresence` component) consume
+// Yorkie hooks straight from '@yorkie-js/react'; the full attach flow can't
+// run in jsdom. Mocking the module is the seam that reaches every call site.
+// The mock hands back a real local (unattached) `Document<YorkiePdfRoot>`,
+// built the same way the `PdfCommentStore` unit tests build one — so
+// `PdfCollabStateProvider` can be mounted directly, without the real
+// `DocumentProvider`.
 let mockDoc: Document<YorkiePdfRoot> | undefined;
 
 vi.mock('@yorkie-js/react', async (importOriginal) => {
@@ -50,7 +49,31 @@ vi.mock('@yorkie-js/react', async (importOriginal) => {
   };
 });
 
-import { PdfCollabInner } from '@/app/files/pdf-collab';
+import {
+  PdfCollabStateProvider,
+  PdfHeaderActions,
+  PdfCollabBody,
+} from '@/app/files/pdf-collab';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// The route composes PdfHeaderActions (top bar) + PdfCollabBody (viewer) under
+// PdfCollabProvider; here we mount PdfCollabStateProvider directly (it consumes
+// the mocked useDocument, skipping the real DocumentProvider attach) with the
+// same two children, wrapped in a TooltipProvider the way App.tsx provides one.
+function renderCollab() {
+  return render(
+    <TooltipProvider>
+      <PdfCollabStateProvider
+        documentId="doc1"
+        readOnly={false}
+        presenceUser={presenceUser}
+      >
+        <PdfHeaderActions />
+        <PdfCollabBody />
+      </PdfCollabStateProvider>
+    </TooltipProvider>,
+  );
+}
 
 const author = { userId: 'u1', username: 'alice' };
 
@@ -60,7 +83,7 @@ async function makeDocWithThread(): Promise<Document<YorkiePdfRoot>> {
     if (!root.comments) root.comments = initialPdfRoot().comments!;
   });
   // Seed via the real store so field encoding (BigInt timestamps, etc.)
-  // matches what `PdfCollabInner` will read at render time.
+  // matches what the collab body will read at render time.
   const store = new PdfCommentStore(doc);
   await store.addThread(
     { kind: 'pdf-region', pageIndex: 0, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 } },
@@ -88,20 +111,13 @@ beforeEach(async () => {
   mockDoc = await makeDocWithThread();
 });
 
-describe('PdfCollabInner', () => {
+describe('PdfCollab', () => {
   it('renders the comments toggle; opening it shows the seeded thread and its pin', async () => {
-    render(
-      <PdfCollabInner
-        documentId="doc1"
-        title="My PDF"
-        readOnly={false}
-        presenceUser={presenceUser}
-      />,
-    );
+    renderCollab();
 
     // getByRole throws if the toggle isn't found, so its return alone
     // asserts presence.
-    const toggle = screen.getByRole('button', { name: /comments/i });
+    const toggle = screen.getByRole('button', { name: /show comments/i });
     expect(toggle.tagName).toBe('BUTTON');
 
     fireEvent.click(toggle);
@@ -114,14 +130,7 @@ describe('PdfCollabInner', () => {
   });
 
   it('selecting a pin opens the thread detail with reply and resolve controls', async () => {
-    render(
-      <PdfCollabInner
-        documentId="doc1"
-        title="My PDF"
-        readOnly={false}
-        presenceUser={presenceUser}
-      />,
-    );
+    renderCollab();
 
     const pin = await screen.findByRole('button', { name: 'Comment by alice' });
     fireEvent.click(pin);

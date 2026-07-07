@@ -1,7 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { YorkieProvider, DocumentProvider, useDocument } from '@yorkie-js/react';
-import { IconMessage } from '@tabler/icons-react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { DocumentProvider, useDocument } from '@yorkie-js/react';
+import { IconMessage, IconMessagePlus } from '@tabler/icons-react';
 
+import { Toggle } from '@/components/ui/toggle.tsx';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip.tsx';
 import { PdfViewer } from './pdf-viewer.tsx';
 import { PdfCommentLayer } from './pdf-comment-layer.tsx';
 import { PdfCommentStore } from './comments/pdf-comment-store.ts';
@@ -9,50 +23,82 @@ import { usePdfComments } from './comments/pdf-comments-controller.ts';
 import { CommentSidePanel } from '@/components/comments/components/CommentSidePanel.tsx';
 import { CommentComposer } from '@/components/comments/components/CommentComposer.tsx';
 import { CommentThreadCard } from '@/components/comments/components/CommentThreadCard.tsx';
-import { UserPresence } from '@/components/user-presence.tsx';
 import { initialPdfRoot, type YorkiePdfRoot } from '@/types/pdf-document.ts';
 import type { PdfPresence } from '@/types/users.ts';
-import type { CommentAuthor, PdfRect, Thread, PdfRegionAnchor } from '@/types/comments.ts';
+import type {
+  CommentAuthor,
+  PdfRect,
+  Thread,
+  PdfRegionAnchor,
+} from '@/types/comments.ts';
 import { pdfFileUrl } from '@/api/files.ts';
 
-export type PdfCollabProps = {
-  documentId: string;
-  title: string;
-  readOnly: boolean;
-  token?: string;
-  presenceUser: { username: string; email: string; photo: string; userId: string };
+export type PdfPresenceUser = {
+  username: string;
+  email: string;
+  photo: string;
+  userId: string;
 };
 
-export function PdfCollab(props: PdfCollabProps) {
-  const presence: PdfPresence = {
-    username: props.presenceUser.username,
-    email: props.presenceUser.email,
-    photo: props.presenceUser.photo,
-  };
-  return (
-    <YorkieProvider
-      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
-      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
-      metadata={{ userID: props.presenceUser.username }}
-    >
-      <DocumentProvider<YorkiePdfRoot, PdfPresence>
-        docKey={`pdf-${props.documentId}`}
-        initialRoot={initialPdfRoot()}
-        initialPresence={presence}
-        enableDevtools={import.meta.env.DEV}
-      >
-        <PdfCollabInner {...props} />
-      </DocumentProvider>
-    </YorkieProvider>
-  );
+/**
+ * Shared PDF collaboration state (comment threads, side-panel/pin UI, and
+ * active-page presence). Held in context so the top-bar controls
+ * (`PdfHeaderActions`) and the document body (`PdfCollabBody`) — which the
+ * owner and shared routes place in different chrome — read the same state.
+ */
+type PdfCollabContextValue = {
+  readOnly: boolean;
+  fileUrl: string;
+  threads: Thread<PdfRegionAnchor>[];
+  panelOpen: boolean;
+  setPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  creating: boolean;
+  setCreating: React.Dispatch<React.SetStateAction<boolean>>;
+  activeThreadId: string | null;
+  setActiveThreadId: (id: string | null) => void;
+  activeThread: Thread<PdfRegionAnchor> | null;
+  pending: { pageIndex: number; rect: PdfRect } | null;
+  setPending: React.Dispatch<
+    React.SetStateAction<{ pageIndex: number; rect: PdfRect } | null>
+  >;
+  author: CommentAuthor;
+  store: PdfCommentStore | null;
+  addThread: ReturnType<typeof usePdfComments>['addThread'];
+  addReply: ReturnType<typeof usePdfComments>['addReply'];
+  setResolved: ReturnType<typeof usePdfComments>['setResolved'];
+  onActivePageChange: (pageIndex: number) => void;
+  closeThreadDetail: () => void;
+};
+
+const PdfCollabContext = createContext<PdfCollabContextValue | null>(null);
+
+function usePdfCollab(): PdfCollabContextValue {
+  const ctx = useContext(PdfCollabContext);
+  if (!ctx) {
+    throw new Error('usePdfCollab must be used within a PdfCollabStateProvider');
+  }
+  return ctx;
 }
 
-export function PdfCollabInner({
+/**
+ * Builds the collaboration state from the Yorkie document and exposes it via
+ * context. Renders directly under `useDocument()` (no `DocumentProvider` of
+ * its own) so tests can mount it with a mocked document. Routes reach it
+ * through `PdfCollabProvider`.
+ */
+export function PdfCollabStateProvider({
   documentId,
   readOnly,
   token,
   presenceUser,
-}: PdfCollabProps) {
+  children,
+}: {
+  documentId: string;
+  readOnly: boolean;
+  token?: string;
+  presenceUser: PdfPresenceUser;
+  children: ReactNode;
+}) {
   const { doc } = useDocument<YorkiePdfRoot, PdfPresence>();
   const store = useMemo(() => (doc ? new PdfCommentStore(doc) : null), [doc]);
   useEffect(() => () => store?.dispose(), [store]);
@@ -61,7 +107,10 @@ export function PdfCollabInner({
   const [panelOpen, setPanelOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [pending, setPending] = useState<{ pageIndex: number; rect: PdfRect } | null>(null);
+  const [pending, setPending] = useState<{
+    pageIndex: number;
+    rect: PdfRect;
+  } | null>(null);
 
   const author: CommentAuthor = {
     userId: presenceUser.userId,
@@ -69,7 +118,7 @@ export function PdfCollabInner({
     photo: presenceUser.photo || undefined,
   };
 
-  // Broadcast the active page (throttled) for presence.
+  // Broadcast the active page (deduped) for presence.
   const lastPageRef = useRef<number>(-1);
   const onActivePageChange = (pageIndex: number) => {
     if (!doc || pageIndex === lastPageRef.current) return;
@@ -80,41 +129,159 @@ export function PdfCollabInner({
   const activeThread = activeThreadId
     ? (threads.find((t) => t.id === activeThreadId) ?? null)
     : null;
-
   const closeThreadDetail = () => setActiveThreadId(null);
 
-  return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-end gap-2 border-b px-3 py-1.5">
-        {!readOnly && (
-          <button
-            type="button"
-            aria-pressed={creating}
-            className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs hover:bg-muted ${
-              creating ? 'bg-muted' : ''
-            }`}
-            onClick={() => setCreating((v) => !v)}
-          >
-            Add comment
-          </button>
-        )}
-        <button
-          type="button"
-          aria-label={panelOpen ? 'Hide comments' : 'Show comments'}
-          aria-pressed={panelOpen}
-          className={`inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted ${
-            panelOpen ? 'bg-muted' : ''
-          }`}
-          onClick={() => setPanelOpen((v) => !v)}
-        >
-          <IconMessage size={16} />
-        </button>
-        <UserPresence />
-      </div>
+  const value: PdfCollabContextValue = {
+    readOnly,
+    fileUrl: pdfFileUrl(documentId, token),
+    threads,
+    panelOpen,
+    setPanelOpen,
+    creating,
+    setCreating,
+    activeThreadId,
+    setActiveThreadId,
+    activeThread,
+    pending,
+    setPending,
+    author,
+    store,
+    addThread,
+    addReply,
+    setResolved,
+    onActivePageChange,
+    closeThreadDetail,
+  };
 
+  return (
+    <PdfCollabContext.Provider value={value}>
+      {children}
+    </PdfCollabContext.Provider>
+  );
+}
+
+/**
+ * Mounts the `pdf-<id>` Yorkie document (comments + presence only; the PDF
+ * bytes stay in the blob) and the shared collaboration state. The ambient
+ * `YorkieProvider` is supplied by the route: `PrivateRoute` for the owner
+ * route, an explicit public-key provider for the shared route.
+ */
+export function PdfCollabProvider({
+  documentId,
+  readOnly,
+  token,
+  presenceUser,
+  children,
+}: {
+  documentId: string;
+  readOnly: boolean;
+  token?: string;
+  presenceUser: PdfPresenceUser;
+  children: ReactNode;
+}) {
+  const presence: PdfPresence = {
+    username: presenceUser.username,
+    email: presenceUser.email,
+    photo: presenceUser.photo,
+  };
+  return (
+    <DocumentProvider<YorkiePdfRoot, PdfPresence>
+      docKey={`pdf-${documentId}`}
+      initialRoot={initialPdfRoot()}
+      initialPresence={presence}
+      enableDevtools={import.meta.env.DEV}
+    >
+      <PdfCollabStateProvider
+        documentId={documentId}
+        readOnly={readOnly}
+        token={token}
+        presenceUser={presenceUser}
+      >
+        {children}
+      </PdfCollabStateProvider>
+    </DocumentProvider>
+  );
+}
+
+/**
+ * Top-bar controls (region-comment tool + comments panel toggle), placed in
+ * the route's header alongside `ShareDialog`/`UserPresence` — matching the
+ * docs/sheets/slides header layout. Must render inside `PdfCollabProvider`.
+ */
+export function PdfHeaderActions() {
+  const { readOnly, creating, setCreating, panelOpen, setPanelOpen } =
+    usePdfCollab();
+  return (
+    <div className="flex items-center gap-2">
+      {!readOnly && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+              aria-label="Add comment"
+              pressed={creating}
+              onPressedChange={setCreating}
+            >
+              <IconMessagePlus size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Add comment</TooltipContent>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+            aria-label={panelOpen ? 'Hide comments' : 'Show comments'}
+            pressed={panelOpen}
+            onPressedChange={setPanelOpen}
+          >
+            <IconMessage size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>
+          {panelOpen ? 'Hide comments' : 'Show comments'}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+/**
+ * The PDF viewer with its comment pin overlay, the comments side panel /
+ * thread detail, and the new-thread composer. Must render inside
+ * `PdfCollabProvider`.
+ */
+export function PdfCollabBody() {
+  const {
+    readOnly,
+    fileUrl,
+    threads,
+    panelOpen,
+    setPanelOpen,
+    creating,
+    setCreating,
+    activeThreadId,
+    setActiveThreadId,
+    activeThread,
+    pending,
+    setPending,
+    author,
+    store,
+    addThread,
+    addReply,
+    setResolved,
+    onActivePageChange,
+    closeThreadDetail,
+  } = usePdfCollab();
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
         <PdfViewer
-          fileUrl={pdfFileUrl(documentId, token)}
+          fileUrl={fileUrl}
           onActivePageChange={onActivePageChange}
           renderPageOverlay={(pageIndex) => (
             <PdfCommentLayer
@@ -161,7 +328,7 @@ export function PdfCollabInner({
             />
           ) : (
             <CommentSidePanel
-              threads={threads.filter((t) => t.anchor.pageIndex >= 0)}
+              threads={threads}
               onJumpTo={(t) => setActiveThreadId(t.id)}
               onClose={() => setPanelOpen(false)}
               renderAnchorLabel={(t) => `Page ${t.anchor.pageIndex + 1}`}
@@ -178,7 +345,11 @@ export function PdfCollabInner({
             onCancel={() => setPending(null)}
             onSubmit={async (body) => {
               const threadId = await addThread(
-                { kind: 'pdf-region', pageIndex: pending.pageIndex, rect: pending.rect },
+                {
+                  kind: 'pdf-region',
+                  pageIndex: pending.pageIndex,
+                  rect: pending.rect,
+                },
                 body,
                 author,
               );

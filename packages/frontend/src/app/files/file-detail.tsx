@@ -9,10 +9,15 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
+import { UserPresence } from "@/components/user-presence";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { User } from "@/types/users";
-import { PdfCollab } from "./pdf-collab";
+import {
+  PdfCollabProvider,
+  PdfHeaderActions,
+  PdfCollabBody,
+} from "./pdf-collab";
 
 function FileLayout({
   documentId,
@@ -92,33 +97,38 @@ function FileLayout({
   );
 
   return (
-    <SidebarProvider>
-      <AppSidebar
-        variant="inset"
-        items={items}
-        workspaces={workspaces}
-        currentWorkspace={currentWorkspace}
-        onWorkspaceChange={handleWorkspaceChange}
-      />
-      <SidebarInset>
-        <SiteHeader title={documentData?.title ?? "Loading..."}>
-          <ShareDialog documentId={documentId} />
-        </SiteHeader>
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <PdfCollab
-            documentId={documentId}
-            title={documentData?.title ?? "PDF"}
-            readOnly={false}
-            presenceUser={{
-              userId: String(currentUser.id),
-              username: currentUser.username,
-              email: currentUser.email,
-              photo: currentUser.photo,
-            }}
-          />
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <PdfCollabProvider
+      documentId={documentId}
+      readOnly={false}
+      presenceUser={{
+        userId: String(currentUser.id),
+        username: currentUser.username,
+        email: currentUser.email,
+        photo: currentUser.photo,
+      }}
+    >
+      <SidebarProvider>
+        <AppSidebar
+          variant="inset"
+          items={items}
+          workspaces={workspaces}
+          currentWorkspace={currentWorkspace}
+          onWorkspaceChange={handleWorkspaceChange}
+        />
+        <SidebarInset>
+          <SiteHeader title={documentData?.title ?? "Loading..."}>
+            <div className="flex items-center gap-2">
+              <PdfHeaderActions />
+              <ShareDialog documentId={documentId} />
+              <UserPresence />
+            </div>
+          </SiteHeader>
+          <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <PdfCollabBody />
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </PdfCollabProvider>
   );
 }
 

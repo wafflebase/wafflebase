@@ -18,7 +18,12 @@ import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
-import { PdfCollab } from "@/app/files/pdf-collab";
+import {
+  PdfCollabProvider,
+  PdfHeaderActions,
+  PdfCollabBody,
+  type PdfPresenceUser,
+} from "@/app/files/pdf-collab";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
@@ -549,6 +554,59 @@ function SharedMobileSlidesLayout({
   );
 }
 
+/**
+ * Shared PDF layout — mounts its own public-key YorkieProvider (anonymous
+ * viewers) + the `pdf-<id>` DocumentProvider, and lays out a bare top bar
+ * with the comment/presence controls, mirroring `SharedDocsLayout`. The PDF
+ * bytes are fetched with the share token; comments + presence flow through
+ * Yorkie.
+ */
+function SharedPdfLayout({
+  resolved,
+  token,
+  presenceUser,
+}: {
+  resolved: ResolvedShareLink;
+  token?: string;
+  presenceUser: PdfPresenceUser;
+}) {
+  const readOnly = resolved.role === "viewer";
+  return (
+    <YorkieProvider
+      rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
+      apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
+      metadata={{ userID: presenceUser.username }}
+    >
+      <PdfCollabProvider
+        documentId={resolved.documentId}
+        readOnly={readOnly}
+        token={token}
+        presenceUser={presenceUser}
+      >
+        <div className="flex h-screen w-full flex-col">
+          <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-medium">{resolved.title}</h1>
+              {readOnly && (
+                <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  View only
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <PdfHeaderActions />
+              <UserPresence />
+            </div>
+          </header>
+          <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <PdfCollabBody />
+          </div>
+        </div>
+      </PdfCollabProvider>
+    </YorkieProvider>
+  );
+}
+
 function SharedDocumentInner({
   resolved,
   token,
@@ -562,15 +620,13 @@ function SharedDocumentInner({
     retry: false,
   });
 
-  // PdfCollab mounts its own YorkieProvider/DocumentProvider, so it must
-  // render before the shared provider wrapper below rather than nested
-  // inside it (nesting would create two competing Yorkie connections).
+  // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, so it must
+  // render before the shared provider wrapper below rather than nested inside
+  // it (nesting would create two competing Yorkie connections).
   if (resolved.type === "pdf") {
     return (
-      <PdfCollab
-        documentId={resolved.documentId}
-        title={resolved.title}
-        readOnly={resolved.role === "viewer"}
+      <SharedPdfLayout
+        resolved={resolved}
         token={token}
         presenceUser={{
           userId: String(currentUser?.id ?? ""),
