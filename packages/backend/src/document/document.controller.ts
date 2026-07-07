@@ -10,7 +10,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { DocumentService } from './document.service';
+import { DocumentService, DocumentWithAuthor } from './document.service';
 import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
@@ -26,8 +26,11 @@ import {
 } from '../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
 
-type DocumentListItem = DocumentModel & {
+type DocumentListItem = DocumentWithAuthor & {
   editors?: PresenceUser[];
+  // Last-modified time (ISO). Read from Yorkie's `updated_at`, falling back
+  // to the Postgres `createdAt` when Yorkie has no record of the document.
+  updatedAt: string;
 };
 
 @Controller()
@@ -39,15 +42,20 @@ export class DocumentController {
     private readonly yorkieAdminService: YorkieAdminService,
   ) {}
 
-  private async attachEditors(
-    docs: DocumentModel[],
+  private async attachMeta(
+    docs: DocumentWithAuthor[],
   ): Promise<DocumentListItem[]> {
     if (docs.length === 0) return [];
     const keys = docs.map((d) => yorkieDocKey(d.type, d.id));
-    const editorsByKey = await this.yorkieAdminService.getEditors(keys);
+    const summaries = await this.yorkieAdminService.getSummaries(keys);
     return docs.map((d, i) => {
-      const editors = editorsByKey.get(keys[i]);
-      return editors ? { ...d, editors } : d;
+      const summary = summaries.get(keys[i]);
+      const item: DocumentListItem = {
+        ...d,
+        updatedAt: summary?.updatedAt ?? d.createdAt.toISOString(),
+      };
+      if (summary?.editors.length) item.editors = summary.editors;
+      return item;
     });
   }
 
@@ -80,11 +88,11 @@ export class DocumentController {
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
-    const docs = await this.documentService.documents({
+    const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
     });
-    return this.attachEditors(docs);
+    return this.attachMeta(docs);
   }
 
   // --- Legacy / backward-compatible endpoints ---
@@ -112,11 +120,11 @@ export class DocumentController {
     const userId = Number(req.user.id);
     const workspaces = await this.workspaceService.findAllByUser(userId);
     const workspaceIds = workspaces.map((w) => w.id);
-    const docs = await this.documentService.documents({
+    const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId: { in: workspaceIds } },
       orderBy: { createdAt: 'desc' },
     });
-    return this.attachEditors(docs);
+    return this.attachMeta(docs);
   }
 
   @Post('documents')

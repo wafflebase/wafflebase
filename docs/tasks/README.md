@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| documents list sort search (2026-07-07) | [20260707-documents-list-sort-search-todo.md](./active/20260707-documents-list-sort-search-todo.md) | [20260707-documents-list-sort-search-lessons.md](./active/20260707-documents-list-sort-search-lessons.md) |
 | release v0.4.9 (2026-07-05) | [20260705-release-v0.4.9-todo.md](./active/20260705-release-v0.4.9-todo.md) | - |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
 | sheets bigquery connector (2026-06-25) | [20260625-sheets-bigquery-connector-todo.md](./active/20260625-sheets-bigquery-connector-todo.md) | - |
@@ -32,4 +33,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 342
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.4.9 (2026-07-05)
+Latest active task: documents list sort search (2026-07-07)

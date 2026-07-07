@@ -1,7 +1,8 @@
-import { FormEvent, MouseEvent, useState } from "react";
+import { FormEvent, MouseEvent, ReactNode, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Column,
   ColumnDef,
   ColumnFiltersState,
   SortingState,
@@ -16,6 +17,9 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
   FileDown,
   FileText,
   FolderOutput,
@@ -27,6 +31,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -59,9 +64,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type { Document, DocumentType } from "@/types/documents";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
+import {
+  compareDates,
+  lastModified,
+  matchesSearch,
+  matchesTypes,
+} from "./document-list-utils";
 import {
   createDocument,
   deleteDocument,
@@ -92,6 +108,88 @@ function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   }
 }
 
+/** Document types offered as filter chips, with their list-row icons. */
+const TYPE_OPTIONS: ReadonlyArray<{
+  type: DocumentType;
+  label: string;
+  Icon: typeof Sheet;
+  color: string;
+}> = [
+  { type: "sheet", label: "Sheets", Icon: Sheet, color: "text-green-600" },
+  { type: "doc", label: "Docs", Icon: FileText, color: "text-blue-500" },
+  {
+    type: "slides",
+    label: "Slides",
+    Icon: Presentation,
+    color: "text-orange-500",
+  },
+];
+
+/**
+ * Clickable column header that toggles this column's sort and shows the
+ * active direction. Reused across the sortable columns.
+ */
+function SortableHeader<TData>({
+  column,
+  children,
+  align = "left",
+}: {
+  column: Column<TData, unknown>;
+  children: ReactNode;
+  align?: "left" | "right";
+}) {
+  const sorted = column.getIsSorted();
+  return (
+    <div className={align === "right" ? "text-right" : ""}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={`h-8 ${align === "right" ? "-mr-3" : "-ml-3"}`}
+        onClick={column.getToggleSortingHandler()}
+      >
+        {children}
+        {sorted === "asc" ? (
+          <ArrowUp className="ml-1 h-3.5 w-3.5" />
+        ) : sorted === "desc" ? (
+          <ArrowDown className="ml-1 h-3.5 w-3.5" />
+        ) : (
+          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 opacity-40" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A right-aligned, time-based sortable column rendering a relative timestamp
+ * (e.g. "3 days ago"). Shared by the Created and Modified columns.
+ */
+function dateColumn(
+  id: string,
+  label: string,
+  accessor: (doc: Document) => string,
+): ColumnDef<Document> {
+  return {
+    id,
+    accessorFn: accessor,
+    header: ({ column }) => (
+      <SortableHeader column={column} align="right">
+        {label}
+      </SortableHeader>
+    ),
+    sortingFn: (a, b, colId) =>
+      compareDates(a.getValue<string>(colId), b.getValue<string>(colId)),
+    cell: ({ row }) => (
+      <div className="text-right font-medium">
+        {formatDistanceToNow(new Date(row.getValue<string>(id)), {
+          includeSeconds: true,
+          addSuffix: true,
+        })}
+      </div>
+    ),
+  };
+}
+
 /**
  * Renders the DocumentList component.
  */
@@ -112,16 +210,11 @@ export function DocumentList({
     },
     {
       accessorKey: "title",
-      header: "Title",
-      filterFn: (row, columnId, filterValue) => {
-        const cellValue = String(row.getValue(columnId) ?? "")
-          .normalize("NFC")
-          .toLowerCase();
-        const search = String(filterValue ?? "")
-          .normalize("NFC")
-          .toLowerCase();
-        return cellValue.includes(search);
-      },
+      header: ({ column }) => (
+        <SortableHeader column={column}>Title</SortableHeader>
+      ),
+      filterFn: (row, _columnId, filterValue) =>
+        matchesSearch(row.original, String(filterValue ?? "")),
       cell: ({ row }) => {
         const docType = row.original.type;
         return (
@@ -134,32 +227,44 @@ export function DocumentList({
               <Sheet className="h-4 w-4 shrink-0 text-green-600" />
             )}
             <span className="capitalize">{row.getValue("title")}</span>
+            {/* Live "currently editing" avatars sit next to the title rather
+                than in their own column. Presentational only — Title still
+                sorts by its own value. */}
+            <DocumentPresenceAvatars editors={row.original.editors} />
           </div>
         );
       },
     },
     {
-      id: "editors",
-      header: () => <div className="text-left">Editing</div>,
-      cell: ({ row }) => (
-        <div className="flex items-center">
-          <DocumentPresenceAvatars editors={row.original.editors} />
-        </div>
+      id: "owner",
+      accessorFn: (doc) => doc.author?.username ?? "",
+      header: ({ column }) => (
+        <SortableHeader column={column}>Owner</SortableHeader>
       ),
-      enableSorting: false,
-    },
-    {
-      accessorKey: "createdAt",
-      header: () => <div className="text-right">Created At</div>,
       cell: ({ row }) => {
-        const createdAt = row.getValue<string>("createdAt");
-        const formatted = formatDistanceToNow(new Date(createdAt), {
-          includeSeconds: true,
-          addSuffix: true,
-        });
-        return <div className="text-right font-medium">{formatted}</div>;
+        const author = row.original.author;
+        if (!author) {
+          return <span className="text-muted-foreground">—</span>;
+        }
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Avatar className="h-6 w-6">
+                {author.photo && (
+                  <AvatarImage src={author.photo} alt={author.username} />
+                )}
+                <AvatarFallback className="text-[10px]">
+                  {author.username.slice(0, 2).toUpperCase() || "??"}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent>{author.username}</TooltipContent>
+          </Tooltip>
+        );
       },
     },
+    dateColumn("updatedAt", "Modified", (doc) => lastModified(doc)),
+    dateColumn("createdAt", "Created", (doc) => doc.createdAt),
     {
       id: "actions",
       enableHiding: false,
@@ -421,15 +526,35 @@ export function DocumentList({
     },
   });
 
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Default to most-recently-modified first (Google-Drive-style).
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "updatedAt", desc: true },
+  ]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     id: false,
   });
   const [rowSelection, setRowSelection] = useState({});
+  const [typeFilters, setTypeFilters] = useState<Set<DocumentType>>(new Set());
+
+  const toggleType = (type: DocumentType) => {
+    setTypeFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
+  // Type-chip filtering happens before the table so it composes cleanly with
+  // the text search and column sorting the table already owns.
+  const filteredData = useMemo(
+    () => data.filter((doc) => matchesTypes(doc, typeFilters)),
+    [data, typeFilters],
+  );
 
   const table = useReactTable({
-    data,
+    data: filteredData,
     columns,
     // Stabilize row identity across the presence-driven 5 s poll so React
     // reconciles rows by document id instead of array index — keeps any
@@ -453,19 +578,39 @@ export function DocumentList({
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between py-4">
+      <div className="flex flex-wrap items-center gap-2 py-4">
         <Input
-          placeholder="Filter by title..."
-          aria-label="Filter documents by title"
+          placeholder="Search by title..."
+          aria-label="Search documents by title"
           value={(table.getColumn("title")?.getFilterValue() as string) ?? ""}
           onChange={(e) =>
             table.getColumn("title")?.setFilterValue(e.target.value)
           }
-          className="max-w-sm"
+          className="w-full max-w-xs"
         />
+        <div className="flex items-center gap-1">
+          {TYPE_OPTIONS.map(({ type, label, Icon, color }) => {
+            const active = typeFilters.has(type);
+            return (
+              <Button
+                key={type}
+                type="button"
+                variant={active ? "secondary" : "outline"}
+                size="icon"
+                aria-pressed={active}
+                aria-label={`Filter by ${label}`}
+                title={label}
+                onClick={() => toggleType(type)}
+                className={active ? undefined : "text-muted-foreground"}
+              >
+                <Icon className={`h-4 w-4 ${color}`} />
+              </Button>
+            );
+          })}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button className="flex items-center gap-2">
+            <Button className="ml-auto flex items-center gap-2">
               <Plus className="w-4 h-4" />
               New
             </Button>
