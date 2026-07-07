@@ -28,10 +28,14 @@ beforeEach(() => {
 });
 
 describe("PdfViewer", () => {
-  it("renders a canvas per page after loading", async () => {
+  it("renders a fit-to-width canvas per page after loading", async () => {
     const { container } = render(<PdfViewer fileUrl="/documents/d1/file" />);
     await waitFor(() =>
       expect(container.querySelectorAll("canvas").length).toBe(2),
     );
+    // The fit-to-width path sets an explicit CSS width per page (rather than
+    // leaving it at the intrinsic bitmap size).
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+    expect(canvas.style.width).not.toBe("");
   });
 });
