@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
 import * as request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
@@ -58,6 +59,24 @@ describeDb('GET /documents/:id/file (member OR share token)', () => {
       withDocument: () => Promise.resolve(null),
     };
 
+    // In-memory FileService stub. This suite verifies the access gate (member
+    // OR valid share token) on the serving endpoint, not S3 plumbing — and CI
+    // integration runs Postgres + Yorkie but no MinIO/S3. Stubbing keeps every
+    // permission assertion real without a blob backend. `upload` returns a
+    // `VALID_FILE_ID_PATTERN`-shaped id; `getObject` streams fixed PDF bytes.
+    const fileStub = {
+      onModuleInit: () => Promise.resolve(),
+      onModuleDestroy: () => Promise.resolve(),
+      upload: (): Promise<{ id: string }> =>
+        Promise.resolve({ id: `${randomUUID()}.pdf` }),
+      getObject: (): Promise<{ body: Uint8Array; contentType: string }> =>
+        Promise.resolve({
+          body: new Uint8Array(PDF_BYTES),
+          contentType: 'application/pdf',
+        }),
+      delete: () => Promise.resolve(),
+    };
+
     moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -68,6 +87,8 @@ describeDb('GET /documents/:id/file (member OR share token)', () => {
         getEditors: async () => new Map(),
         getSummaries: async () => new Map(),
       })
+      .overrideProvider(FileService)
+      .useValue(fileStub)
       .compile();
 
     app = moduleRef.createNestApplication();
