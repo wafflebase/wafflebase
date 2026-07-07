@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
 import { DocumentController } from './document.controller';
+import { DocumentFileController } from './document-file.controller';
 import { DocumentService } from './document.service';
 import { UserService } from 'src/user/user.service';
 import { PrismaService } from 'src/database/prisma.service';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { FileModule } from '../file/file.module';
+import { ShareLinkModule } from '../share-link/share-link.module';
 
 @Module({
-  imports: [WorkspaceModule, FileModule],
-  controllers: [DocumentController],
+  imports: [WorkspaceModule, FileModule, ShareLinkModule],
+  controllers: [DocumentController, DocumentFileController],
   providers: [DocumentService, UserService, PrismaService],
 })
 export class DocumentModule {}
