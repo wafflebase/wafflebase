@@ -17,6 +17,7 @@ export async function uploadPdf(file: File): Promise<{ id: string }> {
 }
 
 /** Document-scoped, permission-gated URL that streams the stored PDF. */
-export function pdfFileUrl(documentId: string): string {
-  return `${BACKEND_BASE}/documents/${documentId}/file`;
+export function pdfFileUrl(documentId: string, token?: string): string {
+  const base = `${BACKEND_BASE}/documents/${documentId}/file`;
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
