@@ -79,3 +79,11 @@ export type SlidesPresence = {
     c1: number;
   };
 };
+
+export type PdfPresence = {
+  username: string;
+  email: string;
+  photo: string;
+  /** 0-based index of the page the user is currently viewing. */
+  activePage?: number;
+};
