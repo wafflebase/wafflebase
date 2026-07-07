@@ -58,7 +58,15 @@ async function fetchPdf(
  * pages are rasterized lazily as they scroll into view and re-sharpened in the
  * background when their display width grows.
  */
-export function PdfViewer({ fileUrl }: { fileUrl: string }) {
+export function PdfViewer({
+  fileUrl,
+  renderPageOverlay,
+  onActivePageChange,
+}: {
+  fileUrl: string;
+  renderPageOverlay?: (pageIndex: number) => React.ReactNode;
+  onActivePageChange?: (pageIndex: number) => void;
+}) {
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   // The getDocument() loading task owns teardown (destroy) — the resolved
   // document proxy does not expose it in every pdf.js version.
@@ -143,6 +151,8 @@ export function PdfViewer({ fileUrl }: { fileUrl: string }) {
             pdfRef={pdfRef}
             pageNumber={i + 1}
             dim={dim}
+            overlay={renderPageOverlay?.(i)}
+            onActive={onActivePageChange ? () => onActivePageChange(i) : undefined}
           />
         ))}
       </div>
@@ -175,10 +185,14 @@ function PdfPageView({
   pdfRef,
   pageNumber,
   dim,
+  overlay,
+  onActive,
 }: {
   pdfRef: React.RefObject<PDFDocumentProxy | null>;
   pageNumber: number;
   dim: PageDim;
+  overlay?: React.ReactNode;
+  onActive?: () => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -188,6 +202,10 @@ function PdfPageView({
   // forbids two concurrent render() calls on one canvas.
   const renderTaskRef = useRef<RenderTaskLike | null>(null);
   const [visible, setVisible] = useState(false);
+  // Read via ref (not an effect dep) so a parent that passes a fresh inline
+  // callback each render doesn't tear down and recreate the observer.
+  const onActiveRef = useRef(onActive);
+  onActiveRef.current = onActive;
 
   // Rasterize this page at its current display width × device pixel ratio.
   const raster = useCallback(async () => {
@@ -246,7 +264,10 @@ function PdfPageView({
     }
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setVisible(true);
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          onActiveRef.current?.();
+        }
       },
       { rootMargin: PREFETCH_MARGIN },
     );
@@ -279,10 +300,11 @@ function PdfPageView({
   return (
     <div
       ref={wrapRef}
-      className="my-4 w-full self-center bg-white shadow"
+      className="relative my-4 w-full self-center bg-white shadow"
       style={{ aspectRatio: `${dim.width} / ${dim.height}` }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
+      {overlay}
     </div>
   );
 }
