@@ -26,7 +26,7 @@ extension points Phase 2 needs.
 - Upload a PDF from the documents list "New" menu and have it appear as a
   first-class document (title, type filter, last-modified, owner).
 - View the PDF in a dedicated route (`/f/:id`) rendered with pdf.js —
-  scroll through pages, zoom, download.
+  scroll through pages (Phase 1 MVP; zoom/download are follow-up polish).
 - Store the original file in the existing S3/MinIO blob layer; store only
   a reference on the `Document` row.
 - Serve the file **gated by the owning document's read policy** — a PDF
@@ -124,15 +124,19 @@ Failure ordering: if `createDocument` fails after upload, the blob is
 orphaned — same exposure as embedded images today. Acceptable for Phase 1;
 an orphan-sweep job is a follow-up.
 
-### Viewer — `/f/:id` → `PdfDetail`
+### Viewer — `/f/:id` → `FileDetail`
 
 - New route in `packages/frontend/src/App.tsx` (`/f/:id`), sibling to
-  `DocsDetail` / `SlidesDetail`.
-- `PdfDetail` fetches document metadata, then loads the file via the
-  document-scoped serving endpoint and renders pages to canvas using
+  `DocsDetail` / `SlidesDetail`. The component lives in
+  `packages/frontend/src/app/files/file-detail.tsx` (read-only shell) with
+  the renderer in `pdf-viewer.tsx`.
+- `FileDetail` auth-gates, fetches document metadata, then mounts
+  `PdfViewer`, which loads the file via the document-scoped serving
+  endpoint and renders pages to canvas using
   **pdf.js (`pdfjs-dist`), dynamically imported**.
-- UX: vertical scroll of rendered pages, zoom control, page indicator,
-  download button.
+- UX (Phase 1 MVP): vertical scroll of rendered pages at a fixed scale,
+  error state on load failure. Zoom control, page indicator, download
+  button, and a loading indicator are follow-up polish (not in the MVP).
 - **Bundle**: `pdfjs-dist` is large (hundreds of KB) and its worker is a
   separate chunk. It MUST be lazy-imported inside the viewer route (and
   the worker configured via `import.meta.url`) so it never enters the main
