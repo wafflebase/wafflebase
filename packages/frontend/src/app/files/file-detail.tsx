@@ -134,8 +134,10 @@ function FileLayout({
 
 /**
  * FileDetail is the collaborative PDF route. Auth-gates on the current
- * user, then mounts the app shell + `PdfCollab` (its own Yorkie providers,
- * comments, and presence). The PDF bytes stay static, served
+ * user, then mounts the app shell wrapped in `PdfCollabProvider` (comments +
+ * presence over the `pdf-<id>` Yorkie document). The ambient `YorkieProvider`
+ * comes from `PrivateRoute` — this route does not mount its own, matching the
+ * docs/slides/sheets owner routes. The PDF bytes stay static, served
  * (permission-gated) from the blob store; only comments + presence flow
  * through Yorkie.
  */

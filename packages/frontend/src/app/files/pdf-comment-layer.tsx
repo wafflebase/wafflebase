@@ -1,8 +1,12 @@
-import { useRef } from 'react';
+import { Fragment, useRef } from 'react';
 import { IconMessage } from '@tabler/icons-react';
 
 import type { PdfRect, PdfRegionAnchor, Thread } from '@/types/comments.ts';
 import { normalizeDragRect, rectToStyle } from './comments/rect.ts';
+
+// A single click (no drag) drops a default marker of this pixel size at the
+// click point, so commenting a spot doesn't require dragging a box.
+const DEFAULT_MARK_PX = 24;
 
 type Props = {
   pageIndex: number;
@@ -13,10 +17,14 @@ type Props = {
   activeThreadId: string | null;
 };
 
+const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+
 /**
- * Overlay for one PDF page (parent must be `position: relative`). Draws a
- * pin per unresolved thread anchored to this page, and — while `creating` —
- * a transparent surface that converts a drag into a normalized region.
+ * Overlay for one PDF page (parent must be `position: relative`). For each
+ * unresolved thread anchored to this page it draws a faint region highlight
+ * plus a compact pin at the region's top-left corner. While `creating`, a
+ * transparent surface turns a drag into a normalized region — or a plain
+ * click into a small default-sized marker at the click point.
  */
 export function PdfCommentLayer({
   pageIndex,
@@ -38,20 +46,39 @@ export function PdfCommentLayer({
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      {pageThreads.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          aria-label={`Comment by ${t.comments[0]?.author.username ?? 'unknown'}`}
-          onClick={() => onSelectThread(t.id)}
-          className={`pointer-events-auto absolute flex items-center justify-center rounded border-2 bg-yellow-200/30 ${
-            t.id === activeThreadId ? 'border-yellow-500' : 'border-yellow-400'
-          }`}
-          style={rectToStyle(t.anchor.rect)}
-        >
-          <IconMessage size={14} className="text-yellow-700" />
-        </button>
-      ))}
+      {pageThreads.map((t) => {
+        const active = t.id === activeThreadId;
+        return (
+          <Fragment key={t.id}>
+            {/* Faint highlight of the commented region. */}
+            <div
+              className={`absolute rounded-sm border bg-yellow-200/20 ${
+                active ? 'border-yellow-500' : 'border-yellow-400/60'
+              }`}
+              style={rectToStyle(t.anchor.rect)}
+            />
+            {/* Compact clickable pin at the region's top-left corner. */}
+            <button
+              type="button"
+              aria-label={`Comment by ${
+                t.comments[0]?.author.username ?? 'unknown'
+              }`}
+              onClick={() => onSelectThread(t.id)}
+              className={`pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-yellow-300 shadow-sm hover:bg-yellow-400 ${
+                active
+                  ? 'border-yellow-600 ring-1 ring-yellow-500'
+                  : 'border-yellow-500'
+              }`}
+              style={{
+                left: `${t.anchor.rect.x * 100}%`,
+                top: `${t.anchor.rect.y * 100}%`,
+              }}
+            >
+              <IconMessage size={12} className="text-yellow-800" />
+            </button>
+          </Fragment>
+        );
+      })}
 
       {creating && (
         <div
@@ -69,8 +96,19 @@ export function PdfCommentLayer({
             if (!start) return;
             const p = localPoint(e, e.currentTarget);
             const rect = normalizeDragRect(start, { x: p.x, y: p.y }, p.w, p.h);
-            // Ignore an accidental click with no drag area.
-            if (rect.w < 0.01 || rect.h < 0.01) return;
+            // A plain click (no meaningful drag area) drops a default-sized
+            // marker at the click point instead of being ignored.
+            if (rect.w < 0.01 || rect.h < 0.01) {
+              const w = Math.min(DEFAULT_MARK_PX / p.w, 1);
+              const h = Math.min(DEFAULT_MARK_PX / p.h, 1);
+              onCreateRegion(pageIndex, {
+                x: clamp01(start.x / p.w - w / 2),
+                y: clamp01(start.y / p.h - h / 2),
+                w,
+                h,
+              });
+              return;
+            }
             onCreateRegion(pageIndex, rect);
           }}
         />

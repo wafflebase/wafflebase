@@ -77,4 +77,32 @@ describe('PdfCommentLayer', () => {
     fireEvent.pointerUp(surface, { clientX: 60, clientY: 80 });
     expect(onCreate).toHaveBeenCalledWith(0, { x: 0.1, y: 0.1, w: 0.2, h: 0.1 });
   });
+
+  it('a plain click drops a default-sized marker centered on the click', () => {
+    const onCreate = vi.fn();
+    render(
+      <PdfCommentLayer
+        pageIndex={0}
+        threads={[]}
+        creating
+        onCreateRegion={onCreate}
+        onSelectThread={vi.fn()}
+        activeThreadId={null}
+      />,
+    );
+    const surface = screen.getByTestId('pdf-region-capture');
+    surface.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 200, height: 400 }) as DOMRect;
+    // Down and up at the same point == a click, not a drag.
+    fireEvent.pointerDown(surface, { clientX: 100, clientY: 200 });
+    fireEvent.pointerUp(surface, { clientX: 100, clientY: 200 });
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    const [pageIndex, rect] = onCreate.mock.calls[0];
+    expect(pageIndex).toBe(0);
+    // Default 24px marker: 24/200 wide, 24/400 tall, centered on (100,200).
+    expect(rect.w).toBeCloseTo(0.12);
+    expect(rect.h).toBeCloseTo(0.06);
+    expect(rect.x).toBeCloseTo(0.44);
+    expect(rect.y).toBeCloseTo(0.47);
+  });
 });
