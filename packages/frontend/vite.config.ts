@@ -98,8 +98,10 @@ function pdfjsAssets(): Plugin {
         const mount = mounts.find((m) => url.startsWith(m.prefix));
         if (!mount) return next();
         const file = path.join(mount.dir, url.slice(mount.prefix.length));
-        // Contain reads to the mount directory (block `..` traversal).
-        if (!file.startsWith(mount.dir) || !existsSync(file)) {
+        // Contain reads to the mount directory (block `..` traversal). Append
+        // path.sep so a sibling dir sharing the prefix (…/cmaps_evil) can't
+        // match …/cmaps.
+        if (!file.startsWith(mount.dir + path.sep) || !existsSync(file)) {
           res.statusCode = 404;
           res.end();
           return;
