@@ -1,4 +1,10 @@
-import { cpSync, createReadStream, existsSync, readFileSync } from "fs";
+import {
+  cpSync,
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+} from "fs";
 import { createRequire } from "module";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
@@ -98,16 +104,29 @@ function pdfjsAssets(): Plugin {
         const mount = mounts.find((m) => url.startsWith(m.prefix));
         if (!mount) return next();
         const file = path.join(mount.dir, url.slice(mount.prefix.length));
-        // Contain reads to the mount directory (block `..` traversal). Append
-        // path.sep so a sibling dir sharing the prefix (…/cmaps_evil) can't
-        // match …/cmaps.
-        if (!file.startsWith(mount.dir + path.sep) || !existsSync(file)) {
+        // Require a regular file strictly inside the mount directory. The
+        // trailing path.sep blocks `..` traversal and sibling dirs sharing the
+        // prefix (…/cmaps_evil); isFile() rejects directory reads such as the
+        // mount root itself, which would otherwise EISDIR the stream and hang
+        // the request (an unhandled stream error can also take down the dev
+        // server).
+        const stat =
+          file.startsWith(mount.dir + path.sep) && existsSync(file)
+            ? statSync(file)
+            : null;
+        if (!stat || !stat.isFile()) {
           res.statusCode = 404;
           res.end();
           return;
         }
         res.setHeader("Content-Type", "application/octet-stream");
-        createReadStream(file).pipe(res);
+        res.setHeader("Content-Length", String(stat.size));
+        const stream = createReadStream(file);
+        stream.on("error", () => {
+          res.statusCode = 500;
+          res.end();
+        });
+        stream.pipe(res);
       }) as Connect.NextHandleFunction);
     },
     writeBundle() {
