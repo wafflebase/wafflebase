@@ -17,8 +17,10 @@ Phase 1. Users upload a PDF from the documents list and open it in a
 pdf.js-based viewer route. Phase 2 layers collaboration on top by
 introducing a `pdf-<id>` Yorkie document that holds only comment threads
 and presence — never the PDF bytes — and by making the file-serving
-endpoint accept a share token so a shared PDF can be viewed and commented
-on without a workspace membership.
+endpoint accept a share token so a shared PDF can be viewed without a
+workspace membership. Viewing bytes is open to any valid share token;
+**commenting** is gated to editor-role links or workspace members
+(client-side, as with every other shared type — see Non-Goals and Slice 3).
 
 This document covers Phase 1 (view/store) in full and Phase 2
 (share + comments + presence) as an implementation spec.
@@ -165,9 +167,10 @@ Phase 2 attaches the reserved `pdf-<id>` Yorkie document for the first
 time (comment threads + presence only; PDF bytes stay in the blob),
 closes the one net-new backend gap (share-token file serving), and reuses
 the existing shared comments module and frontend presence pattern. No data
-migration: the `fileId` column and blob storage are unchanged; the Yorkie
-doc is created lazily and seeded with an empty `comments` map on first
-attach.
+migration: the `fileId` column and blob storage are unchanged. The `pdf-<id>`
+Yorkie doc is attached on first open of the viewer, with its `comments` map
+seeded empty at bootstrap via `initialRoot` (never created lazily — see the
+convergence note in Slice 2).
 
 The work splits into five slices; the order below is also the intended PR
 sequence.
