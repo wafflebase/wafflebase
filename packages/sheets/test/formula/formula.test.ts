@@ -339,6 +339,10 @@ describe('Formula', () => {
     expect(evaluate('=FACT(200)')).toBe('#NUM!');
     expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
     expect(evaluate('=1E309')).toBe('#NUM!');
+    expect(evaluate('=SUM(1E308, 1E308)')).toBe('#NUM!');
+    expect(evaluate('=MULTIPLY(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=ADD(1.5E308, 1.5E308)')).toBe('#NUM!');
+    expect(evaluate('=1 * "1E999"')).toBe('#NUM!');
   });
 
   it('should correctly evaluate POWER function', () => {

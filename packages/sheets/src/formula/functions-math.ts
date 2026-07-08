@@ -34,10 +34,7 @@ export function sumFunc(
     value += node.v;
   }
 
-  return {
-    t: 'num',
-    v: value,
-  };
+  return numNode(value);
 }
 
 /**
@@ -56,7 +53,7 @@ export function absFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.abs(num.v) };
+  return numNode(Math.abs(num.v));
 }
 
 /**
@@ -82,7 +79,7 @@ export function roundFunc(
 
   const factor = 10 ** places.v;
   const rounded = roundHalfAwayFromZero(value.v * factor) / factor;
-  return { t: 'num', v: rounded };
+  return numNode(rounded);
 }
 
 /**
@@ -109,7 +106,7 @@ export function roundUpFunc(
   const factor = 10 ** places.v;
   const scaled = value.v * factor;
   const rounded = (scaled >= 0 ? Math.ceil(scaled) : Math.floor(scaled)) / factor;
-  return { t: 'num', v: rounded };
+  return numNode(rounded);
 }
 
 /**
@@ -136,7 +133,7 @@ export function roundDownFunc(
   const factor = 10 ** places.v;
   const scaled = value.v * factor;
   const rounded = (scaled >= 0 ? Math.floor(scaled) : Math.ceil(scaled)) / factor;
-  return { t: 'num', v: rounded };
+  return numNode(rounded);
 }
 
 /**
@@ -155,7 +152,7 @@ export function intFunc(
     return value;
   }
 
-  return { t: 'num', v: Math.floor(value.v) };
+  return numNode(Math.floor(value.v));
 }
 
 /**
@@ -183,7 +180,7 @@ export function modFunc(
   }
 
   const remainder = dividend.v - divisor.v * Math.floor(dividend.v / divisor.v);
-  return { t: 'num', v: remainder };
+  return numNode(remainder);
 }
 
 /**
@@ -205,7 +202,7 @@ export function sqrtFunc(
     return ErrNode.NUM;
   }
 
-  return { t: 'num', v: Math.sqrt(value.v) };
+  return numNode(Math.sqrt(value.v));
 }
 
 /**
@@ -234,7 +231,7 @@ export function powerFunc(
     return ErrNode.NUM;
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -265,7 +262,7 @@ export function piFunc(
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  return { t: 'num', v: Math.PI };
+  return numNode(Math.PI);
 }
 
 /**
@@ -283,7 +280,7 @@ export function signFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.sign(num.v) };
+  return numNode(Math.sign(num.v));
 }
 
 /**
@@ -303,12 +300,12 @@ export function evenFunc(
 
   const v = num.v;
   if (v === 0) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
   const rounded = v > 0 ? Math.ceil(v) : Math.floor(v);
   const result = rounded % 2 === 0 ? rounded : (v > 0 ? rounded + 1 : rounded - 1);
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -328,13 +325,13 @@ export function oddFunc(
 
   const v = num.v;
   if (v === 0) {
-    return { t: 'num', v: 1 };
+    return numNode(1);
   }
 
   const rounded = v > 0 ? Math.ceil(v) : Math.floor(v);
   const absRounded = Math.abs(rounded);
   const result = absRounded % 2 === 1 ? rounded : (v > 0 ? rounded + 1 : rounded - 1);
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -373,7 +370,7 @@ export function lnFunc(
     return ErrNode.NUM;
   }
 
-  return { t: 'num', v: Math.log(num.v) };
+  return numNode(Math.log(num.v));
 }
 
 /**
@@ -409,7 +406,7 @@ export function logFunc(
     base = baseNode.v;
   }
 
-  return { t: 'num', v: Math.log(num.v) / Math.log(base) };
+  return numNode(Math.log(num.v) / Math.log(base));
 }
 
 /**
@@ -427,7 +424,7 @@ export function sinFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.sin(num.v) };
+  return numNode(Math.sin(num.v));
 }
 
 /**
@@ -445,7 +442,7 @@ export function cosFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.cos(num.v) };
+  return numNode(Math.cos(num.v));
 }
 
 /**
@@ -463,7 +460,7 @@ export function tanFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.tan(num.v) };
+  return numNode(Math.tan(num.v));
 }
 
 /**
@@ -484,7 +481,7 @@ export function asinFunc(
     return ErrNode.NUM;
   }
 
-  return { t: 'num', v: Math.asin(num.v) };
+  return numNode(Math.asin(num.v));
 }
 
 /**
@@ -505,7 +502,7 @@ export function acosFunc(
     return ErrNode.NUM;
   }
 
-  return { t: 'num', v: Math.acos(num.v) };
+  return numNode(Math.acos(num.v));
 }
 
 /**
@@ -523,7 +520,7 @@ export function atanFunc(
     return num;
   }
 
-  return { t: 'num', v: Math.atan(num.v) };
+  return numNode(Math.atan(num.v));
 }
 
 /**
@@ -550,7 +547,7 @@ export function atan2Func(
     return ErrNode.DIV0;
   }
 
-  return { t: 'num', v: Math.atan2(y.v, x.v) };
+  return numNode(Math.atan2(y.v, x.v));
 }
 
 /**
@@ -568,7 +565,7 @@ export function degreesFunc(
     return num;
   }
 
-  return { t: 'num', v: (num.v * 180) / Math.PI };
+  return numNode((num.v * 180) / Math.PI);
 }
 
 /**
@@ -586,7 +583,7 @@ export function radiansFunc(
     return num;
   }
 
-  return { t: 'num', v: (num.v * Math.PI) / 180 };
+  return numNode((num.v * Math.PI) / 180);
 }
 
 /**
@@ -614,14 +611,14 @@ export function ceilingFunc(
   }
 
   if (significance === 0) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
   if (num.v > 0 && significance < 0) {
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+  return numNode(Math.ceil(num.v / significance) * significance);
 }
 
 /**
@@ -649,14 +646,14 @@ export function floorFunc(
   }
 
   if (significance === 0) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
   if (num.v > 0 && significance < 0) {
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+  return numNode(Math.floor(num.v / significance) * significance);
 }
 
 /**
@@ -684,7 +681,7 @@ export function truncFunc(
   }
 
   const factor = Math.pow(10, places);
-  return { t: 'num', v: Math.trunc(num.v * factor) / factor };
+  return numNode(Math.trunc(num.v * factor) / factor);
 }
 
 /**
@@ -708,14 +705,14 @@ export function mroundFunc(
   }
 
   if (multiple.v === 0) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
   if ((num.v > 0 && multiple.v < 0) || (num.v < 0 && multiple.v > 0)) {
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: Math.round(num.v / multiple.v) * multiple.v };
+  return numNode(Math.round(num.v / multiple.v) * multiple.v);
 }
 
 /**
@@ -738,7 +735,7 @@ export function ceilingmathFunc(
     if (sigNode.t === 'err') return sigNode;
     significance = sigNode.v;
   }
-  if (significance === 0) return { t: 'num', v: 0 };
+  if (significance === 0) return numNode(0);
 
   let mode = 0;
   if (exprs.length === 3) {
@@ -750,9 +747,9 @@ export function ceilingmathFunc(
   significance = Math.abs(significance);
   if (num.v < 0 && mode !== 0) {
     // Round away from zero (more negative)
-    return { t: 'num', v: -Math.ceil(Math.abs(num.v) / significance) * significance };
+    return numNode(-Math.ceil(Math.abs(num.v) / significance) * significance);
   }
-  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+  return numNode(Math.ceil(num.v / significance) * significance);
 }
 
 /**
@@ -775,7 +772,7 @@ export function floormathFunc(
     if (sigNode.t === 'err') return sigNode;
     significance = sigNode.v;
   }
-  if (significance === 0) return { t: 'num', v: 0 };
+  if (significance === 0) return numNode(0);
 
   let mode = 0;
   if (exprs.length === 3) {
@@ -787,9 +784,9 @@ export function floormathFunc(
   significance = Math.abs(significance);
   if (num.v < 0 && mode !== 0) {
     // Round toward zero (less negative)
-    return { t: 'num', v: -Math.floor(Math.abs(num.v) / significance) * significance };
+    return numNode(-Math.floor(Math.abs(num.v) / significance) * significance);
   }
-  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+  return numNode(Math.floor(num.v / significance) * significance);
 }
 
 /**
@@ -811,9 +808,9 @@ export function ceilingpreciseFunc(
     if (sigNode.t === 'err') return sigNode;
     significance = Math.abs(sigNode.v);
   }
-  if (significance === 0) return { t: 'num', v: 0 };
+  if (significance === 0) return numNode(0);
 
-  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+  return numNode(Math.ceil(num.v / significance) * significance);
 }
 
 /**
@@ -835,9 +832,9 @@ export function floorpreciseFunc(
     if (sigNode.t === 'err') return sigNode;
     significance = Math.abs(sigNode.v);
   }
-  if (significance === 0) return { t: 'num', v: 0 };
+  if (significance === 0) return numNode(0);
 
-  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+  return numNode(Math.floor(num.v / significance) * significance);
 }
 
 /**
@@ -860,9 +857,9 @@ export function isoceilingFunc(
     if (s.t === 'err') return s;
     sig = Math.abs(s.v);
   }
-  if (sig === 0) return { t: 'num', v: 0 };
+  if (sig === 0) return numNode(0);
 
-  return { t: 'num', v: Math.ceil(n.v / sig) * sig };
+  return numNode(Math.ceil(n.v / sig) * sig);
 }
 
 /**
@@ -885,7 +882,7 @@ export function gcdFunc(
     result = gcdTwo(result, val);
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -907,7 +904,7 @@ export function lcmFunc(
       return ErrNode.VALUE;
     }
     if (val === 0) {
-      return { t: 'num', v: 0 };
+      return numNode(0);
     }
     result = (result / gcdTwo(result, val)) * val;
     hasValue = true;
@@ -917,7 +914,7 @@ export function lcmFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -951,7 +948,7 @@ export function combinFunc(
     result = (result * (n - i)) / (i + 1);
   }
 
-  return { t: 'num', v: Math.round(result) };
+  return numNode(Math.round(result));
 }
 
 /**
@@ -971,13 +968,13 @@ export function combinaFunc(
   const ni = Math.trunc(n.v);
   const ki = Math.trunc(k.v);
   if (ni < 0 || ki < 0) return ErrNode.NUM;
-  if (ki === 0) return { t: 'num', v: 1 };
+  if (ki === 0) return numNode(1);
   // C(ni+ki-1, ki)
   let result = 1;
   for (let i = 0; i < ki; i++) {
     result = result * (ni + ki - 1 - i) / (i + 1);
   }
-  return { t: 'num', v: Math.round(result) };
+  return numNode(Math.round(result));
 }
 
 /**
@@ -1021,12 +1018,12 @@ export function factdoubleFunc(
   if (num.t === 'err') return num;
   const n = Math.trunc(num.v);
   if (n < -1) return ErrNode.NUM;
-  if (n <= 0) return { t: 'num', v: 1 };
+  if (n <= 0) return numNode(1);
   let result = 1;
   for (let i = n; i > 0; i -= 2) {
     result *= i;
   }
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -1053,7 +1050,7 @@ export function quotientFunc(
     return ErrNode.DIV0;
   }
 
-  return { t: 'num', v: Math.trunc(numerator.v / denominator.v) };
+  return numNode(Math.trunc(numerator.v / denominator.v));
 }
 
 /**
@@ -1105,7 +1102,7 @@ export function decimalFunc(
   }
   const num = parseInt(raw, b);
   if (isNaN(num)) return ErrNode.NUM;
-  return { t: 'num', v: num };
+  return numNode(num);
 }
 
 /**
@@ -1120,7 +1117,7 @@ export function sqrtpiFunc(
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   if (num.v < 0) return ErrNode.NUM;
-  return { t: 'num', v: Math.sqrt(num.v * Math.PI) };
+  return numNode(Math.sqrt(num.v * Math.PI));
 }
 
 /**
@@ -1134,7 +1131,7 @@ export function sinhFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  return { t: 'num', v: Math.sinh(num.v) };
+  return numNode(Math.sinh(num.v));
 }
 
 /**
@@ -1148,7 +1145,7 @@ export function coshFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  return { t: 'num', v: Math.cosh(num.v) };
+  return numNode(Math.cosh(num.v));
 }
 
 /**
@@ -1162,7 +1159,7 @@ export function tanhFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  return { t: 'num', v: Math.tanh(num.v) };
+  return numNode(Math.tanh(num.v));
 }
 
 /**
@@ -1176,7 +1173,7 @@ export function asinhFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  return { t: 'num', v: Math.asinh(num.v) };
+  return numNode(Math.asinh(num.v));
 }
 
 /**
@@ -1191,7 +1188,7 @@ export function acoshFunc(
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   if (num.v < 1) return ErrNode.NUM;
-  return { t: 'num', v: Math.acosh(num.v) };
+  return numNode(Math.acosh(num.v));
 }
 
 /**
@@ -1206,7 +1203,7 @@ export function atanhFunc(
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   if (num.v <= -1 || num.v >= 1) return ErrNode.NUM;
-  return { t: 'num', v: Math.atanh(num.v) };
+  return numNode(Math.atanh(num.v));
 }
 
 /**
@@ -1222,7 +1219,7 @@ export function cotFunc(
   if (num.t === 'err') return num;
   const tan = Math.tan(num.v);
   if (tan === 0) return ErrNode.DIV0;
-  return { t: 'num', v: 1 / tan };
+  return numNode(1 / tan);
 }
 
 /**
@@ -1238,7 +1235,7 @@ export function cscFunc(
   if (num.t === 'err') return num;
   const sin = Math.sin(num.v);
   if (sin === 0) return ErrNode.DIV0;
-  return { t: 'num', v: 1 / sin };
+  return numNode(1 / sin);
 }
 
 /**
@@ -1254,7 +1251,7 @@ export function secFunc(
   if (num.t === 'err') return num;
   const cos = Math.cos(num.v);
   if (cos === 0) return ErrNode.DIV0;
-  return { t: 'num', v: 1 / cos };
+  return numNode(1 / cos);
 }
 
 /**
@@ -1268,7 +1265,7 @@ export function sechFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: 1 / Math.cosh(n.v) };
+  return numNode(1 / Math.cosh(n.v));
 }
 
 /**
@@ -1283,7 +1280,7 @@ export function cschFunc(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (n.v === 0) return ErrNode.DIV0;
-  return { t: 'num', v: 1 / Math.sinh(n.v) };
+  return numNode(1 / Math.sinh(n.v));
 }
 
 /**
@@ -1298,7 +1295,7 @@ export function cothFunc(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (n.v === 0) return ErrNode.DIV0;
-  return { t: 'num', v: Math.cosh(n.v) / Math.sinh(n.v) };
+  return numNode(Math.cosh(n.v) / Math.sinh(n.v));
 }
 
 /**
@@ -1312,7 +1309,7 @@ export function acotFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: Math.atan(1 / n.v) };
+  return numNode(Math.atan(1 / n.v));
 }
 
 /**
@@ -1327,7 +1324,7 @@ export function acothFunc(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (Math.abs(n.v) <= 1) return ErrNode.NUM;
-  return { t: 'num', v: 0.5 * Math.log((n.v + 1) / (n.v - 1)) };
+  return numNode(0.5 * Math.log((n.v + 1) / (n.v - 1)));
 }
 
 /**
@@ -1349,7 +1346,7 @@ export function multinomialFunc(
     sum += val;
     denomProduct *= gammaLanczos(val + 1);
   }
-  return { t: 'num', v: Math.round(gammaLanczos(sum + 1) / denomProduct) };
+  return numNode(Math.round(gammaLanczos(sum + 1) / denomProduct));
 }
 
 /**
@@ -1380,7 +1377,7 @@ export function seriessumFunc(
     if (isNaN(coeff)) return ErrNode.VALUE;
     sum += coeff * Math.pow(x.v, n.v + i * m.v);
   }
-  return { t: 'num', v: sum };
+  return numNode(sum);
 }
 
 /**
@@ -1399,7 +1396,7 @@ export function sumsqFunc(
     total += node.v ** 2;
   }
 
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -1459,7 +1456,7 @@ export function sumproductFunc(
     total += product;
   }
 
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -1471,7 +1468,7 @@ export function randFunc(
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  return { t: 'num', v: Math.random() };
+  return numNode(Math.random());
 }
 
 /**
@@ -1501,7 +1498,7 @@ export function randbetweenFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: Math.floor(Math.random() * (high - low + 1)) + low };
+  return numNode(Math.floor(Math.random() * (high - low + 1)) + low);
 }
 
 // Lookup tables for ROMAN/ARABIC — each entry is [value, symbol], sorted descending.
@@ -1556,7 +1553,7 @@ export function arabicFunc(
   const strResult = toStr(node, grid);
   if (strResult.t === 'err') return strResult;
 
-  if (strResult.v === '') return { t: 'num', v: 0 };
+  if (strResult.v === '') return numNode(0);
   if (!/^-?[MDCLXVI]*$/i.test(strResult.v)) return ErrNode.VALUE;
 
   const text = strResult.v.toUpperCase();
@@ -1587,7 +1584,7 @@ export function arabicFunc(
   });
   if (!valid) return ErrNode.VALUE;
 
-  return { t: 'num', v: value };
+  return numNode(value);
 }
 
 /**
@@ -1645,7 +1642,7 @@ export function permutFunc(
   for (let i = n; i > n - k; i--) {
     result *= i;
   }
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -1664,7 +1661,7 @@ export function permutationaFunc(
   const ni = Math.trunc(n.v);
   const ki = Math.trunc(k.v);
   if (ni < 0 || ki < 0) return ErrNode.NUM;
-  return { t: 'num', v: Math.pow(ni, ki) };
+  return numNode(Math.pow(ni, ki));
 }
 
 /**
@@ -1698,48 +1695,48 @@ export function subtotalFunc(
   }
 
   const fnNum = fn > 100 ? fn - 100 : fn;
-  if (values.length === 0 && fnNum !== 2 && fnNum !== 3) return { t: 'num', v: 0 };
+  if (values.length === 0 && fnNum !== 2 && fnNum !== 3) return numNode(0);
 
   switch (fnNum) {
     case 1: // AVERAGE
-      return { t: 'num', v: values.reduce((a, b) => a + b, 0) / values.length };
+      return numNode(values.reduce((a, b) => a + b, 0) / values.length);
     case 2: // COUNT
-      return { t: 'num', v: values.length };
+      return numNode(values.length);
     case 3: // COUNTA
-      return { t: 'num', v: values.length };
+      return numNode(values.length);
     case 4: // MAX
-      return { t: 'num', v: Math.max(...values) };
+      return numNode(Math.max(...values));
     case 5: // MIN
-      return { t: 'num', v: Math.min(...values) };
+      return numNode(Math.min(...values));
     case 6: // PRODUCT
-      return { t: 'num', v: values.reduce((a, b) => a * b, 1) };
+      return numNode(values.reduce((a, b) => a * b, 1));
     case 7: { // STDEV
       const n = values.length;
       if (n < 2) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1);
-      return { t: 'num', v: Math.sqrt(variance) };
+      return numNode(Math.sqrt(variance));
     }
     case 8: { // STDEVP
       const n = values.length;
       if (n === 0) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n;
-      return { t: 'num', v: Math.sqrt(variance) };
+      return numNode(Math.sqrt(variance));
     }
     case 9: // SUM
-      return { t: 'num', v: values.reduce((a, b) => a + b, 0) };
+      return numNode(values.reduce((a, b) => a + b, 0));
     case 10: { // VAR
       const n = values.length;
       if (n < 2) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
-      return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1) };
+      return numNode(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
     }
     case 11: { // VARP
       const n = values.length;
       if (n === 0) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
-      return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n };
+      return numNode(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n);
     }
     default:
       return ErrNode.VALUE;
@@ -1779,39 +1776,39 @@ export function aggregateFunc(
   }
   const fn = Math.trunc(funcNum.v);
   switch (fn) {
-    case 1: return { t: 'num', v: nums.reduce((a, b) => a + b, 0) / (nums.length || 1) }; // AVERAGE
-    case 2: return { t: 'num', v: nums.length }; // COUNT
-    case 3: return { t: 'num', v: nums.length }; // COUNTA
-    case 4: return { t: 'num', v: nums.length > 0 ? Math.max(...nums) : 0 }; // MAX
-    case 5: return { t: 'num', v: nums.length > 0 ? Math.min(...nums) : 0 }; // MIN
-    case 6: return { t: 'num', v: nums.reduce((a, b) => a * b, 1) }; // PRODUCT
+    case 1: return numNode(nums.reduce((a, b) => a + b, 0) / (nums.length || 1)); // AVERAGE
+    case 2: return numNode(nums.length); // COUNT
+    case 3: return numNode(nums.length); // COUNTA
+    case 4: return numNode(nums.length > 0 ? Math.max(...nums) : 0); // MAX
+    case 5: return numNode(nums.length > 0 ? Math.min(...nums) : 0); // MIN
+    case 6: return numNode(nums.reduce((a, b) => a * b, 1)); // PRODUCT
     case 7: { // STDEV.S
       if (nums.length < 2) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
-      return { t: 'num', v: Math.sqrt(variance) };
+      return numNode(Math.sqrt(variance));
     }
     case 8: { // STDEV.P
       if (nums.length === 0) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length;
-      return { t: 'num', v: Math.sqrt(variance) };
+      return numNode(Math.sqrt(variance));
     }
-    case 9: return { t: 'num', v: nums.reduce((a, b) => a + b, 0) }; // SUM
+    case 9: return numNode(nums.reduce((a, b) => a + b, 0)); // SUM
     case 10: { // VAR.S
       if (nums.length < 2) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
-      return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1) };
+      return numNode(nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1));
     }
     case 11: { // VAR.P
       if (nums.length === 0) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
-      return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length };
+      return numNode(nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length);
     }
     case 12: { // MEDIAN
       const sorted = [...nums].sort((a, b) => a - b);
       const mid = Math.floor(sorted.length / 2);
-      return { t: 'num', v: sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid] };
+      return numNode(sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]);
     }
     default: return ErrNode.VALUE;
   }
@@ -1839,7 +1836,7 @@ export function mdetermFunc(
     const cell = grid.get(ref);
     const v = cell?.v || '';
     if (v === '' || isNaN(Number(v))) return ErrNode.VALUE;
-    return { t: 'num', v: Number(v) };
+    return numNode(Number(v));
   }
 
   const range = parseRange(ref);
@@ -1877,7 +1874,7 @@ export function mdetermFunc(
     return result;
   }
 
-  return { t: 'num', v: det(matrix) };
+  return numNode(det(matrix));
 }
 
 /**
@@ -1941,7 +1938,7 @@ export function mmultFunc(
         if (typeof v2 !== 'number') return v2;
         sum += v1 * v2;
       }
-      arrRow.push({ t: 'num', v: sum });
+      arrRow.push(numNode(sum));
     }
     arrRows.push(arrRow);
   }
@@ -2014,7 +2011,7 @@ export function minverseFunc(
   for (let i = 0; i < n; i++) {
     const row: EvalNode[] = [];
     for (let j = 0; j < n; j++) {
-      row.push({ t: 'num', v: aug[i][n + j] });
+      row.push(numNode(aug[i][n + j]));
     }
     rows.push(row);
   }
@@ -2039,7 +2036,7 @@ export function munitFunc(
   for (let i = 0; i < size; i++) {
     const row: EvalNode[] = [];
     for (let j = 0; j < size; j++) {
-      row.push({ t: 'num', v: i === j ? 1 : 0 });
+      row.push(numNode(i === j ? 1 : 0));
     }
     result.push(row);
   }
@@ -2060,7 +2057,7 @@ function parsePlaces(
   grid?: Grid,
 ): { t: 'num'; v: number } | ErrNode {
   if (!expr) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
   const places = NumberArgs.map(visit(expr), grid);
@@ -2068,7 +2065,7 @@ function parsePlaces(
     return places;
   }
 
-  return { t: 'num', v: Math.trunc(places.v) };
+  return numNode(Math.trunc(places.v));
 }
 
 function gcdTwo(a: number, b: number): number {
@@ -2092,7 +2089,7 @@ export function log10Func(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (n.v <= 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.log10(n.v) };
+  return numNode(Math.log10(n.v));
 }
 
 export const mathEntries: [string, (...args: any[]) => EvalNode][] = [

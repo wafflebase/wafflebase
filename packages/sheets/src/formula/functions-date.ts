@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -136,7 +136,7 @@ export function daysFunc(
     startDate.getDate(),
   );
 
-  return { t: 'num', v: (endUtc - startUtc) / dayMs };
+  return numNode((endUtc - startUtc) / dayMs);
 }
 
 /**
@@ -153,7 +153,7 @@ export function yearFunc(
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
 
-  return { t: 'num', v: date.getFullYear() };
+  return numNode(date.getFullYear());
 }
 
 /**
@@ -170,7 +170,7 @@ export function monthFunc(
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
 
-  return { t: 'num', v: date.getMonth() + 1 };
+  return numNode(date.getMonth() + 1);
 }
 
 /**
@@ -187,7 +187,7 @@ export function dayFunc(
   const date = parseDate(visit(exprs[0]), grid);
   if (!(date instanceof Date)) return date;
 
-  return { t: 'num', v: date.getDate() };
+  return numNode(date.getDate());
 }
 
 /**
@@ -206,7 +206,7 @@ export function hourFunc(
     return date;
   }
 
-  return { t: 'num', v: date.getHours() };
+  return numNode(date.getHours());
 }
 
 /**
@@ -225,7 +225,7 @@ export function minuteFunc(
     return date;
   }
 
-  return { t: 'num', v: date.getMinutes() };
+  return numNode(date.getMinutes());
 }
 
 /**
@@ -244,7 +244,7 @@ export function secondFunc(
     return date;
   }
 
-  return { t: 'num', v: date.getSeconds() };
+  return numNode(date.getSeconds());
 }
 
 /**
@@ -274,13 +274,13 @@ export function weekdayFunc(
 
   const day = date.getDay(); // Sunday = 0
   if (type === 1) {
-    return { t: 'num', v: day + 1 };
+    return numNode(day + 1);
   }
   if (type === 2) {
-    return { t: 'num', v: day === 0 ? 7 : day };
+    return numNode(day === 0 ? 7 : day);
   }
   if (type === 3) {
-    return { t: 'num', v: day === 0 ? 6 : day - 1 };
+    return numNode(day === 0 ? 6 : day - 1);
   }
 
   return ErrNode.VALUE;
@@ -372,7 +372,7 @@ export function networkdaysFunc(
     current.setDate(current.getDate() + 1);
   }
 
-  return { t: 'num', v: count * direction };
+  return numNode(count * direction);
 }
 
 /**
@@ -425,7 +425,7 @@ export function networkdaysintlFunc(
     current.setDate(current.getDate() + direction);
   }
 
-  return { t: 'num', v: count * direction };
+  return numNode(count * direction);
 }
 
 /**
@@ -466,7 +466,7 @@ export function timevalueFunc(
   const seconds = date.getSeconds();
   const fraction = (hours * 3600 + minutes * 60 + seconds) / 86400;
 
-  return { t: 'num', v: fraction };
+  return numNode(fraction);
 }
 
 /**
@@ -505,7 +505,7 @@ export function datedifFunc(
     const dayMs = 24 * 60 * 60 * 1000;
     const startUtc = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    return { t: 'num', v: (endUtc - startUtc) / dayMs };
+    return numNode((endUtc - startUtc) / dayMs);
   }
 
   if (unit === 'M') {
@@ -515,7 +515,7 @@ export function datedifFunc(
     if (endDate.getDate() < startDate.getDate()) {
       months--;
     }
-    return { t: 'num', v: months };
+    return numNode(months);
   }
 
   if (unit === 'Y') {
@@ -526,7 +526,7 @@ export function datedifFunc(
     ) {
       years--;
     }
-    return { t: 'num', v: years };
+    return numNode(years);
   }
 
   if (unit === 'MD') {
@@ -535,7 +535,7 @@ export function datedifFunc(
       const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0);
       days += prevMonth.getDate();
     }
-    return { t: 'num', v: days };
+    return numNode(days);
   }
 
   if (unit === 'YM') {
@@ -547,7 +547,7 @@ export function datedifFunc(
       months--;
       if (months < 0) months += 12;
     }
-    return { t: 'num', v: months };
+    return numNode(months);
   }
 
   if (unit === 'YD') {
@@ -558,7 +558,7 @@ export function datedifFunc(
     const dayMs = 24 * 60 * 60 * 1000;
     const startUtc = Date.UTC(startAdjusted.getFullYear(), startAdjusted.getMonth(), startAdjusted.getDate());
     const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    return { t: 'num', v: (endUtc - startUtc) / dayMs };
+    return numNode((endUtc - startUtc) / dayMs);
   }
 
   return ErrNode.VALUE;
@@ -597,7 +597,7 @@ export function weeknumFunc(
   const diff = date.getTime() - weekStart.getTime();
   const weekNum = Math.floor(diff / (7 * 86400000)) + 1;
 
-  return { t: 'num', v: weekNum };
+  return numNode(weekNum);
 }
 
 /**
@@ -621,7 +621,7 @@ export function isoweeknumFunc(
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 
-  return { t: 'num', v: weekNo };
+  return numNode(weekNo);
 }
 
 /**
@@ -795,7 +795,7 @@ export function yearfracFunc(
       if (d1 === 31) d1 = 30;
       if (d2 === 31 && d1 === 30) d2 = 30;
       const days30 = (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1);
-      return { t: 'num', v: days30 / 360 };
+      return numNode(days30 / 360);
     }
     case 4: {
       // European 30/360
@@ -805,24 +805,24 @@ export function yearfracFunc(
         (e.getUTCFullYear() - s.getUTCFullYear()) * 360 +
         (e.getUTCMonth() - s.getUTCMonth()) * 30 +
         (d2 - d1);
-      return { t: 'num', v: days30 / 360 };
+      return numNode(days30 / 360);
     }
     case 1: {
       const sy = s.getFullYear();
       const ey = e.getFullYear();
       if (sy === ey) {
         const yearDays = (new Date(sy + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
-        return { t: 'num', v: actualDays / yearDays };
+        return numNode(actualDays / yearDays);
       }
       const years = ey - sy + 1;
       const totalDays = (new Date(ey + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
       const avgYear = totalDays / years;
-      return { t: 'num', v: actualDays / avgYear };
+      return numNode(actualDays / avgYear);
     }
     case 2:
-      return { t: 'num', v: actualDays / 360 };
+      return numNode(actualDays / 360);
     case 3:
-      return { t: 'num', v: actualDays / 365 };
+      return numNode(actualDays / 365);
     default:
       return ErrNode.VALUE;
   }
@@ -866,7 +866,7 @@ export function days360Func(
     if (ed === 31 && sd >= 30) ed = 30;
   }
 
-  return { t: 'num', v: (ey - sy) * 360 + (em - sm) * 30 + (ed - sd) };
+  return numNode((ey - sy) * 360 + (em - sm) * 30 + (ed - sd));
 }
 
 /**

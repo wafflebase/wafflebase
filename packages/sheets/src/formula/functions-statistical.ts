@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -40,7 +40,7 @@ export function averageFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: sum / count };
+  return numNode(sum / count);
 }
 
 /**
@@ -67,10 +67,10 @@ export function medianFunc(
   values.sort((a, b) => a - b);
   const middle = Math.floor(values.length / 2);
   if (values.length % 2 === 1) {
-    return { t: 'num', v: values[middle] };
+    return numNode(values[middle]);
   }
 
-  return { t: 'num', v: (values[middle - 1] + values[middle]) / 2 };
+  return numNode((values[middle - 1] + values[middle]) / 2);
 }
 
 /**
@@ -92,7 +92,7 @@ export function minFunc(
     }
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -114,7 +114,7 @@ export function maxFunc(
     }
   }
 
-  return { t: 'num', v: result };
+  return numNode(result);
 }
 
 /**
@@ -159,7 +159,7 @@ export function countFunc(
     // strings that aren't numeric are skipped
   }
 
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -197,7 +197,7 @@ export function countaFunc(
     }
   }
 
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -240,7 +240,7 @@ export function countblankFunc(
     }
   }
 
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -272,7 +272,7 @@ export function countifFunc(
     }
   }
 
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -319,7 +319,7 @@ export function sumifFunc(
     total += toNumberOrZero(sumValue);
   }
 
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -370,7 +370,7 @@ export function countifsFunc(
     }
   }
 
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -425,7 +425,7 @@ export function sumifsFunc(
     }
   }
 
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -480,7 +480,7 @@ export function averageifFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: total / count };
+  return numNode(total / count);
 }
 
 /**
@@ -544,7 +544,7 @@ export function averageifsFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: total / count };
+  return numNode(total / count);
 }
 
 /**
@@ -584,7 +584,7 @@ export function largeFunc(
   }
 
   values.sort((a, b) => b - a);
-  return { t: 'num', v: values[n - 1] };
+  return numNode(values[n - 1]);
 }
 
 /**
@@ -624,7 +624,7 @@ export function smallFunc(
   }
 
   values.sort((a, b) => a - b);
-  return { t: 'num', v: values[n - 1] };
+  return numNode(values[n - 1]);
 }
 
 /**
@@ -649,7 +649,7 @@ export function stdevFunc(
 
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
-  return { t: 'num', v: Math.sqrt(sumSqDiff / (values.length - 1)) };
+  return numNode(Math.sqrt(sumSqDiff / (values.length - 1)));
 }
 
 /**
@@ -674,7 +674,7 @@ export function stdevpFunc(
 
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
-  return { t: 'num', v: Math.sqrt(sumSqDiff / values.length) };
+  return numNode(Math.sqrt(sumSqDiff / values.length));
 }
 
 /**
@@ -699,7 +699,7 @@ export function varFunc(
 
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
-  return { t: 'num', v: sumSqDiff / (values.length - 1) };
+  return numNode(sumSqDiff / (values.length - 1));
 }
 
 /**
@@ -724,7 +724,7 @@ export function varpFunc(
 
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
-  return { t: 'num', v: sumSqDiff / values.length };
+  return numNode(sumSqDiff / values.length);
 }
 
 /**
@@ -765,7 +765,7 @@ export function modeFunc(
     return ErrNode.NA;
   }
 
-  return { t: 'num', v: mode };
+  return numNode(mode);
 }
 
 /**
@@ -795,7 +795,7 @@ export function modemultFunc(
     .filter(([, f]) => f === maxFreq)
     .map(([n]) => n)
     .sort((a, b) => a - b);
-  return { t: 'num', v: modes[0] };
+  return numNode(modes[0]);
 }
 
 /**
@@ -843,10 +843,10 @@ export function quartileFunc(
   const fraction = rank - lower;
 
   if (lower === upper) {
-    return { t: 'num', v: values[lower] };
+    return numNode(values[lower]);
   }
 
-  return { t: 'num', v: values[lower] + fraction * (values[upper] - values[lower]) };
+  return numNode(values[lower] + fraction * (values[upper] - values[lower]));
 }
 
 /**
@@ -874,8 +874,8 @@ export function quartileexcFunc(
   const lower = Math.floor(rank);
   const upper = Math.ceil(rank);
   const fraction = rank - lower;
-  if (lower === upper) return { t: 'num', v: vals[lower] };
-  return { t: 'num', v: vals[lower] + fraction * (vals[upper] - vals[lower]) };
+  if (lower === upper) return numNode(vals[lower]);
+  return numNode(vals[lower] + fraction * (vals[upper] - vals[lower]));
 }
 
 /**
@@ -909,7 +909,7 @@ export function countuniqueFunc(
     }
   }
 
-  return { t: 'num', v: unique.size };
+  return numNode(unique.size);
 }
 
 /**
@@ -962,11 +962,11 @@ export function rankFunc(
   if (order === 0) {
     // Descending: count values greater than target
     const rank = values.filter((v) => v > target).length + 1;
-    return { t: 'num', v: rank };
+    return numNode(rank);
   } else {
     // Ascending: count values less than target
     const rank = values.filter((v) => v < target).length + 1;
-    return { t: 'num', v: rank };
+    return numNode(rank);
   }
 }
 
@@ -999,10 +999,10 @@ export function rankavgFunc(
   const count = vals.filter((v) => v === target).length;
   if (order === 0) {
     const higherCount = vals.filter((v) => v > target).length;
-    return { t: 'num', v: higherCount + 1 + (count - 1) / 2 };
+    return numNode(higherCount + 1 + (count - 1) / 2);
   } else {
     const lowerCount = vals.filter((v) => v < target).length;
-    return { t: 'num', v: lowerCount + 1 + (count - 1) / 2 };
+    return numNode(lowerCount + 1 + (count - 1) / 2);
   }
 }
 
@@ -1050,10 +1050,10 @@ export function percentileFunc(
   const fraction = rank - lower;
 
   if (lower === upper) {
-    return { t: 'num', v: values[lower] };
+    return numNode(values[lower]);
   }
 
-  return { t: 'num', v: values[lower] + fraction * (values[upper] - values[lower]) };
+  return numNode(values[lower] + fraction * (values[upper] - values[lower]));
 }
 
 /**
@@ -1081,8 +1081,8 @@ export function percentileexcFunc(
   const lower = Math.floor(rank);
   const upper = Math.ceil(rank);
   const fraction = rank - lower;
-  if (lower === upper || upper >= n) return { t: 'num', v: vals[Math.min(lower, n - 1)] };
-  return { t: 'num', v: vals[lower] + fraction * (vals[upper] - vals[lower]) };
+  if (lower === upper || upper >= n) return numNode(vals[Math.min(lower, n - 1)]);
+  return numNode(vals[lower] + fraction * (vals[upper] - vals[lower]));
 }
 
 /**
@@ -1132,9 +1132,9 @@ export function percentrankFunc(
     rank = (smaller - 1 + (x - lower) / (upper - lower)) / (n - 1);
   }
 
-  if (sig === 0) return { t: 'num', v: rank };
+  if (sig === 0) return numNode(rank);
   const factor = Math.pow(10, sig);
-  return { t: 'num', v: Math.trunc(rank * factor) / factor };
+  return numNode(Math.trunc(rank * factor) / factor);
 }
 
 /**
@@ -1182,7 +1182,7 @@ export function percentrankexcFunc(
   }
 
   const factor = Math.pow(10, sig);
-  return { t: 'num', v: Math.trunc(rank * factor) / factor };
+  return numNode(Math.trunc(rank * factor) / factor);
 }
 
 /**
@@ -1221,7 +1221,7 @@ export function trimmeanFunc(
   const trimCount = Math.floor(values.length * pct / 2);
   const trimmed = values.slice(trimCount, values.length - trimCount);
   if (trimmed.length === 0) return ErrNode.VALUE;
-  return { t: 'num', v: trimmed.reduce((a, b) => a + b, 0) / trimmed.length };
+  return numNode(trimmed.reduce((a, b) => a + b, 0) / trimmed.length);
 }
 
 /**
@@ -1240,7 +1240,7 @@ export function geomeanFunc(
   }
   if (values.length === 0) return ErrNode.NA;
   const logSum = values.reduce((a, v) => a + Math.log(v), 0);
-  return { t: 'num', v: Math.exp(logSum / values.length) };
+  return numNode(Math.exp(logSum / values.length));
 }
 
 /**
@@ -1259,7 +1259,7 @@ export function harmeanFunc(
   }
   if (values.length === 0) return ErrNode.NA;
   const recipSum = values.reduce((a, v) => a + 1 / v, 0);
-  return { t: 'num', v: values.length / recipSum };
+  return numNode(values.length / recipSum);
 }
 
 /**
@@ -1278,7 +1278,7 @@ export function avedevFunc(
   if (values.length === 0) return ErrNode.NA;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const avgDev = values.reduce((a, v) => a + Math.abs(v - mean), 0) / values.length;
-  return { t: 'num', v: avgDev };
+  return numNode(avgDev);
 }
 
 /**
@@ -1296,7 +1296,7 @@ export function devsqFunc(
   }
   if (values.length === 0) return ErrNode.NA;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) ** 2, 0) };
+  return numNode(values.reduce((a, v) => a + (v - mean) ** 2, 0));
 }
 
 /**
@@ -1334,7 +1334,7 @@ export function averageaFunc(
     }
   }
   if (count === 0) return ErrNode.DIV0;
-  return { t: 'num', v: sum / count };
+  return numNode(sum / count);
 }
 
 /**
@@ -1373,8 +1373,8 @@ export function minaFunc(
       hasValue = true;
     }
   }
-  if (!hasValue) return { t: 'num', v: 0 };
-  return { t: 'num', v: min };
+  if (!hasValue) return numNode(0);
+  return numNode(min);
 }
 
 /**
@@ -1413,8 +1413,8 @@ export function maxaFunc(
       hasValue = true;
     }
   }
-  if (!hasValue) return { t: 'num', v: 0 };
-  return { t: 'num', v: max };
+  if (!hasValue) return numNode(0);
+  return numNode(max);
 }
 
 /**
@@ -1473,10 +1473,10 @@ export function minifsFunc(
   }
 
   if (min === Infinity) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
-  return { t: 'num', v: min };
+  return numNode(min);
 }
 
 /**
@@ -1535,10 +1535,10 @@ export function maxifsFunc(
   }
 
   if (max === -Infinity) {
-    return { t: 'num', v: 0 };
+    return numNode(0);
   }
 
-  return { t: 'num', v: max };
+  return numNode(max);
 }
 
 /**
@@ -1553,7 +1553,7 @@ export function fisherFunc(
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   if (x.v <= -1 || x.v >= 1) return ErrNode.VALUE;
-  return { t: 'num', v: 0.5 * Math.log((1 + x.v) / (1 - x.v)) };
+  return numNode(0.5 * Math.log((1 + x.v) / (1 - x.v)));
 }
 
 /**
@@ -1568,7 +1568,7 @@ export function fisherinvFunc(
   const y = NumberArgs.map(visit(exprs[0]), grid);
   if (y.t === 'err') return y;
   const e2y = Math.exp(2 * y.v);
-  return { t: 'num', v: (e2y - 1) / (e2y + 1) };
+  return numNode((e2y - 1) / (e2y + 1));
 }
 
 /**
@@ -1583,7 +1583,7 @@ export function gammaFunc(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (n.v <= 0 && Number.isInteger(n.v)) return ErrNode.VALUE;
-  return { t: 'num', v: gammaLanczos(n.v) };
+  return numNode(gammaLanczos(n.v));
 }
 
 /**
@@ -1598,7 +1598,7 @@ export function gammalnFunc(
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   if (n.v <= 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.log(gammaLanczos(n.v)) };
+  return numNode(Math.log(gammaLanczos(n.v)));
 }
 
 /**
@@ -1624,9 +1624,9 @@ export function normdistFunc(
 
   const z = (x.v - mean.v) / stdev.v;
   if (cum) {
-    return { t: 'num', v: normCdf(z) };
+    return numNode(normCdf(z));
   }
-  return { t: 'num', v: normPdf(z) / stdev.v };
+  return numNode(normPdf(z) / stdev.v);
 }
 
 /**
@@ -1647,7 +1647,7 @@ export function norminvFunc(
   if (stdev.t === 'err') return stdev;
   if (stdev.v <= 0 || p.v <= 0 || p.v >= 1) return ErrNode.VALUE;
 
-  return { t: 'num', v: mean.v + stdev.v * normInv(p.v) };
+  return numNode(mean.v + stdev.v * normInv(p.v));
 }
 
 /**
@@ -1666,9 +1666,9 @@ export function normsdistFunc(
   if (cumNode.t === 'err') return cumNode;
 
   if (cumNode.v) {
-    return { t: 'num', v: normCdf(z.v) };
+    return numNode(normCdf(z.v));
   }
-  return { t: 'num', v: normPdf(z.v) };
+  return numNode(normPdf(z.v));
 }
 
 /**
@@ -1685,7 +1685,7 @@ export function normsinvFunc(
   if (p.t === 'err') return p;
   if (p.v <= 0 || p.v >= 1) return ErrNode.VALUE;
 
-  return { t: 'num', v: normInv(p.v) };
+  return numNode(normInv(p.v));
 }
 
 /**
@@ -1711,9 +1711,9 @@ export function lognormdistFunc(
 
   const z = (Math.log(x.v) - mean.v) / stdev.v;
   if (cum) {
-    return { t: 'num', v: normCdf(z) };
+    return numNode(normCdf(z));
   }
-  return { t: 'num', v: normPdf(z) / (x.v * stdev.v) };
+  return numNode(normPdf(z) / (x.v * stdev.v));
 }
 
 /**
@@ -1734,7 +1734,7 @@ export function lognorminvFunc(
   if (stdev.t === 'err') return stdev;
   if (stdev.v <= 0 || p.v <= 0 || p.v >= 1) return ErrNode.VALUE;
 
-  return { t: 'num', v: Math.exp(mean.v + stdev.v * normInv(p.v)) };
+  return numNode(Math.exp(mean.v + stdev.v * normInv(p.v)));
 }
 
 /**
@@ -1755,7 +1755,7 @@ export function standardizeFunc(
   if (stdev.t === 'err') return stdev;
   if (stdev.v <= 0) return ErrNode.VALUE;
 
-  return { t: 'num', v: (x.v - mean.v) / stdev.v };
+  return numNode((x.v - mean.v) / stdev.v);
 }
 
 /**
@@ -1780,9 +1780,9 @@ export function weibulldistFunc(
   const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
 
   if (cum) {
-    return { t: 'num', v: 1 - Math.exp(-Math.pow(x.v / beta.v, alpha.v)) };
+    return numNode(1 - Math.exp(-Math.pow(x.v / beta.v, alpha.v)));
   }
-  return { t: 'num', v: (alpha.v / Math.pow(beta.v, alpha.v)) * Math.pow(x.v, alpha.v - 1) * Math.exp(-Math.pow(x.v / beta.v, alpha.v)) };
+  return numNode((alpha.v / Math.pow(beta.v, alpha.v)) * Math.pow(x.v, alpha.v - 1) * Math.exp(-Math.pow(x.v / beta.v, alpha.v)));
 }
 
 /**
@@ -1812,9 +1812,9 @@ export function poissondistFunc(
     for (let i = 0; i <= k; i++) {
       sum += Math.pow(mean.v, i) * Math.exp(-mean.v) / gammaLanczos(i + 1);
     }
-    return { t: 'num', v: sum };
+    return numNode(sum);
   }
-  return { t: 'num', v: Math.pow(mean.v, k) * Math.exp(-mean.v) / gammaLanczos(k + 1) };
+  return numNode(Math.pow(mean.v, k) * Math.exp(-mean.v) / gammaLanczos(k + 1));
 }
 
 /**
@@ -1853,9 +1853,9 @@ export function binomdistFunc(
     for (let i = 0; i <= k; i++) {
       sum += binomPmf(i);
     }
-    return { t: 'num', v: sum };
+    return numNode(sum);
   }
-  return { t: 'num', v: binomPmf(k) };
+  return numNode(binomPmf(k));
 }
 
 /**
@@ -1896,7 +1896,7 @@ export function binomdistrangeFunc(
   for (let k = lo; k <= hi; k++) {
     total += binomPmf(n, k, p);
   }
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -1929,9 +1929,9 @@ export function biominvFunc(
     const lnPmf = gammaLnHelper(n + 1) - gammaLnHelper(k + 1) - gammaLnHelper(n - k + 1) +
       k * Math.log(Math.max(ps, 1e-300)) + (n - k) * Math.log(Math.max(1 - ps, 1e-300));
     cumProb += Math.exp(lnPmf);
-    if (cumProb >= alpha) return { t: 'num', v: k };
+    if (cumProb >= alpha) return numNode(k);
   }
-  return { t: 'num', v: n };
+  return numNode(n);
 }
 
 /**
@@ -1954,9 +1954,9 @@ export function expondistFunc(
   const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
 
   if (cum) {
-    return { t: 'num', v: 1 - Math.exp(-lambda.v * x.v) };
+    return numNode(1 - Math.exp(-lambda.v * x.v));
   }
-  return { t: 'num', v: lambda.v * Math.exp(-lambda.v * x.v) };
+  return numNode(lambda.v * Math.exp(-lambda.v * x.v));
 }
 
 /**
@@ -1981,7 +1981,7 @@ export function confidencenormFunc(
   }
 
   const z = normInv(1 - alpha.v / 2);
-  return { t: 'num', v: z * stdev.v / Math.sqrt(Math.trunc(size.v)) };
+  return numNode(z * stdev.v / Math.sqrt(Math.trunc(size.v)));
 }
 
 /**
@@ -2011,7 +2011,7 @@ export function confidencetFunc(
   const df = n - 1;
   const t = computeTInv(p, df);
 
-  return { t: 'num', v: t * stdev.v / Math.sqrt(n) };
+  return numNode(t * stdev.v / Math.sqrt(n));
 }
 
 /**
@@ -2037,11 +2037,11 @@ export function chisqdistFunc(
   const halfK = k / 2;
 
   if (cum) {
-    return { t: 'num', v: lowerIncompleteGamma(halfK, x.v / 2) };
+    return numNode(lowerIncompleteGamma(halfK, x.v / 2));
   }
   // PDF: x^(k/2-1) * exp(-x/2) / (2^(k/2) * Gamma(k/2))
   const pdf = Math.pow(x.v, halfK - 1) * Math.exp(-x.v / 2) / (Math.pow(2, halfK) * gammaLanczos(halfK));
-  return { t: 'num', v: pdf };
+  return numNode(pdf);
 }
 
 /**
@@ -2077,7 +2077,7 @@ export function chisqinvFunc(
     x = Math.max(newX, 1e-10);
   }
 
-  return { t: 'num', v: x };
+  return numNode(x);
 }
 
 /**
@@ -2097,7 +2097,7 @@ export function chisqdistrtFunc(
   if (x.v < 0 || df.v < 1) return ErrNode.VALUE;
 
   const k = Math.trunc(df.v);
-  return { t: 'num', v: 1 - lowerIncompleteGamma(k / 2, x.v / 2) };
+  return numNode(1 - lowerIncompleteGamma(k / 2, x.v / 2));
 }
 
 /**
@@ -2132,7 +2132,7 @@ export function chisqinvrtFunc(
     if (Math.abs(newX - x) < 1e-10) { x = newX; break; }
     x = Math.max(newX, 1e-10);
   }
-  return { t: 'num', v: x };
+  return numNode(x);
 }
 
 /**
@@ -2164,7 +2164,7 @@ export function chisqtestFunc(
   // p-value from chi-squared distribution using regularized gamma
   // P(X > chiSq) = 1 - regularizedGamma(df/2, chiSq/2)
   const pValue = 1 - regularizedLowerGamma(df / 2, chiSq / 2);
-  return { t: 'num', v: pValue };
+  return numNode(pValue);
 }
 
 /**
@@ -2194,13 +2194,13 @@ export function tdistFunc(
     // P(T ≤ x) = 0.5 + sign(x) * 0.5 * I(df/(df+x²))(df/2, 1/2)
     const xi = v / (v + t2);
     const ibeta = regularizedBeta(xi, v / 2, 0.5);
-    return { t: 'num', v: x.v >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta };
+    return numNode(x.v >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta);
   }
 
   // PDF: Gamma((v+1)/2) / (sqrt(v*pi) * Gamma(v/2)) * (1 + x²/v)^(-(v+1)/2)
   const pdf = gammaLanczos((v + 1) / 2) / (Math.sqrt(v * Math.PI) * gammaLanczos(v / 2))
     * Math.pow(1 + t2 / v, -(v + 1) / 2);
-  return { t: 'num', v: pdf };
+  return numNode(pdf);
 }
 
 /**
@@ -2219,7 +2219,7 @@ export function tinvFunc(
   if (df.t === 'err') return df;
   if (p.v <= 0 || p.v >= 1 || df.v < 1) return ErrNode.VALUE;
 
-  return { t: 'num', v: computeTInv(p.v, Math.trunc(df.v)) };
+  return numNode(computeTInv(p.v, Math.trunc(df.v)));
 }
 
 /**
@@ -2243,7 +2243,7 @@ export function tdistrtFunc(
   const xi = v / (v + t2);
   const ibeta = regularizedBeta(xi, v / 2, 0.5);
   const leftCdf = x.v >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta;
-  return { t: 'num', v: 1 - leftCdf };
+  return numNode(1 - leftCdf);
 }
 
 /**
@@ -2266,7 +2266,7 @@ export function tdist2tFunc(
   const t2 = x.v * x.v;
   const xi = v / (v + t2);
   const ibeta = regularizedBeta(xi, v / 2, 0.5);
-  return { t: 'num', v: ibeta };
+  return numNode(ibeta);
 }
 
 /**
@@ -2287,7 +2287,7 @@ export function tinv2tFunc(
 
   const v = Math.trunc(df.v);
   // Two-tailed: P(|T| > x) = p, so P(T > x) = p/2, hence x = T.INV(1 - p/2)
-  return { t: 'num', v: computeTInv(1 - p.v / 2, v) };
+  return numNode(computeTInv(1 - p.v / 2, v));
 }
 
 /**
@@ -2322,7 +2322,7 @@ export function ttestFunc(
   const x = df / (df + tStat * tStat);
   const pOneTail = 0.5 * regularizedBeta(x, df / 2, 0.5);
   const tailCount = Math.trunc(tails.v);
-  return { t: 'num', v: tailCount === 1 ? pOneTail : 2 * pOneTail };
+  return numNode(tailCount === 1 ? pOneTail : 2 * pOneTail);
 }
 
 /**
@@ -2352,14 +2352,14 @@ export function fdistFunc(
   if (cumNode.v) {
     // CDF using regularized incomplete beta
     const z = (d1 * x) / (d1 * x + d2);
-    return { t: 'num', v: regularizedBeta(z, d1 / 2, d2 / 2) };
+    return numNode(regularizedBeta(z, d1 / 2, d2 / 2));
   } else {
     // PDF
     const lnNum = (d1 / 2) * Math.log(d1) + (d2 / 2) * Math.log(d2) +
       ((d1 / 2) - 1) * Math.log(x);
     const lnDen = ((d1 + d2) / 2) * Math.log(d1 * x + d2) +
       gammaLnHelper(d1 / 2) + gammaLnHelper(d2 / 2) - gammaLnHelper((d1 + d2) / 2);
-    return { t: 'num', v: Math.exp(lnNum - lnDen) };
+    return numNode(Math.exp(lnNum - lnDen));
   }
 }
 
@@ -2385,7 +2385,7 @@ export function finvFunc(
   const d2 = Math.trunc(d2Node.v);
   if (p < 0 || p >= 1 || d1 < 1 || d2 < 1) return ErrNode.VALUE;
 
-  if (p === 0) return { t: 'num', v: 0 };
+  if (p === 0) return numNode(0);
 
   // Newton's method
   let x = 1.0;
@@ -2404,7 +2404,7 @@ export function finvFunc(
     x = Math.max(1e-15, x - diff / pdf);
   }
 
-  return { t: 'num', v: x };
+  return numNode(x);
 }
 
 /**
@@ -2430,7 +2430,7 @@ export function fdistrtFunc(
   if (x < 0 || d1 < 1 || d2 < 1) return ErrNode.VALUE;
 
   const z = (d1 * x) / (d1 * x + d2);
-  return { t: 'num', v: 1 - regularizedBeta(z, d1 / 2, d2 / 2) };
+  return numNode(1 - regularizedBeta(z, d1 / 2, d2 / 2));
 }
 
 /**
@@ -2471,7 +2471,7 @@ export function finvrtFunc(
     if (pdf === 0) break;
     x = Math.max(1e-15, x - diff / pdf);
   }
-  return { t: 'num', v: x };
+  return numNode(x);
 }
 
 /**
@@ -2504,7 +2504,7 @@ export function ftestFunc(
   const x = df2 / (df2 + df1 * f);
   const p = regularizedBeta(x, df2 / 2, df1 / 2);
   const pValue = 2 * Math.min(p, 1 - p);
-  return { t: 'num', v: pValue };
+  return numNode(pValue);
 }
 
 /**
@@ -2551,9 +2551,9 @@ export function hypgeomdistFunc(
     for (let i = Math.max(0, n + K - N); i <= k; i++) {
       sum += pmf(i);
     }
-    return { t: 'num', v: sum };
+    return numNode(sum);
   }
-  return { t: 'num', v: pmf(k) };
+  return numNode(pmf(k));
 }
 
 /**
@@ -2592,9 +2592,9 @@ export function negbinomdistFunc(
     for (let i = 0; i <= failures; i++) {
       sum += pmf(i);
     }
-    return { t: 'num', v: sum };
+    return numNode(sum);
   }
-  return { t: 'num', v: pmf(failures) };
+  return numNode(pmf(failures));
 }
 
 /**
@@ -2636,12 +2636,12 @@ export function betadistFunc(
   if (x < 0 || x > 1) return ErrNode.VALUE;
 
   if (cumNode.v) {
-    return { t: 'num', v: regularizedBeta(x, a, b) };
+    return numNode(regularizedBeta(x, a, b));
   } else {
     // PDF: x^(a-1) * (1-x)^(b-1) / Beta(a,b)
     const lnBeta = gammaLnHelper(a) + gammaLnHelper(b) - gammaLnHelper(a + b);
     const pdf = Math.exp((a - 1) * Math.log(x) + (b - 1) * Math.log(1 - x) - lnBeta) / (B - A);
-    return { t: 'num', v: pdf };
+    return numNode(pdf);
   }
 }
 
@@ -2692,7 +2692,7 @@ export function betainvFunc(
     x = Math.max(1e-15, Math.min(1 - 1e-15, x - diff / pdf));
   }
 
-  return { t: 'num', v: A + x * (B - A) };
+  return numNode(A + x * (B - A));
 }
 
 /**
@@ -2720,11 +2720,11 @@ export function gammadistFunc(
   if (x < 0 || a <= 0 || b <= 0) return ErrNode.VALUE;
 
   if (cumNode.v) {
-    return { t: 'num', v: lowerIncompleteGamma(a, x / b) };
+    return numNode(lowerIncompleteGamma(a, x / b));
   }
   // PDF: x^(a-1) * exp(-x/b) / (b^a * Gamma(a))
   const pdf = Math.pow(x, a - 1) * Math.exp(-x / b) / (Math.pow(b, a) * gammaLanczos(a));
-  return { t: 'num', v: pdf };
+  return numNode(pdf);
 }
 
 /**
@@ -2748,7 +2748,7 @@ export function gammainvFunc(
   const a = alphaNode.v;
   const b = betaNode.v;
   if (p < 0 || p > 1 || a <= 0 || b <= 0) return ErrNode.VALUE;
-  if (p === 0) return { t: 'num', v: 0 };
+  if (p === 0) return numNode(0);
   if (p === 1) return ErrNode.VALUE;
 
   // Newton's method: find x where lowerIncompleteGamma(a, x/b) = p
@@ -2761,7 +2761,7 @@ export function gammainvFunc(
     if (pdf === 0) break;
     x = Math.max(1e-15, x - diff / pdf);
   }
-  return { t: 'num', v: x };
+  return numNode(x);
 }
 
 /**
@@ -2791,7 +2791,7 @@ export function ztestFunc(
   }
   const z = (mean - mu.v) / (sigma / Math.sqrt(dataResult.length));
   // P(Z > z) = 1 - normCdf(z)
-  return { t: 'num', v: 1 - normCdf(z) };
+  return numNode(1 - normCdf(z));
 }
 
 /**
@@ -2813,7 +2813,7 @@ export function forecastFunc(
   if ('t' in data) return data;
 
   const { slope, intercept } = linearRegression(data.xs, data.ys);
-  return { t: 'num', v: intercept + slope * xNode.v };
+  return numNode(intercept + slope * xNode.v);
 }
 
 /**
@@ -2830,7 +2830,7 @@ export function slopeFunc(
   if ('t' in data) return data;
 
   const { slope } = linearRegression(data.xs, data.ys);
-  return { t: 'num', v: slope };
+  return numNode(slope);
 }
 
 /**
@@ -2847,7 +2847,7 @@ export function interceptFunc(
   if ('t' in data) return data;
 
   const { intercept } = linearRegression(data.xs, data.ys);
-  return { t: 'num', v: intercept };
+  return numNode(intercept);
 }
 
 /**
@@ -2883,7 +2883,7 @@ export function correlFunc(
     return ErrNode.DIV0;
   }
 
-  return { t: 'num', v: sumXYDiff / denom };
+  return numNode(sumXYDiff / denom);
 }
 
 /**
@@ -2903,7 +2903,7 @@ export function covarFunc(
   const meanX = xs.reduce((a, b) => a + b, 0) / n;
   const meanY = ys.reduce((a, b) => a + b, 0) / n;
   const cov = xs.reduce((a, x, i) => a + (x - meanX) * (ys[i] - meanY), 0) / n;
-  return { t: 'num', v: cov };
+  return numNode(cov);
 }
 
 /**
@@ -2924,7 +2924,7 @@ export function covarsFunc(
   const meanX = xs.reduce((a, b) => a + b, 0) / n;
   const meanY = ys.reduce((a, b) => a + b, 0) / n;
   const cov = xs.reduce((a, x, i) => a + (x - meanX) * (ys[i] - meanY), 0) / (n - 1);
-  return { t: 'num', v: cov };
+  return numNode(cov);
 }
 
 /**
@@ -2948,7 +2948,7 @@ export function rsqFunc(
   const ssYY = ys.reduce((a, y) => a + (y - meanY) * (y - meanY), 0);
   if (ssXX === 0 || ssYY === 0) return ErrNode.DIV0;
   const r = ssXY / Math.sqrt(ssXX * ssYY);
-  return { t: 'num', v: r * r };
+  return numNode(r * r);
 }
 
 /**
@@ -2972,7 +2972,7 @@ export function steyxFunc(
     const predicted = slope * xs[i] + intercept;
     return a + (y - predicted) * (y - predicted);
   }, 0);
-  return { t: 'num', v: Math.sqrt(sse / (n - 2)) };
+  return numNode(Math.sqrt(sse / (n - 2)));
 }
 
 /**
@@ -2997,7 +2997,7 @@ export function sumx2my2Func(
   for (let i = 0; i < arrX.length; i++) {
     sum += arrX[i] * arrX[i] - arrY[i] * arrY[i];
   }
-  return { t: 'num', v: sum };
+  return numNode(sum);
 }
 
 /**
@@ -3018,7 +3018,7 @@ export function sumx2py2Func(
   for (let i = 0; i < arrX.length; i++) {
     sum += arrX[i] * arrX[i] + arrY[i] * arrY[i];
   }
-  return { t: 'num', v: sum };
+  return numNode(sum);
 }
 
 /**
@@ -3040,7 +3040,7 @@ export function sumxmy2Func(
     const d = arrX[i] - arrY[i];
     sum += d * d;
   }
-  return { t: 'num', v: sum };
+  return numNode(sum);
 }
 
 /**
@@ -3080,7 +3080,7 @@ export function probFunc(
       total += probs[i];
     }
   }
-  return { t: 'num', v: total };
+  return numNode(total);
 }
 
 /**
@@ -3111,7 +3111,7 @@ export function growthFunc(
   } else {
     newXval = knownX[knownX.length - 1];
   }
-  return { t: 'num', v: Math.exp(reg.intercept) * Math.exp(reg.slope * newXval) };
+  return numNode(Math.exp(reg.intercept) * Math.exp(reg.slope * newXval));
 }
 
 /**
@@ -3137,7 +3137,7 @@ export function trendFunc(
   } else {
     newXval = knownX[knownX.length - 1];
   }
-  return { t: 'num', v: reg.slope * newXval + reg.intercept };
+  return numNode(reg.slope * newXval + reg.intercept);
 }
 
 /**
@@ -3156,7 +3156,7 @@ export function linestFunc(
   if (knownY.length !== knownX.length || knownY.length === 0) return ErrNode.VALUE;
   const reg = linearRegression(knownX, knownY);
   // Single-cell output: slope
-  return { t: 'num', v: reg.slope };
+  return numNode(reg.slope);
 }
 
 /**
@@ -3178,7 +3178,7 @@ export function logestFunc(
   const lnY = knownY.map(y => Math.log(y));
   const reg = linearRegression(knownX, lnY);
   // Single-cell output: m = e^slope
-  return { t: 'num', v: Math.exp(reg.slope) };
+  return numNode(Math.exp(reg.slope));
 }
 
 /**
@@ -3211,7 +3211,7 @@ export function frequencyFunc(
     if (!placed) counts[bins.length]++;
   }
   // Return first bin count (single-cell)
-  return { t: 'num', v: counts[0] };
+  return numNode(counts[0]);
 }
 
 /**
@@ -3246,7 +3246,7 @@ export function varaFunc(
   const n = values.length;
   if (n < 2) return ErrNode.DIV0;
   const mean = values.reduce((a, b) => a + b, 0) / n;
-  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1) };
+  return numNode(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
 }
 
 /**
@@ -3281,7 +3281,7 @@ export function varpaFunc(
   const n = values.length;
   if (n === 0) return ErrNode.DIV0;
   const mean = values.reduce((a, b) => a + b, 0) / n;
-  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n };
+  return numNode(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n);
 }
 
 /**
@@ -3313,7 +3313,7 @@ export function skewFunc(
   const s = Math.sqrt(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
   if (s === 0) return ErrNode.DIV0;
   const m3 = values.reduce((a, v) => a + Math.pow((v - mean) / s, 3), 0);
-  return { t: 'num', v: (n / ((n - 1) * (n - 2))) * m3 };
+  return numNode((n / ((n - 1) * (n - 2))) * m3);
 }
 
 /**
@@ -3337,7 +3337,7 @@ export function skewpFunc(
   const stdev = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
   if (stdev === 0) return ErrNode.VALUE;
   const m3 = values.reduce((s, v) => s + ((v - mean) / stdev) ** 3, 0) / n;
-  return { t: 'num', v: m3 };
+  return numNode(m3);
 }
 
 /**
@@ -3370,7 +3370,7 @@ export function kurtFunc(
   if (s === 0) return ErrNode.DIV0;
   const m4 = values.reduce((a, v) => a + Math.pow((v - mean) / s, 4), 0);
   const k = (n * (n + 1) * m4) / ((n - 1) * (n - 2) * (n - 3)) - (3 * (n - 1) * (n - 1)) / ((n - 2) * (n - 3));
-  return { t: 'num', v: k };
+  return numNode(k);
 }
 
 /**
@@ -3406,7 +3406,7 @@ export function stdevaFunc(
   if (values.length < 2) return ErrNode.VALUE;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1);
-  return { t: 'num', v: Math.sqrt(variance) };
+  return numNode(Math.sqrt(variance));
 }
 
 /**
@@ -3442,7 +3442,7 @@ export function stdevpaFunc(
   if (values.length < 1) return ErrNode.VALUE;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
-  return { t: 'num', v: Math.sqrt(variance) };
+  return numNode(Math.sqrt(variance));
 }
 
 /**
@@ -3458,7 +3458,7 @@ export function gaussFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const z = NumberArgs.map(visit(exprs[0]), grid);
   if (z.t === 'err') return z;
-  return { t: 'num', v: normCdf(z.v) - 0.5 };
+  return numNode(normCdf(z.v) - 0.5);
 }
 
 /**
@@ -3472,7 +3472,7 @@ export function phiFunc(
   const exprs = ctx.args()?.expr() ?? [];
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
-  return { t: 'num', v: normPdf(x.v) };
+  return numNode(normPdf(x.v));
 }
 
 /**

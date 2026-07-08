@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { ErrValue, EvalNode, ErrNode, errValueCode } from './formula';
+import { ErrValue, EvalNode, ErrNode, errValueCode, numNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -348,21 +348,21 @@ export function nFunc(
     return node;
   }
   if (node.t === 'bool') {
-    return { t: 'num', v: node.v ? 1 : 0 };
+    return numNode(node.v ? 1 : 0);
   }
   if (node.t === 'ref' && grid) {
     const value = grid.get(node.v)?.v || '';
     if (value === '') {
-      return { t: 'num', v: 0 };
+      return numNode(0);
     }
     const upper = value.toUpperCase();
-    if (upper === 'TRUE') return { t: 'num', v: 1 };
-    if (upper === 'FALSE') return { t: 'num', v: 0 };
+    if (upper === 'TRUE') return numNode(1);
+    if (upper === 'FALSE') return numNode(0);
     const num = Number(value);
-    return { t: 'num', v: isNaN(num) ? 0 : num };
+    return numNode(isNaN(num) ? 0 : num);
   }
 
-  return { t: 'num', v: 0 };
+  return numNode(0);
 }
 
 /**
@@ -390,17 +390,17 @@ export function typeFunc(
   const node = visit(exprs[0]);
   switch (node.t) {
     case 'num':
-      return { t: 'num', v: 1 };
+      return numNode(1);
     case 'str':
-      return { t: 'num', v: 2 };
+      return numNode(2);
     case 'bool':
-      return { t: 'num', v: 4 };
+      return numNode(4);
     case 'err':
-      return { t: 'num', v: 16 };
+      return numNode(16);
     case 'ref':
-      return { t: 'num', v: 1 }; // Cell refs are treated as number by default
+      return numNode(1); // Cell refs are treated as number by default
     default:
-      return { t: 'num', v: 1 };
+      return numNode(1);
   }
 }
 
@@ -420,7 +420,7 @@ export function errortypeFunc(
   const node = visit(exprs[0]);
   const errValue = errorValueFromNode(node, grid);
   if (errValue !== undefined) {
-    return { t: 'num', v: errValueCode(errValue) };
+    return numNode(errValueCode(errValue));
   }
 
   return ErrNode.NA;
@@ -460,8 +460,8 @@ export function cellInfoFunc(
   const typeStr = infoType.v.toLowerCase();
   if (exprs.length < 2) {
     // No reference, return info about default
-    if (typeStr === 'row') return { t: 'num', v: 1 };
-    if (typeStr === 'col') return { t: 'num', v: 1 };
+    if (typeStr === 'row') return numNode(1);
+    if (typeStr === 'col') return numNode(1);
     return { t: 'str', v: '' };
   }
   const refNode = visit(exprs[1]);
@@ -472,8 +472,8 @@ export function cellInfoFunc(
   if (!rangeMatch) return ErrNode.VALUE;
   const ref = parseRef(rangeMatch[0]);
   switch (typeStr) {
-    case 'row': return { t: 'num', v: ref.r };
-    case 'col': return { t: 'num', v: ref.c };
+    case 'row': return numNode(ref.r);
+    case 'col': return numNode(ref.c);
     case 'address': return { t: 'str', v: '$' + toColumnLabel(ref.c) + '$' + ref.r };
     case 'contents': {
       if (!grid) return { t: 'str', v: '' };
@@ -492,7 +492,7 @@ export function sheetFunc(
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  return { t: 'num', v: 1 };
+  return numNode(1);
 }
 
 /**
@@ -503,7 +503,7 @@ export function sheetsFunc(
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
-  return { t: 'num', v: 1 };
+  return numNode(1);
 }
 
 function emptyArgFunc(): EvalNode {

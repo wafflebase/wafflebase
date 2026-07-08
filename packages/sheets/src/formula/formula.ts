@@ -636,7 +636,7 @@ export const ErrNode = {
   ERROR: Object.freeze({ t: 'err', v: ErrValue.ERROR }) as ErrNode,
 } as const;
 
-export function numNode(v: number): EvalNode {
+export function numNode(v: number): NumNode | ErrNode {
   if (!isFinite(v)) return ErrNode.NUM;
   return { t: 'num', v };
 }
@@ -1054,7 +1054,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     if (val === 'TRUE' || val === 'true') return { t: 'bool', v: true };
     if (val === 'FALSE' || val === 'false') return { t: 'bool', v: false };
     const num = Number(val);
-    if (!isNaN(num)) return { t: 'num', v: num };
+    if (!isNaN(num)) return numNode(num);
     return { t: 'str', v: val };
   }
 

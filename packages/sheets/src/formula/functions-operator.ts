@@ -14,11 +14,11 @@ function resolveScalar(node: EvalNode, grid?: Grid): EvalNode {
   if (node.t !== 'ref') return node;
   if (!grid || isSrng(node.v)) return ErrNode.VALUE;
   const val = grid.get(node.v)?.v ?? '';
-  if (val === '') return { t: 'num', v: 0 };
+  if (val === '') return numNode(0);
   if (val === 'TRUE' || val === 'true') return { t: 'bool', v: true };
   if (val === 'FALSE' || val === 'false') return { t: 'bool', v: false };
   const num = Number(val);
-  if (!isNaN(num)) return { t: 'num', v: num };
+  if (!isNaN(num)) return numNode(num);
   return { t: 'str', v: val };
 }
 
@@ -162,7 +162,7 @@ export function uminusFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: -n.v };
+  return numNode(-n.v);
 }
 
 export function uplusFunc(
@@ -174,7 +174,7 @@ export function uplusFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: n.v };
+  return numNode(n.v);
 }
 
 export function unaryPercentFunc(
@@ -186,7 +186,7 @@ export function unaryPercentFunc(
   if (raw.t === 'err') return raw;
   const n = NumberArgs.map(raw, grid);
   if (n.t === 'err') return n;
-  return { t: 'num', v: n.v / 100 };
+  return numNode(n.v / 100);
 }
 
 // ─── Comparison ──────────────────────────────────────────────────────────────
