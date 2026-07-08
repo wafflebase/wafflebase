@@ -8,12 +8,24 @@ import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
+import { ShareDialog } from "@/components/share-dialog";
+import { UserPresence } from "@/components/user-presence";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { pdfFileUrl } from "@/api/files";
-import { PdfViewer } from "./pdf-viewer";
+import type { User } from "@/types/users";
+import {
+  PdfCollabProvider,
+  PdfHeaderActions,
+  PdfCollabBody,
+} from "./pdf-collab";
 
-function FileLayout({ documentId }: { documentId: string }) {
+function FileLayout({
+  documentId,
+  currentUser,
+}: {
+  documentId: string;
+  currentUser: User;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -99,32 +111,53 @@ function FileLayout({ documentId }: { documentId: string }) {
   );
 
   return (
-    <SidebarProvider>
-      <AppSidebar
-        variant="inset"
-        items={items}
-        workspaces={workspaces}
-        currentWorkspace={currentWorkspace}
-        onWorkspaceChange={handleWorkspaceChange}
-      />
-      <SidebarInset>
-        <SiteHeader
-          title={documentData?.title ?? "Loading..."}
-          editable
-          onRename={handleRenameDocument}
+    <PdfCollabProvider
+      documentId={documentId}
+      readOnly={false}
+      presenceUser={{
+        userId: String(currentUser.id),
+        username: currentUser.username,
+        email: currentUser.email,
+        photo: currentUser.photo,
+      }}
+    >
+      <SidebarProvider>
+        <AppSidebar
+          variant="inset"
+          items={items}
+          workspaces={workspaces}
+          currentWorkspace={currentWorkspace}
+          onWorkspaceChange={handleWorkspaceChange}
         />
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <PdfViewer fileUrl={pdfFileUrl(documentId)} />
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        <SidebarInset>
+          <SiteHeader
+            title={documentData?.title ?? "Loading..."}
+            editable
+            onRename={handleRenameDocument}
+          >
+            <div className="flex items-center gap-2">
+              <PdfHeaderActions />
+              <ShareDialog documentId={documentId} />
+              <UserPresence />
+            </div>
+          </SiteHeader>
+          <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <PdfCollabBody />
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </PdfCollabProvider>
   );
 }
 
 /**
- * FileDetail is the read-only PDF viewer route. Auth-gates on the current
- * user, then mounts the app shell + pdf.js viewer. No Yorkie/CRDT — the PDF
- * is static content served (permission-gated) from the blob store.
+ * FileDetail is the collaborative PDF route. Auth-gates on the current
+ * user, then mounts the app shell wrapped in `PdfCollabProvider` (comments +
+ * presence over the `pdf-<id>` Yorkie document). The ambient `YorkieProvider`
+ * comes from `PrivateRoute` — this route does not mount its own, matching the
+ * docs/slides/sheets owner routes. The PDF bytes stay static, served
+ * (permission-gated) from the blob store; only comments + presence flow
+ * through Yorkie.
  */
 export function FileDetail() {
   const { id } = useParams();
@@ -143,7 +176,7 @@ export function FileDetail() {
   if (isLoading) return <Loader />;
   if (isError || !currentUser) return <Navigate to="/login" replace />;
 
-  return <FileLayout documentId={id!} />;
+  return <FileLayout documentId={id!} currentUser={currentUser} />;
 }
 
 export default FileDetail;

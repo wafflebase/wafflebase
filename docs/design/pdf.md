@@ -14,12 +14,16 @@ Add PDF as a fourth document type (`"pdf"`) alongside `sheet` / `doc` /
 content**: the original file is stored as an S3/MinIO blob and the
 Postgres `Document` row references it — there is **no Yorkie CRDT** in
 Phase 1. Users upload a PDF from the documents list and open it in a
-pdf.js-based viewer route. Phase 2 layers collaboration (comments +
-presence) on top by introducing a `pdf-<id>` Yorkie document that holds
-only comment threads, never the PDF bytes.
+pdf.js-based viewer route. Phase 2 layers collaboration on top by
+introducing a `pdf-<id>` Yorkie document that holds only comment threads
+and presence — never the PDF bytes — and by making the file-serving
+endpoint accept a share token so a shared PDF can be viewed without a
+workspace membership. Viewing bytes is open to any valid share token;
+**commenting** is gated to editor-role links or workspace members
+(client-side, as with every other shared type — see Non-Goals and Slice 3).
 
-This document covers Phase 1 (view/store) in full and reserves the
-extension points Phase 2 needs.
+This document covers Phase 1 (view/store) in full and Phase 2
+(share + comments + presence) as an implementation spec.
 
 ### Goals
 
@@ -37,16 +41,21 @@ extension points Phase 2 needs.
 
 ### Non-Goals
 
-- **Phase 1**: comments, presence, annotations/markup, PDF→Docs
-  conversion, text extraction, re-upload/replace-version, thumbnails.
+- **Phase 1**: comments, presence, share-token viewing (all moved to
+  Phase 2 below).
+- **All phases**: annotations/markup (highlight/draw on the PDF itself),
+  PDF→Docs conversion, text extraction, re-upload/replace-version,
+  thumbnails.
 - Editing PDF content. PDFs are view-only; editing is out of scope
-  entirely (conversion-to-Docs was explicitly declined).
-- Public/unauthenticated file URLs. All serving is permission-gated.
-- **Anonymous / share-token PDF viewing (Phase 1)**. Today share viewers
-  connect directly to Yorkie; a PDF has no Yorkie doc, so a shared-PDF
-  path would need its own serving endpoint that accepts a share token.
-  There is no existing "member OR valid share token" check to reuse.
-  Deferred — it pairs with the Phase 2 collaboration/sharing work.
+  entirely (conversion-to-Docs was explicitly declined). Comments anchor
+  *over* the PDF; they never mutate the bytes.
+- Public/unauthenticated file URLs. All serving is permission-gated —
+  either workspace membership or a valid, unexpired share token.
+- Server-side per-user write authorization for comments. Consistent with
+  the rest of the app (see `sharing.md`), view-only enforcement for share
+  viewers is **client-side**; Yorkie has no per-user write auth. A
+  determined share viewer could post a comment the UI hides. Accepted as a
+  known limitation matching sheets/docs/slides sharing today.
 
 ## Proposal Details
 
@@ -152,18 +161,110 @@ an orphan-sweep job is a follow-up.
 - `getDocumentPath(type)` → `/f/:id` for `pdf`.
 - Add the "Upload PDF" action to the New menu (wired to the flow above).
 
-### Phase 2 reservation (comments / collaboration)
+## Phase 2 — Share + comments + presence
 
-Documented here only to confirm Phase 1 leaves clean seams:
+Phase 2 attaches the reserved `pdf-<id>` Yorkie document for the first
+time (comment threads + presence only; PDF bytes stay in the blob),
+closes the one net-new backend gap (share-token file serving), and reuses
+the existing shared comments module and frontend presence pattern. No data
+migration: the `fileId` column and blob storage are unchanged. The `pdf-<id>`
+Yorkie doc is attached on first open of the viewer, with its `comments` map
+seeded empty at bootstrap via `initialRoot` (never created lazily — see the
+convergence note in Slice 2).
 
-- Introduce a `pdf-<id>` Yorkie document holding **only** comment threads
-  and presence (never the PDF bytes — those stay in the blob).
-- Reuse the shared frontend comments module (`docs/docs-comments.md`) with
-  **page-index + rectangle anchors** instead of text `posRange`.
-- Add document-permission-aware presence, matching the existing viewer's
-  access gate. No Phase 1 data migration required — the `fileId` column
-  and blob storage are unchanged; the Yorkie doc is created lazily on
-  first comment.
+The work splits into five slices; the order below is also the intended PR
+sequence.
+
+### Slice 1 — Share-token-aware file serving (only net-new backend work)
+
+`GET /documents/:id/file` is today JWT + `workspaceService.assertMember`.
+Extend it to **member OR valid share token** rather than adding a parallel
+public endpoint — one access path, no permission drift:
+
+- Make the route reachable without a JWT (optional auth), so anonymous
+  share viewers can fetch the bytes.
+- Resolution order: if `req.user` is a member of `doc.workspaceId` → serve.
+  Else if a `?token=<shareToken>` query param is present →
+  `shareLinkService.findByToken(token)`, assert `link.documentId === id`
+  and not expired (`findByToken` already throws `GoneException` on
+  expiry), then serve. Otherwise `403`.
+- **Role is irrelevant for serving** — both `viewer` and `editor` share
+  roles may view the PDF. Role only gates comment *writes* (Slice 3).
+- Response headers unchanged (`application/pdf`,
+  `Cache-Control: private`, `X-Content-Type-Options: nosniff`).
+
+*Alternative considered*: a dedicated public `GET /shared/:token/file`.
+Rejected — it forks the permission logic into two implementations that can
+diverge; relaxing the existing document-scoped endpoint keeps a single
+gate.
+
+### Slice 2 — `pdf-<id>` Yorkie document + comment store
+
+- Wrap the viewer in the collaboration providers. `FileDetail` (today a
+  read-only shell with no `DocumentProvider`) mounts
+  `<YorkieProvider>` + `<DocumentProvider docKey={`pdf-${id}`}
+  initialRoot={{ comments: {} }} initialPresence={…}>`. **`comments: {}`
+  is seeded at bootstrap**, not created lazily — concurrent lazy
+  `if (!root.comments)` creation lets Yorkie LWW discard one side (the
+  same convergence lesson as docs).
+- New `packages/frontend/src/app/files/comments/pdf-comment-store.ts`
+  — `PdfCommentStore implements CommentStore<PdfRegionAnchor>` over
+  `root.comments`, copied from the docs
+  `packages/frontend/src/app/docs/comments/yorkie-comment-store.ts`: all
+  mutations inside `doc.update()`, `doc.subscribe` → notify, timestamps
+  coerced to BigInt (`toYorkieMs`). Because a PDF anchor is plain numbers,
+  `copyThread` is a straight deep copy — no live-proxy special-casing like
+  the docs `posRange`.
+- Add one variant to the shared `CommentAnchor` union in
+  `packages/frontend/src/types/comments.ts`:
+  `{ kind: 'pdf-region'; pageIndex: number; rect: { x; y; w; h } }`.
+  `rect` is **normalized 0–1 page-relative coordinates** so pins are
+  independent of zoom/render scale.
+
+### Slice 3 — Comment UI + region pins
+
+- Reuse the shared `CommentSidePanel` / `CommentComposer` /
+  `CommentThreadCard` (`packages/frontend/src/components/comments/`) — no
+  Yorkie knowledge in that module; it renders over the `CommentStore<A>`.
+- New affordance in the viewer: click/drag on a page selects a rectangle
+  → opens the composer. Pins/highlights render as **absolutely-positioned
+  DOM overlays** over each page's canvas container (normalized `rect` →
+  pixels). Clicking a pin opens its thread; hovering highlights it.
+- **Orphan handling is nearly a no-op** — pages and rects never move.
+  Only `pageIndex >= pageCount` (e.g. a stale anchor) is surfaced as
+  orphaned in the panel, reusing the shared `OrphanedCard`.
+- Role gating: `readOnly` (share `viewer`) hides/disables the composer —
+  read comments only. `editor` role and workspace members may post.
+  Enforcement is client-side (see Non-Goals).
+
+### Slice 4 — Presence
+
+- `PdfPresence = { activePage?: number } & User`
+  (`packages/frontend/src/types/users.ts`), following the docs frontend
+  presence pattern — presence lives in the frontend layer, not in any
+  domain store.
+- The viewer writes `activePage` (throttled) on scroll via
+  `doc.update((_, p) => p.set(...))` and reads peers via
+  `doc.getOthersPresences()`. An avatar row shows who else is viewing;
+  reuse the domain-agnostic `UserPresence` component with `onSelectPeer`
+  scrolling to that peer's page and `getJumpHint` naming it.
+- Anonymous share viewers resolve identity via `fetchMeOptional`
+  (`"Anonymous"` fallback), exactly as the existing shared routes. No new
+  permission surface — presence rides the same connection gate.
+
+### Slice 5 — Shared PDF route + Share button
+
+- `packages/frontend/src/app/shared/shared-document.tsx`: add a `pdf`
+  case to the `SharedDocumentInner` type switch → doc key `pdf-${id}`, a
+  `SharedFileLayout` that mounts the viewer with
+  `fileUrl = pdfFileUrl(id, token)` (share token appended for Slice 1),
+  the comments panel, and `readOnly = resolved.role === 'viewer'`.
+- No share-link backend change needed: `shareLinkService.create` is
+  type-agnostic (checks `doc.authorID` only) and
+  `GET /share-links/:token/resolve` already returns `type`, so a PDF
+  document produces a working share link today.
+- Add a **Share button** to the `FileDetail` header (owner only) that
+  opens the existing share dialog.
 
 ## Risks and Mitigation
 
@@ -180,6 +281,17 @@ Documented here only to confirm Phase 1 leaves clean seams:
 - **Untrusted PDF content** — pdf.js runs in its worker sandbox; serve
   with `Content-Type: application/pdf` and avoid inlining into an
   HTML context that could execute embedded scripts.
+- **(Phase 2) Share-token leak of file bytes** — the relaxed serving
+  endpoint must reject expired/mismatched tokens; `findByToken` already
+  throws on expiry, and we assert `link.documentId === id` so a token for
+  one document can't fetch another's blob. Tests cover expired/mismatched
+  cases.
+- **(Phase 2) Comment-map convergence** — seed `comments: {}` at
+  bootstrap; concurrent lazy creation would let LWW drop one client's
+  threads.
+- **(Phase 2) Client-side write enforcement** — share `viewer` role only
+  hides the composer; a determined viewer can still write to the Yorkie
+  doc. Accepted limitation, matching all other shared document types.
 
 ## Testing
 
@@ -190,3 +302,20 @@ Documented here only to confirm Phase 1 leaves clean seams:
   expired-share are rejected on `GET /documents/:id/file`.
 - Frontend: `getDocumentPath("pdf")` → `/f/:id`; viewer smoke render of a
   small fixture PDF.
+
+### Phase 2
+
+- **Serving gate** (`GET /documents/:id/file`): member serves; valid
+  unexpired `?token=` serves; expired token → 410; token whose
+  `documentId` ≠ `:id` → rejected; no token + non-member → 403.
+- **Comment store**: `YorkieCommentStore` add/reply/edit/delete/resolve
+  round-trip over a mem Yorkie doc; two clients adding threads
+  concurrently converge (distinct keys merge); `pdf-region` anchor
+  (normalized `rect`) round-trips through the CRDT.
+- **Region pins**: normalized `rect` → pixel overlay position at a given
+  page scale; `pageIndex >= pageCount` renders as orphaned.
+- **Role gating**: `readOnly` viewer hides the composer; editor/member
+  shows it.
+- **Shared route + presence**: `/shared/:token` with a PDF-type link
+  mounts the viewer (bytes fetched with the token) and comments panel;
+  smoke that a peer's `activePage` presence appears.

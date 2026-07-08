@@ -1,4 +1,5 @@
-import { readFileSync } from "fs";
+import { cpSync, createReadStream, existsSync, readFileSync } from "fs";
+import { createRequire } from "module";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -65,6 +66,58 @@ function antlr4tsAssertShim(): Plugin {
   };
 }
 
+/**
+ * Serves pdf.js's `cmaps/` and `standard_fonts/` assets at stable URLs
+ * (`/pdfjs/cmaps/…`, `/pdfjs/standard_fonts/…`) in dev, and copies them into
+ * the build output. The PDF viewer passes these as `cMapUrl` /
+ * `standardFontDataUrl` to `getDocument()`; without them, CID-keyed fonts
+ * (e.g. CJK PDFs) render blank and non-embedded standard fonts fall back
+ * incorrectly. Resolved from the installed `pdfjs-dist` so the assets always
+ * match the pinned version (no committed binaries).
+ */
+function pdfjsAssets(): Plugin {
+  const require = createRequire(path.join(__dirname, "vite.config.ts"));
+  const pdfjsDir = path.dirname(require.resolve("pdfjs-dist/package.json"));
+  const mounts: Array<{ prefix: string; dir: string; out: string }> = [
+    { prefix: "/pdfjs/cmaps/", dir: path.join(pdfjsDir, "cmaps"), out: "pdfjs/cmaps" },
+    {
+      prefix: "/pdfjs/standard_fonts/",
+      dir: path.join(pdfjsDir, "standard_fonts"),
+      out: "pdfjs/standard_fonts",
+    },
+  ];
+  let outDir = path.resolve(__dirname, "dist");
+  return {
+    name: "pdfjs-assets",
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    configureServer(server) {
+      server.middlewares.use(((req, res, next) => {
+        const url = (req.url ?? "").split("?")[0];
+        const mount = mounts.find((m) => url.startsWith(m.prefix));
+        if (!mount) return next();
+        const file = path.join(mount.dir, url.slice(mount.prefix.length));
+        // Contain reads to the mount directory (block `..` traversal). Append
+        // path.sep so a sibling dir sharing the prefix (…/cmaps_evil) can't
+        // match …/cmaps.
+        if (!file.startsWith(mount.dir + path.sep) || !existsSync(file)) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        res.setHeader("Content-Type", "application/octet-stream");
+        createReadStream(file).pipe(res);
+      }) as Connect.NextHandleFunction);
+    },
+    writeBundle() {
+      for (const m of mounts) {
+        cpSync(m.dir, path.join(outDir, m.out), { recursive: true });
+      }
+    },
+  };
+}
+
 function manualChunks(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, "/");
 
@@ -123,6 +176,7 @@ export default defineConfig({
   plugins: [
     gaSnippet(),
     antlr4tsAssertShim(),
+    pdfjsAssets(),
     react(),
     tailwindcss(),
     {

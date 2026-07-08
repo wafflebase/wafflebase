@@ -93,7 +93,7 @@ Static PDF documents — upload, store, and view (no CRDT editing).
 
 | Document          | Description                                                                                        |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
-| [pdf.md](pdf.md)  | PDF viewer — fourth document type (`"pdf"`), blob-stored original (no Yorkie CRDT), document-permission-gated serving, pdf.js viewer at `/f/:id`, `pdf-` key + comments/presence reserved for Phase 2 |
+| [pdf.md](pdf.md)  | PDF viewer — fourth document type (`"pdf"`), blob-stored original (no Yorkie CRDT), document-permission-gated serving, pdf.js viewer at `/f/:id`; Phase 2 spec adds share-token file serving + `pdf-<id>` Yorkie comments (page-region pin anchors, shared comments module) + `activePage` presence |
 
 ## Common
 

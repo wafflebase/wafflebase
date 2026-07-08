@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 
-// Mock pdfjs-dist so the test never loads the real worker/engine.
-vi.mock("pdfjs-dist", () => {
+// Mock the pdf.js legacy build (what the viewer imports at runtime) so the
+// test never loads the real worker/engine.
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => {
   const page = {
     getViewport: () => ({ width: 100, height: 140 }),
     render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
@@ -15,7 +16,9 @@ vi.mock("pdfjs-dist", () => {
     }),
   };
 });
-vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
+vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({
+  default: "worker.js",
+}));
 
 import { PdfViewer } from "@/app/files/pdf-viewer";
 

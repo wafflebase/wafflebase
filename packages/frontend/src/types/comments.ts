@@ -32,12 +32,26 @@ export type DocsRangeAnchor = {
   quotedText: string;
 };
 
+/** A rectangle in [0,1] page-relative coordinates (zoom/scale independent). */
+export type PdfRect = { x: number; y: number; w: number; h: number };
+
+/**
+ * PDF region anchor — a rectangle on a given page. Unlike docs ranges, a
+ * PDF anchor never moves (pages/coordinates are static), so it never
+ * orphans except when `pageIndex` is out of range for the loaded file.
+ */
+export type PdfRegionAnchor = {
+  kind: 'pdf-region';
+  pageIndex: number;
+  rect: PdfRect;
+};
+
 /**
  * Discriminated union of all supported comment anchor types. New
  * consumers add their variant alongside the existing ones — the shared
  * comment helpers stay anchor-generic.
  */
-export type CommentAnchor = SheetCellAnchor | DocsRangeAnchor;
+export type CommentAnchor = SheetCellAnchor | DocsRangeAnchor | PdfRegionAnchor;
 
 /**
  * Comment thread — aliases the base shape owned by `@wafflebase/sheets`
