@@ -620,6 +620,13 @@ function SharedDocumentInner({
     retry: false,
   });
 
+  // A stable per-session id for anonymous share viewers. Comment ownership
+  // (CommentThreadCard's edit/delete gate) compares `author.userId ===
+  // currentUserId`, so a shared `""` fallback would let every anonymous
+  // editor-link guest edit and delete each other's comments. A unique id per
+  // session scopes edit/delete to the guest's own comments.
+  const anonUserId = useMemo(() => `anon-${crypto.randomUUID()}`, []);
+
   // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, so it must
   // render before the shared provider wrapper below rather than nested inside
   // it (nesting would create two competing Yorkie connections).
@@ -629,7 +636,7 @@ function SharedDocumentInner({
         resolved={resolved}
         token={token}
         presenceUser={{
-          userId: String(currentUser?.id ?? ""),
+          userId: currentUser?.id != null ? String(currentUser.id) : anonUserId,
           username: currentUser?.username || "Anonymous",
           email: currentUser?.email || "",
           photo: currentUser?.photo || "",
