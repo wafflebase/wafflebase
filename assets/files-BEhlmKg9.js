@@ -1,1 +1,0 @@
-import{c as s}from"./index-BNXqZONj.js";const e="https://api.wafflebase.io";async function r(t){const o=new FormData;o.append("file",t,t.name);const a=await s(`${e}/files`,{method:"POST",body:o});if(!a.ok)throw new Error(`PDF upload failed: ${a.status} ${a.statusText}`);return await a.json()}function f(t){return`${e}/documents/${t}/file`}export{f as p,r as u};
