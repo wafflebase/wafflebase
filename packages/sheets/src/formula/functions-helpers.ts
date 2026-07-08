@@ -1,5 +1,5 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
-import { ErrValue, ErrValues, EvalNode, ErrNode } from './formula';
+import { ErrValue, ErrValues, EvalNode, ErrNode, numNode } from './formula';
 import { ref2str } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -202,7 +202,7 @@ export function firstCellValue(node: EvalNode, grid: Grid): EvalNode {
   const cell = grid.get(firstRef);
   const val = cell?.v || '';
   if (val === '') return { t: 'str', v: '' };
-  if (!isNaN(Number(val))) return { t: 'num', v: Number(val) };
+  if (!isNaN(Number(val))) return numNode(Number(val));
   return { t: 'str', v: val };
 }
 

@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -28,7 +28,7 @@ export function deltaFunc(
     n2 = n2Node.v;
   }
 
-  return { t: 'num', v: n1.v === n2 ? 1 : 0 };
+  return numNode(n1.v === n2 ? 1 : 0);
 }
 
 /**
@@ -51,7 +51,7 @@ export function gestepFunc(
     step = stepNode.v;
   }
 
-  return { t: 'num', v: n.v >= step ? 1 : 0 };
+  return numNode(n.v >= step ? 1 : 0);
 }
 
 /**
@@ -68,12 +68,12 @@ export function erfFunc(
   if (lower.t === 'err') return lower;
 
   if (exprs.length === 1) {
-    return { t: 'num', v: erf(lower.v) };
+    return numNode(erf(lower.v));
   }
 
   const upper = NumberArgs.map(visit(exprs[1]), grid);
   if (upper.t === 'err') return upper;
-  return { t: 'num', v: erf(upper.v) - erf(lower.v) };
+  return numNode(erf(upper.v) - erf(lower.v));
 }
 
 /**
@@ -88,7 +88,7 @@ export function erfcFunc(
 
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
-  return { t: 'num', v: 1 - erf(x.v) };
+  return numNode(1 - erf(x.v));
 }
 
 /**
@@ -102,8 +102,8 @@ export function convertFunc(
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
-  const numNode = NumberArgs.map(visit(exprs[0]), grid);
-  if (numNode.t === 'err') return numNode;
+  const numArg = NumberArgs.map(visit(exprs[0]), grid);
+  if (numArg.t === 'err') return numArg;
   const fromNode = toStr(visit(exprs[1]), grid);
   if (fromNode.t === 'err') return fromNode;
   const toNode = toStr(visit(exprs[2]), grid);
@@ -111,7 +111,7 @@ export function convertFunc(
 
   const from = fromNode.v;
   const to = toNode.v;
-  const val = numNode.v;
+  const val = numArg.v;
 
   // Unit conversion tables (to SI base unit)
   type UnitEntry = { category: string; factor: number; offset?: number };
@@ -189,11 +189,11 @@ export function convertFunc(
     if (to === 'C') result = celsius;
     else if (to === 'F') result = celsius * 9 / 5 + 32;
     else result = celsius + 273.15; // K
-    return { t: 'num', v: result };
+    return numNode(result);
   }
 
   // Standard conversion through base unit
-  return { t: 'num', v: val * fromUnit.factor / toUnit.factor };
+  return numNode(val * fromUnit.factor / toUnit.factor);
 }
 
 /**
@@ -210,7 +210,7 @@ export function bitandFunc(
   const b = NumberArgs.map(visit(exprs[1]), grid);
   if (b.t === 'err') return b;
   if (a.v < 0 || b.v < 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.trunc(a.v) & Math.trunc(b.v) };
+  return numNode(Math.trunc(a.v) & Math.trunc(b.v));
 }
 
 /**
@@ -227,7 +227,7 @@ export function bitorFunc(
   const b = NumberArgs.map(visit(exprs[1]), grid);
   if (b.t === 'err') return b;
   if (a.v < 0 || b.v < 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.trunc(a.v) | Math.trunc(b.v) };
+  return numNode(Math.trunc(a.v) | Math.trunc(b.v));
 }
 
 /**
@@ -244,7 +244,7 @@ export function bitxorFunc(
   const b = NumberArgs.map(visit(exprs[1]), grid);
   if (b.t === 'err') return b;
   if (a.v < 0 || b.v < 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.trunc(a.v) ^ Math.trunc(b.v) };
+  return numNode(Math.trunc(a.v) ^ Math.trunc(b.v));
 }
 
 /**
@@ -261,7 +261,7 @@ export function bitlshiftFunc(
   const b = NumberArgs.map(visit(exprs[1]), grid);
   if (b.t === 'err') return b;
   if (a.v < 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.trunc(a.v) * Math.pow(2, Math.trunc(b.v)) };
+  return numNode(Math.trunc(a.v) * Math.pow(2, Math.trunc(b.v)));
 }
 
 /**
@@ -278,7 +278,7 @@ export function bitrshiftFunc(
   const b = NumberArgs.map(visit(exprs[1]), grid);
   if (b.t === 'err') return b;
   if (a.v < 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.floor(Math.trunc(a.v) / Math.pow(2, Math.trunc(b.v))) };
+  return numNode(Math.floor(Math.trunc(a.v) / Math.pow(2, Math.trunc(b.v))));
 }
 
 /**
@@ -297,9 +297,9 @@ export function hex2decFunc(
   const val = parseInt(hex, 16);
   // Handle 10-digit hex as negative (two's complement for 40-bit)
   if (hex.length === 10 && hex[0].match(/[89A-Fa-f]/)) {
-    return { t: 'num', v: val - Math.pow(2, 40) };
+    return numNode(val - Math.pow(2, 40));
   }
-  return { t: 'num', v: val };
+  return numNode(val);
 }
 
 /**
@@ -349,9 +349,9 @@ export function bin2decFunc(
   const val = parseInt(bin, 2);
   // 10-digit binary: first bit is sign (two's complement)
   if (bin.length === 10 && bin[0] === '1') {
-    return { t: 'num', v: val - 1024 };
+    return numNode(val - 1024);
   }
-  return { t: 'num', v: val };
+  return numNode(val);
 }
 
 /**
@@ -401,9 +401,9 @@ export function oct2decFunc(
   const val = parseInt(oct, 8);
   // 10-digit octal with first digit >= 4 is negative (30-bit two's complement)
   if (oct.length === 10 && oct[0] >= '4') {
-    return { t: 'num', v: val - Math.pow(2, 30) };
+    return numNode(val - Math.pow(2, 30));
   }
-  return { t: 'num', v: val };
+  return numNode(val);
 }
 
 /**
@@ -628,7 +628,7 @@ export function imrealFunc(
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
   if (!c) return ErrNode.VALUE;
-  return { t: 'num', v: c.re };
+  return numNode(c.re);
 }
 
 /**
@@ -644,7 +644,7 @@ export function imaginaryFunc(
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
   if (!c) return ErrNode.VALUE;
-  return { t: 'num', v: c.im };
+  return numNode(c.im);
 }
 
 /**
@@ -660,7 +660,7 @@ export function imabsFunc(
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
   if (!c) return ErrNode.VALUE;
-  return { t: 'num', v: Math.sqrt(c.re * c.re + c.im * c.im) };
+  return numNode(Math.sqrt(c.re * c.re + c.im * c.im));
 }
 
 /**
@@ -775,7 +775,7 @@ export function imargumentFunc(
   const result = parseComplexArg(ctx, visit, grid);
   if ('t' in result) return result;
   if (result.re === 0 && result.im === 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.atan2(result.im, result.re) };
+  return numNode(Math.atan2(result.im, result.re));
 }
 
 /**
@@ -1066,7 +1066,7 @@ export function besseljFunc(
   if (n.t === 'err') return n;
   const order = Math.trunc(n.v);
   if (order < 0) return ErrNode.VALUE;
-  return { t: 'num', v: besselJ(order, x.v) };
+  return numNode(besselJ(order, x.v));
 }
 
 /**
@@ -1085,7 +1085,7 @@ export function besselyFunc(
   const order = Math.trunc(n.v);
   if (order < 0) return ErrNode.VALUE;
   if (x.v <= 0) return ErrNode.VALUE;
-  return { t: 'num', v: besselY(order, x.v) };
+  return numNode(besselY(order, x.v));
 }
 
 /**
@@ -1103,7 +1103,7 @@ export function besseliFunc(
   if (n.t === 'err') return n;
   const order = Math.trunc(n.v);
   if (order < 0) return ErrNode.VALUE;
-  return { t: 'num', v: besselI(order, x.v) };
+  return numNode(besselI(order, x.v));
 }
 
 /**
@@ -1122,7 +1122,7 @@ export function besselkFunc(
   const order = Math.trunc(n.v);
   if (order < 0) return ErrNode.VALUE;
   if (x.v <= 0) return ErrNode.VALUE;
-  return { t: 'num', v: besselK(order, x.v) };
+  return numNode(besselK(order, x.v));
 }
 
 /**

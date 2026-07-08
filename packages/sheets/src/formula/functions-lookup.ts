@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, ArrNode, EmptyNode } from './formula';
+import { EvalNode, ErrNode, ArrNode, EmptyNode, numNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -70,7 +70,7 @@ export function matchFunc(
     for (let i = 0; i < matrix.v.refs.length; i++) {
       const candidate = lookupValueFromRef(matrix.v.refs[i], grid);
       if (equalLookupValues(candidate, lookup)) {
-        return { t: 'num', v: i + 1 };
+        return numNode(i + 1);
       }
     }
 
@@ -104,7 +104,7 @@ export function matchFunc(
     return ErrNode.NA;
   }
 
-  return { t: 'num', v: bestIndex + 1 };
+  return numNode(bestIndex + 1);
 }
 
 /**
@@ -425,7 +425,7 @@ export function xlookupFunc(
   const resultVal = grid?.get(returnRefs.v[matchIdx])?.v || '';
   const num = Number(resultVal);
   if (resultVal !== '' && !isNaN(num)) {
-    return { t: 'num', v: num };
+    return numNode(num);
   }
   return { t: 'str', v: resultVal };
 }
@@ -470,11 +470,11 @@ export function xmatchFunc(
       const cellVal = grid?.get(refs[i])?.v || '';
       if (keyIsNum) {
         if (cellVal !== '' && Number(cellVal) === keyVal) {
-          return { t: 'num', v: i + 1 };
+          return numNode(i + 1);
         }
       } else {
         if (String(cellVal).toLowerCase() === String(keyVal).toLowerCase()) {
-          return { t: 'num', v: i + 1 };
+          return numNode(i + 1);
         }
       }
     }
@@ -492,7 +492,7 @@ export function xmatchFunc(
         bestIdx = i;
       }
     }
-    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : ErrNode.NA;
+    return bestIdx >= 0 ? numNode(bestIdx + 1) : ErrNode.NA;
   } else if (matchMode === 1) {
     // Exact or next larger
     let bestIdx = -1;
@@ -506,7 +506,7 @@ export function xmatchFunc(
         bestIdx = i;
       }
     }
-    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : ErrNode.NA;
+    return bestIdx >= 0 ? numNode(bestIdx + 1) : ErrNode.NA;
   } else if (matchMode === 2) {
     // Wildcard match
     const pattern = String(keyVal).replace(/\*/g, '.*').replace(/\?/g, '.');
@@ -514,7 +514,7 @@ export function xmatchFunc(
     for (let i = 0; i < refs.length; i++) {
       const cellVal = grid?.get(refs[i])?.v || '';
       if (re.test(cellVal)) {
-        return { t: 'num', v: i + 1 };
+        return numNode(i + 1);
       }
     }
     return ErrNode.NA;
@@ -576,7 +576,7 @@ export function lookupFunc(
   const resultVal = grid?.get(resultRefsList[matchIdx])?.v || '';
   const num = Number(resultVal);
   if (resultVal !== '' && !isNaN(num)) {
-    return { t: 'num', v: num };
+    return numNode(num);
   }
   return { t: 'str', v: resultVal };
 }
@@ -608,7 +608,7 @@ export function indirectFunc(
 
   const num = Number(cellVal);
   if (cellVal !== '' && !isNaN(num)) {
-    return { t: 'num', v: num };
+    return numNode(num);
   }
   return { t: 'str', v: cellVal };
 }
@@ -672,7 +672,7 @@ export function offsetFunc(
   const cellVal = grid.get(newRef)?.v || '';
   const num = Number(cellVal);
   if (cellVal !== '' && !isNaN(num)) {
-    return { t: 'num', v: num };
+    return numNode(num);
   }
   return { t: 'str', v: cellVal };
 }
@@ -705,7 +705,7 @@ export function rowFunc(
 
   try {
     const ref = parseRef(localRef);
-    return { t: 'num', v: ref.r };
+    return numNode(ref.r);
   } catch {
     return ErrNode.REF;
   }
@@ -739,7 +739,7 @@ export function columnFunc(
 
   try {
     const ref = parseRef(localRef);
-    return { t: 'num', v: ref.c };
+    return numNode(ref.c);
   } catch {
     return ErrNode.REF;
   }
@@ -764,7 +764,7 @@ export function rowsFunc(
   }
 
   if (!isSrng(node.v)) {
-    return { t: 'num', v: 1 };
+    return numNode(1);
   }
 
   let localRange = node.v;
@@ -774,7 +774,7 @@ export function rowsFunc(
 
   try {
     const [from, to] = parseRange(localRange);
-    return { t: 'num', v: Math.abs(to.r - from.r) + 1 };
+    return numNode(Math.abs(to.r - from.r) + 1);
   } catch {
     return ErrNode.REF;
   }
@@ -799,7 +799,7 @@ export function columnsFunc(
   }
 
   if (!isSrng(node.v)) {
-    return { t: 'num', v: 1 };
+    return numNode(1);
   }
 
   let localRange = node.v;
@@ -809,7 +809,7 @@ export function columnsFunc(
 
   try {
     const [from, to] = parseRange(localRange);
-    return { t: 'num', v: Math.abs(to.c - from.c) + 1 };
+    return numNode(Math.abs(to.c - from.c) + 1);
   } catch {
     return ErrNode.REF;
   }
@@ -899,7 +899,7 @@ export function areasFunc(
   _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
 ): EvalNode {
-  return { t: 'num', v: 1 };
+  return numNode(1);
 }
 
 /**
@@ -924,7 +924,7 @@ export function sortFunc(
   }
 
   vals.sort((a, b) => order >= 0 ? a - b : b - a);
-  return { t: 'num', v: vals[0] };
+  return numNode(vals[0]);
 }
 
 /**
@@ -1092,7 +1092,7 @@ export function sequenceFunc(
   }
 
   // Single-cell: return the start value
-  return { t: 'num', v: start };
+  return numNode(start);
 }
 
 /**
@@ -1126,7 +1126,7 @@ export function randarrayFunc(
   if (min > max) return ErrNode.VALUE;
 
   const val = min + Math.random() * (max - min);
-  return { t: 'num', v: whole ? Math.floor(val) : val };
+  return numNode(whole ? Math.floor(val) : val);
 }
 
 /**

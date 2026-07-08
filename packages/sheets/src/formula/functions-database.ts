@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { Grid } from '../model/core/types';
 import {
   isSrng,
@@ -21,7 +21,7 @@ export function dsumFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  return { t: 'num', v: result.values.reduce((a, b) => a + b, 0) };
+  return numNode(result.values.reduce((a, b) => a + b, 0));
 }
 
 /**
@@ -34,7 +34,7 @@ export function dcountFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  return { t: 'num', v: result.values.length };
+  return numNode(result.values.length);
 }
 
 /**
@@ -47,7 +47,7 @@ export function dcountaFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  return { t: 'num', v: result.strValues.filter(s => s !== '').length };
+  return numNode(result.strValues.filter(s => s !== '').length);
 }
 
 /**
@@ -61,7 +61,7 @@ export function daverageFunc(
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
   if (result.values.length === 0) return ErrNode.VALUE;
-  return { t: 'num', v: result.values.reduce((a, b) => a + b, 0) / result.values.length };
+  return numNode(result.values.reduce((a, b) => a + b, 0) / result.values.length);
 }
 
 /**
@@ -74,8 +74,8 @@ export function dmaxFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  if (result.values.length === 0) return { t: 'num', v: 0 };
-  return { t: 'num', v: Math.max(...result.values) };
+  if (result.values.length === 0) return numNode(0);
+  return numNode(Math.max(...result.values));
 }
 
 /**
@@ -88,8 +88,8 @@ export function dminFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  if (result.values.length === 0) return { t: 'num', v: 0 };
-  return { t: 'num', v: Math.min(...result.values) };
+  if (result.values.length === 0) return numNode(0);
+  return numNode(Math.min(...result.values));
 }
 
 /**
@@ -102,8 +102,8 @@ export function dproductFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  if (result.values.length === 0) return { t: 'num', v: 0 };
-  return { t: 'num', v: result.values.reduce((a, b) => a * b, 1) };
+  if (result.values.length === 0) return numNode(0);
+  return numNode(result.values.reduce((a, b) => a * b, 1));
 }
 
 /**
@@ -118,7 +118,7 @@ export function dgetFunc(
   if ('t' in result) return result;
   if (result.strValues.length !== 1) return ErrNode.VALUE;
   const n = Number(result.strValues[0]);
-  if (!isNaN(n) && result.strValues[0] !== '') return { t: 'num', v: n };
+  if (!isNaN(n) && result.strValues[0] !== '') return numNode(n);
   return { t: 'str', v: result.strValues[0] };
 }
 
@@ -136,7 +136,7 @@ export function dstdevFunc(
   if (vals.length < 2) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1);
-  return { t: 'num', v: Math.sqrt(variance) };
+  return numNode(Math.sqrt(variance));
 }
 
 /**
@@ -153,7 +153,7 @@ export function dstdevpFunc(
   if (vals.length === 0) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
-  return { t: 'num', v: Math.sqrt(variance) };
+  return numNode(Math.sqrt(variance));
 }
 
 /**
@@ -169,7 +169,7 @@ export function dvarFunc(
   const vals = result.values;
   if (vals.length < 2) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-  return { t: 'num', v: vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1) };
+  return numNode(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1));
 }
 
 /**
@@ -185,7 +185,7 @@ export function dvarpFunc(
   const vals = result.values;
   if (vals.length === 0) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-  return { t: 'num', v: vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length };
+  return numNode(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
 }
 
 /**

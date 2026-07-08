@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -77,7 +77,7 @@ export function pmtFunc(
     type = Math.trunc(typeNode.v);
   }
 
-  return { t: 'num', v: computePmt(rate.v, nper.v, pv.v, fv, type) };
+  return numNode(computePmt(rate.v, nper.v, pv.v, fv, type));
 }
 
 /**
@@ -112,11 +112,11 @@ export function fvFunc(
   }
 
   if (rate.v === 0) {
-    return { t: 'num', v: -(pv + pmt.v * nper.v) };
+    return numNode(-(pv + pmt.v * nper.v));
   }
 
   const pvif = Math.pow(1 + rate.v, nper.v);
-  return { t: 'num', v: -(pv * pvif + pmt.v * (1 + rate.v * type) * (pvif - 1) / rate.v) };
+  return numNode(-(pv * pvif + pmt.v * (1 + rate.v * type) * (pvif - 1) / rate.v));
 }
 
 /**
@@ -151,11 +151,11 @@ export function pvFunc(
   }
 
   if (rate.v === 0) {
-    return { t: 'num', v: -(fv + pmt.v * nper.v) };
+    return numNode(-(fv + pmt.v * nper.v));
   }
 
   const pvif = Math.pow(1 + rate.v, nper.v);
-  return { t: 'num', v: -(fv + pmt.v * (1 + rate.v * type) * (pvif - 1) / rate.v) / pvif };
+  return numNode(-(fv + pmt.v * (1 + rate.v * type) * (pvif - 1) / rate.v) / pvif);
 }
 
 /**
@@ -191,7 +191,7 @@ export function npvFunc(
     }
   }
 
-  return { t: 'num', v: npv };
+  return numNode(npv);
 }
 
 /**
@@ -227,11 +227,11 @@ export function nperFunc(
 
   if (rate.v === 0) {
     if (pmt.v === 0) return ErrNode.DIV0;
-    return { t: 'num', v: -(pv.v + fv) / pmt.v };
+    return numNode(-(pv.v + fv) / pmt.v);
   }
 
   const z = pmt.v * (1 + rate.v * type) / rate.v;
-  return { t: 'num', v: Math.log((z - fv) / (pv.v + z)) / Math.log(1 + rate.v) };
+  return numNode(Math.log((z - fv) / (pv.v + z)) / Math.log(1 + rate.v));
 }
 
 /**
@@ -282,8 +282,8 @@ export function ipmtFunc(
   // Excel cash-flow sign convention: interest is a cash flow paid/received
   // by the borrower/lender, so its sign is opposite the outstanding balance.
   const ipmt = -balance * rate.v;
-  if (type === 1 && per.v === 1) return { t: 'num', v: 0 };
-  return { t: 'num', v: ipmt };
+  if (type === 1 && per.v === 1) return numNode(0);
+  return numNode(ipmt);
 }
 
 /**
@@ -332,7 +332,7 @@ export function ppmtFunc(
   }
 
   const ipmt = (type === 1 && per.v === 1) ? 0 : -balance * rate.v;
-  return { t: 'num', v: pmt - ipmt };
+  return numNode(pmt - ipmt);
 }
 
 /**
@@ -351,7 +351,7 @@ export function slnFunc(
   const life = NumberArgs.map(visit(exprs[2]), grid);
   if (life.t === 'err') return life;
   if (life.v === 0) return ErrNode.DIV0;
-  return { t: 'num', v: (cost.v - salvage.v) / life.v };
+  return numNode((cost.v - salvage.v) / life.v);
 }
 
 /**
@@ -369,7 +369,7 @@ export function effectFunc(
   if (periods.t === 'err') return periods;
   const n = Math.trunc(periods.v);
   if (n < 1 || nominal.v <= 0) return ErrNode.NUM;
-  return { t: 'num', v: Math.pow(1 + nominal.v / n, n) - 1 };
+  return numNode(Math.pow(1 + nominal.v / n, n) - 1);
 }
 
 /**
@@ -419,7 +419,7 @@ export function rateFunc(
       + pmt.v * (1 + rate * type) * (nper.v * Math.pow(1 + rate, nper.v - 1) * rate - (r1 - 1)) / (rate * rate)
       + pmt.v * type * (r1 - 1) / rate;
     const newRate = rate - y / dy;
-    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    if (Math.abs(newRate - rate) < 1e-10) return numNode(newRate);
     rate = newRate;
   }
   return ErrNode.VALUE;
@@ -457,7 +457,7 @@ export function irrFunc(
     }
     if (Math.abs(dnpv) < 1e-15) return ErrNode.VALUE;
     const newRate = rate - npv / dnpv;
-    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    if (Math.abs(newRate - rate) < 1e-10) return numNode(newRate);
     rate = newRate;
   }
   return ErrNode.VALUE;
@@ -506,7 +506,7 @@ export function dbFunc(
     } else {
       depreciation = (cost.v - totalDepreciation) * rate;
     }
-    if (p === per) return { t: 'num', v: depreciation };
+    if (p === per) return numNode(depreciation);
     totalDepreciation += depreciation;
   }
 
@@ -552,7 +552,7 @@ export function ddbFunc(
       depreciation = bookValue - salvage.v;
     }
     if (depreciation < 0) depreciation = 0;
-    if (p === per) return { t: 'num', v: depreciation };
+    if (p === per) return numNode(depreciation);
     bookValue -= depreciation;
   }
 
@@ -574,7 +574,7 @@ export function nominalFunc(
   if (periods.t === 'err') return periods;
   const n = Math.trunc(periods.v);
   if (n < 1 || effectiveRate.v <= 0) return ErrNode.NUM;
-  return { t: 'num', v: n * (Math.pow(1 + effectiveRate.v, 1 / n) - 1) };
+  return numNode(n * (Math.pow(1 + effectiveRate.v, 1 / n) - 1));
 }
 
 /**
@@ -619,7 +619,7 @@ export function cumipmtFunc(
     balance += principal;
   }
 
-  return { t: 'num', v: cumInterest };
+  return numNode(cumInterest);
 }
 
 /**
@@ -664,7 +664,7 @@ export function cumprincFunc(
     balance += principal;
   }
 
-  return { t: 'num', v: cumPrincipal };
+  return numNode(cumPrincipal);
 }
 
 /**
@@ -710,7 +710,7 @@ export function xnpvFunc(
     npv += values[i] / Math.pow(1 + rate.v, years);
   }
 
-  return { t: 'num', v: npv };
+  return numNode(npv);
 }
 
 /**
@@ -767,7 +767,7 @@ export function xirrFunc(
     }
     if (Math.abs(df) < 1e-15) return ErrNode.VALUE;
     const newRate = rate - f / df;
-    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    if (Math.abs(newRate - rate) < 1e-10) return numNode(newRate);
     rate = newRate;
   }
   return ErrNode.VALUE;
@@ -797,7 +797,7 @@ export function sydFunc(
   if (l <= 0 || p < 1 || p > l) return ErrNode.VALUE;
 
   const sumOfYears = l * (l + 1) / 2;
-  return { t: 'num', v: (cost.v - salvage.v) * (l - p + 1) / sumOfYears };
+  return numNode((cost.v - salvage.v) * (l - p + 1) / sumOfYears);
 }
 
 /**
@@ -834,7 +834,7 @@ export function mirrFunc(
   }
 
   if (pvNeg === 0) return ErrNode.DIV0;
-  return { t: 'num', v: Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1 };
+  return numNode(Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1);
 }
 
 /**
@@ -863,7 +863,7 @@ export function tbilleqFunc(
   const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
   if (dsm <= 0 || discountNode.v <= 0) return ErrNode.VALUE;
 
-  return { t: 'num', v: 365 * discountNode.v / (360 - discountNode.v * dsm) };
+  return numNode(365 * discountNode.v / (360 - discountNode.v * dsm));
 }
 
 /**
@@ -892,7 +892,7 @@ export function tbillpriceFunc(
   const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
   if (dsm <= 0) return ErrNode.VALUE;
 
-  return { t: 'num', v: 100 * (1 - discountNode.v * dsm / 360) };
+  return numNode(100 * (1 - discountNode.v * dsm / 360));
 }
 
 /**
@@ -921,7 +921,7 @@ export function tbillyieldFunc(
   const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
   if (dsm <= 0 || priceNode.v <= 0) return ErrNode.VALUE;
 
-  return { t: 'num', v: (100 - priceNode.v) / priceNode.v * 360 / dsm };
+  return numNode((100 - priceNode.v) / priceNode.v * 360 / dsm);
 }
 
 /**
@@ -944,7 +944,7 @@ export function dollardeFunc(
   const intPart = Math.trunc(dollar.v);
   const fracPart = dollar.v - intPart;
   const power = Math.pow(10, Math.ceil(Math.log10(f)));
-  return { t: 'num', v: intPart + fracPart * power / f };
+  return numNode(intPart + fracPart * power / f);
 }
 
 /**
@@ -967,7 +967,7 @@ export function dollarfrFunc(
   const intPart = Math.trunc(dollar.v);
   const fracPart = dollar.v - intPart;
   const power = Math.pow(10, Math.ceil(Math.log10(f)));
-  return { t: 'num', v: intPart + fracPart * f / power };
+  return numNode(intPart + fracPart * f / power);
 }
 
 /**
@@ -994,7 +994,7 @@ export function accrintFunc(
   const basis = exprs.length >= 7 ? NumberArgs.map(visit(exprs[6]), grid) : { t: 'num' as const, v: 0 };
   if (basis.t === 'err') return basis;
   const yf = yearFrac(issue, settlement, Math.trunc(basis.v));
-  return { t: 'num', v: par.v * rate.v * yf };
+  return numNode(par.v * rate.v * yf);
 }
 
 /**
@@ -1018,7 +1018,7 @@ export function accrintmFunc(
   const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
   if (basis.t === 'err') return basis;
   const yf = yearFrac(issue, settlement, Math.trunc(basis.v));
-  return { t: 'num', v: par.v * rate.v * yf };
+  return numNode(par.v * rate.v * yf);
 }
 
 /**
@@ -1039,7 +1039,7 @@ export function coupdaybsFunc(
   if (freq.t === 'err') return freq;
   const pcd = prevCouponDate(settlement, maturity, Math.trunc(freq.v));
   const days = Math.round((settlement.getTime() - pcd.getTime()) / 86400000);
-  return { t: 'num', v: days };
+  return numNode(days);
 }
 
 /**
@@ -1062,7 +1062,7 @@ export function coupdaysFunc(
   const pcd = prevCouponDate(settlement, maturity, f);
   const ncd = nextCouponDate(settlement, maturity, f);
   const days = Math.round((ncd.getTime() - pcd.getTime()) / 86400000);
-  return { t: 'num', v: days };
+  return numNode(days);
 }
 
 /**
@@ -1083,7 +1083,7 @@ export function coupdaysncFunc(
   if (freq.t === 'err') return freq;
   const ncd = nextCouponDate(settlement, maturity, Math.trunc(freq.v));
   const days = Math.round((ncd.getTime() - settlement.getTime()) / 86400000);
-  return { t: 'num', v: days };
+  return numNode(days);
 }
 
 /**
@@ -1130,7 +1130,7 @@ export function coupnumFunc(
     d.setMonth(d.getMonth() - monthsPer);
     count++;
   }
-  return { t: 'num', v: count };
+  return numNode(count);
 }
 
 /**
@@ -1175,7 +1175,7 @@ export function discFunc(
   if (basis.t === 'err') return basis;
   const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
   if (yf === 0) return ErrNode.VALUE;
-  return { t: 'num', v: (redemption.v - price.v) / redemption.v / yf };
+  return numNode((redemption.v - price.v) / redemption.v / yf);
 }
 
 /**
@@ -1199,7 +1199,7 @@ export function pricediscFunc(
   const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
   if (basis.t === 'err') return basis;
   const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
-  return { t: 'num', v: redemption.v * (1 - discount.v * yf) };
+  return numNode(redemption.v * (1 - discount.v * yf));
 }
 
 /**
@@ -1224,7 +1224,7 @@ export function yielddiscFunc(
   if (basis.t === 'err') return basis;
   const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
   if (yf === 0 || price.v === 0) return ErrNode.VALUE;
-  return { t: 'num', v: (redemption.v - price.v) / price.v / yf };
+  return numNode((redemption.v - price.v) / price.v / yf);
 }
 
 /**
@@ -1265,7 +1265,7 @@ export function durationFunc(
   const pvRedemption = 1 / Math.pow(1 + y, n);
   numerator += (n / f) * pvRedemption;
   denominator += pvRedemption;
-  return { t: 'num', v: numerator / denominator };
+  return numNode(numerator / denominator);
 }
 
 /**
@@ -1305,7 +1305,7 @@ export function mdurationFunc(
   numerator += (n / f) * pvRedemption;
   denominator += pvRedemption;
   const macDur = numerator / denominator;
-  return { t: 'num', v: macDur / (1 + yld.v / f) };
+  return numNode(macDur / (1 + yld.v / f));
 }
 
 /**
@@ -1331,7 +1331,7 @@ export function receivedFunc(
   const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
   const denom = 1 - discount.v * yf;
   if (denom === 0) return ErrNode.VALUE;
-  return { t: 'num', v: investment.v / denom };
+  return numNode(investment.v / denom);
 }
 
 /**
@@ -1356,7 +1356,7 @@ export function intrateFunc(
   if (basis.t === 'err') return basis;
   const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
   if (yf === 0 || investment.v === 0) return ErrNode.VALUE;
-  return { t: 'num', v: (redemption.v - investment.v) / investment.v / yf };
+  return numNode((redemption.v - investment.v) / investment.v / yf);
 }
 
 /**
@@ -1402,7 +1402,7 @@ export function priceFunc(
   }
   price += redemption.v / Math.pow(1 + y, n - 1 + dscFrac);
   price -= cpn * (A / E);
-  return { t: 'num', v: price };
+  return numNode(price);
 }
 
 /**
@@ -1459,7 +1459,7 @@ export function yieldBondFunc(
     if (Math.abs(dpv) < 1e-20) break;
     yld -= diff / dpv;
   }
-  return { t: 'num', v: yld };
+  return numNode(yld);
 }
 
 /**
@@ -1490,7 +1490,7 @@ export function pricematFunc(
   const dsm = yearFrac(settlement, maturity, b);
   const denom = 1 + dsm * yld.v;
   if (denom === 0) return ErrNode.VALUE;
-  return { t: 'num', v: 100 * (1 + dim * rate.v) / denom - 100 * dis * rate.v };
+  return numNode(100 * (1 + dim * rate.v) / denom - 100 * dis * rate.v);
 }
 
 /**
@@ -1522,7 +1522,7 @@ export function yieldmatFunc(
   if (dsm === 0) return ErrNode.VALUE;
   const prAdjusted = pr.v / 100 + dis * rate.v;
   if (prAdjusted === 0) return ErrNode.VALUE;
-  return { t: 'num', v: ((1 + dim * rate.v) / prAdjusted - 1) / dsm };
+  return numNode(((1 + dim * rate.v) / prAdjusted - 1) / dsm);
 }
 
 /**
@@ -1554,16 +1554,16 @@ export function amorlincFunc(
   if (per === 0) {
     // First period prorated
     const yf = yearFrac(purchaseDate, firstPeriod, Math.trunc(basis.v));
-    return { t: 'num', v: annualDepr * yf };
+    return numNode(annualDepr * yf);
   }
   // Remaining book value check
   let bookValue = cost.v - annualDepr * yearFrac(purchaseDate, firstPeriod, Math.trunc(basis.v));
   for (let i = 1; i < per; i++) {
     bookValue -= annualDepr;
-    if (bookValue - salvage.v <= 0) return { t: 'num', v: 0 };
+    if (bookValue - salvage.v <= 0) return numNode(0);
   }
   const depr = Math.min(annualDepr, bookValue - salvage.v);
-  return { t: 'num', v: Math.max(0, depr) };
+  return numNode(Math.max(0, depr));
 }
 
 /**
@@ -1583,7 +1583,7 @@ export function ispmtFunc(
   if (nper.t === 'err') return nper;
   const pv = NumberArgs.map(visit(exprs[3]), grid);
   if (pv.t === 'err') return pv;
-  return { t: 'num', v: pv.v * rate.v * (per.v / nper.v - 1) };
+  return numNode(pv.v * rate.v * (per.v / nper.v - 1));
 }
 
 /**
@@ -1614,7 +1614,7 @@ export function fvscheduleFunc(
     if (n.t === 'err') return n;
     fv *= (1 + n.v);
   }
-  return { t: 'num', v: fv };
+  return numNode(fv);
 }
 
 /**
@@ -1633,7 +1633,7 @@ export function pdurationFunc(
   const fv = NumberArgs.map(visit(exprs[2]), grid);
   if (fv.t === 'err') return fv;
   if (rate.v <= 0 || pv.v <= 0 || fv.v <= 0) return ErrNode.VALUE;
-  return { t: 'num', v: (Math.log(fv.v) - Math.log(pv.v)) / Math.log(1 + rate.v) };
+  return numNode((Math.log(fv.v) - Math.log(pv.v)) / Math.log(1 + rate.v));
 }
 
 /**
@@ -1652,7 +1652,7 @@ export function rriFunc(
   const fv = NumberArgs.map(visit(exprs[2]), grid);
   if (fv.t === 'err') return fv;
   if (nper.v === 0 || pv.v === 0) return ErrNode.VALUE;
-  return { t: 'num', v: Math.pow(fv.v / pv.v, 1 / nper.v) - 1 };
+  return numNode(Math.pow(fv.v / pv.v, 1 / nper.v) - 1);
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   StrNode,
   RefNode,
   ErrNode,
+  numNode,
 } from './formula';
 import { isSrng, toSrefs } from '../model/core/coordinates';
 import { Grid } from '../model/core/types';
@@ -133,9 +134,9 @@ function bool2num(result: BoolNode): NumNode {
 /**
  * `str2num` converts a string result to a number result.
  */
-function str2num(result: StrNode): NumNode {
+function str2num(result: StrNode): NumNode | ErrNode {
   const num = Number(result.v);
-  return { t: 'num', v: isNaN(num) ? 0 : num };
+  return numNode(isNaN(num) ? 0 : num);
 }
 
 /**
@@ -148,7 +149,7 @@ export function ref2num(result: RefNode, grid: Grid): NumNode | ErrNode {
 
   const val = grid.get(result.v)?.v || '';
   const num = Number(val);
-  return { t: 'num', v: isNaN(num) ? 0 : num };
+  return numNode(isNaN(num) ? 0 : num);
 }
 
 /**

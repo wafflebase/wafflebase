@@ -331,10 +331,23 @@ describe('Formula', () => {
     expect(evaluate('=SQRT(-1)')).toBe('#NUM!');
   });
 
+  it('should return #NUM! on numeric overflow', () => {
+    expect(evaluate('=1.5E308 * 10')).toBe('#NUM!');
+    expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
+    expect(evaluate('=EXP(1000)')).toBe('#NUM!');
+    expect(evaluate('=POWER(10,1000)')).toBe('#NUM!');
+    expect(evaluate('=FACT(200)')).toBe('#NUM!');
+    expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=1E309')).toBe('#NUM!');
+    expect(evaluate('=SUM(1E308, 1E308)')).toBe('#NUM!');
+    expect(evaluate('=MULTIPLY(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=ADD(1.5E308, 1.5E308)')).toBe('#NUM!');
+    expect(evaluate('=1 * "1E999"')).toBe('#NUM!');
+  });
+
   it('should correctly evaluate POWER function', () => {
     expect(evaluate('=POWER(2,3)')).toBe('8');
     expect(evaluate('=POWER(9,0.5)')).toBe('3');
-    expect(evaluate('=POWER(10,1000)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate PRODUCT function', () => {

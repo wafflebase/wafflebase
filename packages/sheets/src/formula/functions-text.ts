@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, numNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -43,7 +43,7 @@ export function lenFunc(
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
 
-  return { t: 'num', v: str.v.length };
+  return numNode(str.v.length);
 }
 
 /**
@@ -62,9 +62,9 @@ export function leftFunc(
 
   let n = 1;
   if (exprs.length === 2) {
-    const numNode = NumberArgs.map(visit(exprs[1]), grid);
-    if (numNode.t === 'err') return numNode;
-    n = numNode.v;
+    const nArg = NumberArgs.map(visit(exprs[1]), grid);
+    if (nArg.t === 'err') return nArg;
+    n = nArg.v;
   }
 
   return { t: 'str', v: str.v.slice(0, n) };
@@ -86,9 +86,9 @@ export function rightFunc(
 
   let n = 1;
   if (exprs.length === 2) {
-    const numNode = NumberArgs.map(visit(exprs[1]), grid);
-    if (numNode.t === 'err') return numNode;
-    n = numNode.v;
+    const nArg = NumberArgs.map(visit(exprs[1]), grid);
+    if (nArg.t === 'err') return nArg;
+    n = nArg.v;
   }
 
   return { t: 'str', v: str.v.slice(-n) };
@@ -166,7 +166,7 @@ export function findFunc(
   }
 
   if (searchFor.v === '') {
-    return { t: 'num', v: start.v };
+    return numNode(start.v);
   }
 
   const index = text.v.indexOf(searchFor.v, start.v - 1);
@@ -174,7 +174,7 @@ export function findFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: index + 1 };
+  return numNode(index + 1);
 }
 
 /**
@@ -204,7 +204,7 @@ export function searchFunc(
   }
 
   if (searchFor.v === '') {
-    return { t: 'num', v: start.v };
+    return numNode(start.v);
   }
 
   const query = wildcardToRegex(searchFor.v);
@@ -215,7 +215,7 @@ export function searchFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: start.v + match.index };
+  return numNode(start.v + match.index);
 }
 
 /**
@@ -542,7 +542,7 @@ export function valueFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: num };
+  return numNode(num);
 }
 
 /**
@@ -715,7 +715,7 @@ export function codeFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: str.v.charCodeAt(0) };
+  return numNode(str.v.charCodeAt(0));
 }
 
 /**
@@ -785,7 +785,7 @@ export function numbervalueFunc(
     if (isNaN(num)) {
       return ErrNode.VALUE;
     }
-    return { t: 'num', v: num / 100 };
+    return numNode(num / 100);
   }
 
   const num = Number(cleaned);
@@ -793,7 +793,7 @@ export function numbervalueFunc(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: num };
+  return numNode(num);
 }
 
 /**
@@ -1065,7 +1065,7 @@ export function unicodeFunc(
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
   if (str.v.length === 0) return ErrNode.VALUE;
-  return { t: 'num', v: str.v.codePointAt(0)! };
+  return numNode(str.v.codePointAt(0)!);
 }
 
 /**
@@ -1265,7 +1265,7 @@ function parseStartPosition(
   grid?: Grid,
 ): { t: 'num'; v: number } | ErrNode {
   if (!expr) {
-    return { t: 'num', v: 1 };
+    return numNode(1);
   }
 
   const start = NumberArgs.map(visit(expr), grid);
@@ -1278,7 +1278,7 @@ function parseStartPosition(
     return ErrNode.VALUE;
   }
 
-  return { t: 'num', v: value };
+  return numNode(value);
 }
 
 export const textEntries: [string, (...args: any[]) => EvalNode][] = [
