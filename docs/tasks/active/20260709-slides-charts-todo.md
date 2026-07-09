@@ -1,6 +1,7 @@
 # Slides Charts — Phase 1 (import + render + PDF)
 
 Design: [docs/design/slides/slides-charts.md](../../design/slides/slides-charts.md)
+Plan: [20260709-slides-charts-plan.md](./20260709-slides-charts-plan.md) — task-by-task TDD steps
 
 Root cause: every `<p:graphicFrame>` routes to `parseTable`
 (`packages/slides/src/import/pptx/shape.ts:383`), which returns `[]` for
