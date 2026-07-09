@@ -4,6 +4,7 @@ import {
   Cell,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterState,
   HiddenState,
   PivotTableDefinition,
@@ -237,6 +238,14 @@ export class ReadOnlyStore implements Store {
   }
 
   async getConditionalFormats(): Promise<ConditionalFormatRule[]> {
+    return [];
+  }
+
+  async setDataValidations(_rules: DataValidationRule[]): Promise<void> {
+    // no-op
+  }
+
+  async getDataValidations(): Promise<DataValidationRule[]> {
     return [];
   }
 

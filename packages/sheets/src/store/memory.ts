@@ -24,12 +24,19 @@ import {
   normalizeConditionalFormatRule,
   shiftConditionalFormatRules,
 } from '../model/worksheet/conditional-format';
+import {
+  cloneDataValidationRule,
+  moveDataValidationRules,
+  normalizeDataValidationRule,
+  shiftDataValidationRules,
+} from '../model/worksheet/data-validation';
 import { shiftMergeMap, moveMergeMap } from '../model/worksheet/merging';
 import {
   Axis,
   Cell,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   Grid,
   HiddenState,
   PivotTableDefinition,
@@ -71,6 +78,7 @@ export class MemStore implements Store {
   private sheetStyle?: CellStyle;
   private rangeStyles: RangeStylePatch[] = [];
   private conditionalFormats: ConditionalFormatRule[] = [];
+  private dataValidations: DataValidationRule[] = [];
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
   private hiddenState?: HiddenState;
@@ -193,6 +201,12 @@ export class MemStore implements Store {
       index,
       count,
     );
+    this.dataValidations = shiftDataValidationRules(
+      this.dataValidations,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
 
     if (this.hiddenState) {
@@ -255,6 +269,13 @@ export class MemStore implements Store {
     );
     this.conditionalFormats = moveConditionalFormatRules(
       this.conditionalFormats,
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+    );
+    this.dataValidations = moveDataValidationRules(
+      this.dataValidations,
       axis,
       srcIndex,
       count,
@@ -414,6 +435,17 @@ export class MemStore implements Store {
     return this.conditionalFormats.map((rule) =>
       cloneConditionalFormatRule(rule),
     );
+  }
+
+  async setDataValidations(rules: DataValidationRule[]): Promise<void> {
+    this.dataValidations = rules
+      .map((rule) => normalizeDataValidationRule(rule))
+      .filter((rule): rule is DataValidationRule => !!rule)
+      .map((rule) => cloneDataValidationRule(rule));
+  }
+
+  async getDataValidations(): Promise<DataValidationRule[]> {
+    return this.dataValidations.map((rule) => cloneDataValidationRule(rule));
   }
 
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {

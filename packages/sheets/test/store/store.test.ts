@@ -1,10 +1,64 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
 import { MemStore } from '../../src/store/memory';
-import { PivotTableDefinition } from '../../src/model/core/types';
+import {
+  DataValidationRule,
+  PivotTableDefinition,
+} from '../../src/model/core/types';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());
+});
+
+describe('MemStore data validations', () => {
+  it('round-trips data validation rules as clones', async () => {
+    const store = new MemStore();
+    const rule: DataValidationRule = {
+      id: 'a',
+      kind: 'checkbox',
+      ranges: [
+        [
+          { r: 1, c: 1 },
+          { r: 2, c: 1 },
+        ],
+      ],
+    };
+    await store.setDataValidations([rule]);
+    const got = await store.getDataValidations();
+    expect(got).toHaveLength(1);
+    expect(got[0].id).toBe('a');
+    // returned rules are clones, not the same reference
+    got[0].ranges[0][0].r = 99;
+    expect((await store.getDataValidations())[0].ranges[0][0].r).toBe(1);
+  });
+
+  it('drops invalid rules on set (empty ranges)', async () => {
+    const store = new MemStore();
+    await store.setDataValidations([
+      { id: '', kind: 'checkbox', ranges: [] } as DataValidationRule,
+    ]);
+    expect(await store.getDataValidations()).toHaveLength(0);
+  });
+
+  it('shifts rule ranges when rows are inserted', async () => {
+    const store = new MemStore();
+    await store.setDataValidations([
+      {
+        id: 'a',
+        kind: 'checkbox',
+        ranges: [
+          [
+            { r: 3, c: 1 },
+            { r: 3, c: 1 },
+          ],
+        ],
+      },
+    ]);
+    // insert 2 rows above row 3 → rule range moves to row 5
+    await store.shiftCells('row', 1, 2);
+    const got = await store.getDataValidations();
+    expect(got[0].ranges[0][0].r).toBe(5);
+  });
 });
 
 function runTests(createStore: (key: string) => Promise<Store>) {

@@ -3,6 +3,7 @@ import {
   Cell,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterState,
   Grid,
   HiddenState,
@@ -169,6 +170,16 @@ export interface Store {
    * `getConditionalFormats` gets all conditional format rules in apply order.
    */
   getConditionalFormats(): Promise<ConditionalFormatRule[]>;
+
+  /**
+   * `setDataValidations` replaces all data-validation rules.
+   */
+  setDataValidations(rules: DataValidationRule[]): Promise<void>;
+
+  /**
+   * `getDataValidations` gets all data-validation rules in apply order.
+   */
+  getDataValidations(): Promise<DataValidationRule[]>;
 
   /**
    * `setMerge` sets a merged range anchor with row/column span.
