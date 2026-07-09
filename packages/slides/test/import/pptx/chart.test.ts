@@ -70,3 +70,61 @@ describe('parseChartXml — barChart', () => {
     expect(data!.grouping).toBe('stacked');
   });
 });
+
+const PIE = `<c:chartSpace ${CHART_NS}>
+  <c:chart>
+    <c:title><c:tx><c:rich><a:p><a:r><a:t>Share</a:t></a:r></a:p></c:rich></c:tx></c:title>
+    <c:plotArea>
+      <c:pieChart>
+        <c:ser>
+          <c:cat><c:strRef><c:strCache>
+            <c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt>
+          </c:strCache></c:strRef></c:cat>
+          <c:val><c:numRef><c:numCache>
+            <c:pt idx="0"><c:v>60</c:v></c:pt><c:pt idx="1"><c:v>40</c:v></c:pt>
+          </c:numCache></c:numRef></c:val>
+        </c:ser>
+      </c:pieChart>
+    </c:plotArea>
+    <c:legend><c:legendPos val="r"/></c:legend>
+  </c:chart>
+</c:chartSpace>`;
+
+describe('parseChartXml — line/area/pie + chart chrome', () => {
+  it('maps a lineChart', () => {
+    const xml = COLUMN_CLUSTERED
+      .replace('<c:barChart>', '<c:lineChart>')
+      .replace('</c:barChart>', '</c:lineChart>')
+      .replace('<c:barDir val="col"/>', '');
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(data!.kind).toBe('line');
+    expect(data!.series[0].values).toEqual([10, 20]);
+  });
+
+  it('maps an areaChart', () => {
+    const xml = COLUMN_CLUSTERED
+      .replace('<c:barChart>', '<c:areaChart>')
+      .replace('</c:barChart>', '</c:areaChart>')
+      .replace('<c:barDir val="col"/>', '');
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(data!.kind).toBe('area');
+  });
+
+  it('maps a pieChart with title and legend position', () => {
+    const data = parseChartXml(parseXml(PIE), ctx());
+    expect(data!.kind).toBe('pie');
+    expect(data!.title).toBe('Share');
+    expect(data!.legend).toBe('right');
+    expect(data!.series[0].values).toEqual([60, 40]);
+    expect(data!.categories).toEqual(['A', 'B']);
+  });
+
+  it('detects value-axis gridlines', () => {
+    const xml = COLUMN_CLUSTERED.replace(
+      '</c:plotArea>',
+      '<c:valAx><c:majorGridlines/></c:valAx></c:plotArea>',
+    );
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(data!.showGridlines).toBe(true);
+  });
+});
