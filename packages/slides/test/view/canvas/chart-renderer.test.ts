@@ -43,7 +43,9 @@ describe('niceTicks', () => {
 describe('drawChart — column', () => {
   it('draws one filled rect per (series × category) bar', () => {
     const ctx = createCtxSpy();
-    drawChart(asCtx(ctx), size, columnData(), THEME);
+    // legend: 'none' isolates bar fillRect calls from the legend's own
+    // fillRect swatches, so this measures bar count exactly.
+    drawChart(asCtx(ctx), size, { ...columnData(), legend: 'none' }, THEME);
     // 2 series × 3 categories = 6 bars.
     expect(ctx.fillRect).toHaveBeenCalledTimes(6);
   });
@@ -53,6 +55,23 @@ describe('drawChart — column', () => {
     expect(() =>
       drawChart(asCtx(ctx), size, { kind: 'column', categories: [], series: [] }, THEME),
     ).not.toThrow();
+  });
+});
+
+describe('drawChart — legend', () => {
+  it('draws a square swatch per series via fillRect when the legend is on', () => {
+    const off = createCtxSpy();
+    drawChart(asCtx(off), size, { ...columnData(), legend: 'none' }, THEME);
+    const on = createCtxSpy();
+    drawChart(asCtx(on), size, columnData(), THEME);
+    // 2 series → 2 extra fillRect calls (bars: 6, bars + legend: 8).
+    expect(on.fillRect).toHaveBeenCalledTimes(off.fillRect.mock.calls.length + 2);
+    // Each swatch is a 10x10 square.
+    const swatchCalls = on.fillRect.mock.calls.slice(-2);
+    for (const [, , w, h] of swatchCalls) {
+      expect(w).toBe(10);
+      expect(h).toBe(10);
+    }
   });
 });
 

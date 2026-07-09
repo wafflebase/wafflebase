@@ -79,7 +79,7 @@ export function drawChart(
     drawPie(ctx, plot, data, theme);
   }
 
-  if (showTitle && data.title) drawTitle(ctx, size, data.title, theme, opts?.fontScale);
+  if (showTitle) drawTitle(ctx, size, data.title!, theme, opts?.fontScale);
   if (showLegend) drawLegend(ctx, size, data, theme);
 }
 
@@ -108,7 +108,7 @@ function seriesMax(data: ChartElement['data']): number {
  */
 function drawBars(
   ctx: CanvasRenderingContext2D,
-  plot: { x: number; y: number; w: number; h: number },
+  plot: PlotRect,
   data: ChartElement['data'],
   theme: Theme,
   colors: { axisColor: string; gridColor: string },
@@ -292,12 +292,8 @@ function drawTitle(
 /**
  * Draw a left-aligned swatch + label legend in the reserved bottom band.
  *
- * Swatches are small filled circles (`arc` + `fill`) rather than
- * `fillRect` — `fillRect` is the same primitive `drawBars` uses to
- * paint bars, and the column-chart test asserts an exact `fillRect`
- * call count for "one rect per bar". Using a different primitive here
- * keeps that invariant (bars are the only thing that call `fillRect`)
- * even now that a 2-series chart draws a legend by default.
+ * Swatches are small filled squares (`fillRect`), matching PowerPoint/
+ * Google Sheets legend styling.
  */
 function drawLegend(
   ctx: CanvasRenderingContext2D,
@@ -311,14 +307,12 @@ function drawLegend(
   ctx.textBaseline = 'middle';
   let x = 40;
   const y = size.h - 8;
-  const r = 5;
+  const swatch = 10;
   for (const it of items) {
     ctx.fillStyle = seriesColorAt(data, it.i, theme);
-    ctx.beginPath();
-    ctx.arc(x + r, y, r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(x, y - 5, swatch, swatch);
     ctx.fillStyle = resolveColor({ kind: 'role', role: 'text' }, theme);
-    ctx.fillText(it.label, x + 2 * r + 4, y);
-    x += 2 * r + 4 + ctx.measureText(it.label).width + 16;
+    ctx.fillText(it.label, x + swatch + 4, y);
+    x += swatch + 4 + ctx.measureText(it.label).width + 16;
   }
 }
