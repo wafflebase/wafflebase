@@ -61,3 +61,131 @@ describe('GridCanvas merged render refs', () => {
     expect(srefs).not.toContain(anchorSref);
   });
 });
+
+type MockCtx = {
+  calls: string[];
+  save(): void;
+  restore(): void;
+  fillRect(...a: number[]): void;
+  strokeRect(...a: number[]): void;
+  beginPath(): void;
+  moveTo(...a: number[]): void;
+  lineTo(...a: number[]): void;
+  stroke(): void;
+  fillStyle: string;
+  strokeStyle: string;
+  lineWidth: number;
+  lineCap: string;
+  lineJoin: string;
+};
+
+function makeMockCtx(): MockCtx {
+  const ctx = {
+    calls: [] as string[],
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    lineCap: '',
+    lineJoin: '',
+    save() {
+      this.calls.push('save');
+    },
+    restore() {
+      this.calls.push('restore');
+    },
+    fillRect() {
+      this.calls.push('fillRect');
+    },
+    strokeRect() {
+      this.calls.push('strokeRect');
+    },
+    beginPath() {
+      this.calls.push('beginPath');
+    },
+    moveTo() {
+      this.calls.push('moveTo');
+    },
+    lineTo() {
+      this.calls.push('lineTo');
+    },
+    stroke() {
+      this.calls.push('stroke');
+    },
+  };
+  return ctx as unknown as MockCtx;
+}
+
+const renderCellCheckbox = (
+  GridCanvas.prototype as unknown as {
+    renderCellCheckbox: (...args: unknown[]) => void;
+  }
+).renderCellCheckbox;
+
+function makeThis() {
+  return {
+    toCellRect: () => ({ left: 10, top: 10, width: 80, height: 24 }),
+    getThemeColor: () => '#123456',
+    getCheckIconPath2D: () => null, // force deterministic fallback
+  };
+}
+
+describe('GridCanvas checkbox glyph', () => {
+  const rule = {
+    id: 'a',
+    kind: 'checkbox' as const,
+    ranges: [
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+    ],
+  };
+
+  it('draws only an outline for an unchecked cell', () => {
+    const ctx = makeMockCtx();
+    renderCellCheckbox.call(
+      makeThis(),
+      ctx,
+      { r: 1, c: 1 },
+      rule,
+      { v: 'FALSE' },
+      { left: 0, top: 0 },
+    );
+    expect(ctx.calls).toContain('strokeRect');
+    expect(ctx.calls).not.toContain('fillRect');
+  });
+
+  it('fills the box and draws a check for a checked cell', () => {
+    const ctx = makeMockCtx();
+    renderCellCheckbox.call(
+      makeThis(),
+      ctx,
+      { r: 1, c: 1 },
+      rule,
+      { v: 'TRUE' },
+      { left: 0, top: 0 },
+    );
+    expect(ctx.calls).toContain('fillRect');
+    // fallback check path uses moveTo/lineTo + stroke
+    expect(ctx.calls).toContain('moveTo');
+    expect(ctx.calls).toContain('stroke');
+  });
+
+  it('skips tiny cells', () => {
+    const ctx = makeMockCtx();
+    const thisArg = {
+      ...makeThis(),
+      toCellRect: () => ({ left: 0, top: 0, width: 4, height: 4 }),
+    };
+    renderCellCheckbox.call(
+      thisArg,
+      ctx,
+      { r: 1, c: 1 },
+      rule,
+      { v: 'TRUE' },
+      { left: 0, top: 0 },
+    );
+    expect(ctx.calls).not.toContain('fillRect');
+    expect(ctx.calls).not.toContain('strokeRect');
+  });
+});

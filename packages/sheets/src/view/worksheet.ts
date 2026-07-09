@@ -5075,6 +5075,7 @@ export class Worksheet {
       sheet.getStore().getRowOrder(),
       sheet.getStore().getColOrder(),
       commentCellKeys,
+      sheet.getDataValidations(),
     );
   }
 
