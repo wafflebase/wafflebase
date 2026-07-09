@@ -3,6 +3,7 @@ import {
   BorderPreset,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterCondition,
   FormulaResolver,
   GridResolver,
@@ -304,6 +305,33 @@ export class Spreadsheet {
     await this.sheet.setConditionalFormats(rules);
     this.worksheet.render();
     this.notifySelectionChange();
+  }
+
+  /**
+   * `getDataValidations` returns data-validation rules.
+   */
+  public getDataValidations(): DataValidationRule[] {
+    return this.sheet?.getDataValidations() || [];
+  }
+
+  /**
+   * `insertCheckbox` adds a checkbox rule over the range and re-renders.
+   */
+  public async insertCheckbox(range: Range, id: string): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.insertCheckbox(range, id);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `toggleCheckboxAt` flips the checkbox at ref and re-renders if it changed.
+   */
+  public async toggleCheckboxAt(ref: Ref): Promise<boolean> {
+    if (!this.sheet || this._readOnly) return false;
+    const toggled = await this.sheet.toggleCheckboxAt(ref);
+    if (toggled) this.worksheet.render();
+    return toggled;
   }
 
   /**
