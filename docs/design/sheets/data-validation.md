@@ -124,18 +124,20 @@ concurrent first-insert (same reason the existing map containers are seeded).
 
 Add to the `Store` interface (`store.ts`) and all three implementations
 (`MemStore`, `ReadOnlyStore`, `YorkieStore`), homomorphic to
-`get/setConditionalFormats` (`store.ts:166-171`):
+`get/setConditionalFormats` (`store.ts:166-171`) — note the `Store` surface is
+`Promise`-based:
 
 ```typescript
-getDataValidations(): DataValidationRule[];
+getDataValidations(): Promise<DataValidationRule[]>;
 setDataValidations(rules: DataValidationRule[]): Promise<void>;
 ```
 
-Plus a lookup helper (range matching, exactly as conditional formats resolve a
-cell's applicable rule):
+Plus a pure model helper (range matching, exactly as conditional formats resolve
+a cell's applicable rule — lives in the `data-validation.ts` module, not on the
+Store):
 
 ```typescript
-getValidationAt(ref: Ref): DataValidationRule | undefined;
+resolveDataValidationAt(point: Ref, rules: DataValidationRule[]): DataValidationRule | undefined;
 ```
 
 Overlapping ranges: last matching rule wins (same policy as conditional
@@ -148,7 +150,7 @@ The filter button (`gridcanvas.ts:811-876` `renderCellFilterButton`) is the
 working precedent for an in-cell interactive glyph: rounded button + cached
 `Path2D` icon + hover state + `toCellRect` geometry (`gridcanvas.ts:1632`,
 scroll/freeze/merge aware). Add a new **Pass 3.5** in `renderQuadrantCells`
-(after content Pass 3, `gridcanvas.ts:590`), driven by `getValidationAt`:
+(after content Pass 3, `gridcanvas.ts:590`), driven by `resolveDataValidationAt`:
 
 - **checkbox**: draw a checkbox glyph (filled check if `v` equals the checked
   value, empty box otherwise) via a cached `Path2D`, replacing the value text
@@ -161,7 +163,7 @@ scroll/freeze/merge aware). Add a new **Pass 3.5** in `renderQuadrantCells`
   the rule, draw a small red triangle at the top-right, using the same technique
   as the comment marker (`gridcanvas.ts:687` `drawCommentMarker`, Pass 5).
 
-Violation state is computed at render time (`getValidationAt` + value check); it
+Violation state is computed at render time (`resolveDataValidationAt` + value check); it
 is never persisted.
 
 ### Interaction (mouse / keyboard)
@@ -184,7 +186,7 @@ cell selection:
   popover (frontend shadcn calendar) anchored to the cell rect; selection writes
   the ISO value (GS parity).
 - **typed-value commit validation**: in the `CellInput` commit path
-  (`cellinput.ts`), run `getValidationAt` + value check. `reject` → discard the
+  (`cellinput.ts`), run `resolveDataValidationAt` + value check. `reject` → discard the
   input, keep the previous value, show an error toast. `warning` → store the
   value; the render pass draws the red triangle.
 
@@ -222,7 +224,7 @@ Ship in phases, each a self-contained PR:
 
 ### Testing
 
-- **model unit tests** (Vitest, `packages/sheets`): `getValidationAt` range
+- **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,
   custom); list/date validation (`reject`/`warning`, `dateMin`/`dateMax`
   boundaries); Store 3-impl round-trip for `get/setDataValidations`; Yorkie

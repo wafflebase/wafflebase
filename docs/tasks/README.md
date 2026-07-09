@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheet data validation — checkbox (2026-07-10) | [20260710-sheet-data-validation-checkbox-todo.md](./active/20260710-sheet-data-validation-checkbox-todo.md) | - |
 | slides charts (2026-07-09) | [20260709-slides-charts-todo.md](./active/20260709-slides-charts-todo.md) | [20260709-slides-charts-lessons.md](./active/20260709-slides-charts-lessons.md) |
 | devops storage secrets (2026-07-08) | [20260708-devops-storage-secrets-todo.md](./active/20260708-devops-storage-secrets-todo.md) | - |
 | release v0.5.0 (2026-07-07) | [20260707-release-v0.5.0-todo.md](./active/20260707-release-v0.5.0-todo.md) | - |
