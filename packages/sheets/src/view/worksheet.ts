@@ -2688,6 +2688,27 @@ export class Worksheet {
       return;
     }
 
+    // Checkbox toggle: left-click inside a checkbox-ruled cell body selects
+    // the cell and flips its value. Right-click falls through to the context
+    // menu; read-only viewers fall through to normal selection.
+    if (
+      e.button === 0 &&
+      !this.readOnly &&
+      x > RowHeaderWidth &&
+      y > DefaultCellHeight
+    ) {
+      const ref = this.toRefFromMouse(x, y);
+      const dvRule = this.sheet?.getDataValidationAt(ref);
+      if (dvRule && dvRule.kind === 'checkbox') {
+        e.preventDefault();
+        await this.finishEditing();
+        this.sheet!.selectStart(ref);
+        await this.sheet!.toggleCheckboxAt(ref);
+        this.render();
+        return;
+      }
+    }
+
     // Handle corner button click (select all)
     const isCorner = x < RowHeaderWidth && y < DefaultCellHeight;
     if (isCorner) {
@@ -4088,6 +4109,21 @@ export class Worksheet {
           if (this.readOnly) return;
           if (this.cellInput.isFocused() && this.cellInput.isPrimed()) return;
           this.showCellInput(true, false, true);
+        },
+      },
+      {
+        match: (event) =>
+          keyEquals(event, ' ') &&
+          !isModPressed(event) &&
+          !this.readOnly &&
+          this.sheet?.getDataValidationAt(this.sheet.getActiveCell())
+            ?.kind === 'checkbox',
+        run: async (event) => {
+          event.preventDefault();
+          const ref = this.sheet!.getActiveCell();
+          if (await this.sheet!.toggleCheckboxAt(ref)) {
+            this.render();
+          }
         },
       },
       {
