@@ -31,6 +31,35 @@ export function niceTicks(max: number, count = 5): { max: number; step: number }
 }
 
 const PAD = 8;
+const MIN_LEFT_MARGIN = 24;
+const VALUE_TICK_FONT = '10px sans-serif';
+const CATEGORY_LABEL_FONT = '10px sans-serif';
+
+/** Format a value-axis tick as a clean string (no floating-point noise). */
+function formatTick(v: number, isPercent: boolean): string {
+  const n = Math.round(v * 1e6) / 1e6; // squash fp noise before display
+  if (isPercent) return `${Math.round(n * 100)}%`;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+/**
+ * Measure the widest value-axis tick label so the left plot margin can
+ * fit it. Returns the reserved left margin in px (min `MIN_LEFT_MARGIN`).
+ */
+function measureLeftMargin(
+  ctx: CanvasRenderingContext2D,
+  domainMax: number,
+  isPercent: boolean,
+): number {
+  const { step } = niceTicks(domainMax);
+  ctx.font = VALUE_TICK_FONT;
+  let widest = 0;
+  for (let v = 0; v <= domainMax + 1e-9; v += step) {
+    const label = formatTick(v, isPercent);
+    widest = Math.max(widest, ctx.measureText(label).width);
+  }
+  return Math.max(MIN_LEFT_MARGIN, widest + 12);
+}
 
 /**
  * Draw a chart element into element-local coordinates (top-left at
@@ -58,11 +87,21 @@ export function drawChart(
       : data.series.length > 1;
   const showTitle = Boolean(data.title);
 
+  // A value axis (and its tick labels) exists for every kind except pie.
+  const hasValueAxis =
+    data.kind === 'column' || data.kind === 'bar' ||
+    data.kind === 'line' || data.kind === 'area';
+  const { domainMax, isPercent } = hasValueAxis
+    ? chartDomainMax(data)
+    : { domainMax: 1, isPercent: false };
+  const hasCategoryAxis = hasValueAxis && data.categories.length > 0;
+
   // Plot rectangle (leave room for value labels on the left, categories
-  // below, a title band on top, and a legend band on the bottom).
-  const left = 36;
+  // below, a title band on top, and a legend band on the bottom). The
+  // left margin is measured to fit the widest value-axis tick label.
+  const left = hasValueAxis ? measureLeftMargin(ctx, domainMax, isPercent) : 36;
   const top = PAD + (showTitle ? 18 : 0);
-  const bottom = 20 + (showLegend ? 20 : 0);
+  const bottom = 20 + (hasCategoryAxis ? 14 : 0) + (showLegend ? 20 : 0);
   const plot = {
     x: left,
     y: top,
@@ -72,15 +111,36 @@ export function drawChart(
   if (plot.w <= 0 || plot.h <= 0 || data.series.length === 0) return;
 
   if (data.kind === 'column' || data.kind === 'bar') {
-    drawBars(ctx, plot, data, theme, { axisColor, gridColor });
+    drawBars(ctx, plot, data, theme, { axisColor, gridColor }, domainMax);
   } else if (data.kind === 'line' || data.kind === 'area') {
-    drawLines(ctx, plot, data, theme, { axisColor, gridColor });
+    drawLines(ctx, plot, data, theme, { axisColor, gridColor }, domainMax);
   } else if (data.kind === 'pie') {
     drawPie(ctx, plot, data, theme);
   }
 
+  if (hasValueAxis) {
+    drawValueAxisTicks(ctx, plot, domainMax, isPercent, axisColor);
+  }
+  if (hasCategoryAxis) {
+    drawCategoryLabels(ctx, plot, data, axisColor);
+  }
+
   if (showTitle) drawTitle(ctx, size, data.title!, theme, opts?.fontScale);
   if (showLegend) drawLegend(ctx, size, data, theme);
+}
+
+/** Compute the value-axis domain max (and whether it's percent-normalized)
+ * for the value-axis chart kinds (`column`/`bar`/`line`/`area`). */
+function chartDomainMax(
+  data: ChartElement['data'],
+): { domainMax: number; isPercent: boolean } {
+  const isPercent = data.grouping === 'percentStacked';
+  if (data.kind === 'column' || data.kind === 'bar') {
+    return { domainMax: isPercent ? 1 : (niceTicks(seriesMax(data)).max || 1), isPercent };
+  }
+  // line/area: grouping (stacking) is not yet implemented for these kinds,
+  // matching the pre-existing `drawLines` behavior.
+  return { domainMax: niceTicks(seriesMax({ ...data, grouping: undefined })).max || 1, isPercent: false };
 }
 
 function seriesMax(data: ChartElement['data']): number {
@@ -112,13 +172,13 @@ function drawBars(
   data: ChartElement['data'],
   theme: Theme,
   colors: { axisColor: string; gridColor: string },
+  domainMax: number,
 ): void {
   const isPercent = data.grouping === 'percentStacked';
   const isStacked = data.grouping === 'stacked' || isPercent;
   const cats = data.categories.length
     ? data.categories.length
     : Math.max(...data.series.map((s) => s.values.length), 1);
-  const domainMax = isPercent ? 1 : niceTicks(seriesMax(data)).max || 1;
 
   if (data.showGridlines) drawGridlines(ctx, plot, domainMax, colors.gridColor);
 
@@ -186,6 +246,60 @@ function drawGridlines(
 }
 
 /**
+ * Draw numeric value-axis tick labels to the left of the plot, one per
+ * `niceTicks` step from 0..domainMax. Independent of `showGridlines` —
+ * PowerPoint always shows axis numbers even without gridlines.
+ */
+function drawValueAxisTicks(
+  ctx: CanvasRenderingContext2D,
+  plot: PlotRect,
+  domainMax: number,
+  isPercent: boolean,
+  color: string,
+): void {
+  const { step } = niceTicks(domainMax);
+  ctx.fillStyle = color;
+  ctx.font = VALUE_TICK_FONT;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let v = 0; v <= domainMax + 1e-9; v += step) {
+    const y = plot.y + plot.h - (v / domainMax) * plot.h;
+    ctx.fillText(formatTick(v, isPercent), plot.x - 6, y);
+  }
+}
+
+/**
+ * Draw category-axis labels centered under each bar-group slot
+ * (column/bar) or data point (line/area), just below the plot's bottom
+ * edge. Only draws labels present in `data.categories`; skips a label
+ * that would visibly overflow into its neighbor's slot.
+ */
+function drawCategoryLabels(
+  ctx: CanvasRenderingContext2D,
+  plot: PlotRect,
+  data: ChartElement['data'],
+  color: string,
+): void {
+  const cats = data.categories.length;
+  if (cats === 0) return;
+  ctx.fillStyle = color;
+  ctx.font = CATEGORY_LABEL_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const y = plot.y + plot.h + 4;
+  const isPointBased = data.kind === 'line' || data.kind === 'area';
+  const slot = plot.w / cats;
+  for (let c = 0; c < cats; c++) {
+    const label = data.categories[c];
+    const x = isPointBased
+      ? plot.x + (cats <= 1 ? plot.w / 2 : (c / (cats - 1)) * plot.w)
+      : plot.x + c * slot + slot / 2;
+    if (ctx.measureText(label).width > slot - 2) continue;
+    ctx.fillText(label, x, y);
+  }
+}
+
+/**
  * Paint `line`/`area` charts: one polyline per series. `area` additionally
  * fills the region under the line (translucent) before stroking it.
  */
@@ -195,11 +309,11 @@ function drawLines(
   data: ChartElement['data'],
   theme: Theme,
   colors: { axisColor: string; gridColor: string },
+  domainMax: number,
 ): void {
   const cats = data.categories.length
     ? data.categories.length
     : Math.max(...data.series.map((s) => s.values.length), 1);
-  const domainMax = niceTicks(seriesMax({ ...data, grouping: undefined })).max || 1;
   if (data.showGridlines) drawGridlines(ctx, plot, domainMax, colors.gridColor);
 
   // Axis line.
@@ -293,7 +407,8 @@ function drawTitle(
  * Draw a left-aligned swatch + label legend in the reserved bottom band.
  *
  * Swatches are small filled squares (`fillRect`), matching PowerPoint/
- * Google Sheets legend styling.
+ * Google Sheets legend styling. A pie has one (usually unnamed) series, so
+ * its legend lists the *categories* (one per slice) instead of the series.
  */
 function drawLegend(
   ctx: CanvasRenderingContext2D,
@@ -301,7 +416,9 @@ function drawLegend(
   data: ChartElement['data'],
   theme: Theme,
 ): void {
-  const items = data.series.map((s, i) => ({ label: s.name ?? `Series ${i + 1}`, i }));
+  const items = data.kind === 'pie'
+    ? data.categories.map((label, i) => ({ label: label || `Slice ${i + 1}`, i }))
+    : data.series.map((s, i) => ({ label: s.name ?? `Series ${i + 1}`, i }));
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';

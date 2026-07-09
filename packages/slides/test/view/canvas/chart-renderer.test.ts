@@ -110,3 +110,104 @@ describe('drawChart — line/area/pie', () => {
     expect(grid.stroke.mock.calls.length).toBeGreaterThan(plain.stroke.mock.calls.length);
   });
 });
+
+describe('drawChart — category-axis labels', () => {
+  it('draws each category name under the plot for a column chart', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, { ...columnData(), legend: 'none' }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).toContain('Q1');
+    expect(texts).toContain('Q2');
+    expect(texts).toContain('Q3');
+  });
+
+  it('draws each category name for a line chart data point', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'line', categories: ['a', 'b', 'c'],
+      series: [{ name: 'S', values: [1, 3, 2] }],
+      legend: 'none',
+    }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).toContain('a');
+    expect(texts).toContain('b');
+    expect(texts).toContain('c');
+  });
+
+  it('does not draw category labels for a pie chart', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'pie', categories: ['A', 'B'], series: [{ values: [60, 40] }],
+      legend: 'none',
+    }, THEME);
+    // Pie has no category-axis band; category names only appear via the
+    // legend, which is off here.
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).not.toContain('A');
+    expect(texts).not.toContain('B');
+  });
+});
+
+describe('drawChart — value-axis tick labels', () => {
+  it('labels the 0 tick and the domain max even without showGridlines', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'column', categories: ['Q1', 'Q2'],
+      series: [{ name: 'A', values: [10, 30] }],
+      legend: 'none',
+    }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    // domainMax for 30 rounds up to a nice tick of 30 (niceTicks(30,5) step 10).
+    expect(texts).toContain('0');
+    expect(texts).toContain('30');
+  });
+
+  it('formats percentStacked ticks as percentages', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'column', grouping: 'percentStacked', categories: ['Q1', 'Q2'],
+      series: [
+        { name: 'A', values: [10, 30] },
+        { name: 'B', values: [10, 30] },
+      ],
+      legend: 'none',
+    }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).toContain('0%');
+    expect(texts).toContain('100%');
+  });
+
+  it('does not draw value-axis ticks for a pie chart', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'pie', categories: ['A', 'B'], series: [{ values: [60, 40] }],
+      legend: 'none',
+    }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).not.toContain('0');
+  });
+});
+
+describe('drawChart — pie legend', () => {
+  it('lists categories (not series) with per-slice colors', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'pie', categories: ['A', 'B', 'C'],
+      series: [{ values: [50, 30, 20] }],
+      legend: 'right',
+    }, THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).toContain('A');
+    expect(texts).toContain('B');
+    expect(texts).toContain('C');
+    expect(texts).not.toContain('Series 1');
+  });
+
+  it('keeps series-based legend for non-pie charts', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, columnData(), THEME);
+    const texts = ctx.fillText.mock.calls.map(([t]) => t);
+    expect(texts).toContain('A');
+    expect(texts).toContain('B');
+  });
+});
