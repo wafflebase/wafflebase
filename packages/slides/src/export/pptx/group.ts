@@ -58,7 +58,9 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
     case 'group':
       return groupToXml(el, ctx);
     case 'chart':
-      throw new Error('Chart export not yet supported (Phase 2)');
+      // Chart PPTX serialization is Phase 2. Skip rather than abort the
+      // whole deck — omitting one element still lets the rest export.
+      return '';
   }
 }
 
