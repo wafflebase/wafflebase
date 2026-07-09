@@ -1,6 +1,15 @@
 import type { SlideParseContext } from './shape';
-import { attr, attrInt, child, children, descendant } from './xml';
-import type { ChartElement, ChartGrouping, ChartSeries } from '../../model/element';
+import { attr, attrInt, child, children, descendant, parseXml } from './xml';
+import { parseXfrm } from './geometry';
+import { resolveRelsTarget } from './rels';
+import { readAltText } from './effects';
+import { generateId } from '../../model/element';
+import type {
+  ChartElement,
+  ChartGrouping,
+  ChartSeries,
+  Element as SlideElement,
+} from '../../model/element';
 import type { ThemeColor } from '../../model/theme';
 
 export const CHART_URI =
@@ -161,4 +170,54 @@ export function parseChartXml(
   if (valAx && child(valAx, 'majorGridlines')) data.showGridlines = true;
 
   return data;
+}
+
+/** Grey placeholder rect for a chart family Phase 1 can't paint. */
+function chartPlaceholder(
+  graphicFrame: Element,
+  ctx: SlideParseContext,
+): SlideElement {
+  const xfrm = parseXfrm(child(graphicFrame, 'xfrm'), ctx.scale);
+  return {
+    id: generateId(),
+    type: 'shape',
+    frame: xfrm,
+    data: {
+      kind: 'rect',
+      fill: { kind: 'srgb', value: '#E6E6E6' },
+      stroke: { color: { kind: 'srgb', value: '#B0B0B0' }, width: 1 },
+    },
+  };
+}
+
+/**
+ * Parse a `<p:graphicFrame>` whose `graphicData@uri` is the chart URI.
+ * Resolves `<c:chart r:id>` → `ppt/charts/chartN.xml`, maps it, and
+ * positions the resulting ChartElement with the frame's xfrm. Falls back
+ * to a reported placeholder when the part is missing or the plot family
+ * is unsupported.
+ */
+export async function parseChartFrame(
+  graphicFrame: Element,
+  ctx: SlideParseContext,
+): Promise<SlideElement[]> {
+  const chartRef = descendant(graphicFrame, 'chart');
+  const rid = chartRef ? attr(chartRef, 'r:id') ?? attr(chartRef, 'id') : undefined;
+  const rel = rid ? ctx.rels.get(rid) : undefined;
+  if (!rel) {
+    ctx.report.unsupportedCharts++;
+    return [chartPlaceholder(graphicFrame, ctx)];
+  }
+  const partPath = resolveRelsTarget(ctx.slidePartPath, rel.target);
+  const xml = await ctx.archive.readText(partPath);
+  const data = xml ? parseChartXml(parseXml(xml), ctx) : undefined;
+  if (!data) {
+    ctx.report.unsupportedCharts++;
+    return [chartPlaceholder(graphicFrame, ctx)];
+  }
+  const xfrm = parseXfrm(child(graphicFrame, 'xfrm'), ctx.scale);
+  const alt = readAltText(graphicFrame);
+  if (alt) data.alt = alt;
+  ctx.report.importedCharts++;
+  return [{ id: generateId(), type: 'chart', frame: xfrm, data }];
 }

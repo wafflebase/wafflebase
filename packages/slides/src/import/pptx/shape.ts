@@ -35,6 +35,7 @@ import {
 } from './group';
 import { parseCustGeomPath } from './freeform';
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
+import { CHART_URI, parseChartFrame } from './chart';
 import { ImportReport } from './report';
 import { parseTable } from './table';
 import {
@@ -46,7 +47,7 @@ import {
 import type { PptxArchive } from './unzip';
 import type { PptxRel } from './rels';
 import type { UploadImage } from './index';
-import { attr, attrInt, child, children, NS, parseXml } from './xml';
+import { attr, attrInt, child, children, descendant, NS, parseXml } from './xml';
 
 /**
  * Per-slide context plumbed through every element-level parser.
@@ -380,8 +381,12 @@ async function parseChild(
       const cxn = parseCxnSp(el, ctx);
       return cxn ? [cxn] : undefined;
     }
-    case 'graphicFrame':
+    case 'graphicFrame': {
+      const gd = descendant(el, 'graphicData');
+      const uri = gd ? (gd.getAttribute('uri') ?? '') : '';
+      if (uri === CHART_URI) return parseChartFrame(el, ctx);
       return parseTable(el, ctx);
+    }
     case 'grpSp':
       // Handled at the parseSpTree level (transform composition).
       return undefined;

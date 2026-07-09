@@ -14,6 +14,11 @@ export class ImportReport {
   skippedImages = 0;
   transitionsApproximated = 0;
 
+  /** Charts imported as native ChartElement. */
+  importedCharts = 0;
+  /** Chart frames whose plot family is unsupported → placeholder box. */
+  unsupportedCharts = 0;
+
   // Note: `tablesFlattened`, `tableMergesIgnored`, and
   // `tableBordersApproximated` were retired alongside the structured
   // TableElement importer (P2 of slides-tables). Tables now round-trip
@@ -38,6 +43,9 @@ export class ImportReport {
     if (this.skippedImages) parts.push(`${this.skippedImages} image(s) skipped`);
     if (this.transitionsApproximated)
       parts.push(`${this.transitionsApproximated} transition(s) approximated`);
+    if (this.importedCharts) parts.push(`${this.importedCharts} chart(s) imported`);
+    if (this.unsupportedCharts)
+      parts.push(`${this.unsupportedCharts} chart(s) unsupported → placeholder`);
     if (this.animationPresetsUnmapped)
       parts.push(`${this.animationPresetsUnmapped} animation preset(s) unmapped`);
     if (this.animationTargetsMissing)
