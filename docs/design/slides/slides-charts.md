@@ -116,12 +116,16 @@ Fix the dispatch in `packages/slides/src/import/pptx/shape.ts:383`. A
 `<p:graphicFrame>` is disambiguated by its
 `<a:graphicData graphicData/@uri>`:
 
-- `.../drawingml/2006/table` → existing `parseTable`.
-- `.../drawingml/2006/chart` → new `parseChart`: resolve the frame's
+- `.../drawingml/2006/chart` → new `parseChartFrame`: resolve the frame's
   `<c:chart r:id>` through the slide rels to `ppt/charts/chartN.xml`,
-  load that part, and map it.
-- anything else (diagram/SmartArt, OLE) → grey placeholder + report
-  counter (previously an unreported empty return).
+  load that part, and map it. A chart whose plot family is unsupported (or
+  whose part is missing) becomes a grey placeholder rect and bumps
+  `unsupportedCharts`.
+- any other URI (a `<a:tbl>` table, or a diagram/SmartArt/OLE frame) →
+  existing `parseTable`. Tables import as before; diagram/SmartArt/OLE
+  still return an empty list from `parseTable` (unchanged pre-existing
+  behavior — routing those to a reported placeholder is a follow-up, not
+  part of the charts work).
 
 New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
 
@@ -173,11 +177,15 @@ automatically consistent.
 
 ### PDF export
 
-`packages/slides/src/export/pdf.ts` renders every slide through
-`drawSlide()` (`pdf.ts:39,160`), so the Canvas painter reaches PDF with no
-extra work. The one addition: include chart title / legend / label text in
-the `collectTextBodies` font-embedding scan (`pdf.ts:222`) so chart glyphs
-embed correctly.
+`packages/slides/src/export/pdf.ts` is a **raster** pipeline
+(`exportSlidesPdf`): it renders every slide through `drawSlide()` onto an
+offscreen canvas, encodes the canvas to PNG/JPEG, and embeds that image
+with pdf-lib — there is no per-glyph font embedding step. The Canvas chart
+painter therefore reaches PDF with **no extra work**: chart title / legend
+/ axis / label text are rasterized into the slide image like any other
+canvas drawing. `drawChart` paints text with the generic `sans-serif`
+keyword, so the font-family collection path (`collectFontFamilies`, used
+only for text/shape/table bodies) needs no change for charts.
 
 ### Editor edges
 
