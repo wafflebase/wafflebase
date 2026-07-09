@@ -13,6 +13,8 @@ import {
   isCrossSheetRef,
   cloneConditionalFormatRule,
   normalizeConditionalFormatRule,
+  cloneDataValidationRule,
+  normalizeDataValidationRule,
   cloneRangeStylePatch,
   normalizeRangeStylePatch,
   writeWorksheetCell,
@@ -37,6 +39,7 @@ import type {
   Direction,
   Axis,
   ConditionalFormatRule,
+  DataValidationRule,
   RangeStylePatch,
   MergeSpan,
   Comment,
@@ -883,6 +886,48 @@ export class YorkieStore implements Store {
     }
     return (ws.conditionalFormats as ConditionalFormatRule[]).map((rule) =>
       cloneConditionalFormatRule(rule),
+    );
+  }
+
+  async setDataValidations(rules: DataValidationRule[]): Promise<void> {
+    const normalized = rules
+      .map((rule) => normalizeDataValidationRule(rule))
+      .filter((rule): rule is DataValidationRule => !!rule)
+      .map((rule) => cloneDataValidationRule(rule));
+
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        if (normalized.length === 0) {
+          delete root.sheets[tabId].dataValidations;
+          return;
+        }
+        root.sheets[tabId].dataValidations = normalized.map((rule) =>
+          cloneDataValidationRule(rule),
+        );
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      if (normalized.length === 0) {
+        delete root.sheets[tabId].dataValidations;
+        return;
+      }
+      root.sheets[tabId].dataValidations = normalized.map((rule) =>
+        cloneDataValidationRule(rule),
+      );
+    });
+  }
+
+  async getDataValidations(): Promise<DataValidationRule[]> {
+    const ws = this.getSheet();
+    if (!ws.dataValidations || ws.dataValidations.length === 0) {
+      return [];
+    }
+    return (ws.dataValidations as DataValidationRule[]).map((rule) =>
+      cloneDataValidationRule(rule),
     );
   }
 

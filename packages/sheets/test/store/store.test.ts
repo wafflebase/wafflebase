@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
 import { MemStore } from '../../src/store/memory';
+import { ReadOnlyStore } from '../../src/store/readonly';
 import {
   DataValidationRule,
   PivotTableDefinition,
@@ -58,6 +59,14 @@ describe('MemStore data validations', () => {
     await store.shiftCells('row', 1, 2);
     const got = await store.getDataValidations();
     expect(got[0].ranges[0][0].r).toBe(5);
+  });
+});
+
+describe('ReadOnlyStore data validations', () => {
+  it('returns no rules and accepts set as a no-op', async () => {
+    const store = new ReadOnlyStore();
+    expect(await store.getDataValidations()).toEqual([]);
+    await expect(store.setDataValidations([])).resolves.toBeUndefined();
   });
 });
 
