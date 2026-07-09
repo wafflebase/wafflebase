@@ -55,3 +55,39 @@ describe('drawChart — column', () => {
     ).not.toThrow();
   });
 });
+
+describe('drawChart — line/area/pie', () => {
+  const line = (kind: 'line' | 'area'): ChartElement['data'] => ({
+    kind, categories: ['a', 'b', 'c'],
+    series: [{ name: 'S', values: [1, 3, 2] }],
+  });
+
+  it('strokes a polyline for a line chart', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, line('line'), THEME);
+    expect(ctx.stroke).toHaveBeenCalled();
+    expect(ctx.lineTo).toHaveBeenCalled();
+  });
+
+  it('fills an area chart', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, line('area'), THEME);
+    expect(ctx.fill).toHaveBeenCalled();
+  });
+
+  it('draws pie slices with arc()', () => {
+    const ctx = createCtxSpy();
+    drawChart(asCtx(ctx), size, {
+      kind: 'pie', categories: ['A', 'B'], series: [{ values: [60, 40] }],
+    }, THEME);
+    expect(ctx.arc).toHaveBeenCalledTimes(2);
+  });
+
+  it('draws gridlines when showGridlines is set', () => {
+    const plain = createCtxSpy();
+    drawChart(asCtx(plain), size, columnData(), THEME);
+    const grid = createCtxSpy();
+    drawChart(asCtx(grid), size, { ...columnData(), showGridlines: true }, THEME);
+    expect(grid.stroke.mock.calls.length).toBeGreaterThan(plain.stroke.mock.calls.length);
+  });
+});
