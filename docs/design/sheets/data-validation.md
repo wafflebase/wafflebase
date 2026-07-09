@@ -222,6 +222,35 @@ Ship in phases, each a self-contained PR:
 3. **Date picker** — calendar popover on double-click + `dateMin`/`dateMax`
    validation.
 
+### Phase 1 (checkbox) — as shipped
+
+Phase 1 landed the full model/Store spine plus checkbox end-to-end. A few
+behaviors differ from the intent sketched above; they are deliberate Phase-1
+simplifications, each a small follow-up to close:
+
+- **Lazy value materialization** — `Spreadsheet.insertCheckbox(range, id)` creates
+  the rule only; it does **not** pre-write `FALSE` into empty cells. An empty cell
+  under a checkbox rule renders unchecked (`isCheckboxChecked(rule, undefined) ===
+  false`) and a value (`"TRUE"`/`"FALSE"`) is written on first toggle. This avoids
+  mass cell writes / batch nesting. (So `COUNTIF(range, FALSE)` won't count
+  never-toggled cells until they're materialized — a follow-up may eager-init.)
+- **Click target** — clicking anywhere in a checkbox-ruled cell body toggles it
+  (and selects it); hit-testing is per-cell, not per-glyph-rect. Consequence: you
+  can't click-select a checkbox cell without flipping it. Toggle is gated on
+  writability and left-button; right-click still opens the context menu.
+- **Space** — toggles the **active cell** only. Range-uniform Space ("set all
+  checked", GS/Excel parity) is deferred.
+- **Structural edits** — rules follow row/column insert/delete/move in three
+  places that must stay in lockstep: the `Sheet` synced cache, `MemStore`, and the
+  Yorkie document helper (`yorkie-worksheet-structure.ts`). All three route through
+  the shared `shiftRuleRanges`/`moveRuleRanges` helper (`rule-ranges.ts`).
+- **Not yet guarded** — toggling a checkbox over a formula cell overwrites the
+  formula with a literal (design intent is formula-backed = read-only);
+  `isCheckboxChecked` is case-sensitive (`"true"` renders unchecked). Both are
+  small follow-ups.
+- **UI** — a single flat `Insert → Checkbox` toolbar button (desktop + mobile
+  menu). The full `Data → Data validation` side panel is deferred to a later phase.
+
 ### Testing
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
