@@ -2,6 +2,7 @@ import type {
   Cell,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterCondition,
   MergeSpan,
   PivotTableDefinition,
@@ -77,6 +78,7 @@ export type Worksheet = {
   sheetStyle?: CellStyle;
   rangeStyles?: RangeStylePatch[];
   conditionalFormats?: ConditionalFormatRule[];
+  dataValidations?: DataValidationRule[];
   merges?: {
     [key: Sref]: MergeSpan;
   };
@@ -131,6 +133,7 @@ export function createWorksheet(overrides: Partial<Worksheet> = {}): Worksheet {
     colStyles: {},
     rowStyles: {},
     conditionalFormats: [],
+    dataValidations: [],
     merges: {},
     charts: {},
     images: {},
