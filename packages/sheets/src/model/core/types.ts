@@ -133,6 +133,35 @@ export type ConditionalFormatRule = {
 };
 
 /**
+ * DataValidationKind enumerates the in-cell control kinds.
+ */
+export type DataValidationKind = 'checkbox' | 'list' | 'date';
+
+/**
+ * DataValidationRule is a worksheet-level, range-scoped validation/control
+ * rule. The control is a special render of a typed cell value — the cell
+ * itself holds the value (boolean TRUE/FALSE, ISO date, or list text).
+ */
+export type DataValidationRule = {
+  id: string;
+  ranges: Range[];
+  kind: DataValidationKind;
+  onInvalid?: 'reject' | 'warning'; // list/date only; ignored for checkbox
+
+  // kind: 'list'
+  list?: string[];
+  showArrow?: boolean;
+
+  // kind: 'checkbox'
+  checkedValue?: string;
+  uncheckedValue?: string;
+
+  // kind: 'date'
+  dateMin?: string;
+  dateMax?: string;
+};
+
+/**
  * Cell type represents a cell in the sheet.
  *
  * Spill fields support dynamic-array formulas (e.g. MMULT, MINVERSE):
