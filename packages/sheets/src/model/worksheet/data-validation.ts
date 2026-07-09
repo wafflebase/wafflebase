@@ -1,5 +1,11 @@
 import { cloneRange, inRange } from '../core/coordinates';
-import { DataValidationKind, DataValidationRule, Ref } from '../core/types';
+import { moveRuleRanges, shiftRuleRanges } from './rule-ranges';
+import {
+  Axis,
+  DataValidationKind,
+  DataValidationRule,
+  Ref,
+} from '../core/types';
 
 export const CHECKBOX_TRUE = 'TRUE';
 export const CHECKBOX_FALSE = 'FALSE';
@@ -83,4 +89,44 @@ export function toggleCheckboxValue(
   return isCheckboxChecked(rule, value)
     ? uncheckedValueOf(rule)
     : checkedValueOf(rule);
+}
+
+/**
+ * `shiftDataValidationRules` remaps rules after row/column insert or delete.
+ */
+export function shiftDataValidationRules(
+  rules: DataValidationRule[],
+  axis: Axis,
+  index: number,
+  count: number,
+): DataValidationRule[] {
+  return shiftRuleRanges(
+    rules,
+    axis,
+    index,
+    count,
+    normalizeDataValidationRule,
+    cloneDataValidationRule,
+  );
+}
+
+/**
+ * `moveDataValidationRules` remaps rules after a row/column move.
+ */
+export function moveDataValidationRules(
+  rules: DataValidationRule[],
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): DataValidationRule[] {
+  return moveRuleRanges(
+    rules,
+    axis,
+    src,
+    count,
+    dst,
+    normalizeDataValidationRule,
+    cloneDataValidationRule,
+  );
 }

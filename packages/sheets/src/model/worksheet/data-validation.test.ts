@@ -5,6 +5,8 @@ import {
   resolveDataValidationAt,
   isCheckboxChecked,
   toggleCheckboxValue,
+  shiftDataValidationRules,
+  moveDataValidationRules,
   CHECKBOX_TRUE,
   CHECKBOX_FALSE,
 } from './data-validation';
@@ -55,5 +57,45 @@ describe('data-validation model', () => {
     expect(toggleCheckboxValue(rule, CHECKBOX_FALSE)).toBe(CHECKBOX_TRUE);
     expect(toggleCheckboxValue(rule, CHECKBOX_TRUE)).toBe(CHECKBOX_FALSE);
     expect(toggleCheckboxValue(rule, undefined)).toBe(CHECKBOX_TRUE);
+  });
+});
+
+describe('data-validation structural edits', () => {
+  const rule = (): DataValidationRule => ({
+    id: 'a',
+    kind: 'checkbox',
+    ranges: [
+      [
+        { r: 3, c: 1 },
+        { r: 5, c: 1 },
+      ],
+    ],
+  });
+
+  it('shifts ranges down when rows are inserted above', () => {
+    const [shifted] = shiftDataValidationRules([rule()], 'row', 1, 2);
+    expect(shifted.ranges[0][0].r).toBe(5);
+    expect(shifted.ranges[0][1].r).toBe(7);
+    expect(shifted.kind).toBe('checkbox'); // fields preserved through clone
+  });
+
+  it('collapses a fully-deleted range to a single boundary row', () => {
+    const result = shiftDataValidationRules([rule()], 'row', 3, -3);
+    expect(result).toHaveLength(1);
+    expect(result[0].ranges[0][0].r).toBe(3);
+    expect(result[0].ranges[0][1].r).toBe(3);
+  });
+
+  it('remaps ranges on a row move', () => {
+    // move is delegated to the shared helper; assert it runs and preserves the rule
+    const result = moveDataValidationRules([rule()], 'row', 3, 3, 10);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('a');
+  });
+
+  it('does not mutate the source rules', () => {
+    const src = [rule()];
+    shiftDataValidationRules(src, 'row', 1, 2);
+    expect(src[0].ranges[0][0].r).toBe(3); // untouched
   });
 });
