@@ -26,6 +26,7 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [mysql-connector.md](sheets/mysql-connector.md)                      | MySQL connector — read-only MySQL/MariaDB via native `mysql2`; extends the PostgreSQL datasource with an `engine` discriminator; smallest connector, reuses the datasource spine |
 | [axis-id-selection.md](sheets/axis-id-selection.md)                  | Axis ID based selection & presence — stable selection across remote structural edits              |
 | [comments.md](sheets/comments.md)                                    | Sheet cell comments — threaded comments, resolve flow, anchor stability, side panel UI            |
+| [data-validation.md](sheets/data-validation.md)                      | Data validation & in-cell controls — checkbox / list dropdown / date picker as special renders of typed cell values, worksheet-level range-scoped rules mirroring conditional formats, reject/warning per rule |
 
 ## Docs
 
