@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides charts (2026-07-09) | [20260709-slides-charts-todo.md](./active/20260709-slides-charts-todo.md) | [20260709-slides-charts-lessons.md](./active/20260709-slides-charts-lessons.md) |
 | devops storage secrets (2026-07-08) | [20260708-devops-storage-secrets-todo.md](./active/20260708-devops-storage-secrets-todo.md) | - |
 | release v0.5.0 (2026-07-07) | [20260707-release-v0.5.0-todo.md](./active/20260707-release-v0.5.0-todo.md) | - |
 | docs collaboration convergence (2026-06-25) | [20260625-docs-collaboration-convergence-todo.md](./active/20260625-docs-collaboration-convergence-todo.md) | [20260625-docs-collaboration-convergence-lessons.md](./active/20260625-docs-collaboration-convergence-lessons.md) |
@@ -33,4 +34,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 346
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: devops storage secrets (2026-07-08)
+Latest active task: slides charts (2026-07-09)
