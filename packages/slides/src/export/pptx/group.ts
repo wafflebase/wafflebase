@@ -57,6 +57,8 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
       return connectorToXml(el, ctx.connectorFrame(el));
     case 'group':
       return groupToXml(el, ctx);
+    case 'chart':
+      throw new Error('Chart export not yet supported (Phase 2)');
   }
 }
 
