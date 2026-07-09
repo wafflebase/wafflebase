@@ -58,6 +58,35 @@ export const HiddenBtnRadius = 3;
 export const HiddenBtnMargin = 1;
 
 /**
+ * `CheckboxBox` is the centered checkbox glyph rect within a cell.
+ */
+export type CheckboxBox = { left: number; top: number; size: number };
+
+/**
+ * `computeCheckboxBox` returns the centered checkbox glyph rect for a cell
+ * rect, or null when the cell is too small to draw one. Shared by the render
+ * pass and the click hit-test so the drawn glyph and the clickable target
+ * never drift apart.
+ */
+export function computeCheckboxBox(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): CheckboxBox | null {
+  const { width, height } = rect;
+  if (width <= 6 || height <= 6) {
+    return null;
+  }
+  const size = Math.min(16, Math.max(11, Math.min(width, height) - 6));
+  return {
+    left: rect.left + (width - size) / 2,
+    top: rect.top + (height - size) / 2,
+    size,
+  };
+}
+
+/**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
 export class GridCanvas {
@@ -926,15 +955,11 @@ export class GridCanvas {
     mergeSpan?: MergeSpan,
   ): void {
     const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
-    const width = rect.width;
-    const height = rect.height;
-    if (width <= 6 || height <= 6) {
+    const box = computeCheckboxBox(rect);
+    if (!box) {
       return;
     }
-
-    const boxSize = Math.min(16, Math.max(11, Math.min(width, height) - 6));
-    const left = rect.left + (width - boxSize) / 2;
-    const top = rect.top + (height - boxSize) / 2;
+    const { left, top, size: boxSize } = box;
     const checked = isCheckboxChecked(rule, cell?.v);
 
     ctx.save();

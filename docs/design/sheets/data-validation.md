@@ -234,10 +234,12 @@ simplifications, each a small follow-up to close:
   false`) and a value (`"TRUE"`/`"FALSE"`) is written on first toggle. This avoids
   mass cell writes / batch nesting. (So `COUNTIF(range, FALSE)` won't count
   never-toggled cells until they're materialized — a follow-up may eager-init.)
-- **Click target** — clicking anywhere in a checkbox-ruled cell body toggles it
-  (and selects it); hit-testing is per-cell, not per-glyph-rect. Consequence: you
-  can't click-select a checkbox cell without flipping it. Toggle is gated on
-  writability and left-button; right-click still opens the context menu.
+- **Click target** — clicking the checkbox glyph rect toggles it (and selects the
+  cell); a click elsewhere in the cell selects without toggling. The renderer and
+  the click hit-test share one `computeCheckboxBox(cellRect)` geometry helper
+  (`gridcanvas.ts`) so the drawn glyph and the clickable target never drift.
+  Toggle is gated on writability and left-button; right-click opens the context
+  menu.
 - **Space** — toggles the **active cell** only. Range-uniform Space ("set all
   checked", GS/Excel parity) is deferred.
 - **Structural edits** — rules follow row/column insert/delete/move in three

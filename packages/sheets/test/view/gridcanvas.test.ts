@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { toSref } from '../../src/model/core/coordinates';
 import { MergeSpan, Ref } from '../../src/model/core/types';
-import { GridCanvas } from '../../src/view/gridcanvas';
+import { GridCanvas, computeCheckboxBox } from '../../src/view/gridcanvas';
+
+describe('computeCheckboxBox', () => {
+  it('returns null when the cell is too small', () => {
+    expect(
+      computeCheckboxBox({ left: 0, top: 0, width: 5, height: 5 }),
+    ).toBeNull();
+  });
+
+  it('centers a clamped box in a normal cell', () => {
+    // size = min(16, max(11, min(80,24) - 6)) = 16
+    expect(
+      computeCheckboxBox({ left: 10, top: 20, width: 80, height: 24 }),
+    ).toEqual({ left: 42, top: 24, size: 16 });
+  });
+
+  it('clamps to the minimum size in a short cell', () => {
+    // size = min(16, max(11, 14 - 6)) = 11
+    expect(
+      computeCheckboxBox({ left: 0, top: 0, width: 40, height: 14 })?.size,
+    ).toBe(11);
+  });
+});
 
 type MergeData = {
   anchors: Map<string, MergeSpan>;

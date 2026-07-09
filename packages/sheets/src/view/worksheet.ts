@@ -24,6 +24,7 @@ import {
   HiddenBtnArrowGap,
   HiddenBtnPadding,
   HiddenBtnMargin,
+  computeCheckboxBox,
 } from './gridcanvas';
 import { buildOpenThreadKeySet } from './render-comments';
 
@@ -1186,6 +1187,18 @@ export class Worksheet {
       width,
       height,
     };
+  }
+
+  /**
+   * `getCheckboxHitRect` returns the on-screen checkbox glyph rect for a cell
+   * (mouse-offset coordinates), or null if the cell has no room for it. Uses
+   * the same `computeCheckboxBox` geometry as the renderer so the clickable
+   * target matches the drawn glyph exactly.
+   */
+  private getCheckboxHitRect(
+    ref: Ref,
+  ): { left: number; top: number; size: number } | null {
+    return computeCheckboxBox(this.getCellRect(ref));
   }
 
   /**
@@ -2688,9 +2701,10 @@ export class Worksheet {
       return;
     }
 
-    // Checkbox toggle: left-click inside a checkbox-ruled cell body selects
-    // the cell and flips its value. Right-click falls through to the context
-    // menu; read-only viewers fall through to normal selection.
+    // Checkbox toggle: left-click on the checkbox glyph selects the cell and
+    // flips its value. A click elsewhere in the cell falls through to normal
+    // selection (so a checkbox cell can be selected without toggling).
+    // Right-click and read-only viewers also fall through.
     if (
       e.button === 0 &&
       !this.readOnly &&
@@ -2700,12 +2714,22 @@ export class Worksheet {
       const ref = this.toRefFromMouse(x, y);
       const dvRule = this.sheet?.getDataValidationAt(ref);
       if (dvRule && dvRule.kind === 'checkbox') {
-        e.preventDefault();
-        await this.finishEditing();
-        this.sheet!.selectStart(ref);
-        await this.sheet!.toggleCheckboxAt(ref);
-        this.render();
-        return;
+        const box = this.getCheckboxHitRect(ref);
+        if (
+          box &&
+          x >= box.left &&
+          x <= box.left + box.size &&
+          y >= box.top &&
+          y <= box.top + box.size
+        ) {
+          e.preventDefault();
+          await this.finishEditing();
+          this.sheet!.selectStart(ref);
+          await this.sheet!.toggleCheckboxAt(ref);
+          this.render();
+          return;
+        }
+        // Inside a checkbox cell but outside the glyph → normal selection.
       }
     }
 
