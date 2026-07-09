@@ -403,6 +403,25 @@ export function SheetView({
     setConditionalFormatOpen(false);
   }, [doc, readOnly, tabId]);
 
+  const handleInsertCheckbox = useCallback(async () => {
+    if (readOnly) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheet.getSelectionType() !== "cell") {
+      toast.error("Select a cell range to insert a checkbox.");
+      return;
+    }
+
+    const range = sheet.getSelectionRangeOrActiveCell();
+    if (!range) {
+      toast.error("Select a cell range to insert a checkbox.");
+      return;
+    }
+
+    await sheet.insertCheckbox(range, crypto.randomUUID());
+  }, [readOnly]);
+
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
       if (readOnly || !doc) return;
@@ -1429,6 +1448,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
+          onInsertCheckbox={handleInsertCheckbox}
           onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {

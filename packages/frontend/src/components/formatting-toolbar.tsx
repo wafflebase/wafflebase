@@ -66,6 +66,7 @@ import {
   IconPaint,
   IconBrush,
   IconPhoto,
+  IconSquareCheck,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -96,6 +97,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onInsertCheckbox?: () => void;
   onInsertImage?: (file: File) => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
@@ -109,6 +111,7 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onInsertCheckbox,
   onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
@@ -216,6 +219,10 @@ export function FormattingToolbar({
   const handleInsertChart = useCallback(() => {
     onInsertChart?.();
   }, [onInsertChart]);
+
+  const handleInsertCheckbox = useCallback(() => {
+    onInsertCheckbox?.();
+  }, [onInsertCheckbox]);
 
   const handleOpenConditionalFormat = useCallback(() => {
     onOpenConditionalFormat?.();
@@ -743,6 +750,19 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+                onClick={handleInsertCheckbox}
+                aria-label="Insert checkbox"
+              >
+                <IconSquareCheck size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert checkbox</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
                 aria-label="Conditional formatting"
@@ -880,6 +900,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
                 <IconPhoto size={16} className="mr-2" />
                 Insert image
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleInsertCheckbox}>
+                <IconSquareCheck size={16} className="mr-2" />
+                Insert checkbox
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />
