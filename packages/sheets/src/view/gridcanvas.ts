@@ -16,6 +16,7 @@ import {
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
 import {
   isCheckboxChecked,
+  isValidListValue,
   resolveDataValidationAt,
 } from '../model/worksheet/data-validation';
 import { DimensionIndex } from '../model/worksheet/dimensions';
@@ -87,6 +88,35 @@ export function computeCheckboxBox(rect: {
 }
 
 /**
+ * `ListArrowBox` is the right-aligned dropdown-arrow glyph rect within a cell.
+ */
+export type ListArrowBox = { left: number; top: number; size: number };
+
+/**
+ * `computeListArrowBox` returns the right-aligned dropdown-arrow rect for a
+ * cell rect, or null when the cell is too small. Shared by the render pass and
+ * the click hit-test so the drawn arrow and the clickable target never drift.
+ */
+export function computeListArrowBox(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): ListArrowBox | null {
+  const { width, height } = rect;
+  if (width <= 6 || height <= 6) {
+    return null;
+  }
+  const size = Math.min(16, Math.max(11, Math.min(width, height) - 6));
+  const margin = 2;
+  return {
+    left: rect.left + width - size - margin,
+    top: rect.top + (height - size) / 2,
+    size,
+  };
+}
+
+/**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
 export class GridCanvas {
@@ -94,6 +124,7 @@ export class GridCanvas {
   private theme: Theme;
   private static filterIconPath2D: Path2D | null | undefined;
   private static checkIconPath2D: Path2D | null | undefined;
+  private static listArrowPath2D: Path2D | null | undefined;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -660,6 +691,22 @@ export class GridCanvas {
         mergeSpan,
         overflowEndCol,
       );
+
+      // List (dropdown) rules keep their cell text but overlay a dropdown
+      // arrow and, in warning mode, a red marker for out-of-list values.
+      if (dvRule && dvRule.kind === 'list') {
+        this.renderCellListControl(
+          ctx,
+          { r: row, c: col },
+          dvRule,
+          cell,
+          scroll,
+          rowDim,
+          colDim,
+          effectiveStyle,
+          mergeSpan,
+        );
+      }
     }
 
     // Pass 3b: Render text from off-screen overflow anchors whose text
@@ -1002,6 +1049,93 @@ export class GridCanvas {
       GridCanvas.checkIconPath2D = new Path2D('M5 12.5 L10 17.5 L19 7');
     }
     return GridCanvas.checkIconPath2D;
+  }
+
+  private getListArrowPath2D(): Path2D | null {
+    if (typeof Path2D === 'undefined') {
+      return null;
+    }
+    if (GridCanvas.listArrowPath2D === undefined) {
+      // Chevron-down drawn in a 24×24 coordinate space.
+      GridCanvas.listArrowPath2D = new Path2D('M6 9 L12 15 L18 9');
+    }
+    return GridCanvas.listArrowPath2D;
+  }
+
+  /**
+   * `renderCellListControl` overlays the dropdown-arrow glyph on a list-ruled
+   * cell (when `showArrow`) and, for a warning-mode rule, a red marker when the
+   * current value is not one of the allowed options. Violation state is
+   * computed here at render time and never persisted.
+   */
+  private renderCellListControl(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    rule: DataValidationRule,
+    cell: Cell | undefined,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    effectiveStyle?: CellStyle,
+    mergeSpan?: MergeSpan,
+  ): void {
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
+
+    if (rule.showArrow !== false) {
+      const box = computeListArrowBox(rect);
+      if (box) {
+        const { left, top, size } = box;
+        // Mask any cell text under the arrow with the cell's background.
+        ctx.save();
+        ctx.fillStyle = effectiveStyle?.bg || this.getThemeColor('cellBGColor');
+        ctx.fillRect(left, top, size, size);
+
+        const iconSize = Math.max(9, Math.min(14, size - 2));
+        const iconLeft = left + (size - iconSize) / 2;
+        const iconTop = top + (size - iconSize) / 2;
+        ctx.translate(iconLeft, iconTop);
+        ctx.scale(iconSize / 24, iconSize / 24);
+        ctx.strokeStyle = this.getThemeColor('cellTextColor');
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const path = this.getListArrowPath2D();
+        if (path) {
+          ctx.stroke(path);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(6, 9);
+          ctx.lineTo(12, 15);
+          ctx.lineTo(18, 9);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    if (rule.onInvalid === 'warning' && !isValidListValue(rule, cell?.v)) {
+      this.drawValidationWarningMarker(ctx, rect.left + rect.width, rect.top);
+    }
+  }
+
+  /**
+   * Draws a 9x9 red right-triangle marker at the top-right corner of a cell,
+   * signalling a data-validation warning (same technique as the comment
+   * marker, distinct color).
+   */
+  private drawValidationWarningMarker(
+    ctx: CanvasRenderingContext2D,
+    cellRight: number,
+    cellTop: number,
+  ): void {
+    const MARKER_SIZE = 9;
+    ctx.fillStyle = '#ea4335';
+    ctx.beginPath();
+    ctx.moveTo(cellRight, cellTop);
+    ctx.lineTo(cellRight, cellTop + MARKER_SIZE);
+    ctx.lineTo(cellRight - MARKER_SIZE, cellTop);
+    ctx.closePath();
+    ctx.fill();
   }
 
   /**

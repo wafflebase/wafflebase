@@ -356,6 +356,61 @@ export class Spreadsheet {
   }
 
   /**
+   * `insertList` adds a dropdown (list) rule over the range and re-renders.
+   */
+  public async insertList(
+    range: Range,
+    id: string,
+    options: string[],
+    onInvalid: 'reject' | 'warning' = 'warning',
+  ): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.insertList(range, id, options, onInvalid);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `removeList` strips list rules intersecting the range (leaving the
+   * underlying cell values) and re-renders.
+   */
+  public async removeList(range: Range): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.removeList(range);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `getListRuleAt` returns the list rule applying to the active cell (or the
+   * given ref), or undefined — used by the toolbar to prefill the options
+   * dialog and by the popover to read options.
+   */
+  public getListRuleAt(ref?: Ref): DataValidationRule | undefined {
+    const target = ref ?? this.sheet?.getActiveCell();
+    if (!target) return undefined;
+    const rule = this.sheet?.getDataValidationAt(target);
+    return rule?.kind === 'list' ? rule : undefined;
+  }
+
+  /**
+   * `isListActive` reports whether the active cell carries a list rule — used
+   * to render the toolbar's dropdown button in its "active" state.
+   */
+  public isListActive(): boolean {
+    return !!this.getListRuleAt();
+  }
+
+  /**
+   * `onValidationError` registers a callback fired when a typed value is
+   * rejected by a data-validation rule (e.g. an out-of-list value under a
+   * `reject` dropdown). Hosts use it to surface a toast.
+   */
+  public onValidationError(callback: (message: string) => void): void {
+    this.worksheet.setOnValidationError(callback);
+  }
+
+  /**
    * `onSelectionChange` registers a callback that fires when the selection changes.
    * Returns an unsubscribe function.
    */

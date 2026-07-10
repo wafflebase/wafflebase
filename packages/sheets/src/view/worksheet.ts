@@ -25,7 +25,9 @@ import {
   HiddenBtnPadding,
   HiddenBtnMargin,
   computeCheckboxBox,
+  computeListArrowBox,
 } from './gridcanvas';
+import { isValidListValue } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
@@ -130,6 +132,15 @@ export class Worksheet {
   private filterPanelState: FilterPanelState | null = null;
   private filterPanelOutsideClickUnsub: (() => void) | null = null;
   private filterPanelKeyboardUnsub: (() => void) | null = null;
+  private listPopover: HTMLDivElement;
+  private listPopoverState: {
+    ref: Ref;
+    options: string[];
+    activeIndex: number;
+  } | null = null;
+  private listPopoverOutsideClickUnsub: (() => void) | null = null;
+  private listPopoverKeyboardUnsub: (() => void) | null = null;
+  private onValidationErrorCallback?: (message: string) => void;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
@@ -222,6 +233,7 @@ export class Worksheet {
     this.functionBrowser = new FunctionBrowser(theme);
     this.resizeTooltip = document.createElement('div');
     this.filterPanel = document.createElement('div');
+    this.listPopover = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
     this.colDim = new DimensionIndex(DefaultCellWidth);
@@ -272,6 +284,24 @@ export class Worksheet {
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.filterPanel.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
     document.body.appendChild(this.filterPanel);
+
+    this.listPopover.style.position = 'fixed';
+    this.listPopover.style.display = 'none';
+    this.listPopover.style.zIndex = '1002';
+    this.listPopover.style.minWidth = '120px';
+    this.listPopover.style.maxWidth = '280px';
+    this.listPopover.style.maxHeight = '260px';
+    this.listPopover.style.overflowY = 'auto';
+    this.listPopover.style.padding = '4px';
+    this.listPopover.style.borderRadius = '6px';
+    this.listPopover.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
+    this.listPopover.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.listPopover.style.color = getThemeColor(theme, 'cellTextColor');
+    this.listPopover.style.fontSize = '12px';
+    this.listPopover.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.listPopover.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
+    document.body.appendChild(this.listPopover);
     this.functionBrowser.setOnInsert((info) => {
       if (this.readOnly) {
         return;
@@ -445,6 +475,8 @@ export class Worksheet {
     this.resizeTooltip.remove();
     this.hideFilterPanel();
     this.filterPanel.remove();
+    this.hideListPopover();
+    this.listPopover.remove();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -633,8 +665,10 @@ export class Worksheet {
     let didEdit = false;
     if (this.formulaBar.isFocused()) {
       if (!this.readOnly) {
-        await this.sheet!.setData(activeCell, this.formulaBar.getValue());
-        didEdit = true;
+        didEdit = await this.commitCellValue(
+          activeCell,
+          this.formulaBar.getValue(),
+        );
       }
       this.formulaBar.blur();
       this.cellInput.hide();
@@ -645,8 +679,10 @@ export class Worksheet {
         this.cellInput.hide();
       } else {
         if (!this.readOnly) {
-          await this.sheet!.setData(activeCell, this.cellInput.getValue());
-          didEdit = true;
+          didEdit = await this.commitCellValue(
+            activeCell,
+            this.cellInput.getValue(),
+          );
         }
         this.cellInput.hide();
       }
@@ -659,6 +695,38 @@ export class Worksheet {
     if (didEdit) {
       await this.autoResizeRow(activeCell.r);
     }
+  }
+
+  /**
+   * `commitCellValue` writes a typed value to `ref`, enforcing any list
+   * data-validation rule. A `reject` rule discards an out-of-list value (the
+   * cell keeps its committed value, which `render()` restores in the editors)
+   * and surfaces an error; a `warning` rule stores the value and lets the
+   * render pass draw the warning marker. Returns whether the value was written.
+   */
+  private async commitCellValue(ref: Ref, value: string): Promise<boolean> {
+    const rule = this.sheet!.getDataValidationAt(ref);
+    if (
+      rule &&
+      rule.kind === 'list' &&
+      rule.onInvalid === 'reject' &&
+      !isValidListValue(rule, value)
+    ) {
+      this.onValidationErrorCallback?.(
+        `"${value}" does not match a value in the dropdown list.`,
+      );
+      return false;
+    }
+    await this.sheet!.setData(ref, value);
+    return true;
+  }
+
+  /**
+   * `setOnValidationError` registers a callback fired when a typed value is
+   * rejected by a data-validation rule (used to surface a toast in the host).
+   */
+  public setOnValidationError(callback: (message: string) => void): void {
+    this.onValidationErrorCallback = callback;
   }
 
   /**
@@ -1222,6 +1290,34 @@ export class Worksheet {
   }
 
   /**
+   * `getListArrowHitRect` returns the on-screen dropdown-arrow rect for a cell
+   * (mouse-offset coordinates), or null if there is no room. Uses the same
+   * `computeListArrowBox` geometry as the renderer so the clickable target
+   * matches the drawn arrow exactly (see `getCheckboxHitRect` for the zoom
+   * round-trip rationale).
+   */
+  private getListArrowHitRect(
+    ref: Ref,
+  ): { left: number; top: number; size: number } | null {
+    const zoom = this.zoom;
+    const cellRect = this.getCellRect(ref);
+    const box = computeListArrowBox({
+      left: cellRect.left / zoom,
+      top: cellRect.top / zoom,
+      width: cellRect.width / zoom,
+      height: cellRect.height / zoom,
+    });
+    if (!box) {
+      return null;
+    }
+    return {
+      left: box.left * zoom,
+      top: box.top * zoom,
+      size: box.size * zoom,
+    };
+  }
+
+  /**
    * `detectFilterButton` returns a column when the header filter indicator is clicked.
    */
   private detectFilterButton(x: number, y: number): number | null {
@@ -1365,6 +1461,160 @@ export class Worksheet {
     this.filterPanelOutsideClickUnsub = null;
     this.filterPanelKeyboardUnsub?.();
     this.filterPanelKeyboardUnsub = null;
+  }
+
+  /**
+   * `showListPopover` opens the dropdown option picker anchored to the cell,
+   * for the list (data-validation) rule at `ref`. Read-only worksheets and
+   * non-list cells are ignored.
+   */
+  private async showListPopover(ref: Ref): Promise<void> {
+    if (this.readOnly || !this.sheet) {
+      return;
+    }
+    const rule = this.sheet.getDataValidationAt(ref);
+    if (!rule || rule.kind !== 'list' || !rule.list || rule.list.length === 0) {
+      return;
+    }
+
+    const cell = await this.sheet.getCell(ref);
+    const current = cell?.v;
+    const options = [...rule.list];
+    const activeIndex = Math.max(0, options.indexOf(current ?? ''));
+    this.listPopoverState = { ref, options, activeIndex };
+    this.renderListPopover();
+
+    const cellRect = this.getCellRect(ref);
+    const viewport = this.viewport;
+    const popoverWidth = Math.min(
+      280,
+      Math.max(120, cellRect.width, this.listPopover.offsetWidth),
+    );
+    const left = Math.min(
+      viewport.left + cellRect.left,
+      viewport.left + Math.max(0, viewport.width - popoverWidth - 4),
+    );
+    const top = viewport.top + cellRect.top + cellRect.height + 2;
+    this.listPopover.style.left = `${left}px`;
+    this.listPopover.style.top = `${top}px`;
+    this.listPopover.style.display = 'block';
+
+    this.listPopoverKeyboardUnsub?.();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!this.listPopoverState) {
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.hideListPopover();
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        const len = this.listPopoverState.options.length;
+        this.listPopoverState.activeIndex =
+          (this.listPopoverState.activeIndex + delta + len) % len;
+        this.renderListPopover();
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        const { options, activeIndex } = this.listPopoverState;
+        void this.chooseListValue(options[activeIndex]);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    this.listPopoverKeyboardUnsub = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+
+    this.listPopoverOutsideClickUnsub?.();
+    requestAnimationFrame(() => {
+      if (!this.listPopoverState) {
+        return;
+      }
+      const onMouseDown = (event: MouseEvent) => {
+        if (!this.listPopover.contains(event.target as Node)) {
+          this.hideListPopover();
+        }
+      };
+      document.addEventListener('mousedown', onMouseDown);
+      this.listPopoverOutsideClickUnsub = () => {
+        document.removeEventListener('mousedown', onMouseDown);
+      };
+    });
+  }
+
+  /**
+   * `renderListPopover` (re)builds the option rows from `listPopoverState`.
+   */
+  private renderListPopover(): void {
+    const state = this.listPopoverState;
+    if (!state) {
+      return;
+    }
+    this.listPopover.innerHTML = '';
+    state.options.forEach((option, index) => {
+      const row = document.createElement('div');
+      row.textContent = option;
+      row.style.padding = '5px 10px';
+      row.style.borderRadius = '4px';
+      row.style.cursor = 'pointer';
+      row.style.whiteSpace = 'nowrap';
+      row.style.overflow = 'hidden';
+      row.style.textOverflow = 'ellipsis';
+      if (index === state.activeIndex) {
+        row.style.backgroundColor = getThemeColor(
+          this.theme,
+          'headerSelectedBGColor',
+        );
+      }
+      row.onmouseenter = () => {
+        if (!this.listPopoverState) return;
+        this.listPopoverState.activeIndex = index;
+        this.renderListPopover();
+      };
+      row.onmousedown = (event) => {
+        // Prevent the outside-click handler / blur from firing first.
+        event.preventDefault();
+        event.stopPropagation();
+        void this.chooseListValue(option);
+      };
+      this.listPopover.appendChild(row);
+    });
+  }
+
+  /**
+   * `chooseListValue` commits a picked option to the popover's target cell and
+   * closes the popover.
+   */
+  private async chooseListValue(value: string): Promise<void> {
+    const state = this.listPopoverState;
+    if (!state || this.readOnly || !this.sheet) {
+      this.hideListPopover();
+      return;
+    }
+    const { ref } = state;
+    this.hideListPopover();
+    await this.sheet.setData(ref, value);
+    this.render();
+  }
+
+  /**
+   * `hideListPopover` closes the dropdown option picker.
+   */
+  private hideListPopover(): void {
+    this.listPopover.style.display = 'none';
+    this.listPopover.innerHTML = '';
+    this.listPopoverState = null;
+    this.listPopoverOutsideClickUnsub?.();
+    this.listPopoverOutsideClickUnsub = null;
+    this.listPopoverKeyboardUnsub?.();
+    this.listPopoverKeyboardUnsub = null;
   }
 
   private areStringSetsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -2750,6 +3000,24 @@ export class Worksheet {
           return;
         }
         // Inside a checkbox cell but outside the glyph → normal selection.
+      } else if (dvRule && dvRule.kind === 'list') {
+        // Dropdown arrow: click the arrow to open the option picker. A click
+        // elsewhere in the cell falls through to normal selection.
+        const box = this.getListArrowHitRect(ref);
+        if (
+          box &&
+          x >= box.left &&
+          x <= box.left + box.size &&
+          y >= box.top &&
+          y <= box.top + box.size
+        ) {
+          e.preventDefault();
+          await this.finishEditing();
+          this.sheet!.selectStart(ref);
+          this.render();
+          await this.showListPopover(ref);
+          return;
+        }
       }
     }
 
@@ -4168,6 +4436,17 @@ export class Worksheet {
           if (await this.sheet!.toggleCheckboxAt(ref)) {
             this.render();
           }
+        },
+      },
+      {
+        match: (event) =>
+          matchesKeyCombo(event, { key: 'ArrowDown', alt: true }) &&
+          !this.readOnly &&
+          this.sheet?.getDataValidationAt(this.sheet.getActiveCell())?.kind ===
+            'list',
+        run: async (event) => {
+          event.preventDefault();
+          await this.showListPopover(this.sheet!.getActiveCell());
         },
       },
       {

@@ -3843,6 +3843,47 @@ export class Sheet {
   }
 
   /**
+   * `insertList` adds a dropdown (list) rule over the range. Existing cell
+   * values are left untouched; the arrow glyph and popover picker are a special
+   * render/interaction over the cell text.
+   */
+  async insertList(
+    range: Range,
+    id: string,
+    options: string[],
+    onInvalid: 'reject' | 'warning' = 'warning',
+  ): Promise<void> {
+    const rules = this.dataValidations.map((rule) =>
+      cloneDataValidationRule(rule),
+    );
+    rules.push({
+      id,
+      kind: 'list',
+      ranges: [cloneRange(range)],
+      list: options,
+      showArrow: true,
+      onInvalid,
+    });
+    await this.setDataValidations(rules);
+  }
+
+  /**
+   * `removeList` strips list rules intersecting the range, reverting those
+   * cells to plain cells. Existing values are left untouched (matching
+   * `removeCheckbox`). A whole intersecting rule is removed, not just the
+   * overlap.
+   */
+  async removeList(range: Range): Promise<void> {
+    const remaining = this.dataValidations.filter(
+      (rule) =>
+        !(rule.kind === 'list' && isIntersectRanges(rule.ranges, [range])),
+    );
+    if (remaining.length !== this.dataValidations.length) {
+      await this.setDataValidations(remaining);
+    }
+  }
+
+  /**
    * `setRangeBorders` applies a border preset to the current cell selection.
    * Border presets are only supported for cell selections.
    */
