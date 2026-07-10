@@ -264,6 +264,12 @@ simplifications, each a small follow-up to close:
 
 ### Testing
 
+> Scope note: this section is the testing strategy for the **full** feature
+> (all three kinds). Phase 1 shipped only the checkbox subset — list/date
+> validation, dropdown/warning rendering, and the corresponding tests are
+> deferred (see "Phase 1 (checkbox) — as shipped" above for what actually
+> landed and its coverage).
+
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,
   custom); list/date validation (`reject`/`warning`, `dateMin`/`dateMax`

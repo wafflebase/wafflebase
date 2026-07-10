@@ -1,5 +1,14 @@
 # Sheet Data Validation — Phase 1: Checkbox Implementation Plan
 
+> **Status: SHIPPED** (PR against `main`). This is the original point-in-time
+> plan; the implementation deviated in a few places (lazy `FALSE`
+> materialization instead of eager writes, active-cell-only Space, whole-rule
+> removal, and the deletion-collapses-to-boundary shift semantics). The
+> **authoritative record of what shipped and why it differs** is the companion
+> `*-lessons.md` and the "Phase 1 (checkbox) — as shipped" section of
+> `docs/design/sheets/data-validation.md`. The unchecked `- [ ]` task boxes and
+> example snippets below are preserved as the historical plan, not a live TODO.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an in-cell checkbox control to Sheets — a worksheet-level, range-scoped data-validation rule whose cells hold real boolean `TRUE`/`FALSE` values, rendered as a checkbox glyph and toggled by click/Space.

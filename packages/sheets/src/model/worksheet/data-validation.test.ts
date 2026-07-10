@@ -87,10 +87,14 @@ describe('data-validation structural edits', () => {
   });
 
   it('remaps ranges on a row move', () => {
-    // move is delegated to the shared helper; assert it runs and preserves the rule
+    // Move rows 3-5 with dst 10. `remapIndex` interprets dst against the
+    // post-removal indices, so the block lands at rows 7-9 (matching the
+    // shared moveRuleRanges / conditional-format behavior).
     const result = moveDataValidationRules([rule()], 'row', 3, 3, 10);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('a');
+    expect(result[0].ranges[0][0].r).toBe(7);
+    expect(result[0].ranges[0][1].r).toBe(9);
   });
 
   it('does not mutate the source rules', () => {
