@@ -1198,7 +1198,27 @@ export class Worksheet {
   private getCheckboxHitRect(
     ref: Ref,
   ): { left: number; top: number; size: number } | null {
-    return computeCheckboxBox(this.getCellRect(ref));
+    // `getCellRect` returns screen (zoom-multiplied) coordinates, but the
+    // renderer clamps the glyph to an absolute size in unzoomed space before
+    // `ctx.scale(zoom)` is applied. Compute the box in unzoomed space so it
+    // matches the drawn glyph, then scale back to screen space — otherwise the
+    // clickable target and the visible checkbox diverge at zoom != 1.
+    const zoom = this.zoom;
+    const cellRect = this.getCellRect(ref);
+    const box = computeCheckboxBox({
+      left: cellRect.left / zoom,
+      top: cellRect.top / zoom,
+      width: cellRect.width / zoom,
+      height: cellRect.height / zoom,
+    });
+    if (!box) {
+      return null;
+    }
+    return {
+      left: box.left * zoom,
+      top: box.top * zoom,
+      size: box.size * zoom,
+    };
   }
 
   /**

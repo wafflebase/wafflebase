@@ -237,9 +237,12 @@ simplifications, each a small follow-up to close:
 - **Click target** — clicking the checkbox glyph rect toggles it (and selects the
   cell); a click elsewhere in the cell selects without toggling. The renderer and
   the click hit-test share one `computeCheckboxBox(cellRect)` geometry helper
-  (`gridcanvas.ts`) so the drawn glyph and the clickable target never drift.
-  Toggle is gated on writability and left-button; right-click opens the context
-  menu.
+  (`gridcanvas.ts`); the hit-test normalizes `getCellRect` out of zoom space
+  before clamping so the clickable target matches the drawn glyph at every zoom
+  level. Toggle is gated on writability and left-button; right-click opens the
+  context menu. (Known caveat: for a checkbox inside a *merged* cell the glyph is
+  centered in the full merged rect while the hit-test uses the anchor cell's rect
+  — a rare configuration, deferred.)
 - **Space** — toggles the **active cell** only. Range-uniform Space ("set all
   checked", GS/Excel parity) is deferred.
 - **Structural edits** — rules follow row/column insert/delete/move in three
