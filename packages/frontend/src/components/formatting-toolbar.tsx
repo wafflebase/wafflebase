@@ -66,6 +66,7 @@ import {
   IconPaint,
   IconBrush,
   IconPhoto,
+  IconSquareCheck,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -96,6 +97,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onToggleCheckbox?: () => void;
   onInsertImage?: (file: File) => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
@@ -109,6 +111,7 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onToggleCheckbox,
   onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
@@ -122,6 +125,7 @@ export function FormattingToolbar({
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
   const [hasFilter, setHasFilter] = useState(false);
+  const [checkboxActive, setCheckboxActive] = useState(false);
   // Controlled open state for color palettes — the swatches are plain
   // <button>s (not DropdownMenuItem), so Radix can't auto-close them.
   const [textColorOpen, setTextColorOpen] = useState(false);
@@ -146,6 +150,7 @@ export function FormattingToolbar({
     setSelectionMerged(spreadsheet.isSelectionMerged());
     setCanMerge(spreadsheet.canMergeSelection());
     setHasFilter(spreadsheet.hasFilter());
+    setCheckboxActive(spreadsheet.isCheckboxActive());
   }, [spreadsheet]);
 
   useEffect(() => {
@@ -216,6 +221,10 @@ export function FormattingToolbar({
   const handleInsertChart = useCallback(() => {
     onInsertChart?.();
   }, [onInsertChart]);
+
+  const handleToggleCheckbox = useCallback(() => {
+    onToggleCheckbox?.();
+  }, [onToggleCheckbox]);
 
   const handleOpenConditionalFormat = useCallback(() => {
     onOpenConditionalFormat?.();
@@ -743,6 +752,26 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted ${
+                  checkboxActive ? "bg-muted" : ""
+                }`}
+                onClick={handleToggleCheckbox}
+                aria-pressed={checkboxActive}
+                aria-label={
+                  checkboxActive ? "Remove checkbox" : "Insert checkbox"
+                }
+              >
+                <IconSquareCheck size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {checkboxActive ? "Remove checkbox" : "Insert checkbox"}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
                 aria-label="Conditional formatting"
@@ -880,6 +909,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
                 <IconPhoto size={16} className="mr-2" />
                 Insert image
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleToggleCheckbox}>
+                <IconSquareCheck size={16} className="mr-2" />
+                {checkboxActive ? "Remove checkbox" : "Insert checkbox"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />

@@ -1,5 +1,5 @@
 import { cloneRange, inRange, toRange } from '../core/coordinates';
-import { remapIndex } from './shifting';
+import { moveRuleRanges, shiftRuleRanges } from './rule-ranges';
 import {
   Axis,
   Cell,
@@ -108,28 +108,6 @@ function normalizeDateValue(value: string | undefined): number | undefined {
     parsed.getMonth(),
     parsed.getDate(),
   ).getTime();
-}
-
-function shiftBoundary(indexValue: number, index: number, count: number): number {
-  if (count > 0) {
-    return indexValue >= index ? indexValue + count : indexValue;
-  }
-
-  const absCount = Math.abs(count);
-  if (indexValue >= index && indexValue < index + absCount) {
-    return index;
-  }
-  if (indexValue >= index + absCount) {
-    return indexValue + count;
-  }
-  return indexValue;
-}
-
-function clampRange(range: Range): Range {
-  return toRange(
-    { r: Math.max(1, range[0].r), c: Math.max(1, range[0].c) },
-    { r: Math.max(1, range[1].r), c: Math.max(1, range[1].c) },
-  );
 }
 
 function normalizeStyleColor(value: unknown): string | undefined {
@@ -357,51 +335,14 @@ export function shiftConditionalFormatRules(
   index: number,
   count: number,
 ): ConditionalFormatRule[] {
-  const next: ConditionalFormatRule[] = [];
-  for (const rule of rules) {
-    const normalized = normalizeConditionalFormatRule(rule);
-    if (!normalized) {
-      continue;
-    }
-
-    const shiftedRanges = normalized.ranges
-      .map((range) => {
-        const shifted =
-          axis === 'row'
-            ? toRange(
-                {
-                  r: shiftBoundary(range[0].r, index, count),
-                  c: range[0].c,
-                },
-                {
-                  r: shiftBoundary(range[1].r, index, count),
-                  c: range[1].c,
-                },
-              )
-            : toRange(
-                {
-                  r: range[0].r,
-                  c: shiftBoundary(range[0].c, index, count),
-                },
-                {
-                  r: range[1].r,
-                  c: shiftBoundary(range[1].c, index, count),
-                },
-              );
-        return clampRange(shifted);
-      })
-      .filter((r) => r[0].r <= r[1].r && r[0].c <= r[1].c);
-
-    if (shiftedRanges.length === 0) {
-      continue;
-    }
-
-    next.push({
-      ...cloneConditionalFormatRule(normalized),
-      ranges: shiftedRanges,
-    });
-  }
-  return next;
+  return shiftRuleRanges(
+    rules,
+    axis,
+    index,
+    count,
+    normalizeConditionalFormatRule,
+    cloneConditionalFormatRule,
+  );
 }
 
 /**
@@ -414,49 +355,13 @@ export function moveConditionalFormatRules(
   count: number,
   dst: number,
 ): ConditionalFormatRule[] {
-  const next: ConditionalFormatRule[] = [];
-  for (const rule of rules) {
-    const normalized = normalizeConditionalFormatRule(rule);
-    if (!normalized) {
-      continue;
-    }
-
-    const movedRanges = normalized.ranges
-      .map((range) => {
-        const moved =
-          axis === 'row'
-            ? toRange(
-                {
-                  r: remapIndex(range[0].r, src, count, dst),
-                  c: range[0].c,
-                },
-                {
-                  r: remapIndex(range[1].r, src, count, dst),
-                  c: range[1].c,
-                },
-              )
-            : toRange(
-                {
-                  r: range[0].r,
-                  c: remapIndex(range[0].c, src, count, dst),
-                },
-                {
-                  r: range[1].r,
-                  c: remapIndex(range[1].c, src, count, dst),
-                },
-              );
-        return clampRange(moved);
-      })
-      .filter((r) => r[0].r <= r[1].r && r[0].c <= r[1].c);
-
-    if (movedRanges.length === 0) {
-      continue;
-    }
-
-    next.push({
-      ...cloneConditionalFormatRule(normalized),
-      ranges: movedRanges,
-    });
-  }
-  return next;
+  return moveRuleRanges(
+    rules,
+    axis,
+    src,
+    count,
+    dst,
+    normalizeConditionalFormatRule,
+    cloneConditionalFormatRule,
+  );
 }

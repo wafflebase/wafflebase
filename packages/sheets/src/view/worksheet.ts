@@ -24,6 +24,7 @@ import {
   HiddenBtnArrowGap,
   HiddenBtnPadding,
   HiddenBtnMargin,
+  computeCheckboxBox,
 } from './gridcanvas';
 import { buildOpenThreadKeySet } from './render-comments';
 
@@ -1185,6 +1186,38 @@ export class Worksheet {
       top: cellRect.top + Math.max(3, (cellRect.height - height) / 2),
       width,
       height,
+    };
+  }
+
+  /**
+   * `getCheckboxHitRect` returns the on-screen checkbox glyph rect for a cell
+   * (mouse-offset coordinates), or null if the cell has no room for it. Uses
+   * the same `computeCheckboxBox` geometry as the renderer so the clickable
+   * target matches the drawn glyph exactly.
+   */
+  private getCheckboxHitRect(
+    ref: Ref,
+  ): { left: number; top: number; size: number } | null {
+    // `getCellRect` returns screen (zoom-multiplied) coordinates, but the
+    // renderer clamps the glyph to an absolute size in unzoomed space before
+    // `ctx.scale(zoom)` is applied. Compute the box in unzoomed space so it
+    // matches the drawn glyph, then scale back to screen space — otherwise the
+    // clickable target and the visible checkbox diverge at zoom != 1.
+    const zoom = this.zoom;
+    const cellRect = this.getCellRect(ref);
+    const box = computeCheckboxBox({
+      left: cellRect.left / zoom,
+      top: cellRect.top / zoom,
+      width: cellRect.width / zoom,
+      height: cellRect.height / zoom,
+    });
+    if (!box) {
+      return null;
+    }
+    return {
+      left: box.left * zoom,
+      top: box.top * zoom,
+      size: box.size * zoom,
     };
   }
 
@@ -2688,6 +2721,38 @@ export class Worksheet {
       return;
     }
 
+    // Checkbox toggle: left-click on the checkbox glyph selects the cell and
+    // flips its value. A click elsewhere in the cell falls through to normal
+    // selection (so a checkbox cell can be selected without toggling).
+    // Right-click and read-only viewers also fall through.
+    if (
+      e.button === 0 &&
+      !this.readOnly &&
+      x > RowHeaderWidth &&
+      y > DefaultCellHeight
+    ) {
+      const ref = this.toRefFromMouse(x, y);
+      const dvRule = this.sheet?.getDataValidationAt(ref);
+      if (dvRule && dvRule.kind === 'checkbox') {
+        const box = this.getCheckboxHitRect(ref);
+        if (
+          box &&
+          x >= box.left &&
+          x <= box.left + box.size &&
+          y >= box.top &&
+          y <= box.top + box.size
+        ) {
+          e.preventDefault();
+          await this.finishEditing();
+          this.sheet!.selectStart(ref);
+          await this.sheet!.toggleCheckboxAt(ref);
+          this.render();
+          return;
+        }
+        // Inside a checkbox cell but outside the glyph → normal selection.
+      }
+    }
+
     // Handle corner button click (select all)
     const isCorner = x < RowHeaderWidth && y < DefaultCellHeight;
     if (isCorner) {
@@ -4092,6 +4157,21 @@ export class Worksheet {
       },
       {
         match: (event) =>
+          keyEquals(event, ' ') &&
+          !isModPressed(event) &&
+          !this.readOnly &&
+          this.sheet?.getDataValidationAt(this.sheet.getActiveCell())
+            ?.kind === 'checkbox',
+        run: async (event) => {
+          event.preventDefault();
+          const ref = this.sheet!.getActiveCell();
+          if (await this.sheet!.toggleCheckboxAt(ref)) {
+            this.render();
+          }
+        },
+      },
+      {
+        match: (event) =>
           !isModPressed(event) &&
           !isImeComposingKeyEvent(event) &&
           this.isValidCellInput(event.key),
@@ -5075,6 +5155,7 @@ export class Worksheet {
       sheet.getStore().getRowOrder(),
       sheet.getStore().getColOrder(),
       commentCellKeys,
+      sheet.getDataValidations(),
     );
   }
 

@@ -403,6 +403,32 @@ export function SheetView({
     setConditionalFormatOpen(false);
   }, [doc, readOnly, tabId]);
 
+  const handleToggleCheckbox = useCallback(async () => {
+    if (readOnly) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheet.getSelectionType() !== "cell") {
+      toast.error("Select a cell range for checkboxes.");
+      return;
+    }
+
+    const range = sheet.getSelectionRangeOrActiveCell();
+    if (!range) {
+      toast.error("Select a cell range for checkboxes.");
+      return;
+    }
+
+    // The button is a toggle: if the active cell is already a checkbox, remove
+    // the checkbox rules over the selection (leaving the TRUE/FALSE values);
+    // otherwise add a checkbox rule.
+    if (sheet.isCheckboxActive()) {
+      await sheet.removeCheckbox(range);
+    } else {
+      await sheet.insertCheckbox(range, crypto.randomUUID());
+    }
+  }, [readOnly]);
+
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
       if (readOnly || !doc) return;
@@ -1429,6 +1455,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
+          onToggleCheckbox={handleToggleCheckbox}
           onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {

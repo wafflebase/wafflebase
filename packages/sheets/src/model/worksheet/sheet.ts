@@ -3,6 +3,7 @@ import { calculate } from './calculator';
 import {
   cloneRange,
   inRange,
+  isIntersectRanges,
   isRangeInRange,
   isSameRef,
   toRange,
@@ -25,6 +26,7 @@ import {
   Cell,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterCondition,
   FilterState,
   MergeSpan,
@@ -65,6 +67,14 @@ import {
   normalizeConditionalFormatRule,
   shiftConditionalFormatRules,
 } from './conditional-format';
+import {
+  cloneDataValidationRule,
+  moveDataValidationRules,
+  normalizeDataValidationRule,
+  resolveDataValidationAt,
+  shiftDataValidationRules,
+  toggleCheckboxValue,
+} from './data-validation';
 import {
   RangeStylePatch,
   clipRangeStylePatches,
@@ -216,6 +226,11 @@ export class Sheet {
    * `conditionalFormats` stores conditional formatting rules in apply order.
    */
   private conditionalFormats: ConditionalFormatRule[] = [];
+
+  /**
+   * `dataValidations` stores data-validation rules (checkbox/list/date).
+   */
+  private dataValidations: DataValidationRule[] = [];
 
   /**
    * `merges` stores merged range spans keyed by anchor sref.
@@ -424,6 +439,7 @@ export class Sheet {
     this.sheetStyle = await this.store.getSheetStyle();
     this.rangeStyles = await this.store.getRangeStyles();
     this.conditionalFormats = await this.store.getConditionalFormats();
+    this.dataValidations = await this.store.getDataValidations();
   }
 
   /**
@@ -676,6 +692,21 @@ export class Sheet {
     return this.conditionalFormats.map((rule) =>
       cloneConditionalFormatRule(rule),
     );
+  }
+
+  /**
+   * `getDataValidations` returns data-validation rules in apply order.
+   */
+  getDataValidations(): DataValidationRule[] {
+    return this.dataValidations.map((rule) => cloneDataValidationRule(rule));
+  }
+
+  /**
+   * `getDataValidationAt` returns the rule applying to a cell, if any
+   * (last matching rule wins).
+   */
+  getDataValidationAt(ref: Ref): DataValidationRule | undefined {
+    return resolveDataValidationAt(ref, this.dataValidations);
   }
 
   /**
@@ -1191,6 +1222,12 @@ export class Sheet {
       index,
       count,
     );
+    this.dataValidations = shiftDataValidationRules(
+      this.dataValidations,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
     this.rebuildMergeCoverMap();
     this.shiftFilterState(axis, index, count);
@@ -1368,6 +1405,13 @@ export class Sheet {
     );
     this.conditionalFormats = moveConditionalFormatRules(
       this.conditionalFormats,
+      axis,
+      src,
+      count,
+      dst,
+    );
+    this.dataValidations = moveDataValidationRules(
+      this.dataValidations,
       axis,
       src,
       count,
@@ -3738,6 +3782,64 @@ export class Sheet {
 
     this.conditionalFormats = normalized;
     await this.store.setConditionalFormats(this.conditionalFormats);
+  }
+
+  /**
+   * `setDataValidations` replaces all data-validation rules.
+   */
+  async setDataValidations(rules: DataValidationRule[]): Promise<void> {
+    const normalized = rules
+      .map((rule) => normalizeDataValidationRule(rule))
+      .filter((rule): rule is DataValidationRule => !!rule)
+      .map((rule) => cloneDataValidationRule(rule));
+
+    this.dataValidations = normalized;
+    await this.store.setDataValidations(this.dataValidations);
+  }
+
+  /**
+   * `insertCheckbox` adds a checkbox rule over the range. Empty cells render
+   * unchecked; a value is written only when the box is first toggled.
+   */
+  async insertCheckbox(range: Range, id: string): Promise<void> {
+    const rules = this.dataValidations.map((rule) =>
+      cloneDataValidationRule(rule),
+    );
+    rules.push({ id, kind: 'checkbox', ranges: [cloneRange(range)] });
+    await this.setDataValidations(rules);
+  }
+
+  /**
+   * `removeCheckbox` strips checkbox rules intersecting the range, reverting
+   * those cells to plain cells. The underlying `TRUE`/`FALSE` values are left
+   * untouched (matching Google Sheets — removing the control reveals the
+   * value). A whole intersecting rule is removed, not just the overlap.
+   */
+  async removeCheckbox(range: Range): Promise<void> {
+    const remaining = this.dataValidations.filter(
+      (rule) =>
+        !(
+          rule.kind === 'checkbox' && isIntersectRanges(rule.ranges, [range])
+        ),
+    );
+    if (remaining.length !== this.dataValidations.length) {
+      await this.setDataValidations(remaining);
+    }
+  }
+
+  /**
+   * `toggleCheckboxAt` flips the checkbox at ref if it carries a checkbox
+   * rule. Returns whether a toggle happened.
+   */
+  async toggleCheckboxAt(ref: Ref): Promise<boolean> {
+    const rule = this.getDataValidationAt(ref);
+    if (!rule || rule.kind !== 'checkbox') {
+      return false;
+    }
+    const cell = await this.getCell(ref);
+    const next = toggleCheckboxValue(rule, cell?.v);
+    await this.setData(ref, next);
+    return true;
   }
 
   /**

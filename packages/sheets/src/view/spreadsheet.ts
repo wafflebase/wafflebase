@@ -3,6 +3,7 @@ import {
   BorderPreset,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   FilterCondition,
   FormulaResolver,
   GridResolver,
@@ -304,6 +305,54 @@ export class Spreadsheet {
     await this.sheet.setConditionalFormats(rules);
     this.worksheet.render();
     this.notifySelectionChange();
+  }
+
+  /**
+   * `getDataValidations` returns data-validation rules.
+   */
+  public getDataValidations(): DataValidationRule[] {
+    return this.sheet?.getDataValidations() || [];
+  }
+
+  /**
+   * `insertCheckbox` adds a checkbox rule over the range and re-renders.
+   */
+  public async insertCheckbox(range: Range, id: string): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.insertCheckbox(range, id);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `removeCheckbox` strips checkbox rules intersecting the range (leaving the
+   * underlying TRUE/FALSE values) and re-renders.
+   */
+  public async removeCheckbox(range: Range): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.removeCheckbox(range);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `isCheckboxActive` reports whether the active cell carries a checkbox rule
+   * — used to render the toolbar's checkbox button in its "remove" state.
+   */
+  public isCheckboxActive(): boolean {
+    const active = this.sheet?.getActiveCell();
+    if (!active) return false;
+    return this.sheet?.getDataValidationAt(active)?.kind === 'checkbox';
+  }
+
+  /**
+   * `toggleCheckboxAt` flips the checkbox at ref and re-renders if it changed.
+   */
+  public async toggleCheckboxAt(ref: Ref): Promise<boolean> {
+    if (!this.sheet || this._readOnly) return false;
+    const toggled = await this.sheet.toggleCheckboxAt(ref);
+    if (toggled) this.worksheet.render();
+    return toggled;
   }
 
   /**

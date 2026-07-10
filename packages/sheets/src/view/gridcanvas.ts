@@ -6,6 +6,7 @@ import {
   SelectionType,
   CellStyle,
   ConditionalFormatRule,
+  DataValidationRule,
   MergeSpan,
 } from '../model/core/types';
 import {
@@ -13,6 +14,10 @@ import {
   resolveRangeStyleAt,
 } from '../model/worksheet/range-styles';
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
+import {
+  isCheckboxChecked,
+  resolveDataValidationAt,
+} from '../model/worksheet/data-validation';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
 import { defaultAlign } from '../model/worksheet/input';
@@ -53,12 +58,42 @@ export const HiddenBtnRadius = 3;
 export const HiddenBtnMargin = 1;
 
 /**
+ * `CheckboxBox` is the centered checkbox glyph rect within a cell.
+ */
+export type CheckboxBox = { left: number; top: number; size: number };
+
+/**
+ * `computeCheckboxBox` returns the centered checkbox glyph rect for a cell
+ * rect, or null when the cell is too small to draw one. Shared by the render
+ * pass and the click hit-test so the drawn glyph and the clickable target
+ * never drift apart.
+ */
+export function computeCheckboxBox(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): CheckboxBox | null {
+  const { width, height } = rect;
+  if (width <= 6 || height <= 6) {
+    return null;
+  }
+  const size = Math.min(16, Math.max(11, Math.min(width, height) - 6));
+  return {
+    left: rect.left + (width - size) / 2,
+    top: rect.top + (height - size) / 2,
+    size,
+  };
+}
+
+/**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
 export class GridCanvas {
   private canvas: HTMLCanvasElement;
   private theme: Theme;
   private static filterIconPath2D: Path2D | null | undefined;
+  private static checkIconPath2D: Path2D | null | undefined;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -102,6 +137,7 @@ export class GridCanvas {
     rowOrder?: string[],
     colOrder?: string[],
     commentCellKeys?: Set<string>,
+    dataValidations?: DataValidationRule[],
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -153,6 +189,7 @@ export class GridCanvas {
         rowOrder,
         colOrder,
         commentCellKeys,
+        dataValidations,
       );
       this.renderColumnHeaders(
         ctx,
@@ -235,6 +272,7 @@ export class GridCanvas {
         rowOrder,
         colOrder,
         commentCellKeys,
+        dataValidations,
       );
       ctx.restore();
 
@@ -271,6 +309,7 @@ export class GridCanvas {
           rowOrder,
           colOrder,
           commentCellKeys,
+          dataValidations,
         );
         ctx.restore();
       }
@@ -308,6 +347,7 @@ export class GridCanvas {
           rowOrder,
           colOrder,
           commentCellKeys,
+          dataValidations,
         );
         ctx.restore();
       }
@@ -340,6 +380,7 @@ export class GridCanvas {
           rowOrder,
           colOrder,
           commentCellKeys,
+          dataValidations,
         );
         ctx.restore();
       }
@@ -484,6 +525,7 @@ export class GridCanvas {
     rowOrder?: string[],
     colOrder?: string[],
     commentCellKeys?: Set<string>,
+    dataValidations?: DataValidationRule[],
   ): void {
     const styleCache = new Map<string, CellStyle | null>();
     const resolveCellStyle = (
@@ -586,6 +628,24 @@ export class GridCanvas {
       const cell = grid?.get(sref);
       const mergeSpan = mergeData?.anchors.get(sref);
       const effectiveStyle = resolveCellStyle(row, col, cell);
+
+      const dvRule = dataValidations
+        ? resolveDataValidationAt({ r: row, c: col }, dataValidations)
+        : undefined;
+      if (dvRule && dvRule.kind === 'checkbox') {
+        this.renderCellCheckbox(
+          ctx,
+          { r: row, c: col },
+          dvRule,
+          cell,
+          scroll,
+          rowDim,
+          colDim,
+          mergeSpan,
+        );
+        continue;
+      }
+
       const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
       this.renderCellContent(
         ctx,
@@ -882,6 +942,66 @@ export class GridCanvas {
       GridCanvas.filterIconPath2D = new Path2D(TablerFilter2IconPath);
     }
     return GridCanvas.filterIconPath2D;
+  }
+
+  private renderCellCheckbox(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    rule: DataValidationRule,
+    cell: Cell | undefined,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    mergeSpan?: MergeSpan,
+  ): void {
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
+    const box = computeCheckboxBox(rect);
+    if (!box) {
+      return;
+    }
+    const { left, top, size: boxSize } = box;
+    const checked = isCheckboxChecked(rule, cell?.v);
+
+    ctx.save();
+    if (checked) {
+      ctx.fillStyle = this.getThemeColor('selectionBGColor');
+      ctx.fillRect(left, top, boxSize, boxSize);
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const path = this.getCheckIconPath2D();
+      if (path) {
+        ctx.save();
+        ctx.translate(left, top);
+        ctx.scale(boxSize / 24, boxSize / 24);
+        ctx.stroke(path);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(left + boxSize * 0.22, top + boxSize * 0.52);
+        ctx.lineTo(left + boxSize * 0.42, top + boxSize * 0.72);
+        ctx.lineTo(left + boxSize * 0.78, top + boxSize * 0.3);
+        ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = this.getThemeColor('cellTextColor');
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(left + 0.5, top + 0.5, boxSize - 1, boxSize - 1);
+    }
+    ctx.restore();
+  }
+
+  private getCheckIconPath2D(): Path2D | null {
+    if (typeof Path2D === 'undefined') {
+      return null;
+    }
+    if (GridCanvas.checkIconPath2D === undefined) {
+      // Check mark drawn in a 24×24 coordinate space.
+      GridCanvas.checkIconPath2D = new Path2D('M5 12.5 L10 17.5 L19 7');
+    }
+    return GridCanvas.checkIconPath2D;
   }
 
   /**

@@ -63,6 +63,13 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
       height: 180,
     },
   };
+  worksheet.dataValidations = [
+    {
+      id: "dv-1",
+      kind: "checkbox",
+      ranges: [[{ r: 2, c: 1 }, { r: 2, c: 1 }]],
+    },
+  ];
 
   applyYorkieWorksheetShift({
     ws: worksheet,
@@ -94,6 +101,13 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
   ]);
   expect(worksheet.merges).toEqual({ A3: { rs: 1, cs: 2 } });
   expect(worksheet.charts?.chart1.anchor).toBe("A3");
+  expect(worksheet.dataValidations).toEqual([
+    {
+      id: "dv-1",
+      kind: "checkbox",
+      ranges: [[{ r: 3, c: 1 }, { r: 3, c: 1 }]],
+    },
+  ]);
 });
 
 test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", () => {
@@ -133,6 +147,13 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
       height: 180,
     },
   };
+  worksheet.dataValidations = [
+    {
+      id: "dv-2",
+      kind: "checkbox",
+      ranges: [[{ r: 1, c: 1 }, { r: 1, c: 1 }]],
+    },
+  ];
 
   applyYorkieWorksheetMove({
     ws: worksheet,
@@ -165,4 +186,11 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
   ]);
   expect(worksheet.merges).toEqual({ A2: { rs: 1, cs: 2 } });
   expect(worksheet.charts?.chart1.anchor).toBe("A2");
+  expect(worksheet.dataValidations).toEqual([
+    {
+      id: "dv-2",
+      kind: "checkbox",
+      ranges: [[{ r: 2, c: 1 }, { r: 2, c: 1 }]],
+    },
+  ]);
 });

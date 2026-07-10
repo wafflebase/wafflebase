@@ -1,6 +1,7 @@
 import {
   getWorksheetEntries,
   moveConditionalFormatRules,
+  moveDataValidationRules,
   moveDimensionMap,
   moveFormula,
   moveMergeMap,
@@ -8,6 +9,7 @@ import {
   moveRef,
   parseRef,
   shiftConditionalFormatRules,
+  shiftDataValidationRules,
   shiftDimensionMap,
   shiftFormula,
   shiftMergeMap,
@@ -312,6 +314,15 @@ export function applyYorkieWorksheetShift(options: {
     );
   }
 
+  if (ws.dataValidations) {
+    ws.dataValidations = shiftDataValidationRules(
+      ws.dataValidations,
+      axis,
+      index,
+      count,
+    );
+  }
+
   replaceMerges(
     ws,
     shiftMergeMap(
@@ -373,6 +384,16 @@ export function applyYorkieWorksheetMove(options: {
   if (ws.conditionalFormats) {
     ws.conditionalFormats = moveConditionalFormatRules(
       ws.conditionalFormats,
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+    );
+  }
+
+  if (ws.dataValidations) {
+    ws.dataValidations = moveDataValidationRules(
+      ws.dataValidations,
       axis,
       srcIndex,
       count,
