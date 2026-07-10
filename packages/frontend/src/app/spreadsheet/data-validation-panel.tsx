@@ -172,8 +172,8 @@ export function DataValidationPanel({
           ? { id, kind: "list", ranges, list: [], showArrow: true, onInvalid: "warning" }
           : { id, kind: "checkbox", ranges };
       const next = [...loaded, rule];
+      // Panel-state only; not persisted until it gains an option.
       setRules(next);
-      if (spreadsheet) void spreadsheet.setDataValidations(next);
       setSelectedRuleId(id);
     } else {
       setSelectedRuleId((current) =>
@@ -197,7 +197,7 @@ export function DataValidationPanel({
     );
     // Only re-run when the selected rule changes, not on every field edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRuleId]);
+  }, [selectedRuleId, selectedRule?.kind]);
 
   if (!open) {
     return null;
