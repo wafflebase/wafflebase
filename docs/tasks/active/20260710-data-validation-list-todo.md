@@ -69,9 +69,27 @@ Predecessor: Phase 1 (checkbox) shipped in #460.
 - [ ] structural-edit rule shift/move for list rules.
 
 ## Verification
-- [ ] `pnpm verify:fast` green.
-- [ ] Manual smoke in `pnpm dev`: insert dropdown → pick value → sort/copy moves
-      value with cell; reject vs warning behavior; read-only viewer can't change.
+- [x] Sheets typecheck (`tsc --noEmit`) clean; frontend typecheck clean.
+- [x] `pnpm verify:fast` green (lint + all unit; 1332 sheets + 1083 repo tests).
+- [x] Frontend production build clean.
+- [ ] **Live browser smoke — deferred.** The running `:5173` dev server belongs
+      to a *different worktree* (`wafflesheets`); its backend (`:3000`) has CORS
+      pinned to `http://localhost:5173`, so a second frontend on another port is
+      CORS-blocked, and restarting the shared backend would disrupt that
+      session. Run in this worktree's own `pnpm dev`: insert dropdown → pick
+      value → arrow renders → typed reject vs warning → sort/copy moves value →
+      read-only viewer can't change.
 
-## Review / Lessons
-- (fill on completion; capture in `20260710-data-validation-list-lessons.md`)
+## Review
+
+Shipped in two commits on `feat/data-validation-list`:
+1. `Sheets data validation: list dropdown control (engine + view)` — model
+   helpers, Sheet/Spreadsheet API, render pass, interaction + commit validation.
+2. `Sheets dropdown UI: toolbar button, options dialog, reject toast` — frontend.
+
+All layers mirror the Phase-1 checkbox precedent. Design doc updated with a
+"Phase 2 (list / dropdown) — as shipped" subsection. Remaining: Phase 3 (date
+picker), and the deferred live smoke above.
+
+## Lessons
+- See `20260710-data-validation-list-lessons.md`.

@@ -262,13 +262,57 @@ simplifications, each a small follow-up to close:
   precise range-subtraction and the full `Data → Data validation` side panel are
   deferred to a later phase.
 
+### Phase 2 (list / dropdown) — as shipped
+
+Phase 2 landed the `kind: 'list'` dropdown end-to-end, reusing the Phase-1
+model/Store/structural-edit spine unchanged (the `list`/`showArrow`/`onInvalid`
+fields already existed on `DataValidationRule`). What shipped:
+
+- **Model** (`data-validation.ts`) — `normalizeListOptions` (trim / drop-empty /
+  dedupe), `listOptionsOf`, and `isValidListValue` (empty value always allowed,
+  GS parity). `normalizeDataValidationRule` now drops a list rule with no usable
+  options and defaults `showArrow` to `true`.
+- **Sheet / Spreadsheet API** — `insertList(range, id, options, onInvalid?)` /
+  `removeList(range)` mirror the checkbox pair; `getListRuleAt` / `isListActive`
+  back the toolbar. `onInvalid` defaults to `warning`.
+- **Render** (`gridcanvas.ts`) — list cells keep their text (unlike checkbox,
+  which replaces it) and overlay a right-aligned chevron via
+  `computeListArrowBox` + a cached `Path2D`, background-masked so text doesn't
+  bleed under it. A **warning-mode** rule draws a red top-right triangle when the
+  cell value isn't in the list — computed at render time, never persisted.
+- **Interaction** (`worksheet.ts`) — `getListArrowHitRect` (zoom round-trip like
+  the checkbox) gates a mousedown branch that opens an anchored DOM popover
+  (modeled on the filter panel) listing the options; click or `Alt+ArrowDown`
+  opens it, Up/Down/Enter/Esc navigate, selection writes via `setData`.
+  Commit-path validation runs in `finishEditing` via `commitCellValue`: a
+  `reject` rule discards an out-of-list typed value (the editors self-restore
+  through `FormulaBar.render()`) and fires an `onValidationError` callback;
+  `warning` stores the value and lets the render pass mark it.
+- **Frontend** — an `IconSelect` toolbar button (desktop + mobile) opens a
+  minimal `DropdownOptionsDialog` (values one-per-line + Reject/Warning radio);
+  editing an existing list cell prefills and offers Remove. The reject callback
+  surfaces a `sonner` toast.
+
+Deliberate Phase-2 simplifications / follow-ups:
+
+- **Literal lists only** — range-source lists (`=Sheet1!A1:A10`) and colored
+  chips remain Non-Goals.
+- **No full side panel** — the options dialog stands in for the eventual
+  `Data → Data validation` panel; rule management is whole-rule (insert replaces
+  any list rule intersecting the range; remove drops it), no range-subtraction.
+- **Warning marker vs. comment marker** — both live at the top-right corner; a
+  cell that is both commented and validation-warned overlaps them (rare,
+  deferred).
+- **View-layer interaction is manually smoke-tested** — matching the Phase-1
+  checkbox precedent, the hit-test / popover / commit paths have no automated
+  coverage; model + seed round-trip are unit-tested.
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature
-> (all three kinds). Phase 1 shipped only the checkbox subset — list/date
-> validation, dropdown/warning rendering, and the corresponding tests are
-> deferred (see "Phase 1 (checkbox) — as shipped" above for what actually
-> landed and its coverage).
+> (all three kinds). Phases 1–2 shipped checkbox + list; date validation and
+> its tests are deferred to Phase 3 (see the "as shipped" subsections above for
+> what actually landed and its coverage).
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,
