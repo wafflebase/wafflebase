@@ -98,4 +98,4 @@ right; literal `<c:tx><c:v>` series names are read.
   differs only for the (Office-never-emitted) idx-less-after-explicit case.
 - No in-app chart creation/editing.
 
-**PR:** (add link after opening)
+**PR:** https://github.com/wafflebase/wafflebase/pull/459
