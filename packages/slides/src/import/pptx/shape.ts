@@ -35,7 +35,7 @@ import {
 } from './group';
 import { parseCustGeomPath } from './freeform';
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
-import { CHART_URI, parseChartFrame } from './chart';
+import { CHART_URI, graphicFramePlaceholder, parseChartFrame } from './chart';
 import { ImportReport } from './report';
 import { parseTable } from './table';
 import {
@@ -385,7 +385,16 @@ async function parseChild(
       const gd = descendant(el, 'graphicData');
       const uri = gd ? (gd.getAttribute('uri') ?? '') : '';
       if (uri === CHART_URI) return parseChartFrame(el, ctx);
-      return parseTable(el, ctx);
+      if (descendant(el, 'tbl')) return parseTable(el, ctx);
+      // Anything else with a `<p:graphicFrame>` wrapper (chartex/2014
+      // chart extensions, diagram/SmartArt, OLE objects, …) has no
+      // painter support yet. `parseTable` would silently return `[]`
+      // for these (no `<a:tbl>` descendant) and never report it — emit
+      // the same grey placeholder as an unsupported chart instead so
+      // the element survives round-trip and the import summary is
+      // honest about what got dropped.
+      ctx.report.unsupportedCharts++;
+      return [graphicFramePlaceholder(el, ctx)];
     }
     case 'grpSp':
       // Handled at the parseSpTree level (transform composition).

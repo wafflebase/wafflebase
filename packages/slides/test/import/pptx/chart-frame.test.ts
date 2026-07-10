@@ -59,6 +59,17 @@ const CHART_FRAME = frame(`<p:graphicFrame>
   </a:graphicData></a:graphic>
 </p:graphicFrame>`);
 
+// The chart rel id under a relationships-namespace prefix other than the
+// conventional `r:` (some producers bind it differently). `getAttribute`
+// on the literal `r:id` name misses this; only the namespace-aware
+// `getAttributeNS(NS.R, 'id')` lookup resolves it, matching image.ts.
+const CHART_FRAME_NS_PREFIX = frame(`<p:graphicFrame>
+  <p:xfrm><a:off x="1000000" y="2000000"/><a:ext cx="4000000" cy="3000000"/></p:xfrm>
+  <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">
+    <c:chart xmlns:rel="http://schemas.openxmlformats.org/officeDocument/2006/relationships" rel:id="rId9"/>
+  </a:graphicData></a:graphic>
+</p:graphicFrame>`);
+
 describe('parseChartFrame', () => {
   it('loads the chart part and returns a positioned ChartElement', async () => {
     const report = new ImportReport();
@@ -83,5 +94,24 @@ describe('parseChartFrame', () => {
     expect(out[0].type).toBe('shape');
     expect(report.unsupportedCharts).toBe(1);
     expect(report.importedCharts).toBe(0);
+  });
+
+  it('falls back to a placeholder (not a throw) when the chart part XML is malformed', async () => {
+    const report = new ImportReport();
+    const c = ctx(report);
+    c.archive.readText = async () => '<c:chartSpace><unclosed';
+    const out = await parseChartFrame(CHART_FRAME, c);
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('shape');
+    expect(report.unsupportedCharts).toBe(1);
+    expect(report.importedCharts).toBe(0);
+  });
+
+  it('resolves a chart r:id bound to a non-"r" relationships-namespace prefix', async () => {
+    const report = new ImportReport();
+    const out = await parseChartFrame(CHART_FRAME_NS_PREFIX, ctx(report));
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('chart');
+    expect(report.importedCharts).toBe(1);
   });
 });

@@ -127,4 +127,35 @@ describe('parseChartXml — line/area/pie + chart chrome', () => {
     const data = parseChartXml(parseXml(xml), ctx());
     expect(data!.showGridlines).toBe(true);
   });
+
+  it('maps legendPos="tr" (PowerPoint default) to legend "right"', () => {
+    const xml = PIE.replace('val="r"', 'val="tr"');
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(data!.legend).toBe('right');
+  });
+
+  it('falls back to a literal <c:tx><c:v> series name when there is no strRef/strCache', () => {
+    const xml = COLUMN_CLUSTERED.replace(
+      '<c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Alpha</c:v></c:pt></c:strCache></c:strRef></c:tx>',
+      '<c:tx><c:v>Revenue</c:v></c:tx>',
+    );
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(data!.series[0].name).toBe('Revenue');
+  });
+});
+
+describe('parseChartXml — malformed cache idx guard', () => {
+  it('ignores a pathological <c:pt idx> instead of allocating a huge array', () => {
+    const xml = COLUMN_CLUSTERED.replace(
+      '<c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt>',
+      '<c:pt idx="0"><c:v>10</c:v></c:pt>' +
+        '<c:pt idx="1"><c:v>20</c:v></c:pt>' +
+        '<c:pt idx="999999999"><c:v>5</c:v></c:pt>',
+    );
+    const start = Date.now();
+    const data = parseChartXml(parseXml(xml), ctx());
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(data!.series[0].values.length).toBeLessThan(4096);
+    expect(data!.series[0].values).toEqual([10, 20]);
+  });
 });

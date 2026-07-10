@@ -1,5 +1,5 @@
 import type { SlideParseContext } from './shape';
-import { attr, attrInt, child, children, descendant, parseXml } from './xml';
+import { attr, attrInt, child, children, descendant, NS, parseXml } from './xml';
 import { parseXfrm } from './geometry';
 import { resolveRelsTarget } from './rels';
 import { readAltText } from './effects';
@@ -19,18 +19,33 @@ const GROUPINGS: ReadonlySet<string> = new Set([
   'clustered', 'stacked', 'percentStacked', 'standard',
 ]);
 
-/** Read a `<c:*Cache>` (num or str) into a dense array indexed by `<c:pt idx>`. */
+/**
+ * Read a `<c:*Cache>` (num or str) into a dense array indexed by
+ * `<c:pt idx>`.
+ *
+ * `idx` comes straight from untrusted deck XML. A malformed/adversarial
+ * `<c:pt idx="999999999">` must not become a raw array index — that would
+ * allocate (and then hole-fill) an array with ~1e9 slots and hang the
+ * tab. Any point whose idx is negative or exceeds a sane cap relative to
+ * the number of points actually present is dropped instead of trusted;
+ * the cap is `max(pts.length, 4096)`, generous headroom for legitimately
+ * sparse caches while still bounding the allocation for hostile input.
+ */
 function readCache(cacheParent: Element | undefined): string[] {
   if (!cacheParent) return [];
   const pts = children(cacheParent, 'pt');
-  const out: string[] = [];
+  const maxIdx = Math.max(pts.length, 4096);
+  const pairs: Array<[number, string]> = [];
+  let maxSeen = -1;
   for (const pt of pts) {
-    const idx = attrInt(pt, 'idx') ?? out.length;
+    const idx = attrInt(pt, 'idx') ?? pairs.length;
+    if (idx < 0 || idx >= maxIdx) continue; // out-of-range idx: ignore, don't allocate for it
     const v = child(pt, 'v')?.textContent ?? '';
-    out[idx] = v;
+    pairs.push([idx, v]);
+    if (idx > maxSeen) maxSeen = idx;
   }
-  // Fill holes so category/value alignment is positional.
-  for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = '';
+  const out: string[] = new Array(maxSeen + 1).fill('');
+  for (const [idx, v] of pairs) out[idx] = v;
   return out;
 }
 
@@ -39,6 +54,19 @@ function cachedStrings(ref: Element | undefined): string[] {
   if (!ref) return [];
   const cache = descendant(ref, 'strCache') ?? descendant(ref, 'numCache');
   return readCache(cache);
+}
+
+/**
+ * Series name from `<c:tx>`. Usually a `<c:strRef>`/`<c:strCache>` (or
+ * `<c:numCache>`) wrapper, but a series title can also be a literal
+ * `<c:tx><c:v>Revenue</c:v></c:tx>` with no cache wrapper at all — fall
+ * back to that direct `<c:v>` text so the legend doesn't show "Series 1".
+ */
+function seriesName(tx: Element | undefined): string | undefined {
+  if (!tx) return undefined;
+  const cached = cachedStrings(tx)[0];
+  if (cached) return cached;
+  return child(tx, 'v')?.textContent?.trim() || undefined;
 }
 
 /** Series solid-fill color → ThemeColor, or undefined for the accent cycle. */
@@ -54,7 +82,7 @@ function seriesColor(ser: Element): ThemeColor | undefined {
 }
 
 function parseSeries(ser: Element): ChartSeries {
-  const name = cachedStrings(child(ser, 'tx'))[0] || undefined;
+  const name = seriesName(child(ser, 'tx'));
   const valStrings = cachedStrings(child(ser, 'val'));
   const values = valStrings.map((s) => {
     if (s === '' || s == null) return null;
@@ -86,6 +114,9 @@ function parseBarChart(
 
 const LEGEND_POS: Record<string, ChartElement['data']['legend']> = {
   t: 'top', b: 'bottom', l: 'left', r: 'right',
+  // PowerPoint's default legend position is top-right; our model has no
+  // corner positions, so map the corner to its closest edge.
+  tr: 'right',
 };
 
 function parseCartesian(
@@ -172,8 +203,15 @@ export function parseChartXml(
   return data;
 }
 
-/** Grey placeholder rect for a chart family Phase 1 can't paint. */
-function chartPlaceholder(
+/**
+ * Grey placeholder rect for a `<p:graphicFrame>` this importer can't
+ * paint natively — an unsupported chart plot family, a missing/malformed
+ * chart part, or (via `shape.ts`'s dispatcher) a non-chart, non-table
+ * graphicData kind such as chartex, a diagram/SmartArt, or an OLE object.
+ * Exported so `shape.ts` can reuse the exact same rect rather than
+ * duplicating the literal.
+ */
+export function graphicFramePlaceholder(
   graphicFrame: Element,
   ctx: SlideParseContext,
 ): SlideElement {
@@ -202,18 +240,36 @@ export async function parseChartFrame(
   ctx: SlideParseContext,
 ): Promise<SlideElement[]> {
   const chartRef = descendant(graphicFrame, 'chart');
-  const rid = chartRef ? attr(chartRef, 'r:id') ?? attr(chartRef, 'id') : undefined;
+  // Match image.ts's `parseBlipFill` technique: try the namespace-aware
+  // lookup first so a deck that binds the relationships namespace to a
+  // prefix other than the conventional `r:` still resolves, then fall
+  // back to the literal `r:id` (and bare `id`) attribute names.
+  const rid = chartRef
+    ? chartRef.getAttributeNS(NS.R, 'id') ||
+      attr(chartRef, 'r:id') ||
+      attr(chartRef, 'id') ||
+      undefined
+    : undefined;
   const rel = rid ? ctx.rels.get(rid) : undefined;
   if (!rel) {
     ctx.report.unsupportedCharts++;
-    return [chartPlaceholder(graphicFrame, ctx)];
+    return [graphicFramePlaceholder(graphicFrame, ctx)];
   }
   const partPath = resolveRelsTarget(ctx.slidePartPath, rel.target);
-  const xml = await ctx.archive.readText(partPath);
-  const data = xml ? parseChartXml(parseXml(xml), ctx) : undefined;
+  // A missing part, malformed XML (parseXml throws on `<parsererror>`),
+  // or any other unexpected failure while reading/mapping the chart part
+  // must not abort the whole import — fall back to the same placeholder
+  // path used for a missing/unsupported part.
+  let data: ChartElement['data'] | undefined;
+  try {
+    const xml = await ctx.archive.readText(partPath);
+    data = xml ? parseChartXml(parseXml(xml), ctx) : undefined;
+  } catch {
+    data = undefined;
+  }
   if (!data) {
     ctx.report.unsupportedCharts++;
-    return [chartPlaceholder(graphicFrame, ctx)];
+    return [graphicFramePlaceholder(graphicFrame, ctx)];
   }
   const xfrm = parseXfrm(child(graphicFrame, 'xfrm'), ctx.scale);
   const alt = readAltText(graphicFrame);
