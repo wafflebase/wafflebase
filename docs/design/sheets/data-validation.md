@@ -328,6 +328,62 @@ Deliberate Phase-2 simplifications / follow-ups:
   the model helpers, the seed round-trip, and the Enter/Tab reject-navigation
   keymap are unit-tested.
 
+### Phase 3 (UI): Data validation side panel — design
+
+The Phase-1/2 UI is quick-insert only: a checkbox toolbar toggle and a dropdown
+toolbar button that opens a minimal `DropdownOptionsDialog`. This phase replaces
+that dialog with a **right-side management panel**, mirroring
+`ConditionalFormatPanel` exactly (the two features are structurally identical —
+a worksheet-level, range-scoped rule array with a list + editor UI). Google
+Sheets surfaces data validation the same way (Data → Data validation panel).
+
+**Scope (v1):** `checkbox` and `list` only — the two shipped kinds. Date,
+number, text, and custom-formula criteria remain follow-ups (no engine change).
+Rule management is **whole-rule** (add / edit / delete a rule; no
+range-subtraction), matching the current `insert*`/`remove*` semantics.
+
+**Component & placement**
+
+- New `DataValidationPanel.tsx` (lazy-loaded), sharing the **same right-side
+  slot** as `ConditionalFormatPanel` and the chart editor — only one is open at
+  a time (mutually exclusive, as the existing panels already are).
+- Same props as the CF panel: `{ spreadsheet, open, onClose, getSelectionRange }`.
+- Reuses the CF panel's `parseA1Ranges` / `formatA1Ranges` A1 helpers (extract to
+  a shared module if convenient, else copy the small helpers — they are already
+  duplicated-ish across panels).
+
+**Panel structure** (CF-panel layout)
+
+- **Rule list** — the current sheet's `DataValidationRule[]`, each row showing
+  its range + a kind summary (e.g. `A1:A10 · Dropdown (Red, Green, …)`,
+  `B2:B5 · Checkbox`); select to edit, delete button per row.
+- **Editor** (on add / select):
+  - **Range** — A1 input, prefilled from the current selection.
+  - **Criteria** — `Checkbox` / `Dropdown` select.
+  - **Dropdown detail** — options (one per line) + `showArrow` toggle +
+    **On invalid**: Reject / Warning radio.
+  - **Checkbox detail** — none in v1 (values fixed to `TRUE`/`FALSE`); custom
+    checked/unchecked values are a deferred advanced option.
+  - **Add rule / Done / Delete rule** actions.
+
+**Data flow** — no engine change. Load via `spreadsheet.getDataValidations()`;
+write via `setDataValidations(rules)` (single atomic write = one undo unit),
+exactly as the CF panel uses `get/setConditionalFormats`. Editing an existing
+rule preserves its `id`/ranges (as `updateListRule` already does).
+
+**Entry points**
+
+- **Dropdown toolbar button** → opens this panel (create/edit a dropdown over the
+  selection) **instead of** `DropdownOptionsDialog`. The dialog component is
+  removed.
+- **Checkbox toolbar button** → unchanged quick toggle (immediate insert/remove);
+  editing happens in the panel.
+- **Context menu** → a `Data validation` item (in the sheet body right-click
+  menu) opens the panel for the current selection. Included in v1.
+
+**Non-goals (v1):** date/number/text/custom-formula criteria; range-source
+lists; colored chips; per-cell range subtraction; custom checkbox values.
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature
