@@ -1,0 +1,257 @@
+---
+title: slides-charts
+target-version: 0.5.0
+---
+
+<!-- Make sure to append document link in design README.md after creating the document. -->
+
+# Slides Charts
+
+## Summary
+
+Add a native `ChartElement` to `@wafflebase/slides` so charts survive PPTX
+import and render on the Canvas with PowerPoint-like fidelity.
+
+Today every `<p:graphicFrame>` in a slide is routed unconditionally to the
+table parser (`packages/slides/src/import/pptx/shape.ts:383` →
+`parseTable`), which returns an empty list when the frame is not a
+`<a:tbl>` (`packages/slides/src/import/pptx/table.ts:46`). A chart's
+`graphicFrame` therefore produces **zero elements, silently** — it is not
+placeholdered, not rasterized, and not even counted in `ImportReport`.
+That is why the second slide of an imported deck loses its chart with no
+warning.
+
+PPTX stores the numbers PowerPoint last computed inside the chart part's
+`<c:numCache>` / `<c:strCache>`. Reading those caches lets us reproduce
+"exactly what PowerPoint showed" without evaluating any source formulas.
+A native, Canvas-painted chart element then gives us PDF export for free
+(`export/pdf.ts` reuses `drawSlide()`), identical editor/thumbnail
+rendering, and a future path to editing and PPTX round-trip.
+
+### Goals
+
+- New `ChartElement` (`type: 'chart'`) in the slides model — a
+  self-contained chart spec (kind, grouping, categories, series values
+  and colors, legend, title). Self-contained because a slide has no
+  source spreadsheet; the values come from the PPTX cache.
+- PPTX import parses `ppt/charts/chartN.xml` for the core chart families
+  (`barChart` in both column and bar directions, `lineChart`,
+  `areaChart`, `pieChart`) including `clustered` / `stacked` /
+  `percentStacked` grouping, and produces a `ChartElement`.
+- Canvas-native painter draws the chart in element-local coordinates, so
+  editor, thumbnail, and PDF export are all identical and no external
+  rendering service is needed.
+- Charts that Phase 1 does not yet support (doughnut, scatter, bubble,
+  radar, combo, stock, surface, …) import as a labeled grey placeholder
+  box, **never silently dropped**, and are counted in `ImportReport`.
+- Charts move / resize / delete like any other framed element via the
+  existing bbox selection path.
+
+### Non-Goals
+
+- **Creating or editing charts inside Wafflebase.** Phase 1 is
+  import + render + PDF only. Changing chart type, data, series colors,
+  legend, or adding a new chart from scratch is Phase 2. Double-click
+  does not enter any editor.
+- **Chart families beyond the core five.** doughnut, scatter, bubble,
+  radar, combo, stock, surface, and 3-D variants render as placeholders
+  in Phase 1.
+- **PPTX export round-trip.** Phase 1 does not emit `<c:chart>`. The PPTX
+  exporter currently **silently omits** a `ChartElement` (serializes to an
+  empty string) so a deck containing a chart still exports without
+  aborting — but the chart is dropped with no report signal. A rasterized
+  fallback and an export-report entry, plus true `<p:graphicFrame>`/
+  `<c:chart>` round-trip, are Phase 2 items folded into
+  `docs/design/slides/slides-pptx-export.md`.
+- **Collaborative (CRDT) editing of chart data.** Charts are static
+  imported payloads in Phase 1; they batch through the existing snapshot
+  undo path like any element, but there is no per-series concurrent
+  editing.
+- **Reusing the sheets Recharts renderers.** Sheets charts render via
+  React + Recharts (SVG) in `packages/frontend`; they cannot paint into
+  the slides Canvas 2D path. We reuse the *concept* (chart type union,
+  dataset shape) and write a Canvas painter.
+
+## Proposal Details
+
+### Data model
+
+`ChartElement` joins the `Element` union in
+`packages/slides/src/model/element.ts:560` (and `ElementInit` at `:571`),
+with matching handling in `model/clone.ts` and `model/migrate.ts`.
+
+```ts
+type ChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie';
+type ChartGrouping = 'clustered' | 'stacked' | 'percentStacked' | 'standard';
+
+interface ChartSeries {
+  name?: string;              // c:ser/c:tx strCache
+  values: (number | null)[];  // c:ser/c:val numCache (null = blank point)
+  color?: ThemeColor;         // c:ser/c:spPr srgbClr; else theme accent cycle
+}
+
+interface ChartElement {
+  id: string;
+  type: 'chart';
+  frame: Frame;               // slide coords x/y/w/h, from graphicFrame xfrm
+  data: {
+    kind: ChartKind;
+    grouping?: ChartGrouping; // bar/area only; ignored for line/pie
+    title?: string;           // c:chart/c:title
+    categories: string[];     // shared x-axis labels, c:cat strCache
+    series: ChartSeries[];
+    legend?: 'top' | 'bottom' | 'left' | 'right' | 'none'; // c:legend/c:legendPos
+    showGridlines?: boolean;  // presence of c:majorGridlines on value axis
+    alt?: string;             // <p:cNvPr descr>, same path as other elements
+    effects?: Effects;        // shadow/reflection, reuse existing shape bag
+  };
+}
+```
+
+Values are stored on the element rather than referencing a sheet range,
+because slides have no backing workbook. `numCache`/`strCache` gives us a
+frozen snapshot that matches PowerPoint's last render.
+
+### PPTX import
+
+Fix the dispatch in `packages/slides/src/import/pptx/shape.ts:383`. A
+`<p:graphicFrame>` is disambiguated by its
+`<a:graphicData graphicData/@uri>`:
+
+- `.../drawingml/2006/chart` → new `parseChartFrame`: resolve the frame's
+  `<c:chart r:id>` through the slide rels to `ppt/charts/chartN.xml`,
+  load that part, and map it. A chart whose plot family is unsupported (or
+  whose part is missing) becomes a grey placeholder rect and bumps
+  `unsupportedCharts`.
+- a table (table URI, or a `<a:tbl>` descendant is present) → existing
+  `parseTable`.
+- any other graphic frame (a 2014 `chartex` waterfall/histogram/box/
+  funnel, a diagram/SmartArt, or an OLE object) → grey placeholder rect +
+  `unsupportedCharts`, so it is never silently dropped or miscounted.
+
+`parseChartFrame` is defensive end to end: a missing rel, a missing chart
+part, malformed chart XML, or any parse error all degrade to the same
+placeholder + `unsupportedCharts` rather than throwing and aborting the
+whole import. A `<c:pt idx>` cache index is bounded before array
+allocation so a malformed/adversarial deck cannot hang the import.
+
+New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
+
+- Walk `c:chartSpace/c:chart/c:plotArea` and pick the first plot type
+  element: `c:barChart` (with `c:barDir val="col"|"bar"` →
+  `column`/`bar`), `c:lineChart`, `c:areaChart`, `c:pieChart`.
+- `grouping` from `c:grouping@val` (`clustered`/`stacked`/
+  `percentStacked`/`standard`).
+- For each `c:ser`: `name` from `c:tx` (string cache or a literal
+  `c:tx/c:v`), `values` from `c:val/c:numRef/c:numCache/c:pt`, `color`
+  from `c:spPr` solidFill. **Only an explicit `srgbClr` is mapped**;
+  `schemeClr` theme references are not resolved in Phase 1 — a series with
+  no explicit RGB falls back to the theme accent cycle by series index.
+- `categories` from the first series' `c:cat` string (or number) cache.
+- `title` from `c:chart/c:title` text runs; `legend` from `c:legend/
+  c:legendPos`; `showGridlines` from `c:valAx/c:majorGridlines`.
+- Any other plot element (`c:doughnutChart`, `c:scatterChart`,
+  `c:bubbleChart`, `c:radarChart`, `c:stockChart`, `c:surfaceChart`,
+  3-D variants) → return a placeholder marker so the dispatcher inserts
+  the grey box.
+
+`packages/slides/src/import/pptx/report.ts` gains `importedCharts` and
+`unsupportedCharts` counters, surfaced in the import summary toast so
+charts never disappear without a trace.
+
+### Canvas painter
+
+New `packages/slides/src/view/canvas/chart-renderer.ts`, dispatched from
+the `switch (element.type)` in
+`packages/slides/src/view/canvas/element-renderer.ts:260` via
+`case 'chart'`. It paints in element-local coordinates
+(`frame.w` × `frame.h`) with the 2D API:
+
+- **Axes / gridlines** — a nice-number tick algorithm for the value axis;
+  category axis labels along the bottom (column/line/area) or left (bar).
+- **column / bar** — grouping-aware layout: `clustered` places series bars
+  side by side per category; `stacked` accumulates; `percentStacked`
+  normalizes each category to 100%.
+- **line / area** — one polyline per series across categories; `area`
+  fills to the baseline. **Phase 1 does not accumulate `stacked` /
+  `percentStacked` line/area** — series are drawn overlapping (stacking is
+  a documented follow-up); grouping only affects `column`/`bar`.
+- **pie** — cumulative sweep angles from the first series; the legend
+  lists the categories (one swatch per slice).
+- **legend / title** — square swatches + labels. Only legend
+  **visibility** is honored; `top`/`left`/`right` positions are stored on
+  the model but the painter always renders a bottom band (positioning is a
+  follow-up).
+- **colors** — `ThemeColor` resolved through the existing theme/fill
+  path, so charts recolor with the deck theme.
+- **negative values** — Phase 1 clamps values to `0` (no signed
+  zero-baseline axis yet), so a chart with negative data renders flat;
+  signed-axis support is a documented follow-up.
+
+Because the editor and `view/canvas/thumbnail.ts` both go through
+`drawSlide` → `drawElement`, on-screen and thumbnail rendering are
+automatically consistent.
+
+### PDF export
+
+`packages/slides/src/export/pdf.ts` is a **raster** pipeline
+(`exportSlidesPdf`): it renders every slide through `drawSlide()` onto an
+offscreen canvas, encodes the canvas to PNG/JPEG, and embeds that image
+with pdf-lib — there is no per-glyph font embedding step. The Canvas chart
+painter therefore reaches PDF with **no extra work**: chart title / legend
+/ axis / label text are rasterized into the slide image like any other
+canvas drawing. `drawChart` paints text with the generic `sans-serif`
+keyword, so the font-family collection path (`collectFontFamilies`, used
+only for text/shape/table bodies) needs no change for charts.
+
+### Editor edges
+
+- **Hit-test** (`packages/slides/src/view/editor/hit-test-elements.ts`) —
+  a chart is a rectangular frame, so the default bbox path handles
+  select / move / resize; no special case like `group` is needed
+  (verify, don't assume).
+- **No text entry** — double-click and F2 do not enter chart editing in
+  Phase 1.
+- **Undo** — chart add/move/resize/delete batch through the existing
+  `store.batch` snapshot path exactly like other elements.
+
+### Testing
+
+- **Import unit tests** — a real PPTX fixture containing the missing
+  slide-2 chart. Assert `parseChart` yields a `ChartElement` with the
+  expected `kind`, `grouping`, `categories`, per-series `values`, and
+  colors. Write the failing test first (reproduce the drop), then make
+  it pass.
+- **Painter visual snapshots** — each `kind` × `grouping` combination
+  drawn to an offscreen Canvas under `packages/*/harness/visual`, for
+  regression.
+- **PDF** — a chart slide exports without crashing and embeds chart text.
+- **Fallback** — an unsupported chart type imports as a placeholder and
+  increments `unsupportedCharts`.
+
+### Risks and Mitigation
+
+- **Painter fidelity vs PowerPoint.** Our Canvas painter will not be
+  pixel-identical to PowerPoint's renderer. Mitigation: read the real
+  cached values, series colors, legend, and title from the chart XML so
+  data and palette match; tune axis/tick/legend layout against the fixture
+  deck. Perfect parity is a non-goal; "clearly the same chart" is the bar.
+- **Chart XML variety.** Real decks carry combo charts, secondary axes,
+  data labels, number formats, and multi-level categories that Phase 1
+  ignores. Mitigation: parse defensively, degrade to placeholder on any
+  plot family we do not support, and always count it in the report so
+  nothing vanishes silently.
+- **Theme color resolution.** Series `<c:spPr>` may use theme references
+  (`schemeClr`) rather than explicit RGB. Phase 1 reads only `srgbClr` and
+  falls back to a deterministic accent cycle by series index for anything
+  else; resolving `schemeClr` through the shape importer's `clrMap`/theme
+  path is a follow-up.
+- **Model migration.** Adding a seventh element type must not break decks
+  saved before charts existed. Mitigation: `migrate.ts` leaves existing
+  documents untouched (charts only appear via new imports), and
+  `clone.ts` handles the new type so copy/paste and duplication work.
+- **PPTX export gap.** Until Phase 2, exporting a deck with charts loses
+  chart-ness: the exporter silently omits the `ChartElement` (empty
+  string) so the rest of the deck still exports, but the chart is dropped
+  with no user-visible signal. A raster fallback + an export-report entry
+  are tracked as Phase 2 in `slides-pptx-export.md`.

@@ -11,6 +11,7 @@ import {
   groupToTransform,
   type GroupTransform,
 } from '../../model/group';
+import { drawChart } from './chart-renderer';
 import { drawConnector } from './connector-renderer';
 import { drawShape, paintShapeText } from './shape-renderer';
 import { drawTable } from './table-renderer';
@@ -353,6 +354,15 @@ function drawElementBody(
           // in `docs/design/slides/slides-tables.md` (Known limitations).
           withCounterFlip(ctx, size, totalFlip, () => {
             drawTable(ctx, size, element.data, theme, { fontScale });
+          });
+          break;
+        case 'chart':
+          // Same painting shape as 'table': no in-app editing yet, so
+          // there is no text-vs-geometry split to counter-flip
+          // separately — the whole chart paints as one unit.
+          if (shadow) applyShadow(ctx, shadow, theme);
+          withCounterFlip(ctx, size, totalFlip, () => {
+            drawChart(ctx, size, element.data, theme, { fontScale });
           });
           break;
       }

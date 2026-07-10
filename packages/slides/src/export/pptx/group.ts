@@ -57,6 +57,10 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
       return connectorToXml(el, ctx.connectorFrame(el));
     case 'group':
       return groupToXml(el, ctx);
+    case 'chart':
+      // Chart PPTX serialization is Phase 2. Skip rather than abort the
+      // whole deck — omitting one element still lets the rest export.
+      return '';
   }
 }
 

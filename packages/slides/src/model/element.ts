@@ -557,13 +557,60 @@ export type TableElement = ElementBase & {
   };
 };
 
+export type ChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie';
+
+export type ChartGrouping =
+  | 'clustered'
+  | 'stacked'
+  | 'percentStacked'
+  | 'standard';
+
+export type ChartLegendPos = 'top' | 'bottom' | 'left' | 'right' | 'none';
+
+/** One data series in a chart. `values` is a frozen snapshot from the
+ * PPTX `<c:numCache>` (null = a blank point). `color` comes from the
+ * series `<c:spPr>` solid fill; absent ⇒ painter uses the theme accent
+ * cycle by series index. */
+export type ChartSeries = {
+  name?: string;
+  values: (number | null)[];
+  color?: ThemeColor;
+};
+
+/**
+ * Data-driven chart imported from a PPTX `<p:graphicFrame>/<c:chart>`.
+ * Self-contained (values live on the element) because a slide has no
+ * backing workbook — the numbers are PowerPoint's last cached render.
+ * Phase 1 is import + paint + PDF only; not editable in-app.
+ */
+export type ChartElement = ElementBase & {
+  type: 'chart';
+  data: {
+    kind: ChartKind;
+    /** bar/area only; ignored for line/pie. Absent ⇒ 'clustered'. */
+    grouping?: ChartGrouping;
+    title?: string;
+    /** Shared category-axis labels (x for column/line/area, y for bar). */
+    categories: string[];
+    series: ChartSeries[];
+    /** Absent ⇒ painter default ('bottom' when >1 series, else 'none'). */
+    legend?: ChartLegendPos;
+    showGridlines?: boolean;
+    /** Screen-reader description ↔ `<p:cNvPr descr>`. */
+    alt?: string;
+    /** Paint-time effects (drop shadow / reflection). */
+    effects?: Effects;
+  };
+};
+
 export type Element =
   | TextElement
   | ImageElement
   | ShapeElement
   | ConnectorElement
   | GroupElement
-  | TableElement;
+  | TableElement
+  | ChartElement;
 
 export type ElementType = Element['type'];
 
@@ -574,7 +621,8 @@ export type ElementInit =
   | Omit<ShapeElement, 'id'>
   | Omit<ConnectorElement, 'id'>
   | Omit<GroupElement, 'id'>
-  | Omit<TableElement, 'id'>;
+  | Omit<TableElement, 'id'>
+  | Omit<ChartElement, 'id'>;
 
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {

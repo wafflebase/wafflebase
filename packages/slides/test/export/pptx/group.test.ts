@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { elementToXml, groupToXml, type ElementXmlCtx } from '../../../src/export/pptx/group.js';
-import type { GroupElement, ShapeElement } from '../../../src/model/element.js';
+import type { ChartElement, GroupElement, ShapeElement } from '../../../src/model/element.js';
 
 const ctx: ElementXmlCtx = {
   resolveImageRId: () => 'rId1',
@@ -16,6 +16,35 @@ const child: ShapeElement = {
 describe('group', () => {
   it('dispatches a shape', () => {
     expect(elementToXml(child, ctx)).toContain('<p:sp>');
+  });
+
+  it('skips a chart element (Phase 2: no serializer yet) instead of throwing', () => {
+    const chart: ChartElement = {
+      id: 'ch',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      type: 'chart',
+      data: { kind: 'bar', categories: ['Q1'], series: [{ values: [1] }] },
+    };
+    expect(() => elementToXml(chart, ctx)).not.toThrow();
+    expect(elementToXml(chart, ctx)).toBe('');
+  });
+
+  it('omits a chart but keeps sibling shape XML when serializing a group', () => {
+    const chart: ChartElement = {
+      id: 'ch2',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      type: 'chart',
+      data: { kind: 'bar', categories: ['Q1'], series: [{ values: [1] }] },
+    };
+    const g: GroupElement = {
+      id: 'gc',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      type: 'group',
+      data: { children: [child, chart] },
+    };
+    const xml = groupToXml(g, ctx);
+    expect(xml).toContain('<p:sp>');
+    expect(xml).not.toContain('chart');
   });
 
   it('emits grpSp with children and chOff/chExt', () => {
