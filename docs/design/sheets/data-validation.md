@@ -384,6 +384,25 @@ rule preserves its `id`/ranges (as `updateListRule` already does).
 **Non-goals (v1):** date/number/text/custom-formula criteria; range-source
 lists; colored chips; per-cell range subtraction; custom checkbox values.
 
+#### As shipped
+
+`packages/frontend/src/app/spreadsheet/data-validation-panel.tsx` — a
+lazy-loaded panel sharing the CF/chart right-slot (mutually exclusive). Added
+`Spreadsheet.setDataValidations` and `Spreadsheet.getDataValidationAt` (any-kind
+resolver). The dropdown toolbar button now opens the panel with a one-shot
+`autoAddKind: 'list'` (auto-adds a dropdown rule for the selection); the
+`Data validation` context-menu item opens it without auto-adding
+(`autoAddKind: null`). `DropdownOptionsDialog` was deleted. Two review-caught
+behaviors were fixed during implementation: the field-sync effect is keyed on
+`selectedRuleId` only (so in-progress range/options edits aren't reverted by a
+sibling field edit), and the auto-add gate uses the any-kind
+`getDataValidationAt` (so a checkbox-ruled cell isn't given an overlapping
+auto-added rule). The panel keeps an in-progress zero-option dropdown visible in
+its own state for the session even though the engine normalizes it out of the
+persisted array until it has ≥1 option. Verified by frontend+sheets typecheck,
+the full unit suite, and a production build; the interactive panel smoke runs in
+the authenticated app (deferred to a manual pass).
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature
