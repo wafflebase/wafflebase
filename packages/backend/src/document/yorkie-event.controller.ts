@@ -47,11 +47,15 @@ export class YorkieEventController {
       return { ok: true };
     }
 
-    // Trust Yorkie's issue time as the edit time; fall back to now() if it is
-    // missing or unparseable. `touchUpdatedAt` only moves the time forward, so
-    // out-of-order / duplicate deliveries are harmless.
+    // Trust Yorkie's issue time as the edit time, but clamp it to now() and
+    // fall back to now() if missing/unparseable. `touchUpdatedAt` only moves
+    // the time forward, so a clock-skewed *future* issuedAt would otherwise pin
+    // updatedAt ahead and make the monotonic guard reject every later real
+    // edit until wall-clock caught up. Out-of-order / duplicate deliveries stay
+    // harmless.
+    const now = Date.now();
     const issuedMs = Date.parse(body.attributes?.issuedAt ?? '');
-    const at = Number.isNaN(issuedMs) ? new Date() : new Date(issuedMs);
+    const at = new Date(Number.isNaN(issuedMs) ? now : Math.min(issuedMs, now));
 
     await this.documentService.touchUpdatedAt(parsed.id, at);
     return { ok: true };

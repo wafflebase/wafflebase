@@ -90,8 +90,12 @@ export class DocumentService {
     data: Prisma.DocumentUpdateInput;
   }): Promise<Document> {
     const { data, where } = params;
+    // Any metadata update (rename, move) is a modification, so advance
+    // `updatedAt` — content edits arrive via the Yorkie webhook, but title/
+    // workspace changes never touch Yorkie and would otherwise leave the doc
+    // stuck at its old "Last modified" time and list position.
     return this.prisma.document.update({
-      data,
+      data: { ...data, updatedAt: new Date() },
       where,
     });
   }

@@ -56,11 +56,29 @@ Yorkie 0.7.12 contract (verified from source):
 
 ## Review
 
-- Backend `build` + `pnpm verify:fast` green (EXIT=0). 19 new unit tests pass.
+- Backend `build` + `pnpm verify:fast` green (EXIT=0). 20 new unit tests pass.
 - No frontend change needed: the list already sorts `updatedAt desc`; that
   value is now stable from Postgres, so the flip disappears. The 5s poll now
   only refreshes editor avatars.
 - Migration `20260710000000_add_document_updated_at` adds the column + backfill.
+
+### Code review (high effort, workflow-backed) — outcomes
+
+Applied:
+- Rename/move now bumps `updatedAt` (`updateDocument` sets `now()`) — a metadata
+  edit floats the doc up; content edits still come via webhook.
+- `rawBody` capture scoped to the webhook path in `main.ts` — no longer retains
+  25MB import buffers on every JSON request.
+- Webhook clamps `issuedAt` to `min(issuedAt, now())` — a clock-skewed future
+  event can't pin `updatedAt` ahead and freeze ordering.
+
+Deferred (documented in design Risks):
+- Backfill of pre-deploy Yorkie `updated_at` + self-heal for missed webhooks →
+  reconciliation job (Option C). Low impact now (live admin read already times
+  out ~every poll, so today's list is effectively `createdAt` order); tracked as
+  follow-up.
+- Deploy sequencing (migrate-before-serve, webhook registration) → release
+  runbook items, not code.
 
 ## Non-Goals / follow-ups
 

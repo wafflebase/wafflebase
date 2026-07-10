@@ -70,12 +70,35 @@ yorkie project update <project> \
   --event-webhook-events DocumentRootChanged
 ```
 
+### Non-content updates
+Rename / move never touch Yorkie, so no webhook fires. `DocumentService.updateDocument`
+therefore sets `updatedAt = now()` explicitly on every metadata update, so a
+rename still floats the document to the top like any edit.
+
+### Clock skew
+`issuedAt` is Yorkie's server clock. The webhook clamps it to `min(issuedAt, now())`
+before storing — a future-skewed event must not pin `updatedAt` ahead, which
+(with the monotonic guard) would reject every later real edit until wall-clock
+caught up.
+
 ## Risks and Mitigation
 
 - **Duplicate / out-of-order events** → monotonic advance-only update absorbs.
-- **Missed webhook** (backend down) → `updatedAt` slightly stale; acceptable,
-  future periodic sync self-heals.
 - **Forged requests** → HMAC signature verification is mandatory; the endpoint
   refuses to run when `YORKIE_SECRET_KEY` is unset.
 - **`pdf` documents** have no CRDT edits → no webhook → stay at `createdAt`,
   which is correct.
+- **Backfill of pre-deploy edit history** → the migration seeds existing rows to
+  `createdAt`, discarding any real Yorkie `updated_at`. Low impact in the current
+  deployment (the live admin read times out on ~every poll today, so the list
+  already effectively shows `createdAt` order), but not authoritative against a
+  healthy Yorkie. **Follow-up:** a one-time / periodic reconciliation job that
+  batch-reads Yorkie `updated_at` → `touchUpdatedAt` (Option C) both seeds
+  history and self-heals missed webhooks.
+- **Missed webhook** (backend down mid-edit, or Yorkie retries exhausted) →
+  `updatedAt` stays stale for that doc with no in-app recovery until its next
+  edit. Same reconciliation follow-up closes this.
+- **Deploy sequencing** → the list query reads/sorts the new column, so
+  `prisma migrate deploy` must run before the new image serves traffic, and the
+  Yorkie project webhook must be registered (see ops step) or `updatedAt` never
+  advances. Both are release-runbook items, not code paths.

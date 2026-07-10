@@ -39,6 +39,18 @@ describe('YorkieEventController', () => {
     expect(touchUpdatedAt).not.toHaveBeenCalled();
   });
 
+  it('clamps a future-skewed issuedAt to now() so it cannot pin updatedAt ahead', async () => {
+    const before = Date.now();
+    await controller.handleEvent({
+      type: 'DocumentRootChanged',
+      attributes: { key: 'sheet-xyz', issuedAt: '2999-01-01T00:00:00.000Z' },
+    });
+    const [, at] = touchUpdatedAt.mock.calls[0] as [string, Date];
+    // Stored time is now(), not the year-2999 value.
+    expect(at.getTime()).toBeGreaterThanOrEqual(before);
+    expect(at.getTime()).toBeLessThan(Date.parse('2999-01-01T00:00:00.000Z'));
+  });
+
   it('falls back to now() when issuedAt is missing or unparseable', async () => {
     const before = Date.now();
     await controller.handleEvent({
