@@ -250,8 +250,14 @@ simplifications, each a small follow-up to close:
   formula with a literal (design intent is formula-backed = read-only);
   `isCheckboxChecked` is case-sensitive (`"true"` renders unchecked). Both are
   small follow-ups.
-- **UI** — a single flat `Insert → Checkbox` toolbar button (desktop + mobile
-  menu). The full `Data → Data validation` side panel is deferred to a later phase.
+- **UI** — a single flat checkbox toolbar button (desktop + mobile menu) that
+  **toggles**: when the active cell is already a checkbox the button shows an
+  active/"Remove checkbox" state and clicking strips the checkbox rules
+  intersecting the selection (leaving the `TRUE`/`FALSE` values, matching Google
+  Sheets); otherwise it inserts a checkbox rule. Removal is whole-rule
+  (`Sheet.removeCheckbox` drops any checkbox rule intersecting the selection);
+  precise range-subtraction and the full `Data → Data validation` side panel are
+  deferred to a later phase.
 
 ### Testing
 

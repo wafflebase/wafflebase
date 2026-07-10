@@ -325,6 +325,27 @@ export class Spreadsheet {
   }
 
   /**
+   * `removeCheckbox` strips checkbox rules intersecting the range (leaving the
+   * underlying TRUE/FALSE values) and re-renders.
+   */
+  public async removeCheckbox(range: Range): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.removeCheckbox(range);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `isCheckboxActive` reports whether the active cell carries a checkbox rule
+   * — used to render the toolbar's checkbox button in its "remove" state.
+   */
+  public isCheckboxActive(): boolean {
+    const active = this.sheet?.getActiveCell();
+    if (!active) return false;
+    return this.sheet?.getDataValidationAt(active)?.kind === 'checkbox';
+  }
+
+  /**
    * `toggleCheckboxAt` flips the checkbox at ref and re-renders if it changed.
    */
   public async toggleCheckboxAt(ref: Ref): Promise<boolean> {

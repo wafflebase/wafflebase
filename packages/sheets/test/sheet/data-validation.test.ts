@@ -49,4 +49,44 @@ describe('Sheet data validation', () => {
     // off-rule cell → no toggle
     expect(await sheet.toggleCheckboxAt({ r: 9, c: 9 })).toBe(false);
   });
+
+  it('removes checkbox rules intersecting a range but keeps cell values', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.insertCheckbox(
+      [
+        { r: 1, c: 1 },
+        { r: 3, c: 1 },
+      ],
+      'dv-1',
+    );
+    await sheet.toggleCheckboxAt({ r: 1, c: 1 }); // A1 → TRUE
+    expect(sheet.getDataValidations()).toHaveLength(1);
+
+    // removing over any intersecting cell strips the whole rule...
+    await sheet.removeCheckbox([
+      { r: 2, c: 1 },
+      { r: 2, c: 1 },
+    ]);
+    expect(sheet.getDataValidations()).toHaveLength(0);
+    expect(sheet.getDataValidationAt({ r: 1, c: 1 })).toBeUndefined();
+
+    // ...but the underlying value survives (control removed, value revealed).
+    expect((await sheet.getCell({ r: 1, c: 1 }))?.v).toBe('TRUE');
+  });
+
+  it('removeCheckbox is a no-op when nothing intersects', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.insertCheckbox(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      'dv-1',
+    );
+    await sheet.removeCheckbox([
+      { r: 9, c: 9 },
+      { r: 9, c: 9 },
+    ]);
+    expect(sheet.getDataValidations()).toHaveLength(1);
+  });
 });

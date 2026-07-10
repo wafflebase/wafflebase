@@ -3,6 +3,7 @@ import { calculate } from './calculator';
 import {
   cloneRange,
   inRange,
+  isIntersectRanges,
   isRangeInRange,
   isSameRef,
   toRange,
@@ -3806,6 +3807,24 @@ export class Sheet {
     );
     rules.push({ id, kind: 'checkbox', ranges: [cloneRange(range)] });
     await this.setDataValidations(rules);
+  }
+
+  /**
+   * `removeCheckbox` strips checkbox rules intersecting the range, reverting
+   * those cells to plain cells. The underlying `TRUE`/`FALSE` values are left
+   * untouched (matching Google Sheets — removing the control reveals the
+   * value). A whole intersecting rule is removed, not just the overlap.
+   */
+  async removeCheckbox(range: Range): Promise<void> {
+    const remaining = this.dataValidations.filter(
+      (rule) =>
+        !(
+          rule.kind === 'checkbox' && isIntersectRanges(rule.ranges, [range])
+        ),
+    );
+    if (remaining.length !== this.dataValidations.length) {
+      await this.setDataValidations(remaining);
+    }
   }
 
   /**
