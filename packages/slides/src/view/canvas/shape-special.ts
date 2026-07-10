@@ -1,7 +1,7 @@
 // packages/slides/src/view/canvas/shape-special.ts
 import type { ShapeElement } from '../../model/element';
-import { resolveColor, type Theme, type ThemeColor } from '../../model/theme';
-import { resolveStrokeColor } from './render-context';
+import { representativeColor, resolveColor, type Theme, type ThemeColor } from '../../model/theme';
+import { resolveFillStyle, resolveStrokeColor } from './render-context';
 import type { FrameSize } from './shapes/builder';
 import { ACTION_BUTTON_GLYPHS } from './shapes/action-buttons';
 
@@ -27,7 +27,7 @@ export function drawActionButton(
 ): void {
   // Body fill.
   if (data.fill) {
-    ctx.fillStyle = resolveColor(data.fill, theme);
+    ctx.fillStyle = resolveFillStyle(ctx, data.fill, theme, w, h);
     ctx.fillRect(0, 0, w, h);
   }
   // Outer + inner bevel outline.
@@ -52,7 +52,9 @@ export function drawActionButton(
     const glyphSource = data.stroke?.color ?? ACTION_BUTTON_GLYPH_FALLBACK;
     // resolveStrokeColor is used here for its ThemeColor|string union handling, not because the glyph is stroked.
     const glyphResolved = resolveStrokeColor(glyphSource, theme);
-    const bodyResolved = data.fill ? resolveColor(data.fill, theme) : null;
+    // Collision check only needs a representative solid — a gradient body
+    // compares by its first stop.
+    const bodyResolved = data.fill ? resolveColor(representativeColor(data.fill), theme) : null;
     ctx.fillStyle =
       bodyResolved === glyphResolved
         ? resolveColor({ kind: 'role', role: 'background' }, theme)

@@ -63,6 +63,37 @@ export type ThemeFont =
   | { kind: 'role'; role: FontRole }
   | { kind: 'family'; family: string };
 
+/** One stop of a linear gradient. `pos` is `0..1` along the gradient axis. */
+export type GradientStop = { pos: number; color: ThemeColor };
+
+/**
+ * Linear gradient fill. `angle` is in radians, clockwise from the positive
+ * x-axis (`0` = left→right), matching OOXML `<a:lin ang>` after conversion
+ * from 60000ths-of-a-degree. Radial/path gradients are not modeled; the
+ * importer approximates them by their first stop.
+ */
+export type GradientFill = {
+  kind: 'gradient';
+  angle: number;
+  stops: GradientStop[];
+};
+
+/** A shape fill: a solid theme color or a linear gradient. */
+export type Fill = ThemeColor | GradientFill;
+
+/**
+ * Collapse any fill to a single representative `ThemeColor` — the fill
+ * itself when solid, else the gradient's first stop. Used where only a solid
+ * is meaningful: the color picker, migration of legacy values, and the
+ * shaded faces of 3D-look shapes (which lighten/darken one base color).
+ */
+export function representativeColor(fill: Fill): ThemeColor {
+  if (fill.kind === 'gradient') {
+    return fill.stops[0]?.color ?? { kind: 'srgb', value: '#000000' };
+  }
+  return fill;
+}
+
 export function resolveColor(color: ThemeColor, theme: Theme): string {
   let hex: string;
   if (color.kind === 'srgb') {

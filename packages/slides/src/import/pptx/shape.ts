@@ -23,6 +23,11 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../../model/connector';
+import {
+  representativeColor,
+  type GradientFill,
+  type GradientStop,
+} from '../../model/theme';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { parseEffects, readAltText } from './effects';
 import type { TxStylesAlignments, TxStylesMarkers, TxStylesSlot } from './master';
@@ -536,9 +541,21 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   // element's `data.fill`/`data.stroke` just like a shape's.
   if (isTextBox && txBody) {
     const fill = parseShapeFill(spPr, ctx);
+    // Text elements carry a solid `ThemeColor` fill only; a text box with a
+    // gradient background collapses to its representative stop.
+    const textFill = fill ? representativeColor(fill) : undefined;
     const stroke = parseShapeStroke(spPr, ctx);
     return [
-      buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey, fill, stroke),
+      buildTextElement(
+        elementId,
+        frame,
+        txBody,
+        ctx,
+        placeholderRef,
+        layoutSizeKey,
+        textFill,
+        stroke,
+      ),
     ];
   }
 
@@ -904,10 +921,44 @@ function parseShapeFill(
   if (!spPr) return undefined;
   const solid = child(spPr, 'solidFill');
   if (solid) return parseColorFromContainer(solid, ctx.clrMap);
-  // gradient and pattern fills on shapes are out of v1 scope. Blip
-  // fills *are* handled — see the `<a:blipFill>` branch in `parseSp`,
-  // which short-circuits to an `ImageElement` before we get here.
+  const grad = child(spPr, 'gradFill');
+  if (grad) return parseGradientFill(grad, ctx.clrMap);
+  // Pattern fills on shapes are out of scope. Blip fills *are* handled —
+  // see the `<a:blipFill>` branch in `parseSp`, which short-circuits to
+  // an `ImageElement` before we get here.
   return undefined;
+}
+
+/**
+ * Parse an OOXML `<a:gradFill>` into a linear {@link GradientFill}. Reads
+ * `<a:gsLst><a:gs pos>` stops (pos in 1000ths-of-a-percent → 0..1) and
+ * `<a:lin ang>` (60000ths-of-a-degree → radians). Radial/path gradients
+ * (`<a:path>`) are not modeled — we still surface their stops as a linear
+ * gradient at the default angle so the shape keeps its colors rather than
+ * vanishing. Returns undefined when there are no usable stops.
+ */
+function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefined {
+  const gsLst = child(grad, 'gsLst');
+  if (!gsLst) return undefined;
+  const stops: GradientStop[] = [];
+  for (const gs of children(gsLst, 'gs')) {
+    const color = parseColorFromContainer(gs, clrMap);
+    // A stop whose color can't be resolved (e.g. a `<a:schemeClr val="phClr">`
+    // placeholder that only style-matrix gradients use) is skipped. If that
+    // leaves fewer than two usable stops, the renderer and PPTX exporter both
+    // degrade the gradient to its representative solid rather than break.
+    if (!color) continue;
+    // `pos` is 1000ths of a percent (0..100000). Absent ⇒ 0.
+    const pos = (attrInt(gs, 'pos') ?? 0) / 100_000;
+    stops.push({ pos: Math.max(0, Math.min(1, pos)), color });
+  }
+  if (stops.length === 0) return undefined;
+  // `<a:lin ang>` is 60000ths of a degree, clockwise from 3 o'clock.
+  // Absent (common in exported decks) ⇒ default top→bottom (90°), the
+  // usual PowerPoint linear default.
+  const lin = child(grad, 'lin');
+  const angDeg = lin ? (attrInt(lin, 'ang') ?? 0) / 60_000 : 90;
+  return { kind: 'gradient', angle: (angDeg * Math.PI) / 180, stops };
 }
 
 function parseShapeStroke(

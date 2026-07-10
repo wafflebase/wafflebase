@@ -1,9 +1,10 @@
-import type {
-  ColorRole,
-  Element,
-  ShapeElement,
-  SlidesStore,
-  ThemeColor,
+import {
+  representativeColor,
+  type ColorRole,
+  type Element,
+  type ShapeElement,
+  type SlidesStore,
+  type ThemeColor,
 } from "@wafflebase/slides";
 
 /**
@@ -131,5 +132,8 @@ export function applyShapeFill(
  */
 export function readShapeFill(element: Element): ThemeColor | undefined {
   if (element.type !== "shape") return undefined;
-  return (element as ShapeElement).data.fill;
+  const fill = (element as ShapeElement).data.fill;
+  // The picker edits a solid color; a gradient-filled shape shows its
+  // representative stop (picking a new color replaces the gradient).
+  return fill ? representativeColor(fill) : undefined;
 }

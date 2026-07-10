@@ -302,4 +302,87 @@ describe('parseSlide — shape inline text', () => {
       bottom: 45720,
     });
   });
+
+  it('imports an <a:gradFill> shape as a linear gradient fill', async () => {
+    // Mirrors slide 4's blue header boxes: a roundRect filled with a
+    // two-stop linear gradient and an explicit <a:lin ang> (45°).
+    const xml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+        <a:gradFill>
+          <a:gsLst>
+            <a:gs pos="0"><a:srgbClr val="0093FF"/></a:gs>
+            <a:gs pos="100000"><a:srgbClr val="006AFF"/></a:gs>
+          </a:gsLst>
+          <a:lin ang="2700000" scaled="1"/>
+        </a:gradFill>
+      </p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': xml }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    expect(el.type).toBe('shape');
+    if (el.type !== 'shape') return;
+    const fill = el.data.fill;
+    expect(fill?.kind).toBe('gradient');
+    if (fill?.kind !== 'gradient') return;
+    expect(fill.stops).toHaveLength(2);
+    expect(fill.stops[0]).toEqual({ pos: 0, color: { kind: 'srgb', value: '#0093FF' } });
+    expect(fill.stops[1]).toEqual({ pos: 1, color: { kind: 'srgb', value: '#006AFF' } });
+    // 2700000 / 60000 = 45°.
+    expect(fill.angle).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it('defaults a gradient with no <a:lin> to a top→bottom angle', async () => {
+    const xml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+        <a:gradFill><a:gsLst>
+          <a:gs pos="0"><a:srgbClr val="0093FF"/></a:gs>
+          <a:gs pos="100000"><a:srgbClr val="006AFF"/></a:gs>
+        </a:gsLst></a:gradFill>
+      </p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': xml }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    if (el.type !== 'shape' || el.data.fill?.kind !== 'gradient') {
+      throw new Error('expected a gradient-filled shape');
+    }
+    expect(el.data.fill.angle).toBeCloseTo(Math.PI / 2, 6);
+  });
 });
