@@ -668,6 +668,13 @@ export function SheetView({
     setDataValidationOpen(false);
   }, []);
 
+  const handleOpenDataValidation = useCallback(() => { // eslint-disable-line @typescript-eslint/no-unused-vars
+    setDataValidationOpen(true);
+    setConditionalFormatOpen(false);
+    setChartEditorOpen(false);
+    setDvAutoAddKind(null);
+  }, []);
+
   const handleInsertPivotTable = useCallback(() => {
     if (readOnly || !addPivotTab) return;
     const sheet = sheetRef.current;
