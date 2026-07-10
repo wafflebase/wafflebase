@@ -5,6 +5,7 @@ import {
   Cell,
   CellStyle,
   Ref,
+  Range,
   Sref,
   getWorksheetCell,
   parseRef,
@@ -29,6 +30,10 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
+import {
+  DropdownOptionsDialog,
+  type DropdownInvalidBehavior,
+} from "./dropdown-options-dialog";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
@@ -143,6 +148,13 @@ export function SheetView({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
+  const [dropdownDialogOpen, setDropdownDialogOpen] = useState(false);
+  const [dropdownDialogState, setDropdownDialogState] = useState<{
+    range: Range;
+    initialOptions: string[];
+    initialOnInvalid: DropdownInvalidBehavior;
+    isEditing: boolean;
+  } | null>(null);
 
   // Comment popover state. The pinned axis-ID anchor is what makes the popover
   // resilient to remote renders: notifySelectionChange fires on every render
@@ -428,6 +440,55 @@ export function SheetView({
       await sheet.insertCheckbox(range, crypto.randomUUID());
     }
   }, [readOnly]);
+
+  const handleInsertDropdown = useCallback(() => {
+    if (readOnly) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheet.getSelectionType() !== "cell") {
+      toast.error("Select a cell range for a dropdown.");
+      return;
+    }
+    const range = sheet.getSelectionRangeOrActiveCell();
+    if (!range) {
+      toast.error("Select a cell range for a dropdown.");
+      return;
+    }
+
+    const existing = sheet.getListRuleAt();
+    setDropdownDialogState({
+      range,
+      initialOptions: existing?.list ?? [],
+      initialOnInvalid: existing?.onInvalid === "reject" ? "reject" : "warning",
+      isEditing: !!existing,
+    });
+    setDropdownDialogOpen(true);
+  }, [readOnly]);
+
+  const handleSaveDropdown = useCallback(
+    async (options: string[], onInvalid: DropdownInvalidBehavior) => {
+      const sheet = sheetRef.current;
+      const target = dropdownDialogState;
+      if (!sheet || !target) return;
+      // Replace any existing list rule over the range, then insert the new one.
+      await sheet.removeList(target.range);
+      await sheet.insertList(
+        target.range,
+        crypto.randomUUID(),
+        options,
+        onInvalid,
+      );
+    },
+    [dropdownDialogState],
+  );
+
+  const handleRemoveDropdown = useCallback(async () => {
+    const sheet = sheetRef.current;
+    const target = dropdownDialogState;
+    if (!sheet || !target) return;
+    await sheet.removeList(target.range);
+  }, [dropdownDialogState]);
 
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
@@ -968,6 +1029,12 @@ export function SheetView({
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
 
+      // Surface data-validation rejections (e.g. a value that isn't in a
+      // reject-mode dropdown list) as a toast.
+      s.onValidationError((message) => {
+        toast.error(message);
+      });
+
       if (isMobileRef.current && !readOnly) {
         s.setMobileEditCallback((cellRef, value) => {
           mobileEditValueRef.current = value;
@@ -1456,6 +1523,7 @@ export function SheetView({
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
           onToggleCheckbox={handleToggleCheckbox}
+          onInsertDropdown={handleInsertDropdown}
           onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
@@ -1559,6 +1627,17 @@ export function SheetView({
               getSelectionRange={getSelectionRange}
             />
           </Suspense>
+        )}
+        {!readOnly && dropdownDialogState && (
+          <DropdownOptionsDialog
+            open={dropdownDialogOpen}
+            onOpenChange={setDropdownDialogOpen}
+            initialOptions={dropdownDialogState.initialOptions}
+            initialOnInvalid={dropdownDialogState.initialOnInvalid}
+            isEditing={dropdownDialogState.isEditing}
+            onSave={handleSaveDropdown}
+            onRemove={handleRemoveDropdown}
+          />
         )}
         {!readOnly && isPivotTab && !pivotEditorOpen && (
           <button
