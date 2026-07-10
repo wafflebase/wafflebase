@@ -107,6 +107,28 @@ describe('parseMaster', () => {
     expect(txStylesMarkers.size).toBe(0);
   });
 
+  it('parses <p:txStyles> default alignment per slot from lvl1pPr algn', async () => {
+    const xml = `<?xml version="1.0"?>
+<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:bg><p:bgPr><a:solidFill><a:schemeClr val="bg1"/></a:solidFill></p:bgPr></p:bg><p:spTree/></p:cSld>
+  <p:txStyles>
+    <p:titleStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle>
+    <p:bodyStyle><a:lvl1pPr><a:defRPr sz="1400"/></a:lvl1pPr></p:bodyStyle>
+  </p:txStyles>
+</p:sldMaster>`;
+    const { txStylesAlignments } = await parseMaster(xml, 'm', 't', stubImageCtx());
+    expect(txStylesAlignments.get('title')).toBe('center');
+    // A slot whose lvl1pPr has no algn contributes no default.
+    expect(txStylesAlignments.has('body')).toBe(false);
+    expect(txStylesAlignments.has('other')).toBe(false);
+  });
+
+  it('returns an empty alignment map when <p:txStyles> is omitted', async () => {
+    const { txStylesAlignments } = await parseMaster(MIN_MASTER, 'm', 't', stubImageCtx());
+    expect(txStylesAlignments.size).toBe(0);
+  });
+
   it('populates background.image from a master-level blipFill', async () => {
     const xml = `<?xml version="1.0"?>
 <p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"

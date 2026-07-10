@@ -1,4 +1,4 @@
-import type { Block } from '@wafflebase/docs';
+import type { Block, BlockStyle } from '@wafflebase/docs';
 import type { Frame } from '../../model/element';
 import type { Background, Slide } from '../../model/presentation';
 import { DEFAULT_BACKGROUND } from '../../model/presentation';
@@ -6,7 +6,7 @@ import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { type EmuScale } from './geometry';
 import { parseBlipFill, toBackgroundImage, type ImageParseContext } from './image';
-import type { TxStylesMarkers } from './master';
+import type { TxStylesAlignments, TxStylesMarkers } from './master';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
 import { parseSpTree, type SlideParseContext } from './shape';
@@ -22,6 +22,12 @@ export interface LayoutResolution {
   builtInId: string;
   /** Map of `"{ooxmlType}:{idx}"` → default fontSize in points. */
   placeholderSizes: Map<string, number>;
+  /**
+   * Map of `"{ooxmlType}:{idx}"` → default paragraph alignment from the
+   * layout placeholder's `<a:lstStyle><a:lvl1pPr algn>`. A slide paragraph
+   * with no own `algn` inherits this. Optional so test harnesses can omit it.
+   */
+  placeholderAlignments?: Map<string, BlockStyle['alignment']>;
   /**
    * Map of `"{ooxmlType}:{idx}"` → layout placeholder frame (px). A slide
    * placeholder with no own `<a:xfrm>` inherits this (slide → layout
@@ -59,6 +65,12 @@ export interface ParseSlideOptions {
    * `<a:buFont>`/`<a:buSzPts>`/`<a:buClr>` (which can also be absent).
    */
   txStylesMarkers?: TxStylesMarkers;
+  /**
+   * Master-level `<p:txStyles>` default alignment per slot — the deeper
+   * fallback when a slide's layout placeholder sets no `algn`. Optional,
+   * mirroring {@link txStylesMarkers}.
+   */
+  txStylesAlignments?: TxStylesAlignments;
 }
 
 export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undefined> {
@@ -109,9 +121,11 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     idMap: new Map(),
     shapeKindByPptxId: new Map(),
     placeholderSizes,
+    placeholderAlignments: layoutInfo?.placeholderAlignments ?? new Map(),
     placeholderFrames: layoutInfo?.placeholderFrames ?? new Map(),
     clrMap: opts.clrMap,
     txStylesMarkers: opts.txStylesMarkers,
+    txStylesAlignments: opts.txStylesAlignments,
   };
   const elements = spTree ? await parseSpTree(spTree, ctx) : [];
 

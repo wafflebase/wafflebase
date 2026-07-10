@@ -1,3 +1,4 @@
+import type { BlockStyle } from '@wafflebase/docs';
 import type { Frame } from '../../model/element';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import type { Background, Layout } from '../../model/presentation';
@@ -8,6 +9,7 @@ import type { ImageParseContext } from './image';
 import { phKey } from './placeholder';
 import { ImportReport } from './report';
 import { parseSlideBackground } from './slide';
+import { mapAlgn } from './text';
 import { attr, attrInt, child, children, descendant, parseXml } from './xml';
 
 /**
@@ -50,6 +52,14 @@ export interface ImportedLayout {
    * layout overrides to render titles faithfully.
    */
   placeholderSizes: Map<string, number>;
+  /**
+   * Map of `"{ooxmlType}:{idx}"` → default paragraph alignment, derived from
+   * each layout placeholder's `<p:txBody><a:lstStyle><a:lvl1pPr algn>`. A
+   * slide paragraph whose own `<a:pPr>` omits `algn` inherits this — PPTX
+   * centers many titles only here (not on the slide or in the master's
+   * `<p:txStyles>`). Only `lvl1` is read, matching {@link placeholderSizes}.
+   */
+  placeholderAlignments: Map<string, BlockStyle['alignment']>;
   /**
    * Frame (position + size, in px) per layout placeholder, keyed by
    * `"{ooxmlType}:{idx}"`. A slide placeholder whose own `<p:spPr>` omits
@@ -105,6 +115,10 @@ export async function parseLayout(
     ? parsePlaceholderSizes(sldLayout)
     : new Map<string, number>();
 
+  const placeholderAlignments = sldLayout
+    ? parsePlaceholderAlignments(sldLayout)
+    : new Map<string, BlockStyle['alignment']>();
+
   const placeholderFrames =
     sldLayout && bgCtx
       ? parsePlaceholderFrames(sldLayout, bgCtx.imageCtx.scale)
@@ -116,6 +130,7 @@ export async function parseLayout(
     ooxmlPartName,
     layout,
     placeholderSizes,
+    placeholderAlignments,
     placeholderFrames,
     ...(background && { background }),
   };
@@ -178,14 +193,14 @@ async function parseLayoutBackground(
 }
 
 /**
- * Walk a layout's `<p:spTree>` for placeholder shapes and pull each
- * one's level-1 default font size out of `<a:lstStyle><a:lvl1pPr>
- * <a:defRPr sz>`. Returns a map keyed by `"{ooxmlType}:{idx}"` so the
- * slide parser can look up the right default for a given placeholder
- * reference.
+ * Walk a layout's `<p:spTree>` for placeholder shapes that carry a
+ * `<p:txBody><a:lstStyle><a:lvl1pPr>`, yielding each one's inheritance key
+ * (`"{ooxmlType}:{idx}"`) paired with that level-1 paragraph-properties
+ * element. Shared by the size and alignment parsers so the traversal and
+ * placeholder-discovery rules live in one place.
  */
-function parsePlaceholderSizes(sldLayout: Element): Map<string, number> {
-  const out = new Map<string, number>();
+function eachPlaceholderLvl1(sldLayout: Element): Array<[string, Element]> {
+  const out: Array<[string, Element]> = [];
   const cSld = child(sldLayout, 'cSld');
   const spTree = cSld ? child(cSld, 'spTree') : undefined;
   if (!spTree) return out;
@@ -198,16 +213,43 @@ function parsePlaceholderSizes(sldLayout: Element): Map<string, number> {
     const idx = attr(ph, 'idx') ?? '0';
 
     const txBody = child(sp, 'txBody');
-    if (!txBody) continue;
-    const lstStyle = child(txBody, 'lstStyle');
-    if (!lstStyle) continue;
-    const lvl1 = child(lstStyle, 'lvl1pPr');
+    const lstStyle = txBody ? child(txBody, 'lstStyle') : undefined;
+    const lvl1 = lstStyle ? child(lstStyle, 'lvl1pPr') : undefined;
     if (!lvl1) continue;
+    out.push([phKey(type, idx), lvl1]);
+  }
+  return out;
+}
+
+/**
+ * Pull each placeholder's level-1 default font size out of
+ * `<a:lstStyle><a:lvl1pPr><a:defRPr sz>`. Keyed by `"{ooxmlType}:{idx}"`
+ * so the slide parser can look up the right default for a given placeholder.
+ */
+function parsePlaceholderSizes(sldLayout: Element): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, lvl1] of eachPlaceholderLvl1(sldLayout)) {
     const defRPr = child(lvl1, 'defRPr');
-    if (!defRPr) continue;
-    const sz = attrInt(defRPr, 'sz');
+    const sz = defRPr ? attrInt(defRPr, 'sz') : null;
     if (sz == null) continue;
-    out.set(phKey(type, idx), sz / 100);
+    out.set(key, sz / 100);
+  }
+  return out;
+}
+
+/**
+ * Pull each placeholder's level-1 default paragraph alignment out of
+ * `<a:lstStyle><a:lvl1pPr algn>`. Keyed by `"{ooxmlType}:{idx}"`.
+ * Placeholders whose `lvl1pPr` carries no `algn` contribute nothing (the
+ * entry stays absent, so master `<p:txStyles>` can still supply a deeper
+ * fallback). Only `lvl1` is read, so callers apply it to level-0 paragraphs.
+ */
+function parsePlaceholderAlignments(sldLayout: Element): Map<string, BlockStyle['alignment']> {
+  const out = new Map<string, BlockStyle['alignment']>();
+  for (const [key, lvl1] of eachPlaceholderLvl1(sldLayout)) {
+    const alignment = mapAlgn(attr(lvl1, 'algn'));
+    if (!alignment) continue;
+    out.set(key, alignment);
   }
   return out;
 }

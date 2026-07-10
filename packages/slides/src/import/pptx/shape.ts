@@ -1,3 +1,4 @@
+import type { BlockStyle } from '@wafflebase/docs';
 import type {
   Effects,
   Element as SlideElement,
@@ -24,7 +25,7 @@ import type {
 } from '../../model/connector';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { parseEffects, readAltText } from './effects';
-import type { TxStylesMarkers, TxStylesSlot } from './master';
+import type { TxStylesAlignments, TxStylesMarkers, TxStylesSlot } from './master';
 import type { EmuScale } from './geometry';
 import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
 import {
@@ -87,6 +88,14 @@ export interface SlideParseContext {
    */
   placeholderSizes: Map<string, number>;
   /**
+   * Default paragraph alignment per layout placeholder, keyed by
+   * `"{ooxmlType}:{idx}"`. A placeholder paragraph whose `<a:pPr>` omits
+   * `algn` inherits from here; `buildTextBody` falls through to
+   * {@link txStylesAlignments} when the layout sets none. Optional so bare
+   * fixtures can omit it.
+   */
+  placeholderAlignments?: Map<string, BlockStyle['alignment']>;
+  /**
    * Frame (position + size, px) per layout placeholder, keyed by
    * `"{ooxmlType}:{idx}"`. A placeholder `<p:sp>` whose own `<p:spPr>` omits
    * `<a:xfrm>` inherits this frame instead of collapsing to `(0,0,0,0)`.
@@ -109,6 +118,12 @@ export interface SlideParseContext {
    * every fixture; missing entry is equivalent to "no master defaults".
    */
   txStylesMarkers?: TxStylesMarkers;
+  /**
+   * Master-level `<p:txStyles>` default alignment per slot. The deeper
+   * fallback under {@link placeholderAlignments} for placeholder paragraphs
+   * that omit `algn`. Optional; absent ⇒ no master default.
+   */
+  txStylesAlignments?: TxStylesAlignments;
 }
 
 /**
@@ -742,9 +757,18 @@ function buildTextBody(
     ? PLACEHOLDER_DEFAULT_FONT_SIZE[placeholderRef.type]
     : undefined;
   const defaultFontSize = layoutSize ?? fallbackSize;
-  const markerDefaults = ctx.txStylesMarkers?.get(
-    placeholderTypeToTxStylesSlot(placeholderRef?.type),
-  );
+  const txStylesSlot = placeholderTypeToTxStylesSlot(placeholderRef?.type);
+  const markerDefaults = ctx.txStylesMarkers?.get(txStylesSlot);
+  // Alignment inheritance (placeholders only): the layout placeholder's
+  // `<a:lstStyle>` wins, then the master's `<p:txStyles>` slot. Plain text
+  // boxes (no `placeholderRef`) don't inherit txStyles alignment — only
+  // placeholders do — so they keep the docs left default unless the run
+  // sets `algn` itself.
+  const layoutAlignment = layoutSizeKey
+    ? ctx.placeholderAlignments?.get(layoutSizeKey)
+    : undefined;
+  const masterAlignment = placeholderRef ? ctx.txStylesAlignments?.get(txStylesSlot) : undefined;
+  const defaultAlignment = layoutAlignment ?? masterAlignment;
   const verticalAnchor = detectVerticalAnchor(txBody);
   const inset = detectBodyInset(txBody, ctx.scale);
   return {
@@ -757,6 +781,7 @@ function buildTextBody(
       defaultFontSize,
       clrMap: ctx.clrMap,
       markerDefaults,
+      ...(defaultAlignment ? { defaultAlignment } : {}),
     }),
   };
 }

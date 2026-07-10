@@ -75,6 +75,42 @@ describe('parseLayout', () => {
     expect(out.placeholderSizes.get('subTitle:1')).toBe(24);
   });
 
+  it('extracts placeholder default alignment from <a:lstStyle><a:lvl1pPr algn>', async () => {
+    // Mirrors slideLayout4.xml of the Naver deck, whose title placeholder
+    // centers via `<a:lvl1pPr algn="ctr">` while the slide paragraph and
+    // master titleStyle carry no `algn` (master is even `algn="l"`).
+    const xml = `<?xml version="1.0"?>
+<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" type="titleOnly">
+  <p:cSld name="Title Only">
+    <p:spTree>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Title 1"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="7200"/></a:lvl1pPr></a:lstStyle>
+          <a:p><a:r><a:t/></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="3" name="Body 2"/><p:cNvSpPr/><p:nvPr><p:ph idx="1" type="body"/></p:nvPr></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></a:lstStyle>
+          <a:p><a:r><a:t/></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sldLayout>`;
+    const out = await parseLayout(xml, 'ppt/slideLayouts/slideLayout4.xml', new ImportReport());
+    expect(out.placeholderAlignments.get('title:0')).toBe('center');
+    // A placeholder whose lvl1pPr has no algn contributes no default.
+    expect(out.placeholderAlignments.has('body:1')).toBe(false);
+  });
+
   it('parses a layout <p:bg> blipFill into layout.background.image', async () => {
     // slideLayout1.xml of the Naver deck references image6.png (BytePlus
     // logo + bottom gradient) as its background. Slide 1 has no <p:bg> of
