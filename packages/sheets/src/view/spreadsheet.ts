@@ -382,6 +382,21 @@ export class Spreadsheet {
   }
 
   /**
+   * `updateListRule` replaces an existing list rule's options / invalid
+   * behavior in place (preserving its ranges) and re-renders.
+   */
+  public async updateListRule(
+    id: string,
+    options: string[],
+    onInvalid: 'reject' | 'warning',
+  ): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.updateListRule(id, options, onInvalid);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
    * `getListRuleAt` returns the list rule applying to the active cell (or the
    * given ref), or undefined — used by the toolbar to prefill the options
    * dialog and by the popover to read options.

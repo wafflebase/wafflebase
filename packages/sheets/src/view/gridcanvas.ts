@@ -109,6 +109,12 @@ export function computeListArrowBox(rect: {
   }
   const size = Math.min(16, Math.max(11, Math.min(width, height) - 6));
   const margin = 2;
+  // A right-aligned arrow needs the full glyph + margin to fit inside the cell;
+  // on a very narrow column drawing it anyway would spill onto the neighbor
+  // (glyph and hit-test both). Skip the arrow rather than overflow.
+  if (width < size + margin) {
+    return null;
+  }
   return {
     left: rect.left + width - size - margin,
     top: rect.top + (height - size) / 2,
@@ -796,14 +802,25 @@ export class GridCanvas {
     cellRight: number,
     cellTop: number,
   ): void {
+    this.drawCornerMarker(ctx, cellRight, cellTop, '#fbbc04');
+  }
+
+  /**
+   * Draws a 9x9 right-triangle marker at the top-right corner of a cell, with
+   * its right angle at the corner. Shared by the comment marker (yellow) and
+   * the data-validation warning marker (red).
+   */
+  private drawCornerMarker(
+    ctx: CanvasRenderingContext2D,
+    cellRight: number,
+    cellTop: number,
+    color: string,
+  ): void {
     const MARKER_SIZE = 9;
-    ctx.fillStyle = '#fbbc04';
+    ctx.fillStyle = color;
     ctx.beginPath();
-    // Start at the top-right corner
     ctx.moveTo(cellRight, cellTop);
-    // Draw down along the right edge
     ctx.lineTo(cellRight, cellTop + MARKER_SIZE);
-    // Draw left along the top edge
     ctx.lineTo(cellRight - MARKER_SIZE, cellTop);
     ctx.closePath();
     ctx.fill();
@@ -1113,29 +1130,12 @@ export class GridCanvas {
       }
     }
 
-    if (rule.onInvalid === 'warning' && !isValidListValue(rule, cell?.v)) {
-      this.drawValidationWarningMarker(ctx, rect.left + rect.width, rect.top);
+    // Flag any out-of-list value regardless of onInvalid mode — an invalid
+    // value can arrive via paste / API / pre-existing content even under a
+    // reject rule, and would otherwise be stored with no visual indication.
+    if (!isValidListValue(rule, cell?.v)) {
+      this.drawCornerMarker(ctx, rect.left + rect.width, rect.top, '#ea4335');
     }
-  }
-
-  /**
-   * Draws a 9x9 red right-triangle marker at the top-right corner of a cell,
-   * signalling a data-validation warning (same technique as the comment
-   * marker, distinct color).
-   */
-  private drawValidationWarningMarker(
-    ctx: CanvasRenderingContext2D,
-    cellRight: number,
-    cellTop: number,
-  ): void {
-    const MARKER_SIZE = 9;
-    ctx.fillStyle = '#ea4335';
-    ctx.beginPath();
-    ctx.moveTo(cellRight, cellTop);
-    ctx.lineTo(cellRight, cellTop + MARKER_SIZE);
-    ctx.lineTo(cellRight - MARKER_SIZE, cellTop);
-    ctx.closePath();
-    ctx.fill();
   }
 
   /**

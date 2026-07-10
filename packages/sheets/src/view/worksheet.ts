@@ -655,20 +655,26 @@ export class Worksheet {
   }
 
   /**
-   * `finishEditing` finishes the editing of the cell.
+   * `finishEditing` finishes the editing of the cell. Returns `false` when a
+   * data-validation `reject` rule blocked the commit (the value was discarded)
+   * so navigation handlers can keep the selection on the cell instead of
+   * advancing off it; `true` otherwise (committed, read-only, or nothing to
+   * commit).
    */
-  private async finishEditing() {
+  private async finishEditing(): Promise<boolean> {
     this.autocomplete.hide();
     this.functionBrowser.hide();
 
     const activeCell = this.sheet!.getActiveCell();
     let didEdit = false;
+    let rejected = false;
     if (this.formulaBar.isFocused()) {
       if (!this.readOnly) {
         didEdit = await this.commitCellValue(
           activeCell,
           this.formulaBar.getValue(),
         );
+        rejected = !didEdit;
       }
       this.formulaBar.blur();
       this.cellInput.hide();
@@ -683,11 +689,12 @@ export class Worksheet {
             activeCell,
             this.cellInput.getValue(),
           );
+          rejected = !didEdit;
         }
         this.cellInput.hide();
       }
     } else {
-      return;
+      return true;
     }
 
     this.formulaRanges = [];
@@ -695,6 +702,7 @@ export class Worksheet {
     if (didEdit) {
       await this.autoResizeRow(activeCell.r);
     }
+    return !rejected;
   }
 
   /**
@@ -4136,13 +4144,19 @@ export class Worksheet {
         match: (event) => keyEquals(event, 'Enter'),
         run: async (event) => {
           event.preventDefault();
-          await this.finishEditing();
+          const committed = await this.finishEditing();
 
           if (source === 'formulaBar') {
             this.focusGrid();
-            this.sheet!.move('down');
-          } else {
-            this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
+          }
+          // A validation reject keeps the caret on the cell so the user can
+          // correct it, rather than advancing off a discarded entry.
+          if (committed) {
+            if (source === 'formulaBar') {
+              this.sheet!.move('down');
+            } else {
+              this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
+            }
           }
           this.render();
           this.scrollIntoView();
@@ -4153,12 +4167,14 @@ export class Worksheet {
         match: (event) => keyEquals(event, 'Tab'),
         run: async (event) => {
           event.preventDefault();
-          await this.finishEditing();
+          const committed = await this.finishEditing();
 
           if (source === 'formulaBar') {
             this.focusGrid();
           }
-          this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+          if (committed) {
+            this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+          }
           this.render();
           this.scrollIntoView();
           this.primeCellInputForSelection();
@@ -4184,8 +4200,10 @@ export class Worksheet {
           !this.editMode,
         run: async (event) => {
           event.preventDefault();
-          await this.finishEditing();
-          moveByArrow(event);
+          const committed = await this.finishEditing();
+          if (committed) {
+            moveByArrow(event);
+          }
           this.render();
           this.scrollIntoView();
           this.primeCellInputForSelection();

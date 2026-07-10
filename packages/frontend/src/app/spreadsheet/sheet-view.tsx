@@ -151,6 +151,7 @@ export function SheetView({
   const [dropdownDialogOpen, setDropdownDialogOpen] = useState(false);
   const [dropdownDialogState, setDropdownDialogState] = useState<{
     range: Range;
+    ruleId: string | null;
     initialOptions: string[];
     initialOnInvalid: DropdownInvalidBehavior;
     isEditing: boolean;
@@ -459,6 +460,7 @@ export function SheetView({
     const existing = sheet.getListRuleAt();
     setDropdownDialogState({
       range,
+      ruleId: existing?.id ?? null,
       initialOptions: existing?.list ?? [],
       initialOnInvalid: existing?.onInvalid === "reject" ? "reject" : "warning",
       isEditing: !!existing,
@@ -471,14 +473,18 @@ export function SheetView({
       const sheet = sheetRef.current;
       const target = dropdownDialogState;
       if (!sheet || !target) return;
-      // Replace any existing list rule over the range, then insert the new one.
-      await sheet.removeList(target.range);
-      await sheet.insertList(
-        target.range,
-        crypto.randomUUID(),
-        options,
-        onInvalid,
-      );
+      if (target.ruleId) {
+        // Edit in place by rule id: preserves the rule's full ranges (editing
+        // from a sub-range must not shrink it) and is a single undo unit.
+        await sheet.updateListRule(target.ruleId, options, onInvalid);
+      } else {
+        await sheet.insertList(
+          target.range,
+          crypto.randomUUID(),
+          options,
+          onInvalid,
+        );
+      }
     },
     [dropdownDialogState],
   );

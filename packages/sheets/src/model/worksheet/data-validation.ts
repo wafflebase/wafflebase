@@ -133,16 +133,24 @@ export function listOptionsOf(rule: DataValidationRule): string[] {
 /**
  * `isValidListValue` reports whether a cell value is permitted by a list rule.
  * Empty/cleared values are always allowed (Google Sheets parity — a rule never
- * blocks deleting a cell); a non-empty value must be one of the options.
+ * blocks deleting a cell); a non-empty value must match one of the options,
+ * comparing both sides trimmed so a stray typed space still matches. Compares
+ * against `rule.list` directly (canonical after `normalizeDataValidationRule`)
+ * without allocating, since this runs per visible cell per repaint.
  */
 export function isValidListValue(
   rule: DataValidationRule,
   value: string | undefined,
 ): boolean {
-  if (value === undefined || value === '') {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed === '') {
     return true;
   }
-  return listOptionsOf(rule).includes(value);
+  const options = rule.list;
+  if (!options) {
+    return false;
+  }
+  return options.some((option) => option.trim() === trimmed);
 }
 
 /**

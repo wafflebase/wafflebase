@@ -105,6 +105,15 @@ describe('data-validation model', () => {
     expect(isValidListValue(rule, undefined)).toBe(true);
   });
 
+  it('validates membership tolerant of surrounding whitespace', () => {
+    const rule = normalizeDataValidationRule(listRule('a', ['Yes', 'No']))!;
+    // A typed value with stray whitespace still matches its trimmed option.
+    expect(isValidListValue(rule, 'Yes ')).toBe(true);
+    expect(isValidListValue(rule, '  No')).toBe(true);
+    expect(isValidListValue(rule, '   ')).toBe(true); // whitespace-only == empty
+    expect(isValidListValue(rule, 'Maybe')).toBe(false);
+  });
+
   it('clones a list rule deeply (mutating the clone list does not touch source)', () => {
     const src = listRule('a', ['Red', 'Green']);
     const copy = cloneDataValidationRule(src);

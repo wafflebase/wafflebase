@@ -3884,6 +3884,35 @@ export class Sheet {
   }
 
   /**
+   * `updateListRule` replaces the options / invalid-behavior of an existing
+   * list rule in place, preserving its ranges. Editing from a sub-range must
+   * not shrink the rule onto the current selection, so callers edit by rule id
+   * rather than remove-and-reinsert over the selection. A single write = one
+   * undo unit.
+   */
+  async updateListRule(
+    id: string,
+    options: string[],
+    onInvalid: 'reject' | 'warning',
+  ): Promise<void> {
+    let found = false;
+    const rules = this.dataValidations.map((rule) => {
+      if (rule.id === id && rule.kind === 'list') {
+        found = true;
+        return {
+          ...cloneDataValidationRule(rule),
+          list: options,
+          onInvalid,
+        };
+      }
+      return cloneDataValidationRule(rule);
+    });
+    if (found) {
+      await this.setDataValidations(rules);
+    }
+  }
+
+  /**
    * `setRangeBorders` applies a border preset to the current cell selection.
    * Border presets are only supported for cell selections.
    */

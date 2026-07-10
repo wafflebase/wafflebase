@@ -293,19 +293,40 @@ fields already existed on `DataValidationRule`). What shipped:
   editing an existing list cell prefills and offers Remove. The reject callback
   surfaces a `sonner` toast.
 
+Editing an existing dropdown edits the rule **in place by id**
+(`updateListRule`), preserving its full ranges — opening the dialog on a single
+cell inside a larger ruled range and saving does not shrink the rule onto that
+cell, and it is a single undo unit. An out-of-list value draws the red marker
+under **either** mode (an invalid value can arrive via paste/API/pre-existing
+content even under a `reject` rule, so the marker is the universal signal).
+Membership comparison is whitespace-tolerant (typed `"Yes "` matches option
+`"Yes"`). A `reject` that blocks a typed Enter/Tab keeps the caret on the cell
+(GS parity) rather than advancing off the discarded entry.
+
 Deliberate Phase-2 simplifications / follow-ups:
 
 - **Literal lists only** — range-source lists (`=Sheet1!A1:A10`) and colored
   chips remain Non-Goals.
 - **No full side panel** — the options dialog stands in for the eventual
-  `Data → Data validation` panel; rule management is whole-rule (insert replaces
-  any list rule intersecting the range; remove drops it), no range-subtraction.
+  `Data → Data validation` panel; rule creation/removal is whole-rule (insert
+  replaces any list rule intersecting the range; remove drops it), no
+  range-subtraction; edit is in-place by id.
+- **Reject enforced only on inline edit** — the `finishEditing` commit path
+  enforces `reject`; paste / REST-API / programmatic `setData` writes are not
+  blocked (what "reject" means for a bulk paste is an open design question).
+  Such values are stored but always draw the red marker, so they are never
+  silent. A follow-up may enforce at the model write layer.
+- **Numeric-looking options** — options like `'007'` or `'1.0'` are normalized
+  by `setData` on write (→ `7` / `1`), so a picked value can mismatch its option
+  string and draw a false warning marker. Text-value dropdowns (the common case)
+  are unaffected; forcing list cells to text is a follow-up.
 - **Warning marker vs. comment marker** — both live at the top-right corner; a
   cell that is both commented and validation-warned overlaps them (rare,
   deferred).
 - **View-layer interaction is manually smoke-tested** — matching the Phase-1
-  checkbox precedent, the hit-test / popover / commit paths have no automated
-  coverage; model + seed round-trip are unit-tested.
+  checkbox precedent, the hit-test / popover paths have no automated coverage;
+  the model helpers, the seed round-trip, and the Enter/Tab reject-navigation
+  keymap are unit-tested.
 
 ### Testing
 
