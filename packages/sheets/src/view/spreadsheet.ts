@@ -315,6 +315,18 @@ export class Spreadsheet {
   }
 
   /**
+   * `setDataValidations` replaces all data-validation rules and re-renders.
+   */
+  public async setDataValidations(
+    rules: DataValidationRule[],
+  ): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.setDataValidations(rules);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
    * `insertCheckbox` adds a checkbox rule over the range and re-renders.
    */
   public async insertCheckbox(range: Range, id: string): Promise<void> {
