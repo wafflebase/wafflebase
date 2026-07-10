@@ -3,8 +3,8 @@ import {
   ForbiddenException,
   NotFoundException,
   GoneException,
-  ConflictException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
@@ -139,14 +139,32 @@ export class WorkspaceService {
         workspaceId_userId: { workspaceId: invite.workspaceId, userId },
       },
     });
-    if (existing) throw new ConflictException('Already a member');
-    await this.prisma.workspaceMember.create({
-      data: {
-        workspaceId: invite.workspaceId,
-        userId,
-        role: invite.role,
-      },
-    });
+    // Accepting is idempotent: an already-member is sent to the workspace
+    // rather than erroring, so a re-visited invite link just opens it. The
+    // invite never changes the role of an existing member.
+    if (existing) {
+      return { workspaceId: invite.workspaceId };
+    }
+    try {
+      await this.prisma.workspaceMember.create({
+        data: {
+          workspaceId: invite.workspaceId,
+          userId,
+          role: invite.role,
+        },
+      });
+    } catch (err) {
+      // A concurrent accept (double-click, two tabs) can create the row
+      // between the check above and here; treat the unique-constraint clash
+      // as an idempotent success rather than surfacing a 500.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return { workspaceId: invite.workspaceId };
+      }
+      throw err;
+    }
     return { workspaceId: invite.workspaceId };
   }
 

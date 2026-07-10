@@ -2,8 +2,8 @@ import {
   ForbiddenException,
   NotFoundException,
   GoneException,
-  ConflictException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { WorkspaceService } from './workspace.service';
 
@@ -423,7 +423,9 @@ describe('WorkspaceService', () => {
 
       const result = await service.acceptInvite('tok-1', 5);
 
-      expect(result).toEqual({ workspaceId: '11111111-1111-1111-1111-111111111111' });
+      expect(result).toEqual({
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+      });
       expect(prisma.workspaceMember.create).toHaveBeenCalledWith({
         data: { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 5, role: 'member' },
       });
@@ -450,7 +452,7 @@ describe('WorkspaceService', () => {
       ).rejects.toBeInstanceOf(GoneException);
     });
 
-    it('throws ConflictException if user is already a member', async () => {
+    it('is idempotent: returns the workspace if already a member', async () => {
       prisma.workspaceInvite.findUnique.mockResolvedValue({
         token: 'tok-1',
         workspaceId: '11111111-1111-1111-1111-111111111111',
@@ -461,9 +463,47 @@ describe('WorkspaceService', () => {
         role: 'member',
       });
 
-      await expect(
-        service.acceptInvite('tok-1', 5),
-      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.acceptInvite('tok-1', 5)).resolves.toEqual({
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+      });
+      expect(prisma.workspaceMember.create).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent under a concurrent create race (P2002)', async () => {
+      prisma.workspaceInvite.findUnique.mockResolvedValue({
+        token: 'tok-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+        role: 'member',
+        expiresAt: null,
+      });
+      // A concurrent accept created the row after this request's check,
+      // so create() rejects with a unique-constraint violation.
+      prisma.workspaceMember.findUnique.mockResolvedValue(null);
+      prisma.workspaceMember.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(service.acceptInvite('tok-1', 5)).resolves.toEqual({
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+      });
+    });
+
+    it('rethrows non-unique-constraint create errors', async () => {
+      prisma.workspaceInvite.findUnique.mockResolvedValue({
+        token: 'tok-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+        role: 'member',
+        expiresAt: null,
+      });
+      prisma.workspaceMember.findUnique.mockResolvedValue(null);
+      prisma.workspaceMember.create.mockRejectedValue(new Error('db down'));
+
+      await expect(service.acceptInvite('tok-1', 5)).rejects.toThrow(
+        'db down',
+      );
     });
   });
 
