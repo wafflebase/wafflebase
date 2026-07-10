@@ -350,6 +350,48 @@ describe('parseSlide — shape inline text', () => {
     expect(fill.angle).toBeCloseTo(Math.PI / 4, 6);
   });
 
+  it('collapses a radial (<a:path>) gradient to a single stop', async () => {
+    // Radial gradients aren't modeled; they must degrade to their first
+    // stop (→ solid downstream), not paint along a wrong linear axis.
+    const xml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+        <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+        <a:gradFill>
+          <a:gsLst>
+            <a:gs pos="0"><a:srgbClr val="0093FF"/></a:gs>
+            <a:gs pos="100000"><a:srgbClr val="006AFF"/></a:gs>
+          </a:gsLst>
+          <a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path>
+        </a:gradFill>
+      </p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const slide = await parseSlide({
+      archive: makeArchive({ 'ppt/slides/slide1.xml': xml }),
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap: new Map(),
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+    const el = slide!.elements[0];
+    if (el.type !== 'shape' || el.data.fill?.kind !== 'gradient') {
+      throw new Error('expected a gradient-filled shape');
+    }
+    expect(el.data.fill.stops).toHaveLength(1);
+    expect(el.data.fill.stops[0].color).toEqual({ kind: 'srgb', value: '#0093FF' });
+  });
+
   it('defaults a gradient with no <a:lin> to a top→bottom angle', async () => {
     const xml = `<?xml version="1.0"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"

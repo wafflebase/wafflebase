@@ -21,8 +21,9 @@ export inherits it for free (it rasterizes `drawSlide()`).
 - Keep every existing solid-fill path working unchanged.
 
 **Non-Goals**
-- Radial / path gradients (`<a:path>`): parsed as a linear gradient over the
-  same stops at the default angle (colors kept; geometry approximated).
+- Radial / path gradients (`<a:path>`): collapsed to their first stop, which
+  render + export reduce to a representative solid (a radial painted along a
+  linear axis would misrepresent it). Full radial support is deferred.
 - A gradient *editing* UI. The color picker collapses a gradient to a
   representative solid; picking a color replaces the gradient.
 - Gradient fills on text boxes, table cells, and slide backgrounds — those

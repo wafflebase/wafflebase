@@ -953,6 +953,13 @@ function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefi
     stops.push({ pos: Math.max(0, Math.min(1, pos)), color });
   }
   if (stops.length === 0) return undefined;
+  // Radial / path gradients (`<a:path path="circle|rect|shape">`) aren't
+  // modeled. Rather than paint their stops along a (wrong) linear axis,
+  // collapse to a single stop so render + export reduce it to the
+  // representative solid — the documented first-stop fallback.
+  if (child(grad, 'path')) {
+    return { kind: 'gradient', angle: 0, stops: [stops[0]] };
+  }
   // `<a:lin ang>` is 60000ths of a degree, clockwise from 3 o'clock.
   // Absent (common in exported decks) ⇒ default top→bottom (90°), the
   // usual PowerPoint linear default.
