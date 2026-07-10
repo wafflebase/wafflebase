@@ -7,6 +7,8 @@ type MouseMoveContext = {
   };
   resizeHover: { axis: 'row' | 'column'; index: number } | null;
   renderOverlay: ReturnType<typeof vi.fn>;
+  hoveredValidationCandidate: string | null;
+  hideValidationTooltip: ReturnType<typeof vi.fn>;
 };
 
 type MouseLeaveContext = {
@@ -17,6 +19,8 @@ type MouseLeaveContext = {
   resizeHover: { axis: 'row' | 'column'; index: number } | null;
   freezeHandleHover: 'row' | 'column' | null;
   render: ReturnType<typeof vi.fn>;
+  hoveredValidationCandidate: string | null;
+  hideValidationTooltip: ReturnType<typeof vi.fn>;
 };
 
 const handleMouseMove = (
@@ -40,6 +44,8 @@ describe('Worksheet mouse hover behavior', () => {
       },
       resizeHover: { axis: 'column', index: 3 },
       renderOverlay: vi.fn(),
+      hoveredValidationCandidate: null,
+      hideValidationTooltip: vi.fn(),
     };
 
     handleMouseMove.call(
@@ -63,6 +69,8 @@ describe('Worksheet mouse hover behavior', () => {
       resizeHover: { axis: 'row', index: 5 },
       freezeHandleHover: 'column',
       render: vi.fn(),
+      hoveredValidationCandidate: null,
+      hideValidationTooltip: vi.fn(),
     };
 
     handleScrollContainerMouseLeave.call(ctx);

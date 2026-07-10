@@ -140,6 +140,8 @@ export class Worksheet {
   } | null = null;
   private listPopoverOutsideClickUnsub: (() => void) | null = null;
   private listPopoverKeyboardUnsub: (() => void) | null = null;
+  private validationTooltip: HTMLDivElement;
+  private hoveredValidationCandidate: string | null = null;
   private onValidationErrorCallback?: (message: string) => void;
 
   private rowDim: DimensionIndex;
@@ -234,6 +236,7 @@ export class Worksheet {
     this.resizeTooltip = document.createElement('div');
     this.filterPanel = document.createElement('div');
     this.listPopover = document.createElement('div');
+    this.validationTooltip = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
     this.colDim = new DimensionIndex(DefaultCellWidth);
@@ -288,6 +291,10 @@ export class Worksheet {
     this.listPopover.style.position = 'fixed';
     this.listPopover.style.display = 'none';
     this.listPopover.style.zIndex = '1002';
+    // Assert pointer-events so the body-appended overlay stays clickable even
+    // if an ancestor (e.g. a Radix modal's react-remove-scroll) leaves
+    // `document.body { pointer-events: none }` on close.
+    this.listPopover.style.pointerEvents = 'auto';
     this.listPopover.style.minWidth = '120px';
     this.listPopover.style.maxWidth = '280px';
     this.listPopover.style.maxHeight = '260px';
@@ -302,6 +309,26 @@ export class Worksheet {
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.listPopover.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
     document.body.appendChild(this.listPopover);
+
+    // Hover tooltip explaining a data-validation violation on a cell.
+    this.validationTooltip.style.position = 'fixed';
+    this.validationTooltip.style.display = 'none';
+    this.validationTooltip.style.pointerEvents = 'none';
+    this.validationTooltip.style.zIndex = '1003';
+    this.validationTooltip.style.maxWidth = '260px';
+    this.validationTooltip.style.padding = '5px 8px';
+    this.validationTooltip.style.borderRadius = '4px';
+    this.validationTooltip.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
+    this.validationTooltip.style.backgroundColor = getThemeColor(
+      theme,
+      'cellBGColor',
+    );
+    this.validationTooltip.style.color = getThemeColor(theme, 'cellTextColor');
+    this.validationTooltip.style.fontSize = '11px';
+    this.validationTooltip.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.validationTooltip.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+    document.body.appendChild(this.validationTooltip);
     this.functionBrowser.setOnInsert((info) => {
       if (this.readOnly) {
         return;
@@ -477,6 +504,7 @@ export class Worksheet {
     this.filterPanel.remove();
     this.hideListPopover();
     this.listPopover.remove();
+    this.validationTooltip.remove();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -1485,6 +1513,7 @@ export class Worksheet {
       return;
     }
 
+    this.hideValidationTooltip();
     const cell = await this.sheet.getCell(ref);
     const current = cell?.v;
     const options = [...rule.list];
@@ -1525,7 +1554,7 @@ export class Worksheet {
         const len = this.listPopoverState.options.length;
         this.listPopoverState.activeIndex =
           (this.listPopoverState.activeIndex + delta + len) % len;
-        this.renderListPopover();
+        this.highlightListPopoverRow();
         return;
       }
       if (event.key === 'Enter') {
@@ -1558,7 +1587,10 @@ export class Worksheet {
   }
 
   /**
-   * `renderListPopover` (re)builds the option rows from `listPopoverState`.
+   * `renderListPopover` builds the option rows once from `listPopoverState`.
+   * The active-row highlight is updated in place by `highlightListPopoverRow`
+   * — rebuilding the DOM on every hover would destroy the row under the cursor
+   * mid-click, so the option would never commit.
    */
   private renderListPopover(): void {
     const state = this.listPopoverState;
@@ -1575,16 +1607,10 @@ export class Worksheet {
       row.style.whiteSpace = 'nowrap';
       row.style.overflow = 'hidden';
       row.style.textOverflow = 'ellipsis';
-      if (index === state.activeIndex) {
-        row.style.backgroundColor = getThemeColor(
-          this.theme,
-          'headerSelectedBGColor',
-        );
-      }
       row.onmouseenter = () => {
         if (!this.listPopoverState) return;
         this.listPopoverState.activeIndex = index;
-        this.renderListPopover();
+        this.highlightListPopoverRow();
       };
       row.onmousedown = (event) => {
         // Prevent the outside-click handler / blur from firing first.
@@ -1593,6 +1619,24 @@ export class Worksheet {
         void this.chooseListValue(option);
       };
       this.listPopover.appendChild(row);
+    });
+    this.highlightListPopoverRow();
+  }
+
+  /**
+   * `highlightListPopoverRow` updates the active-row background in place,
+   * without recreating any row element (so hover/keyboard navigation never
+   * disturbs an in-progress click).
+   */
+  private highlightListPopoverRow(): void {
+    const state = this.listPopoverState;
+    if (!state) {
+      return;
+    }
+    const activeBg = getThemeColor(this.theme, 'headerSelectedBGColor');
+    Array.from(this.listPopover.children).forEach((child, index) => {
+      (child as HTMLElement).style.backgroundColor =
+        index === state.activeIndex ? activeBg : '';
     });
   }
 
@@ -1623,6 +1667,57 @@ export class Worksheet {
     this.listPopoverOutsideClickUnsub = null;
     this.listPopoverKeyboardUnsub?.();
     this.listPopoverKeyboardUnsub = null;
+  }
+
+  /**
+   * `updateValidationTooltip` shows a hover tooltip explaining a data-validation
+   * violation when the cursor is over a cell whose value is not allowed by its
+   * rule (e.g. a value outside a dropdown list), and hides it otherwise. Cell
+   * reads are async, so the show is guarded against a stale hover.
+   */
+  private async updateValidationTooltip(
+    x: number,
+    y: number,
+    clientX: number,
+    clientY: number,
+  ): Promise<void> {
+    if (!this.sheet || x <= RowHeaderWidth || y <= DefaultCellHeight) {
+      this.hoveredValidationCandidate = null;
+      this.hideValidationTooltip();
+      return;
+    }
+    const ref = this.toRefFromMouse(x, y);
+    const sref = toSref(ref);
+    this.hoveredValidationCandidate = sref;
+    const rule = this.sheet.getDataValidationAt(ref);
+    if (!rule || rule.kind !== 'list') {
+      this.hideValidationTooltip();
+      return;
+    }
+    const cell = await this.sheet.getCell(ref);
+    // The hover may have moved on during the async read; bail if so.
+    if (this.hoveredValidationCandidate !== sref) {
+      return;
+    }
+    if (isValidListValue(rule, cell?.v)) {
+      this.hideValidationTooltip();
+      return;
+    }
+    const options = rule.list ?? [];
+    const shown =
+      options.length > 8
+        ? `${options.slice(0, 8).join(', ')}, …`
+        : options.join(', ');
+    this.validationTooltip.textContent = `Invalid entry — must be one of: ${shown}`;
+    this.validationTooltip.style.left = `${clientX + 12}px`;
+    this.validationTooltip.style.top = `${clientY + 16}px`;
+    this.validationTooltip.style.display = 'block';
+  }
+
+  private hideValidationTooltip(): void {
+    if (this.validationTooltip.style.display !== 'none') {
+      this.validationTooltip.style.display = 'none';
+    }
   }
 
   private areStringSetsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -2745,8 +2840,18 @@ export class Worksheet {
         this.resizeHover = null;
         this.renderOverlay();
       }
+      this.hoveredValidationCandidate = null;
+      this.hideValidationTooltip();
       return;
     }
+
+    // Data-validation violation tooltip (async cell read; self-guarded).
+    void this.updateValidationTooltip(
+      e.offsetX,
+      e.offsetY,
+      e.clientX,
+      e.clientY,
+    );
 
     // Check freeze handle hover first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
@@ -2893,6 +2998,8 @@ export class Worksheet {
   }
 
   private handleScrollContainerMouseLeave(): void {
+    this.hoveredValidationCandidate = null;
+    this.hideValidationTooltip();
     const hadPeerHover = this.hoveredPeerClientID !== null;
     if (hadPeerHover) {
       this.hoveredPeerClientID = null;
