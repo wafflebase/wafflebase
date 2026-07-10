@@ -16,7 +16,13 @@ export class ImportReport {
 
   /** Charts imported as native ChartElement. */
   importedCharts = 0;
-  /** Chart frames whose plot family is unsupported → placeholder box. */
+  /**
+   * Graphic frames that became a grey placeholder box: an unsupported
+   * chart plot family (doughnut/scatter/…), a chart part that failed to
+   * load/parse, or a non-chart non-table frame (2014 `chartex`, diagram/
+   * SmartArt, OLE). Named `unsupportedCharts` for continuity — the
+   * user-facing summary says "unsupported chart/graphic".
+   */
   unsupportedCharts = 0;
 
   // Note: `tablesFlattened`, `tableMergesIgnored`, and
@@ -45,7 +51,9 @@ export class ImportReport {
       parts.push(`${this.transitionsApproximated} transition(s) approximated`);
     if (this.importedCharts) parts.push(`${this.importedCharts} chart(s) imported`);
     if (this.unsupportedCharts)
-      parts.push(`${this.unsupportedCharts} chart(s) unsupported → placeholder`);
+      parts.push(
+      `${this.unsupportedCharts} unsupported chart/graphic(s) → placeholder`,
+    );
     if (this.animationPresetsUnmapped)
       parts.push(`${this.animationPresetsUnmapped} animation preset(s) unmapped`);
     if (this.animationTargetsMissing)

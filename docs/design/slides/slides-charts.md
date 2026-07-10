@@ -56,11 +56,13 @@ rendering, and a future path to editing and PPTX round-trip.
 - **Chart families beyond the core five.** doughnut, scatter, bubble,
   radar, combo, stock, surface, and 3-D variants render as placeholders
   in Phase 1.
-- **PPTX export round-trip.** Phase 1 does not emit `<c:chart>`. When
-  PPTX export runs (`docs/design/slides/slides-pptx-export.md`), a
-  `ChartElement` falls back to a rasterized picture or is skipped with a
-  report entry; true `<p:graphicFrame>`/`<c:chart>` round-trip is a
-  Phase 2 item folded into that document.
+- **PPTX export round-trip.** Phase 1 does not emit `<c:chart>`. The PPTX
+  exporter currently **silently omits** a `ChartElement` (serializes to an
+  empty string) so a deck containing a chart still exports without
+  aborting — but the chart is dropped with no report signal. A rasterized
+  fallback and an export-report entry, plus true `<p:graphicFrame>`/
+  `<c:chart>` round-trip, are Phase 2 items folded into
+  `docs/design/slides/slides-pptx-export.md`.
 - **Collaborative (CRDT) editing of chart data.** Charts are static
   imported payloads in Phase 1; they batch through the existing snapshot
   undo path like any element, but there is no per-series concurrent
@@ -85,7 +87,7 @@ type ChartGrouping = 'clustered' | 'stacked' | 'percentStacked' | 'standard';
 interface ChartSeries {
   name?: string;              // c:ser/c:tx strCache
   values: (number | null)[];  // c:ser/c:val numCache (null = blank point)
-  color?: StoredColor;        // c:ser/c:spPr solidFill; else theme accent cycle
+  color?: ThemeColor;         // c:ser/c:spPr srgbClr; else theme accent cycle
 }
 
 interface ChartElement {
@@ -140,10 +142,11 @@ New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
   `column`/`bar`), `c:lineChart`, `c:areaChart`, `c:pieChart`.
 - `grouping` from `c:grouping@val` (`clustered`/`stacked`/
   `percentStacked`/`standard`).
-- For each `c:ser`: `name` from `c:tx` string cache, `values` from
-  `c:val/c:numRef/c:numCache/c:pt`, `color` from `c:spPr` solidFill
-  (resolve via the existing `clrMap`/theme path; fall back to the theme
-  accent cycle by series index).
+- For each `c:ser`: `name` from `c:tx` (string cache or a literal
+  `c:tx/c:v`), `values` from `c:val/c:numRef/c:numCache/c:pt`, `color`
+  from `c:spPr` solidFill. **Only an explicit `srgbClr` is mapped**;
+  `schemeClr` theme references are not resolved in Phase 1 — a series with
+  no explicit RGB falls back to the theme accent cycle by series index.
 - `categories` from the first series' `c:cat` string (or number) cache.
 - `title` from `c:chart/c:title` text runs; `legend` from `c:legend/
   c:legendPos`; `showGridlines` from `c:valAx/c:majorGridlines`.
@@ -170,12 +173,20 @@ the `switch (element.type)` in
   side by side per category; `stacked` accumulates; `percentStacked`
   normalizes each category to 100%.
 - **line / area** — one polyline per series across categories; `area`
-  fills to baseline (stacked when grouping says so).
-- **pie** — cumulative sweep angles from the first series; slice labels.
-- **legend / title** — reuse the font-measurement helpers from
-  `text-renderer.ts`.
-- **colors** — `StoredColor` resolved through the existing theme/fill
-  resolve path, so charts recolor with the deck theme.
+  fills to the baseline. **Phase 1 does not accumulate `stacked` /
+  `percentStacked` line/area** — series are drawn overlapping (stacking is
+  a documented follow-up); grouping only affects `column`/`bar`.
+- **pie** — cumulative sweep angles from the first series; the legend
+  lists the categories (one swatch per slice).
+- **legend / title** — square swatches + labels. Only legend
+  **visibility** is honored; `top`/`left`/`right` positions are stored on
+  the model but the painter always renders a bottom band (positioning is a
+  follow-up).
+- **colors** — `ThemeColor` resolved through the existing theme/fill
+  path, so charts recolor with the deck theme.
+- **negative values** — Phase 1 clamps values to `0` (no signed
+  zero-baseline axis yet), so a chart with negative data renders flat;
+  signed-axis support is a documented follow-up.
 
 Because the editor and `view/canvas/thumbnail.ts` both go through
 `drawSlide` → `drawElement`, on-screen and thumbnail rendering are
@@ -231,14 +242,16 @@ only for text/shape/table bodies) needs no change for charts.
   plot family we do not support, and always count it in the report so
   nothing vanishes silently.
 - **Theme color resolution.** Series `<c:spPr>` may use theme references
-  (`schemeClr`) rather than explicit RGB. Mitigation: resolve through the
-  same `clrMap`/theme path the shape importer already uses; fall back to a
-  deterministic accent cycle by series index when absent.
+  (`schemeClr`) rather than explicit RGB. Phase 1 reads only `srgbClr` and
+  falls back to a deterministic accent cycle by series index for anything
+  else; resolving `schemeClr` through the shape importer's `clrMap`/theme
+  path is a follow-up.
 - **Model migration.** Adding a seventh element type must not break decks
   saved before charts existed. Mitigation: `migrate.ts` leaves existing
   documents untouched (charts only appear via new imports), and
   `clone.ts` handles the new type so copy/paste and duplication work.
 - **PPTX export gap.** Until Phase 2, exporting a deck with charts loses
-  chart-ness. Mitigation: raster fallback + a report entry on export so
-  the user is told, and the round-trip work is tracked in
-  `slides-pptx-export.md`.
+  chart-ness: the exporter silently omits the `ChartElement` (empty
+  string) so the rest of the deck still exports, but the chart is dropped
+  with no user-visible signal. A raster fallback + an export-report entry
+  are tracked as Phase 2 in `slides-pptx-export.md`.
