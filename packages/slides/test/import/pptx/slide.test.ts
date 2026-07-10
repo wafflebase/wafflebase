@@ -64,6 +64,222 @@ const SLIDE_BLIPFILL_NO_REL = `<?xml version="1.0"?>
   </p:cSld>
 </p:sld>`;
 
+const SLIDE_NO_BG = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree/></p:cSld>
+</p:sld>`;
+
+const SLIDE_LAYOUT_RELS = `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`;
+
+describe('parseSlide — inherited layout background', () => {
+  it('bakes the layout background image onto a slide with no own <p:bg>', async () => {
+    // Mirrors the Naver deck: slide 1 has no <p:bg>; its layout
+    // (slideLayout1) carries a blipFill gradient background image. PPTX
+    // inheritance (slide → layout) must surface it on the slide.
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': SLIDE_NO_BG,
+      'ppt/slides/_rels/slide1.xml.rels': SLIDE_LAYOUT_RELS,
+    });
+    const layoutMap = new Map([
+      [
+        'ppt/slideLayouts/slideLayout1.xml',
+        {
+          builtInId: 'title-body',
+          placeholderSizes: new Map<string, number>(),
+          background: {
+            fill: { kind: 'role', role: 'background' } as const,
+            image: { src: 'cdn://layout-gradient.png' },
+          },
+        },
+      ],
+    ]);
+
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap,
+      uploadImage: async () => 'cdn://unused.png',
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+
+    expect(slide!.layoutId).toBe('title-body');
+    expect(slide!.background.image).toEqual({ src: 'cdn://layout-gradient.png' });
+    // Fill stays an inheritable role so theme changes still cascade.
+    expect(slide!.background.fill).toEqual({ kind: 'role', role: 'background' });
+  });
+
+  it('inherits the layout placeholder frame when the slide placeholder omits <a:xfrm>', async () => {
+    // Mirrors slide 1's "2026년 3월" content placeholder: `<p:ph idx="10"/>`
+    // with an empty `<p:spPr/>`. Its bottom-left position lives only on the
+    // layout placeholder, so without inheritance it collapses to (0,0).
+    const slideXml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="3" name="Content Placeholder 2"/><p:cNvSpPr/>
+        <p:nvPr><p:ph sz="quarter" idx="10"/></p:nvPr></p:nvSpPr>
+      <p:spPr/>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>2026년 3월</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': slideXml,
+      'ppt/slides/_rels/slide1.xml.rels': SLIDE_LAYOUT_RELS,
+    });
+    const layoutMap = new Map([
+      [
+        'ppt/slideLayouts/slideLayout1.xml',
+        {
+          builtInId: 'title-body',
+          placeholderSizes: new Map<string, number>(),
+          placeholderFrames: new Map([
+            ['body:10', { x: 68, y: 982, w: 430, h: 49, rotation: 0 }],
+          ]),
+        },
+      ],
+    ]);
+
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap,
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+
+    expect(slide!.elements).toHaveLength(1);
+    expect(slide!.elements[0].frame).toMatchObject({ x: 68, y: 982, w: 430, h: 49 });
+  });
+
+  it('inherits a title frame across the ctrTitle→title alias', async () => {
+    // Layout stores its center title under `ctrTitle` → normalized key
+    // `title:0`; a slide `<p:ph type="title"/>` must still find it.
+    const slideXml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Title 1"/><p:cNvSpPr/>
+        <p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:spPr/>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Hi</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': slideXml,
+      'ppt/slides/_rels/slide1.xml.rels': SLIDE_LAYOUT_RELS,
+    });
+    const layoutMap = new Map([
+      [
+        'ppt/slideLayouts/slideLayout1.xml',
+        {
+          builtInId: 'title-slide',
+          placeholderSizes: new Map<string, number>(),
+          // Stored under the normalized key, as parseLayout would from ctrTitle.
+          placeholderFrames: new Map([
+            ['title:0', { x: 100, y: 200, w: 800, h: 300, rotation: 0 }],
+          ]),
+        },
+      ],
+    ]);
+
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap,
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+
+    expect(slide!.elements[0].frame).toMatchObject({ x: 100, y: 200, w: 800, h: 300 });
+  });
+
+  it('merges a partial (offset-only) slide xfrm with the layout extent', async () => {
+    // A placeholder that overrides only its position, inheriting width/height
+    // from the layout. Without the merge, parseXfrm yields w=0,h=0 (invisible).
+    const slideXml = `<?xml version="1.0"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="3" name="Content Placeholder 2"/><p:cNvSpPr/>
+        <p:nvPr><p:ph sz="quarter" idx="10"/></p:nvPr></p:nvSpPr>
+      <p:spPr><a:xfrm><a:off x="500" y="600"/></a:xfrm></p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>x</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`;
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': slideXml,
+      'ppt/slides/_rels/slide1.xml.rels': SLIDE_LAYOUT_RELS,
+    });
+    const layoutMap = new Map([
+      [
+        'ppt/slideLayouts/slideLayout1.xml',
+        {
+          builtInId: 'title-body',
+          placeholderSizes: new Map<string, number>(),
+          placeholderFrames: new Map([
+            ['body:10', { x: 68, y: 982, w: 430, h: 49, rotation: 0 }],
+          ]),
+        },
+      ],
+    ]);
+
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap,
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+
+    // Slide offset wins; layout extent fills in the missing width/height.
+    expect(slide!.elements[0].frame).toMatchObject({ x: 500, y: 600, w: 430, h: 49 });
+  });
+
+  it('leaves the default background when neither slide nor layout defines one', async () => {
+    const archive = makeArchive({
+      'ppt/slides/slide1.xml': SLIDE_NO_BG,
+      'ppt/slides/_rels/slide1.xml.rels': SLIDE_LAYOUT_RELS,
+    });
+    const layoutMap = new Map([
+      [
+        'ppt/slideLayouts/slideLayout1.xml',
+        { builtInId: 'title-body', placeholderSizes: new Map<string, number>() },
+      ],
+    ]);
+
+    const slide = await parseSlide({
+      archive,
+      partPath: 'ppt/slides/slide1.xml',
+      layoutMap,
+      scale: { sx: 1, sy: 1 },
+      report: new ImportReport(),
+      clrMap: new Map(),
+    });
+
+    expect(slide!.background.image).toBeUndefined();
+    expect(slide!.background.fill).toEqual({ kind: 'role', role: 'background' });
+  });
+});
+
 describe('parseSlide — blipFill background', () => {
   it('populates background.image when blipFill resolves and uploadImage is provided', async () => {
     const archive = makeArchive({

@@ -381,6 +381,82 @@ choice is **reuse existing**.
 A single toast summarizes lossy elements: "Imported with N tables
 flattened, M groups expanded, K shapes simplified."
 
+#### Multi-master decks and layout-background inheritance (2026-07-10)
+
+Real decks can carry **several slide masters**, each owning its own set
+of layouts (e.g. the Naver deck: `slideMaster1` owns `slideLayout1–9`,
+`slideMaster2` owns `slideLayout10–21`; slide 1 uses `slideLayout1`). The
+importer walks **every** master in `<p:sldMasterIdLst>` order via
+`orderedMasterTargets`, calling `loadMasterAndLayouts` per master and
+merging all layouts + `layoutMap` entries. The **first** master in that
+list is the *primary*: its color map, `<p:txStyles>`, background, and
+`meta.masterId` drive the deck (our model still stores a single master).
+Secondary masters contribute only their layouts, so every slide can
+resolve the real layout it references. (Previously the importer loaded a
+single master picked by rels-iteration order, silently dropping the other
+master's layouts and their placeholder sizes / backgrounds — which is why
+slide 1's background image went missing.)
+
+PPTX background inheritance is **slide → layout → master**. The runtime
+already resolves this at paint time (`resolveBackgroundFill` /
+`resolveBackgroundImage`), but only the *fill* / master image cascade
+faithfully because imported layouts **collapse onto the 11 built-in layout
+ids** (many OOXML layouts → one id), making a per-layout-id background
+ambiguous. So layout-level `<p:bg>` (a `blipFill` image such as slide 1's
+bottom gradient, or an explicit `solidFill`) is parsed by `parseLayout`,
+carried on `LayoutResolution.background` keyed by the **exact layout part
+path**, and **baked onto each slide that has no `<p:bg>` of its own** in
+`parseSlide` — unambiguous because the slide names its exact layout. A
+baked image keeps the slide's `fill` as the inheritable `background` role
+so theme fill changes still cascade; only the image is pinned. A
+`<p:bgRef>` style-matrix reference (unhandled) or a bare role fill is left
+off so it can't clobber the built-in layout it merges onto.
+
+The same slide → layout inheritance applies to **placeholder geometry**. A
+slide placeholder `<p:sp>` may omit its own `<p:spPr><a:xfrm>` and inherit
+position + size from the matching layout placeholder (e.g. slide 1's "2026
+년 3월" content placeholder `<p:ph idx="10"/>`, whose bottom-left frame lives
+only on `slideLayout1`). `parseLayout` records each layout placeholder's
+scaled frame in `LayoutResolution.placeholderFrames` (keyed
+`"{ooxmlType}:{idx}"`, parallel to the existing `placeholderSizes` font-size
+map), and `parseSp` (`resolvePlaceholderFrame`) fills in each axis the slide
+omits from it: no `<a:xfrm>` at all inherits the whole layout frame, while a
+partial override (offset-only or extent-only `<a:xfrm>`) keeps the slide's
+value on the present axis and inherits the other — otherwise `parseXfrm`
+collapses the missing axis to `0` (a top-left `(0,0,0,0)` box, or a zero-size
+invisible one). (This too only surfaced once multi-master loading actually
+imported `slideLayout1`.) Placeholder keys normalize OOXML type aliases
+(`ctrTitle` → `title`) via `phKey` so a slide `<p:ph type="title"/>` inherits
+a layout that stored its center title as `ctrTitle` (Google-Slides exports).
+
+Known limitations of the collapse (acceptable for v1):
+
+- **One color map for the whole deck.** All slides — and all baked layout
+  backgrounds — resolve `<a:schemeClr>` through the *primary* master's
+  `<p:clrMap>`. A secondary master whose `clrMap` remaps a scheme slot
+  differently will render a `solidFill` layout background off by that slot.
+  Image (`blipFill`) backgrounds are unaffected (no color resolution). The
+  common case (the gradient here) is a `blipFill`.
+- **Eager, per-layout background uploads.** Each layout's `<p:bg>` image is
+  uploaded during import even if no slide references that layout, so a
+  template-heavy deck can leave a few orphan image blobs. Bounded by the
+  layout count; a lazy/at-bake upload pass is deferred.
+- **Primary master = `<p:sldMasterIdLst>` first entry** (was: first
+  `slideMaster` rel, which was iteration-order-dependent and picked the
+  *wrong* master on this deck). Deterministic and matches PowerPoint's
+  canonical primary.
+- **An explicit layout `solidFill` of the `background` role (`schemeClr
+  bg1`) is not baked.** A bare `background`-role fill is, by model
+  definition (`isInheritableFill`), "inherit" — there is no way to mark
+  "explicitly the background role, don't inherit" without a model change.
+  In practice it resolves to the same theme background the master's `bgRef`
+  would, so the visible result matches except in the rare case of a
+  secondary master with a genuinely different (non-`bg1`) background.
+- **`phKey` alias collision.** A single (non-conformant) layout declaring
+  both `<p:ph type="title">` and `<p:ph type="ctrTitle">` at the same `idx`
+  collapses to one key (last wins). Conformant decks never pair them; the
+  alias is what lets the common title/ctrTitle mismatch inherit at all.
+
 #### EMU and slide size
 
 PPTX uses EMU (914 400 EMU = 1 inch). Our logical canvas is fixed at

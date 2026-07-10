@@ -113,29 +113,61 @@ export async function importPptx(
   const presRels = presRelsXml ? parseRels(presRelsXml) : new Map();
 
   const themeTarget = pickRelTarget(presRels, 'theme');
-  const masterTarget = pickRelTarget(presRels, 'slideMaster');
 
   const importedTheme = themeTarget
     ? await loadTheme(archive, 'ppt/presentation.xml', themeTarget)
     : undefined;
 
-  const masterAndLayouts = masterTarget
-    ? await loadMasterAndLayouts(
-        archive,
-        'ppt/presentation.xml',
-        masterTarget,
-        importedTheme?.id ?? 'default-light',
-        report,
-        upload,
-        scale,
-      )
-    : {
-        master: undefined,
-        layouts: [] as Layout[],
-        layoutMap: new Map() as LayoutPathToInfo,
-        clrMap: new Map() as ClrMap,
-        txStylesMarkers: new Map() as TxStylesMarkers,
+  // A deck can carry several slide masters, each owning its own set of
+  // layouts (e.g. this deck's slide 1 layout — with its gradient background
+  // image — lives under master 1, while another master owns the rest). Load
+  // every master in `<p:sldMasterIdLst>` order and merge their layouts /
+  // layoutMaps so every slide can resolve its real layout. The first master
+  // is the primary: its color map, txStyles, and background drive the deck
+  // (our model still stores a single `masterId`).
+  const masterTargets = orderedMasterTargets(presentation, presRels);
+  let masterAndLayouts: {
+    master: Master | undefined;
+    layouts: Layout[];
+    layoutMap: LayoutPathToInfo;
+    clrMap: ClrMap;
+    txStylesMarkers: TxStylesMarkers;
+  } = {
+    master: undefined,
+    layouts: [],
+    layoutMap: new Map(),
+    clrMap: new Map(),
+    txStylesMarkers: new Map(),
+  };
+  for (const masterTarget of masterTargets) {
+    const loaded = await loadMasterAndLayouts(
+      archive,
+      'ppt/presentation.xml',
+      masterTarget,
+      importedTheme?.id ?? 'default-light',
+      report,
+      upload,
+      scale,
+    );
+    if (!masterAndLayouts.master) {
+      // Primary master: keep its master/clrMap/txStyles; seed the merged
+      // layouts + layoutMap.
+      masterAndLayouts = {
+        master: loaded.master,
+        layouts: [...loaded.layouts],
+        layoutMap: new Map(loaded.layoutMap),
+        clrMap: loaded.clrMap,
+        txStylesMarkers: loaded.txStylesMarkers,
       };
+    } else {
+      // Secondary masters contribute only their layouts (paths are unique,
+      // so no layoutMap collision); slides under them still resolve.
+      masterAndLayouts.layouts.push(...loaded.layouts);
+      for (const [path, info] of loaded.layoutMap) {
+        masterAndLayouts.layoutMap.set(path, info);
+      }
+    }
+  }
 
   const themes: Theme[] = importedTheme
     ? [importedTheme, ...BUILT_IN_THEMES.filter((t) => t.id !== importedTheme.id)]
@@ -149,6 +181,12 @@ export async function importPptx(
   // as the picker's source of truth). Built-ins are rescaled to the deck's
   // logical height so their placeholders stay centred on a non-16:9 deck;
   // imported layouts already carry deck-space frames and are left as-is.
+  //
+  // Layout-level `<p:bg>` (e.g. slide 1's gradient background image) is NOT
+  // carried on these collapsed layouts: several OOXML layouts map to one
+  // built-in id, so a per-id background would be ambiguous. Instead each
+  // slide bakes its own layout's background at parse time (see `parseSlide`),
+  // keyed on the exact layout part path via `layoutMap`.
   const layouts = dedupeLayouts([
     ...scaleLayoutsToHeight(BUILT_IN_LAYOUTS, logicalHeight),
     ...masterAndLayouts.layouts,
@@ -217,6 +255,42 @@ function orderedSlidePaths(
     const rel = presRels.get(rid);
     if (!rel || rel.type !== 'slide') continue;
     out.push(resolveRelsTarget('ppt/presentation.xml', rel.target));
+  }
+  return out;
+}
+
+/**
+ * Slide-master part targets in `<p:sldMasterIdLst>` order (the first entry is
+ * the presentation's primary master). Falls back to every `slideMaster` rel
+ * in rels order when the list is absent. Returns raw rel targets (relative to
+ * `ppt/presentation.xml`), de-duplicated.
+ */
+function orderedMasterTargets(
+  presentation: Document,
+  presRels: Map<string, { type: string; target: string }>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const lst = descendant(presentation, 'sldMasterIdLst');
+  if (lst) {
+    for (const sldMasterId of children(lst, 'sldMasterId')) {
+      const rid =
+        sldMasterId.getAttributeNS(NS.R, 'id') ||
+        sldMasterId.getAttribute('r:id') ||
+        undefined;
+      if (!rid) continue;
+      const rel = presRels.get(rid);
+      if (!rel || rel.type !== 'slideMaster' || seen.has(rel.target)) continue;
+      seen.add(rel.target);
+      out.push(rel.target);
+    }
+  }
+  if (out.length === 0) {
+    for (const rel of presRels.values()) {
+      if (rel.type !== 'slideMaster' || seen.has(rel.target)) continue;
+      seen.add(rel.target);
+      out.push(rel.target);
+    }
   }
   return out;
 }
@@ -310,11 +384,31 @@ async function loadMasterAndLayouts(
     const layoutPath = resolveRelsTarget(masterPath, rel.target);
     const layoutXml = await archive.readText(layoutPath);
     if (!layoutXml) continue;
-    const imported = parseLayout(layoutXml, layoutPath, report);
+    // A layout's own rels resolve its `<p:bg>` blipFill image (distinct
+    // from the master rels used to find the layout part itself).
+    const layoutRelsXml = await archive.readText(relsSiblingFor(layoutPath));
+    const layoutRels = layoutRelsXml ? parseRels(layoutRelsXml) : new Map();
+    const layoutImageCtx: ImageParseContext = {
+      archive,
+      slidePartPath: layoutPath,
+      rels: layoutRels,
+      uploadImage,
+      scale,
+      report,
+    };
+    const imported = await parseLayout(layoutXml, layoutPath, report, {
+      imageCtx: layoutImageCtx,
+      clrMap,
+    });
     layouts.push(imported.layout);
+    // Key the layout's background on its exact part path so the slide that
+    // references it can bake the right background (the collapsed built-in id
+    // is shared by several layouts and would be ambiguous).
     layoutMap.set(layoutPath, {
       builtInId: imported.layout.id,
       placeholderSizes: imported.placeholderSizes,
+      placeholderFrames: imported.placeholderFrames,
+      ...(imported.background && { background: imported.background }),
     });
   }
 

@@ -184,7 +184,7 @@ export const DEFAULT_BACKGROUND: Background = {
  * fill), not just freshly-created ones. A genuine custom override (an
  * srgb color, or the background role with a tint/shade) still wins.
  */
-function isInheritableFill(fill: ThemeColor): boolean {
+export function isInheritableFill(fill: ThemeColor): boolean {
   return (
     fill.kind === 'role' &&
     fill.role === 'background' &&
