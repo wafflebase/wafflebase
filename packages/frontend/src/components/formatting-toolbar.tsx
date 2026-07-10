@@ -66,8 +66,7 @@ import {
   IconPaint,
   IconBrush,
   IconPhoto,
-  IconSquareCheck,
-  IconSelect,
+  IconListCheck,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -98,8 +97,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
-  onToggleCheckbox?: () => void;
-  onInsertDropdown?: () => void;
+  onOpenDataValidation?: () => void;
   onInsertImage?: (file: File) => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
@@ -113,8 +111,7 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
-  onToggleCheckbox,
-  onInsertDropdown,
+  onOpenDataValidation,
   onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
@@ -128,8 +125,7 @@ export function FormattingToolbar({
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
   const [hasFilter, setHasFilter] = useState(false);
-  const [checkboxActive, setCheckboxActive] = useState(false);
-  const [listActive, setListActive] = useState(false);
+  const [dataValidationActive, setDataValidationActive] = useState(false);
   // Controlled open state for color palettes — the swatches are plain
   // <button>s (not DropdownMenuItem), so Radix can't auto-close them.
   const [textColorOpen, setTextColorOpen] = useState(false);
@@ -154,8 +150,9 @@ export function FormattingToolbar({
     setSelectionMerged(spreadsheet.isSelectionMerged());
     setCanMerge(spreadsheet.canMergeSelection());
     setHasFilter(spreadsheet.hasFilter());
-    setCheckboxActive(spreadsheet.isCheckboxActive());
-    setListActive(spreadsheet.isListActive());
+    setDataValidationActive(
+      spreadsheet.isCheckboxActive() || spreadsheet.isListActive(),
+    );
   }, [spreadsheet]);
 
   useEffect(() => {
@@ -226,14 +223,6 @@ export function FormattingToolbar({
   const handleInsertChart = useCallback(() => {
     onInsertChart?.();
   }, [onInsertChart]);
-
-  const handleToggleCheckbox = useCallback(() => {
-    onToggleCheckbox?.();
-  }, [onToggleCheckbox]);
-
-  const handleInsertDropdown = useCallback(() => {
-    onInsertDropdown?.();
-  }, [onInsertDropdown]);
 
   const handleOpenConditionalFormat = useCallback(() => {
     onOpenConditionalFormat?.();
@@ -762,38 +751,16 @@ export function FormattingToolbar({
             <TooltipTrigger asChild>
               <button
                 className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted ${
-                  checkboxActive ? "bg-muted" : ""
+                  dataValidationActive ? "bg-muted" : ""
                 }`}
-                onClick={handleToggleCheckbox}
-                aria-pressed={checkboxActive}
-                aria-label={
-                  checkboxActive ? "Remove checkbox" : "Insert checkbox"
-                }
+                onClick={onOpenDataValidation}
+                aria-pressed={dataValidationActive}
+                aria-label="Data validation"
               >
-                <IconSquareCheck size={16} />
+                <IconListCheck size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>
-              {checkboxActive ? "Remove checkbox" : "Insert checkbox"}
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted ${
-                  listActive ? "bg-muted" : ""
-                }`}
-                onClick={onInsertDropdown}
-                aria-pressed={listActive}
-                aria-label={listActive ? "Edit dropdown" : "Insert dropdown"}
-              >
-                <IconSelect size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {listActive ? "Edit dropdown" : "Insert dropdown"}
-            </TooltipContent>
+            <TooltipContent>Data validation</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -937,13 +904,9 @@ export function FormattingToolbar({
                 <IconPhoto size={16} className="mr-2" />
                 Insert image
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleToggleCheckbox}>
-                <IconSquareCheck size={16} className="mr-2" />
-                {checkboxActive ? "Remove checkbox" : "Insert checkbox"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleInsertDropdown}>
-                <IconSelect size={16} className="mr-2" />
-                {listActive ? "Edit dropdown" : "Insert dropdown"}
+              <DropdownMenuItem onClick={onOpenDataValidation}>
+                <IconListCheck size={16} className="mr-2" />
+                Data validation
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />

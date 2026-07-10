@@ -149,9 +149,6 @@ export function SheetView({
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
   const [dataValidationOpen, setDataValidationOpen] = useState(false);
-  const [dvAutoAddKind, setDvAutoAddKind] = useState<"checkbox" | "list" | null>(
-    null,
-  );
 
   // Comment popover state. The pinned axis-ID anchor is what makes the popover
   // resilient to remote renders: notifySelectionChange fires on every render
@@ -414,40 +411,6 @@ export function SheetView({
     setDataValidationOpen(false);
   }, [doc, readOnly, tabId]);
 
-  const handleToggleCheckbox = useCallback(async () => {
-    if (readOnly) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-
-    if (sheet.getSelectionType() !== "cell") {
-      toast.error("Select a cell range for checkboxes.");
-      return;
-    }
-
-    const range = sheet.getSelectionRangeOrActiveCell();
-    if (!range) {
-      toast.error("Select a cell range for checkboxes.");
-      return;
-    }
-
-    // The button is a toggle: if the active cell is already a checkbox, remove
-    // the checkbox rules over the selection (leaving the TRUE/FALSE values);
-    // otherwise add a checkbox rule.
-    if (sheet.isCheckboxActive()) {
-      await sheet.removeCheckbox(range);
-    } else {
-      await sheet.insertCheckbox(range, crypto.randomUUID());
-    }
-  }, [readOnly]);
-
-  const handleInsertDropdown = useCallback(() => {
-    if (readOnly) return;
-    setDataValidationOpen(true);
-    setConditionalFormatOpen(false);
-    setChartEditorOpen(false);
-    setDvAutoAddKind("list");
-  }, [readOnly]);
-
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
       if (readOnly || !doc) return;
@@ -672,7 +635,6 @@ export function SheetView({
     setDataValidationOpen(true);
     setConditionalFormatOpen(false);
     setChartEditorOpen(false);
-    setDvAutoAddKind(null);
   }, []);
 
   const handleInsertPivotTable = useCallback(() => {
@@ -1502,8 +1464,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
-          onToggleCheckbox={handleToggleCheckbox}
-          onInsertDropdown={handleInsertDropdown}
+          onOpenDataValidation={handleOpenDataValidation}
           onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
@@ -1616,7 +1577,6 @@ export function SheetView({
               open={dataValidationOpen}
               onClose={() => setDataValidationOpen(false)}
               getSelectionRange={getSelectionRange}
-              autoAddKind={dvAutoAddKind}
             />
           </Suspense>
         )}

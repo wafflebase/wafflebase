@@ -373,13 +373,16 @@ rule preserves its `id`/ranges (as `updateListRule` already does).
 
 **Entry points**
 
-- **Dropdown toolbar button** → opens this panel (create/edit a dropdown over the
-  selection) **instead of** `DropdownOptionsDialog`. The dialog component is
-  removed.
-- **Checkbox toolbar button** → unchanged quick toggle (immediate insert/remove);
-  editing happens in the panel.
+- **Toolbar** → a single `Data validation` button (`IconListCheck`, desktop +
+  mobile) opens the panel. It replaces the previous separate checkbox-toggle and
+  dropdown buttons — all validation (checkbox and dropdown) is created/edited in
+  the panel now (criteria = Checkbox or Dropdown). The button shows an active
+  state when the active cell already carries a rule.
 - **Context menu** → a `Data validation` item (in the sheet body right-click
   menu) opens the panel for the current selection. Included in v1.
+- Both entry points open the panel with no auto-add; the user clicks **Add** (or
+  selects the existing rule at the active cell) — so there is no `autoAddKind`
+  seeding. `DropdownOptionsDialog` is removed.
 
 **Non-goals (v1):** date/number/text/custom-formula criteria; range-source
 lists; colored chips; per-cell range subtraction; custom checkbox values.
@@ -389,10 +392,11 @@ lists; colored chips; per-cell range subtraction; custom checkbox values.
 `packages/frontend/src/app/spreadsheet/data-validation-panel.tsx` — a
 lazy-loaded panel sharing the CF/chart right-slot (mutually exclusive). Added
 `Spreadsheet.setDataValidations` and `Spreadsheet.getDataValidationAt` (any-kind
-resolver). The dropdown toolbar button now opens the panel with a one-shot
-`autoAddKind: 'list'` (auto-adds a dropdown rule for the selection); the
-`Data validation` context-menu item opens it without auto-adding
-(`autoAddKind: null`). `DropdownOptionsDialog` was deleted. Two review-caught
+resolver). A single `Data validation` toolbar button (replacing the earlier
+separate checkbox-toggle and dropdown buttons) and a `Data validation`
+context-menu item both open the panel with no auto-add — the user clicks **Add**
+or the panel selects the existing rule at the active cell.
+`DropdownOptionsDialog` was deleted. Two review-caught
 behaviors were fixed during implementation: the field-sync effect is keyed on
 `selectedRuleId` only (so in-progress range/options edits aren't reverted by a
 sibling field edit), and the auto-add gate uses the any-kind

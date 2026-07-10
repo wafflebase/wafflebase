@@ -29,7 +29,6 @@ type DataValidationPanelProps = {
   open: boolean;
   onClose: () => void;
   getSelectionRange: () => string | null;
-  autoAddKind?: DataValidationKind | null;
 };
 
 // A1-range parsing/formatting — same shape as ConditionalFormatPanel.
@@ -90,7 +89,6 @@ export function DataValidationPanel({
   open,
   onClose,
   getSelectionRange,
-  autoAddKind,
 }: DataValidationPanelProps) {
   const [rules, setRules] = useState<DataValidationRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
@@ -144,8 +142,8 @@ export function DataValidationPanel({
     [commitRules, getSelectionRange, rules],
   );
 
-  // Load rules whenever the panel opens; select the active cell's list rule if
-  // any, and honor a one-shot autoAddKind (dropdown toolbar entry).
+  // Load rules whenever the panel opens; select the rule (any kind) at the
+  // active cell if there is one, else keep/pick the first rule.
   useEffect(() => {
     if (!open || !spreadsheet) {
       return;
@@ -155,26 +153,6 @@ export function DataValidationPanel({
     const existing = spreadsheet.getDataValidationAt();
     if (existing) {
       setSelectedRuleId(existing.id);
-    } else if (autoAddKind) {
-      // addRule reads `rules` state; seed it first so the new rule appends.
-      setRules(loaded);
-      const selectionRange = getSelectionRange();
-      const parsed = selectionRange ? parseA1Ranges(selectionRange) : null;
-      const ranges: Range[] = parsed || [
-        [
-          { r: 1, c: 1 },
-          { r: 1, c: 1 },
-        ],
-      ];
-      const id = `dv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const rule: DataValidationRule =
-        autoAddKind === "list"
-          ? { id, kind: "list", ranges, list: [], showArrow: true, onInvalid: "warning" }
-          : { id, kind: "checkbox", ranges };
-      const next = [...loaded, rule];
-      // Panel-state only; not persisted until it gains an option.
-      setRules(next);
-      setSelectedRuleId(id);
     } else {
       setSelectedRuleId((current) =>
         current && loaded.some((r) => r.id === current)
@@ -182,8 +160,6 @@ export function DataValidationPanel({
           : loaded[0]?.id ?? null,
       );
     }
-    // Only re-run when the panel is (re)opened.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spreadsheet]);
 
   // Sync editor fields when the selected rule changes. Keyed on selectedRuleId
