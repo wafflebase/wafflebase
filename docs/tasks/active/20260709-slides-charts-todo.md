@@ -75,12 +75,27 @@ type, `chart-renderer.ts` painter, and `case 'chart'` render dispatch.
 spec+quality review, one fix loop (Task 6 legend swatch), final
 whole-branch review. See `*-lessons.md`.
 
-**Known Phase-1 limitations (follow-ups):** `kind:'bar'` (horizontal)
-paints with the vertical routine; stacked/percentStacked **area** not yet
-accumulated; legend position (top/left/right) not honored (only
-show/hide); diagram/SmartArt/OLE frames still return `[]` (unchanged);
-`schemeClr` series colors fall back to the accent cycle; PPTX export of a
-chart throws in `export/pptx/group.ts` (export is Phase 2). No in-app
-chart creation/editing.
+**Hardening (from high-effort `/code-review`, commit 0c31183c0):** a
+malformed chart part no longer aborts the whole import (try/catch →
+placeholder); an adversarial `<c:pt idx>` can no longer allocate a giant
+array (DoS guard); `chartex`/diagram/SmartArt/OLE graphic-frames now
+import as a reported grey placeholder instead of silently vanishing
+uncounted; `r:id` uses the namespaced fallback; legend `tr` maps to
+right; literal `<c:tx><c:v>` series names are read.
+
+**Known Phase-1 limitations (follow-ups):**
+- **Negative values render blank** — `seriesMax`/painters clamp to 0; a
+  profit/loss chart needs a signed zero-baseline axis. (CR finding [4].)
+- **Stacked/percentStacked line & area** not accumulated — series overlap.
+- **Horizontal `bar`** paints with the vertical column routine.
+- **Legend position** (top/left/right) not honored — always a bottom band.
+- **`schemeClr` series colors** fall back to the theme accent cycle.
+- **PPTX export** silently omits charts (returns `''`) — export round-trip
+  is Phase 2; no report signal yet. (CR finding [2].)
+- **`unsupportedCharts` summary copy** says "chart(s) unsupported" even for
+  SmartArt/chartex frames — loose wording, consider renaming the counter.
+- **`readCache` implicit-index base** uses point count, not max-seen-idx —
+  differs only for the (Office-never-emitted) idx-less-after-explicit case.
+- No in-app chart creation/editing.
 
 **PR:** (add link after opening)

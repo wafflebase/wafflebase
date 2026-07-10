@@ -121,11 +121,17 @@ Fix the dispatch in `packages/slides/src/import/pptx/shape.ts:383`. A
   load that part, and map it. A chart whose plot family is unsupported (or
   whose part is missing) becomes a grey placeholder rect and bumps
   `unsupportedCharts`.
-- any other URI (a `<a:tbl>` table, or a diagram/SmartArt/OLE frame) →
-  existing `parseTable`. Tables import as before; diagram/SmartArt/OLE
-  still return an empty list from `parseTable` (unchanged pre-existing
-  behavior — routing those to a reported placeholder is a follow-up, not
-  part of the charts work).
+- a table (table URI, or a `<a:tbl>` descendant is present) → existing
+  `parseTable`.
+- any other graphic frame (a 2014 `chartex` waterfall/histogram/box/
+  funnel, a diagram/SmartArt, or an OLE object) → grey placeholder rect +
+  `unsupportedCharts`, so it is never silently dropped or miscounted.
+
+`parseChartFrame` is defensive end to end: a missing rel, a missing chart
+part, malformed chart XML, or any parse error all degrade to the same
+placeholder + `unsupportedCharts` rather than throwing and aborting the
+whole import. A `<c:pt idx>` cache index is bounded before array
+allocation so a malformed/adversarial deck cannot hang the import.
 
 New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
 
