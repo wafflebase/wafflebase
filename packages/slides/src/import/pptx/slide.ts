@@ -1,4 +1,5 @@
 import type { Block } from '@wafflebase/docs';
+import type { Frame } from '../../model/element';
 import type { Background, Slide } from '../../model/presentation';
 import { DEFAULT_BACKGROUND } from '../../model/presentation';
 import { clone } from '../../model/clone';
@@ -21,6 +22,19 @@ export interface LayoutResolution {
   builtInId: string;
   /** Map of `"{ooxmlType}:{idx}"` → default fontSize in points. */
   placeholderSizes: Map<string, number>;
+  /**
+   * Map of `"{ooxmlType}:{idx}"` → layout placeholder frame (px). A slide
+   * placeholder with no own `<a:xfrm>` inherits this (slide → layout
+   * geometry). Optional so test harnesses can omit it.
+   */
+  placeholderFrames?: Map<string, Frame>;
+  /**
+   * Layout-level `<p:bg>` background (image / solid), when the layout defines
+   * a real one. A slide with no `<p:bg>` of its own bakes this at parse time
+   * (PPTX inheritance slide → layout). Keyed per layout part path so the
+   * collapse of many OOXML layouts onto one built-in id doesn't cross wires.
+   */
+  background?: Background;
 }
 
 /** Maps from imported OOXML layout part path → resolution data. */
@@ -63,8 +77,11 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   const layoutId = layoutInfo?.builtInId ?? 'title-body';
   const placeholderSizes = layoutInfo?.placeholderSizes ?? new Map<string, number>();
 
-  // Background may be on the slide's `<p:cSld>` (override) or inherited
-  // from the master. v1 records an override only when present.
+  // Background: the slide's own `<p:cSld><p:bg>` wins; otherwise PPTX
+  // inheritance falls to the layout (slide → layout → master). We bake the
+  // layout's background here — keyed on the slide's exact layout part path —
+  // so a slide with no `<p:bg>` still renders its layout's gradient / image
+  // (the collapsed built-in id can't carry it unambiguously).
   const cSld = child(slideEl, 'cSld');
   const bgEl = cSld ? child(cSld, 'bg') : undefined;
   const imageCtx: ImageParseContext = {
@@ -77,7 +94,9 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
   };
   const background = bgEl
     ? await parseSlideBackground(bgEl, opts.clrMap, imageCtx)
-    : clone(DEFAULT_BACKGROUND);
+    : layoutInfo?.background
+      ? clone(layoutInfo.background)
+      : clone(DEFAULT_BACKGROUND);
 
   const spTree = cSld ? child(cSld, 'spTree') : undefined;
   const ctx: SlideParseContext = {
@@ -90,6 +109,7 @@ export async function parseSlide(opts: ParseSlideOptions): Promise<Slide | undef
     idMap: new Map(),
     shapeKindByPptxId: new Map(),
     placeholderSizes,
+    placeholderFrames: layoutInfo?.placeholderFrames ?? new Map(),
     clrMap: opts.clrMap,
     txStylesMarkers: opts.txStylesMarkers,
   };
@@ -128,7 +148,14 @@ function pickLayoutInfo(
   return undefined;
 }
 
-async function parseSlideBackground(
+/**
+ * Parse a `<p:bg>` element (from a slide, layout, or any `<p:cSld>`) into a
+ * {@link Background}. Handles `<p:bgPr>` with `blipFill` (image) or
+ * `solidFill` (color); `<p:bgRef>` style-matrix indices are unhandled and
+ * fall through to {@link DEFAULT_BACKGROUND}. Exported so the layout parser
+ * reuses the exact same semantics rather than keeping a third copy.
+ */
+export async function parseSlideBackground(
   bgEl: Element,
   clrMap: ClrMap,
   imageCtx: ImageParseContext,

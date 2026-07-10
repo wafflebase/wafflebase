@@ -1,6 +1,13 @@
+import type { Frame } from '../../model/element';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
-import type { Layout } from '../../model/presentation';
+import type { Background, Layout } from '../../model/presentation';
+import { isInheritableFill } from '../../model/presentation';
+import type { ClrMap } from './color';
+import { parseXfrm } from './geometry';
+import type { ImageParseContext } from './image';
+import { phKey } from './placeholder';
 import { ImportReport } from './report';
+import { parseSlideBackground } from './slide';
 import { attr, attrInt, child, children, descendant, parseXml } from './xml';
 
 /**
@@ -43,6 +50,34 @@ export interface ImportedLayout {
    * layout overrides to render titles faithfully.
    */
   placeholderSizes: Map<string, number>;
+  /**
+   * Frame (position + size, in px) per layout placeholder, keyed by
+   * `"{ooxmlType}:{idx}"`. A slide placeholder whose own `<p:spPr>` omits
+   * `<a:xfrm>` inherits this frame (PPTX slide → layout geometry); without
+   * it the placeholder collapses to `(0,0,0,0)` at the top-left. Only
+   * populated when the layout is parsed with a `bgCtx` (which carries the
+   * EMU→px scale); empty otherwise.
+   */
+  placeholderFrames: Map<string, Frame>;
+  /**
+   * Layout-level `<p:bg>` when it carries a real background — an image
+   * (`blipFill`) or an explicit `solidFill`. PPTX background inheritance is
+   * slide → layout → master; a slide with no `<p:bg>` of its own inherits
+   * this. Absent for layouts with no `<p:bg>`, a `<p:bgRef>` style-matrix
+   * reference, or a bare role fill (those must not clobber the built-in
+   * layout this collapses onto). Requires `bgCtx` to be resolved.
+   */
+  background?: Background;
+}
+
+/**
+ * Image + color-map context needed to resolve a layout's `<p:bg>` blipFill
+ * / solidFill. Optional on {@link parseLayout} so callers that only need the
+ * layout id + placeholder sizes (and test harnesses) can skip it.
+ */
+export interface LayoutBackgroundContext {
+  imageCtx: ImageParseContext;
+  clrMap: ClrMap;
 }
 
 /**
@@ -51,11 +86,12 @@ export interface ImportedLayout {
  * layouts; the design doc reserves that for v1.5 alongside theme builder
  * editing of master/layout placeholders.
  */
-export function parseLayout(
+export async function parseLayout(
   xml: string,
   ooxmlPartName: string,
   report: ImportReport,
-): ImportedLayout {
+  bgCtx?: LayoutBackgroundContext,
+): Promise<ImportedLayout> {
   const doc = parseXml(xml);
   const sldLayout = descendant(doc, 'sldLayout');
   const rawType = sldLayout ? attr(sldLayout, 'type') : undefined;
@@ -69,7 +105,76 @@ export function parseLayout(
     ? parsePlaceholderSizes(sldLayout)
     : new Map<string, number>();
 
-  return { ooxmlPartName, layout, placeholderSizes };
+  const placeholderFrames =
+    sldLayout && bgCtx
+      ? parsePlaceholderFrames(sldLayout, bgCtx.imageCtx.scale)
+      : new Map<string, Frame>();
+
+  const background = sldLayout ? await parseLayoutBackground(sldLayout, bgCtx) : undefined;
+
+  return {
+    ooxmlPartName,
+    layout,
+    placeholderSizes,
+    placeholderFrames,
+    ...(background && { background }),
+  };
+}
+
+/**
+ * Walk a layout's `<p:spTree>` for placeholder shapes and pull each one's
+ * `<p:spPr><a:xfrm>` frame (scaled to px), keyed by `"{ooxmlType}:{idx}"`.
+ * Placeholders with no `<a:xfrm>` are skipped (nothing to inherit).
+ */
+function parsePlaceholderFrames(
+  sldLayout: Element,
+  scale: ImageParseContext['scale'],
+): Map<string, Frame> {
+  const out = new Map<string, Frame>();
+  const cSld = child(sldLayout, 'cSld');
+  const spTree = cSld ? child(cSld, 'spTree') : undefined;
+  if (!spTree) return out;
+  for (const sp of children(spTree, 'sp')) {
+    const nvSpPr = child(sp, 'nvSpPr');
+    const nvPr = nvSpPr ? child(nvSpPr, 'nvPr') : undefined;
+    const ph = nvPr ? child(nvPr, 'ph') : undefined;
+    if (!ph) continue;
+    const type = attr(ph, 'type') ?? 'body';
+    const idx = attr(ph, 'idx') ?? '0';
+
+    const spPr = child(sp, 'spPr');
+    const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
+    if (!xfrm) continue;
+    out.set(phKey(type, idx), parseXfrm(xfrm, scale));
+  }
+  return out;
+}
+
+/**
+ * Resolve a layout's `<p:cSld><p:bg>` into a {@link Background}, but only
+ * keep it when it carries an image or an explicit `solidFill`. A bare role
+ * fill / unhandled `<p:bgRef>` returns `undefined` so the caller leaves the
+ * built-in layout's (absent) background untouched instead of overriding it
+ * with a no-op fill.
+ */
+async function parseLayoutBackground(
+  sldLayout: Element,
+  bgCtx?: LayoutBackgroundContext,
+): Promise<Background | undefined> {
+  if (!bgCtx) return undefined;
+  const cSld = child(sldLayout, 'cSld');
+  const bgEl = cSld ? child(cSld, 'bg') : undefined;
+  if (!bgEl) return undefined;
+
+  const parsed = await parseSlideBackground(bgEl, bgCtx.clrMap, bgCtx.imageCtx);
+  // Keep only a *real* background: a resolved image, or an explicit
+  // (non-inheritable) fill override. A bare role fill — which is what
+  // `parseSlideBackground` returns for an unhandled `<p:bgRef>`, a
+  // `solidFill` whose scheme color didn't resolve, or a failed blip upload
+  // — is dropped so the slide keeps inheriting instead of baking the deck
+  // default and masking the theme / master background.
+  const hasRealFill = parsed.fill !== undefined && !isInheritableFill(parsed.fill);
+  return parsed.image || hasRealFill ? parsed : undefined;
 }
 
 /**
@@ -102,7 +207,7 @@ function parsePlaceholderSizes(sldLayout: Element): Map<string, number> {
     if (!defRPr) continue;
     const sz = attrInt(defRPr, 'sz');
     if (sz == null) continue;
-    out.set(`${type}:${idx}`, sz / 100);
+    out.set(phKey(type, idx), sz / 100);
   }
   return out;
 }

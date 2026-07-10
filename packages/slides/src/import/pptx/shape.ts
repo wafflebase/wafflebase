@@ -1,6 +1,7 @@
 import type {
   Effects,
   Element as SlideElement,
+  Frame,
   FreeformPath,
   GroupElement,
   ImageElement,
@@ -36,6 +37,7 @@ import {
 import { parseCustGeomPath } from './freeform';
 import { parseBlipFill, parsePic, type ImageParseContext } from './image';
 import { CHART_URI, graphicFramePlaceholder, parseChartFrame } from './chart';
+import { phKey } from './placeholder';
 import { ImportReport } from './report';
 import { parseTable } from './table';
 import {
@@ -84,6 +86,13 @@ export interface SlideParseContext {
    * here when the parent shape has a matching `<p:ph>` reference.
    */
   placeholderSizes: Map<string, number>;
+  /**
+   * Frame (position + size, px) per layout placeholder, keyed by
+   * `"{ooxmlType}:{idx}"`. A placeholder `<p:sp>` whose own `<p:spPr>` omits
+   * `<a:xfrm>` inherits this frame instead of collapsing to `(0,0,0,0)`.
+   * Optional so bare test fixtures can omit it; absent ⇒ no layout frames.
+   */
+  placeholderFrames?: Map<string, Frame>;
   /**
    * Master-level `<p:clrMap>` — applied when resolving slide-level
    * `<a:schemeClr>` lookups so logical names like `bg2` route through
@@ -448,14 +457,38 @@ function withId(elem: SlideElement, ctx: SlideParseContext, sourceEl: Element): 
   return elem;
 }
 
+/**
+ * Resolve a placeholder `<p:sp>`'s frame, honoring PPTX slide → layout
+ * geometry inheritance. The slide's own `<a:off>` / `<a:ext>` win where
+ * present; each axis the slide omits falls back to the layout placeholder
+ * frame (whole frame when the slide has no `<a:xfrm>` at all). Returns a
+ * fresh object (never the shared `layoutFrame`) so callers can mutate it.
+ */
+function resolvePlaceholderFrame(
+  xfrm: Element | undefined,
+  layoutFrame: Frame | undefined,
+  scale: EmuScale,
+): Frame {
+  if (!xfrm) {
+    return layoutFrame ? { ...layoutFrame } : parseXfrm(undefined, scale);
+  }
+  const frame = parseXfrm(xfrm, scale);
+  if (!layoutFrame) return frame;
+  if (!child(xfrm, 'off')) {
+    frame.x = layoutFrame.x;
+    frame.y = layoutFrame.y;
+  }
+  if (!child(xfrm, 'ext')) {
+    frame.w = layoutFrame.w;
+    frame.h = layoutFrame.h;
+  }
+  return frame;
+}
+
 async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElement[]> {
   const nvSpPr = child(sp, 'nvSpPr');
   const cNvSpPr = nvSpPr ? child(nvSpPr, 'cNvSpPr') : undefined;
   const isTextBox = cNvSpPr ? attr(cNvSpPr, 'txBox') === '1' : false;
-
-  const spPr = child(sp, 'spPr');
-  const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
-  const frame = parseXfrm(xfrm, ctx.scale);
 
   const txBody = child(sp, 'txBody');
   const hasText = !!txBody && hasVisibleText(txBody);
@@ -463,6 +496,17 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   const placeholderInfo = readPlaceholderInfo(nvSpPr);
   const placeholderRef = placeholderInfo?.ref;
   const layoutSizeKey = placeholderInfo?.ooxmlKey;
+
+  const spPr = child(sp, 'spPr');
+  const xfrm = spPr ? child(spPr, 'xfrm') : undefined;
+  // A placeholder `<p:sp>` may omit its `<a:xfrm>` entirely, or override only
+  // its offset or only its extent, inheriting the rest from the matching
+  // layout placeholder (PPTX slide → layout geometry). Resolve the layout
+  // frame first, then let the slide's own `<a:off>` / `<a:ext>` win where
+  // present — otherwise `parseXfrm` collapses the missing axis to 0 (a
+  // top-left `(0,0,0,0)` box, or a zero-size invisible one).
+  const layoutFrame = layoutSizeKey ? ctx.placeholderFrames?.get(layoutSizeKey) : undefined;
+  const frame = resolvePlaceholderFrame(xfrm, layoutFrame, ctx.scale);
 
   // Drop shadow / reflection (effects) and alt text are attached to every
   // element this `<p:sp>` emits by `parseChild`, which has the source
@@ -635,7 +679,7 @@ function readPlaceholderInfo(
   if (!ph) return undefined;
   const rawType = attr(ph, 'type') ?? 'body';
   const idxStr = attr(ph, 'idx') ?? '0';
-  const ooxmlKey = `${rawType}:${idxStr}`;
+  const ooxmlKey = phKey(rawType, idxStr);
   const type = OOXML_PH_TO_TYPE[rawType];
   let ref: PlaceholderRef | undefined;
   if (type) {
