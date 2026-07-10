@@ -668,7 +668,7 @@ export function SheetView({
     setDataValidationOpen(false);
   }, []);
 
-  const handleOpenDataValidation = useCallback(() => { // eslint-disable-line @typescript-eslint/no-unused-vars
+  const handleOpenDataValidation = useCallback(() => {
     setDataValidationOpen(true);
     setConditionalFormatOpen(false);
     setChartEditorOpen(false);
@@ -1531,6 +1531,7 @@ export function SheetView({
             }
           }}
           onInsertComment={readOnly ? undefined : openCommentComposerForActiveCell}
+          onOpenDataValidation={readOnly ? undefined : handleOpenDataValidation}
         >
           <div className="relative h-full w-full">
             <div
