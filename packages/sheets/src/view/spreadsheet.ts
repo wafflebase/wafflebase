@@ -421,6 +421,16 @@ export class Spreadsheet {
   }
 
   /**
+   * `getDataValidationAt` returns the validation rule of any kind applying to
+   * the active cell (or the given ref), or undefined.
+   */
+  public getDataValidationAt(ref?: Ref): DataValidationRule | undefined {
+    const target = ref ?? this.sheet?.getActiveCell();
+    if (!target) return undefined;
+    return this.sheet?.getDataValidationAt(target);
+  }
+
+  /**
    * `isListActive` reports whether the active cell carries a list rule — used
    * to render the toolbar's dropdown button in its "active" state.
    */

@@ -152,9 +152,9 @@ export function DataValidationPanel({
     }
     const loaded = spreadsheet.getDataValidations();
     setRules(loaded);
-    const activeListRule = spreadsheet.getListRuleAt();
-    if (activeListRule) {
-      setSelectedRuleId(activeListRule.id);
+    const existing = spreadsheet.getDataValidationAt();
+    if (existing) {
+      setSelectedRuleId(existing.id);
     } else if (autoAddKind) {
       // addRule reads `rules` state; seed it first so the new rule appends.
       setRules(loaded);
@@ -186,13 +186,18 @@ export function DataValidationPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spreadsheet]);
 
-  // Sync editor fields when the selected rule changes.
+  // Sync editor fields when the selected rule changes. Keyed on selectedRuleId
+  // only — not selectedRule — because selectedRule is a new object reference
+  // on every updateRule() call (switch toggle, radio change, options blur),
+  // and re-running this effect on those would overwrite in-progress edits.
   useEffect(() => {
     setRangeInput(selectedRule ? formatA1Ranges(selectedRule.ranges) : "");
     setOptionsText(
       selectedRule?.kind === "list" ? (selectedRule.list ?? []).join("\n") : "",
     );
-  }, [selectedRuleId, selectedRule]);
+    // Only re-run when the selected rule changes, not on every field edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRuleId]);
 
   if (!open) {
     return null;
@@ -236,7 +241,12 @@ export function DataValidationPanel({
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
     } else {
-      updateRule(selectedRule.id, { kind: "checkbox" });
+      updateRule(selectedRule.id, {
+        kind: "checkbox",
+        list: undefined,
+        showArrow: undefined,
+        onInvalid: undefined,
+      });
     }
   };
 
