@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import * as bodyParser from 'body-parser';
 import * as cookieParser from 'cookie-parser';
+import type { IncomingMessage } from 'http';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
@@ -31,7 +32,18 @@ async function bootstrap() {
   if (Number.isFinite(trustProxy) && trustProxy > 0) {
     app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
   }
-  app.use(bodyParser.json({ limit: JSON_BODY_LIMIT }));
+  // Stash the raw request bytes so the Yorkie event-webhook guard can verify
+  // its HMAC signature over the exact payload (a re-serialized object would
+  // not match). Cheap — just holds a reference to the buffer body-parser
+  // already read.
+  app.use(
+    bodyParser.json({
+      limit: JSON_BODY_LIMIT,
+      verify: (req: IncomingMessage & { rawBody?: Buffer }, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(bodyParser.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
   app.use(cookieParser());
   app.useGlobalPipes(

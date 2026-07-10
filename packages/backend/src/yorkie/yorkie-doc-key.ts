@@ -36,3 +36,20 @@ export function yorkieDocKeyPrefix(type: string): string {
 export function yorkieDocKey(type: string, id: string): string {
   return `${yorkieDocKeyPrefix(type)}${id}`;
 }
+
+/**
+ * Inverse of {@link yorkieDocKey}: split a Yorkie document key back into its
+ * `{ type, id }`. Returns `null` for keys whose prefix matches no known
+ * document type, so callers (e.g. the event webhook) can safely ignore
+ * unrecognized keys instead of throwing on external input.
+ */
+export function parseYorkieDocKey(
+  key: string,
+): { type: DocumentTypeLike; id: string } | null {
+  for (const [type, prefix] of Object.entries(YORKIE_DOC_KEY_PREFIXES)) {
+    if (key.startsWith(prefix) && key.length > prefix.length) {
+      return { type: type as DocumentTypeLike, id: key.slice(prefix.length) };
+    }
+  }
+  return null;
+}

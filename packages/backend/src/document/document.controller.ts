@@ -29,10 +29,13 @@ import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
-type DocumentListItem = DocumentWithAuthor & {
+type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   editors?: PresenceUser[];
-  // Last-modified time (ISO). Read from Yorkie's `updated_at`, falling back
-  // to the Postgres `createdAt` when Yorkie has no record of the document.
+  // Last-modified time (ISO). Sourced from the Postgres `Document.updatedAt`
+  // column, which the Yorkie `DocumentRootChanged` event webhook advances on
+  // each edit (see yorkie-event.controller.ts). Stable across requests, unlike
+  // the per-request Yorkie admin call — so the list order no longer flips when
+  // that call times out.
   updatedAt: string;
 };
 
@@ -50,15 +53,19 @@ export class DocumentController {
     docs: DocumentWithAuthor[],
   ): Promise<DocumentListItem[]> {
     if (docs.length === 0) return [];
+    // The Yorkie admin call now supplies only the decorative "currently
+    // editing" avatars — it is best-effort and its failure/timeout no longer
+    // affects ordering, which reads the stable Postgres `updatedAt`.
     const keys = docs.map((d) => yorkieDocKey(d.type, d.id));
-    const summaries = await this.yorkieAdminService.getSummaries(keys);
+    const editorsByKey = await this.yorkieAdminService.getEditors(keys);
     return docs.map((d, i) => {
-      const summary = summaries.get(keys[i]);
+      const { updatedAt, ...rest } = d;
       const item: DocumentListItem = {
-        ...d,
-        updatedAt: summary?.updatedAt ?? d.createdAt.toISOString(),
+        ...rest,
+        updatedAt: updatedAt.toISOString(),
       };
-      if (summary?.editors.length) item.editors = summary.editors;
+      const editors = editorsByKey.get(keys[i]);
+      if (editors?.length) item.editors = editors;
       return item;
     });
   }
@@ -107,7 +114,7 @@ export class DocumentController {
     await this.workspaceService.assertMember(workspaceId, userId);
     const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     return this.attachMeta(docs);
   }
@@ -139,7 +146,7 @@ export class DocumentController {
     const workspaceIds = workspaces.map((w) => w.id);
     const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId: { in: workspaceIds } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     return this.attachMeta(docs);
   }
