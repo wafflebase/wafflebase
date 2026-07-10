@@ -5,7 +5,6 @@ import {
   Cell,
   CellStyle,
   Ref,
-  Range,
   Sref,
   getWorksheetCell,
   parseRef,
@@ -30,10 +29,6 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
-import {
-  DropdownOptionsDialog,
-  type DropdownInvalidBehavior,
-} from "./dropdown-options-dialog";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
@@ -102,6 +97,11 @@ const ConditionalFormatPanel = lazy(() =>
     default: module.ConditionalFormatPanel,
   })),
 );
+const DataValidationPanel = lazy(() =>
+  import("./data-validation-panel").then((module) => ({
+    default: module.DataValidationPanel,
+  })),
+);
 const PivotEditorPanel = lazy(() =>
   import("./pivot/pivot-editor-panel").then((module) => ({
     default: module.PivotEditorPanel,
@@ -148,14 +148,10 @@ export function SheetView({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
-  const [dropdownDialogOpen, setDropdownDialogOpen] = useState(false);
-  const [dropdownDialogState, setDropdownDialogState] = useState<{
-    range: Range;
-    ruleId: string | null;
-    initialOptions: string[];
-    initialOnInvalid: DropdownInvalidBehavior;
-    isEditing: boolean;
-  } | null>(null);
+  const [dataValidationOpen, setDataValidationOpen] = useState(false);
+  const [dvAutoAddKind, setDvAutoAddKind] = useState<"checkbox" | "list" | null>(
+    null,
+  );
 
   // Comment popover state. The pinned axis-ID anchor is what makes the popover
   // resilient to remote renders: notifySelectionChange fires on every render
@@ -359,6 +355,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, [clearPaintFormatState, readOnly]);
 
   const handleInsertChart = useCallback(() => {
@@ -414,6 +411,7 @@ export function SheetView({
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, [doc, readOnly, tabId]);
 
   const handleToggleCheckbox = useCallback(async () => {
@@ -444,57 +442,11 @@ export function SheetView({
 
   const handleInsertDropdown = useCallback(() => {
     if (readOnly) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-
-    if (sheet.getSelectionType() !== "cell") {
-      toast.error("Select a cell range for a dropdown.");
-      return;
-    }
-    const range = sheet.getSelectionRangeOrActiveCell();
-    if (!range) {
-      toast.error("Select a cell range for a dropdown.");
-      return;
-    }
-
-    const existing = sheet.getListRuleAt();
-    setDropdownDialogState({
-      range,
-      ruleId: existing?.id ?? null,
-      initialOptions: existing?.list ?? [],
-      initialOnInvalid: existing?.onInvalid === "reject" ? "reject" : "warning",
-      isEditing: !!existing,
-    });
-    setDropdownDialogOpen(true);
+    setDataValidationOpen(true);
+    setConditionalFormatOpen(false);
+    setChartEditorOpen(false);
+    setDvAutoAddKind("list");
   }, [readOnly]);
-
-  const handleSaveDropdown = useCallback(
-    async (options: string[], onInvalid: DropdownInvalidBehavior) => {
-      const sheet = sheetRef.current;
-      const target = dropdownDialogState;
-      if (!sheet || !target) return;
-      if (target.ruleId) {
-        // Edit in place by rule id: preserves the rule's full ranges (editing
-        // from a sub-range must not shrink it) and is a single undo unit.
-        await sheet.updateListRule(target.ruleId, options, onInvalid);
-      } else {
-        await sheet.insertList(
-          target.range,
-          crypto.randomUUID(),
-          options,
-          onInvalid,
-        );
-      }
-    },
-    [dropdownDialogState],
-  );
-
-  const handleRemoveDropdown = useCallback(async () => {
-    const sheet = sheetRef.current;
-    const target = dropdownDialogState;
-    if (!sheet || !target) return;
-    await sheet.removeList(target.range);
-  }, [dropdownDialogState]);
 
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
@@ -553,6 +505,7 @@ export function SheetView({
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, []);
 
   const handleSelectChart = useCallback(
@@ -712,6 +665,7 @@ export function SheetView({
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
     setChartEditorOpen(false);
+    setDataValidationOpen(false);
   }, []);
 
   const handleInsertPivotTable = useCallback(() => {
@@ -783,8 +737,18 @@ export function SheetView({
       if (conditionalFormatOpen) {
         setConditionalFormatOpen(false);
       }
+      if (dataValidationOpen) {
+        setDataValidationOpen(false);
+      }
     },
-    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId, selectedImageId],
+    [
+      chartEditorOpen,
+      conditionalFormatOpen,
+      dataValidationOpen,
+      paintFormatSourceRef,
+      selectedChartId,
+      selectedImageId,
+    ],
   );
 
   const handleMobileEditCommit = useCallback(
@@ -990,6 +954,7 @@ export function SheetView({
     setSelectedImageId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
     setFindBarOpen(false);
     setCommentPopoverOpen(false);
     clearPaintFormatState();
@@ -1360,6 +1325,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
 
     try {
       void sheet.focusCell(parseRef(peerJumpTarget.activeCell));
@@ -1381,6 +1347,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
 
     try {
       void sheet.focusCell(parseRef(commentJumpTarget.sref));
@@ -1634,16 +1601,16 @@ export function SheetView({
             />
           </Suspense>
         )}
-        {!readOnly && dropdownDialogState && (
-          <DropdownOptionsDialog
-            open={dropdownDialogOpen}
-            onOpenChange={setDropdownDialogOpen}
-            initialOptions={dropdownDialogState.initialOptions}
-            initialOnInvalid={dropdownDialogState.initialOnInvalid}
-            isEditing={dropdownDialogState.isEditing}
-            onSave={handleSaveDropdown}
-            onRemove={handleRemoveDropdown}
-          />
+        {!readOnly && dataValidationOpen && (
+          <Suspense fallback={null}>
+            <DataValidationPanel
+              spreadsheet={sheetRef.current}
+              open={dataValidationOpen}
+              onClose={() => setDataValidationOpen(false)}
+              getSelectionRange={getSelectionRange}
+              autoAddKind={dvAutoAddKind}
+            />
+          </Suspense>
         )}
         {!readOnly && isPivotTab && !pivotEditorOpen && (
           <button
