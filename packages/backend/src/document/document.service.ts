@@ -39,7 +39,9 @@ export class DocumentService {
     take?: number;
     cursor?: Prisma.DocumentWhereUniqueInput;
     where?: Prisma.DocumentWhereInput;
-    orderBy?: Prisma.DocumentOrderByWithRelationInput;
+    orderBy?:
+      | Prisma.DocumentOrderByWithRelationInput
+      | Prisma.DocumentOrderByWithRelationInput[];
   }): Promise<Document[]> {
     const { skip, take, cursor, where, orderBy } = params;
     return this.prisma.document.findMany({
@@ -61,7 +63,9 @@ export class DocumentService {
     take?: number;
     cursor?: Prisma.DocumentWhereUniqueInput;
     where?: Prisma.DocumentWhereInput;
-    orderBy?: Prisma.DocumentOrderByWithRelationInput;
+    orderBy?:
+      | Prisma.DocumentOrderByWithRelationInput
+      | Prisma.DocumentOrderByWithRelationInput[];
   }): Promise<DocumentWithAuthor[]> {
     const { skip, take, cursor, where, orderBy } = params;
     return this.prisma.document.findMany({
@@ -86,10 +90,15 @@ export class DocumentService {
     data: Prisma.DocumentUpdateInput;
   }): Promise<Document> {
     const { data, where } = params;
-    return this.prisma.document.update({
-      data,
-      where,
-    });
+    // A real metadata update (rename, move) is a modification, so advance
+    // `updatedAt` — content edits arrive via the Yorkie webhook, but title/
+    // workspace changes never touch Yorkie and would otherwise leave the doc
+    // stuck at its old "Last modified" time and list position. Skip the bump
+    // when there is nothing to update, so an empty / no-op PATCH does not
+    // spuriously re-sort the document to the top of the list.
+    const nextData =
+      Object.keys(data).length > 0 ? { ...data, updatedAt: new Date() } : data;
+    return this.prisma.document.update({ data: nextData, where });
   }
 
   async deleteDocument(
@@ -98,5 +107,20 @@ export class DocumentService {
     return this.prisma.document.delete({
       where,
     });
+  }
+
+  /**
+   * Advance a document's `updatedAt` to `at`, but only if it moves the time
+   * forward. Used by the Yorkie `DocumentRootChanged` event webhook, whose
+   * delivery is at-least-once, unordered, and retried — so this must be
+   * idempotent and monotonic. A missing document (deleted, or a key we don't
+   * track) is a silent no-op. Returns the number of rows updated (0 or 1).
+   */
+  async touchUpdatedAt(id: string, at: Date): Promise<number> {
+    const { count } = await this.prisma.document.updateMany({
+      where: { id, updatedAt: { lt: at } },
+      data: { updatedAt: at },
+    });
+    return count;
   }
 }

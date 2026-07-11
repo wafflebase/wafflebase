@@ -45,6 +45,12 @@ model Document {
   authorID  Int?
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())
+  // Last-modified time. Set explicitly from Yorkie's `DocumentRootChanged`
+  // event webhook (see document/yorkie-event.controller.ts) — NOT Prisma's
+  // `@updatedAt`, since content edits never pass through this backend. Used
+  // to order the documents list; defaults to creation time until the first
+  // edit webhook arrives.
+  updatedAt DateTime @default(now())
   shareLinks ShareLink[]
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
