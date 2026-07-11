@@ -72,6 +72,12 @@ Applied:
 - Webhook clamps `issuedAt` to `min(issuedAt, now())` — a clock-skewed future
   event can't pin `updatedAt` ahead and freeze ordering.
 
+Second review pass (post-fix) — applied:
+- Empty / no-op PATCH no longer bumps `updatedAt` (`updateDocument` skips the
+  bump when `data` is empty), so an empty-body PATCH can't re-sort a doc to the
+  top. Added `document.service.spec.ts` for both branches.
+- Simplified `attachMeta` (`{ ...d, updatedAt: d.updatedAt.toISOString() }`).
+
 Deferred (documented in design Risks):
 - Backfill of pre-deploy Yorkie `updated_at` + self-heal for missed webhooks →
   reconciliation job (Option C). Low impact now (live admin read already times

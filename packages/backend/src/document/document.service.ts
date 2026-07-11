@@ -90,14 +90,15 @@ export class DocumentService {
     data: Prisma.DocumentUpdateInput;
   }): Promise<Document> {
     const { data, where } = params;
-    // Any metadata update (rename, move) is a modification, so advance
+    // A real metadata update (rename, move) is a modification, so advance
     // `updatedAt` — content edits arrive via the Yorkie webhook, but title/
     // workspace changes never touch Yorkie and would otherwise leave the doc
-    // stuck at its old "Last modified" time and list position.
-    return this.prisma.document.update({
-      data: { ...data, updatedAt: new Date() },
-      where,
-    });
+    // stuck at its old "Last modified" time and list position. Skip the bump
+    // when there is nothing to update, so an empty / no-op PATCH does not
+    // spuriously re-sort the document to the top of the list.
+    const nextData =
+      Object.keys(data).length > 0 ? { ...data, updatedAt: new Date() } : data;
+    return this.prisma.document.update({ data: nextData, where });
   }
 
   async deleteDocument(

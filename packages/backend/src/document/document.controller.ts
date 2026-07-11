@@ -59,10 +59,9 @@ export class DocumentController {
     const keys = docs.map((d) => yorkieDocKey(d.type, d.id));
     const editorsByKey = await this.yorkieAdminService.getEditors(keys);
     return docs.map((d, i) => {
-      const { updatedAt, ...rest } = d;
       const item: DocumentListItem = {
-        ...rest,
-        updatedAt: updatedAt.toISOString(),
+        ...d,
+        updatedAt: d.updatedAt.toISOString(),
       };
       const editors = editorsByKey.get(keys[i]);
       if (editors?.length) item.editors = editors;
