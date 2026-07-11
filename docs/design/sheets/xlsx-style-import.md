@@ -86,7 +86,7 @@ formatting a real Google-Sheets-exported workbook carries, and how much is lost:
 Add a `xl/styles.xml` parser that produces an indexable style table, then
 resolve each cell's `s` index to a `CellStyle`:
 
-```
+```text
 styles.xml
   ├─ <numFmts>   numFmtId → formatCode        (custom, id ≥ 164)
   ├─ <fonts>     fontId   → { b,i,u,st,color,name,size }
@@ -206,11 +206,11 @@ worksheet.
 
 | Risk | Mitigation |
 |---|---|
-| One `rangeStyles` patch per cell bloats the Yorkie doc | Phase 2 compaction; Phase 1 caps patch count and falls back to unstyled above a threshold. |
+| One `rangeStyles` patch per cell bloats the Yorkie doc | Phase 1 coalesces adjacent per-cell patches (column then row) via `coalesceAdjacentRangeStylePatches`; Phase 2 adds col/row-uniform lifting. A hard patch-count cap with unstyled fallback is deferred to Phase 2. |
 | Number-format heuristic misreads custom codes | Built-in id lookup first; heuristic only for custom ids; default to `plain` on ambiguity (never corrupt the value). |
 | `CellStyle` field additions ripple across renderer/schema | Isolated in Phase 3; Phases 1–2 use only existing fields. |
 | Theme-color resolution incomplete | Static indexed+theme fallback palette; document as approximate. |
-| Large workbooks slow the client-side parse | Styles parsed once per workbook (not per cell); reuse existing `DOMParser` path; cap and warn on very large sheets. |
+| Large workbooks slow the client-side parse | Styles parsed once per workbook (not per cell) and resolved styles memoized per `s` index; reuse existing `DOMParser` path. |
 
 ## References
 

@@ -70,6 +70,16 @@ async function readZipText(
   return zip.file(path)?.async('string');
 }
 
+// The workbook opts into the legacy 1904 date system via
+// `<workbookPr date1904="1"/>` (or `date1904="true"`); dates are otherwise
+// serials in the default 1900 system.
+function parseDate1904(workbookXml: string): boolean {
+  const doc = parseXml(workbookXml, XLSX_WORKBOOK_PATH);
+  const pr = firstChildByLocalName(doc, 'workbookPr');
+  const val = pr?.getAttribute('date1904');
+  return val === '1' || val === 'true';
+}
+
 function parseWorkbookSheets(workbookXml: string): WorkbookSheetRef[] {
   const doc = parseXml(workbookXml, XLSX_WORKBOOK_PATH);
   return childrenByLocalName(doc, 'sheet').map((sheet, index) => ({
@@ -174,7 +184,7 @@ function resolveCellValue(cell: Element, sharedStrings: string[]): string {
   if (type === 's') {
     const sharedIndex = Number(rawValue);
     return Number.isInteger(sharedIndex)
-      ? (sharedStrings[sharedIndex] ?? '')
+      ? sharedStrings[sharedIndex] ?? ''
       : '';
   }
 
@@ -213,6 +223,7 @@ function convertDateSerial(
   cell: Element,
   parsed: Cell,
   style: CellStyle | undefined,
+  date1904: boolean,
 ): void {
   if (style?.nf !== 'date' || parsed.v === undefined) {
     return;
@@ -225,7 +236,7 @@ function convertDateSerial(
   if (!Number.isFinite(serial)) {
     return;
   }
-  const dateString = excelSerialToDateString(serial);
+  const dateString = excelSerialToDateString(serial, date1904);
   if (dateString) {
     parsed.v = dateString;
   }
@@ -312,6 +323,7 @@ function parseWorksheet(
   worksheetXml: string,
   sharedStrings: string[],
   styleTable: StyleTable,
+  date1904: boolean,
 ): ImportedXlsxSheet {
   const doc = parseXml(worksheetXml, sheetName);
   const worksheet = createWorksheet();
@@ -350,7 +362,7 @@ function parseWorksheet(
 
       const parsedCell = parseCell(cell, sharedStrings);
       if (parsedCell) {
-        convertDateSerial(cell, parsedCell, style);
+        convertDateSerial(cell, parsedCell, style, date1904);
         writeWorksheetCell(worksheet, ref, parsedCell);
         cellCount += 1;
         maxRow = Math.max(maxRow, ref.r);
@@ -396,6 +408,7 @@ export async function importXlsxWorkbook(
   if (workbookSheets.length === 0) {
     throw new Error('This .xlsx file does not contain any sheets.');
   }
+  const date1904 = parseDate1904(workbookXml);
 
   const relationships = parseWorkbookRelationships(
     await readZipText(zip, XLSX_WORKBOOK_RELS_PATH),
@@ -430,7 +443,13 @@ export async function importXlsxWorkbook(
     }
 
     importedSheets.push(
-      parseWorksheet(sheet.name, worksheetXml, sharedStrings, styleTable),
+      parseWorksheet(
+        sheet.name,
+        worksheetXml,
+        sharedStrings,
+        styleTable,
+        date1904,
+      ),
     );
   }
 

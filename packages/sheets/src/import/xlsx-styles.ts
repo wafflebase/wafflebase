@@ -253,7 +253,12 @@ export function mapNumberFormat(
     case 49:
       return { nf: 'plain' };
   }
-  if (numFmtId >= 14 && numFmtId <= 22) {
+  // 14–22 are the general date/time built-ins; 27–36 are locale-specific date
+  // built-ins (e.g. CJK era formats) that carry no formatCode of their own.
+  if (
+    (numFmtId >= 14 && numFmtId <= 22) ||
+    (numFmtId >= 27 && numFmtId <= 36)
+  ) {
     return { nf: 'date' };
   }
   if (numFmtId >= 37 && numFmtId <= 40) {
@@ -275,6 +280,12 @@ export function mapNumberFormat(
   }
   if (unquoted.includes('%')) {
     return { nf: 'percent', dp: decimalPlaces(unquoted) };
+  }
+  // Elapsed-time formats (`[h]:mm`, `[mm]:ss`) are durations, not calendar
+  // dates. The model has no duration type, so leave the raw numeric value
+  // intact rather than misconvert it into a bogus 1899-12-30 date.
+  if (/\[(?:h+|m+|s+)\]/i.test(code)) {
+    return undefined;
   }
   if (/[yhs]/i.test(unquoted) || /\bd{1,4}\b/i.test(unquoted)) {
     return { nf: 'date' };

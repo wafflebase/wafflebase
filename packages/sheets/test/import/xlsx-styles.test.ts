@@ -71,7 +71,9 @@ describe('xlsx style import', () => {
         </row>
       </sheetData>
     </worksheet>`;
-    const [sheet] = await importXlsxWorkbook(await buildStyledWorkbook(sheetXml));
+    const [sheet] = await importXlsxWorkbook(
+      await buildStyledWorkbook(sheetXml),
+    );
     const patches = sheet.worksheet.rangeStyles ?? [];
 
     // A1: fillId 2 (green), fontId 1 (bold red), center/center.
@@ -100,7 +102,9 @@ describe('xlsx style import', () => {
         </row>
       </sheetData>
     </worksheet>`;
-    const [sheet] = await importXlsxWorkbook(await buildStyledWorkbook(sheetXml));
+    const [sheet] = await importXlsxWorkbook(
+      await buildStyledWorkbook(sheetXml),
+    );
     const patches = sheet.worksheet.rangeStyles ?? [];
 
     const a1 = resolveRangeStyleAt(patches, 1, 1);
@@ -123,7 +127,9 @@ describe('xlsx style import', () => {
         <row r="2" hidden="1"><c r="A2"><v>2</v></c></row>
       </sheetData>
     </worksheet>`;
-    const [sheet] = await importXlsxWorkbook(await buildStyledWorkbook(sheetXml));
+    const [sheet] = await importXlsxWorkbook(
+      await buildStyledWorkbook(sheetXml),
+    );
     const ws = sheet.worksheet;
 
     expect(ws.colWidths['1']).toBeGreaterThan(100);
@@ -142,7 +148,9 @@ describe('xlsx style import', () => {
         <row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>
       </sheetData>
     </worksheet>`;
-    const [sheet] = await importXlsxWorkbook(await buildStyledWorkbook(sheetXml));
+    const [sheet] = await importXlsxWorkbook(
+      await buildStyledWorkbook(sheetXml),
+    );
     // Data spans 2 columns; the 16384-wide span must be clamped, not expanded.
     expect(Object.keys(sheet.worksheet.colWidths).length).toBeLessThan(100);
     expect(sheet.worksheet.colWidths['1']).toBeGreaterThan(0);
@@ -234,6 +242,43 @@ describe('xlsx style import', () => {
     // B1 has no date format → raw serial preserved.
     expect(getWorksheetCell(sheet.worksheet, { r: 1, c: 2 })?.v).toBe('45000');
   });
+
+  it('honors the workbook 1904 date system when converting serials', async () => {
+    const styles = `<?xml version="1.0"?>
+      <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <fonts count="1"><font/></fonts>
+        <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+        <borders count="1"><border/></borders>
+        <cellXfs count="2">
+          <xf borderId="0" fillId="0" fontId="0" numFmtId="0"/>
+          <xf borderId="0" fillId="0" fontId="0" numFmtId="14" applyNumberFormat="1"/>
+        </cellXfs>
+      </styleSheet>`;
+    const zip = new JSZip();
+    zip.file(
+      'xl/workbook.xml',
+      `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+         <workbookPr date1904="1"/>
+         <sheets><sheet name="Dates" sheetId="1"/></sheets>
+       </workbook>`,
+    );
+    zip.file('xl/styles.xml', styles);
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1"><c r="A1" s="1"><v>45000</v></c></row>
+        </sheetData>
+      </worksheet>`,
+    );
+    const [sheet] = await importXlsxWorkbook(
+      await zip.generateAsync({ type: 'uint8array' }),
+    );
+    // Same serial as the 1900-system test, shifted 1462 days later.
+    expect(getWorksheetCell(sheet.worksheet, { r: 1, c: 1 })?.v).toBe(
+      '2027-03-16',
+    );
+  });
 });
 
 describe('excelSerialToDateString', () => {
@@ -252,6 +297,15 @@ describe('excelSerialToDateString', () => {
 
   it('returns undefined for non-finite input', () => {
     expect(excelSerialToDateString(Number.NaN)).toBeUndefined();
+  });
+
+  it('shifts by 1462 days under the 1904 date system', () => {
+    // A 1904-system serial denotes the same date as a 1900-system serial 1462
+    // higher.
+    expect(excelSerialToDateString(45000, true)).toBe(
+      excelSerialToDateString(45000 + 1462),
+    );
+    expect(excelSerialToDateString(1, true)).toBe('1904-01-02');
   });
 });
 
@@ -302,5 +356,20 @@ describe('mapNumberFormat', () => {
       cu: 'USD',
       dp: 2,
     });
+  });
+
+  it('maps locale-specific built-in date ids (27-36)', () => {
+    expect(mapNumberFormat(27, undefined)).toEqual({ nf: 'date' });
+    expect(mapNumberFormat(36, undefined)).toEqual({ nf: 'date' });
+  });
+
+  it('does not classify elapsed-time (duration) formats as dates', () => {
+    // `[h]:mm` etc. carry a bracketed elapsed-time token; treating them as a
+    // date would misconvert the serial into a bogus 1899-12-30 timestamp.
+    expect(mapNumberFormat(200, '[h]:mm')).toBeUndefined();
+    expect(mapNumberFormat(200, '[mm]:ss')).toBeUndefined();
+    expect(mapNumberFormat(200, '[hh]:mm:ss')).toBeUndefined();
+    // A normal time format is still a date.
+    expect(mapNumberFormat(200, 'h:mm:ss')).toEqual({ nf: 'date' });
   });
 });

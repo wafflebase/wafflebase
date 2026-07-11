@@ -143,8 +143,9 @@ OTF table:
 
 ## Current Limitations
 
-1. XLSX importer fidelity (styles/formulas) is out of scope here — tracked in
-   [xlsx-style-import.md](xlsx-style-import.md).
+1. XLSX style/formatting fidelity is out of scope here — tracked in
+   [xlsx-style-import.md](xlsx-style-import.md). Formula fidelity (array
+   formulas, cross-workbook refs) remains deferred and is not tracked there.
 2. Import is capped by the Yorkie materialize limit; large files must use
    Connect.
 3. DuckDB type inference may need manual reformat for ambiguous columns.

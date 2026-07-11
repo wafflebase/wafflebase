@@ -1,8 +1,10 @@
-// Excel stores dates as serial numbers: whole part = days since the 1900 date
-// system epoch (with Excel's 1900-leap-year bug baked in), fractional part =
-// time of day. Serial 25569 corresponds to the Unix epoch 1970-01-01, so
-// `(serial - 25569)` days converts to Unix time.
+// Excel stores dates as serial numbers: whole part = days since the epoch of
+// the workbook's date system, fractional part = time of day. In the default
+// 1900 system serial 25569 is the Unix epoch 1970-01-01, so `(serial - 25569)`
+// days converts to Unix time. The legacy 1904 system (`workbookPr date1904="1"`,
+// historically the Mac default) sits 1,462 days earlier.
 const EXCEL_UNIX_EPOCH_DAYS = 25569;
+const DATE_1904_OFFSET_DAYS = 1462;
 const MS_PER_DAY = 86_400_000;
 
 /**
@@ -11,14 +13,21 @@ const MS_PER_DAY = 86_400_000;
  * - `YYYY-MM-DD` for a whole-day date;
  * - `YYYY-MM-DD HH:MM:SS` for a date carrying a time fraction.
  *
- * Returns undefined for values that are not finite serials. UTC components are
- * used so the calendar date does not shift by timezone.
+ * `date1904` selects the workbook's date system (1904 epoch when true). Returns
+ * undefined for values that are not finite serials. UTC components are used so
+ * the calendar date does not shift by timezone.
  */
-export function excelSerialToDateString(serial: number): string | undefined {
+export function excelSerialToDateString(
+  serial: number,
+  date1904 = false,
+): string | undefined {
   if (!Number.isFinite(serial)) {
     return undefined;
   }
-  const ms = Math.round((serial - EXCEL_UNIX_EPOCH_DAYS) * MS_PER_DAY);
+  const epochDays = date1904
+    ? EXCEL_UNIX_EPOCH_DAYS - DATE_1904_OFFSET_DAYS
+    : EXCEL_UNIX_EPOCH_DAYS;
+  const ms = Math.round((serial - epochDays) * MS_PER_DAY);
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) {
     return undefined;
