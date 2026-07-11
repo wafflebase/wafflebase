@@ -65,6 +65,7 @@ describe('resolveFillStyle', () => {
     const { ctx, calls } = fakeCtx();
     const fill: Fill = {
       kind: 'gradient',
+      type: 'linear',
       angle: 0, // left→right
       stops: [
         { pos: 0, color: { kind: 'srgb', value: '#0093FF' } },
@@ -89,6 +90,7 @@ describe('resolveFillStyle', () => {
     const { ctx } = fakeCtx();
     const fill: Fill = {
       kind: 'gradient',
+      type: 'linear',
       angle: 0,
       stops: [{ pos: 0, color: { kind: 'srgb', value: '#abcdef' } }],
     };
@@ -99,6 +101,7 @@ describe('resolveFillStyle', () => {
     const { ctx, calls } = fakeCtx();
     const fill: Fill = {
       kind: 'gradient',
+      type: 'linear',
       angle: 0,
       stops: [
         { pos: 0, color: { kind: 'srgb', value: '#111111' } },

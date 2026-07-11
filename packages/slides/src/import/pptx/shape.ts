@@ -958,14 +958,14 @@ function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefi
   // collapse to a single stop so render + export reduce it to the
   // representative solid — the documented first-stop fallback.
   if (child(grad, 'path')) {
-    return { kind: 'gradient', angle: 0, stops: [stops[0]] };
+    return { kind: 'gradient', type: 'linear', angle: 0, stops: [stops[0]] };
   }
   // `<a:lin ang>` is 60000ths of a degree, clockwise from 3 o'clock.
   // Absent (common in exported decks) ⇒ default top→bottom (90°), the
   // usual PowerPoint linear default.
   const lin = child(grad, 'lin');
   const angDeg = lin ? (attrInt(lin, 'ang') ?? 0) / 60_000 : 90;
-  return { kind: 'gradient', angle: (angDeg * Math.PI) / 180, stops };
+  return { kind: 'gradient', type: 'linear', angle: (angDeg * Math.PI) / 180, stops };
 }
 
 function parseShapeStroke(
