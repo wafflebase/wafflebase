@@ -1,6 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
   ConnectorElement,
+  Fill,
+  GradientFill,
   ShapeElement,
   SlidesEditor,
   SlidesStore,
@@ -16,8 +18,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { IconBucketDroplet } from '@tabler/icons-react';
-import { ThemedColorPicker } from '../themed-color-picker';
-import { readShapeFill } from '../themed-color-picker-helpers';
+import { FillPicker } from '../fill-picker';
+import { applyShapeFillValue, readShapeFill } from '../themed-color-picker-helpers';
 import { BorderPicker } from './border-picker';
 import {
   releaseFocusToBody,
@@ -57,6 +59,43 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
   const [fillOpen, setFillOpen] = useState(false);
   const fillMenu = useMenuCloseHandlers(releaseFocusToBody);
 
+  // Local draft: the in-progress gradient shown in the editor + on the bar.
+  // `null` when not editing a gradient. Lives here (not in FillPicker) so
+  // the dropdown-close handler can flush it. `GradientEditor` emits live
+  // `{commit:false}` calls on every pointermove during a stop drag (and the
+  // nested per-stop native color input emits live calls with no `commit` at
+  // all); writing every one of those to the store would flood Yorkie with
+  // an op per pointermove and shred the undo stack, so the draft absorbs
+  // them and only commit boundaries (release / preset / angle blur) or the
+  // dropdown closing persist to the store.
+  const [gradientDraft, setGradientDraft] = useState<GradientFill | null>(
+    null,
+  );
+
+  const persistGradient = useCallback(
+    (fill: GradientFill) => {
+      if (!store || !slideId || !slide) return;
+      applyShapeFillValue(store, slideId, ids, slide, fill); // one store.batch
+    },
+    [store, slideId, slide, ids],
+  );
+
+  // GradientEditor/FillPicker onChange(next, opts). Always update the draft
+  // (live bar preview); write to the store only on a commit boundary.
+  const onFillGradient = useCallback(
+    (fill: GradientFill, opts?: { commit?: boolean }) => {
+      setGradientDraft(fill);
+      if (opts?.commit) persistGradient(fill);
+    },
+    [persistGradient],
+  );
+
+  // Reset the draft whenever the selection changes (stale draft must not
+  // leak onto a different shape).
+  useEffect(() => {
+    setGradientDraft(null);
+  }, [ids]);
+
   const onFillChange = useCallback(
     (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
       if (!store || !slideId || !slide) return;
@@ -71,6 +110,9 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
           store.pushRecentColor(color.value);
         }
       });
+      // Switching to (or staying on) a solid pick abandons any in-progress
+      // gradient draft — it must not resurrect on the next open/close.
+      setGradientDraft(null);
       // Only a discrete swatch pick closes the palette; live custom-input
       // changes (and the custom blur, which records only) keep it open.
       if (opts?.commit) {
@@ -91,9 +133,24 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         }
       }
     });
+    setGradientDraft(null);
     fillMenu.markSwatchClicked();
     setFillOpen(false);
   }, [store, slideId, slide, ids, fillMenu]);
+
+  // Flush any uncommitted draft to the store when the dropdown closes, as a
+  // single batch, then clear it. Switching to the Solid tab persists via
+  // onFillChange, so the draft is also cleared there.
+  const onFillOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && gradientDraft) {
+        persistGradient(gradientDraft);
+        setGradientDraft(null);
+      }
+      setFillOpen(open);
+    },
+    [gradientDraft, persistGradient],
+  );
 
   const onStrokeChange = useCallback(
     (stroke: Stroke | undefined, opts?: { commit?: boolean; record?: boolean }) => {
@@ -135,11 +192,19 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
         })()
       : undefined;
 
+  // The current fill object for the first shape, with the live draft taking
+  // precedence so the editor + preview reflect in-progress gradient edits.
+  const firstFill: Fill | undefined =
+    gradientDraft ??
+    (firstElement?.type === 'shape'
+      ? (firstElement as ShapeElement).data.fill
+      : undefined);
+
   return (
     <>
       {/* Fill: shapes only — connectors have no fill */}
       {isShape && (
-        <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
+        <DropdownMenu open={fillOpen} onOpenChange={onFillOpenChange}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -159,17 +224,13 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
             onCloseAutoFocus={fillMenu.onCloseAutoFocus}
           >
             {theme && (
-              <ThemedColorPicker
-                value={
-                  firstElement?.type === 'shape'
-                    ? readShapeFill(firstElement as ShapeElement)
-                    : undefined
-                }
+              <FillPicker
+                fill={firstFill}
                 theme={theme}
-                onChange={onFillChange}
-                onClear={onFillClear}
-                allowAlpha
                 recentColors={store?.read().meta.recentColors}
+                onChangeSolid={onFillChange}
+                onChangeGradient={onFillGradient}
+                onClear={onFillClear}
               />
             )}
           </DropdownMenuContent>
