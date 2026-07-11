@@ -803,47 +803,115 @@ export function FillPicker({
 }
 ```
 
-- [ ] **Step 4: Wire into `shape-controls.tsx`**
+- [ ] **Step 4: Wire into `shape-controls.tsx` (commit-aware gradient draft)**
 
 Replace the `ThemedColorPicker` block (lines 161-174) with `FillPicker`, and add
-gradient handlers next to `onFillChange`:
+gradient handling next to `onFillChange`. **`GradientEditor` emits live
+`{commit:false}` calls on every pointermove during a stop drag** and discrete
+`{commit:true}` calls on release / preset / angle-blur; the nested per-stop
+native color input emits live calls that never carry `commit`. Persisting every
+call would flood Yorkie with an op per pointermove and shred the undo stack. So
+the parent keeps a **local draft** for live preview and writes to the store only
+on `{commit:true}`, plus a **flush on popover close** to capture any uncommitted
+tail (e.g. a native-color recolor):
 
 ```tsx
 // imports
 import { FillPicker } from '../fill-picker';
 import { readShapeFill, readShapeGradient, applyShapeFillValue } from '../themed-color-picker-helpers';
+import type { GradientFill } from '@wafflebase/slides';
 
-// alongside onFillChange:
-const onFillGradient = useCallback(
+// local draft: the in-progress gradient shown in the editor + on the bar.
+// null when not editing a gradient. Lives here (not in FillPicker) so the
+// dropdown-close handler can flush it.
+const [gradientDraft, setGradientDraft] = useState<GradientFill | null>(null);
+
+const persistGradient = useCallback(
   (fill: GradientFill) => {
     if (!store || !slideId || !slide) return;
-    applyShapeFillValue(store, slideId, ids, slide, fill);
+    applyShapeFillValue(store, slideId, ids, slide, fill); // one store.batch
   },
   [store, slideId, slide, ids],
 );
 
-// the current fill object (not just the resolved color) for the first shape:
-const firstFill =
-  firstElement?.type === 'shape'
-    ? (firstElement as ShapeElement).data.fill
-    : undefined;
+// GradientEditor/FillPicker onChange(next, opts). Always update the draft
+// (live bar preview); write to the store only on a commit boundary.
+const onFillGradient = useCallback(
+  (fill: GradientFill, opts?: { commit?: boolean }) => {
+    setGradientDraft(fill);
+    if (opts?.commit) persistGradient(fill);
+  },
+  [persistGradient],
+);
 
-// in JSX, replacing <ThemedColorPicker ...>:
-{theme && (
-  <FillPicker
-    fill={firstFill}
-    theme={theme}
-    recentColors={store?.read().meta.recentColors}
-    onChangeSolid={onFillChange}
-    onChangeGradient={onFillGradient}
-    onClear={onFillClear}
-  />
-)}
+// Reset the draft whenever the selection changes (stale draft must not leak
+// onto a different shape).
+useEffect(() => {
+  setGradientDraft(null);
+}, [ids]);
+
+// the current fill object for the first shape, with the live draft taking
+// precedence so the editor + preview reflect in-progress edits.
+const firstFill: Fill | undefined =
+  gradientDraft ??
+  (firstElement?.type === 'shape'
+    ? (firstElement as ShapeElement).data.fill
+    : undefined);
+
+// Flush any uncommitted draft to the store when the dropdown closes, as a
+// single batch, then clear it. Switching to the Solid tab persists via
+// onFillChange, so also clear the draft there.
+const onFillOpenChange = useCallback(
+  (open: boolean) => {
+    if (!open && gradientDraft) {
+      persistGradient(gradientDraft);
+      setGradientDraft(null);
+    }
+    setFillOpen(open);
+    if (!open) fillMenu.onCloseAutoFocus?.(new Event('close') as unknown as Event);
+  },
+  [gradientDraft, persistGradient, fillMenu],
+);
+```
+
+Wire the DropdownMenu to `onFillOpenChange` (replacing `setFillOpen`), and clear
+the draft inside `onFillChange`/`onFillClear` (add `setGradientDraft(null);`
+before their `setFillOpen(false)` so switching to a solid abandons the draft).
+
+```tsx
+// in JSX:
+<DropdownMenu open={fillOpen} onOpenChange={onFillOpenChange}>
+  ...
+  {theme && (
+    <FillPicker
+      fill={firstFill}
+      theme={theme}
+      recentColors={store?.read().meta.recentColors}
+      onChangeSolid={onFillChange}
+      onChangeGradient={onFillGradient}
+      onClear={onFillClear}
+    />
+  )}
 ```
 
 > `onFillChange` already writes a solid `ThemeColor` to all selected shapes and
-> handles `record`/`commit`; keep it as the solid path. The gradient path uses
-> `applyShapeFillValue` (Task 3). Gradient edits don't push recent colors.
+> handles `record`/`commit`; keep it as the solid path (and clear the draft).
+> The gradient path persists via `applyShapeFillValue` (Task 3) only on commit
+> or dropdown-close-flush. Gradient edits don't push recent colors.
+>
+> KNOWN v1 LIMITATION (acceptable — document, don't fix): the canvas shape
+> updates on commit/close, not during the live drag (the stops-bar itself
+> previews live from the draft). Also, dragging a stop *past* a neighbor makes
+> the editor re-sort on the next render, so the selected-marker highlight /
+> Position row can transiently point at the wrong marker mid-gesture; it
+> self-corrects on release (the fixed `up()` re-selects the dragged stop by
+> reference). Both are minor and deferred.
+>
+> Confirm the real `useMenuCloseHandlers` API before using
+> `fillMenu.onCloseAutoFocus` imperatively — if its shape differs, keep the
+> existing `onCloseAutoFocus={fillMenu.onCloseAutoFocus}` on
+> `DropdownMenuContent` and drop the imperative call in `onFillOpenChange`
+> (the flush + `setFillOpen` are the only required parts).
 
 - [ ] **Step 5: Typecheck + verify:fast**
 
