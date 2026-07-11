@@ -31,7 +31,9 @@ export function dateValidationOperandCount(op: DataValidationOperator): number {
 function toIsoDateOperand(raw: string | undefined): string | undefined {
   if (typeof raw !== 'string' || raw.trim() === '') return undefined;
   const inferred = inferInput(raw.trim());
-  return inferred.type === 'date' ? inferred.value : undefined;
+  // `inferInput` returns the raw string for a datetime (`yyyy-mm-dd HH:MM:SS`);
+  // keep only the `yyyy-mm-dd` date part so an operand is always a pure ISO date.
+  return inferred.type === 'date' ? inferred.value.slice(0, 10) : undefined;
 }
 
 /**
@@ -85,7 +87,12 @@ export function normalizeDataValidationRule(
     const operands: string[] = [];
     for (let i = 0; i < need; i++) {
       const iso = toIsoDateOperand(cloned.values?.[i]);
-      if (iso) operands.push(iso);
+      // Stop at the first missing/unparseable operand rather than skipping it,
+      // so operand positions are never shuffled: a `dateBetween` whose lower
+      // bound is blank must not promote its upper bound to index 0. An
+      // incomplete comparison degrades to "is a valid date" in `isValidDateValue`.
+      if (!iso) break;
+      operands.push(iso);
     }
     cloned.operator = op;
     cloned.values = need > 0 ? operands : undefined;

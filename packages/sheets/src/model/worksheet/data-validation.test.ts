@@ -169,6 +169,30 @@ describe('date rule normalization', () => {
     clone.values![0] = 'mutated';
     expect(rule.values![0]).toBe('2026-01-01');
   });
+
+  it('keeps operand positions when a leading between-operand is blank', () => {
+    // A blank lower bound must not promote the upper bound to index 0.
+    const out = normalizeDataValidationRule(
+      dateRule('d5', { operator: 'dateBetween', values: ['', '2026-02-10'] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual([]);
+  });
+
+  it('keeps a valid leading between-operand when the upper bound is blank', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d6', { operator: 'dateBetween', values: ['2026-01-05', ''] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual(['2026-01-05']);
+  });
+
+  it('strips a time component from a datetime operand', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d7', { operator: 'dateAfter', values: ['2026-01-05 10:30:00'] }),
+    );
+    expect(out!.values).toEqual(['2026-01-05']);
+  });
 });
 
 describe('data-validation structural edits', () => {
