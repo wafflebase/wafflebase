@@ -50,9 +50,11 @@ export function FillPicker({
   };
   const toSolid = () => {
     setTab('solid');
-    if (fill?.kind === 'gradient') {
-      onChangeSolid(representativeColor(fill), { commit: true, record: false });
-    }
+    // Tab switch only — do NOT commit here. Committing routed through
+    // onChangeSolid/onFillChange, which closes the popover on {commit:true}.
+    // The gradient stays intact until the user actually picks a solid swatch
+    // (which then applies + closes normally); switching back to Gradient keeps
+    // the original gradient (non-destructive toggle).
   };
 
   return (
@@ -78,7 +80,7 @@ export function FillPicker({
 
       {tab === 'solid' ? (
         <ThemedColorPicker
-          value={fill && fill.kind !== 'gradient' ? fill : undefined}
+          value={fill?.kind === 'gradient' ? representativeColor(fill) : fill}
           theme={theme}
           onChange={onChangeSolid}
           onClear={onClear}
