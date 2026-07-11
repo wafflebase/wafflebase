@@ -3,14 +3,36 @@ import { moveRuleRanges, shiftRuleRanges } from './rule-ranges';
 import {
   Axis,
   DataValidationKind,
+  DataValidationOperator,
   DataValidationRule,
   Ref,
 } from '../core/types';
+import { inferInput } from './input';
 
 export const CHECKBOX_TRUE = 'TRUE';
 export const CHECKBOX_FALSE = 'FALSE';
 
 const Kinds = new Set<DataValidationKind>(['checkbox', 'list', 'date']);
+
+/**
+ * `dateValidationOperandCount` returns how many comparison operands an
+ * operator consumes: 0 for `dateValid`, 2 for between/not-between, else 1.
+ */
+export function dateValidationOperandCount(op: DataValidationOperator): number {
+  if (op === 'dateValid') return 0;
+  if (op === 'dateBetween' || op === 'dateNotBetween') return 2;
+  return 1;
+}
+
+/**
+ * `toIsoDateOperand` normalizes a raw operand to an ISO `yyyy-mm-dd` string via
+ * the shared input parser, or returns undefined when it is not a date.
+ */
+function toIsoDateOperand(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const inferred = inferInput(raw.trim());
+  return inferred.type === 'date' ? inferred.value : undefined;
+}
 
 /**
  * `normalizeListOptions` trims each option, drops empty entries, and dedupes
@@ -57,6 +79,18 @@ export function normalizeDataValidationRule(
     cloned.list = list;
     cloned.showArrow = cloned.showArrow ?? true;
   }
+  if (cloned.kind === 'date') {
+    const op: DataValidationOperator = cloned.operator ?? 'dateValid';
+    const need = dateValidationOperandCount(op);
+    const operands: string[] = [];
+    for (let i = 0; i < need; i++) {
+      const iso = toIsoDateOperand(cloned.values?.[i]);
+      if (iso) operands.push(iso);
+    }
+    cloned.operator = op;
+    cloned.values = need > 0 ? operands : undefined;
+    cloned.onInvalid = cloned.onInvalid ?? 'warning';
+  }
   return cloned;
 }
 
@@ -70,6 +104,7 @@ export function cloneDataValidationRule(
     ...rule,
     ranges: rule.ranges.map((r) => cloneRange(r)),
     list: rule.list ? [...rule.list] : undefined,
+    values: rule.values ? [...rule.values] : undefined,
   };
 }
 

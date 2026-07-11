@@ -138,6 +138,20 @@ export type ConditionalFormatRule = {
 export type DataValidationKind = 'checkbox' | 'list' | 'date';
 
 /**
+ * DataValidationOperator enumerates the comparison operators. Date operators
+ * ship first; number/text operators reuse this union later.
+ */
+export type DataValidationOperator =
+  | 'dateValid'
+  | 'dateEquals'
+  | 'dateBefore'
+  | 'dateOnOrBefore'
+  | 'dateAfter'
+  | 'dateOnOrAfter'
+  | 'dateBetween'
+  | 'dateNotBetween';
+
+/**
  * DataValidationRule is a worksheet-level, range-scoped validation/control
  * rule. The control is a special render of a typed cell value — the cell
  * itself holds the value (boolean TRUE/FALSE, ISO date, or list text).
@@ -156,9 +170,9 @@ export type DataValidationRule = {
   checkedValue?: string;
   uncheckedValue?: string;
 
-  // kind: 'date'
-  dateMin?: string;
-  dateMax?: string;
+  // kind: 'date' (operator + fixed-date operands; future: number/text)
+  operator?: DataValidationOperator;
+  values?: string[]; // ISO operands; length by operator (0/1/2)
 };
 
 /**

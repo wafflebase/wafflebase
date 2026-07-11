@@ -37,6 +37,21 @@ const listRule = (id: string, options: string[]): DataValidationRule => ({
   list: options,
 });
 
+const dateRule = (
+  id: string,
+  patch: Partial<DataValidationRule> = {},
+): DataValidationRule => ({
+  id,
+  kind: 'date',
+  ranges: [
+    [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ],
+  ],
+  ...patch,
+});
+
 describe('data-validation model', () => {
   it('normalizes a valid checkbox rule and drops an invalid one', () => {
     expect(normalizeDataValidationRule(checkboxRule('a'))).not.toBeNull();
@@ -119,6 +134,40 @@ describe('data-validation model', () => {
     const copy = cloneDataValidationRule(src);
     copy.list!.push('Blue');
     expect(src.list).toEqual(['Red', 'Green']);
+  });
+});
+
+describe('date rule normalization', () => {
+  it('defaults operator to dateValid and onInvalid to warning', () => {
+    const out = normalizeDataValidationRule(dateRule('d1'));
+    expect(out).not.toBeNull();
+    expect(out!.operator).toBe('dateValid');
+    expect(out!.onInvalid).toBe('warning');
+    expect(out!.values).toBeUndefined();
+  });
+
+  it('normalizes operands to ISO and keeps the operator', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d2', { operator: 'dateBetween', values: ['2026-01-05', '2026-02-10'] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual(['2026-01-05', '2026-02-10']);
+  });
+
+  it('drops un-parseable operands but never drops the rule', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d3', { operator: 'dateAfter', values: ['not-a-date'] }),
+    );
+    expect(out).not.toBeNull();
+    expect(out!.operator).toBe('dateAfter');
+    expect(out!.values).toEqual([]);
+  });
+
+  it('deep-copies values via cloneDataValidationRule', () => {
+    const rule = dateRule('d4', { operator: 'dateAfter', values: ['2026-01-01'] });
+    const clone = cloneDataValidationRule(rule);
+    clone.values![0] = 'mutated';
+    expect(rule.values![0]).toBe('2026-01-01');
   });
 });
 

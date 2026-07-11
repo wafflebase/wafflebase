@@ -8,6 +8,7 @@ import {
   type ConditionalFormatStyle,
   type DataValidationKind,
   type DataValidationRule,
+  type DataValidationOperator,
   type BorderPreset,
   type TextAlign,
   type VerticalAlign,
@@ -92,6 +93,7 @@ import {
   normalizeListOptions,
   shiftDataValidationRules,
   moveDataValidationRules,
+  dateValidationOperandCount,
 } from './model/worksheet/data-validation';
 import {
   type RangeStylePatch,
@@ -266,6 +268,7 @@ export {
   normalizeListOptions,
   shiftDataValidationRules,
   moveDataValidationRules,
+  dateValidationOperandCount,
   cloneRangeStylePatch,
   normalizeRangeStylePatch,
   normalizeStylePatch,
@@ -337,6 +340,7 @@ export type {
   ConditionalFormatStyle,
   DataValidationKind,
   DataValidationRule,
+  DataValidationOperator,
   BorderPreset,
   TextAlign,
   VerticalAlign,
