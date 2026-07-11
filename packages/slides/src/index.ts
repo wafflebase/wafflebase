@@ -43,8 +43,11 @@ export type {
   FontRole,
   ThemeColor,
   ThemeFont,
+  Fill,
+  GradientFill,
+  GradientStop,
 } from './model/theme';
-export { resolveColor, resolveFont } from './model/theme';
+export { resolveColor, resolveFont, representativeColor } from './model/theme';
 export type {
   Master,
   PlaceholderStyle,

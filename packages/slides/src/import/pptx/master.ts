@@ -1,9 +1,10 @@
-import type { BlockMarker } from '@wafflebase/docs';
+import type { BlockMarker, BlockStyle } from '@wafflebase/docs';
 import type { Master, MasterBackground } from '../../model/master';
 import { DEFAULT_MASTER } from '../../model/master';
 import { clone } from '../../model/clone';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { parseBlipFill, toBackgroundImage, type ImageParseContext } from './image';
+import { mapAlgn } from './text';
 import { attr, attrInt, child, descendant, parseXml } from './xml';
 
 /**
@@ -38,6 +39,13 @@ const CLR_MAP_KEYS = [
  */
 export type TxStylesSlot = 'title' | 'body' | 'other';
 export type TxStylesMarkers = Map<TxStylesSlot, Map<number, BlockMarker>>;
+/**
+ * Default paragraph alignment per `<p:txStyles>` slot, read from each slot's
+ * `<a:lvl1pPr algn>`. The deeper fallback under the layout placeholder
+ * `<a:lstStyle>` in the alignment inheritance chain; `lvl1` only, matching
+ * how the layout parser exposes a single default per placeholder.
+ */
+export type TxStylesAlignments = Map<TxStylesSlot, BlockStyle['alignment']>;
 
 export interface ImportedMaster {
   master: Master;
@@ -51,6 +59,12 @@ export interface ImportedMaster {
    * for any axis the paragraph didn't override.
    */
   txStylesMarkers: TxStylesMarkers;
+  /**
+   * Default paragraph alignment per `<p:txStyles>` slot. Consumed when the
+   * slide's layout placeholder `<a:lstStyle>` doesn't set a default. Empty
+   * when the master omits `<p:txStyles>` or no slot sets `algn`.
+   */
+  txStylesAlignments: TxStylesAlignments;
 }
 
 export async function parseMaster(
@@ -67,6 +81,9 @@ export async function parseMaster(
   const txStylesMarkers = sldMaster
     ? parseTxStylesMarkers(sldMaster, clrMap)
     : (new Map() as TxStylesMarkers);
+  const txStylesAlignments = sldMaster
+    ? parseTxStylesAlignments(sldMaster)
+    : (new Map() as TxStylesAlignments);
 
   // Master `<p:bg>` is parsed without `clrMap` — backgrounds almost
   // always use direct scheme slot names (`lt1` / `dk1`) rather than the
@@ -88,6 +105,7 @@ export async function parseMaster(
     },
     clrMap,
     txStylesMarkers,
+    txStylesAlignments,
   };
 }
 
@@ -142,6 +160,35 @@ function parseTxStylesMarkers(
       if (marker) levelMap.set(level, marker);
     }
     if (levelMap.size > 0) out.set(slot, levelMap);
+  }
+
+  return out;
+}
+
+/**
+ * Parse `<p:txStyles>` into a slot → default alignment map, reading each
+ * slot's `<a:lvl1pPr algn>`. Sparse: a slot with no `algn` on its level-1
+ * paragraph properties is omitted so the layout placeholder default (or the
+ * docs left default) still applies.
+ */
+function parseTxStylesAlignments(sldMaster: Element): TxStylesAlignments {
+  const out: TxStylesAlignments = new Map();
+  const txStyles = child(sldMaster, 'txStyles');
+  if (!txStyles) return out;
+
+  const slotMap: Array<[string, TxStylesSlot]> = [
+    ['titleStyle', 'title'],
+    ['bodyStyle', 'body'],
+    ['otherStyle', 'other'],
+  ];
+
+  for (const [tagName, slot] of slotMap) {
+    const styleEl = child(txStyles, tagName);
+    if (!styleEl) continue;
+    const lvl1 = child(styleEl, 'lvl1pPr');
+    if (!lvl1) continue;
+    const alignment = mapAlgn(attr(lvl1, 'algn'));
+    if (alignment) out.set(slot, alignment);
   }
 
   return out;

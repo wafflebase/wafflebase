@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { solidFillXml, colorChildXml, ROLE_TO_SCHEME, colorFromStringOrTheme } from '../../../src/export/pptx/color';
+import {
+  solidFillXml,
+  gradFillXml,
+  fillXml,
+  colorChildXml,
+  ROLE_TO_SCHEME,
+  colorFromStringOrTheme,
+} from '../../../src/export/pptx/color';
 import { SCHEME_TO_ROLE } from '../../../src/import/pptx/color';
 
 describe('color', () => {
@@ -23,6 +30,51 @@ describe('color', () => {
 
   it('wraps in solidFill', () => {
     expect(solidFillXml({ kind: 'srgb', value: '#00FF00' })).toBe('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>');
+  });
+
+  it('emits a linear gradFill with stops + lin angle', () => {
+    const xml = gradFillXml({
+      kind: 'gradient',
+      angle: Math.PI / 4, // 45°
+      stops: [
+        { pos: 0, color: { kind: 'srgb', value: '#0093FF' } },
+        { pos: 1, color: { kind: 'srgb', value: '#006AFF' } },
+      ],
+    });
+    expect(xml).toBe(
+      '<a:gradFill><a:gsLst>' +
+        '<a:gs pos="0"><a:srgbClr val="0093FF"/></a:gs>' +
+        '<a:gs pos="100000"><a:srgbClr val="006AFF"/></a:gs>' +
+        '</a:gsLst><a:lin ang="2700000" scaled="1"/></a:gradFill>',
+    );
+  });
+
+  it('fillXml dispatches solid vs gradient by kind', () => {
+    expect(fillXml({ kind: 'srgb', value: '#00FF00' })).toBe(
+      '<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>',
+    );
+    expect(
+      fillXml({
+        kind: 'gradient',
+        angle: 0,
+        stops: [
+          { pos: 0, color: { kind: 'srgb', value: '#112233' } },
+          { pos: 1, color: { kind: 'srgb', value: '#445566' } },
+        ],
+      }),
+    ).toContain('<a:gradFill>');
+  });
+
+  it('fillXml degrades a <2-stop gradient to a solid (never emits invalid gradFill)', () => {
+    // CT_GradientStopList requires >=2 stops; a collapsed gradient must not
+    // export a lone <a:gs> or PowerPoint rejects the file.
+    const xml = fillXml({
+      kind: 'gradient',
+      angle: 0,
+      stops: [{ pos: 0, color: { kind: 'srgb', value: '#112233' } }],
+    });
+    expect(xml).toBe('<a:solidFill><a:srgbClr val="112233"/></a:solidFill>');
+    expect(xml).not.toContain('gradFill');
   });
 
   it('converts string to srgb ThemeColor', () => {

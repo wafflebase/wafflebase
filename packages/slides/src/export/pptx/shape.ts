@@ -1,6 +1,6 @@
 import type { Frame, ShapeElement, ShapeKind, Stroke, TextElement } from '../../model/element.js';
 import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
-import { solidFillXml, colorFromStringOrTheme } from './color.js';
+import { fillXml, solidFillXml, colorFromStringOrTheme } from './color.js';
 import { textBodyToXml } from './text.js';
 import { effectsToXml } from './effects.js';
 import { freeformToCustGeom } from './freeform.js';
@@ -90,7 +90,7 @@ export function shapeToXml(el: ShapeElement): string {
         ? `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
         : `<a:prstGeom prst="${kindToPrst(data.kind)}">${avLstXml(data.adjustments)}</a:prstGeom>`;
 
-  const fill = data.fill ? solidFillXml(data.fill) : '<a:noFill/>';
+  const fill = data.fill ? fillXml(data.fill) : '<a:noFill/>';
 
   const spPr =
     `<p:spPr>` +

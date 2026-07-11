@@ -12,7 +12,7 @@ import { unzipPptx, type PptxArchive } from './unzip';
 import { ImportReport } from './report';
 import { parseRels, resolveRelsTarget } from './rels';
 import { parseTheme } from './theme';
-import { parseMaster, type TxStylesMarkers } from './master';
+import { parseMaster, type TxStylesAlignments, type TxStylesMarkers } from './master';
 import { parseLayout } from './layout';
 import { attrInt, children, descendant, parseXml, NS } from './xml';
 
@@ -132,12 +132,14 @@ export async function importPptx(
     layoutMap: LayoutPathToInfo;
     clrMap: ClrMap;
     txStylesMarkers: TxStylesMarkers;
+    txStylesAlignments: TxStylesAlignments;
   } = {
     master: undefined,
     layouts: [],
     layoutMap: new Map(),
     clrMap: new Map(),
     txStylesMarkers: new Map(),
+    txStylesAlignments: new Map(),
   };
   for (const masterTarget of masterTargets) {
     const loaded = await loadMasterAndLayouts(
@@ -158,6 +160,7 @@ export async function importPptx(
         layoutMap: new Map(loaded.layoutMap),
         clrMap: loaded.clrMap,
         txStylesMarkers: loaded.txStylesMarkers,
+        txStylesAlignments: loaded.txStylesAlignments,
       };
     } else {
       // Secondary masters contribute only their layouts (paths are unique,
@@ -206,6 +209,7 @@ export async function importPptx(
       report,
       clrMap: masterAndLayouts.clrMap,
       txStylesMarkers: masterAndLayouts.txStylesMarkers,
+      txStylesAlignments: masterAndLayouts.txStylesAlignments,
     });
     if (slide) slides.push(slide);
   }
@@ -341,6 +345,7 @@ async function loadMasterAndLayouts(
   layoutMap: LayoutPathToInfo;
   clrMap: ClrMap;
   txStylesMarkers: TxStylesMarkers;
+  txStylesAlignments: TxStylesAlignments;
 }> {
   const masterPath = resolveRelsTarget(ownerPart, masterTarget);
   const masterXml = await archive.readText(masterPath);
@@ -351,6 +356,7 @@ async function loadMasterAndLayouts(
       layoutMap: new Map(),
       clrMap: new Map(),
       txStylesMarkers: new Map(),
+      txStylesAlignments: new Map(),
     };
   }
 
@@ -370,7 +376,7 @@ async function loadMasterAndLayouts(
     scale,
     report,
   };
-  const { master, clrMap, txStylesMarkers } = await parseMaster(
+  const { master, clrMap, txStylesMarkers, txStylesAlignments } = await parseMaster(
     masterXml,
     `imported-${masterPath}`,
     themeId,
@@ -407,12 +413,13 @@ async function loadMasterAndLayouts(
     layoutMap.set(layoutPath, {
       builtInId: imported.layout.id,
       placeholderSizes: imported.placeholderSizes,
+      placeholderAlignments: imported.placeholderAlignments,
       placeholderFrames: imported.placeholderFrames,
       ...(imported.background && { background: imported.background }),
     });
   }
 
-  return { master, layouts, layoutMap, clrMap, txStylesMarkers };
+  return { master, layouts, layoutMap, clrMap, txStylesMarkers, txStylesAlignments };
 }
 
 /** `ppt/slideMasters/slideMaster1.xml` → `ppt/slideMasters/_rels/slideMaster1.xml.rels`. */

@@ -35,7 +35,7 @@ import {
   tableEdgeAt,
   type TableLayout,
 } from '../canvas/table-renderer';
-import type { ThemeColor } from '../../model/theme';
+import { representativeColor, type Fill } from '../../model/theme';
 import type { ConnectorElement } from '../../model/connector';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { DEFAULT_HIT_TOLERANCE, type HitTestCtx } from './element-hit';
@@ -203,7 +203,7 @@ function connectorVariant(kind: ConnectorInsertKind): ConnectorInsertVariant {
 interface PaintSnapshot {
   sourceId: string;
   sourceType: 'shape' | 'connector' | 'text';
-  fill?: ThemeColor;
+  fill?: Fill;
   stroke?: Stroke;
 }
 
@@ -1906,8 +1906,13 @@ class SlidesEditorImpl implements SlidesEditor {
       // keys on the target (see yorkie-slides-store.updateElementData),
       // clobbering the target's own fill/stroke whenever the source
       // happened to have no fill / no stroke set.
-      const patch: { fill?: ThemeColor; stroke?: Stroke } = {};
-      if (snapshot.fill !== undefined) patch.fill = snapshot.fill;
+      const patch: { fill?: Fill; stroke?: Stroke } = {};
+      if (snapshot.fill !== undefined) {
+        // A text target's fill is solid-only; collapse a gradient to its
+        // representative stop when painting onto text.
+        patch.fill =
+          target.type === 'text' ? representativeColor(snapshot.fill) : snapshot.fill;
+      }
       if (snapshot.stroke !== undefined) patch.stroke = snapshot.stroke;
       if (Object.keys(patch).length === 0) {
         this.cancelFormatPaint();

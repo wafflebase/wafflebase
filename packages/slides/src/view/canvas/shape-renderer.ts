@@ -1,8 +1,8 @@
 import type { FreeformPath, ShapeElement, ShapeKind, TextInset } from '../../model/element';
-import { applyShade, resolveColor, type Theme } from '../../model/theme';
+import { applyShade, representativeColor, resolveColor, type Theme } from '../../model/theme';
 import { drawActionButton } from './shape-special';
 import { drawArrowhead } from './arrowhead-renderer';
-import { resolveStrokeColor } from './render-context';
+import { resolveFillStyle, resolveStrokeColor } from './render-context';
 import {
   FACE_BUILDERS,
   LEADER_BUILDERS,
@@ -184,7 +184,7 @@ export function drawShape(
       drawPlaceholderRect(ctx, size, data, theme);
       return;
     }
-    paintFillStroke(ctx, buildFreeformPath(size, data.path), data, theme);
+    paintFillStroke(ctx, buildFreeformPath(size, data.path), data, theme, size);
     // Line-end arrowheads on an open freeform path (OOXML `<a:tailEnd>` /
     // `<a:headEnd>`). Painted after the stroke so the triangle sits on top,
     // filled with the stroke color — same primitive as connectors.
@@ -228,7 +228,7 @@ export function drawShape(
   }
 
   const outlineBuilder = OUTLINE_BUILDERS.get(data.kind);
-  paintFillStroke(ctx, builder(size, data.adjustments), data, theme, {
+  paintFillStroke(ctx, builder(size, data.adjustments), data, theme, size, {
     skipFill: OPEN_PATH_KINDS.has(data.kind),
     fillRule: EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero',
     strokePath: outlineBuilder?.(size, data.adjustments),
@@ -360,7 +360,10 @@ function paintFaces(
   theme: Theme,
 ): void {
   if (!data.fill) return;
-  const base = resolveColor(data.fill, theme);
+  // 3D faces are lightened/darkened from ONE base color, so a gradient fill
+  // collapses to its representative solid here (gradient-shaded 3D shapes
+  // are out of scope).
+  const base = resolveColor(representativeColor(data.fill), theme);
   for (const face of faces) {
     ctx.fillStyle = face.shade ? applyShade(base, face.shade) : base;
     ctx.fill(face.path);
@@ -381,6 +384,7 @@ function paintFillStroke(
   path: Path2D,
   data: ShapeElement['data'],
   theme: Theme,
+  size: FrameSize,
   opts?: {
     skipFill?: boolean;
     fillRule?: CanvasFillRule;
@@ -393,7 +397,7 @@ function paintFillStroke(
   },
 ): void {
   if (data.fill && !opts?.skipFill) {
-    ctx.fillStyle = resolveColor(data.fill, theme);
+    ctx.fillStyle = resolveFillStyle(ctx, data.fill, theme, size.w, size.h);
     ctx.fill(path, opts?.fillRule ?? 'nonzero');
   }
   if (data.stroke) {
@@ -411,7 +415,7 @@ function drawPlaceholderRect(
   theme: Theme,
 ): void {
   if (data.fill) {
-    ctx.fillStyle = resolveColor(data.fill, theme);
+    ctx.fillStyle = resolveFillStyle(ctx, data.fill, theme, w, h);
     ctx.fillRect(0, 0, w, h);
   }
   if (data.stroke) {

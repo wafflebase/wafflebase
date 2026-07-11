@@ -1,6 +1,6 @@
 import type { Block } from '@wafflebase/docs';
 import type { ArrowheadPair, ConnectorElement } from './connector';
-import type { ThemeColor } from './theme';
+import type { Fill, ThemeColor } from './theme';
 
 export type Frame = {
   x: number;
@@ -364,7 +364,13 @@ export type ShapeElement = ElementBase & {
      * {@link FreeformPath}.
      */
     path?: FreeformPath;
-    fill?: ThemeColor;
+    /**
+     * Shape body fill — a solid `ThemeColor` or a linear {@link GradientFill}.
+     * Absent ⇒ the shape is not painted (no default). Gradient fills come
+     * from PPTX `<a:gradFill>`; the color picker collapses them to a
+     * representative solid via {@link representativeColor}.
+     */
+    fill?: Fill;
     stroke?: Stroke;
     /**
      * Line-end arrowheads for an open `kind === 'freeform'` path, mirroring

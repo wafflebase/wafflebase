@@ -35,6 +35,32 @@ export interface TextParseContext {
    * this map before attaching the marker to the block.
    */
   markerDefaults?: Map<number, BlockMarker>;
+  /**
+   * Default paragraph alignment inherited from the placeholder style chain
+   * (layout placeholder `<a:lstStyle><a:lvl1pPr algn>`, else the master's
+   * `<p:txStyles>` slot `<a:lvl1pPr algn>`). Applied to any paragraph whose
+   * own `<a:pPr>` omits `algn` — including an `<a:p>` with no `<a:pPr>` at
+   * all, the common title shape. PowerPoint centers many titles only via
+   * this chain; without it imported titles collapse to the docs renderer's
+   * left default.
+   */
+  defaultAlignment?: BlockStyle['alignment'];
+}
+
+/** Map an OOXML `<a:pPr algn>` token to a docs `BlockStyle['alignment']`. */
+export function mapAlgn(algn: string | undefined): BlockStyle['alignment'] | undefined {
+  switch (algn) {
+    case 'ctr':
+      return 'center';
+    case 'r':
+      return 'right';
+    case 'just':
+      return 'justify';
+    case 'l':
+      return 'left';
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -279,13 +305,18 @@ function parseParagraphProperties(
     marginTop: 0,
     marginBottom: 0,
   };
+  // Alignment inherits through the placeholder style chain: a paragraph
+  // (or an `<a:p>` with no `<a:pPr>` at all) that omits `algn` falls back to
+  // the layout/master default the caller resolved. That default comes from
+  // the placeholder's level-1 properties, so it applies only to level-0
+  // paragraphs; deeper bullets (lvl 1+) keep their own left default rather
+  // than inheriting the level-1 alignment.
+  const level = pPr ? (attrInt(pPr, 'lvl') ?? 0) : 0;
+  if (level === 0 && ctx.defaultAlignment) style.alignment = ctx.defaultAlignment;
   if (!pPr) return { style, list: undefined, marker: undefined };
 
-  const algn = attr(pPr, 'algn');
-  if (algn === 'ctr') style.alignment = 'center';
-  else if (algn === 'r') style.alignment = 'right';
-  else if (algn === 'just') style.alignment = 'justify';
-  else if (algn === 'l') style.alignment = 'left';
+  const algn = mapAlgn(attr(pPr, 'algn'));
+  if (algn) style.alignment = algn;
 
   // Line spacing — PPTX exposes either percentage (1000ths) or absolute pts.
   const lnSpc = child(pPr, 'lnSpc');
@@ -321,9 +352,8 @@ function parseParagraphProperties(
   if (indent != null) style.textIndent = Math.round(indent / 9525);
 
   let list: ListInfo | undefined;
-  const lvl = attrInt(pPr, 'lvl') ?? 0;
-  if (child(pPr, 'buAutoNum')) list = { kind: 'ordered', level: lvl };
-  else if (child(pPr, 'buChar')) list = { kind: 'unordered', level: lvl };
+  if (child(pPr, 'buAutoNum')) list = { kind: 'ordered', level };
+  else if (child(pPr, 'buChar')) list = { kind: 'unordered', level };
   // `<a:buNone/>` and absence both mean "no list" — leave list undefined.
 
   // Paragraph-level bullet style. PowerPoint applies these to the marker
@@ -340,7 +370,7 @@ function parseParagraphProperties(
   // Merge the master defaults for this level *under* the paragraph's
   // own values so the paragraph wins per-axis when it sets one.
   const paragraphMarker = parseBulletStyle(pPr, ctx);
-  const levelDefault = ctx.markerDefaults?.get(lvl);
+  const levelDefault = ctx.markerDefaults?.get(level);
   const marker = mergeMarkers(levelDefault, paragraphMarker);
 
   return { style, list, marker };

@@ -125,6 +125,58 @@ describe('parseTextBody — paragraphs', () => {
     expect(block.style.textIndent).toBe(-48);
   });
 
+  it('inherits ctx.defaultAlignment when the paragraph omits algn', () => {
+    // PPTX centers many placeholder titles only via the layout/master
+    // style chain — the slide paragraph itself carries no `algn`. The
+    // caller resolves that inherited default and passes it as
+    // `defaultAlignment`; a paragraph with no `<a:pPr>` at all must still
+    // pick it up (the title case: `<a:p><a:r>…`).
+    const t = txBody(`<a:txBody><a:bodyPr/><a:p><a:r><a:t>title</a:t></a:r></a:p></a:txBody>`);
+    const block = parseTextBody(t, {
+      report: new ImportReport(),
+      defaultAlignment: 'center',
+    })[0];
+    expect(block.style.alignment).toBe('center');
+  });
+
+  it('inherits defaultAlignment even when <a:pPr> exists without algn', () => {
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:pPr marL="0"/><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`,
+    );
+    const block = parseTextBody(t, {
+      report: new ImportReport(),
+      defaultAlignment: 'center',
+    })[0];
+    expect(block.style.alignment).toBe('center');
+  });
+
+  it('applies defaultAlignment only to level-0 paragraphs, not deeper bullets', () => {
+    // The inherited default is resolved from the placeholder's level-1
+    // properties, so it must not center sub-bullets (lvl 1+) that carry no
+    // algn of their own — those keep the docs left default.
+    const t = txBody(`<a:txBody><a:bodyPr/>
+      <a:p><a:r><a:t>lvl0</a:t></a:r></a:p>
+      <a:p><a:pPr lvl="1"/><a:r><a:t>lvl1</a:t></a:r></a:p>
+    </a:txBody>`);
+    const blocks = parseTextBody(t, {
+      report: new ImportReport(),
+      defaultAlignment: 'center',
+    });
+    expect(blocks[0].style.alignment).toBe('center');
+    expect(blocks[1].style.alignment).toBe('left');
+  });
+
+  it("paragraph's own algn overrides the inherited defaultAlignment", () => {
+    const t = txBody(
+      `<a:txBody><a:bodyPr/><a:p><a:pPr algn="r"/><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`,
+    );
+    const block = parseTextBody(t, {
+      report: new ImportReport(),
+      defaultAlignment: 'center',
+    })[0];
+    expect(block.style.alignment).toBe('right');
+  });
+
   it('defaults to PowerPoint single spacing and no paragraph margins', () => {
     // The docs word-processor defaults (1.5 line height, 8 px bottom margin)
     // must not leak into imported slides. PPTX single spacing renders at

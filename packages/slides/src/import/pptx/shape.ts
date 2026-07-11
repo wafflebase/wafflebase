@@ -1,3 +1,4 @@
+import type { BlockStyle } from '@wafflebase/docs';
 import type {
   Effects,
   Element as SlideElement,
@@ -22,9 +23,14 @@ import type {
   ConnectorRouting,
   Endpoint,
 } from '../../model/connector';
+import {
+  representativeColor,
+  type GradientFill,
+  type GradientStop,
+} from '../../model/theme';
 import { parseColorFromContainer, type ClrMap } from './color';
 import { parseEffects, readAltText } from './effects';
-import type { TxStylesMarkers, TxStylesSlot } from './master';
+import type { TxStylesAlignments, TxStylesMarkers, TxStylesSlot } from './master';
 import type { EmuScale } from './geometry';
 import { emuToStrokePx, parseXfrm, prstToShapeKind } from './geometry';
 import {
@@ -87,6 +93,14 @@ export interface SlideParseContext {
    */
   placeholderSizes: Map<string, number>;
   /**
+   * Default paragraph alignment per layout placeholder, keyed by
+   * `"{ooxmlType}:{idx}"`. A placeholder paragraph whose `<a:pPr>` omits
+   * `algn` inherits from here; `buildTextBody` falls through to
+   * {@link txStylesAlignments} when the layout sets none. Optional so bare
+   * fixtures can omit it.
+   */
+  placeholderAlignments?: Map<string, BlockStyle['alignment']>;
+  /**
    * Frame (position + size, px) per layout placeholder, keyed by
    * `"{ooxmlType}:{idx}"`. A placeholder `<p:sp>` whose own `<p:spPr>` omits
    * `<a:xfrm>` inherits this frame instead of collapsing to `(0,0,0,0)`.
@@ -109,6 +123,12 @@ export interface SlideParseContext {
    * every fixture; missing entry is equivalent to "no master defaults".
    */
   txStylesMarkers?: TxStylesMarkers;
+  /**
+   * Master-level `<p:txStyles>` default alignment per slot. The deeper
+   * fallback under {@link placeholderAlignments} for placeholder paragraphs
+   * that omit `algn`. Optional; absent ⇒ no master default.
+   */
+  txStylesAlignments?: TxStylesAlignments;
 }
 
 /**
@@ -521,9 +541,21 @@ async function parseSp(sp: Element, ctx: SlideParseContext): Promise<SlideElemen
   // element's `data.fill`/`data.stroke` just like a shape's.
   if (isTextBox && txBody) {
     const fill = parseShapeFill(spPr, ctx);
+    // Text elements carry a solid `ThemeColor` fill only; a text box with a
+    // gradient background collapses to its representative stop.
+    const textFill = fill ? representativeColor(fill) : undefined;
     const stroke = parseShapeStroke(spPr, ctx);
     return [
-      buildTextElement(elementId, frame, txBody, ctx, placeholderRef, layoutSizeKey, fill, stroke),
+      buildTextElement(
+        elementId,
+        frame,
+        txBody,
+        ctx,
+        placeholderRef,
+        layoutSizeKey,
+        textFill,
+        stroke,
+      ),
     ];
   }
 
@@ -742,9 +774,18 @@ function buildTextBody(
     ? PLACEHOLDER_DEFAULT_FONT_SIZE[placeholderRef.type]
     : undefined;
   const defaultFontSize = layoutSize ?? fallbackSize;
-  const markerDefaults = ctx.txStylesMarkers?.get(
-    placeholderTypeToTxStylesSlot(placeholderRef?.type),
-  );
+  const txStylesSlot = placeholderTypeToTxStylesSlot(placeholderRef?.type);
+  const markerDefaults = ctx.txStylesMarkers?.get(txStylesSlot);
+  // Alignment inheritance (placeholders only): the layout placeholder's
+  // `<a:lstStyle>` wins, then the master's `<p:txStyles>` slot. Plain text
+  // boxes (no `placeholderRef`) don't inherit txStyles alignment — only
+  // placeholders do — so they keep the docs left default unless the run
+  // sets `algn` itself.
+  const layoutAlignment = layoutSizeKey
+    ? ctx.placeholderAlignments?.get(layoutSizeKey)
+    : undefined;
+  const masterAlignment = placeholderRef ? ctx.txStylesAlignments?.get(txStylesSlot) : undefined;
+  const defaultAlignment = layoutAlignment ?? masterAlignment;
   const verticalAnchor = detectVerticalAnchor(txBody);
   const inset = detectBodyInset(txBody, ctx.scale);
   return {
@@ -757,6 +798,7 @@ function buildTextBody(
       defaultFontSize,
       clrMap: ctx.clrMap,
       markerDefaults,
+      ...(defaultAlignment ? { defaultAlignment } : {}),
     }),
   };
 }
@@ -879,10 +921,51 @@ function parseShapeFill(
   if (!spPr) return undefined;
   const solid = child(spPr, 'solidFill');
   if (solid) return parseColorFromContainer(solid, ctx.clrMap);
-  // gradient and pattern fills on shapes are out of v1 scope. Blip
-  // fills *are* handled — see the `<a:blipFill>` branch in `parseSp`,
-  // which short-circuits to an `ImageElement` before we get here.
+  const grad = child(spPr, 'gradFill');
+  if (grad) return parseGradientFill(grad, ctx.clrMap);
+  // Pattern fills on shapes are out of scope. Blip fills *are* handled —
+  // see the `<a:blipFill>` branch in `parseSp`, which short-circuits to
+  // an `ImageElement` before we get here.
   return undefined;
+}
+
+/**
+ * Parse an OOXML `<a:gradFill>` into a linear {@link GradientFill}. Reads
+ * `<a:gsLst><a:gs pos>` stops (pos in 1000ths-of-a-percent → 0..1) and
+ * `<a:lin ang>` (60000ths-of-a-degree → radians). Radial/path gradients
+ * (`<a:path>`) are not modeled — we still surface their stops as a linear
+ * gradient at the default angle so the shape keeps its colors rather than
+ * vanishing. Returns undefined when there are no usable stops.
+ */
+function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefined {
+  const gsLst = child(grad, 'gsLst');
+  if (!gsLst) return undefined;
+  const stops: GradientStop[] = [];
+  for (const gs of children(gsLst, 'gs')) {
+    const color = parseColorFromContainer(gs, clrMap);
+    // A stop whose color can't be resolved (e.g. a `<a:schemeClr val="phClr">`
+    // placeholder that only style-matrix gradients use) is skipped. If that
+    // leaves fewer than two usable stops, the renderer and PPTX exporter both
+    // degrade the gradient to its representative solid rather than break.
+    if (!color) continue;
+    // `pos` is 1000ths of a percent (0..100000). Absent ⇒ 0.
+    const pos = (attrInt(gs, 'pos') ?? 0) / 100_000;
+    stops.push({ pos: Math.max(0, Math.min(1, pos)), color });
+  }
+  if (stops.length === 0) return undefined;
+  // Radial / path gradients (`<a:path path="circle|rect|shape">`) aren't
+  // modeled. Rather than paint their stops along a (wrong) linear axis,
+  // collapse to a single stop so render + export reduce it to the
+  // representative solid — the documented first-stop fallback.
+  if (child(grad, 'path')) {
+    return { kind: 'gradient', angle: 0, stops: [stops[0]] };
+  }
+  // `<a:lin ang>` is 60000ths of a degree, clockwise from 3 o'clock.
+  // Absent (common in exported decks) ⇒ default top→bottom (90°), the
+  // usual PowerPoint linear default.
+  const lin = child(grad, 'lin');
+  const angDeg = lin ? (attrInt(lin, 'ang') ?? 0) / 60_000 : 90;
+  return { kind: 'gradient', angle: (angDeg * Math.PI) / 180, stops };
 }
 
 function parseShapeStroke(
