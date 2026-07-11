@@ -742,10 +742,14 @@ export class Worksheet {
    */
   private async commitCellValue(ref: Ref, value: string): Promise<boolean> {
     const rule = this.sheet!.getDataValidationAt(ref);
+    // A formula is validated by its computed result at render time (warning
+    // marker), not by its literal text — reject only compares literal typed
+    // values against the option list, so let formulas through here.
     if (
       rule &&
       rule.kind === 'list' &&
       rule.onInvalid === 'reject' &&
+      !value.startsWith('=') &&
       !isValidListValue(rule, value)
     ) {
       this.onValidationErrorCallback?.(
@@ -1531,10 +1535,23 @@ export class Worksheet {
       viewport.left + cellRect.left,
       viewport.left + Math.max(0, viewport.width - popoverWidth - 4),
     );
-    const top = viewport.top + cellRect.top + cellRect.height + 2;
     this.listPopover.style.left = `${left}px`;
-    this.listPopover.style.top = `${top}px`;
+    // Show it first so offsetHeight is measurable, then choose below/above the
+    // cell: a bottom-row dropdown would otherwise spill past the viewport with
+    // its lower options clipped and unclickable.
     this.listPopover.style.display = 'block';
+    const popoverHeight = this.listPopover.offsetHeight;
+    const belowTop = viewport.top + cellRect.top + cellRect.height + 2;
+    const viewportBottom = viewport.top + viewport.height;
+    let top = belowTop;
+    if (belowTop + popoverHeight > viewportBottom) {
+      const aboveTop = viewport.top + cellRect.top - popoverHeight - 2;
+      top =
+        aboveTop >= viewport.top
+          ? aboveTop
+          : Math.max(viewport.top + 2, viewportBottom - popoverHeight - 4);
+    }
+    this.listPopover.style.top = `${top}px`;
 
     this.listPopoverKeyboardUnsub?.();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1688,6 +1705,15 @@ export class Worksheet {
     }
     const ref = this.toRefFromMouse(x, y);
     const sref = toSref(ref);
+    // Still over the same cell — skip the async re-read (this runs on every
+    // mousemove); just keep any shown tooltip following the cursor.
+    if (sref === this.hoveredValidationCandidate) {
+      if (this.validationTooltip.style.display === 'block') {
+        this.validationTooltip.style.left = `${clientX + 12}px`;
+        this.validationTooltip.style.top = `${clientY + 16}px`;
+      }
+      return;
+    }
     this.hoveredValidationCandidate = sref;
     const rule = this.sheet.getDataValidationAt(ref);
     if (!rule || rule.kind !== 'list') {

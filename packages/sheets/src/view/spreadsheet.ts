@@ -368,47 +368,6 @@ export class Spreadsheet {
   }
 
   /**
-   * `insertList` adds a dropdown (list) rule over the range and re-renders.
-   */
-  public async insertList(
-    range: Range,
-    id: string,
-    options: string[],
-    onInvalid: 'reject' | 'warning' = 'warning',
-  ): Promise<void> {
-    if (!this.sheet || this._readOnly) return;
-    await this.sheet.insertList(range, id, options, onInvalid);
-    this.worksheet.render();
-    this.notifySelectionChange();
-  }
-
-  /**
-   * `removeList` strips list rules intersecting the range (leaving the
-   * underlying cell values) and re-renders.
-   */
-  public async removeList(range: Range): Promise<void> {
-    if (!this.sheet || this._readOnly) return;
-    await this.sheet.removeList(range);
-    this.worksheet.render();
-    this.notifySelectionChange();
-  }
-
-  /**
-   * `updateListRule` replaces an existing list rule's options / invalid
-   * behavior in place (preserving its ranges) and re-renders.
-   */
-  public async updateListRule(
-    id: string,
-    options: string[],
-    onInvalid: 'reject' | 'warning',
-  ): Promise<void> {
-    if (!this.sheet || this._readOnly) return;
-    await this.sheet.updateListRule(id, options, onInvalid);
-    this.worksheet.render();
-    this.notifySelectionChange();
-  }
-
-  /**
    * `getListRuleAt` returns the list rule applying to the active cell (or the
    * given ref), or undefined — used by the toolbar to prefill the options
    * dialog and by the popover to read options.

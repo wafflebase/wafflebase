@@ -396,7 +396,24 @@ resolver). A single `Data validation` toolbar button (replacing the earlier
 separate checkbox-toggle and dropdown buttons) and a `Data validation`
 context-menu item both open the panel with no auto-add — the user clicks **Add**
 or the panel selects the existing rule at the active cell.
-`DropdownOptionsDialog` was deleted. Two review-caught
+`DropdownOptionsDialog` was deleted. A high-effort branch review drove several
+fixes: the panel does not persist an option-less (in-progress) list rule, so
+switching a checkbox rule to Dropdown no longer drops it; switching criteria to
+Checkbox keeps the list options so a round-trip back to Dropdown preserves them;
+a reject-mode dropdown lets a **formula** entry through (validated by its
+computed value at render, not its literal text); the option popover flips above
+the cell when it would overflow the viewport bottom; the hover-tooltip skips its
+async cell read while the pointer stays on one cell; and the now-unused
+`insertList`/`removeList`/`updateListRule` engine methods were removed (the panel
+writes exclusively through `setDataValidations`).
+
+Known limitations (documented, deferred): the panel writes the whole rule array
+from a snapshot taken on open, so a concurrent remote rule change made while the
+panel is open can be clobbered (identical to `ConditionalFormatPanel`); reject
+mode is enforced only on typed commit, not paste/API (an invalid pasted value is
+stored but always draws the red marker); the red validation marker and the
+yellow comment marker share the top-right corner (the comment wins when a cell
+has both). Two review-caught
 behaviors were fixed during implementation: the field-sync effect is keyed on
 `selectedRuleId` only (so in-progress range/options edits aren't reverted by a
 sibling field edit), and the auto-add gate uses the any-kind

@@ -103,7 +103,16 @@ export function DataValidationPanel({
   const commitRules = useCallback(
     (nextRules: DataValidationRule[]) => {
       setRules(nextRules);
-      if (spreadsheet) {
+      if (!spreadsheet) return;
+      // A list rule with no usable options is normalized away on write, which
+      // would drop the cell's existing rule while the user is still filling in
+      // options (e.g. right after switching criteria to Dropdown, or a fresh
+      // Add). Keep such an in-progress rule in panel state only; persist once
+      // every list rule has at least one option.
+      const hasIncompleteList = nextRules.some(
+        (r) => r.kind === "list" && !(r.list ?? []).some((o) => o.trim()),
+      );
+      if (!hasIncompleteList) {
         void spreadsheet.setDataValidations(nextRules);
       }
     },
@@ -217,12 +226,9 @@ export function DataValidationPanel({
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
     } else {
-      updateRule(selectedRule.id, {
-        kind: "checkbox",
-        list: undefined,
-        showArrow: undefined,
-        onInvalid: undefined,
-      });
+      // Keep list/showArrow/onInvalid so switching back to Dropdown restores
+      // the options (the engine ignores them for a checkbox rule).
+      updateRule(selectedRule.id, { kind: "checkbox" });
     }
   };
 
