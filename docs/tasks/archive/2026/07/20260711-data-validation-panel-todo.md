@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use `superpowers:subagent-driven-development` or
 > `superpowers:executing-plans` to implement task-by-task. Steps use checkbox
-> (`- [ ]`) syntax.
+> (`- [x]`) syntax.
 
 Design: `docs/design/sheets/data-validation.md` → "Phase 3 (UI): Data validation
 side panel — design". Branch: `feat/data-validation-list` (same PR as list dropdown).
@@ -52,7 +52,7 @@ slot with the CF/Chart panels (mutually exclusive). Reads via
 - Produces: `public async setDataValidations(rules: DataValidationRule[]): Promise<void>`
 - Consumes: existing `Sheet.setDataValidations` (already present, normalizes+persists).
 
-- [ ] **Step 1: Add the method** after `getDataValidations()` (mirrors `setConditionalFormats`):
+- [x] **Step 1: Add the method** after `getDataValidations()` (mirrors `setConditionalFormats`):
 
 ```typescript
   /**
@@ -68,18 +68,18 @@ slot with the CF/Chart panels (mutually exclusive). Reads via
   }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd packages/sheets && pnpm exec tsc --noEmit`
 Expected: `No errors found`
 
-- [ ] **Step 3: Rebuild the workspace package** (frontend dev alias uses source, but
+- [x] **Step 3: Rebuild the workspace package** (frontend dev alias uses source, but
       keep dist current for builds)
 
 Run: `pnpm --filter @wafflebase/sheets build`
 Expected: `✓ built`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/sheets/src/view/spreadsheet.ts
@@ -112,7 +112,7 @@ git commit -m "Sheets: public Spreadsheet.setDataValidations for the panel"
   and `@wafflebase/sheets` exports `DataValidationRule`, `DataValidationKind`, `Range`,
   `parseRef`, `toSref`, `normalizeListOptions`.
 
-- [ ] **Step 1: Write the full component file**
+- [x] **Step 1: Write the full component file**
 
 ```tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -565,17 +565,17 @@ export function DataValidationPanel({
 }
 ```
 
-- [ ] **Step 2: Verify `IconListCheck` exists** (fallback `IconList` if not)
+- [x] **Step 2: Verify `IconListCheck` exists** (fallback `IconList` if not)
 
 Run: `cd packages/frontend && node -e "const i=require('@tabler/icons-react'); console.log('IconListCheck', !!i.IconListCheck)"`
 Expected: `IconListCheck true` (if false, replace both usages with `IconList`).
 
-- [ ] **Step 3: Typecheck the frontend**
+- [x] **Step 3: Typecheck the frontend**
 
 Run: `cd packages/frontend && pnpm exec tsc --noEmit -p tsconfig.json`
 Expected: `No errors found` (component not yet imported — this only checks the file compiles in isolation once imported in Task 3; if unused-import errors appear, they resolve after wiring).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/data-validation-panel.tsx
@@ -594,7 +594,7 @@ git commit -m "Sheets: Data validation side panel component"
 - Consumes: `DataValidationPanel` (Task 2), `spreadsheet.setDataValidations` (Task 1).
 - Produces: `handleOpenDataValidation` / `dataValidationOpen` state used by Task 4.
 
-- [ ] **Step 1: Replace the dropdown-dialog import** (line ~34) with the panel lazy import.
+- [x] **Step 1: Replace the dropdown-dialog import** (line ~34) with the panel lazy import.
       Remove:
 
 ```tsx
@@ -614,7 +614,7 @@ const DataValidationPanel = lazy(() =>
 );
 ```
 
-- [ ] **Step 2: Replace dropdown-dialog state** (lines ~150-158). Remove the
+- [x] **Step 2: Replace dropdown-dialog state** (lines ~150-158). Remove the
       `dropdownDialogOpen` and `dropdownDialogState` useState blocks and add:
 
 ```tsx
@@ -624,7 +624,7 @@ const DataValidationPanel = lazy(() =>
   >(null);
 ```
 
-- [ ] **Step 3: Add the open handler** near `handleOpenConditionalFormat` (~line 712),
+- [x] **Step 3: Add the open handler** near `handleOpenConditionalFormat` (~line 712),
       mutually exclusive with the other panels:
 
 ```tsx
@@ -636,7 +636,7 @@ const DataValidationPanel = lazy(() =>
   }, []);
 ```
 
-- [ ] **Step 4: Replace `handleInsertDropdown`** (lines ~445-469) so the dropdown
+- [x] **Step 4: Replace `handleInsertDropdown`** (lines ~445-469) so the dropdown
       toolbar button opens the panel and seeds a dropdown auto-add:
 
 ```tsx
@@ -649,16 +649,16 @@ const DataValidationPanel = lazy(() =>
   }, [readOnly]);
 ```
 
-- [ ] **Step 5: Delete the now-dead dropdown handlers** — remove `handleSaveDropdown`
+- [x] **Step 5: Delete the now-dead dropdown handlers** — remove `handleSaveDropdown`
       (lines ~471-490) and `handleRemoveDropdown` (lines ~492-497) entirely.
 
-- [ ] **Step 6: Close the panel where the others close** — in the effect/handlers that
+- [x] **Step 6: Close the panel where the others close** — in the effect/handlers that
       set `setConditionalFormatOpen(false)` / `setChartEditorOpen(false)` on chart insert
       and conditional-format open (e.g. `handleInsertChart` ~line 416,
       `handleOpenConditionalFormat` ~line 713), add `setDataValidationOpen(false);`
       alongside each so opening any one panel closes this one.
 
-- [ ] **Step 7: Replace the dialog render** (lines ~1637-1646) with the panel render,
+- [x] **Step 7: Replace the dialog render** (lines ~1637-1646) with the panel render,
       placed right after the `ConditionalFormatPanel` render block (~line 1635):
 
 ```tsx
@@ -675,19 +675,19 @@ const DataValidationPanel = lazy(() =>
         )}
 ```
 
-- [ ] **Step 8: Delete the dialog file**
+- [x] **Step 8: Delete the dialog file**
 
 ```bash
 git rm packages/frontend/src/app/spreadsheet/dropdown-options-dialog.tsx
 ```
 
-- [ ] **Step 9: Typecheck** (catches any leftover references to removed symbols)
+- [x] **Step 9: Typecheck** (catches any leftover references to removed symbols)
 
 Run: `cd packages/frontend && pnpm exec tsc --noEmit -p tsconfig.json`
 Expected: `No errors found`. If errors reference `DropdownInvalidBehavior`/
 `dropdownDialogState`/`handleSaveDropdown`, remove those leftover usages.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/sheet-view.tsx
@@ -706,7 +706,7 @@ git commit -m "Sheets: open Data validation panel from dropdown button; drop dia
 - Consumes: `handleOpenDataValidation` (Task 3).
 - Produces: `onOpenDataValidation?: () => void` prop on `SheetContextMenu`.
 
-- [ ] **Step 1: Add the prop** to `SheetContextMenuProps` (~line 34) and destructure it
+- [x] **Step 1: Add the prop** to `SheetContextMenuProps` (~line 34) and destructure it
       (~line 66):
 
 ```tsx
@@ -716,10 +716,10 @@ git commit -m "Sheets: open Data validation panel from dropdown button; drop dia
   onOpenDataValidation,
 ```
 
-- [ ] **Step 2: Import an icon** — add `IconListCheck` to the existing tabler import in
+- [x] **Step 2: Import an icon** — add `IconListCheck` to the existing tabler import in
       this file (fallback `IconList` if `IconListCheck` is unavailable).
 
-- [ ] **Step 3: Render the item** in the `menuType === "cell"` block, right after the
+- [x] **Step 3: Render the item** in the `menuType === "cell"` block, right after the
       `onInsertComment` block (~line 211):
 
 ```tsx
@@ -736,19 +736,19 @@ git commit -m "Sheets: open Data validation panel from dropdown button; drop dia
             )}
 ```
 
-- [ ] **Step 4: Pass the prop** from sheet-view's `<SheetContextMenu …>` (~line 1542),
+- [x] **Step 4: Pass the prop** from sheet-view's `<SheetContextMenu …>` (~line 1542),
       next to `onInsertComment`:
 
 ```tsx
           onOpenDataValidation={readOnly ? undefined : handleOpenDataValidation}
 ```
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `cd packages/frontend && pnpm exec tsc --noEmit -p tsconfig.json`
 Expected: `No errors found`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/components/sheet-context-menu.tsx packages/frontend/src/app/spreadsheet/sheet-view.tsx
@@ -759,13 +759,13 @@ git commit -m "Sheets: Data validation context-menu entry"
 
 ### Task 5: Verify (build + manual smoke)
 
-- [ ] **Step 1: `pnpm verify:fast`** — Expected: `EXIT=0`, all unit tests pass
+- [x] **Step 1: `pnpm verify:fast`** — Expected: `EXIT=0`, all unit tests pass
       (no new engine tests; frontend panels are untested by precedent).
 
-- [ ] **Step 2: Frontend production build** — `pnpm --filter @wafflebase/frontend build`.
+- [x] **Step 2: Frontend production build** — `pnpm --filter @wafflebase/frontend build`.
       Expected: `EXIT=0`.
 
-- [ ] **Step 3: Manual smoke** in the authenticated `:5173` app (the panel is a
+- [x] **Step 3: Manual smoke** in the authenticated `:5173` app (the panel is a
       frontend component; the sheets dev harness only mounts the bare engine).
       Verify:
   - Dropdown toolbar button → panel opens with a new Dropdown rule for the selection.
@@ -776,12 +776,12 @@ git commit -m "Sheets: Data validation context-menu entry"
   - Reject vs Warning: type an invalid value → reject discards + toast, warning shows
     the red marker + hover tooltip.
 
-- [ ] **Step 4: Update design doc status** — in
+- [x] **Step 4: Update design doc status** — in
       `docs/design/sheets/data-validation.md`, mark the "Phase 3 (UI)" section as shipped
       (brief "as shipped" note), and capture lessons in
       `docs/tasks/active/20260711-data-validation-panel-lessons.md`.
 
-- [ ] **Step 5: Commit docs**
+- [x] **Step 5: Commit docs**
 
 ```bash
 git add docs/

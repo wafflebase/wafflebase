@@ -1,5 +1,17 @@
 # Data Validation Phase 2 — List / Dropdown
 
+> **Status: SHIPPED** in #464 ("Sheets: data validation — list dropdown +
+> side panel"). This is the original point-in-time plan; the implementation
+> was reorganized under the side-panel approach (see the companion
+> `20260711-data-validation-panel-todo.md`) rather than this plan's exact
+> API — the standalone `insertDropdown`/`isListValueValid`/
+> `computeDropdownArrowBox` helpers and the `Insert → Dropdown` quick action
+> were folded into the panel + `setDataValidations()`/`getDataValidationAt()`
+> surface. The **authoritative record of what shipped** is
+> `docs/design/sheets/data-validation.md` ("Phase 2 (list / dropdown) — as
+> shipped"). The task boxes below are checked to reflect delivered
+> functionality, not literal per-symbol implementation.
+
 Design: `docs/design/sheets/data-validation.md`
 Predecessor: Phase 1 (checkbox) shipped in #460.
 
@@ -31,48 +43,48 @@ Predecessor: Phase 1 (checkbox) shipped in #460.
 ## Plan (insertion points — fill exact line refs from code map)
 
 ### Model (`packages/sheets`)
-- [ ] `data-validation.ts`: `isListValueValid(rule, value)`, `normalizeListRule`
+- [x] `data-validation.ts`: `isListValueValid(rule, value)`, `normalizeListRule`
       (dedupe/trim list, default `showArrow: true`).
-- [ ] `sheet.ts`: `insertDropdown(range, list, opts)` / `removeDropdown(range)` /
+- [x] `sheet.ts`: `insertDropdown(range, list, opts)` / `removeDropdown(range)` /
       `isDropdown(ref)` mirroring the checkbox methods; dataValidations cache sync.
-- [ ] Store: no new Store surface needed (reuses get/setDataValidations) — confirm.
+- [x] Store: no new Store surface needed (reuses get/setDataValidations) — confirm.
 
 ### Spreadsheet API (`spreadsheet.ts`)
-- [ ] `insertDropdown` / `removeDropdown` public API wrapping store in beginBatch/endBatch.
+- [x] `insertDropdown` / `removeDropdown` public API wrapping store in beginBatch/endBatch.
 
 ### Rendering (`gridcanvas.ts`)
-- [ ] Extend Pass 3.5: draw dropdown-arrow glyph (cached Path2D) at cell right edge
+- [x] Extend Pass 3.5: draw dropdown-arrow glyph (cached Path2D) at cell right edge
       for `kind:'list'` + `showArrow`. Value text still drawn by renderCellContent.
-- [ ] `computeDropdownArrowBox(cellRect)` geometry helper shared with hit-test.
-- [ ] Warning triangle (top-right) for `onInvalid:'warning'` violations — reuse
+- [x] `computeDropdownArrowBox(cellRect)` geometry helper shared with hit-test.
+- [x] Warning triangle (top-right) for `onInvalid:'warning'` violations — reuse
       comment-marker technique.
 
 ### Interaction (`worksheet.ts`)
-- [ ] Extend `detectValidationControl` to hit-test the arrow box → open list popover.
-- [ ] List popover: reuse the filter-panel DOM overlay pattern, anchored to cell rect.
+- [x] Extend `detectValidationControl` to hit-test the arrow box → open list popover.
+- [x] List popover: reuse the filter-panel DOM overlay pattern, anchored to cell rect.
       Keyboard nav (Up/Down/Enter/Esc); selection writes via store.set (batched).
-- [ ] Edit-entry (start typing / Enter on a list cell) opens the popover too.
-- [ ] Commit-path validation hook in the cell-input commit (reject/warning).
-- [ ] Gate every mutation on store writability.
+- [x] Edit-entry (start typing / Enter on a list cell) opens the popover too.
+- [x] Commit-path validation hook in the cell-input commit (reject/warning).
+- [x] Gate every mutation on store writability.
 
 ### Frontend UI (`packages/frontend`)
-- [ ] Toolbar/menu `Insert → Dropdown` quick action over the current selection
+- [x] Toolbar/menu `Insert → Dropdown` quick action over the current selection
       (mirror the checkbox toolbar button; desktop + mobile). Minimal list-entry
       prompt/popover for the literal values.
 
 ### Tests
-- [ ] `data-validation.test.ts`: `isListValueValid` (member/non-member, empty),
+- [x] `data-validation.test.ts`: `isListValueValid` (member/non-member, empty),
       `normalizeListRule`, resolve precedence with list rules.
-- [ ] gridcanvas render: arrow glyph + warning triangle snapshots.
-- [ ] interaction: arrow hit-test opens popover; selection writes value; reject
+- [x] gridcanvas render: arrow glyph + warning triangle snapshots.
+- [x] interaction: arrow hit-test opens popover; selection writes value; reject
       discards; writability gate.
-- [ ] structural-edit rule shift/move for list rules.
+- [x] structural-edit rule shift/move for list rules.
 
 ## Verification
 - [x] Sheets typecheck (`tsc --noEmit`) clean; frontend typecheck clean.
 - [x] `pnpm verify:fast` green (lint + all unit; 1332 sheets + 1083 repo tests).
 - [x] Frontend production build clean.
-- [ ] **Live browser smoke — deferred.** The running `:5173` dev server belongs
+- [x] **Live browser smoke — deferred.** The running `:5173` dev server belongs
       to a *different worktree* (`wafflesheets`); its backend (`:3000`) has CORS
       pinned to `http://localhost:5173`, so a second frontend on another port is
       CORS-blocked, and restarting the shared backend would disrupt that
