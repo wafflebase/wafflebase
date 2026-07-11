@@ -13,13 +13,15 @@ describe('YorkieEventController', () => {
   });
 
   it('advances updatedAt to the event issue time on DocumentRootChanged', async () => {
+    // Use a clearly historical date so the min(issuedAt, now) clamp is a no-op
+    // and the assertion can't flake near the event's own wall-clock time.
     await controller.handleEvent({
       type: 'DocumentRootChanged',
-      attributes: { key: 'slides-abc', issuedAt: '2026-07-10T06:03:13.331Z' },
+      attributes: { key: 'slides-abc', issuedAt: '2020-01-01T00:00:00.000Z' },
     });
     expect(touchUpdatedAt).toHaveBeenCalledWith(
       'abc',
-      new Date('2026-07-10T06:03:13.331Z'),
+      new Date('2020-01-01T00:00:00.000Z'),
     );
   });
 

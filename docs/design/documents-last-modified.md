@@ -64,7 +64,7 @@ endpoints order by `[{ updatedAt: desc }, { createdAt: desc }]`.
 Register the webhook on the Yorkie project (internal cluster URL, no public
 exposure):
 
-```
+```shell
 yorkie project update <project> \
   --event-webhook-url http://wafflebase.wafflebase.svc.cluster.local:3000/internal/yorkie/events \
   --event-webhook-events DocumentRootChanged
@@ -72,8 +72,10 @@ yorkie project update <project> \
 
 ### Non-content updates
 Rename / move never touch Yorkie, so no webhook fires. `DocumentService.updateDocument`
-therefore sets `updatedAt = now()` explicitly on every metadata update, so a
-rename still floats the document to the top like any edit.
+therefore sets `updatedAt = now()` explicitly on every **non-empty** metadata
+update, so a rename still floats the document to the top like any edit. An
+empty / no-op PATCH (no fields to change) skips the bump so it can't spuriously
+re-sort the document.
 
 ### Clock skew
 `issuedAt` is Yorkie's server clock. The webhook clamps it to `min(issuedAt, now())`

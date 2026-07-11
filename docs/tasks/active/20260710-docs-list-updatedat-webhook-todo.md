@@ -98,6 +98,10 @@ Deferred (documented in design Risks):
 ## Verification
 
 - `pnpm verify:fast` green.
-- e2e: signed webhook advances `updatedAt`; unsigned/bad-sig rejected.
+- Unit: HMAC signature guard (valid / wrong-key / tampered / missing-sig /
+  no-secret), `parseYorkieDocKey` round-trip + edges, webhook event handling
+  (dispatch, unknown key, future-skew clamp, fallback), `updateDocument`
+  empty-PATCH no-bump. (DB-backed e2e for the signed-webhook advance path is
+  deferred — see Tasks — and covered by the unit tests + monotonic SQL.)
 - Manual: list order stable across polls in `pnpm dev`; editing a doc floats
   it to the top after the next webhook.
