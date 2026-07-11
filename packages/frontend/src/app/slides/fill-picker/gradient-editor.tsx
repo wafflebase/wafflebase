@@ -16,12 +16,18 @@ import {
   radToDeg,
 } from './gradient-helpers';
 
-const LINEAR_PRESETS: { label: string; deg: number }[] = [
+/**
+ * The 8 compass directions, laid out as a 3×3 grid with the center cell
+ * left empty (`null` renders an inert spacer) so the arrows keep their
+ * intuitive positions. `deg` is clockwise from +x (0 = left→right), matching
+ * the stored `GradientFill.angle` after `degToRad`.
+ */
+const LINEAR_PRESETS: ({ label: string; deg: number } | null)[] = [
   { label: '↖', deg: 225 },
   { label: '↑', deg: 270 },
   { label: '↗', deg: 315 },
   { label: '←', deg: 180 },
-  { label: '•', deg: 90 },
+  null,
   { label: '→', deg: 0 },
   { label: '↙', deg: 135 },
   { label: '↓', deg: 90 },
@@ -91,32 +97,60 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
     let dragged = false;
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
+    // Accumulate the live-dragged stops here and commit THIS on pointer-up —
+    // `value` is captured pre-drag, so committing `value.stops` would snap
+    // the marker back to its start. The live path is deliberately NOT
+    // sorted: re-sorting mid-drag would reorder the array and the captured
+    // `index` would stop pointing at the dragged marker (breaking the
+    // Position%/Delete row and further moves). We sort exactly once, on up.
+    let latest = stops;
     const move = (ev: PointerEvent) => {
       if (!dragged && Math.abs(ev.clientX - startX) >= DRAG_THRESHOLD_PX) {
         dragged = true;
       }
       if (!dragged) return;
       const pos = posFromEvent(ev.clientX);
-      const next = stops.map((s, i) => (i === index ? { ...s, pos } : s));
-      emit({ stops: next }, false);
+      latest = stops.map((s, i) => (i === index ? { ...s, pos } : s));
+      onChange({ ...value, stops: latest }, { commit: false });
     };
-    const up = () => {
+    const cleanup = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    const up = () => {
+      cleanup();
       if (dragged) {
-        emit({ stops: sortStops(value.stops) }, true);
+        // Sort + commit once. `sortStops` preserves object references, so
+        // `indexOf` re-finds the dragged marker to keep it selected.
+        const sorted = sortStops(latest);
+        onChange({ ...value, stops: sorted }, { commit: true });
+        const ni = sorted.indexOf(latest[index]);
+        if (ni >= 0) setSelected(ni);
       } else {
         onOpenRecolor();
       }
     };
+    // Pointer-cancel discards the in-progress drag: the last live change was
+    // never committed, so there's nothing in undo — just tear down.
+    const cancel = () => {
+      cleanup();
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   };
 
-  const recolor = (index: number) => (color: ThemeColor) => {
-    const next = stops.map((s, i) => (i === index ? { ...s, color } : s));
-    emit({ stops: next }, true);
-  };
+  // Forward ThemedColorPicker's commit flag: its native `<input type="color">`
+  // fires onChange continuously during a drag with no `commit`, so those live
+  // updates must stay uncommitted (one undo unit per pick, not per frame). A
+  // discrete swatch/role click passes `{ commit: true }` and commits.
+  const recolor =
+    (index: number) =>
+    (color: ThemeColor, opts?: { commit?: boolean; record?: boolean }) => {
+      const next = stops.map((s, i) => (i === index ? { ...s, color } : s));
+      emit({ stops: next }, opts?.commit ?? false);
+    };
 
   const deleteSelected = () => {
     const next = removeStopAt(stops, selected);
@@ -158,17 +192,21 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
       {/* Linear direction: 8 presets + numeric angle */}
       <div className="flex items-center justify-between">
         <div className="grid grid-cols-3 gap-0.5">
-          {LINEAR_PRESETS.map((p, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={`Direction ${p.label}`}
-              onClick={() => setPreset(p.deg)}
-              className="h-5 w-5 rounded border border-border text-[11px] hover:bg-muted"
-            >
-              {p.label}
-            </button>
-          ))}
+          {LINEAR_PRESETS.map((p, i) =>
+            p === null ? (
+              <span key={i} className="h-5 w-5" aria-hidden="true" />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Direction ${p.label}`}
+                onClick={() => setPreset(p.deg)}
+                className="h-5 w-5 rounded border border-border text-[11px] hover:bg-muted"
+              >
+                {p.label}
+              </button>
+            ),
+          )}
         </div>
         <label className="flex items-center gap-1 text-[11px]">
           <span className="text-muted-foreground">Angle</span>
@@ -228,7 +266,10 @@ interface GradientStopMarkerProps {
     index: number,
     onOpenRecolor: () => void,
   ) => (e: ReactPointerEvent<HTMLButtonElement>) => void;
-  onRecolor: (color: ThemeColor) => void;
+  onRecolor: (
+    color: ThemeColor,
+    opts?: { commit?: boolean; record?: boolean },
+  ) => void;
 }
 
 /**
@@ -283,7 +324,7 @@ function GradientStopMarker({
           value={stop.color}
           theme={theme}
           onChange={(color, opts) => {
-            onRecolor(color);
+            onRecolor(color, opts);
             if (opts?.commit) {
               menu.markSwatchClicked();
               setOpen(false);
