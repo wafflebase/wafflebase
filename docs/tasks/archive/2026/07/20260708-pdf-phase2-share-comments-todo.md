@@ -1,6 +1,13 @@
 # PDF Phase 2 (Share + Comments + Presence) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: SHIPPED** in #456 ("PDF Phase 2: share links, page-anchored
+> comments, and presence"). Originally filed under `docs/superpowers/plans/`
+> (superpowers-skill default) rather than the `docs/tasks/` convention;
+> relocated + renamed to `20260708-pdf-phase2-share-comments-todo.md` and
+> boxes checked to reflect delivered work. Authoritative record of what
+> shipped: `docs/design/pdf.md` (Phase 2 section).
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let a PDF document be shared via a link and annotated with page-anchored comments (with live presence), reusing the existing share-link, comments, and presence infrastructure.
 
@@ -63,12 +70,12 @@
 **Interfaces:**
 - Produces: `class OptionalJwtAuthGuard extends AuthGuard('jwt')` whose `handleRequest(err, user)` returns `user ?? undefined` and never throws. On a valid session `req.user` is populated; on anonymous requests `req.user` is `undefined`.
 
-- [ ] **Step 1: Read the existing guard to match the strategy name**
+- [x] **Step 1: Read the existing guard to match the strategy name**
 
 Run: `cat packages/backend/src/auth/jwt-auth.guard.ts`
 Expected: it is `export class JwtAuthGuard extends AuthGuard('jwt') {}`. Confirm the passport strategy name is `'jwt'`.
 
-- [ ] **Step 2: Write the guard**
+- [x] **Step 2: Write the guard**
 
 ```ts
 // packages/backend/src/auth/optional-jwt-auth.guard.ts
@@ -89,7 +96,7 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/backend/src/auth/optional-jwt-auth.guard.ts
@@ -108,7 +115,7 @@ git commit -m "Add OptionalJwtAuthGuard for anonymous-capable routes"
 - Consumes: `OptionalJwtAuthGuard` (Task 1); `ShareLinkService.findByToken(token)` (throws `NotFoundException`/`GoneException`); `DocumentService.document({ id })`; `WorkspaceService.assertMember`; `FileService.getObject(fileId)`; `VALID_FILE_ID_PATTERN`.
 - Produces: `GET documents/:id/file[?token=<shareToken>]` streaming `application/pdf`.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test**
 
 Model imports/bootstrap on `packages/backend/test/share-link.e2e-spec.ts` (same DB gate). Create a workspace + owner user + a `pdf` document with a real `fileId` blob (upload via `FileService` or seed a MinIO object in `beforeAll`), a member, a non-member, and share links (unexpired + expired).
 
@@ -154,12 +161,12 @@ describe('GET /documents/:id/file', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- document-file-serving`
 Expected: FAIL — routes still require JWT / no token handling yet (`?token=` anonymous request 401/403 mismatch, or the controller isn't registered).
 
-- [ ] **Step 3: Write the controller**
+- [x] **Step 3: Write the controller**
 
 ```ts
 // packages/backend/src/document/document-file.controller.ts
@@ -252,7 +259,7 @@ export class DocumentFileController {
 }
 ```
 
-- [ ] **Step 4: Remove the old route and register the new controller**
+- [x] **Step 4: Remove the old route and register the new controller**
 
 Delete `getDocumentFile` (lines 119-144) from `packages/backend/src/document/document.controller.ts`. If `FileService`/`VALID_FILE_ID_PATTERN` become unused there, leave them — `deleteDocument` still uses both, so no other change is needed.
 
@@ -271,12 +278,12 @@ import { DocumentFileController } from './document-file.controller';
 
 Verify `ShareLinkModule` exports `ShareLinkService` (check `packages/backend/src/share-link/share-link.module.ts`; add it to `exports` if missing).
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- document-file-serving`
 Expected: PASS — all six cases green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/document/document-file.controller.ts \
@@ -303,7 +310,7 @@ git commit -m "Serve PDF file to members or valid share-token viewers"
   - `YorkiePdfRoot = { comments?: { [threadId: string]: Thread<PdfRegionAnchor> } }`.
   - `initialPdfRoot(): Partial<YorkiePdfRoot>` returning `{ comments: {} }`.
 
-- [ ] **Step 1: Add the anchor variant**
+- [x] **Step 1: Add the anchor variant**
 
 In `packages/frontend/src/types/comments.ts`, add above the `CommentAnchor` union:
 
@@ -329,7 +336,7 @@ Then extend the union:
 export type CommentAnchor = SheetCellAnchor | DocsRangeAnchor | PdfRegionAnchor;
 ```
 
-- [ ] **Step 2: Create the PDF Yorkie root**
+- [x] **Step 2: Create the PDF Yorkie root**
 
 ```ts
 // packages/frontend/src/types/pdf-document.ts
@@ -351,12 +358,12 @@ export function initialPdfRoot(): Partial<YorkiePdfRoot> {
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc -b`
 Expected: PASS — the union widening compiles; existing sheet/docs consumers narrow on `kind` and are unaffected.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/types/comments.ts packages/frontend/src/types/pdf-document.ts
@@ -373,7 +380,7 @@ git commit -m "Add pdf-region comment anchor and YorkiePdfRoot"
 - Consumes: `Document<YorkiePdfRoot>` from `@yorkie-js/react`; `CommentStore<PdfRegionAnchor>` from `@/components/comments/comment-store.ts`; `Comment`, `CommentAuthor`, `PdfRegionAnchor`, `Thread` from `@/types/comments.ts`.
 - Produces: `class PdfCommentStore implements CommentStore<PdfRegionAnchor>` with a constructor `(doc, opts?: { newId?; now? })`, and a `dispose()` method. `addThread(anchor, body, author)` takes the stored `PdfRegionAnchor` directly (no path resolution).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/tests/app/files/pdf-comment-store.test.ts
@@ -428,12 +435,12 @@ describe('PdfCommentStore', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-comment-store`
 Expected: FAIL — `PdfCommentStore` does not exist.
 
-- [ ] **Step 3: Write the store**
+- [x] **Step 3: Write the store**
 
 This mirrors `app/docs/comments/yorkie-comment-store.ts` but the anchor is plain data, so `copyThread` is a straight deep copy and `addThread` needs no path resolution.
 
@@ -662,12 +669,12 @@ export class PdfCommentStore implements CommentStore<PdfRegionAnchor> {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-comment-store`
 Expected: PASS — all three cases green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/comments/pdf-comment-store.ts \
@@ -691,7 +698,7 @@ git commit -m "Add PdfCommentStore over the pdf-<id> Yorkie document"
   - `normalizeDragRect(start: {x;y}, end: {x;y}, pageW: number, pageH: number): PdfRect` — converts a pointer drag (page-local pixels) into a `[0,1]` `PdfRect`, clamped and orientation-normalized (so dragging up-left works).
   - `rectToStyle(rect: PdfRect): { left; top; width; height }` in CSS percentage strings (e.g. `"10%"`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/tests/app/files/rect.test.ts
@@ -722,12 +729,12 @@ describe('rect helpers', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- rect`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // packages/frontend/src/app/files/comments/rect.ts
@@ -771,12 +778,12 @@ export function rectToStyle(rect: PdfRect): {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- rect`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/comments/rect.ts packages/frontend/tests/app/files/rect.test.ts
@@ -792,7 +799,7 @@ git commit -m "Add normalized rect helpers for PDF comment pins"
 - Consumes: `PdfCommentStore` (Task 4); `useSyncExternalStore` from React; `CommentAuthor`, `Thread<PdfRegionAnchor>`.
 - Produces: `usePdfComments(store: PdfCommentStore | null): { threads: Thread<PdfRegionAnchor>[]; addThread; addReply; setResolved }`. `threads` re-renders on store change via `subscribe`; each mutator refreshes the snapshot. `addThread(anchor, body, author)` returns the created thread id.
 
-- [ ] **Step 1: Write the hook**
+- [x] **Step 1: Write the hook**
 
 There is no separate unit test for this thin subscription wrapper; it is covered by the layer test (Task 7) and the smoke test (Task 10). Keep it minimal.
 
@@ -861,7 +868,7 @@ export function usePdfComments(store: PdfCommentStore | null) {
 }
 ```
 
-- [ ] **Step 2: Typecheck + commit**
+- [x] **Step 2: Typecheck + commit**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc -b`
 Expected: PASS.
@@ -892,7 +899,7 @@ git commit -m "Add usePdfComments controller hook"
   ```
   It renders, over one page (parent is `position: relative`), a `pin` button per thread whose `anchor.pageIndex === pageIndex`, plus (when `creating`) a transparent capture surface that turns a drag into `onCreateRegion(pageIndex, rect)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // packages/frontend/tests/app/files/pdf-comment-layer.test.tsx
@@ -963,12 +970,12 @@ describe('PdfCommentLayer', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-comment-layer`
 Expected: FAIL — component not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```tsx
 // packages/frontend/src/app/files/pdf-comment-layer.tsx
@@ -1053,12 +1060,12 @@ export function PdfCommentLayer({
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-comment-layer`
 Expected: PASS — three cases green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/pdf-comment-layer.tsx \
@@ -1079,7 +1086,7 @@ git commit -m "Add PdfCommentLayer pin overlay and drag-to-create"
   ```
   Each page wrapper becomes `position: relative` and renders `renderPageOverlay(i)` inside it. `onActivePageChange` fires (deduped) with the top-most page's index as it scrolls into view — reusing the existing `IntersectionObserver` in `PdfPageView`.
 
-- [ ] **Step 1: Add the props and thread them to pages**
+- [x] **Step 1: Add the props and thread them to pages**
 
 In `PdfViewer({ fileUrl })`, extend the signature and pass the callbacks into each `PdfPageView`:
 
@@ -1106,7 +1113,7 @@ export function PdfViewer({
 }
 ```
 
-- [ ] **Step 2: Update `PdfPageView` to host the overlay and report visibility**
+- [x] **Step 2: Update `PdfPageView` to host the overlay and report visibility**
 
 Add `overlay?: React.ReactNode` and `onActive?: () => void` props. Make the page wrapper `relative` and render `{overlay}` after the `<canvas>`. In the existing `IntersectionObserver` effect, call `onActive?.()` when the page intersects (it already sets `visible`):
 
@@ -1135,12 +1142,12 @@ And the wrapper:
 </div>
 ```
 
-- [ ] **Step 3: Verify the Phase 1 viewer test still passes**
+- [x] **Step 3: Verify the Phase 1 viewer test still passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-viewer`
 Expected: PASS — new props are optional; existing render path unchanged.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/pdf-viewer.tsx
@@ -1168,7 +1175,7 @@ git commit -m "Let PdfViewer host per-page overlays and report active page"
   };
   ```
 
-- [ ] **Step 1: Add the type**
+- [x] **Step 1: Add the type**
 
 Append to `packages/frontend/src/types/users.ts`:
 
@@ -1182,7 +1189,7 @@ export type PdfPresence = {
 };
 ```
 
-- [ ] **Step 2: Typecheck + commit**
+- [x] **Step 2: Typecheck + commit**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc -b`
 Expected: PASS.
@@ -1209,7 +1216,7 @@ Presence read/write is wired inside `PdfCollab` in Task 10 (it owns the `useDocu
 - Consumes: `YorkieProvider`, `DocumentProvider`, `useDocument` from `@yorkie-js/react`; `initialPdfRoot`, `YorkiePdfRoot`; `PdfCommentStore`; `usePdfComments`; `PdfCommentLayer`; `CommentSidePanel`, `CommentComposer`; `UserPresence`; `PdfPresence`; `pdfFileUrl`.
 - Produces: `PdfCollab({ documentId, title, readOnly, token, presenceUser })` — a self-contained shell wiring the `pdf-${documentId}` Yorkie document to the viewer overlay + comments panel + presence. `readOnly` hides the composer/create tool. `token` (optional) is appended to the file URL for anonymous serving.
 
-- [ ] **Step 1: Extend `pdfFileUrl` to accept a token**
+- [x] **Step 1: Extend `pdfFileUrl` to accept a token**
 
 ```ts
 // packages/frontend/src/api/files.ts
@@ -1220,7 +1227,7 @@ export function pdfFileUrl(documentId: string, token?: string): string {
 }
 ```
 
-- [ ] **Step 2: Write the failing smoke test**
+- [x] **Step 2: Write the failing smoke test**
 
 The full Yorkie attach can't run in jsdom, so mock `@yorkie-js/react` to hand `PdfCollabInner` a local `Document<YorkiePdfRoot>` (as in the store test) and assert the shell mounts the viewer container, the comment toggle, and — with a seeded thread — a pin. Split `PdfCollab` (providers) from `PdfCollabInner` (consumes `useDocument`) so the test targets `PdfCollabInner` directly with a real local doc.
 
@@ -1238,12 +1245,12 @@ it('renders the comments toggle and a seeded pin', () => {
 
 (If mocking `useDocument` proves heavy, keep this test to `PdfCollabInner` accepting an injected `doc` prop used only in tests — document that seam in a code comment.)
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-collab`
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `PdfCollab` + `PdfCollabInner`**
+- [x] **Step 4: Implement `PdfCollab` + `PdfCollabInner`**
 
 ```tsx
 // packages/frontend/src/app/files/pdf-collab.tsx
@@ -1411,12 +1418,12 @@ export function PdfCollabInner({
 
 Note: `addReply` / `setResolved` are passed to a thread-detail popover in a follow-up; expose them now so the panel's jump target can open a thread view. For the MVP, wiring `onJumpTo` → open panel + highlight pin is sufficient; keep `addReply`/`setResolved` referenced (e.g. via a thread popover) or prefix-underscore them to satisfy lint if unused in this task. Prefer wiring a minimal reply box in the panel row to avoid dead code.
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- pdf-collab`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/pdf-collab.tsx \
@@ -1433,12 +1440,12 @@ git commit -m "Add PdfCollab shell wiring comments and presence"
 **Interfaces:**
 - Consumes: `PdfCollab` (Task 10); the existing share dialog component (find it — the docs/sheets detail routes import a `ShareDialog`/`ShareButton`; reuse the same one).
 
-- [ ] **Step 1: Find the existing share dialog**
+- [x] **Step 1: Find the existing share dialog**
 
 Run: `grep -rl "share-links\|ShareDialog\|Share link" packages/frontend/src/app/docs packages/frontend/src/components | head`
 Expected: the component the docs/sheets owner header uses to create/copy a share link. Note its import path and required props (`documentId`, `title`).
 
-- [ ] **Step 2: Replace the read-only viewer mount with `PdfCollab` and add Share**
+- [x] **Step 2: Replace the read-only viewer mount with `PdfCollab` and add Share**
 
 In `FileLayout`, swap `<PdfViewer fileUrl={pdfFileUrl(documentId)} />` for:
 
@@ -1458,11 +1465,11 @@ In `FileLayout`, swap `<PdfViewer fileUrl={pdfFileUrl(documentId)} />` for:
 
 `currentUser` is available in `FileDetail`; thread it into `FileLayout` as a prop (the query already runs there). Add the existing Share button/dialog (from Step 1) into the `SiteHeader` actions or the `PdfCollab` header row, gated to the owner.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Run: `pnpm dev`, open a PDF you own at `/f/:id`. Verify: pages render; "Add comment" arms the crosshair; dragging a box opens the composer; submitting shows a pin + a panel entry; the Share button creates a link. (Requires `docker compose up -d` for Yorkie.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/file-detail.tsx
@@ -1478,7 +1485,7 @@ git commit -m "Mount PdfCollab and Share button on the owner PDF route"
 - Consumes: `PdfCollab` (Task 10); `ResolvedShareLink` (`{ documentId, role, title, type }`).
 - Produces: a `pdf` branch in `SharedDocumentInner` that renders `PdfCollab` directly (it owns its own `YorkieProvider`/`DocumentProvider`, so it does NOT nest inside the per-type `DocumentProvider` used by doc/slides/sheet).
 
-- [ ] **Step 1: Add the `pdf` branch**
+- [x] **Step 1: Add the `pdf` branch**
 
 `PdfCollab` mounts its own providers, so branch **before** the shared `YorkieProvider` wrapper. In `SharedDocumentInner`, at the top of the returned JSX:
 
@@ -1503,16 +1510,16 @@ if (resolved.type === 'pdf') {
 
 `token` is the route param — thread it into `SharedDocumentInner` from `SharedDocument` (which already has `useParams().token`) as a prop, or read `useParams` again inside. The PDF file fetch uses this token (Slice 1); the Yorkie connection uses the public key exactly like the other shared types.
 
-- [ ] **Step 2: Typecheck + lint**
+- [x] **Step 2: Typecheck + lint**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc -b && pnpm --filter @wafflebase/frontend lint`
 Expected: PASS.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Create a share link on a PDF you own (viewer role), open `/shared/:token` in an incognito window. Verify: the PDF renders (bytes served via `?token=`); comments are visible; as a `viewer` the composer/create tool is hidden; switching the link to `editor` lets you post; a second window shows the peer avatar and page presence.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/shared/shared-document.tsx
@@ -1523,17 +1530,17 @@ git commit -m "Render shared PDF links with comments and presence"
 
 ## Finalization
 
-- [ ] **Run the full fast gate**
+- [x] **Run the full fast gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (after `pnpm install` restored `pdfjs-dist`). If only the pre-existing slides `.at()` typecheck error remains (see project memory), it is unrelated.
 
-- [ ] **Run the backend integration gate for the new serving test**
+- [x] **Run the backend integration gate for the new serving test**
 
 Run: `pnpm verify:integration:docker`
 Expected: PASS — includes `document-file-serving.e2e-spec.ts`.
 
-- [ ] **Self-review + code review**
+- [x] **Self-review + code review**
 
 Dispatch `/code-review` over the full branch diff. Apply blocking findings; note non-blocking as known limitations. Then follow the project Task Workflow (rebase on `origin/main`, open PR: Summary + Test plan).
 

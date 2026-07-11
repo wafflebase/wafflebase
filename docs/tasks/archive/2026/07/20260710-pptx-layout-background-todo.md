@@ -68,7 +68,7 @@ Verify:
 - [x] `pnpm --filter @wafflebase/slides test` (2563 passing)
 - [x] E2E against the real Naver deck (local, not committed): slide 1
       resolves the gradient image; "2026년 3월" lands at x=68, y=982
-- [ ] `pnpm verify:fast`
+- [x] `pnpm verify:fast`
 
 ## Review
 

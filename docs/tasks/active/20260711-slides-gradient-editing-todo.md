@@ -1,6 +1,6 @@
 # Slides Gradient Editing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a `Solid | Gradient` editing UI to the slides shape fill dropdown (PowerPoint-style stops-bar) and extend the gradient stack from linear-only to linear + radial.
 
@@ -55,7 +55,7 @@ Design spec: `docs/design/slides/slides-gradient-editing.md`.
   function migrateGradientFill(raw: any): GradientFill; // backfills type:'linear'
   ```
 
-- [ ] **Step 1: Write the failing migration test**
+- [x] **Step 1: Write the failing migration test**
 
 Create/extend `packages/slides/src/model/migrate.test.ts`:
 
@@ -83,12 +83,12 @@ describe('migrateGradientFill', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- migrate`
 Expected: FAIL — `migrateGradientFill` is not exported.
 
-- [ ] **Step 3: Widen the model type**
+- [x] **Step 3: Widen the model type**
 
 In `theme.ts`, replace the `GradientFill` definition (lines 69-79):
 
@@ -112,7 +112,7 @@ export type GradientFill = {
 };
 ```
 
-- [ ] **Step 4: Add the migration normalizer**
+- [x] **Step 4: Add the migration normalizer**
 
 In `migrate.ts`, add and export:
 
@@ -150,7 +150,7 @@ const fill =
     : rawData?.fill;
 ```
 
-- [ ] **Step 5: Set `type` in the importer**
+- [x] **Step 5: Set `type` in the importer**
 
 In `import/pptx/shape.ts`, update both `parseGradientFill` returns (lines 961, 968):
 
@@ -163,7 +163,7 @@ if (child(grad, 'path')) {
 return { kind: 'gradient', type: 'linear', angle: (angDeg * Math.PI) / 180, stops };
 ```
 
-- [ ] **Step 6: Keep the exporter compiling on the new field**
+- [x] **Step 6: Keep the exporter compiling on the new field**
 
 In `export/pptx/color.ts`, `gradFillXml` is unchanged in behavior but now reads
 a `type` field. No code change needed unless TS complains; if the object is
@@ -173,12 +173,12 @@ any missing `type`:
 Run: `pnpm --filter @wafflebase/slides build`
 Fix any construction sites the compiler flags by adding `type: 'linear'`.
 
-- [ ] **Step 7: Run tests + build to verify green**
+- [x] **Step 7: Run tests + build to verify green**
 
 Run: `pnpm --filter @wafflebase/slides test -- migrate && pnpm --filter @wafflebase/slides build`
 Expected: PASS + clean build.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/slides/src/model/theme.ts packages/slides/src/model/migrate.ts \
@@ -208,7 +208,7 @@ git commit -m "Slides: add GradientFill.type discriminator + migration"
   function radToDeg(rad: number): number;
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -250,12 +250,12 @@ describe('gradient-helpers', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @wafflebase/frontend test -- gradient-helpers`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
 
 ```ts
 import type { GradientFill, GradientStop, ThemeColor, Theme } from '@wafflebase/slides';
@@ -343,12 +343,12 @@ export function seedGradient(from: ThemeColor | undefined, theme: Theme): Gradie
 > `grep -n "accent1\|role:" packages/slides/src/model/theme.ts`. Use the actual
 > role key if `accent1` differs.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `pnpm --filter @wafflebase/frontend test -- gradient-helpers`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/fill-picker/gradient-helpers.ts \
@@ -372,7 +372,7 @@ git commit -m "Slides: gradient editing pure helpers (seed, insert/remove stop, 
   function applyShapeFillValue(store, slideId, ids: string[], fill: Fill | undefined): void; // batch write to all shapes
   ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -401,12 +401,12 @@ describe('readShapeGradient', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @wafflebase/frontend test -- themed-color-picker-helpers`
 Expected: FAIL — `readShapeGradient` not exported.
 
-- [ ] **Step 3: Implement reader + generalized writer**
+- [x] **Step 3: Implement reader + generalized writer**
 
 Append to `themed-color-picker-helpers.ts`:
 
@@ -445,12 +445,12 @@ export function applyShapeFillValue(
 > at the top of the file (they back `readShapeFill`/`applyShapeFill`). Add
 > `Fill`, `GradientFill` to the `@wafflebase/slides` import.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `pnpm --filter @wafflebase/frontend test -- themed-color-picker-helpers`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/themed-color-picker-helpers.ts \
@@ -485,7 +485,7 @@ git commit -m "Slides: readShapeGradient + applyShapeFillValue (Fill write path)
   ```
   `onChange` with `commit: true` = one undo unit boundary (drag end, discrete pick). Live drags call without `commit`.
 
-- [ ] **Step 1: Implement `GradientEditor`**
+- [x] **Step 1: Implement `GradientEditor`**
 
 ```tsx
 import { useRef, useState } from 'react';
@@ -682,7 +682,7 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
 > If the slides toolbar wraps popovers with `useMenuCloseHandlers`, mirror the
 > fill dropdown's `onCloseAutoFocus` handling to avoid focus-steal on close.
 
-- [ ] **Step 2: Typecheck the component**
+- [x] **Step 2: Typecheck the component**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit -p tsconfig.app.json 2>&1 | grep gradient-editor || echo "no new gradient-editor errors"`
 Expected: no new errors originating in `gradient-editor.tsx` (the frontend
@@ -690,7 +690,7 @@ tsconfig has pre-existing errors that are not a CI gate; only new ones in this
 file matter). Also run `pnpm --filter @wafflebase/frontend lint` and fix any
 lint errors in the new file.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx
@@ -724,7 +724,7 @@ git commit -m "Slides: GradientEditor component (linear stops-bar + angle)"
   function FillPicker(props: FillPickerProps): JSX.Element;
   ```
 
-- [ ] **Step 1: Implement `FillPicker`**
+- [x] **Step 1: Implement `FillPicker`**
 
 ```tsx
 import { useState } from 'react';
@@ -803,7 +803,7 @@ export function FillPicker({
 }
 ```
 
-- [ ] **Step 4: Wire into `shape-controls.tsx` (commit-aware gradient draft)**
+- [x] **Step 4: Wire into `shape-controls.tsx` (commit-aware gradient draft)**
 
 Replace the `ThemedColorPicker` block (lines 161-174) with `FillPicker`, and add
 gradient handling next to `onFillChange`. **`GradientEditor` emits live
@@ -913,7 +913,7 @@ before their `setFillOpen(false)` so switching to a solid abandons the draft).
 > `DropdownMenuContent` and drop the imperative call in `onFillOpenChange`
 > (the flush + `setFillOpen` are the only required parts).
 
-- [ ] **Step 5: Typecheck + verify:fast**
+- [x] **Step 5: Typecheck + verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: lint + unit tests green (the gradient-helpers and slides pure-logic
@@ -921,7 +921,7 @@ tests from Tasks 1-3 run here). Also confirm no new `tsc --noEmit` errors in
 `fill-picker/index.tsx` or `shape-controls.tsx`:
 `pnpm --filter @wafflebase/frontend exec tsc --noEmit -p tsconfig.app.json 2>&1 | grep -E "fill-picker|shape-controls" || echo "no new errors"`
 
-- [ ] **Step 6: Browser smoke**
+- [x] **Step 6: Browser smoke**
 
 Add a scenario to the slides interaction harness: select a shape, open Fill,
 click Gradient, drag a stop, recolor it, switch back to Solid.
@@ -929,7 +929,7 @@ click Gradient, drag a stop, recolor it, switch back to Solid.
 Run: `pnpm verify:browser:docker`
 Expected: scenario passes; screenshot shows the gradient-filled shape.
 
-- [ ] **Step 7: Commit + open PR 1**
+- [x] **Step 7: Commit + open PR 1**
 
 ```bash
 git add packages/frontend/src/app/slides/fill-picker/ \

@@ -6,10 +6,10 @@
 > removal, and the deletion-collapses-to-boundary shift semantics). The
 > **authoritative record of what shipped and why it differs** is the companion
 > `*-lessons.md` and the "Phase 1 (checkbox) — as shipped" section of
-> `docs/design/sheets/data-validation.md`. The unchecked `- [ ]` task boxes and
+> `docs/design/sheets/data-validation.md`. The unchecked `- [x]` task boxes and
 > example snippets below are preserved as the historical plan, not a live TODO.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add an in-cell checkbox control to Sheets — a worksheet-level, range-scoped data-validation rule whose cells hold real boolean `TRUE`/`FALSE` values, rendered as a checkbox glyph and toggled by click/Space.
 
@@ -50,7 +50,7 @@
   - `isCheckboxChecked(rule: DataValidationRule, value: string | undefined): boolean`
   - `toggleCheckboxValue(rule: DataValidationRule, value: string | undefined): string`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/sheets/src/model/worksheet/data-validation.test.ts`:
 
@@ -117,12 +117,12 @@ describe('data-validation model', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- data-validation`
 Expected: FAIL — `Cannot find module './data-validation'`.
 
-- [ ] **Step 3: Add the types to `types.ts`**
+- [x] **Step 3: Add the types to `types.ts`**
 
 Insert after the `ConditionalFormatRule` type (after ~line 133):
 
@@ -157,7 +157,7 @@ export type DataValidationRule = {
 };
 ```
 
-- [ ] **Step 4: Create `data-validation.ts`**
+- [x] **Step 4: Create `data-validation.ts`**
 
 ```typescript
 import { cloneRange, inRange } from '../core/coordinates';
@@ -248,12 +248,12 @@ export function toggleCheckboxValue(
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- data-validation`
 Expected: PASS (all 4 tests). If `cloneRange`/`inRange` import paths differ, confirm against `conditional-format.ts:1`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/model/core/types.ts \
@@ -281,11 +281,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `shiftDataValidationRules(rules, axis, index, count): DataValidationRule[]` (row/col insert = positive count, delete = negative)
   - `moveDataValidationRules(rules, from, to): DataValidationRule[]`
 
-- [ ] **Step 1: Read the reference implementation**
+- [x] **Step 1: Read the reference implementation**
 
 Read `packages/sheets/src/model/worksheet/conditional-format.ts:354-450` (`shiftConditionalFormatRules` and `moveConditionalFormatRules`). Your two functions are structurally identical — they transform each rule's `ranges` and drop rules whose ranges fully collapse. Reuse the same range-shifting logic; only the rule type differs.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Append to `data-validation.test.ts`:
 
@@ -320,12 +320,12 @@ describe('data-validation structural edits', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- data-validation`
 Expected: FAIL — `shiftDataValidationRules is not a function`.
 
-- [ ] **Step 4: Implement the helpers**
+- [x] **Step 4: Implement the helpers**
 
 Add to `data-validation.ts` (adapt precisely from `conditional-format.ts:354-450`, substituting `DataValidationRule`/`cloneDataValidationRule` and keeping the same `remapIndex`-based range transform and empty-range drop):
 
@@ -342,12 +342,12 @@ import { remapIndex } from './shifting';
 
 (The implementer copies the two functions verbatim from `conditional-format.ts`, changing only the type name and clone call. Do not invent new logic — the shift/move semantics must match conditional formats exactly.)
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- data-validation`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/model/worksheet/data-validation.ts \
@@ -371,7 +371,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `DataValidationRule` from `../core/types`.
 - Produces: `Worksheet.dataValidations?: DataValidationRule[]`, seeded to `[]` by `createWorksheet`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 import { describe, it, expect } from 'vitest';
@@ -384,12 +384,12 @@ describe('createWorksheet dataValidations seed', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- worksheet-document`
 Expected: FAIL — `dataValidations` is `undefined`.
 
-- [ ] **Step 3: Add the field + seed**
+- [x] **Step 3: Add the field + seed**
 
 In the `Worksheet` type, next to `conditionalFormats?` (line 79):
 
@@ -403,12 +403,12 @@ Add the import of `DataValidationRule` to the existing type import from `../core
     dataValidations: [],
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- worksheet-document`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/sheets/src/model/workbook/worksheet-document.ts \
@@ -435,7 +435,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `getDataValidations(): Promise<DataValidationRule[]>`
   - `setDataValidations(rules: DataValidationRule[]): Promise<void>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to the MemStore test file:
 
@@ -462,12 +462,12 @@ it('round-trips data validation rules', async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- memory`
 Expected: FAIL — `store.setDataValidations is not a function`.
 
-- [ ] **Step 3: Add to the `Store` interface**
+- [x] **Step 3: Add to the `Store` interface**
 
 In `store.ts`, after `getConditionalFormats` (line 171):
 
@@ -485,7 +485,7 @@ In `store.ts`, after `getConditionalFormats` (line 171):
 
 Add `DataValidationRule` to the type import from `../model/core/types`.
 
-- [ ] **Step 4: Implement in MemStore**
+- [x] **Step 4: Implement in MemStore**
 
 Add the field next to `conditionalFormats` (line 73):
 
@@ -534,12 +534,12 @@ import {
 } from '../model/worksheet/data-validation';
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- memory`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/store/store.ts packages/sheets/src/store/memory.ts \
@@ -564,11 +564,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: the `Store` methods from Task 4.
 - Produces: `getDataValidations`/`setDataValidations` on both stores. `ReadOnlyStore.setDataValidations` is a no-op (or throws consistently with its other setters — match the existing `setConditionalFormats` behavior in that file).
 
-- [ ] **Step 1: Inspect the ReadOnlyStore convention**
+- [x] **Step 1: Inspect the ReadOnlyStore convention**
 
 Read how `readonly.ts` implements `setConditionalFormats`/`getConditionalFormats`. Match it exactly (no-op setter returning `Promise.resolve()`, getter returning `[]` or the wrapped source).
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```typescript
 it('exposes data validations read-only', async () => {
@@ -578,30 +578,30 @@ it('exposes data validations read-only', async () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- readonly`
 Expected: FAIL — method missing.
 
-- [ ] **Step 4: Implement ReadOnlyStore**
+- [x] **Step 4: Implement ReadOnlyStore**
 
 Add both methods mirroring its `setConditionalFormats`/`getConditionalFormats`.
 
-- [ ] **Step 5: Implement YorkieStore**
+- [x] **Step 5: Implement YorkieStore**
 
 Mirror the existing `setConditionalFormats`/`getConditionalFormats` in `yorkie-store.ts`: read/write `root.sheets[tabId].dataValidations`, normalizing on read and clone-on-write with the same helpers (import `normalizeDataValidationRule`, `cloneDataValidationRule` next to line 14). Seed the array if absent, exactly as the conditional-format path does. Because rules live at the worksheet level (not on cells), `normalizeCell` needs no change.
 
-- [ ] **Step 6: Run the sheets test suite**
+- [x] **Step 6: Run the sheets test suite**
 
 Run: `pnpm --filter @wafflebase/sheets test -- readonly`
 Expected: PASS. (YorkieStore is exercised by the frontend/integration suites; the round-trip is asserted at the MemStore level in Task 4.)
 
-- [ ] **Step 7: Verify frontend builds**
+- [x] **Step 7: Verify frontend builds**
 
 Run: `pnpm --filter @wafflebase/frontend build`
 Expected: build succeeds (type-checks the YorkieStore change).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/sheets/src/store/readonly.ts \
@@ -629,7 +629,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `insertCheckbox(range: Range): Promise<void>` — creates a `kind:'checkbox'` rule over the range and initializes empty cells to `FALSE`
   - `toggleCheckboxAt(ref: Ref): Promise<boolean>` — toggles the cell if it carries a checkbox rule; returns whether a toggle happened
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 it('inserts a checkbox rule and toggles a cell', async () => {
@@ -645,12 +645,12 @@ it('inserts a checkbox rule and toggles a cell', async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- spreadsheet`
 Expected: FAIL — `insertCheckbox is not a function`.
 
-- [ ] **Step 3: Implement the facade methods**
+- [x] **Step 3: Implement the facade methods**
 
 Follow the `getConditionalFormats` accessor pattern (line 293) for the cached getter. For `insertCheckbox`, generate an id (use the same id scheme as conditional formats — check how `addConditionalFormat`/rule ids are created and reuse it; if none, use a `dv-` prefixed counter/uuid already available in the codebase), append the rule via `setDataValidations`, and set each empty cell in the range to `{ v: 'FALSE' }` inside a `beginBatch()`/`endBatch()` so insert + init is one undo step. For `toggleCheckboxAt`, resolve the rule with `resolveDataValidationAt`; if absent return `false`; else read the cell, compute `toggleCheckboxValue`, `store.set` the new `v`, return `true`.
 
@@ -662,16 +662,16 @@ public getDataValidations(): DataValidationRule[] {
 
 (The `sheet` accessor here follows whatever async/cache convention `getConditionalFormats` uses — match it; if `getConditionalFormats` reads from a synced cache, add `dataValidations` to the same cache refresh in `worksheet.ts:5066` where `getConditionalFormats()` is already fetched.)
 
-- [ ] **Step 4: Add dataValidations to the render-data fetch**
+- [x] **Step 4: Add dataValidations to the render-data fetch**
 
 At `packages/sheets/src/view/worksheet.ts:5066`, where `sheet.getConditionalFormats()` is fetched for rendering, fetch `sheet.getDataValidations()` alongside it and thread it into the cache the facade getter reads (mirror the conditionalFormats plumbing precisely).
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- spreadsheet`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/view/spreadsheet.ts \
@@ -697,7 +697,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `resolveDataValidationAt`, `isCheckboxChecked`, `DataValidationRule[]`, `toCellRect` (line 1632), the `getThemeColor` + `Path2D` helpers used by `renderCellFilterButton`.
 - Produces: a checkbox glyph drawn for each cell whose ref resolves to a `kind:'checkbox'` rule (filled/checked vs empty box).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Assert that, given a checkbox rule over `A1` and a mock 2D context, the renderer issues box-drawing calls for that cell. Follow the existing gridcanvas test harness (mock `CanvasRenderingContext2D`, spy on `strokeRect`/`fillRect`/`stroke`). Example shape:
 
@@ -715,20 +715,20 @@ it('draws a checkbox glyph for a checkbox-ruled cell', () => {
 
 (Match the actual mock/spy utilities already in `gridcanvas.test.ts`; do not introduce a new harness.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/sheets test -- gridcanvas`
 Expected: FAIL — no box drawn (or `renderCellCheckbox` undefined).
 
-- [ ] **Step 3: Thread dataValidations through the renderer**
+- [x] **Step 3: Thread dataValidations through the renderer**
 
 At each site where `conditionalFormats` is passed (gridcanvas.ts:90, 148, 230, 266, 303), add a sibling `dataValidations?: DataValidationRule[]` parameter/argument. This is mechanical — follow the conditionalFormats thread exactly.
 
-- [ ] **Step 4: Implement `renderCellCheckbox`**
+- [x] **Step 4: Implement `renderCellCheckbox`**
 
 Model on `renderCellFilterButton` (line 811): compute `rect = toCellRect(...)`, bail if `width<=6||height<=6`, center a ~14px square, draw the box border (`ctx.strokeRect`), and when `isCheckboxChecked(rule, cell?.v)` fill the box (`getThemeColor('selectionBGColor')`) and stroke a check path (a cached `Path2D`, mirroring `getFilterIconPath2D`, with the same `Path2D`-undefined fallback that draws the tick via `moveTo`/`lineTo`). Use `getThemeColor` for colors.
 
-- [ ] **Step 5: Call it in the render loop**
+- [x] **Step 5: Call it in the render loop**
 
 In `renderQuadrantCells`, after the content pass (`renderCellContent`, ~line 590) and before/near the filter-button pass, resolve the rule per cell:
 
@@ -743,12 +743,12 @@ if (dataValidations?.length) {
 
 When a checkbox is drawn, skip drawing the cell's `TRUE`/`FALSE` text (GS parity) — guard `renderCellContent` for that cell, or draw the checkbox in place of text. Choose the minimal guard consistent with how `renderCellContent` is invoked.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/sheets test -- gridcanvas`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/sheets/src/view/gridcanvas.ts \
@@ -772,11 +772,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `Spreadsheet.toggleCheckboxAt`, `getDataValidations`, `resolveDataValidationAt`, `toRefFromMouse`, the checkbox rect geometry from Task 7 (extract a shared `getCheckboxRect(ref)` if the render code computed it inline).
 - Produces: click-on-box and Space-on-selection toggling.
 
-- [ ] **Step 1: Add `detectCheckbox(x, y): Ref | null`**
+- [x] **Step 1: Add `detectCheckbox(x, y): Ref | null`**
 
 Mirror `detectFilterButton` (line 1194): map mouse → ref via `toRefFromMouse`; resolve the rule via `resolveDataValidationAt(ref, this.sheet.getDataValidations())`; if it is a checkbox rule and `(x,y)` falls within the checkbox rect (reuse the same rect math as the renderer — factor it into a shared helper to avoid drift), return `ref`; else `null`.
 
-- [ ] **Step 2: Branch in mousedown**
+- [x] **Step 2: Branch in mousedown**
 
 Near line 2531, before normal selection handling, add:
 
@@ -792,20 +792,20 @@ if (checkboxRef) {
 
 Guard on store writability (skip when read-only), matching how other mutations are gated in this file.
 
-- [ ] **Step 3: Branch in keydown for Space**
+- [x] **Step 3: Branch in keydown for Space**
 
 Where the key handler processes printable/space keys, if the active selection's anchor cell carries a checkbox rule, prevent default and toggle every checkbox cell in the selection within a `beginBatch()`/`endBatch()`, then re-render. Use `getDataValidations` + `resolveDataValidationAt` per cell; for a multi-cell selection set all to checked (GS/Excel parity) rather than per-cell flip.
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Run the app (Task 9) — this task has no isolated automated assertion beyond `detectCheckbox` geometry. If `worksheet.ts` has an interaction test harness, add a `detectCheckbox` hit/miss test there.
 
-- [ ] **Step 5: Run the full sheets suite + lint**
+- [x] **Step 5: Run the full sheets suite + lint**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/view/worksheet.ts
@@ -828,16 +828,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `Spreadsheet.insertCheckbox(range)` and the current selection range accessor already used by other toolbar actions.
 
-- [ ] **Step 1: Add an "Insert → Checkbox" action**
+- [x] **Step 1: Add an "Insert → Checkbox" action**
 
 Wire a toolbar/menu item that reads the current selection range and calls `spreadsheet.insertCheckbox(range)`. Follow the exact pattern of an existing insert action (imports, permission gating, disabled-when-read-only). Keep it minimal — the full Data-validation side panel is a later phase.
 
-- [ ] **Step 2: Build the frontend**
+- [x] **Step 2: Build the frontend**
 
 Run: `pnpm --filter @wafflebase/frontend build`
 Expected: build succeeds.
 
-- [ ] **Step 3: Manual smoke**
+- [x] **Step 3: Manual smoke**
 
 Run: `docker compose up -d && pnpm dev`
 Then in the browser (`:5173`):
@@ -848,7 +848,7 @@ Then in the browser (`:5173`):
 5. Copy `A1` to `C1` → the checkbox value copies as `TRUE`/`FALSE` (note: the *rule* does not follow a plain value copy — this is expected for Phase 1; document as a known limitation).
 6. Open the same doc in a second tab → toggling a box in one tab reflects in the other (Yorkie sync).
 
-- [ ] **Step 4: Capture lessons + commit**
+- [x] **Step 4: Capture lessons + commit**
 
 Record anything surprising (esp. the render/interaction rect-sharing and any `getConditionalFormats` cache plumbing quirks) in `docs/tasks/active/20260710-sheet-data-validation-checkbox-lessons.md`.
 

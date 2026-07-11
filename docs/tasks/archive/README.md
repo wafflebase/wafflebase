@@ -6,15 +6,25 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 346
+Total archived tasks: 356
 
-## 2026/07 (16 tasks)
+## 2026/07 (26 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./2026/07/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./2026/07/20260711-data-validation-panel-lessons.md) |
+| pptx inherit title align (2026-07-11) | [20260711-pptx-inherit-title-align-todo.md](./2026/07/20260711-pptx-inherit-title-align-todo.md) | [20260711-pptx-inherit-title-align-lessons.md](./2026/07/20260711-pptx-inherit-title-align-lessons.md) |
+| sheets xlsx style import (2026-07-11) | [20260711-sheets-xlsx-style-import-todo.md](./2026/07/20260711-sheets-xlsx-style-import-todo.md) | - |
+| slides gradient fill (2026-07-11) | [20260711-slides-gradient-fill-todo.md](./2026/07/20260711-slides-gradient-fill-todo.md) | [20260711-slides-gradient-fill-lessons.md](./2026/07/20260711-slides-gradient-fill-lessons.md) |
+| data validation list (2026-07-10) | [20260710-data-validation-list-todo.md](./2026/07/20260710-data-validation-list-todo.md) | [20260710-data-validation-list-lessons.md](./2026/07/20260710-data-validation-list-lessons.md) |
+| pptx layout background (2026-07-10) | [20260710-pptx-layout-background-todo.md](./2026/07/20260710-pptx-layout-background-todo.md) | [20260710-pptx-layout-background-lessons.md](./2026/07/20260710-pptx-layout-background-lessons.md) |
+| sheet data validation checkbox (2026-07-10) | [20260710-sheet-data-validation-checkbox-todo.md](./2026/07/20260710-sheet-data-validation-checkbox-todo.md) | [20260710-sheet-data-validation-checkbox-lessons.md](./2026/07/20260710-sheet-data-validation-checkbox-lessons.md) |
+| slides charts (2026-07-09) | [20260709-slides-charts-todo.md](./2026/07/20260709-slides-charts-todo.md) | [20260709-slides-charts-lessons.md](./2026/07/20260709-slides-charts-lessons.md) |
+| pdf phase2 share comments (2026-07-08) | [20260708-pdf-phase2-share-comments-todo.md](./2026/07/20260708-pdf-phase2-share-comments-todo.md) | - |
 | cli bundle workspace deps (2026-07-07) | [20260707-cli-bundle-workspace-deps-todo.md](./2026/07/20260707-cli-bundle-workspace-deps-todo.md) | [20260707-cli-bundle-workspace-deps-lessons.md](./2026/07/20260707-cli-bundle-workspace-deps-lessons.md) |
 | documents list sort search (2026-07-07) | [20260707-documents-list-sort-search-todo.md](./2026/07/20260707-documents-list-sort-search-todo.md) | [20260707-documents-list-sort-search-lessons.md](./2026/07/20260707-documents-list-sort-search-lessons.md) |
 | pdf viewer (2026-07-07) | [20260707-pdf-viewer-todo.md](./2026/07/20260707-pdf-viewer-todo.md) | [20260707-pdf-viewer-lessons.md](./2026/07/20260707-pdf-viewer-lessons.md) |
+| release v0.5.0 (2026-07-07) | [20260707-release-v0.5.0-todo.md](./2026/07/20260707-release-v0.5.0-todo.md) | - |
 | docs cursor move relayout (2026-07-05) | [20260705-docs-cursor-move-relayout-todo.md](./2026/07/20260705-docs-cursor-move-relayout-todo.md) | - |
 | docs decoration culling (2026-07-05) | [20260705-docs-decoration-culling-todo.md](./2026/07/20260705-docs-decoration-culling-todo.md) | [20260705-docs-decoration-culling-lessons.md](./2026/07/20260705-docs-decoration-culling-lessons.md) |
 | docx vml image import (2026-07-05) | [20260705-docx-vml-image-import-todo.md](./2026/07/20260705-docx-vml-image-import-todo.md) | [20260705-docx-vml-image-import-lessons.md](./2026/07/20260705-docx-vml-image-import-lessons.md) |
