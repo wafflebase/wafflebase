@@ -2,6 +2,8 @@ import {
   representativeColor,
   type ColorRole,
   type Element,
+  type Fill,
+  type GradientFill,
   type ShapeElement,
   type SlidesStore,
   type ThemeColor,
@@ -136,4 +138,35 @@ export function readShapeFill(element: Element): ThemeColor | undefined {
   // The picker edits a solid color; a gradient-filled shape shows its
   // representative stop (picking a new color replaces the gradient).
   return fill ? representativeColor(fill) : undefined;
+}
+
+/**
+ * Read the current fill of a shape as a gradient, or undefined if the fill
+ * is solid / absent / the element isn't a shape. Powers the Gradient tab.
+ */
+export function readShapeGradient(element: Element): GradientFill | undefined {
+  if (element.type !== "shape") return undefined;
+  const fill = (element as ShapeElement).data.fill;
+  return fill && fill.kind === "gradient" ? fill : undefined;
+}
+
+/**
+ * Write a full Fill (solid or gradient) to every shape in `ids` in one
+ * batch. `undefined` clears the fill. Non-shapes are skipped.
+ */
+export function applyShapeFillValue(
+  store: SlidesStore,
+  slideId: string,
+  ids: readonly string[],
+  slide: { elements: readonly Element[] },
+  fill: Fill | undefined,
+): void {
+  store.batch(() => {
+    for (const id of ids) {
+      const el = slide.elements.find((e) => e.id === id);
+      if (el?.type === "shape") {
+        store.updateElementData(slideId, id, { fill });
+      }
+    }
+  });
 }

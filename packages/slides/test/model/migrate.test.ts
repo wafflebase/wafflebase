@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { migrateDocument } from '../../src/model/migrate';
+import { migrateDocument, migrateGradientFill } from '../../src/model/migrate';
 
 describe('migrateDocument', () => {
   it('adds default themeId/masterId/themes/masters/layouts to legacy doc', () => {
@@ -176,5 +176,60 @@ describe('migrateDocument', () => {
         layouts: [],
       } as any).meta.recentColors,
     ).toBeUndefined();
+  });
+
+  it('backfills type:"linear" on a legacy shape gradient fill with no type', () => {
+    const legacy = {
+      meta: { title: 'Old' },
+      slides: [
+        {
+          id: 's1',
+          layoutId: 'blank',
+          background: { fill: '#fff' },
+          elements: [
+            {
+              id: 'e1',
+              type: 'shape',
+              frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+              data: {
+                kind: 'rect',
+                fill: {
+                  kind: 'gradient',
+                  angle: Math.PI / 2,
+                  stops: [
+                    { pos: 0, color: { kind: 'srgb', value: '#fff' } },
+                    { pos: 1, color: { kind: 'srgb', value: '#000' } },
+                  ],
+                },
+              },
+            },
+          ],
+          notes: [],
+        },
+      ],
+      layouts: [],
+    } as any;
+    const out = migrateDocument(legacy);
+    const shape = out.slides[0].elements[0] as any;
+    expect(shape.data.fill.type).toBe('linear');
+  });
+});
+
+describe('migrateGradientFill', () => {
+  it('backfills type:"linear" on a legacy gradient with no type', () => {
+    const legacy = {
+      kind: 'gradient',
+      angle: Math.PI / 2,
+      stops: [
+        { pos: 0, color: { kind: 'srgb', value: '#fff' } },
+        { pos: 1, color: { kind: 'srgb', value: '#000' } },
+      ],
+    };
+    expect(migrateGradientFill(legacy).type).toBe('linear');
+  });
+
+  it('preserves an explicit type', () => {
+    const g = { kind: 'gradient', type: 'radial', angle: 0, stops: [] };
+    expect(migrateGradientFill(g).type).toBe('radial');
   });
 });

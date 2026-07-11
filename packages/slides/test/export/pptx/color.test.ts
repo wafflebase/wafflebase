@@ -35,6 +35,7 @@ describe('color', () => {
   it('emits a linear gradFill with stops + lin angle', () => {
     const xml = gradFillXml({
       kind: 'gradient',
+      type: 'linear',
       angle: Math.PI / 4, // 45°
       stops: [
         { pos: 0, color: { kind: 'srgb', value: '#0093FF' } },
@@ -56,6 +57,7 @@ describe('color', () => {
     expect(
       fillXml({
         kind: 'gradient',
+        type: 'linear',
         angle: 0,
         stops: [
           { pos: 0, color: { kind: 'srgb', value: '#112233' } },
@@ -70,6 +72,7 @@ describe('color', () => {
     // export a lone <a:gs> or PowerPoint rejects the file.
     const xml = fillXml({
       kind: 'gradient',
+      type: 'linear',
       angle: 0,
       stops: [{ pos: 0, color: { kind: 'srgb', value: '#112233' } }],
     });

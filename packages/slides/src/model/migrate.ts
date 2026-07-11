@@ -1,6 +1,6 @@
 import type { Guide, GuideAxis, SlidesDocument } from './presentation';
 import { MAX_RECENT_COLORS } from './presentation';
-import type { ThemeColor } from './theme';
+import type { GradientFill, ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
 import { generateId } from './element';
 import { defaultLight } from '../themes/default-light';
@@ -148,7 +148,12 @@ function migrateBackground(bg: any): { fill?: ThemeColor; image?: any } {
 function migrateElement(el: any): any {
   if (el?.type !== 'shape') return el;
   const data: Record<string, unknown> = { ...el.data };
-  if (el.data?.fill != null) data.fill = wrapColor(el.data.fill);
+  if (el.data?.fill != null) {
+    data.fill =
+      el.data.fill?.kind === 'gradient'
+        ? migrateGradientFill(el.data.fill)
+        : wrapColor(el.data.fill);
+  }
   if (el.data?.stroke != null) {
     data.stroke = { ...el.data.stroke, color: wrapColor(el.data.stroke.color) };
   }
@@ -159,4 +164,18 @@ function wrapColor(c: unknown): ThemeColor {
   if (typeof c === 'string') return { kind: 'srgb', value: c };
   if (c && typeof c === 'object' && 'kind' in (c as any)) return c as ThemeColor;
   return { kind: 'role', role: 'background' };
+}
+
+/**
+ * Normalize a stored gradient fill. Documents written before the radial
+ * work carry no `type`; they were all linear, so backfill `type:'linear'`.
+ */
+export function migrateGradientFill(raw: any): GradientFill {
+  return {
+    kind: 'gradient',
+    type: raw?.type === 'radial' ? 'radial' : 'linear',
+    angle: typeof raw?.angle === 'number' ? raw.angle : 0,
+    center: raw?.center,
+    stops: Array.isArray(raw?.stops) ? raw.stops : [],
+  };
 }

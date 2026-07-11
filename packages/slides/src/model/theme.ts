@@ -63,18 +63,21 @@ export type ThemeFont =
   | { kind: 'role'; role: FontRole }
   | { kind: 'family'; family: string };
 
-/** One stop of a linear gradient. `pos` is `0..1` along the gradient axis. */
+/** One stop of a gradient. `pos` is `0..1` along the gradient axis. */
 export type GradientStop = { pos: number; color: ThemeColor };
 
 /**
- * Linear gradient fill. `angle` is in radians, clockwise from the positive
- * x-axis (`0` = left→right), matching OOXML `<a:lin ang>` after conversion
- * from 60000ths-of-a-degree. Radial/path gradients are not modeled; the
- * importer approximates them by their first stop.
+ * Gradient fill. `type` selects the geometry:
+ *  - `linear`: `angle` (radians, cw from +x, `0` = left→right) sets the axis.
+ *  - `radial`: `center` (0..1 of the box, default `{0.5,0.5}`) sets the origin;
+ *    `angle` is ignored.
+ * Maps to OOXML `<a:lin>` (linear) / `<a:path path="circle">` (radial).
  */
 export type GradientFill = {
   kind: 'gradient';
+  type: 'linear' | 'radial';
   angle: number;
+  center?: { x: number; y: number };
   stops: GradientStop[];
 };
 
