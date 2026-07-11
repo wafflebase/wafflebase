@@ -27,7 +27,7 @@ import {
   computeCheckboxBox,
   computeListArrowBox,
 } from './gridcanvas';
-import { isValidListValue } from '../model/worksheet/data-validation';
+import { isValidValueForRule } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
@@ -744,16 +744,17 @@ export class Worksheet {
     const rule = this.sheet!.getDataValidationAt(ref);
     // A formula is validated by its computed result at render time (warning
     // marker), not by its literal text — reject only compares literal typed
-    // values against the option list, so let formulas through here.
+    // values, so let formulas through here.
     if (
       rule &&
-      rule.kind === 'list' &&
       rule.onInvalid === 'reject' &&
       !value.startsWith('=') &&
-      !isValidListValue(rule, value)
+      !isValidValueForRule(rule, value)
     ) {
       this.onValidationErrorCallback?.(
-        `"${value}" does not match a value in the dropdown list.`,
+        rule.kind === 'date'
+          ? `"${value}" is not a valid date for this cell.`
+          : `"${value}" does not match a value in the dropdown list.`,
       );
       return false;
     }
@@ -1716,7 +1717,7 @@ export class Worksheet {
     }
     this.hoveredValidationCandidate = sref;
     const rule = this.sheet.getDataValidationAt(ref);
-    if (!rule || rule.kind !== 'list') {
+    if (!rule || (rule.kind !== 'list' && rule.kind !== 'date')) {
       this.hideValidationTooltip();
       return;
     }
@@ -1725,16 +1726,22 @@ export class Worksheet {
     if (this.hoveredValidationCandidate !== sref) {
       return;
     }
-    if (isValidListValue(rule, cell?.v)) {
+    if (isValidValueForRule(rule, cell?.v)) {
       this.hideValidationTooltip();
       return;
     }
-    const options = rule.list ?? [];
-    const shown =
-      options.length > 8
-        ? `${options.slice(0, 8).join(', ')}, …`
-        : options.join(', ');
-    this.validationTooltip.textContent = `Invalid entry — must be one of: ${shown}`;
+    let message: string;
+    if (rule.kind === 'date') {
+      message = 'Invalid entry — enter a valid date for this cell.';
+    } else {
+      const options = rule.list ?? [];
+      const shown =
+        options.length > 8
+          ? `${options.slice(0, 8).join(', ')}, …`
+          : options.join(', ');
+      message = `Invalid entry — must be one of: ${shown}`;
+    }
+    this.validationTooltip.textContent = message;
     this.validationTooltip.style.left = `${clientX + 12}px`;
     this.validationTooltip.style.top = `${clientY + 16}px`;
     this.validationTooltip.style.display = 'block';
