@@ -16,6 +16,7 @@ import {
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
 import {
   isCheckboxChecked,
+  isValidDateValue,
   isValidListValue,
   resolveDataValidationAt,
 } from '../model/worksheet/data-validation';
@@ -712,6 +713,20 @@ export class GridCanvas {
           effectiveStyle,
           mergeSpan,
         );
+      }
+
+      // Date rules have no persistent glyph (GS parity); flag an invalid
+      // value (non-date or out-of-bounds) with the same red corner marker
+      // the list warning path uses. Computed at render time, never persisted.
+      if (dvRule && dvRule.kind === 'date' && !isValidDateValue(dvRule, cell?.v)) {
+        const rect = this.toCellRect(
+          { r: row, c: col },
+          scroll,
+          rowDim,
+          colDim,
+          mergeSpan,
+        );
+        this.drawCornerMarker(ctx, rect.left + rect.width, rect.top, '#ea4335');
       }
     }
 
