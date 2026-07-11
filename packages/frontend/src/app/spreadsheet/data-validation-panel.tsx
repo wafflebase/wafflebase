@@ -106,15 +106,21 @@ export function DataValidationPanel({
       if (!spreadsheet) return;
       // A list rule with no usable options is normalized away on write, which
       // would drop the cell's existing rule while the user is still filling in
-      // options (e.g. right after switching criteria to Dropdown, or a fresh
-      // Add). Keep such an in-progress rule in panel state only; persist once
-      // every list rule has at least one option.
-      const hasIncompleteList = nextRules.some(
-        (r) => r.kind === "list" && !(r.list ?? []).some((o) => o.trim()),
+      // options (e.g. right after switching criteria to Dropdown). Persist such
+      // an in-progress rule as its last-persisted form instead — or omit it if
+      // it is brand new — so every OTHER rule (and unrelated deletes/edits)
+      // still persists normally.
+      const persistedById = new Map(
+        spreadsheet.getDataValidations().map((r) => [r.id, r]),
       );
-      if (!hasIncompleteList) {
-        void spreadsheet.setDataValidations(nextRules);
-      }
+      const toPersist = nextRules.flatMap((r) => {
+        const incomplete =
+          r.kind === "list" && !(r.list ?? []).some((o) => o.trim());
+        if (!incomplete) return [r];
+        const previous = persistedById.get(r.id);
+        return previous ? [previous] : [];
+      });
+      void spreadsheet.setDataValidations(toPersist);
     },
     [spreadsheet],
   );

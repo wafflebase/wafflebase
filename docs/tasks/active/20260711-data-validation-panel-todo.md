@@ -26,8 +26,9 @@ slot with the CF/Chart panels (mutually exclusive). Reads via
 - Checkbox values fixed to `TRUE`/`FALSE` (no custom values in v1).
 - Follow the existing panel precedent: **frontend panels have no component unit
   tests** in this repo; verify via `tsc --noEmit`, production build, and a manual
-  browser smoke (the sheets dev harness works without auth). Do NOT invent a React
-  test harness.
+  browser smoke. The panel is a frontend React component, so its interactive
+  smoke needs the **authenticated app** — the sheets dev harness only mounts the
+  bare `Spreadsheet` engine, not the app shell. Do NOT invent a React test harness.
 - Each commit: `pnpm verify:fast` green.
 
 ## File structure
@@ -107,7 +108,7 @@ git commit -m "Sheets: public Spreadsheet.setDataValidations for the panel"
   };
   ```
 - Consumes: `spreadsheet.getDataValidations()`, `spreadsheet.setDataValidations(rules)`,
-  `spreadsheet.getListRuleAt()` (returns the list rule at the active cell or undefined),
+  `spreadsheet.getDataValidationAt()` (returns the rule of any kind at the active cell or undefined),
   and `@wafflebase/sheets` exports `DataValidationRule`, `DataValidationKind`, `Range`,
   `parseRef`, `toSref`, `normalizeListOptions`.
 
@@ -268,7 +269,7 @@ export function DataValidationPanel({
     }
     const loaded = spreadsheet.getDataValidations();
     setRules(loaded);
-    const activeListRule = spreadsheet.getListRuleAt();
+    const existing = spreadsheet.getDataValidationAt();
     if (activeListRule) {
       setSelectedRuleId(activeListRule.id);
     } else if (autoAddKind) {
@@ -764,8 +765,9 @@ git commit -m "Sheets: Data validation context-menu entry"
 - [ ] **Step 2: Frontend production build** — `pnpm --filter @wafflebase/frontend build`.
       Expected: `EXIT=0`.
 
-- [ ] **Step 3: Manual smoke** (sheets dev harness is authless; or the running
-      `:5173` app). Verify:
+- [ ] **Step 3: Manual smoke** in the authenticated `:5173` app (the panel is a
+      frontend component; the sheets dev harness only mounts the bare engine).
+      Verify:
   - Dropdown toolbar button → panel opens with a new Dropdown rule for the selection.
   - Enter options → blur → arrow appears on the cells; picking a value writes it.
   - Switch criteria to Checkbox → cells render checkboxes.
