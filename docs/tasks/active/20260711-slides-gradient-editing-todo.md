@@ -20,6 +20,14 @@ Design spec: `docs/design/slides/slides-gradient-editing.md`.
 - Commit timing: marker drags + transparency slider commit once on pointer-up (one undo unit); discrete picks (add/delete stop, recolor, direction preset, numeric blur) commit immediately.
 - ANTLR generated files are off-limits (not touched here). Do NOT hand-edit generated formula files.
 - Each commit keeps `pnpm verify:fast` green.
+- **Frontend components have NO RTL/component unit tests in this repo** (zero
+  `src` files import `@testing-library/react`, despite the harness being
+  installed). React components (`GradientEditor`, `FillPicker`) are verified by
+  `tsc --noEmit` + production build + `verify:browser:docker` smoke — **do NOT
+  add component unit tests**; missing component tests is not a defect. Pure
+  logic (model, migration, helpers, renderer, importer, exporter) IS unit-
+  tested in the `slides` package / frontend helper modules, per that package's
+  convention. This governs Tasks 4, 5, 9 (component tests removed below).
 
 ---
 
@@ -456,7 +464,12 @@ git commit -m "Slides: readShapeGradient + applyShapeFillValue (Fill write path)
 
 **Files:**
 - Create: `packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx`
-- Test: `packages/frontend/src/app/slides/fill-picker/gradient-editor.test.tsx`
+
+> No component unit test (repo convention — see Global Constraints). The
+> stops-bar's pointer/position logic already lives in the unit-tested
+> `gradient-helpers` (Task 2: `insertStopAt`/`removeStopAt`/`sortStops`);
+> the component wires those. Verify via `tsc --noEmit` + build + the Task 5
+> browser smoke.
 
 **Interfaces:**
 - Consumes: `gradient-helpers`, `ThemedColorPicker`, `GradientFill`, `Theme`, `resolveColor`.
@@ -472,59 +485,7 @@ git commit -m "Slides: readShapeGradient + applyShapeFillValue (Fill write path)
   ```
   `onChange` with `commit: true` = one undo unit boundary (drag end, discrete pick). Live drags call without `commit`.
 
-- [ ] **Step 1: Write the failing component test**
-
-```tsx
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { GradientEditor } from './gradient-editor';
-
-const theme = { colors: { accent1: '#4285f4' }, fonts: {} } as any;
-const value = {
-  kind: 'gradient', type: 'linear', angle: Math.PI / 2,
-  stops: [
-    { pos: 0, color: { kind: 'srgb', value: '#000000' } },
-    { pos: 1, color: { kind: 'srgb', value: '#ffffff' } },
-  ],
-} as any;
-
-describe('GradientEditor', () => {
-  it('renders one marker per stop', () => {
-    render(<GradientEditor value={value} theme={theme} onChange={() => {}} />);
-    expect(screen.getAllByRole('button', { name: /gradient stop/i })).toHaveLength(2);
-  });
-
-  it('adding a stop emits a 3-stop gradient with commit', () => {
-    const onChange = vi.fn();
-    render(<GradientEditor value={value} theme={theme} onChange={onChange} />);
-    const track = screen.getByRole('slider', { name: /gradient stops/i });
-    // simulate an add-click at the track midpoint
-    fireEvent.pointerDown(track, { clientX: 100 });
-    // component maps clientX->pos internally; assert a commit with more stops
-    const call = onChange.mock.calls.at(-1);
-    expect(call?.[0].stops.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('editing the angle input emits a new angle on blur', () => {
-    const onChange = vi.fn();
-    render(<GradientEditor value={value} theme={theme} onChange={onChange} />);
-    const angle = screen.getByRole('spinbutton', { name: /angle/i });
-    fireEvent.change(angle, { target: { value: '0' } });
-    fireEvent.blur(angle);
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ angle: 0 }),
-      expect.objectContaining({ commit: true }),
-    );
-  });
-});
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm --filter @wafflebase/frontend test -- gradient-editor`
-Expected: FAIL — module not found.
-
-- [ ] **Step 3: Implement `GradientEditor`**
+- [ ] **Step 1: Implement `GradientEditor`**
 
 ```tsx
 import { useRef, useState } from 'react';
@@ -721,16 +682,18 @@ export function GradientEditor({ value, theme, recentColors, onChange }: Gradien
 > If the slides toolbar wraps popovers with `useMenuCloseHandlers`, mirror the
 > fill dropdown's `onCloseAutoFocus` handling to avoid focus-steal on close.
 
-- [ ] **Step 4: Run to verify pass**
+- [ ] **Step 2: Typecheck the component**
 
-Run: `pnpm --filter @wafflebase/frontend test -- gradient-editor`
-Expected: PASS (adjust the add-stop test's event simulation to the final marker/track handlers if needed — keep asserting behavior, not implementation).
+Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit -p tsconfig.app.json 2>&1 | grep gradient-editor || echo "no new gradient-editor errors"`
+Expected: no new errors originating in `gradient-editor.tsx` (the frontend
+tsconfig has pre-existing errors that are not a CI gate; only new ones in this
+file matter). Also run `pnpm --filter @wafflebase/frontend lint` and fix any
+lint errors in the new file.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx \
-        packages/frontend/src/app/slides/fill-picker/gradient-editor.test.tsx
+git add packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx
 git commit -m "Slides: GradientEditor component (linear stops-bar + angle)"
 ```
 
@@ -741,8 +704,10 @@ git commit -m "Slides: GradientEditor component (linear stops-bar + angle)"
 **Files:**
 - Create: `packages/frontend/src/app/slides/fill-picker/index.tsx`
 - Modify: `packages/frontend/src/app/slides/toolbar/shape-controls.tsx:60-176`
-- Test: `packages/frontend/src/app/slides/fill-picker/fill-picker.test.tsx`
 - Browser smoke: `packages/frontend/` visual/interaction harness (add one scenario)
+
+> No component unit test (repo convention — see Global Constraints). Verify via
+> `tsc --noEmit` + build + the browser smoke scenario in Step 5.
 
 **Interfaces:**
 - Consumes: `ThemedColorPicker`, `GradientEditor`, `seedGradient`, `readShapeFill`, `readShapeGradient`, `representativeColor`.
@@ -759,56 +724,7 @@ git commit -m "Slides: GradientEditor component (linear stops-bar + angle)"
   function FillPicker(props: FillPickerProps): JSX.Element;
   ```
 
-- [ ] **Step 1: Write the failing test**
-
-```tsx
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { FillPicker } from './index';
-
-const theme = { colors: { accent1: '#4285f4' }, fonts: {} } as any;
-
-describe('FillPicker', () => {
-  it('shows Solid tab for a solid fill', () => {
-    render(
-      <FillPicker fill={{ kind: 'srgb', value: '#f00' }} theme={theme}
-        onChangeSolid={() => {}} onChangeGradient={() => {}} onClear={() => {}} />,
-    );
-    expect(screen.getByRole('tab', { name: /solid/i })).toHaveAttribute('aria-selected', 'true');
-  });
-
-  it('switching to Gradient seeds a 2-stop gradient', () => {
-    const onChangeGradient = vi.fn();
-    render(
-      <FillPicker fill={{ kind: 'srgb', value: '#f00' }} theme={theme}
-        onChangeSolid={() => {}} onChangeGradient={onChangeGradient} onClear={() => {}} />,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: /gradient/i }));
-    expect(onChangeGradient).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'gradient', type: 'linear' }),
-      expect.objectContaining({ commit: true }),
-    );
-  });
-
-  it('opens on the Gradient tab when the fill is already a gradient', () => {
-    const g = { kind: 'gradient', type: 'linear', angle: 0,
-      stops: [{ pos: 0, color: { kind: 'srgb', value: '#000' } },
-              { pos: 1, color: { kind: 'srgb', value: '#fff' } }] } as any;
-    render(
-      <FillPicker fill={g} theme={theme}
-        onChangeSolid={() => {}} onChangeGradient={() => {}} onClear={() => {}} />,
-    );
-    expect(screen.getByRole('tab', { name: /gradient/i })).toHaveAttribute('aria-selected', 'true');
-  });
-});
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm --filter @wafflebase/frontend test -- fill-picker`
-Expected: FAIL — module not found.
-
-- [ ] **Step 3: Implement `FillPicker`**
+- [ ] **Step 1: Implement `FillPicker`**
 
 ```tsx
 import { useState } from 'react';
@@ -929,10 +845,13 @@ const firstFill =
 > handles `record`/`commit`; keep it as the solid path. The gradient path uses
 > `applyShapeFillValue` (Task 3). Gradient edits don't push recent colors.
 
-- [ ] **Step 5: Run tests + verify:fast**
+- [ ] **Step 5: Typecheck + verify:fast**
 
-Run: `pnpm --filter @wafflebase/frontend test -- fill-picker && pnpm verify:fast`
-Expected: PASS + lint clean.
+Run: `pnpm verify:fast`
+Expected: lint + unit tests green (the gradient-helpers and slides pure-logic
+tests from Tasks 1-3 run here). Also confirm no new `tsc --noEmit` errors in
+`fill-picker/index.tsx` or `shape-controls.tsx`:
+`pnpm --filter @wafflebase/frontend exec tsc --noEmit -p tsconfig.app.json 2>&1 | grep -E "fill-picker|shape-controls" || echo "no new errors"`
 
 - [ ] **Step 6: Browser smoke**
 
@@ -1210,39 +1129,15 @@ git commit -m "Slides: export radial gradients (circle path + fillToRect)"
 
 **Files:**
 - Modify: `packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx`
-- Test: `packages/frontend/src/app/slides/fill-picker/gradient-editor.test.tsx` (add radial cases)
 - Browser smoke: add a radial step to the Task 5 scenario.
+
+> No component unit test (repo convention). Verify via `tsc --noEmit` + build +
+> the radial browser-smoke step.
 
 **Interfaces:**
 - Produces: a `Linear | Radial` type toggle; radial mode shows 5 center presets and hides the angle input.
 
-- [ ] **Step 1: Write the failing test**
-
-```tsx
-it('switching to Radial emits type:"radial" with a center', () => {
-  const onChange = vi.fn();
-  render(<GradientEditor value={value} theme={theme} onChange={onChange} />);
-  fireEvent.click(screen.getByRole('button', { name: /radial/i }));
-  expect(onChange).toHaveBeenCalledWith(
-    expect.objectContaining({ type: 'radial', center: expect.any(Object) }),
-    expect.objectContaining({ commit: true }),
-  );
-});
-
-it('radial mode hides the angle input and shows center presets', () => {
-  const radial = { ...value, type: 'radial', center: { x: 0.5, y: 0.5 } };
-  render(<GradientEditor value={radial} theme={theme} onChange={() => {}} />);
-  expect(screen.queryByRole('spinbutton', { name: /angle/i })).toBeNull();
-  expect(screen.getAllByRole('button', { name: /center preset/i }).length).toBeGreaterThanOrEqual(5);
-});
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm --filter @wafflebase/frontend test -- gradient-editor`
-Expected: FAIL — no type toggle / center presets.
-
-- [ ] **Step 3: Add the Type toggle + radial center presets**
+- [ ] **Step 1: Add the Type toggle + radial center presets**
 
 In `gradient-editor.tsx`, add above the direction row:
 
@@ -1298,12 +1193,14 @@ Then gate the direction row on `value.type`:
 )}
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [ ] **Step 2: Typecheck + verify:fast**
 
-Run: `pnpm --filter @wafflebase/frontend test -- gradient-editor && pnpm verify:fast`
-Expected: PASS + lint clean.
+Run: `pnpm verify:fast`
+Expected: lint + unit tests green. Confirm no new `tsc --noEmit` errors in
+`gradient-editor.tsx`:
+`pnpm --filter @wafflebase/frontend exec tsc --noEmit -p tsconfig.app.json 2>&1 | grep gradient-editor || echo "no new errors"`
 
-- [ ] **Step 5: Browser smoke + commit + open PR 2**
+- [ ] **Step 3: Browser smoke + commit + open PR 2**
 
 Run: `pnpm verify:browser:docker`
 
