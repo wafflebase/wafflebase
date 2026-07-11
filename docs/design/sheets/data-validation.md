@@ -424,12 +424,129 @@ persisted array until it has ≥1 option. Verified by frontend+sheets typecheck,
 the full unit suite, and a production build; the interactive panel smoke runs in
 the authenticated app (deferred to a manual pass).
 
+### Phase 4 (date): operator-based date validation + calendar picker — design
+
+Phases 1–3 shipped `checkbox` + `list` (model/Store spine, render pass,
+interaction, and the side panel). The `date` kind exists in the
+`DataValidationKind` union and the `Kinds` set but is otherwise a stub — no
+render, no interaction, no panel entry, and the two placeholder fields
+(`dateMin`/`dateMax`) are never read. This phase implements `date` end-to-end
+with the **full Google Sheets operator set** and a **calendar picker**.
+
+**Scope (confirmed):** full GS date operators; calendar picker included;
+fixed-date operands only (relative operands like "today"/"past week" are a
+deferred follow-up). Reuses the Phase-1/2 Store/structural-edit/panel spine
+unchanged.
+
+**Model** (`types.ts` + `data-validation.ts`) — replace the two unused
+`dateMin`/`dateMax` fields with a **generic operator model**, intentionally
+shaped for reuse by the planned `number`/`text` kinds:
+
+```typescript
+export type DataValidationOperator =
+  | 'dateValid'                                  // is a valid date — 0 operands
+  | 'dateEquals'
+  | 'dateBefore' | 'dateOnOrBefore'
+  | 'dateAfter'  | 'dateOnOrAfter'               // 1 operand
+  | 'dateBetween' | 'dateNotBetween';            // 2 operands
+
+export type DataValidationRule = {
+  // …existing id/ranges/kind/onInvalid/list/showArrow/checkbox fields…
+  operator?: DataValidationOperator;   // kind: 'date' (future: number/text)
+  values?: string[];                   // ISO operands; length by operator
+};
+```
+
+Rationale for `operator`+`values` over date-specific fields
+(`dateOperator`/`dateValue`/`dateValueMax`): `number` and `text` validation
+(planned next) need the identical "operator + 0/1/2 comparison operands" shape,
+so a shared substructure avoids re-modeling and lets one panel section drive all
+three comparison kinds. `dateMin`/`dateMax` are removed (dead — grep-confirmed no
+readers outside the type + this doc).
+
+**Normalization** (`normalizeDataValidationRule`) — a `date` rule normalizes its
+`operator` (default `dateValid`), trims `values` to the operand count the
+operator requires, and normalizes each operand to ISO via the value path below.
+Unlike an option-less `list` rule (which is dropped), a `date` rule is **never
+dropped for missing operands** — it falls back to `dateValid`. `onInvalid`
+defaults to `warning` (list parity).
+
+**Validation logic** (`data-validation.ts`) — a pure
+`isValidDateValue(rule, value): boolean`:
+
+- Empty/cleared value → `true` (GS parity; a rule never blocks deleting a cell,
+  matching `isValidListValue`).
+- Otherwise normalize the cell value with the existing `inferInput`
+  (`input.ts`) — a date cell stores an ISO `yyyy-mm-dd` string with `nf='date'`,
+  and `inferInput` already parses every accepted date format to that ISO form,
+  so **no new date parser is introduced**. A value that is not a date → invalid.
+- `dateValid` passes on any parseable date. Comparison operators normalize each
+  operand the same way and compare ISO strings **lexicographically** (which
+  equals chronological order for `yyyy-mm-dd`). `dateBetween` is inclusive on
+  both ends; `dateNotBetween` is its negation.
+- A `date` cell holding a **formula** is validated by its computed value at
+  render (warning marker), not its literal text — matching the list precedent;
+  the `reject` commit path lets `=`-prefixed input through.
+
+**Rendering** (`gridcanvas.ts`) — no persistent in-cell glyph for `date` (GS
+parity: the value renders through the existing `nf='date'` path; the calendar is
+a double-click affordance, not an always-drawn control). A `warning`-mode date
+rule whose value fails `isValidDateValue` draws the same red top-right triangle
+the list warning path already draws, computed at render time, never persisted.
+
+**Interaction** (`worksheet.ts`):
+
+- **Commit-path validation** — generalize the currently list-only branch in
+  `commitCellValue` to dispatch by `rule.kind`: a `reject` date rule discards an
+  invalid typed date (keeps the prior value, fires `onValidationError`); a
+  `warning` date rule stores the value and lets the render pass mark it. Formulas
+  pass through (as for list).
+- **Calendar popover** — double-clicking a date-ruled cell (writable stores
+  only) opens a new DOM calendar overlay modeled on the existing `listPopover`
+  (`worksheet.ts` — `document.createElement`, viewport-flip anchoring reused from
+  the list popover). A month grid with prev/next navigation; days outside the
+  rule's operator bounds (`dateBefore`/`dateAfter`/`dateBetween`/…) are rendered
+  disabled; clicking a day writes the ISO value via `setData` (single undo unit)
+  and closes the popover. `Esc` closes; keyboard day navigation is a nice-to-have
+  (may defer to keep the first cut small). Uses native `Date` for month math
+  (runtime `Date`/`new Date()` are available in the app; the workflow-script
+  restriction does not apply here) — no `date-fns` dependency added to the sheets
+  package. Read-only stores/permissions render the value but skip the double-click
+  branch.
+
+**Panel UI** (`data-validation-panel.tsx`) — add **Date** to the criteria
+`<Select>` (alongside Checkbox / Dropdown). The date detail section shows an
+operator `<Select>` (the eight operators above), one `<input type="date">` for
+single-operand operators / two for `dateBetween`/`dateNotBetween` / none for
+`dateValid`, and the existing On-invalid Reject / Warning radio. Writes go
+through `setDataValidations` exactly as checkbox/list do; editing preserves the
+rule `id`/ranges. An in-progress date rule (operator chosen, operands not yet
+filled) persists as `dateValid` rather than being dropped, so switching a rule to
+Date and back does not lose it (mirroring the checkbox↔dropdown round-trip fix).
+
+**Structural edits / Store / seed** — unchanged. `date` rules ride the same
+`shiftRuleRanges`/`moveRuleRanges` path and the same `dataValidations` container
+already seeded in `createWorksheet`; no per-cell field is added, so the
+`YorkieStore.normalizeCell` whitelist is untouched.
+
+**Deliberate deferrals / follow-ups:**
+
+- **Relative operands** (`today`, `tomorrow`, `past week/month/year`) — deferred;
+  fixed ISO operands only in this phase (they keep validation render-time
+  deterministic and unit tests stable).
+- **Reject on paste/API** — same as list: `reject` is enforced only on typed
+  commit; a pasted/programmatic invalid date is stored but always draws the
+  warning marker.
+- **Keyboard-only calendar navigation** — arrow-key day traversal in the popover
+  may land as a small follow-up; click + `Esc` ship first.
+- **Time-of-day** — calendar dates only, as in the original Non-Goals.
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature
-> (all three kinds). Phases 1–2 shipped checkbox + list; date validation and
-> its tests are deferred to Phase 3 (see the "as shipped" subsections above for
-> what actually landed and its coverage).
+> (all three kinds). Phases 1–2 shipped checkbox + list; Phase 4 (above) adds
+> date. See each phase's "as shipped"/"design" subsection for the coverage that
+> actually landed.
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,
