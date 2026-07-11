@@ -7,6 +7,8 @@ import {
   toggleCheckboxValue,
   listOptionsOf,
   isValidListValue,
+  isValidDateValue,
+  isValidValueForRule,
   shiftDataValidationRules,
   moveDataValidationRules,
   CHECKBOX_TRUE,
@@ -192,6 +194,56 @@ describe('date rule normalization', () => {
       dateRule('d7', { operator: 'dateAfter', values: ['2026-01-05 10:30:00'] }),
     );
     expect(out!.values).toEqual(['2026-01-05']);
+  });
+});
+
+describe('isValidDateValue', () => {
+  const v = (op: DataValidationRule['operator'], values?: string[]) =>
+    normalizeDataValidationRule(dateRule('x', { operator: op, values }))!;
+
+  it('allows empty values', () => {
+    expect(isValidDateValue(v('dateValid'), '')).toBe(true);
+    expect(isValidDateValue(v('dateValid'), undefined)).toBe(true);
+  });
+
+  it('dateValid accepts any parseable date, rejects non-dates', () => {
+    expect(isValidDateValue(v('dateValid'), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateValid'), 'hello')).toBe(false);
+  });
+
+  it('compares before / after / on-or-* correctly (inclusive edges)', () => {
+    expect(isValidDateValue(v('dateBefore', ['2026-03-15']), '2026-03-14')).toBe(true);
+    expect(isValidDateValue(v('dateBefore', ['2026-03-15']), '2026-03-15')).toBe(false);
+    expect(isValidDateValue(v('dateOnOrBefore', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateAfter', ['2026-03-15']), '2026-03-16')).toBe(true);
+    expect(isValidDateValue(v('dateOnOrAfter', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateEquals', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateEquals', ['2026-03-15']), '2026-03-16')).toBe(false);
+  });
+
+  it('between is inclusive; not-between is its negation', () => {
+    const b = v('dateBetween', ['2026-01-01', '2026-12-31']);
+    expect(isValidDateValue(b, '2026-01-01')).toBe(true);
+    expect(isValidDateValue(b, '2026-12-31')).toBe(true);
+    expect(isValidDateValue(b, '2027-01-01')).toBe(false);
+    const nb = v('dateNotBetween', ['2026-01-01', '2026-12-31']);
+    expect(isValidDateValue(nb, '2026-06-01')).toBe(false);
+    expect(isValidDateValue(nb, '2027-01-01')).toBe(true);
+  });
+
+  it('falls back to date-valid when operands are incomplete', () => {
+    // operator kept but operand dropped by normalize → only "is a date" enforced
+    const r = v('dateAfter', ['not-a-date']);
+    expect(isValidDateValue(r, '2026-03-15')).toBe(true);
+    expect(isValidDateValue(r, 'hello')).toBe(false);
+  });
+});
+
+describe('isValidValueForRule dispatch', () => {
+  it('dispatches by kind', () => {
+    expect(isValidValueForRule(listRule('l', ['A']), 'B')).toBe(false);
+    expect(isValidValueForRule(dateRule('d', { operator: 'dateValid' }), 'hello')).toBe(false);
+    expect(isValidValueForRule(checkboxRule('c'), 'anything')).toBe(true);
   });
 });
 

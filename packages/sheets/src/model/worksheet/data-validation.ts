@@ -196,6 +196,61 @@ export function isValidListValue(
 }
 
 /**
+ * `isValidDateValue` reports whether a cell value satisfies a date rule. An
+ * empty value is always allowed. The value and each operand are normalized to
+ * an ISO `yyyy-mm-dd` string (which sorts chronologically) via the shared
+ * input parser; a non-date value fails. When the operator's operands are
+ * incomplete (normalize dropped an un-parseable operand), only "is a valid
+ * date" is enforced, so the rule degrades safely rather than mis-flagging.
+ */
+export function isValidDateValue(
+  rule: DataValidationRule,
+  value: string | undefined,
+): boolean {
+  if (value === undefined || value.trim() === '') return true;
+  const iso = toIsoDateOperand(value);
+  if (iso === undefined) return false;
+
+  const op = rule.operator ?? 'dateValid';
+  const need = dateValidationOperandCount(op);
+  const operands = rule.values ?? [];
+  if (op === 'dateValid' || operands.length < need) return true;
+
+  const a = operands[0];
+  switch (op) {
+    case 'dateEquals':
+      return iso === a;
+    case 'dateBefore':
+      return iso < a;
+    case 'dateOnOrBefore':
+      return iso <= a;
+    case 'dateAfter':
+      return iso > a;
+    case 'dateOnOrAfter':
+      return iso >= a;
+    case 'dateBetween':
+      return iso >= a && iso <= operands[1];
+    case 'dateNotBetween':
+      return iso < a || iso > operands[1];
+    default:
+      return true;
+  }
+}
+
+/**
+ * `isValidValueForRule` dispatches value validation by rule kind. A checkbox
+ * rule never rejects a typed value; list and date delegate to their checks.
+ */
+export function isValidValueForRule(
+  rule: DataValidationRule,
+  value: string | undefined,
+): boolean {
+  if (rule.kind === 'list') return isValidListValue(rule, value);
+  if (rule.kind === 'date') return isValidDateValue(rule, value);
+  return true;
+}
+
+/**
  * `shiftDataValidationRules` remaps rules after row/column insert or delete.
  */
 export function shiftDataValidationRules(
