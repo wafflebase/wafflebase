@@ -10,13 +10,17 @@ describe('gradient-helpers', () => {
     expect(lerpHex('#000000', '#ffffff', 0.5).toLowerCase()).toBe('#808080');
   });
 
+  it('lerpHex clamps out-of-range t to the endpoint colors', () => {
+    expect(lerpHex('#000000', '#ffffff', 1.5)).toBe('#ffffff');
+    expect(lerpHex('#000000', '#ffffff', -0.5)).toBe('#000000');
+  });
+
   it('insertStopAt places a stop with a color interpolated from neighbors', () => {
     const out = insertStopAt([S(0, '#000000'), S(1, '#ffffff')], 0.5);
     expect(out).toHaveLength(3);
     const mid = out.find((s) => s.pos === 0.5)!;
-    if (mid.color.kind === 'srgb') {
-      expect(mid.color.value.toLowerCase()).toBe('#808080');
-    }
+    expect(mid.color.kind).toBe('srgb');
+    expect((mid.color as { kind: 'srgb'; value: string }).value.toLowerCase()).toBe('#808080');
   });
 
   it('removeStopAt is a no-op at the 2-stop floor', () => {

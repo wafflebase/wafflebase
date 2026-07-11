@@ -10,7 +10,7 @@ function parseHex(hex: string): [number, number, number] {
 }
 
 function toHex(r: number, g: number, b: number): string {
-  const h = (v: number) => Math.round(v).toString(16).padStart(2, '0');
+  const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
   return `#${h(r)}${h(g)}${h(b)}`;
 }
 
@@ -32,6 +32,9 @@ function stopHex(color: ThemeColor): string {
 
 export function insertStopAt(stops: GradientStop[], pos: number): GradientStop[] {
   const p = clamp01(pos);
+  if (stops.length < 2) {
+    return sortStops([...stops, { pos: p, color: { kind: 'srgb', value: '#808080' } }]);
+  }
   const sorted = sortStops(stops);
   let left = sorted[0];
   let right = sorted[sorted.length - 1];
