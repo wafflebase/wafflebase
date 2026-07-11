@@ -45,7 +45,9 @@ const createContext = (): EditorContext => {
   return {
     handleAutocompleteKeydown: vi.fn().mockReturnValue(false),
     isArrowKey: vi.fn((e: KeyboardEvent) => e.key.startsWith('Arrow')),
-    finishEditing: vi.fn().mockResolvedValue(undefined),
+    // finishEditing resolves true when the commit succeeded (or there was
+    // nothing to commit); false only when a validation reject blocked it.
+    finishEditing: vi.fn().mockResolvedValue(true),
     focusGrid: vi.fn(),
     render: vi.fn(),
     scrollIntoView: vi.fn(),
@@ -121,6 +123,20 @@ describe('Worksheet editor keymap', () => {
     expect(ctx.scrollIntoView).toHaveBeenCalledTimes(1);
     expect(ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
     expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('keeps the caret on the cell when Enter is rejected by validation', async () => {
+    const ctx = createContext();
+    ctx.finishEditing.mockResolvedValue(false); // reject-mode dropdown blocked
+    const { event } = createEvent('Enter');
+
+    await handleEditorKeydown.call(ctx, event, 'cellInput');
+
+    expect(ctx.finishEditing).toHaveBeenCalledTimes(1);
+    expect(ctx.sheet.move).not.toHaveBeenCalled();
+    expect(ctx.sheet.moveInRange).not.toHaveBeenCalled();
+    // Still re-renders (restores the editor to the committed value).
+    expect(ctx.render).toHaveBeenCalledTimes(1);
   });
 
   it('shows inline cell input when typing from formula bar', async () => {

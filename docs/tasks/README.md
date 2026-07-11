@@ -18,8 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./active/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./active/20260711-data-validation-panel-lessons.md) |
 | pptx inherit title align (2026-07-11) | [20260711-pptx-inherit-title-align-todo.md](./active/20260711-pptx-inherit-title-align-todo.md) | [20260711-pptx-inherit-title-align-lessons.md](./active/20260711-pptx-inherit-title-align-lessons.md) |
 | slides gradient fill (2026-07-11) | [20260711-slides-gradient-fill-todo.md](./active/20260711-slides-gradient-fill-todo.md) | [20260711-slides-gradient-fill-lessons.md](./active/20260711-slides-gradient-fill-lessons.md) |
+| data validation list (2026-07-10) | [20260710-data-validation-list-todo.md](./active/20260710-data-validation-list-todo.md) | [20260710-data-validation-list-lessons.md](./active/20260710-data-validation-list-lessons.md) |
 | pptx layout background (2026-07-10) | [20260710-pptx-layout-background-todo.md](./active/20260710-pptx-layout-background-todo.md) | [20260710-pptx-layout-background-lessons.md](./active/20260710-pptx-layout-background-lessons.md) |
 | sheet data validation checkbox (2026-07-10) | [20260710-sheet-data-validation-checkbox-todo.md](./active/20260710-sheet-data-validation-checkbox-todo.md) | [20260710-sheet-data-validation-checkbox-lessons.md](./active/20260710-sheet-data-validation-checkbox-lessons.md) |
 | slides charts (2026-07-09) | [20260709-slides-charts-todo.md](./active/20260709-slides-charts-todo.md) | [20260709-slides-charts-lessons.md](./active/20260709-slides-charts-lessons.md) |
@@ -38,4 +40,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 346
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: pptx inherit title align (2026-07-11)
+Latest active task: data validation panel (2026-07-11)

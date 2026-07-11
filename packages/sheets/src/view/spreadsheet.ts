@@ -315,6 +315,18 @@ export class Spreadsheet {
   }
 
   /**
+   * `setDataValidations` replaces all data-validation rules and re-renders.
+   */
+  public async setDataValidations(
+    rules: DataValidationRule[],
+  ): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.setDataValidations(rules);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
    * `insertCheckbox` adds a checkbox rule over the range and re-renders.
    */
   public async insertCheckbox(range: Range, id: string): Promise<void> {
@@ -353,6 +365,45 @@ export class Spreadsheet {
     const toggled = await this.sheet.toggleCheckboxAt(ref);
     if (toggled) this.worksheet.render();
     return toggled;
+  }
+
+  /**
+   * `getListRuleAt` returns the list rule applying to the active cell (or the
+   * given ref), or undefined — used by the toolbar to prefill the options
+   * dialog and by the popover to read options.
+   */
+  public getListRuleAt(ref?: Ref): DataValidationRule | undefined {
+    const target = ref ?? this.sheet?.getActiveCell();
+    if (!target) return undefined;
+    const rule = this.sheet?.getDataValidationAt(target);
+    return rule?.kind === 'list' ? rule : undefined;
+  }
+
+  /**
+   * `getDataValidationAt` returns the validation rule of any kind applying to
+   * the active cell (or the given ref), or undefined.
+   */
+  public getDataValidationAt(ref?: Ref): DataValidationRule | undefined {
+    const target = ref ?? this.sheet?.getActiveCell();
+    if (!target) return undefined;
+    return this.sheet?.getDataValidationAt(target);
+  }
+
+  /**
+   * `isListActive` reports whether the active cell carries a list rule — used
+   * to render the toolbar's dropdown button in its "active" state.
+   */
+  public isListActive(): boolean {
+    return !!this.getListRuleAt();
+  }
+
+  /**
+   * `onValidationError` registers a callback fired when a typed value is
+   * rejected by a data-validation rule (e.g. an out-of-list value under a
+   * `reject` dropdown). Hosts use it to surface a toast.
+   */
+  public onValidationError(callback: (message: string) => void): void {
+    this.worksheet.setOnValidationError(callback);
   }
 
   /**

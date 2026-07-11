@@ -21,6 +21,7 @@ import {
   IconColumnInsertRight,
   IconEyeOff,
   IconEye,
+  IconListCheck,
 } from "@tabler/icons-react";
 
 type MenuType = "cell" | "row" | "column";
@@ -46,6 +47,7 @@ interface SheetContextMenuProps {
   onDeleteImage?: () => void;
   selectedImageId?: string | null;
   onInsertComment?: () => void;
+  onOpenDataValidation?: () => void;
 }
 
 export function SheetContextMenu({
@@ -63,6 +65,7 @@ export function SheetContextMenu({
   onDeleteImage,
   selectedImageId,
   onInsertComment,
+  onOpenDataValidation,
 }: SheetContextMenuProps) {
   const [menuType, setMenuType] = useState<MenuType>("cell");
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(
@@ -206,6 +209,17 @@ export function SheetContextMenu({
                   <span className="ml-auto text-xs text-muted-foreground">
                     {navigator.platform.startsWith("Mac") ? "⌘+⌥+M" : "Ctrl+Alt+M"}
                   </span>
+                </ContextMenuItem>
+              </>
+            )}
+            {onOpenDataValidation && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={readOnly}
+                  onSelect={onOpenDataValidation}
+                >
+                  <IconListCheck size={16} /> Data validation
                 </ContextMenuItem>
               </>
             )}

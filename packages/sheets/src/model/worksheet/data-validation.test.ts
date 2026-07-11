@@ -5,6 +5,8 @@ import {
   resolveDataValidationAt,
   isCheckboxChecked,
   toggleCheckboxValue,
+  listOptionsOf,
+  isValidListValue,
   shiftDataValidationRules,
   moveDataValidationRules,
   CHECKBOX_TRUE,
@@ -21,6 +23,18 @@ const checkboxRule = (id: string): DataValidationRule => ({
       { r: 2, c: 2 },
     ],
   ],
+});
+
+const listRule = (id: string, options: string[]): DataValidationRule => ({
+  id,
+  kind: 'list',
+  ranges: [
+    [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ],
+  ],
+  list: options,
 });
 
 describe('data-validation model', () => {
@@ -57,6 +71,54 @@ describe('data-validation model', () => {
     expect(toggleCheckboxValue(rule, CHECKBOX_FALSE)).toBe(CHECKBOX_TRUE);
     expect(toggleCheckboxValue(rule, CHECKBOX_TRUE)).toBe(CHECKBOX_FALSE);
     expect(toggleCheckboxValue(rule, undefined)).toBe(CHECKBOX_TRUE);
+  });
+
+  it('normalizes a list rule: trims, drops empties, dedupes, defaults arrow', () => {
+    const normalized = normalizeDataValidationRule(
+      listRule('a', ['  Red ', 'Green', 'Red', '', '  ']),
+    );
+    expect(normalized).not.toBeNull();
+    expect(normalized!.list).toEqual(['Red', 'Green']);
+    expect(normalized!.showArrow).toBe(true); // default when undefined
+  });
+
+  it('preserves an explicit showArrow=false on a list rule', () => {
+    const normalized = normalizeDataValidationRule({
+      ...listRule('a', ['Red']),
+      showArrow: false,
+    });
+    expect(normalized!.showArrow).toBe(false);
+  });
+
+  it('drops a list rule with no usable options', () => {
+    expect(normalizeDataValidationRule(listRule('a', []))).toBeNull();
+    expect(normalizeDataValidationRule(listRule('a', ['', '  ']))).toBeNull();
+  });
+
+  it('reads list options and validates membership', () => {
+    const rule = normalizeDataValidationRule(listRule('a', ['Red', 'Green']))!;
+    expect(listOptionsOf(rule)).toEqual(['Red', 'Green']);
+    expect(isValidListValue(rule, 'Red')).toBe(true);
+    expect(isValidListValue(rule, 'Blue')).toBe(false);
+    // Empty / cleared values are always allowed (matches Google Sheets).
+    expect(isValidListValue(rule, '')).toBe(true);
+    expect(isValidListValue(rule, undefined)).toBe(true);
+  });
+
+  it('validates membership tolerant of surrounding whitespace', () => {
+    const rule = normalizeDataValidationRule(listRule('a', ['Yes', 'No']))!;
+    // A typed value with stray whitespace still matches its trimmed option.
+    expect(isValidListValue(rule, 'Yes ')).toBe(true);
+    expect(isValidListValue(rule, '  No')).toBe(true);
+    expect(isValidListValue(rule, '   ')).toBe(true); // whitespace-only == empty
+    expect(isValidListValue(rule, 'Maybe')).toBe(false);
+  });
+
+  it('clones a list rule deeply (mutating the clone list does not touch source)', () => {
+    const src = listRule('a', ['Red', 'Green']);
+    const copy = cloneDataValidationRule(src);
+    copy.list!.push('Blue');
+    expect(src.list).toEqual(['Red', 'Green']);
   });
 });
 
@@ -101,5 +163,25 @@ describe('data-validation structural edits', () => {
     const src = [rule()];
     shiftDataValidationRules(src, 'row', 1, 2);
     expect(src[0].ranges[0][0].r).toBe(3); // untouched
+  });
+
+  it('shifts a list rule and preserves its options', () => {
+    const listRule = (): DataValidationRule => ({
+      id: 'l',
+      kind: 'list',
+      ranges: [
+        [
+          { r: 3, c: 1 },
+          { r: 5, c: 1 },
+        ],
+      ],
+      list: ['Red', 'Green'],
+      showArrow: true,
+    });
+    const [shifted] = shiftDataValidationRules([listRule()], 'row', 1, 2);
+    expect(shifted.ranges[0][0].r).toBe(5);
+    expect(shifted.kind).toBe('list');
+    expect(shifted.list).toEqual(['Red', 'Green']);
+    expect(shifted.showArrow).toBe(true);
   });
 });

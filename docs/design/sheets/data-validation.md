@@ -262,13 +262,174 @@ simplifications, each a small follow-up to close:
   precise range-subtraction and the full `Data → Data validation` side panel are
   deferred to a later phase.
 
+### Phase 2 (list / dropdown) — as shipped
+
+Phase 2 landed the `kind: 'list'` dropdown end-to-end, reusing the Phase-1
+model/Store/structural-edit spine unchanged (the `list`/`showArrow`/`onInvalid`
+fields already existed on `DataValidationRule`). What shipped:
+
+- **Model** (`data-validation.ts`) — `normalizeListOptions` (trim / drop-empty /
+  dedupe), `listOptionsOf`, and `isValidListValue` (empty value always allowed,
+  GS parity). `normalizeDataValidationRule` now drops a list rule with no usable
+  options and defaults `showArrow` to `true`.
+- **Sheet / Spreadsheet API** — `insertList(range, id, options, onInvalid?)` /
+  `removeList(range)` mirror the checkbox pair; `getListRuleAt` / `isListActive`
+  back the toolbar. `onInvalid` defaults to `warning`.
+- **Render** (`gridcanvas.ts`) — list cells keep their text (unlike checkbox,
+  which replaces it) and overlay a right-aligned chevron via
+  `computeListArrowBox` + a cached `Path2D`, background-masked so text doesn't
+  bleed under it. A **warning-mode** rule draws a red top-right triangle when the
+  cell value isn't in the list — computed at render time, never persisted.
+- **Interaction** (`worksheet.ts`) — `getListArrowHitRect` (zoom round-trip like
+  the checkbox) gates a mousedown branch that opens an anchored DOM popover
+  (modeled on the filter panel) listing the options; click or `Alt+ArrowDown`
+  opens it, Up/Down/Enter/Esc navigate, selection writes via `setData`.
+  Commit-path validation runs in `finishEditing` via `commitCellValue`: a
+  `reject` rule discards an out-of-list typed value (the editors self-restore
+  through `FormulaBar.render()`) and fires an `onValidationError` callback;
+  `warning` stores the value and lets the render pass mark it.
+- **Frontend** — an `IconSelect` toolbar button (desktop + mobile) opens a
+  minimal `DropdownOptionsDialog` (values one-per-line + Reject/Warning radio);
+  editing an existing list cell prefills and offers Remove. The reject callback
+  surfaces a `sonner` toast.
+
+Editing an existing dropdown edits the rule **in place by id**
+(`updateListRule`), preserving its full ranges — opening the dialog on a single
+cell inside a larger ruled range and saving does not shrink the rule onto that
+cell, and it is a single undo unit. An out-of-list value draws the red marker
+under **either** mode (an invalid value can arrive via paste/API/pre-existing
+content even under a `reject` rule, so the marker is the universal signal).
+Membership comparison is whitespace-tolerant (typed `"Yes "` matches option
+`"Yes"`). A `reject` that blocks a typed Enter/Tab keeps the caret on the cell
+(GS parity) rather than advancing off the discarded entry.
+
+Deliberate Phase-2 simplifications / follow-ups:
+
+- **Literal lists only** — range-source lists (`=Sheet1!A1:A10`) and colored
+  chips remain Non-Goals.
+- **No full side panel** — the options dialog stands in for the eventual
+  `Data → Data validation` panel; rule creation/removal is whole-rule (insert
+  replaces any list rule intersecting the range; remove drops it), no
+  range-subtraction; edit is in-place by id.
+- **Reject enforced only on inline edit** — the `finishEditing` commit path
+  enforces `reject`; paste / REST-API / programmatic `setData` writes are not
+  blocked (what "reject" means for a bulk paste is an open design question).
+  Such values are stored but always draw the red marker, so they are never
+  silent. A follow-up may enforce at the model write layer.
+- **Numeric-looking options** — options like `'007'` or `'1.0'` are normalized
+  by `setData` on write (→ `7` / `1`), so a picked value can mismatch its option
+  string and draw a false warning marker. Text-value dropdowns (the common case)
+  are unaffected; forcing list cells to text is a follow-up.
+- **Warning marker vs. comment marker** — both live at the top-right corner; a
+  cell that is both commented and validation-warned overlaps them (rare,
+  deferred).
+- **View-layer interaction is manually smoke-tested** — matching the Phase-1
+  checkbox precedent, the hit-test / popover paths have no automated coverage;
+  the model helpers, the seed round-trip, and the Enter/Tab reject-navigation
+  keymap are unit-tested.
+
+### Phase 3 (UI): Data validation side panel — design
+
+The Phase-1/2 UI is quick-insert only: a checkbox toolbar toggle and a dropdown
+toolbar button that opens a minimal `DropdownOptionsDialog`. This phase replaces
+that dialog with a **right-side management panel**, mirroring
+`ConditionalFormatPanel` exactly (the two features are structurally identical —
+a worksheet-level, range-scoped rule array with a list + editor UI). Google
+Sheets surfaces data validation the same way (Data → Data validation panel).
+
+**Scope (v1):** `checkbox` and `list` only — the two shipped kinds. Date,
+number, text, and custom-formula criteria remain follow-ups (no engine change).
+Rule management is **whole-rule** (add / edit / delete a rule; no
+range-subtraction), matching the current `insert*`/`remove*` semantics.
+
+**Component & placement**
+
+- New `DataValidationPanel.tsx` (lazy-loaded), sharing the **same right-side
+  slot** as `ConditionalFormatPanel` and the chart editor — only one is open at
+  a time (mutually exclusive, as the existing panels already are).
+- Same props as the CF panel: `{ spreadsheet, open, onClose, getSelectionRange }`.
+- Reuses the CF panel's `parseA1Ranges` / `formatA1Ranges` A1 helpers (extract to
+  a shared module if convenient, else copy the small helpers — they are already
+  duplicated-ish across panels).
+
+**Panel structure** (CF-panel layout)
+
+- **Rule list** — the current sheet's `DataValidationRule[]`, each row showing
+  its range + a kind summary (e.g. `A1:A10 · Dropdown (Red, Green, …)`,
+  `B2:B5 · Checkbox`); select to edit, delete button per row.
+- **Editor** (on add / select):
+  - **Range** — A1 input, prefilled from the current selection.
+  - **Criteria** — `Checkbox` / `Dropdown` select.
+  - **Dropdown detail** — options (one per line) + `showArrow` toggle +
+    **On invalid**: Reject / Warning radio.
+  - **Checkbox detail** — none in v1 (values fixed to `TRUE`/`FALSE`); custom
+    checked/unchecked values are a deferred advanced option.
+  - **Add rule / Done / Delete rule** actions.
+
+**Data flow** — no engine change. Load via `spreadsheet.getDataValidations()`;
+write via `setDataValidations(rules)` (single atomic write = one undo unit),
+exactly as the CF panel uses `get/setConditionalFormats`. Editing an existing
+rule preserves its `id`/ranges (as `updateListRule` already does).
+
+**Entry points**
+
+- **Toolbar** → a single `Data validation` button (`IconListCheck`, desktop +
+  mobile) opens the panel. It replaces the previous separate checkbox-toggle and
+  dropdown buttons — all validation (checkbox and dropdown) is created/edited in
+  the panel now (criteria = Checkbox or Dropdown). The button shows an active
+  state when the active cell already carries a rule.
+- **Context menu** → a `Data validation` item (in the sheet body right-click
+  menu) opens the panel for the current selection. Included in v1.
+- Both entry points open the panel with no auto-add; the user clicks **Add** (or
+  selects the existing rule at the active cell) — so there is no `autoAddKind`
+  seeding. `DropdownOptionsDialog` is removed.
+
+**Non-goals (v1):** date/number/text/custom-formula criteria; range-source
+lists; colored chips; per-cell range subtraction; custom checkbox values.
+
+#### As shipped
+
+`packages/frontend/src/app/spreadsheet/data-validation-panel.tsx` — a
+lazy-loaded panel sharing the CF/chart right-slot (mutually exclusive). Added
+`Spreadsheet.setDataValidations` and `Spreadsheet.getDataValidationAt` (any-kind
+resolver). A single `Data validation` toolbar button (replacing the earlier
+separate checkbox-toggle and dropdown buttons) and a `Data validation`
+context-menu item both open the panel with no auto-add — the user clicks **Add**
+or the panel selects the existing rule at the active cell.
+`DropdownOptionsDialog` was deleted. A high-effort branch review drove several
+fixes: the panel does not persist an option-less (in-progress) list rule, so
+switching a checkbox rule to Dropdown no longer drops it; switching criteria to
+Checkbox keeps the list options so a round-trip back to Dropdown preserves them;
+a reject-mode dropdown lets a **formula** entry through (validated by its
+computed value at render, not its literal text); the option popover flips above
+the cell when it would overflow the viewport bottom; the hover-tooltip skips its
+async cell read while the pointer stays on one cell; and the now-unused
+`insertList`/`removeList`/`updateListRule` engine methods were removed (the panel
+writes exclusively through `setDataValidations`).
+
+Known limitations (documented, deferred): the panel writes the whole rule array
+from a snapshot taken on open, so a concurrent remote rule change made while the
+panel is open can be clobbered (identical to `ConditionalFormatPanel`); reject
+mode is enforced only on typed commit, not paste/API (an invalid pasted value is
+stored but always draws the red marker); the red validation marker and the
+yellow comment marker share the top-right corner (the comment wins when a cell
+has both). Two review-caught
+behaviors were fixed during implementation: the field-sync effect is keyed on
+`selectedRuleId` only (so in-progress range/options edits aren't reverted by a
+sibling field edit), and the auto-add gate uses the any-kind
+`getDataValidationAt` (so a checkbox-ruled cell isn't given an overlapping
+auto-added rule). The panel keeps an in-progress zero-option dropdown visible in
+its own state for the session even though the engine normalizes it out of the
+persisted array until it has ≥1 option. Verified by frontend+sheets typecheck,
+the full unit suite, and a production build; the interactive panel smoke runs in
+the authenticated app (deferred to a manual pass).
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature
-> (all three kinds). Phase 1 shipped only the checkbox subset — list/date
-> validation, dropdown/warning rendering, and the corresponding tests are
-> deferred (see "Phase 1 (checkbox) — as shipped" above for what actually
-> landed and its coverage).
+> (all three kinds). Phases 1–2 shipped checkbox + list; date validation and
+> its tests are deferred to Phase 3 (see the "as shipped" subsections above for
+> what actually landed and its coverage).
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,

@@ -97,6 +97,11 @@ const ConditionalFormatPanel = lazy(() =>
     default: module.ConditionalFormatPanel,
   })),
 );
+const DataValidationPanel = lazy(() =>
+  import("./data-validation-panel").then((module) => ({
+    default: module.DataValidationPanel,
+  })),
+);
 const PivotEditorPanel = lazy(() =>
   import("./pivot/pivot-editor-panel").then((module) => ({
     default: module.PivotEditorPanel,
@@ -143,6 +148,7 @@ export function SheetView({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
+  const [dataValidationOpen, setDataValidationOpen] = useState(false);
 
   // Comment popover state. The pinned axis-ID anchor is what makes the popover
   // resilient to remote renders: notifySelectionChange fires on every render
@@ -346,6 +352,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, [clearPaintFormatState, readOnly]);
 
   const handleInsertChart = useCallback(() => {
@@ -401,33 +408,8 @@ export function SheetView({
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, [doc, readOnly, tabId]);
-
-  const handleToggleCheckbox = useCallback(async () => {
-    if (readOnly) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-
-    if (sheet.getSelectionType() !== "cell") {
-      toast.error("Select a cell range for checkboxes.");
-      return;
-    }
-
-    const range = sheet.getSelectionRangeOrActiveCell();
-    if (!range) {
-      toast.error("Select a cell range for checkboxes.");
-      return;
-    }
-
-    // The button is a toggle: if the active cell is already a checkbox, remove
-    // the checkbox rules over the selection (leaving the TRUE/FALSE values);
-    // otherwise add a checkbox rule.
-    if (sheet.isCheckboxActive()) {
-      await sheet.removeCheckbox(range);
-    } else {
-      await sheet.insertCheckbox(range, crypto.randomUUID());
-    }
-  }, [readOnly]);
 
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
@@ -486,6 +468,7 @@ export function SheetView({
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
   }, []);
 
   const handleSelectChart = useCallback(
@@ -645,6 +628,13 @@ export function SheetView({
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
     setChartEditorOpen(false);
+    setDataValidationOpen(false);
+  }, []);
+
+  const handleOpenDataValidation = useCallback(() => {
+    setDataValidationOpen(true);
+    setConditionalFormatOpen(false);
+    setChartEditorOpen(false);
   }, []);
 
   const handleInsertPivotTable = useCallback(() => {
@@ -716,8 +706,18 @@ export function SheetView({
       if (conditionalFormatOpen) {
         setConditionalFormatOpen(false);
       }
+      if (dataValidationOpen) {
+        setDataValidationOpen(false);
+      }
     },
-    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId, selectedImageId],
+    [
+      chartEditorOpen,
+      conditionalFormatOpen,
+      dataValidationOpen,
+      paintFormatSourceRef,
+      selectedChartId,
+      selectedImageId,
+    ],
   );
 
   const handleMobileEditCommit = useCallback(
@@ -923,6 +923,7 @@ export function SheetView({
     setSelectedImageId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
     setFindBarOpen(false);
     setCommentPopoverOpen(false);
     clearPaintFormatState();
@@ -967,6 +968,12 @@ export function SheetView({
       sheet = s;
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
+
+      // Surface data-validation rejections (e.g. a value that isn't in a
+      // reject-mode dropdown list) as a toast.
+      s.onValidationError((message) => {
+        toast.error(message);
+      });
 
       if (isMobileRef.current && !readOnly) {
         s.setMobileEditCallback((cellRef, value) => {
@@ -1287,6 +1294,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
 
     try {
       void sheet.focusCell(parseRef(peerJumpTarget.activeCell));
@@ -1308,6 +1316,7 @@ export function SheetView({
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setDataValidationOpen(false);
 
     try {
       void sheet.focusCell(parseRef(commentJumpTarget.sref));
@@ -1455,7 +1464,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
-          onToggleCheckbox={handleToggleCheckbox}
+          onOpenDataValidation={handleOpenDataValidation}
           onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
@@ -1483,6 +1492,7 @@ export function SheetView({
             }
           }}
           onInsertComment={readOnly ? undefined : openCommentComposerForActiveCell}
+          onOpenDataValidation={readOnly ? undefined : handleOpenDataValidation}
         >
           <div className="relative h-full w-full">
             <div
@@ -1556,6 +1566,16 @@ export function SheetView({
               spreadsheet={sheetRef.current}
               open={conditionalFormatOpen}
               onClose={() => setConditionalFormatOpen(false)}
+              getSelectionRange={getSelectionRange}
+            />
+          </Suspense>
+        )}
+        {!readOnly && dataValidationOpen && (
+          <Suspense fallback={null}>
+            <DataValidationPanel
+              spreadsheet={sheetRef.current}
+              open={dataValidationOpen}
+              onClose={() => setDataValidationOpen(false)}
               getSelectionRange={getSelectionRange}
             />
           </Suspense>

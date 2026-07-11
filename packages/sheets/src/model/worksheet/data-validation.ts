@@ -13,8 +13,31 @@ export const CHECKBOX_FALSE = 'FALSE';
 const Kinds = new Set<DataValidationKind>(['checkbox', 'list', 'date']);
 
 /**
+ * `normalizeListOptions` trims each option, drops empty entries, and dedupes
+ * (keeping first occurrence) — the canonical form of a list rule's options.
+ */
+export function normalizeListOptions(options: string[] | undefined): string[] {
+  if (!Array.isArray(options)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of options) {
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+/**
  * `normalizeDataValidationRule` validates a rule and returns a normalized
- * copy, or null if the rule is unusable (no id, unknown kind, no ranges).
+ * copy, or null if the rule is unusable (no id, unknown kind, no ranges). A
+ * list rule additionally requires at least one usable option; its options are
+ * trimmed/deduped and `showArrow` defaults to true.
  */
 export function normalizeDataValidationRule(
   rule: DataValidationRule,
@@ -25,7 +48,16 @@ export function normalizeDataValidationRule(
   if (!Array.isArray(rule.ranges) || rule.ranges.length === 0) {
     return null;
   }
-  return cloneDataValidationRule(rule);
+  const cloned = cloneDataValidationRule(rule);
+  if (cloned.kind === 'list') {
+    const list = normalizeListOptions(cloned.list);
+    if (list.length === 0) {
+      return null;
+    }
+    cloned.list = list;
+    cloned.showArrow = cloned.showArrow ?? true;
+  }
+  return cloned;
 }
 
 /**
@@ -89,6 +121,36 @@ export function toggleCheckboxValue(
   return isCheckboxChecked(rule, value)
     ? uncheckedValueOf(rule)
     : checkedValueOf(rule);
+}
+
+/**
+ * `listOptionsOf` returns the normalized option list for a list rule.
+ */
+export function listOptionsOf(rule: DataValidationRule): string[] {
+  return normalizeListOptions(rule.list);
+}
+
+/**
+ * `isValidListValue` reports whether a cell value is permitted by a list rule.
+ * Empty/cleared values are always allowed (Google Sheets parity — a rule never
+ * blocks deleting a cell); a non-empty value must match one of the options,
+ * comparing both sides trimmed so a stray typed space still matches. Compares
+ * against `rule.list` directly (canonical after `normalizeDataValidationRule`)
+ * without allocating, since this runs per visible cell per repaint.
+ */
+export function isValidListValue(
+  rule: DataValidationRule,
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed === '') {
+    return true;
+  }
+  const options = rule.list;
+  if (!options) {
+    return false;
+  }
+  return options.some((option) => option.trim() === trimmed);
 }
 
 /**

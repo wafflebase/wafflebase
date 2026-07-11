@@ -16,6 +16,7 @@ import {
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
 import {
   isCheckboxChecked,
+  isValidListValue,
   resolveDataValidationAt,
 } from '../model/worksheet/data-validation';
 import { DimensionIndex } from '../model/worksheet/dimensions';
@@ -87,6 +88,41 @@ export function computeCheckboxBox(rect: {
 }
 
 /**
+ * `ListArrowBox` is the right-aligned dropdown-arrow glyph rect within a cell.
+ */
+export type ListArrowBox = { left: number; top: number; size: number };
+
+/**
+ * `computeListArrowBox` returns the right-aligned dropdown-arrow rect for a
+ * cell rect, or null when the cell is too small. Shared by the render pass and
+ * the click hit-test so the drawn arrow and the clickable target never drift.
+ */
+export function computeListArrowBox(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): ListArrowBox | null {
+  const { width, height } = rect;
+  if (width <= 6 || height <= 6) {
+    return null;
+  }
+  const size = Math.min(16, Math.max(11, Math.min(width, height) - 6));
+  const margin = 2;
+  // A right-aligned arrow needs the full glyph + margin to fit inside the cell;
+  // on a very narrow column drawing it anyway would spill onto the neighbor
+  // (glyph and hit-test both). Skip the arrow rather than overflow.
+  if (width < size + margin) {
+    return null;
+  }
+  return {
+    left: rect.left + width - size - margin,
+    top: rect.top + (height - size) / 2,
+    size,
+  };
+}
+
+/**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
 export class GridCanvas {
@@ -94,6 +130,7 @@ export class GridCanvas {
   private theme: Theme;
   private static filterIconPath2D: Path2D | null | undefined;
   private static checkIconPath2D: Path2D | null | undefined;
+  private static listArrowPath2D: Path2D | null | undefined;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -660,6 +697,22 @@ export class GridCanvas {
         mergeSpan,
         overflowEndCol,
       );
+
+      // List (dropdown) rules keep their cell text but overlay a dropdown
+      // arrow and, in warning mode, a red marker for out-of-list values.
+      if (dvRule && dvRule.kind === 'list') {
+        this.renderCellListControl(
+          ctx,
+          { r: row, c: col },
+          dvRule,
+          cell,
+          scroll,
+          rowDim,
+          colDim,
+          effectiveStyle,
+          mergeSpan,
+        );
+      }
     }
 
     // Pass 3b: Render text from off-screen overflow anchors whose text
@@ -749,14 +802,25 @@ export class GridCanvas {
     cellRight: number,
     cellTop: number,
   ): void {
+    this.drawCornerMarker(ctx, cellRight, cellTop, '#fbbc04');
+  }
+
+  /**
+   * Draws a 9x9 right-triangle marker at the top-right corner of a cell, with
+   * its right angle at the corner. Shared by the comment marker (yellow) and
+   * the data-validation warning marker (red).
+   */
+  private drawCornerMarker(
+    ctx: CanvasRenderingContext2D,
+    cellRight: number,
+    cellTop: number,
+    color: string,
+  ): void {
     const MARKER_SIZE = 9;
-    ctx.fillStyle = '#fbbc04';
+    ctx.fillStyle = color;
     ctx.beginPath();
-    // Start at the top-right corner
     ctx.moveTo(cellRight, cellTop);
-    // Draw down along the right edge
     ctx.lineTo(cellRight, cellTop + MARKER_SIZE);
-    // Draw left along the top edge
     ctx.lineTo(cellRight - MARKER_SIZE, cellTop);
     ctx.closePath();
     ctx.fill();
@@ -1002,6 +1066,76 @@ export class GridCanvas {
       GridCanvas.checkIconPath2D = new Path2D('M5 12.5 L10 17.5 L19 7');
     }
     return GridCanvas.checkIconPath2D;
+  }
+
+  private getListArrowPath2D(): Path2D | null {
+    if (typeof Path2D === 'undefined') {
+      return null;
+    }
+    if (GridCanvas.listArrowPath2D === undefined) {
+      // Chevron-down drawn in a 24×24 coordinate space.
+      GridCanvas.listArrowPath2D = new Path2D('M6 9 L12 15 L18 9');
+    }
+    return GridCanvas.listArrowPath2D;
+  }
+
+  /**
+   * `renderCellListControl` overlays the dropdown-arrow glyph on a list-ruled
+   * cell (when `showArrow`) and, for a warning-mode rule, a red marker when the
+   * current value is not one of the allowed options. Violation state is
+   * computed here at render time and never persisted.
+   */
+  private renderCellListControl(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    rule: DataValidationRule,
+    cell: Cell | undefined,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    effectiveStyle?: CellStyle,
+    mergeSpan?: MergeSpan,
+  ): void {
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
+
+    if (rule.showArrow !== false) {
+      const box = computeListArrowBox(rect);
+      if (box) {
+        const { left, top, size } = box;
+        // Mask any cell text under the arrow with the cell's background.
+        ctx.save();
+        ctx.fillStyle = effectiveStyle?.bg || this.getThemeColor('cellBGColor');
+        ctx.fillRect(left, top, size, size);
+
+        const iconSize = Math.max(9, Math.min(14, size - 2));
+        const iconLeft = left + (size - iconSize) / 2;
+        const iconTop = top + (size - iconSize) / 2;
+        ctx.translate(iconLeft, iconTop);
+        ctx.scale(iconSize / 24, iconSize / 24);
+        ctx.strokeStyle = this.getThemeColor('cellTextColor');
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const path = this.getListArrowPath2D();
+        if (path) {
+          ctx.stroke(path);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(6, 9);
+          ctx.lineTo(12, 15);
+          ctx.lineTo(18, 9);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    // Flag any out-of-list value regardless of onInvalid mode — an invalid
+    // value can arrive via paste / API / pre-existing content even under a
+    // reject rule, and would otherwise be stored with no visual indication.
+    if (!isValidListValue(rule, cell?.v)) {
+      this.drawCornerMarker(ctx, rect.left + rect.width, rect.top, '#ea4335');
+    }
   }
 
   /**
