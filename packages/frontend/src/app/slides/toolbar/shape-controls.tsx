@@ -80,12 +80,24 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     [store, slideId, slide, ids],
   );
 
-  // GradientEditor/FillPicker onChange(next, opts). Always update the draft
-  // (live bar preview); write to the store only on a commit boundary.
+  // GradientEditor/FillPicker onChange(next, opts). A commit boundary
+  // (drag release / preset / angle blur / tab seed) persists and CLEARS the
+  // draft, so the close-flush in onFillOpenChange only fires for a genuinely
+  // uncommitted tail (the nested per-stop native color input, which never
+  // sets `commit`). Without the clear, a committed edit followed by clicking
+  // away would flush the same fill again — a duplicate store write / undo
+  // entry (updateElementData writes unconditionally, no dedup). Live
+  // `{commit:false}` updates only touch the draft (bar preview); after a
+  // commit clears it, `firstFill` falls through to the just-persisted store
+  // value, keeping the editor consistent.
   const onFillGradient = useCallback(
     (fill: GradientFill, opts?: { commit?: boolean }) => {
-      setGradientDraft(fill);
-      if (opts?.commit) persistGradient(fill);
+      if (opts?.commit) {
+        persistGradient(fill);
+        setGradientDraft(null);
+      } else {
+        setGradientDraft(fill);
+      }
     },
     [persistGradient],
   );
