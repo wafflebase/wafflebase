@@ -1,11 +1,23 @@
 import JSZip from 'jszip';
 import { parseRef, toSref } from '../model/core/coordinates';
-import type { Cell, Ref } from '../model/core/types';
+import type { Cell, CellStyle, Ref } from '../model/core/types';
 import {
   createWorksheet,
   type Worksheet,
 } from '../model/workbook/worksheet-document';
 import { writeWorksheetCell } from '../model/workbook/worksheet-grid';
+import {
+  coalesceAdjacentRangeStylePatches,
+  type RangeStylePatch,
+} from '../model/worksheet/range-styles';
+import { parseStyleTable, type StyleTable } from './xlsx-styles';
+import { excelSerialToDateString } from './xlsx-serial-date';
+import {
+  childrenByLocalName,
+  firstChildByLocalName,
+  parseXml,
+  readText,
+} from './xlsx-xml';
 
 type WorkbookSheetRef = {
   name: string;
@@ -32,41 +44,40 @@ export type XlsxFileLike = {
 const XLSX_WORKBOOK_PATH = 'xl/workbook.xml';
 const XLSX_WORKBOOK_RELS_PATH = 'xl/_rels/workbook.xml.rels';
 const XLSX_SHARED_STRINGS_PATH = 'xl/sharedStrings.xml';
+const XLSX_STYLES_PATH = 'xl/styles.xml';
+
+// Excel stores column widths in "character" units and row heights in points;
+// convert both to the pixel sizes the worksheet model uses (~7px per char at
+// the default font, plus 5px padding; 96/72 DPI ratio for points).
+function columnWidthToPixels(width: number): number {
+  return Math.round(width * 7 + 5);
+}
+function pointsToPixels(points: number): number {
+  return Math.round((points * 96) / 72);
+}
+// A `<col>` range may set widths/hidden a little past the populated data (an
+// intentionally hidden or sized empty column), but a whole-sheet span
+// (min=1 max=16384) is Excel encoding the default column width and must not be
+// materialized per column. Keep entries within this many columns of the data.
+const COLUMN_SPAN_MARGIN = 64;
 const OFFICE_RELATIONSHIP_NS =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
-function childrenByLocalName(
-  parent: Element | Document,
-  localName: string,
-): Element[] {
-  return Array.from(parent.getElementsByTagNameNS('*', localName));
-}
-
-function firstChildByLocalName(
-  parent: Element | Document,
-  localName: string,
-): Element | null {
-  return childrenByLocalName(parent, localName)[0] ?? null;
-}
-
-function readText(node: Node | null | undefined): string {
-  return node?.textContent ?? '';
-}
-
-function parseXml(xml: string, path: string): Document {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  const parserError = doc.getElementsByTagName('parsererror')[0];
-  if (parserError) {
-    throw new Error(`Invalid XLSX XML in ${path}.`);
-  }
-  return doc;
-}
 
 async function readZipText(
   zip: JSZip,
   path: string,
 ): Promise<string | undefined> {
   return zip.file(path)?.async('string');
+}
+
+// The workbook opts into the legacy 1904 date system via
+// `<workbookPr date1904="1"/>` (or `date1904="true"`); dates are otherwise
+// serials in the default 1900 system.
+function parseDate1904(workbookXml: string): boolean {
+  const doc = parseXml(workbookXml, XLSX_WORKBOOK_PATH);
+  const pr = firstChildByLocalName(doc, 'workbookPr');
+  const val = pr?.getAttribute('date1904');
+  return val === '1' || val === 'true';
 }
 
 function parseWorkbookSheets(workbookXml: string): WorkbookSheetRef[] {
@@ -173,7 +184,7 @@ function resolveCellValue(cell: Element, sharedStrings: string[]): string {
   if (type === 's') {
     const sharedIndex = Number(rawValue);
     return Number.isInteger(sharedIndex)
-      ? (sharedStrings[sharedIndex] ?? '')
+      ? sharedStrings[sharedIndex] ?? ''
       : '';
   }
 
@@ -197,6 +208,38 @@ function parseCell(cell: Element, sharedStrings: string[]): Cell | undefined {
   }
 
   return parsed.f || parsed.v ? parsed : undefined;
+}
+
+// Cell types that carry a literal (non-numeric) value and must not be treated
+// as a date serial even when the style says the number format is a date.
+const NON_NUMERIC_CELL_TYPES = new Set(['s', 'str', 'inlineStr', 'b', 'e']);
+
+/**
+ * When a cell's number format is a date, its stored value is an Excel serial
+ * number; rewrite it to the model's `YYYY-MM-DD[ HH:MM:SS]` date string so it
+ * renders as a date rather than the raw serial.
+ */
+function convertDateSerial(
+  cell: Element,
+  parsed: Cell,
+  style: CellStyle | undefined,
+  date1904: boolean,
+): void {
+  if (style?.nf !== 'date' || parsed.v === undefined) {
+    return;
+  }
+  const type = cell.getAttribute('t');
+  if (type && NON_NUMERIC_CELL_TYPES.has(type)) {
+    return;
+  }
+  const serial = Number(parsed.v);
+  if (!Number.isFinite(serial)) {
+    return;
+  }
+  const dateString = excelSerialToDateString(serial, date1904);
+  if (dateString) {
+    parsed.v = dateString;
+  }
 }
 
 function applyMergeRanges(worksheet: Worksheet, worksheetRoot: Document): void {
@@ -225,13 +268,67 @@ function applyMergeRanges(worksheet: Worksheet, worksheetRoot: Document): void {
   }
 }
 
+function applyColumns(
+  worksheet: Worksheet,
+  doc: Document,
+  maxColumn: number,
+): void {
+  const hidden: number[] = [];
+  for (const col of childrenByLocalName(doc, 'col')) {
+    const min = Number(col.getAttribute('min'));
+    const rawMax = Number(col.getAttribute('max'));
+    if (!Number.isInteger(min) || !Number.isInteger(rawMax) || min < 1) {
+      continue;
+    }
+    // Whole-sheet `<col>` spans (e.g. min=1 max=16384) would otherwise write an
+    // entry per column; clamp near the populated range so the model stays small.
+    const max = Math.min(rawMax, maxColumn + COLUMN_SPAN_MARGIN);
+    const rawWidth = Number(col.getAttribute('width'));
+    const isHidden = col.getAttribute('hidden') === '1';
+    const hasCustomWidth =
+      col.getAttribute('customWidth') === '1' && Number.isFinite(rawWidth);
+    for (let index = min; index <= max; index += 1) {
+      if (hasCustomWidth) {
+        worksheet.colWidths[String(index)] = columnWidthToPixels(rawWidth);
+      }
+      if (isHidden) {
+        hidden.push(index);
+      }
+    }
+  }
+  if (hidden.length > 0) {
+    worksheet.hiddenColumns = hidden;
+  }
+}
+
+function applyRowStyles(
+  worksheet: Worksheet,
+  rowNumber: number,
+  row: Element,
+  hiddenRows: number[],
+): void {
+  if (row.getAttribute('customHeight') === '1') {
+    const height = Number(row.getAttribute('ht'));
+    if (Number.isFinite(height) && height > 0) {
+      worksheet.rowHeights[String(rowNumber)] = pointsToPixels(height);
+    }
+  }
+  if (row.getAttribute('hidden') === '1') {
+    hiddenRows.push(rowNumber);
+  }
+}
+
 function parseWorksheet(
   sheetName: string,
   worksheetXml: string,
   sharedStrings: string[],
+  styleTable: StyleTable,
+  date1904: boolean,
 ): ImportedXlsxSheet {
   const doc = parseXml(worksheetXml, sheetName);
   const worksheet = createWorksheet();
+  const stylePatches: RangeStylePatch[] = [];
+  const hiddenRows: number[] = [];
   let cellCount = 0;
   let maxRow = 0;
   let maxColumn = 0;
@@ -239,6 +336,8 @@ function parseWorksheet(
   childrenByLocalName(doc, 'row').forEach((row, rowIndex) => {
     const rowNumber = Number(row.getAttribute('r')) || rowIndex + 1;
     let nextColumn = 1;
+
+    applyRowStyles(worksheet, rowNumber, row, hiddenRows);
 
     for (const cell of childrenByLocalName(row, 'c')) {
       const ref = cell.getAttribute('r')
@@ -249,8 +348,21 @@ function parseWorksheet(
         continue;
       }
 
+      const styleIndex = cell.getAttribute('s');
+      const style =
+        styleIndex !== null
+          ? styleTable.resolveCellStyle(Number(styleIndex))
+          : undefined;
+      if (style) {
+        stylePatches.push({
+          range: [{ ...ref }, { ...ref }],
+          style,
+        });
+      }
+
       const parsedCell = parseCell(cell, sharedStrings);
       if (parsedCell) {
+        convertDateSerial(cell, parsedCell, style, date1904);
         writeWorksheetCell(worksheet, ref, parsedCell);
         cellCount += 1;
         maxRow = Math.max(maxRow, ref.r);
@@ -260,7 +372,19 @@ function parseWorksheet(
     }
   });
 
+  applyColumns(worksheet, doc, maxColumn);
   applyMergeRanges(worksheet, doc);
+
+  if (hiddenRows.length > 0) {
+    worksheet.hiddenRows = hiddenRows;
+  }
+  if (stylePatches.length > 0) {
+    // Coalesce horizontally then vertically to keep the patch list small.
+    worksheet.rangeStyles = coalesceAdjacentRangeStylePatches(
+      coalesceAdjacentRangeStylePatches(stylePatches, 'column'),
+      'row',
+    );
+  }
 
   return {
     name: sheetName,
@@ -284,6 +408,7 @@ export async function importXlsxWorkbook(
   if (workbookSheets.length === 0) {
     throw new Error('This .xlsx file does not contain any sheets.');
   }
+  const date1904 = parseDate1904(workbookXml);
 
   const relationships = parseWorkbookRelationships(
     await readZipText(zip, XLSX_WORKBOOK_RELS_PATH),
@@ -291,6 +416,7 @@ export async function importXlsxWorkbook(
   const sharedStrings = parseSharedStrings(
     await readZipText(zip, XLSX_SHARED_STRINGS_PATH),
   );
+  const styleTable = parseStyleTable(await readZipText(zip, XLSX_STYLES_PATH));
 
   const importedSheets: ImportedXlsxSheet[] = [];
   const hasWorkbookRelationships = relationships.size > 0;
@@ -317,7 +443,13 @@ export async function importXlsxWorkbook(
     }
 
     importedSheets.push(
-      parseWorksheet(sheet.name, worksheetXml, sharedStrings),
+      parseWorksheet(
+        sheet.name,
+        worksheetXml,
+        sharedStrings,
+        styleTable,
+        date1904,
+      ),
     );
   }
 
