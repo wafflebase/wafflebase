@@ -477,8 +477,10 @@ function parseRunStyle(
     if (attr(rPr, 'i') === '1') style.italic = true;
     const u = attr(rPr, 'u');
     if (u && u !== 'none') style.underline = true;
-    if (attr(rPr, 'strike') === 'sngStrike' || attr(rPr, 'strike') === 'dblStrike') {
+    const strike = attr(rPr, 'strike');
+    if (strike === 'sngStrike' || strike === 'dblStrike') {
       style.strikethrough = true;
+      if (strike === 'dblStrike') style.strikeStyle = 'double';
     }
     // baseline -> super/subscript. PPTX stores as 1000ths of a percent.
     const baseline = attrInt(rPr, 'baseline');

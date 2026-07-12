@@ -148,6 +148,12 @@ export interface InlineStyle {
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
+  /**
+   * Strikethrough line variant, meaningful only when `strikethrough` is
+   * set. `undefined` renders as a single line (the default). Maps to OOXML
+   * `@strike` (`sngStrike` / `dblStrike`).
+   */
+  strikeStyle?: 'single' | 'double';
   fontSize?: number;
   fontFamily?: string;
   /**
@@ -223,6 +229,7 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   italic: undefined,
   underline: undefined,
   strikethrough: undefined,
+  strikeStyle: undefined,
   fontSize: undefined,
   fontFamily: undefined,
   color: undefined,
@@ -383,6 +390,7 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.italic === b.italic &&
     a.underline === b.underline &&
     a.strikethrough === b.strikethrough &&
+    a.strikeStyle === b.strikeStyle &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
     storedColorsEqual(a.color, b.color) &&

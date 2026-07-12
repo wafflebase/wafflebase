@@ -238,7 +238,9 @@ function rPrXml(
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
   if (s.underline) attrs.push('u="sng"');
-  if (s.strikethrough) attrs.push('strike="sngStrike"');
+  if (s.strikethrough) {
+    attrs.push(s.strikeStyle === 'double' ? 'strike="dblStrike"' : 'strike="sngStrike"');
+  }
   // baseline — inverse of the importer's sign test (baseline > 0 →
   // superscript, < 0 → subscript). PPTX stores 1000ths of a percent;
   // 30000 / -25000 match PowerPoint's default super/subscript offsets.

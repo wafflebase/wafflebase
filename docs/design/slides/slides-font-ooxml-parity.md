@@ -97,7 +97,7 @@ property the user can reset.
 | `<a:hlinkClick>` | `href` | ✅ | ✅ (A2) | (link flow) | A2 |
 | `@cap` all/small | — | ❌ | ❌ | ❌ | B |
 | `@u` style + `<a:uFill>` | — | partial | partial | ❌ | B |
-| `@strike` dbl | — | partial | partial | ❌ | B |
+| `@strike` dbl | `strikeStyle` | ✅ (B.1) | ✅ (B.1) | ❌ (deferred) | B.1 |
 | `@spc` letter spacing | — | ❌ | ❌ | ❌ | B |
 | `<a:gradFill>` text fill | — | ❌ | ❌ | ❌ | C |
 | `<a:ln>` text outline | — | ❌ | ❌ | ❌ | C |
@@ -167,22 +167,31 @@ that content lossless on re-export.
 
 ### Phase B — universal typographic properties (shared model)
 
-Extend the shared `InlineStyle`; Docs benefits too. Each item = model
-field + renderer + import + export + Slides UI.
+Extend the shared `InlineStyle`; Docs benefits too. Following the Phase
+A decision, Phase B ships **functionality-first**: each item is model
+field + shared renderer + slides import + slides export (+ tests), and
+**toolbar UI is deferred** (see [Deferred: toolbar
+exposure](#deferred-toolbar-exposure)). The slides text box persists
+inline styles generically (the whole `blocks` Tree round-trips through
+`yorkieToPlain`), so new fields save/collaborate without per-field store
+code; docs field-by-field Yorkie persistence + docx + vector-PDF
+(`pdf-painter.ts`) mapping are deferred until Docs authors these.
+Every new field is added to `CLEAR_INLINE_STYLE` and both
+`inlineStylesEqual` sites (the canonical one and the duplicate in
+`text-editor.ts`) — the latter is run-merge-correctness critical.
 
+- **`strikeStyle?: 'single' | 'double'`** (`@strike`
+  `sngStrike`/`dblStrike`) — **shipped (B.1).** `strikethrough: true`
+  with no style = single; double renders as two hairlines.
 - **`caps?: 'all' | 'small'`** (`@cap`) — non-destructive render-time
-  transform (does not mutate the run text). New toolbar control
-  (text-transform dropdown).
+  transform (does not mutate the run text; affects measure + paint).
 - **`underlineStyle?`** (`'single' | 'double' | 'heavy' | 'dotted' |
   'dashed' | 'wavy'`) + **`underlineColor?: StoredColor`** — map the
   OOXML `@u` enum (17 values collapsed to this representative set) and
   `<a:uFill>`. `underline: true` with no style = single (today's
   behavior).
-- **`strikeStyle?: 'single' | 'double'`** — map `@strike`
-  `sngStrike`/`dblStrike`. `strikethrough: true` with no style =
-  single.
 - **`letterSpacing?: number`** (points; negative = condensed) — map
-  `@spc` (hundredths of a point in OOXML).
+  `@spc` (hundredths of a point in OOXML); affects measure + paint.
 
 ### Phase C — presentation text effects (Slides-side extension)
 

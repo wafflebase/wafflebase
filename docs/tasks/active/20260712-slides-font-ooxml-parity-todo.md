@@ -49,6 +49,20 @@ exposure"). Kept the export functionality only.
 - **Speaker-notes hyperlinks** are not exported (the importer's
   `parseNotes` also passes no rels map, so they don't round-trip either).
 
+## Phase B — universal typographic properties (shared `InlineStyle`)
+
+Functionality-first (model + shared renderer + slides import/export +
+tests); toolbar UI deferred. Each new field goes in `CLEAR_INLINE_STYLE`
+and BOTH `inlineStylesEqual` sites (types.ts + text-editor.ts). Rebuild
+`@wafflebase/docs` dist after model changes.
+
+- [x] **B.1 `strikeStyle` (single/double)** — `@strike`
+      `sngStrike`/`dblStrike`. Model + double-line render (`paint-layout.ts`)
+      + slides import/export + round-trip test.
+- [ ] **B.2 `underlineStyle` + `underlineColor`** — `@u` enum + `<a:uFill>`.
+- [ ] **B.3 `caps` (all/small)** — `@cap`; measure + paint transform.
+- [ ] **B.4 `letterSpacing`** — `@spc`; measure + paint.
+
 ## Wrap-up
 
 - [x] Capture lessons in the paired `-lessons.md`.

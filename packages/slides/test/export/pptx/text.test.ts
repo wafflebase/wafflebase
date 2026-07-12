@@ -55,6 +55,28 @@ describe('textBodyToXml', () => {
     expect(xml).toMatch(/<a:rPr[^>]*strike="sngStrike"/);
   });
 
+  it('emits dblStrike for double strikethrough and round-trips it', () => {
+    const xml = textBodyToXml({
+      blocks: [para('D', { strikethrough: true, strikeStyle: 'double' })],
+    });
+    expect(xml).toMatch(/<a:rPr[^>]*strike="dblStrike"/);
+    // Plain strikethrough stays single.
+    expect(
+      textBodyToXml({ blocks: [para('S', { strikethrough: true })] }),
+    ).toMatch(/<a:rPr[^>]*strike="sngStrike"/);
+    // Round-trip: dblStrike re-imports as strikethrough + strikeStyle double.
+    const el = parseXml(
+      `<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+        `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${textBodyToXml(
+          { blocks: [para('D', { strikethrough: true, strikeStyle: 'double' })] },
+          'p:txBody',
+        )}</root>`,
+    ).documentElement.firstElementChild!;
+    const back = parseTextBody(el, { report: new ImportReport() });
+    expect(back[0].inlines[0].style.strikethrough).toBe(true);
+    expect(back[0].inlines[0].style.strikeStyle).toBe('double');
+  });
+
   it('emits baseline for superscript and subscript', () => {
     expect(
       textBodyToXml({ blocks: [para('S', { superscript: true })] }),

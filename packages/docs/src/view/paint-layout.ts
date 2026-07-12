@@ -439,8 +439,16 @@ export function renderRun(
     ctx.beginPath();
     ctx.strokeStyle = textColor;
     ctx.lineWidth = 1;
-    ctx.moveTo(x, strikeY);
-    ctx.lineTo(x + run.width, strikeY);
+    if (style.strikeStyle === 'double') {
+      // Double strike: two hairlines straddling the single-line position.
+      ctx.moveTo(x, strikeY - 1);
+      ctx.lineTo(x + run.width, strikeY - 1);
+      ctx.moveTo(x, strikeY + 1);
+      ctx.lineTo(x + run.width, strikeY + 1);
+    } else {
+      ctx.moveTo(x, strikeY);
+      ctx.lineTo(x + run.width, strikeY);
+    }
     ctx.stroke();
   }
 }
