@@ -214,12 +214,12 @@ export function RightGlobals({
                 <ColorSwatchButton
                   icon={<IconBackground size={14} />}
                   color={currentBackground}
-                  label="Slide background"
+                  label="Background"
                   disabled={!store || !slideId || !theme}
                 />
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Slide background</TooltipContent>
+            <TooltipContent>Background</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
             align="end"
