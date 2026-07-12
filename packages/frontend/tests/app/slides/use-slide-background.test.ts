@@ -196,6 +196,39 @@ describe('useSlideBackground', () => {
     expect(master?.background.image).toEqual({ src: 'https://x/apply-all.png' });
   });
 
+  it('onApplyToAll keeps the slide fill under an inherited master image', () => {
+    const { store, slideId, theme } = fixture();
+    const doc = store.read();
+
+    // Master already has a background image (e.g. set by a previous
+    // "apply to all" or master edit) — this is inherited by the slide,
+    // not owned by it.
+    store.batch(() =>
+      store.updateMaster(doc.meta.masterId, {
+        background: { image: { src: 'https://x/master-bg.png' } },
+      }),
+    );
+
+    // The slide picks its own solid fill; it has no own image, so
+    // resolveBackgroundImage(slide, doc) resolves the *inherited* master
+    // image, not a slide-owned one.
+    store.batch(() =>
+      store.updateSlideBackground(slideId, { fill: { kind: 'srgb', value: '#ff0000' } }),
+    );
+
+    const { result } = renderHook(() => useSlideBackground(store, slideId, theme));
+    act(() => {
+      result.current.onApplyToAll();
+    });
+
+    const after = store.read();
+    const master = after.masters.find((m) => m.id === after.meta.masterId);
+    // The old code wrote only `{ image }` here (a no-op against the
+    // master's existing image) and silently dropped the slide's fill.
+    expect(master?.background.fill).toEqual({ kind: 'srgb', value: '#ff0000' });
+    expect(master?.background.image).toEqual({ src: 'https://x/master-bg.png' });
+  });
+
   it('resets the gradient draft when slideId changes', () => {
     const { store, slideId, theme } = fixture();
     let otherSlideId = '';

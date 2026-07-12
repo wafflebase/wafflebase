@@ -157,9 +157,14 @@ export function useSlideBackground(
     if (!slide) return;
     const fill = resolveBackgroundFill(slide, doc);
     const image = resolveBackgroundImage(slide, doc);
+    // A slide's fill/image are mutually exclusive, but a master's `fill`
+    // (required) and `image` (optional overlay) are not — `image` here may
+    // be inherited from the layout/master rather than owned by this slide
+    // (a slide can't opt out of an inherited image), so always propagate
+    // the resolved fill and layer the image on top only when present.
     store.batch(() =>
       store.updateMaster(doc.meta.masterId, {
-        background: image ? { image } : { fill },
+        background: { fill, ...(image ? { image } : {}) },
       }),
     );
     onCommit?.();
