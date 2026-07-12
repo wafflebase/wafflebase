@@ -33,7 +33,7 @@ function makeController(opts: {
   } as unknown as DocumentService;
 
   const workspaceService = {
-    assertMember: jest.fn(async (_ws: string, userId: number) => {
+    assertMember: jest.fn((_ws: string, userId: number) => {
       if (!opts.members?.has(userId)) {
         throw new ForbiddenException('not a member');
       }
@@ -42,7 +42,7 @@ function makeController(opts: {
   } as unknown as WorkspaceService;
 
   const shareLinkService = {
-    findByToken: jest.fn(async () => {
+    findByToken: jest.fn(() => {
       if (!opts.share || opts.share === 'throw') {
         throw new Error('not found');
       }
@@ -87,7 +87,9 @@ describe('YorkieAuthController.decide', () => {
 
   it('allows ActivateClient with only a valid token', async () => {
     const c = makeController({ identity: { typ: 'yorkie', sub: 1 } });
-    expect(await c.decide({ method: 'ActivateClient', token: 't' })).toMatchObject({
+    expect(
+      await c.decide({ method: 'ActivateClient', token: 't' }),
+    ).toMatchObject({
       status: 200,
       allowed: true,
     });
@@ -181,7 +183,11 @@ describe('YorkieAuthController.decide', () => {
         token: 't',
         attributes: [{ key: 'bogus-1', verb: 'r' }],
       }),
-    ).toMatchObject({ status: 403, allowed: false, reason: 'unknown document key' });
+    ).toMatchObject({
+      status: 403,
+      allowed: false,
+      reason: 'unknown document key',
+    });
   });
 
   it('fails closed (403) on a document method with no attributes', async () => {
@@ -209,29 +215,40 @@ describe('YorkieAuthController.decide', () => {
 
 describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
   function mockRes() {
-    const res = { status: jest.fn() } as unknown as Response;
-    return res;
+    // Return the status spy separately so assertions reference the bound spy,
+    // not `res.status` as an unbound method.
+    const status = jest.fn();
+    const res = { status } as unknown as Response;
+    return { res, status };
   }
 
   it('returns the real deny status when enforcing', async () => {
     const c = makeController({ enforce: true, identity: 'throw' });
-    const res = mockRes();
+    const { res, status } = mockRes();
     const body = await c.handleAuth(
-      { method: 'PushPull', token: 'bad', attributes: [{ key: 'sheet-1', verb: 'r' }] },
+      {
+        method: 'PushPull',
+        token: 'bad',
+        attributes: [{ key: 'sheet-1', verb: 'r' }],
+      },
       res,
     );
-    expect(res.status).toHaveBeenCalledWith(401);
+    expect(status).toHaveBeenCalledWith(401);
     expect(body.allowed).toBe(false);
   });
 
   it('lets denied traffic through (200) in shadow mode', async () => {
     const c = makeController({ enforce: false, identity: 'throw' });
-    const res = mockRes();
+    const { res, status } = mockRes();
     const body = await c.handleAuth(
-      { method: 'PushPull', token: 'bad', attributes: [{ key: 'sheet-1', verb: 'r' }] },
+      {
+        method: 'PushPull',
+        token: 'bad',
+        attributes: [{ key: 'sheet-1', verb: 'r' }],
+      },
       res,
     );
-    expect(res.status).toHaveBeenCalledWith(200);
+    expect(status).toHaveBeenCalledWith(200);
     expect(body.allowed).toBe(true);
   });
 });

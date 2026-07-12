@@ -18,7 +18,10 @@ describe('JwtStrategy.validate', () => {
   };
 
   it('accepts an access token', async () => {
-    const user = await makeStrategy().validate({ ...base, tokenType: 'access' });
+    const user = await makeStrategy().validate({
+      ...base,
+      tokenType: 'access',
+    });
     expect(user).toEqual({
       id: 1,
       username: 'alice',
