@@ -75,7 +75,7 @@ import { ArrangeMenu } from "./arrange-menu";
 import { ShapePicker } from "../shape-picker";
 import { LinePicker } from "../line-picker";
 import { TablePicker } from "../table-picker";
-import { ThemedColorPicker } from "../themed-color-picker";
+import { BackgroundPanel } from "../background-panel";
 import { useSlideBackground } from "../use-slide-background";
 
 export interface MobileSlidesToolbarProps {
@@ -105,6 +105,7 @@ function IdleMobileBar({
   store,
   theme,
   onImagePick,
+  upload,
   onToggleThemePanel,
   onToggleFormatPanel,
   onToggleMotionPanel,
@@ -119,6 +120,7 @@ function IdleMobileBar({
         editor={editor}
         store={store}
         theme={theme}
+        upload={upload}
         onToggleThemePanel={onToggleThemePanel}
         onToggleFormatPanel={onToggleFormatPanel}
         onToggleMotionPanel={onToggleMotionPanel}
@@ -193,6 +195,7 @@ function ObjectMobileBar({
         editor={editor}
         store={store}
         theme={theme}
+        upload={upload}
         onToggleThemePanel={onToggleThemePanel}
         onToggleFormatPanel={onToggleFormatPanel}
         onToggleMotionPanel={onToggleMotionPanel}
@@ -564,6 +567,7 @@ function OverflowMenu({
   editor,
   store,
   theme,
+  upload,
   onToggleThemePanel,
   onToggleFormatPanel,
   onToggleMotionPanel,
@@ -571,6 +575,7 @@ function OverflowMenu({
   editor: SlidesEditor | null;
   store: SlidesStore | null;
   theme?: Theme | null;
+  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   onToggleFormatPanel?: () => void;
   onToggleMotionPanel?: () => void;
@@ -635,6 +640,7 @@ function OverflowMenu({
           store={store!}
           theme={theme!}
           slideId={slideId!}
+          upload={upload}
         />
       )}
     </>
@@ -646,10 +652,11 @@ function OverflowMenu({
 // ---------------------------------------------------------------------------
 
 /**
- * Mobile bottom-sheet wrapper around `ThemedColorPicker`, mirroring the
- * desktop `RightGlobals` slide-background dropdown. Writes through
- * `store.updateSlideBackground` for the current slide; a discrete
- * swatch pick closes the sheet, live custom-input changes keep it open.
+ * Mobile bottom-sheet wrapper around the shared `BackgroundPanel`,
+ * mirroring the desktop `RightGlobals` slide-background dropdown. Writes
+ * through `store.updateSlideBackground` for the current slide; a discrete
+ * pick (swatch, image, reset) closes the sheet, live custom-input changes
+ * (and gradient-stop drags) keep it open.
  */
 function SlideBackgroundSheet({
   open,
@@ -657,36 +664,44 @@ function SlideBackgroundSheet({
   store,
   theme,
   slideId,
+  upload,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   store: SlidesStore;
   theme: Theme;
   slideId: string;
+  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
 }) {
-  const { backgroundFill, onChange } = useSlideBackground(
-    store,
-    slideId,
-    theme,
-    () => onOpenChange(false),
+  // Single hook instance, lifted here (not inside BackgroundPanel) so the
+  // Sheet's onOpenChange can flush an in-flight gradient drag draft via
+  // `bg.onFlushGradientDraft()` before the panel unmounts — same pattern
+  // as the desktop RightGlobals DropdownMenu.
+  const bg = useSlideBackground(store, slideId, theme, () =>
+    onOpenChange(false),
   );
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) bg.onFlushGradientDraft();
+        onOpenChange(next);
+      }}
+    >
       <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom,8px)]">
         <SheetHeader>
-          <SheetTitle>Slide background</SheetTitle>
+          <SheetTitle>Background</SheetTitle>
           <SheetDescription className="sr-only">
-            Pick a fill color for the current slide background.
+            Set the slide background color, gradient, or image.
           </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-4">
-          <ThemedColorPicker
-            value={backgroundFill}
+          <BackgroundPanel
+            bg={bg}
             theme={theme}
-            onChange={onChange}
-            allowAlpha
             recentColors={store.read().meta.recentColors}
+            upload={upload}
           />
         </div>
       </SheetContent>
