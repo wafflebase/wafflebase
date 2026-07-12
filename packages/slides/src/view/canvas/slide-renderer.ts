@@ -181,8 +181,16 @@ export function drawSlide(
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!hasPasteboard) {
+    // This branch runs under the IDENTITY ctm (the `ctx.scale(scale,
+    // scale)` below hasn't been applied yet) and fills the DEVICE-pixel
+    // rect `fillRect(0, 0, bitmapW, bitmapH)`. A gradient's axis must
+    // therefore be laid out across `bitmapW × bitmapH`, not the logical
+    // `SLIDE_WIDTH × slideH` — otherwise the axis only matches the
+    // filled rect when `bitmapW === SLIDE_WIDTH` (e.g. it silently
+    // breaks thumbnails, PDF export, and no-pasteboard presentation /
+    // mobile, whose bitmaps are smaller than the logical slide).
     ctx.fillStyle = resolveFillStyle(
-      ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
+      ctx, resolveBackgroundFill(slide, doc), theme, bitmapW, bitmapH,
     );
     ctx.fillRect(0, 0, bitmapW, bitmapH);
   } else {
