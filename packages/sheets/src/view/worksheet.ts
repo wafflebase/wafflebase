@@ -4849,8 +4849,10 @@ export class Worksheet {
             ?.kind === 'checkbox',
         run: async (event) => {
           event.preventDefault();
-          const ref = this.sheet!.getActiveCell();
-          if (await this.sheet!.toggleCheckboxAt(ref)) {
+          // Range-uniform toggle (GS/Excel): all checked → uncheck all, else
+          // check all. A single-cell selection toggles just that cell.
+          const range = this.sheet!.getRangeOrActiveCell();
+          if (await this.sheet!.toggleCheckboxesInRange(range)) {
             this.render();
           }
         },

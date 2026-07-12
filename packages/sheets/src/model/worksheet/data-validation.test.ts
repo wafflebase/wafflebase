@@ -4,6 +4,7 @@ import {
   cloneDataValidationRule,
   resolveDataValidationAt,
   isCheckboxChecked,
+  checkboxValue,
   toggleCheckboxValue,
   listOptionsOf,
   isValidListValue,
@@ -88,6 +89,19 @@ describe('data-validation model', () => {
     expect(toggleCheckboxValue(rule, CHECKBOX_FALSE)).toBe(CHECKBOX_TRUE);
     expect(toggleCheckboxValue(rule, CHECKBOX_TRUE)).toBe(CHECKBOX_FALSE);
     expect(toggleCheckboxValue(rule, undefined)).toBe(CHECKBOX_TRUE);
+  });
+
+  it('forces a checkbox to a target state via checkboxValue', () => {
+    const rule = checkboxRule('a');
+    expect(checkboxValue(rule, true)).toBe(CHECKBOX_TRUE);
+    expect(checkboxValue(rule, false)).toBe(CHECKBOX_FALSE);
+    const custom: DataValidationRule = {
+      ...checkboxRule('b'),
+      checkedValue: 'Yes',
+      uncheckedValue: 'No',
+    };
+    expect(checkboxValue(custom, true)).toBe('Yes');
+    expect(checkboxValue(custom, false)).toBe('No');
   });
 
   it('matches default boolean checkbox values case-insensitively', () => {

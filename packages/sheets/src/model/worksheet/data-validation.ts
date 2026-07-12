@@ -169,15 +169,24 @@ export function isCheckboxChecked(
 }
 
 /**
+ * `checkboxValue` returns the value to write to force a checkbox into the given
+ * checked/unchecked state (used by range-uniform Space toggling).
+ */
+export function checkboxValue(
+  rule: DataValidationRule,
+  checked: boolean,
+): string {
+  return checked ? checkedValueOf(rule) : uncheckedValueOf(rule);
+}
+
+/**
  * `toggleCheckboxValue` returns the value to write when the box is toggled.
  */
 export function toggleCheckboxValue(
   rule: DataValidationRule,
   value: string | undefined,
 ): string {
-  return isCheckboxChecked(rule, value)
-    ? uncheckedValueOf(rule)
-    : checkedValueOf(rule);
+  return checkboxValue(rule, !isCheckboxChecked(rule, value));
 }
 
 /**

@@ -68,7 +68,9 @@ import {
   shiftConditionalFormatRules,
 } from './conditional-format';
 import {
+  checkboxValue,
   cloneDataValidationRule,
+  isCheckboxChecked,
   moveDataValidationRules,
   normalizeDataValidationRule,
   resolveDataValidationAt,
@@ -3845,6 +3847,75 @@ export class Sheet {
     const next = toggleCheckboxValue(rule, cell?.v);
     await this.setData(ref, next);
     return true;
+  }
+
+  /**
+   * `toggleCheckboxesInRange` applies a uniform toggle to every checkbox-ruled,
+   * non-formula cell in `range`: if all such cells are currently checked they
+   * are all unchecked, otherwise they are all checked (Google Sheets / Excel
+   * range parity). Formula-backed checkboxes are read-only and skipped; cells
+   * without a checkbox rule are left untouched. The whole set is one batch (one
+   * undo unit) — writes go through the low-level store like `removeData`, not
+   * `setData` (which self-batches and would not nest). Returns whether any cell
+   * changed. A single-cell range is a plain toggle of that cell.
+   */
+  async toggleCheckboxesInRange(range: Range): Promise<boolean> {
+    const r0 = Math.min(range[0].r, range[1].r);
+    const r1 = Math.max(range[0].r, range[1].r);
+    const c0 = Math.min(range[0].c, range[1].c);
+    const c1 = Math.max(range[0].c, range[1].c);
+
+    // Collect checkbox-ruled, non-formula cells (deduped by merge anchor).
+    const targets: Array<{
+      anchor: Ref;
+      sref: Sref;
+      rule: DataValidationRule;
+      cell?: Cell;
+    }> = [];
+    const seen = new Set<Sref>();
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const rule = this.getDataValidationAt({ r, c });
+        if (!rule || rule.kind !== 'checkbox') continue;
+        const anchor = this.normalizeRefToAnchor({ r, c });
+        const sref = toSref(anchor);
+        if (seen.has(sref)) continue;
+        seen.add(sref);
+        const cell = await this.store.get(anchor);
+        if (cell?.f) continue; // formula-backed = read-only
+        targets.push({ anchor, sref, rule, cell });
+      }
+    }
+    if (targets.length === 0) return false;
+
+    // All checked → uncheck all; otherwise (mixed or none) → check all.
+    const nextChecked = !targets.every((t) =>
+      isCheckboxChecked(t.rule, t.cell?.v),
+    );
+
+    this.invalidateCrossSheetCache();
+    this.store.beginBatch();
+    try {
+      const changed = new Set<Sref>();
+      for (const t of targets) {
+        const next = checkboxValue(t.rule, nextChecked);
+        if (t.cell?.v === next) continue;
+        await this.store.set(t.anchor, compactCell({ v: next }, t.cell?.s));
+        changed.add(t.sref);
+      }
+      if (changed.size === 0) return false;
+
+      const changedSrefs = this.expandChangedSrefsWithMergeAliases(changed);
+      const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
+      await calculate(this, dependantsMap, changedSrefs);
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
+      return true;
+    } finally {
+      this.store.endBatch();
+    }
   }
 
   /**

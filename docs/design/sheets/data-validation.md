@@ -243,8 +243,14 @@ simplifications, each a small follow-up to close:
   context menu. (Known caveat: for a checkbox inside a *merged* cell the glyph is
   centered in the full merged rect while the hit-test uses the anchor cell's rect
   — a rare configuration, deferred.)
-- **Space** — toggles the **active cell** only. Range-uniform Space ("set all
-  checked", GS/Excel parity) is deferred.
+- **Space** — range-uniform toggle (GS/Excel parity): if every checkbox-ruled,
+  non-formula cell in the selection is checked they are all unchecked, otherwise
+  all are checked. A single-cell selection toggles just that cell. Implemented
+  as `Sheet.toggleCheckboxesInRange`, which writes through the low-level store
+  inside one batch + `calculate` (the `removeData` pattern) rather than looping
+  `setData` — `setData` self-batches and batches do not nest, so a loop would
+  produce N undo units and clobber grouping. Formula-backed checkboxes stay
+  read-only; non-checkbox cells in the selection are untouched.
 - **Structural edits** — rules follow row/column insert/delete/move in three
   places that must stay in lockstep: the `Sheet` synced cache, `MemStore`, and the
   Yorkie document helper (`yorkie-worksheet-structure.ts`). All three route through
