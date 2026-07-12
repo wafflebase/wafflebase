@@ -164,6 +164,38 @@ describe('useSlideBackground', () => {
     expect(result.current.backgroundImage).toEqual({ src: 'https://x/y.png' });
   });
 
+  it('onApplyToAll writes the current resolved fill to the master', () => {
+    const { store, slideId, theme } = fixture();
+    store.batch(() =>
+      store.updateSlideBackground(slideId, { fill: { kind: 'srgb', value: '#ff0000' } }),
+    );
+
+    const { result } = renderHook(() => useSlideBackground(store, slideId, theme));
+    act(() => {
+      result.current.onApplyToAll();
+    });
+
+    const doc = store.read();
+    const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+    expect(master?.background.fill).toEqual({ kind: 'srgb', value: '#ff0000' });
+  });
+
+  it('onApplyToAll writes the current resolved image to the master', () => {
+    const { store, slideId, theme } = fixture();
+    store.batch(() =>
+      store.updateSlideBackground(slideId, { image: { src: 'https://x/apply-all.png' } }),
+    );
+
+    const { result } = renderHook(() => useSlideBackground(store, slideId, theme));
+    act(() => {
+      result.current.onApplyToAll();
+    });
+
+    const doc = store.read();
+    const master = doc.masters.find((m) => m.id === doc.meta.masterId);
+    expect(master?.background.image).toEqual({ src: 'https://x/apply-all.png' });
+  });
+
   it('resets the gradient draft when slideId changes', () => {
     const { store, slideId, theme } = fixture();
     let otherSlideId = '';

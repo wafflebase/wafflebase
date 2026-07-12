@@ -86,6 +86,13 @@ export function BackgroundPanel({
       >
         Reset to theme
       </button>
+      <button
+        type="button"
+        className="w-full rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+        onClick={bg.onApplyToAll}
+      >
+        Apply to all slides
+      </button>
     </div>
   );
 }

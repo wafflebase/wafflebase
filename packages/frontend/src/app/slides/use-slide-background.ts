@@ -43,6 +43,7 @@ export function useSlideBackground(
   onChooseImage: (src: string) => void;
   onRemoveImage: () => void;
   onResetToTheme: () => void;
+  onApplyToAll: () => void;
 } {
   const [gradientDraft, setGradientDraft] = useState<GradientFill | null>(
     null,
@@ -143,6 +144,27 @@ export function useSlideBackground(
     onCommit?.();
   }, [store, slideId, onCommit]);
 
+  // "Apply to all slides" (Google Slides' "Add to theme"): write the
+  // current slide's *resolved* background (fill or image, following the
+  // same slide → layout → master inheritance the picker itself reads)
+  // onto the deck's master. Every slide that doesn't override its own
+  // background inherits it on the next repaint; slides with an explicit
+  // per-slide `background` are untouched, matching Google Slides.
+  const onApplyToAll = useCallback(() => {
+    if (!store || !slideId) return;
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId);
+    if (!slide) return;
+    const fill = resolveBackgroundFill(slide, doc);
+    const image = resolveBackgroundImage(slide, doc);
+    store.batch(() =>
+      store.updateMaster(doc.meta.masterId, {
+        background: image ? { image } : { fill },
+      }),
+    );
+    onCommit?.();
+  }, [store, slideId, onCommit]);
+
   return {
     backgroundFill,
     backgroundImage,
@@ -153,5 +175,6 @@ export function useSlideBackground(
     onChooseImage,
     onRemoveImage,
     onResetToTheme,
+    onApplyToAll,
   };
 }
