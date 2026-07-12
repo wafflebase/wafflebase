@@ -8,6 +8,19 @@
 
 **Tech Stack:** TypeScript, Vitest (sheets unit tests), Canvas 2D (gridcanvas render), raw-DOM overlays (worksheet view), React + shadcn (frontend panel). No new dependencies — native `Date` for month math, existing `inferInput` for date parsing.
 
+> **Status: SHIPPED (PR #470) — this is the original plan, kept as a historical
+> record.** All tasks are complete (see the companion `*-todo.md` Review
+> section). A high-effort branch review then hardened two behaviors, so the
+> code below is superseded where it differs from the shipped result — the
+> **design doc's "Phase 4 → Review hardening" section governs the as-shipped
+> contract**:
+> - **Operand normalization** keeps a fixed-length slot per operand (`''` for a
+>   blank one), removing `values` only when *every* slot is empty — it does
+>   **not** stop at the first gap or compact to `[]` as the Task 1 snippet shows.
+> - **`dateWithinRuleBounds`** defers entirely to `isValidDateValue` (so the
+>   `dateNotBetween` interior window is disabled in the picker) rather than
+>   early-returning `true` for `dateNotBetween` as the Task 5 snippet shows.
+
 ## Global Constraints
 
 - **No new dependency in `packages/sheets`** — use native `Date` and the existing `inferInput` (`packages/sheets/src/model/worksheet/input.ts`) for all date parsing/normalization. No `date-fns` in sheets.

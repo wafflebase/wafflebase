@@ -282,7 +282,7 @@ export function DataValidationPanel({
             <p className="text-sm font-semibold">Data validation</p>
           </div>
           <p className="truncate pt-1 text-xs text-muted-foreground">
-            Checkbox and dropdown rules for this sheet.
+            Checkbox, dropdown, and date rules for this sheet.
           </p>
         </div>
         <button

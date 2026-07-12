@@ -579,9 +579,10 @@ A high-effort branch review drove four correctness/UX fixes over the first cut:
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,
-  custom); list/date validation (`reject`/`warning`, `dateMin`/`dateMax`
-  boundaries); Store 3-impl round-trip for `get/setDataValidations`; Yorkie
-  schema seed.
+  custom); list/date validation (`reject`/`warning`; date `operator`/`values`
+  boundaries — before/on-or-before, after/on-or-after, between/not-between
+  inclusive edges, reversed-range swap, position-preserving normalization);
+  Store 3-impl round-trip for `get/setDataValidations`; Yorkie schema seed.
 - **render regression**: checkbox / dropdown-arrow / warning-triangle glyph
   snapshots, following existing gridcanvas render tests.
 - **collaboration**: two clients concurrently adding a rule / toggling a checkbox
