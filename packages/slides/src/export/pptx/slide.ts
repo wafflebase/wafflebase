@@ -22,8 +22,7 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, Slide } from '../../model/presentation.js';
 import type { TextBody } from '../../model/element.js';
-import { representativeColor } from '../../model/theme.js';
-import { solidFillXml } from './color.js';
+import { fillXml } from './color.js';
 import { elementToXml, type ElementXmlCtx } from './group.js';
 import { animationsToTimingXml, transitionToXml } from './animation.js';
 import { textBodyToXml } from './text.js';
@@ -68,17 +67,18 @@ const SPTREE_ROOT =
  * Serialize a `Background` to a `<p:bg>` element.
  *
  * The importer reads background via `parseSlideBackground`, which looks for
- * `<p:bg><p:bgPr><a:solidFill>` (or `<a:blipFill>` for image backgrounds).
- * We emit `<p:bgPr><a:solidFill>` here which round-trips correctly for
- * solid-fill backgrounds.
+ * `<p:bg><p:bgPr>` containing `<a:blipFill>` (image), `<a:gradFill>`
+ * (gradient), or `<a:solidFill>` (color). `fillXml` already dispatches on
+ * the fill kind — a gradient with ≥2 stops emits `<a:gradFill>`, everything
+ * else emits `<a:solidFill>` — so this round-trips both solid and gradient
+ * backgrounds. Note: `fillXml`/`gradFillXml` always emit `<a:lin>` (linear);
+ * a `radial` gradient background exports as linear, a pre-existing lossy
+ * behavior shared with shape gradient export (tracked separately).
  *
  * Image backgrounds are not yet exported (the URL is frontend-only), so
  * we fall back to the fill for slides that have a background image — the
- * importer will re-create the same `DEFAULT_BACKGROUND` fill it would have
- * used if the image weren't present.
- *
- * A gradient background collapses to its representative (first-stop)
- * color — full gradient background export is a later task.
+ * importer will re-create the same fill it would have used if the image
+ * weren't present.
  */
 function backgroundToXml(bg: Background): string {
   // Callers (export/pptx/index.ts) resolve the effective fill through the
@@ -86,8 +86,8 @@ function backgroundToXml(bg: Background): string {
   // here means a genuinely fill-less background; default to the
   // `background` role for safety. Background *images* are not exported yet.
   const fill = bg.fill ?? { kind: 'role' as const, role: 'background' as const };
-  const fillXml = solidFillXml(representativeColor(fill));
-  return `<p:bg><p:bgPr>${fillXml}</p:bgPr></p:bg>`;
+  const body = fillXml(fill);
+  return `<p:bg><p:bgPr>${body}</p:bgPr></p:bg>`;
 }
 
 // ---------------------------------------------------------------------------

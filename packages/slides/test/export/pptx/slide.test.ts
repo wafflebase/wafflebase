@@ -117,6 +117,30 @@ describe('slideToXml', () => {
     expect(xml).toContain('<p:bg>');
     expect(xml).toContain('FF0000');
   });
+
+  it('exports a gradient background as <a:gradFill>, not a collapsed solid', () => {
+    const slide: Slide = {
+      id: 's1',
+      layoutId: 'blank',
+      background: {
+        fill: {
+          kind: 'gradient',
+          type: 'linear',
+          angle: 0,
+          stops: [
+            { pos: 0, color: { kind: 'srgb', value: '#FFFFFF' } },
+            { pos: 1, color: { kind: 'srgb', value: '#000000' } },
+          ],
+        },
+      },
+      elements: [],
+      notes: [],
+    } as unknown as Slide;
+    const xml = slideToXml(slide, ctx);
+    expect(xml).toContain('<p:bg>');
+    expect(xml).toContain('<a:gradFill>');
+    expect(xml).toContain('<a:gsLst>');
+  });
 });
 
 describe('notesSlideToXml', () => {

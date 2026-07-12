@@ -937,7 +937,7 @@ function parseShapeFill(
  * gradient at the default angle so the shape keeps its colors rather than
  * vanishing. Returns undefined when there are no usable stops.
  */
-function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefined {
+export function parseGradientFill(grad: Element, clrMap: ClrMap): GradientFill | undefined {
   const gsLst = child(grad, 'gsLst');
   if (!gsLst) return undefined;
   const stops: GradientStop[] = [];
