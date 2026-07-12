@@ -41,6 +41,7 @@ export function useSlideBackground(
   onChangeGradient: (fill: GradientFill, opts?: { commit?: boolean }) => void;
   onFlushGradientDraft: () => void;
   onChooseImage: (src: string) => void;
+  onChangeImageOpacity: (opacity: number) => void;
   onRemoveImage: () => void;
   onResetToTheme: () => void;
   onApplyToAll: () => void;
@@ -131,6 +132,18 @@ export function useSlideBackground(
     [store, slideId, onCommit],
   );
 
+  const onChangeImageOpacity = useCallback(
+    (opacity: number) => {
+      if (!store || !slideId || !backgroundImage) return;
+      store.batch(() =>
+        store.updateSlideBackground(slideId, {
+          image: { ...backgroundImage, opacity },
+        }),
+      );
+    },
+    [store, slideId, backgroundImage],
+  );
+
   const onRemoveImage = useCallback(() => {
     if (!store || !slideId) return;
     // Clearing both keys reverts to "inherit" (slide → layout → master).
@@ -178,6 +191,7 @@ export function useSlideBackground(
     onChangeGradient,
     onFlushGradientDraft,
     onChooseImage,
+    onChangeImageOpacity,
     onRemoveImage,
     onResetToTheme,
     onApplyToAll,

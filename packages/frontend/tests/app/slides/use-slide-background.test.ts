@@ -229,6 +229,36 @@ describe('useSlideBackground', () => {
     expect(master?.background.image).toEqual({ src: 'https://x/master-bg.png' });
   });
 
+  it('onChangeImageOpacity preserves src and sets opacity', () => {
+    const { store, slideId, theme } = fixture();
+    store.batch(() =>
+      store.updateSlideBackground(slideId, { image: { src: 'https://x/y.png' } }),
+    );
+
+    const { result } = renderHook(() => useSlideBackground(store, slideId, theme));
+    act(() => {
+      result.current.onChangeImageOpacity(0.5);
+    });
+
+    const slide = store.read().slides.find((s) => s.id === slideId)!;
+    expect(slide.background.image).toEqual({ src: 'https://x/y.png', opacity: 0.5 });
+  });
+
+  it('onChangeImageOpacity is a no-op when there is no background image', () => {
+    const { store, slideId, theme } = fixture();
+    store.batch(() =>
+      store.updateSlideBackground(slideId, { fill: { kind: 'srgb', value: '#00ff00' } }),
+    );
+    const before = store.read();
+
+    const { result } = renderHook(() => useSlideBackground(store, slideId, theme));
+    act(() => {
+      result.current.onChangeImageOpacity(0.5);
+    });
+
+    expect(store.read()).toEqual(before);
+  });
+
   it('resets the gradient draft when slideId changes', () => {
     const { store, slideId, theme } = fixture();
     let otherSlideId = '';

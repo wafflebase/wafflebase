@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Theme } from "@wafflebase/slides";
 import { FillPicker } from "./fill-picker";
 import type { useSlideBackground } from "./use-slide-background";
@@ -38,6 +38,15 @@ export function BackgroundPanel({
     bg.onChooseImage(url);
   };
 
+  // Live-drag local value: mirrors the gradient-draft pattern above — a
+  // store write on every `input` event would spam the CRDT undo history
+  // with one entry per pointermove, so the slider only touches the store
+  // on release (pointerup / keyup), and the visible value is held here in
+  // the meantime.
+  const imageOpacity = bg.backgroundImage?.opacity ?? 1;
+  const [opacityDraft, setOpacityDraft] = useState(imageOpacity);
+  useEffect(() => setOpacityDraft(imageOpacity), [imageOpacity]);
+
   return (
     <div className="w-[224px] space-y-2">
       <FillPicker
@@ -69,13 +78,39 @@ export function BackgroundPanel({
             {bg.backgroundImage ? "Replace image…" : "Choose image…"}
           </button>
           {bg.backgroundImage && (
-            <button
-              type="button"
-              className="w-full rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-              onClick={bg.onRemoveImage}
-            >
-              Remove image
-            </button>
+            <>
+              <button
+                type="button"
+                className="w-full rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                onClick={bg.onRemoveImage}
+              >
+                Remove image
+              </button>
+              <div className="flex items-center gap-2 px-1">
+                <label htmlFor="bg-image-opacity" className="text-xs text-muted-foreground">
+                  Opacity
+                </label>
+                <input
+                  id="bg-image-opacity"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={opacityDraft}
+                  onChange={(e) => setOpacityDraft(Number(e.target.value))}
+                  onPointerUp={(e) =>
+                    bg.onChangeImageOpacity(Number(e.currentTarget.value))
+                  }
+                  onKeyUp={(e) =>
+                    bg.onChangeImageOpacity(Number(e.currentTarget.value))
+                  }
+                  className="flex-1"
+                />
+                <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">
+                  {Math.round(opacityDraft * 100)}%
+                </span>
+              </div>
+            </>
           )}
         </>
       )}
