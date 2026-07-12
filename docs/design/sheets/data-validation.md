@@ -249,10 +249,15 @@ simplifications, each a small follow-up to close:
   places that must stay in lockstep: the `Sheet` synced cache, `MemStore`, and the
   Yorkie document helper (`yorkie-worksheet-structure.ts`). All three route through
   the shared `shiftRuleRanges`/`moveRuleRanges` helper (`rule-ranges.ts`).
-- **Not yet guarded** — toggling a checkbox over a formula cell overwrites the
-  formula with a literal (design intent is formula-backed = read-only);
-  `isCheckboxChecked` is case-sensitive (`"true"` renders unchecked). Both are
-  small follow-ups.
+- **Formula guard + case-insensitivity** (fixed as a follow-up) — `toggleCheckboxAt`
+  now no-ops over a formula cell (returns `false`, leaves `cell.f` intact), so a
+  formula-backed checkbox is read-only as intended; both the click and Space
+  paths route through it. `isCheckboxChecked` matches the default boolean
+  `TRUE`/`FALSE` case-insensitively (a lowercase `"true"` from xlsx import / REST
+  API / external paste now renders checked), while a rule with *either* custom
+  value (`checkedValue`/`uncheckedValue`) stays an exact string match (GS parity;
+  case-folding a custom `uncheckedValue: "true"` would otherwise invert state).
+  Canonical `TRUE`/`FALSE` compare without allocating on the per-repaint path.
 - **UI** — a single flat checkbox toolbar button (desktop + mobile menu) that
   **toggles**: when the active cell is already a checkbox the button shows an
   active/"Remove checkbox" state and clicking strips the checkbox rules

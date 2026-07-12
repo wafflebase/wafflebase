@@ -144,12 +144,27 @@ function uncheckedValueOf(rule: DataValidationRule): string {
 }
 
 /**
- * `isCheckboxChecked` reports whether the cell value represents "checked".
+ * `isCheckboxChecked` reports whether the cell value represents "checked". A
+ * fully-default boolean checkbox (neither custom value set) matches TRUE/FALSE
+ * case-insensitively — values arriving via xlsx import / REST API / external
+ * paste can be lowercase and bypass `setData` normalization, and the formula
+ * engine and input parser already treat TRUE/FALSE case-insensitively. As soon
+ * as *either* custom value is set the rule is exact-match (Google Sheets
+ * parity) — case-folding a custom `uncheckedValue` like `"true"` would
+ * otherwise invert the state. The canonical `TRUE`/`FALSE` are compared without
+ * allocating (this runs per visible checkbox per repaint); only a non-canonical
+ * lowercase value hits the `toUpperCase` fallback.
  */
 export function isCheckboxChecked(
   rule: DataValidationRule,
   value: string | undefined,
 ): boolean {
+  if (value === undefined) return false;
+  if (rule.checkedValue === undefined && rule.uncheckedValue === undefined) {
+    if (value === CHECKBOX_TRUE) return true;
+    if (value === CHECKBOX_FALSE) return false;
+    return value.toUpperCase() === CHECKBOX_TRUE;
+  }
   return value === checkedValueOf(rule);
 }
 
