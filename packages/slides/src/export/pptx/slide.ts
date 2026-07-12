@@ -22,6 +22,7 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, Slide } from '../../model/presentation.js';
 import type { TextBody } from '../../model/element.js';
+import { representativeColor } from '../../model/theme.js';
 import { solidFillXml } from './color.js';
 import { elementToXml, type ElementXmlCtx } from './group.js';
 import { animationsToTimingXml, transitionToXml } from './animation.js';
@@ -75,6 +76,9 @@ const SPTREE_ROOT =
  * we fall back to the fill for slides that have a background image — the
  * importer will re-create the same `DEFAULT_BACKGROUND` fill it would have
  * used if the image weren't present.
+ *
+ * A gradient background collapses to its representative (first-stop)
+ * color — full gradient background export is a later task.
  */
 function backgroundToXml(bg: Background): string {
   // Callers (export/pptx/index.ts) resolve the effective fill through the
@@ -82,7 +86,7 @@ function backgroundToXml(bg: Background): string {
   // here means a genuinely fill-less background; default to the
   // `background` role for safety. Background *images* are not exported yet.
   const fill = bg.fill ?? { kind: 'role' as const, role: 'background' as const };
-  const fillXml = solidFillXml(fill);
+  const fillXml = solidFillXml(representativeColor(fill));
   return `<p:bg><p:bgPr>${fillXml}</p:bgPr></p:bg>`;
 }
 

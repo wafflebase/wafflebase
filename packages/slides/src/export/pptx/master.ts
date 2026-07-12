@@ -1,4 +1,5 @@
 import type { Master } from '../../model/master.js';
+import { representativeColor } from '../../model/theme.js';
 import { solidFillXml } from './color.js';
 
 /**
@@ -20,12 +21,14 @@ const DEFAULT_CLR_MAP_ATTRS =
  *
  * v1 scope:
  * - Background fill from `master.background.fill` (solid ThemeColor).
+ *   A gradient master background collapses to its representative
+ *   (first-stop) color — full gradient background export is a later task.
  * - Standard `<p:clrMap>` with the OOXML identity mapping.
  * - Empty `<p:sldLayoutIdLst>` — the orchestrator fills in layout rels.
  * - No `<p:txStyles>` — placeholder typography overrides are deferred to v1.5.
  */
 export function masterToXml(master: Master, _index: number): string {
-  const bgFill = solidFillXml(master.background.fill);
+  const bgFill = solidFillXml(representativeColor(master.background.fill));
 
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +

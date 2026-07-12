@@ -7,7 +7,7 @@ import {
   resolveBackgroundImage,
 } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
-import { resolveColor } from '../../model/theme';
+import { representativeColor, resolveColor } from '../../model/theme';
 import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
@@ -181,7 +181,10 @@ export function drawSlide(
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!hasPasteboard) {
-    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
+    // TODO(slides-background task 2): paint a real gradient here instead
+    // of collapsing to representativeColor() — this keeps the widened
+    // Fill return type typechecking without changing solid-fill visuals.
+    ctx.fillStyle = resolveColor(representativeColor(resolveBackgroundFill(slide, doc)), theme);
     ctx.fillRect(0, 0, bitmapW, bitmapH);
   } else {
     ctx.clearRect(0, 0, bitmapW, bitmapH);
@@ -201,7 +204,10 @@ export function drawSlide(
     // and hairline are owned by `slideElevation` in slides-view.tsx
     // — keeping them in CSS means they survive every paint mode
     // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
-    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
+    // TODO(slides-background task 2): paint a real gradient here instead
+    // of collapsing to representativeColor() — this keeps the widened
+    // Fill return type typechecking without changing solid-fill visuals.
+    ctx.fillStyle = resolveColor(representativeColor(resolveBackgroundFill(slide, doc)), theme);
     ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
   }
 
