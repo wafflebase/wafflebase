@@ -23,6 +23,11 @@
   - **Apply to all slides** (Phase 2) → `updateMaster(doc.meta.masterId, { background })`.
 - Image `src` is a persisted remote URL from the existing upload pipeline — never a blob/data-URI in the CRDT.
 - Commit subject ≤70 chars; body explains why; end with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
+- **Test conventions (repo reality — override the paths shown in tasks):**
+  - `packages/slides` runs colocated `src/**/*.test.ts` — put slides tests next to the file under test (e.g. `packages/slides/src/model/migrate.test.ts`). ✅ as written.
+  - `packages/frontend` vitest `include` is `tests/**` ONLY — colocated `src` tests DO NOT RUN. Put every frontend test under `packages/frontend/tests/app/slides/…`, not in `src/`.
+  - Frontend **view components** (`background-panel.tsx`, toolbar edits) are NOT unit-tested in this repo — verify them with `pnpm --filter @wafflebase/frontend exec tsc --noEmit` + build + a browser smoke. Missing a component render test is NOT a defect.
+  - Frontend **pure logic / logic-heavy hooks** ARE unit-tested. `use-slide-background` keeps its `renderHook` test (RTL `@testing-library/react` is a dependency) under `packages/frontend/tests/app/slides/use-slide-background.test.ts`.
 
 ---
 
@@ -222,7 +227,7 @@ git commit -m "Render gradient slide backgrounds via resolveFillStyle" -m "..." 
 
 **Files:**
 - Modify: `packages/frontend/src/app/slides/use-slide-background.ts` (whole file)
-- Test: `packages/frontend/src/app/slides/use-slide-background.test.ts` (create; use `@testing-library/react`'s `renderHook` — check a sibling `*.test.tsx` for the runner import style)
+- Test: `packages/frontend/tests/app/slides/use-slide-background.test.ts` (create — frontend tests MUST live under `tests/**`; use `@testing-library/react`'s `renderHook`)
 
 **Interfaces:**
 - Consumes: `SlidesStore.updateSlideBackground(slideId, bg)`, `store.batch`, `store.pushRecentColor`, `resolveBackgroundFill`, `resolveBackgroundImage`, `Fill`, `GradientFill`, `ThemeColor`, `BackgroundImage` (all from `@wafflebase/slides`).
@@ -374,7 +379,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/src/app/slides/use-slide-background.test.ts
+git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/tests/app/slides/use-slide-background.test.ts
 git commit -m "Widen useSlideBackground for gradient/image/reset" -m "..." -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
@@ -386,7 +391,7 @@ git commit -m "Widen useSlideBackground for gradient/image/reset" -m "..." -m "C
 - Create: `packages/frontend/src/app/slides/background-panel.tsx` (the popover body, reused by desktop + mobile)
 - Modify: `packages/frontend/src/app/slides/toolbar/global-controls.tsx` (`RightGlobals` L145-230, `RightGlobalsProps` L100-110)
 - Modify: `packages/frontend/src/app/slides/toolbar/index.tsx` (pass `upload` to `RightGlobals`, ~L130)
-- Test: `packages/frontend/src/app/slides/background-panel.test.tsx` (create)
+- Verify: NO component unit test (repo convention — see Global Constraints). Verify `BackgroundPanel` via `tsc --noEmit` + build + the Task 6 browser smoke. (The Step 2 test below is REMOVED; the panel's reset wiring is covered by the Task 3 hook test.)
 
 **Interfaces:**
 - Consumes: `useSlideBackground` return (Task 3), `FillPicker` (`fill-picker/index.tsx:32`, props `{ fill, theme, recentColors, onChangeSolid, onChangeGradient, onClear }`), the upload fn `(file: File) => Promise<{ url: string; w: number; h: number }>` threaded from `slides-detail.tsx`.
@@ -459,15 +464,10 @@ export function BackgroundPanel({ store, theme, slideId, upload, onCommit }: Bac
 }
 ```
 
-- [ ] **Step 2: Test it renders + wires the reset**
+- [ ] **Step 2: Typecheck the new component (no unit test — repo convention)**
 
-```tsx
-// background-panel.test.tsx — render with a fake store, click "Reset to theme",
-// assert store.updateSlideBackground called with {}.
-```
-
-Run: `pnpm --filter @wafflebase/frontend test -- background-panel`
-Expected: FAIL first (no component), then PASS after Step 1.
+Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit`
+Expected: no type errors. `BackgroundPanel`'s reset/color/image wiring is covered by the Task 3 `use-slide-background` hook test; the component itself is verified by build + the Task 6 browser smoke.
 
 - [ ] **Step 3: Swap the desktop control to `BackgroundPanel`**
 
@@ -486,8 +486,8 @@ In `toolbar/index.tsx` at the `<RightGlobals .../>` render (L130), add `upload={
 
 - [ ] **Step 5: Verify build + tests**
 
-Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend test -- background-panel global-controls`
-Expected: PASS / no type errors.
+Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend build`
+Expected: no type errors, build succeeds. (No component unit tests — repo convention.)
 
 - [ ] **Step 6: Commit**
 
@@ -535,8 +535,8 @@ Rename the menu label at L615 `Slide background…` → keep (it opens the sheet
 
 - [ ] **Step 2: Verify**
 
-Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend test -- mobile-toolbar`
-Expected: no type errors, existing mobile tests green.
+Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend build`
+Expected: no type errors, build succeeds. (Mobile sheet is a view component — no unit test; verified in the Task 6 browser smoke at a mobile viewport.)
 
 - [ ] **Step 3: Commit**
 
@@ -628,7 +628,7 @@ In `background-panel.tsx`, add below Reset: `<button ... onClick={bg.onApplyToAl
 
 - [ ] **Step 5: Run tests + commit**
 
-Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background background-panel && pnpm --filter @wafflebase/slides build`
+Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background && pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/slides build`
 ```bash
 git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/src/app/slides/background-panel.tsx packages/frontend/src/app/slides/use-slide-background.test.ts packages/slides/src/store/store.ts
 git commit -m "Slides Background: apply to all slides (master)" -m "..." -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -672,9 +672,9 @@ Add to the return. In `background-panel.tsx`, render a range input (0..1) beneat
 
 - [ ] **Step 4: Tests + commit**
 
-Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background background-panel`
+Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 ```bash
-git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/src/app/slides/background-panel.tsx packages/frontend/src/app/slides/use-slide-background.test.ts
+git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/src/app/slides/background-panel.tsx packages/frontend/tests/app/slides/use-slide-background.test.ts
 git commit -m "Slides Background: image opacity slider" -m "..." -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
