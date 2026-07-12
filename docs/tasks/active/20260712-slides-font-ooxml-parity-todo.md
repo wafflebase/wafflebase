@@ -59,7 +59,10 @@ and BOTH `inlineStylesEqual` sites (types.ts + text-editor.ts). Rebuild
 - [x] **B.1 `strikeStyle` (single/double)** — `@strike`
       `sngStrike`/`dblStrike`. Model + double-line render (`paint-layout.ts`)
       + slides import/export + round-trip test.
-- [ ] **B.2 `underlineStyle` + `underlineColor`** — `@u` enum + `<a:uFill>`.
+- [x] **B.2 `underlineStyle` + `underlineColor`** — `@u` enum + `<a:uFill>`.
+      Model + renderer (double/heavy/dotted/dashed/wavy + color in
+      `paint-layout.ts`) + slides import (`mapUnderlineStyle` + uFill parse)
+      / export (`UNDERLINE_STYLE_TO_U` + uFill child) + round-trip test.
 - [ ] **B.3 `caps` (all/small)** — `@cap`; measure + paint transform.
 - [ ] **B.4 `letterSpacing`** — `@spc`; measure + paint.
 

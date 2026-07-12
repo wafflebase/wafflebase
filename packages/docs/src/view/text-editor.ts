@@ -2719,6 +2719,8 @@ export class TextEditor {
       bold: undefined,
       italic: undefined,
       underline: undefined,
+      underlineStyle: undefined,
+      underlineColor: undefined,
       strikethrough: undefined,
       strikeStyle: undefined,
       superscript: undefined,
@@ -3584,6 +3586,8 @@ export class TextEditor {
       a.bold === b.bold &&
       a.italic === b.italic &&
       a.underline === b.underline &&
+      a.underlineStyle === b.underlineStyle &&
+      a.underlineColor === b.underlineColor &&
       a.strikethrough === b.strikethrough &&
       a.strikeStyle === b.strikeStyle &&
       a.fontSize === b.fontSize &&

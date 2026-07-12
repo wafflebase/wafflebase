@@ -421,12 +421,32 @@ export function renderRun(
 
   if (showUnderline) {
     const underlineY = baselineY + 2;
+    const uStyle = style.underlineStyle;
+    ctx.save();
     ctx.beginPath();
-    ctx.strokeStyle = textColor;
-    ctx.lineWidth = 1;
-    ctx.moveTo(x, underlineY);
-    ctx.lineTo(x + run.width, underlineY);
+    ctx.strokeStyle = resolveColor(style.underlineColor) ?? textColor;
+    ctx.lineWidth = uStyle === 'heavy' ? 2 : 1;
+    if (uStyle === 'dotted') ctx.setLineDash([1, 2]);
+    else if (uStyle === 'dashed') ctx.setLineDash([3, 2]);
+    if (uStyle === 'double') {
+      ctx.moveTo(x, underlineY);
+      ctx.lineTo(x + run.width, underlineY);
+      ctx.moveTo(x, underlineY + 2);
+      ctx.lineTo(x + run.width, underlineY + 2);
+    } else if (uStyle === 'wavy') {
+      // Approximate a wavy underline with a low-amplitude sine path.
+      const amp = 1.2;
+      const period = 4;
+      ctx.moveTo(x, underlineY);
+      for (let px = 1; px <= run.width; px++) {
+        ctx.lineTo(x + px, underlineY + Math.sin((px / period) * Math.PI * 2) * amp);
+      }
+    } else {
+      ctx.moveTo(x, underlineY);
+      ctx.lineTo(x + run.width, underlineY);
+    }
     ctx.stroke();
+    ctx.restore();
   }
 
   if (style.strikethrough) {

@@ -96,7 +96,7 @@ property the user can reset.
 | `@baseline` super/sub | `superscript`/`subscript` | ✅ | ✅ (A1) | ❌ (deferred) | A1 |
 | `<a:hlinkClick>` | `href` | ✅ | ✅ (A2) | (link flow) | A2 |
 | `@cap` all/small | — | ❌ | ❌ | ❌ | B |
-| `@u` style + `<a:uFill>` | — | partial | partial | ❌ | B |
+| `@u` style + `<a:uFill>` | `underlineStyle`/`underlineColor` | ✅ (B.2) | ✅ (B.2) | ❌ (deferred) | B.2 |
 | `@strike` dbl | `strikeStyle` | ✅ (B.1) | ✅ (B.1) | ❌ (deferred) | B.1 |
 | `@spc` letter spacing | — | ❌ | ❌ | ❌ | B |
 | `<a:gradFill>` text fill | — | ❌ | ❌ | ❌ | C |

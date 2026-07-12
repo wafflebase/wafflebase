@@ -459,6 +459,23 @@ function parseRun(
  * 11 pt next to 8 pt body text is what makes an imported `<a:br>` drop
  * visibly too far.
  */
+/**
+ * Collapse an OOXML `@u` underline value (17 possible) to the
+ * representative `InlineStyle.underlineStyle` set. `sng` (and anything
+ * unrecognised) returns `undefined` so it renders as the default single
+ * line without storing a redundant value.
+ */
+function mapUnderlineStyle(u: string): InlineStyle['underlineStyle'] {
+  if (u === 'dbl') return 'double';
+  if (u === 'heavy') return 'heavy';
+  if (u.startsWith('dotted')) return 'dotted';
+  if (u.startsWith('wavy')) return 'wavy';
+  if (u.startsWith('dash') || u.startsWith('dotDash') || u.startsWith('dotDotDash')) {
+    return 'dashed';
+  }
+  return undefined; // sng, or an unmapped value → default single
+}
+
 function parseRunStyle(
   rPr: Element | undefined,
   fontScale: number,
@@ -476,7 +493,18 @@ function parseRunStyle(
     if (attr(rPr, 'b') === '1') style.bold = true;
     if (attr(rPr, 'i') === '1') style.italic = true;
     const u = attr(rPr, 'u');
-    if (u && u !== 'none') style.underline = true;
+    if (u && u !== 'none') {
+      style.underline = true;
+      const us = mapUnderlineStyle(u);
+      if (us) style.underlineStyle = us;
+      // <a:uFill><a:solidFill>… → underlineColor.
+      const uFill = child(rPr, 'uFill');
+      const uSolid = uFill ? child(uFill, 'solidFill') : undefined;
+      if (uSolid) {
+        const uc = parseColorFromContainer(uSolid, ctx.clrMap);
+        if (uc) style.underlineColor = uc;
+      }
+    }
     const strike = attr(rPr, 'strike');
     if (strike === 'sngStrike' || strike === 'dblStrike') {
       style.strikethrough = true;

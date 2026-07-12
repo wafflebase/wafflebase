@@ -55,6 +55,35 @@ describe('textBodyToXml', () => {
     expect(xml).toMatch(/<a:rPr[^>]*strike="sngStrike"/);
   });
 
+  it('emits underline style + uFill color and round-trips them', () => {
+    const dashed = textBodyToXml({
+      blocks: [
+        para('U', { underline: true, underlineStyle: 'dashed', underlineColor: '#FF0000' }),
+      ],
+    });
+    expect(dashed).toMatch(/<a:rPr[^>]*u="dash"/);
+    expect(dashed).toContain('<a:uFill><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:uFill>');
+    // uFill must precede the typeface child per OOXML child order.
+    const withFamily = textBodyToXml({
+      blocks: [
+        para('U', { underline: true, underlineColor: '#00FF00', fontFamily: 'Arial' }),
+      ],
+    });
+    expect(withFamily.indexOf('<a:uFill')).toBeLessThan(withFamily.indexOf('<a:latin'));
+    // Round-trip: dashed + color survive export → re-import.
+    const el = parseXml(
+      `<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+        `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${textBodyToXml(
+          { blocks: [para('U', { underline: true, underlineStyle: 'dashed', underlineColor: '#FF0000' })] },
+          'p:txBody',
+        )}</root>`,
+    ).documentElement.firstElementChild!;
+    const back = parseTextBody(el, { report: new ImportReport() });
+    expect(back[0].inlines[0].style.underline).toBe(true);
+    expect(back[0].inlines[0].style.underlineStyle).toBe('dashed');
+    expect(back[0].inlines[0].style.underlineColor).toBeTruthy();
+  });
+
   it('emits dblStrike for double strikethrough and round-trips it', () => {
     const xml = textBodyToXml({
       blocks: [para('D', { strikethrough: true, strikeStyle: 'double' })],

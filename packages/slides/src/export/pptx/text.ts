@@ -206,6 +206,16 @@ function runToXml(
 // into an exported deck even if present in the model (defense-in-depth).
 const UNSAFE_HREF_SCHEMES = new Set(['javascript', 'data', 'vbscript', 'file']);
 
+/** `InlineStyle.underlineStyle` → OOXML `@u` value (inverse of the import map). */
+const UNDERLINE_STYLE_TO_U: Record<string, string> = {
+  single: 'sng',
+  double: 'dbl',
+  heavy: 'heavy',
+  dotted: 'dotted',
+  dashed: 'dash',
+  wavy: 'wavy',
+};
+
 /**
  * Whether an `href` should be written as an `<a:hlinkClick>` **external**
  * relationship. Export semantics deliberately differ from the importer's
@@ -237,7 +247,7 @@ function rPrXml(
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
-  if (s.underline) attrs.push('u="sng"');
+  if (s.underline) attrs.push(`u="${UNDERLINE_STYLE_TO_U[s.underlineStyle ?? 'single'] ?? 'sng'}"`);
   if (s.strikethrough) {
     attrs.push(s.strikeStyle === 'double' ? 'strike="dblStrike"' : 'strike="sngStrike"');
   }
@@ -258,6 +268,13 @@ function rPrXml(
   if (s.backgroundColor != null) {
     children.push(
       `<a:highlight>${colorChildXml(storedColorToThemeColor(s.backgroundColor))}</a:highlight>`,
+    );
+  }
+  // underlineColor → <a:uFill>. Per CT_TextCharacterProperties child order,
+  // uFill precedes the typeface children, so push it before <a:latin>.
+  if (s.underline && s.underlineColor != null) {
+    children.push(
+      `<a:uFill><a:solidFill>${colorChildXml(storedColorToThemeColor(s.underlineColor))}</a:solidFill></a:uFill>`,
     );
   }
   if (s.fontFamily) {

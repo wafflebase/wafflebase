@@ -147,6 +147,14 @@ export interface InlineStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /**
+   * Underline line variant, meaningful only when `underline` is set.
+   * `undefined` renders as a single line (the default). Maps to OOXML
+   * `@u` (17 values collapsed to this representative set).
+   */
+  underlineStyle?: 'single' | 'double' | 'heavy' | 'dotted' | 'dashed' | 'wavy';
+  /** Underline color, meaningful only when `underline` is set. OOXML `<a:uFill>`. */
+  underlineColor?: StoredColor;
   strikethrough?: boolean;
   /**
    * Strikethrough line variant, meaningful only when `strikethrough` is
@@ -228,6 +236,8 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   bold: undefined,
   italic: undefined,
   underline: undefined,
+  underlineStyle: undefined,
+  underlineColor: undefined,
   strikethrough: undefined,
   strikeStyle: undefined,
   fontSize: undefined,
@@ -389,6 +399,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.bold === b.bold &&
     a.italic === b.italic &&
     a.underline === b.underline &&
+    a.underlineStyle === b.underlineStyle &&
+    storedColorsEqual(a.underlineColor, b.underlineColor) &&
     a.strikethrough === b.strikethrough &&
     a.strikeStyle === b.strikeStyle &&
     a.fontSize === b.fontSize &&
