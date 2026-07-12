@@ -107,6 +107,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | Document                                               | Description                                                                                        |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | [documents-last-modified.md](documents-last-modified.md) | Documents-list last-modified ordering — stable Postgres `Document.updatedAt` fed by Yorkie `DocumentRootChanged` event webhook (HMAC-signed), replacing the flaky per-request admin call that made the list reshuffle every 5s |
+| [yorkie-auth-webhook.md](yorkie-auth-webhook.md)       | Yorkie auth webhook — server-enforced per-document read/write access at the Yorkie layer; backend-minted short-lived token via `authTokenInjector` (JWT session + anonymous share-link), reuses the event-webhook HMAC guard, resolves `WorkspaceMember`/`ShareLink` roles per docKey/verb; shadow→enforce rollout |
 | [frontend.md](frontend.md)                             | Frontend package — app architecture, Yorkie integration, presence system, auth flow                |
 | [backend.md](backend.md)                               | Backend package — NestJS modules, API reference, auth system, database schema, security            |
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |

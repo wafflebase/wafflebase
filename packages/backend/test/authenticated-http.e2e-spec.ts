@@ -33,6 +33,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
   }) {
     const token = jwtService.sign(
       {
+        tokenType: 'access',
         sub: user.id,
         username: user.username,
         email: user.email,

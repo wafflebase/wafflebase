@@ -55,4 +55,52 @@ describe('AuthService', () => {
       UnauthorizedException,
     );
   });
+
+  describe('Yorkie tokens', () => {
+    function makeService() {
+      const configService = createMockConfig({ JWT_SECRET: 'access-secret' });
+      return new AuthService(new JwtService(), configService);
+    }
+
+    it('round-trips a user token', () => {
+      const service = makeService();
+      const payload = service.verifyYorkieToken(
+        service.issueYorkieUserToken(42),
+      );
+      expect(payload).toMatchObject({ typ: 'yorkie', sub: 42 });
+    });
+
+    it('round-trips a share token', () => {
+      const service = makeService();
+      const payload = service.verifyYorkieToken(
+        service.issueYorkieShareToken('share-abc'),
+      );
+      expect(payload).toMatchObject({
+        typ: 'yorkie-share',
+        shareToken: 'share-abc',
+      });
+    });
+
+    it('rejects a session access token replayed as a Yorkie token', () => {
+      const service = makeService();
+      const { accessToken } = service.createTokens(user);
+      expect(() => service.verifyYorkieToken(accessToken)).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('throws on a garbage token', () => {
+      const service = makeService();
+      expect(() => service.verifyYorkieToken('not-a-jwt')).toThrow();
+    });
+
+    it('throws on an expired token', () => {
+      const configService = createMockConfig({
+        JWT_SECRET: 'access-secret',
+        YORKIE_TOKEN_EXPIRES_IN: '-1s',
+      });
+      const service = new AuthService(new JwtService(), configService);
+      expect(() => service.verifyYorkieToken(service.issueYorkieUserToken(1))).toThrow();
+    });
+  });
 });

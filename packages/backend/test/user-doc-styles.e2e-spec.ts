@@ -31,6 +31,7 @@ describeDb('User doc styles HTTP integration (JWT + controller + Prisma)', () =>
   }) {
     const token = jwtService.sign(
       {
+        tokenType: 'access',
         sub: user.id,
         username: user.username,
         email: user.email,

@@ -43,6 +43,36 @@ export class AuthController {
     return req.user;
   }
 
+  /**
+   * Mint a short-lived token for the Yorkie client's `authTokenInjector`. The
+   * session JWT lives in an httpOnly cookie the browser can't read, so the
+   * frontend fetches this instead (the cookie authenticates the call). The
+   * Yorkie auth webhook resolves document access from the returned token.
+   */
+  @Get('yorkie-token')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getYorkieToken(@Req() req: AuthenticatedRequest) {
+    return { token: this.authService.issueYorkieUserToken(req.user.id) };
+  }
+
+  /**
+   * Yorkie token for an anonymous share-link visitor (no session). Public: the
+   * token only wraps the share token; the webhook does the real validation
+   * (existence, expiry, document match, role) via `ShareLinkService`. Uses POST
+   * with the share token in the body so the (access-granting) token stays out
+   * of request URLs and access logs.
+   */
+  @Post('yorkie-token/share')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getYorkieShareToken(@Body('token') shareToken: string | undefined) {
+    if (!shareToken) {
+      throw new BadRequestException('Missing share token');
+    }
+    return { token: this.authService.issueYorkieShareToken(shareToken) };
+  }
+
   @Post('logout')
   async logout(@Res() res: Response) {
     this.clearAuthCookies(res);

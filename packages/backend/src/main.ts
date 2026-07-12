@@ -20,11 +20,12 @@ import { AppModule } from './app.module';
 const JSON_BODY_LIMIT = process.env.BACKEND_JSON_BODY_LIMIT ?? '25mb';
 
 /**
- * The only route whose raw request bytes must be retained (for the Yorkie
- * event-webhook HMAC check). Must match the controller path in
- * `document/yorkie-event.controller.ts`.
+ * Routes whose raw request bytes must be retained for the Yorkie webhook HMAC
+ * check — the event webhook (`document/yorkie-event.controller.ts`) and the
+ * auth webhook (`document/yorkie-auth.controller.ts`). Both live under
+ * `/internal/yorkie/`, so a prefix match covers them (and any future one).
  */
-const YORKIE_WEBHOOK_PATH = '/internal/yorkie/events';
+const YORKIE_WEBHOOK_PATH_PREFIX = '/internal/yorkie/';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -48,7 +49,7 @@ async function bootstrap() {
     bodyParser.json({
       limit: JSON_BODY_LIMIT,
       verify: (req: IncomingMessage & { rawBody?: Buffer }, _res, buf) => {
-        if (req.url?.split('?', 1)[0] === YORKIE_WEBHOOK_PATH) {
+        if (req.url?.split('?', 1)[0].startsWith(YORKIE_WEBHOOK_PATH_PREFIX)) {
           req.rawBody = buf;
         }
       },

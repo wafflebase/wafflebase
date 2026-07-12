@@ -162,3 +162,44 @@ export async function fetchWithAuth(
 
   return response;
 }
+
+/**
+ * Fetches a short-lived Yorkie auth-webhook token for the current session,
+ * for the Yorkie client's `authTokenInjector`. Routes through `fetchWithAuth`
+ * so an expired session refreshes (or redirects to login) transparently.
+ */
+export async function fetchYorkieToken(): Promise<string> {
+  const res = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/auth/yorkie-token`,
+    { method: "GET", credentials: "include" }
+  );
+  if (!res.ok) {
+    throw new Error("Failed to fetch Yorkie token");
+  }
+  const { token } = (await res.json()) as { token: string };
+  return token;
+}
+
+/**
+ * Fetches a Yorkie auth-webhook token for an anonymous share-link visitor.
+ * The webhook validates the wrapped share token (existence, expiry, role).
+ */
+export async function fetchYorkieShareToken(
+  shareToken: string
+): Promise<string> {
+  // POST with the token in the body (not the URL) so this access-granting
+  // token stays out of request URLs and server access logs.
+  const res = await fetch(
+    `${import.meta.env.VITE_BACKEND_API_URL}/auth/yorkie-token/share`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: shareToken }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error("Failed to fetch Yorkie share token");
+  }
+  const { token } = (await res.json()) as { token: string };
+  return token;
+}

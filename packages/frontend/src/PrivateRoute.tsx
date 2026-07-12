@@ -2,7 +2,7 @@ import { ReactElement } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { Loader } from "./components/loader";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMe } from "./api/auth";
+import { fetchMe, fetchYorkieToken } from "./api/auth";
 import { YorkieProvider } from "@yorkie-js/react";
 
 /**
@@ -24,6 +24,7 @@ export const PrivateRoute = (): ReactElement => {
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{ userID: encodeURIComponent(me.username || "anonymous-user") }}
+      authTokenInjector={fetchYorkieToken}
     >
       <Outlet />
     </YorkieProvider>
