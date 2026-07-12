@@ -68,7 +68,9 @@ import {
   shiftConditionalFormatRules,
 } from './conditional-format';
 import {
+  checkboxValue,
   cloneDataValidationRule,
+  isCheckboxChecked,
   moveDataValidationRules,
   normalizeDataValidationRule,
   resolveDataValidationAt,
@@ -133,6 +135,9 @@ import {
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
 const MaxBorderSelectionCells = 50000;
+// Cap for a range checkbox toggle (Space). Bounds the scan so a whole-column
+// checkbox rule cannot freeze the tab; beyond it the toggle is a no-op.
+const MaxCheckboxToggleCells = 50000;
 const DefaultResetStylePatch: Partial<CellStyle> = {
   b: false,
   i: false,
@@ -760,6 +765,16 @@ export class Sheet {
     if (!span) return undefined;
     const anchor = parseRef(anchorSref);
     return { anchorSref, anchor, span, range: toMergeRange(anchor, span) };
+  }
+
+  /**
+   * `getMergeRangeForRef` returns the full merged range if `ref` is inside a
+   * merged block (resolving covered cells to their anchor), else undefined.
+   * Public so the view can align in-cell control hit-tests with the glyph the
+   * renderer draws over the whole merged rect.
+   */
+  getMergeRangeForRef(ref: Ref): Range | undefined {
+    return this.getMergeForRef(ref)?.range;
   }
 
   /**
@@ -3845,6 +3860,101 @@ export class Sheet {
     const next = toggleCheckboxValue(rule, cell?.v);
     await this.setData(ref, next);
     return true;
+  }
+
+  /**
+   * `toggleCheckboxesInRange` applies a uniform toggle to every checkbox-ruled,
+   * non-formula cell in `range`: if all such cells are currently checked they
+   * are all unchecked, otherwise they are all checked (Google Sheets / Excel
+   * range parity). Formula-backed and spill-ghost cells are read-only and
+   * skipped; cells without a checkbox rule are left untouched. The whole set is
+   * one batch (one undo unit) — writes go through the low-level store like
+   * `removeData`, not `setData` (which self-batches and would not nest).
+   *
+   * The scan is bounded to the intersection of `range` with the checkbox rules'
+   * own ranges, so a whole-column / Ctrl+A selection over a small checkbox rule
+   * costs only the rule's cells — never a full-grid walk. A pathological
+   * whole-column checkbox rule exceeding `MaxCheckboxToggleCells` bails to a
+   * no-op rather than freezing the tab (the `setRangeBorders` cap precedent).
+   * Returns whether any cell changed. A single-cell range toggles that cell.
+   */
+  async toggleCheckboxesInRange(range: Range): Promise<boolean> {
+    if (this.pivotDefinition) return false;
+
+    const r0 = Math.min(range[0].r, range[1].r);
+    const r1 = Math.max(range[0].r, range[1].r);
+    const c0 = Math.min(range[0].c, range[1].c);
+    const c1 = Math.max(range[0].c, range[1].c);
+
+    // Candidate anchors = checkbox-rule ranges ∩ selection (bounds the scan).
+    const candidates = new Set<Sref>();
+    for (const rule of this.dataValidations) {
+      if (rule.kind !== 'checkbox') continue;
+      for (const rr of rule.ranges) {
+        const ir0 = Math.max(Math.min(rr[0].r, rr[1].r), r0);
+        const ir1 = Math.min(Math.max(rr[0].r, rr[1].r), r1);
+        const ic0 = Math.max(Math.min(rr[0].c, rr[1].c), c0);
+        const ic1 = Math.min(Math.max(rr[0].c, rr[1].c), c1);
+        if (ir0 > ir1 || ic0 > ic1) continue;
+        if ((ir1 - ir0 + 1) * (ic1 - ic0 + 1) > MaxCheckboxToggleCells) {
+          return false; // too large — bail rather than freeze the tab
+        }
+        for (let r = ir0; r <= ir1; r++) {
+          for (let c = ic0; c <= ic1; c++) {
+            candidates.add(toSref(this.normalizeRefToAnchor({ r, c })));
+          }
+        }
+        if (candidates.size > MaxCheckboxToggleCells) return false;
+      }
+    }
+    if (candidates.size === 0) return false;
+
+    // Resolve the effective rule (last-matching wins, matching a click) and the
+    // current value per candidate; skip formula and spill-ghost cells.
+    const targets: Array<{
+      anchor: Ref;
+      sref: Sref;
+      rule: DataValidationRule;
+      cell?: Cell;
+    }> = [];
+    for (const sref of candidates) {
+      const anchor = parseRef(sref);
+      const rule = this.getDataValidationAt(anchor);
+      if (!rule || rule.kind !== 'checkbox') continue;
+      const cell = await this.store.get(anchor);
+      if (cell?.f || cell?.spillAnchor) continue; // read-only
+      targets.push({ anchor, sref, rule, cell });
+    }
+    if (targets.length === 0) return false;
+
+    // All checked → uncheck all; otherwise (mixed or none) → check all.
+    const nextChecked = !targets.every((t) =>
+      isCheckboxChecked(t.rule, t.cell?.v),
+    );
+
+    this.invalidateCrossSheetCache();
+    this.store.beginBatch();
+    try {
+      const changed = new Set<Sref>();
+      for (const t of targets) {
+        const next = checkboxValue(t.rule, nextChecked);
+        if (t.cell?.v === next) continue;
+        await this.store.set(t.anchor, compactCell({ v: next }, t.cell?.s));
+        changed.add(t.sref);
+      }
+      if (changed.size === 0) return false;
+
+      const changedSrefs = this.expandChangedSrefsWithMergeAliases(changed);
+      const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
+      await calculate(this, dependantsMap, changedSrefs);
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
+      return true;
+    } finally {
+      this.store.endBatch();
+    }
   }
 
   /**
