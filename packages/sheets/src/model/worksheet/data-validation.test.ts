@@ -9,13 +9,17 @@ import {
   listOptionsOf,
   isValidListValue,
   isValidDateValue,
+  isValidNumberValue,
+  isValidTextValue,
   isValidValueForRule,
+  validationOperandCount,
+  describeNumberRule,
   shiftDataValidationRules,
   moveDataValidationRules,
   CHECKBOX_TRUE,
   CHECKBOX_FALSE,
 } from './data-validation';
-import { DataValidationRule } from '../core/types';
+import { DataValidationOperator, DataValidationRule } from '../core/types';
 
 const checkboxRule = (id: string): DataValidationRule => ({
   id,
@@ -320,10 +324,153 @@ describe('isValidDateValue', () => {
   });
 });
 
+const numberRule = (
+  id: string,
+  patch: Partial<DataValidationRule> = {},
+): DataValidationRule => ({
+  id,
+  kind: 'number',
+  ranges: [
+    [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ],
+  ],
+  ...patch,
+});
+
+const textRule = (
+  id: string,
+  patch: Partial<DataValidationRule> = {},
+): DataValidationRule => ({
+  id,
+  kind: 'text',
+  ranges: [
+    [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ],
+  ],
+  ...patch,
+});
+
+describe('validationOperandCount', () => {
+  it('returns operand counts across kinds', () => {
+    expect(validationOperandCount('numberValid')).toBe(0);
+    expect(validationOperandCount('textIsEmail')).toBe(0);
+    expect(validationOperandCount('numberGreater')).toBe(1);
+    expect(validationOperandCount('textContains')).toBe(1);
+    expect(validationOperandCount('numberBetween')).toBe(2);
+    expect(validationOperandCount('dateNotBetween')).toBe(2);
+  });
+});
+
+describe('number rule', () => {
+  const n = (op: DataValidationOperator, values?: string[]) =>
+    normalizeDataValidationRule(numberRule('n', { operator: op, values }))!;
+
+  it('defaults operator to numberValid and onInvalid to warning', () => {
+    const out = normalizeDataValidationRule(numberRule('n'));
+    expect(out!.operator).toBe('numberValid');
+    expect(out!.onInvalid).toBe('warning');
+    expect(out!.values).toBeUndefined();
+  });
+
+  it('rejects non-numbers even under numberValid; allows empty', () => {
+    const r = n('numberValid');
+    expect(isValidNumberValue(r, '42')).toBe(true);
+    expect(isValidNumberValue(r, 'abc')).toBe(false);
+    expect(isValidNumberValue(r, '')).toBe(true);
+    expect(isValidNumberValue(r, undefined)).toBe(true);
+  });
+
+  it('applies comparison operators', () => {
+    expect(isValidNumberValue(n('numberGreater', ['10']), '11')).toBe(true);
+    expect(isValidNumberValue(n('numberGreater', ['10']), '10')).toBe(false);
+    expect(isValidNumberValue(n('numberLessEq', ['10']), '10')).toBe(true);
+    expect(isValidNumberValue(n('numberEquals', ['3.5']), '3.5')).toBe(true);
+    expect(isValidNumberValue(n('numberNotEquals', ['3.5']), '3.5')).toBe(false);
+  });
+
+  it('between is inclusive and swaps a reversed range', () => {
+    const b = n('numberBetween', ['1', '10']);
+    expect(isValidNumberValue(b, '1')).toBe(true);
+    expect(isValidNumberValue(b, '10')).toBe(true);
+    expect(isValidNumberValue(b, '11')).toBe(false);
+    const rev = n('numberBetween', ['10', '1']); // reversed
+    expect(isValidNumberValue(rev, '5')).toBe(true);
+    const nb = n('numberNotBetween', ['1', '10']);
+    expect(isValidNumberValue(nb, '5')).toBe(false);
+    expect(isValidNumberValue(nb, '20')).toBe(true);
+  });
+
+  it('degrades to "is a number" when an operand is blank', () => {
+    const r = n('numberBetween', ['', '10']);
+    expect(r.values).toEqual(['', '10']);
+    expect(isValidNumberValue(r, '999')).toBe(true); // no lower bound → degrade
+    expect(isValidNumberValue(r, 'abc')).toBe(false); // still must be a number
+  });
+
+  it('drops non-number operands during normalization', () => {
+    const r = n('numberGreater', ['xyz']);
+    expect(r.values).toBeUndefined();
+    expect(describeNumberRule(r)).toBe('must be a number');
+  });
+});
+
+describe('text rule', () => {
+  const t = (op: DataValidationOperator, values?: string[]) =>
+    normalizeDataValidationRule(textRule('t', { operator: op, values }))!;
+
+  it('defaults operator to textContains and onInvalid to warning', () => {
+    const out = normalizeDataValidationRule(textRule('t'));
+    expect(out!.operator).toBe('textContains');
+    expect(out!.onInvalid).toBe('warning');
+  });
+
+  it('contains / not-contains are case-insensitive; empty allowed', () => {
+    expect(isValidTextValue(t('textContains', ['cat']), 'Category')).toBe(true);
+    expect(isValidTextValue(t('textContains', ['dog']), 'Category')).toBe(false);
+    expect(isValidTextValue(t('textNotContains', ['dog']), 'Category')).toBe(true);
+    expect(isValidTextValue(t('textContains', ['cat']), '')).toBe(true);
+  });
+
+  it('is-exactly is a trimmed exact match', () => {
+    expect(isValidTextValue(t('textEquals', ['Yes']), 'Yes')).toBe(true);
+    expect(isValidTextValue(t('textEquals', ['Yes']), 'yes')).toBe(false);
+  });
+
+  it('validates email and url predicates (no operand)', () => {
+    const email = t('textIsEmail');
+    expect(isValidTextValue(email, 'a@b.com')).toBe(true);
+    expect(isValidTextValue(email, 'nope')).toBe(false);
+    const url = t('textIsUrl');
+    expect(isValidTextValue(url, 'https://example.com/x')).toBe(true);
+    expect(isValidTextValue(url, 'not a url')).toBe(false);
+  });
+
+  it('degrades to always-valid when the operand is blank', () => {
+    const r = t('textContains', ['']);
+    expect(r.values).toBeUndefined();
+    expect(isValidTextValue(r, 'anything')).toBe(true);
+  });
+});
+
 describe('isValidValueForRule dispatch', () => {
   it('dispatches by kind', () => {
     expect(isValidValueForRule(listRule('l', ['A']), 'B')).toBe(false);
     expect(isValidValueForRule(dateRule('d', { operator: 'dateValid' }), 'hello')).toBe(false);
+    expect(
+      isValidValueForRule(numberRule('n', { operator: 'numberValid' }), 'abc'),
+    ).toBe(false);
+    expect(
+      isValidValueForRule(
+        normalizeDataValidationRule(
+          textRule('t', { operator: 'textContains', values: ['x'] }),
+        )!,
+        'yz',
+      ),
+    ).toBe(false);
     expect(isValidValueForRule(checkboxRule('c'), 'anything')).toBe(true);
   });
 });
