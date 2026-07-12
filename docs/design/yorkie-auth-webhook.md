@@ -79,13 +79,15 @@ enforce a subset:
 
 The auth webhook is signed by the **same** yorkie webhook client as the event
 webhook: `X-Signature-256: sha256=HMAC-SHA256(rawBody, project.SecretKey)`. The
-existing `YorkieSignatureGuard` (`document/yorkie-signature.guard.ts`) and the
-`main.ts` rawBody-capture hook therefore apply **unchanged** — no new secret.
-The guard authenticates *Yorkie* as the caller; the `token` in the body then
-authenticates the *end user*.
+existing `YorkieSignatureGuard`
+(`packages/backend/src/document/yorkie-signature.guard.ts`) and the
+`packages/backend/src/main.ts` rawBody-capture hook therefore apply
+**unchanged** — no new secret. The guard authenticates *Yorkie* as the caller;
+the `token` in the body then authenticates the *end user*.
 
-The rawBody `verify` hook in `main.ts` is currently path-scoped to
-`/internal/yorkie/events`; extend it to also cover `/internal/yorkie/auth`.
+The rawBody `verify` hook in `packages/backend/src/main.ts` is currently
+path-scoped to `/internal/yorkie/events`; extend it to also cover
+`/internal/yorkie/auth`.
 
 ### Token strategy (the hard part)
 
@@ -97,9 +99,11 @@ injector *can* hold:
   cookie automatically (`credentials: 'include'`); the endpoint returns a signed
   short-lived token (≈10 min) in the body, e.g. a JWT
   `{ typ: 'yorkie', sub: <userId>, exp }` signed with a backend secret.
-- Anonymous share visitors have no session. `GET /auth/yorkie-token?shareToken=<t>`
-  (no JWT guard) validates the share token via `ShareLinkService.findByToken`
-  and returns a token `{ typ: 'yorkie-share', shareToken, exp }`.
+- Anonymous share visitors have no session. `POST /auth/yorkie-token/share`
+  (no JWT guard) takes the share token in the body — kept out of URLs/logs since
+  it grants access — and returns a token `{ typ: 'yorkie-share', shareToken, exp }`.
+  The webhook, not this endpoint, does the real validation
+  (`ShareLinkService.findByToken`: existence, expiry, document match, role).
 
 The webhook decodes the token to `{ userId }` or `{ shareToken }` and resolves
 access from there. Identity is thus **backend-signed**, not client-asserted.
@@ -193,11 +197,16 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
 - **Token/session expiry mid-session** → short-lived token + `401`-driven
   `authTokenInjector` refresh; authenticated refetch chains into the existing
   `/auth/refresh`. Needs an integration test for the expiry→refresh→retry path.
-- **Webhook latency on the hot path** → the webhook is on every PushPull; keep
-  it a single indexed Postgres read (Document + membership/share), cache
-  token-decode, and rely on yorkie's retry/backoff (`--auth-webhook-*` tunables)
-  rather than blocking. Consider a short in-process cache keyed by
-  `(tokenHash, docId, verb)`.
+- **Webhook latency on the hot path** → the webhook fires on every PushPull, and
+  the current handler is not free: a user token does a Document read *then* a
+  membership read (two sequential indexed queries), a share token does one
+  `findByToken` (join-loaded), and multiple attributes are checked sequentially.
+  That is acceptable for the shadow phase and typical single-attribute traffic,
+  but before enabling enforcement at scale the mitigation is: collapse the
+  user-token path to one indexed join (document ⋈ membership), check attributes
+  concurrently, and add a short in-process cache keyed by `(tokenHash, docId,
+  verb)`. Yorkie's retry/backoff (`--auth-webhook-*` tunables) covers transient
+  blips.
 - **Spoofed identity** → authorization uses only the backend-signed token;
   `metadata.userID` is never trusted for access decisions.
 - **Forged webhook calls** → mandatory HMAC via `YorkieSignatureGuard`; endpoint

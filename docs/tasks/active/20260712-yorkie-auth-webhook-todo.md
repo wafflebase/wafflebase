@@ -15,7 +15,7 @@ event-webhook HMAC guard.
   - signed with `JWT_SECRET` (reuse accessSecret)
 - [x] `AuthController`: token endpoints
   - `GET /auth/yorkie-token` (JwtAuthGuard) → `{ token }` (user)
-  - `GET /auth/yorkie-token/share?token=<shareToken>` (public) → `{ token }` (share)
+  - `POST /auth/yorkie-token/share` (public, token in body) → `{ token }` (share)
   - throttle both
 - [x] `AuthModule`: `exports: [AuthService]`
 - [x] `document/yorkie-auth.controller.ts` — `POST /internal/yorkie/auth`
@@ -40,7 +40,7 @@ event-webhook HMAC guard.
 
 ## Tests
 
-- [x] AuthService yorkie-token round-trip (issue → verify, expiry, wrong typ)
+- [x] AuthService yorkie-token round-trip (issue → verify, expiry, wrong type)
 - [x] YorkieAuthController decide(): member rw, share viewer r-only, unknown key, bad token → 401, detach always allow, shadow mode
 - [x] `pnpm verify:fast` green
 

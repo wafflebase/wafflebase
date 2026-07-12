@@ -187,11 +187,15 @@ export async function fetchYorkieToken(): Promise<string> {
 export async function fetchYorkieShareToken(
   shareToken: string
 ): Promise<string> {
+  // POST with the token in the body (not the URL) so this access-granting
+  // token stays out of request URLs and server access logs.
   const res = await fetch(
-    `${import.meta.env.VITE_BACKEND_API_URL}/auth/yorkie-token/share?token=${encodeURIComponent(
-      shareToken
-    )}`,
-    { method: "GET" }
+    `${import.meta.env.VITE_BACKEND_API_URL}/auth/yorkie-token/share`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: shareToken }),
+    }
   );
   if (!res.ok) {
     throw new Error("Failed to fetch Yorkie share token");

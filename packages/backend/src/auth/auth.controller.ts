@@ -59,11 +59,14 @@ export class AuthController {
   /**
    * Yorkie token for an anonymous share-link visitor (no session). Public: the
    * token only wraps the share token; the webhook does the real validation
-   * (existence, expiry, document match, role) via `ShareLinkService`.
+   * (existence, expiry, document match, role) via `ShareLinkService`. Uses POST
+   * with the share token in the body so the (access-granting) token stays out
+   * of request URLs and access logs.
    */
-  @Get('yorkie-token/share')
+  @Post('yorkie-token/share')
+  @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  async getYorkieShareToken(@Query('token') shareToken: string | undefined) {
+  async getYorkieShareToken(@Body('token') shareToken: string | undefined) {
     if (!shareToken) {
       throw new BadRequestException('Missing share token');
     }
