@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides background (2026-07-12) | [20260712-slides-background-todo.md](./active/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./active/20260712-slides-background-lessons.md) |
 | release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
 | slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./active/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./active/20260712-slides-font-ooxml-parity-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
