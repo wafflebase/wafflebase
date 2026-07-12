@@ -66,6 +66,9 @@ export interface CtxSpy {
 
   // images
   drawImage: SpyFn;
+
+  // gradients
+  createLinearGradient: SpyFn;
 }
 
 /**
@@ -116,6 +119,8 @@ export function createCtxSpy(): CtxSpy {
     measureText: vi.fn(() => ({ width: 0 })) as unknown as SpyFn,
 
     drawImage: vi.fn(),
+
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
   };
 }
 

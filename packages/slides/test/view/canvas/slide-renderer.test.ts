@@ -254,6 +254,40 @@ describe('SlideRenderer.render', () => {
     // model-level color was a role binding.
     expect(ctx.fillStyle).toBe('#fff');
   });
+
+  it('paints a gradient slide background via resolveFillStyle', () => {
+    const { renderer, ctx } = makeRenderer();
+    const slide: Slide = {
+      ...blankSlide(),
+      background: {
+        fill: {
+          kind: 'gradient',
+          type: 'linear',
+          angle: 0,
+          stops: [
+            { pos: 0, color: { kind: 'srgb', value: '#fff' } },
+            { pos: 1, color: { kind: 'srgb', value: '#000' } },
+          ],
+        },
+      },
+    };
+    renderer.render(slide, DOC);
+    // A real gradient axis is built (createLinearGradient), not a
+    // collapsed representative solid color.
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
+    expect(typeof ctx.fillStyle).toBe('object'); // CanvasGradient stub
+  });
+
+  it('paints a solid slide background as a CSS string, no gradient call', () => {
+    const { renderer, ctx } = makeRenderer();
+    const slide: Slide = {
+      ...blankSlide(),
+      background: { fill: { kind: 'srgb', value: '#123456' } },
+    };
+    renderer.render(slide, DOC);
+    expect(ctx.createLinearGradient).not.toHaveBeenCalled();
+    expect(ctx.fillStyle).toBe('#123456');
+  });
 });
 
 function buildDoc() {

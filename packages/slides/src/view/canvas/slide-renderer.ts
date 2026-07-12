@@ -7,11 +7,10 @@ import {
   resolveBackgroundImage,
 } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
-import { representativeColor, resolveColor } from '../../model/theme';
 import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
-import { getActiveTheme } from './render-context';
+import { getActiveTheme, resolveFillStyle } from './render-context';
 
 /** Global alpha applied to the hover-ghost element so the user can see
  * exactly what (kind + size + position) is about to be inserted while
@@ -135,7 +134,8 @@ export class SlideRenderer {
  * Functional core of the renderer — exposed for tests and for the
  * thumbnail path which doesn't need the dirty-flag bookkeeping. Looks
  * up the active theme from `doc`, fills the background through
- * `resolveColor`, and dispatches each element to `drawElement`.
+ * `resolveFillStyle` (solid color or gradient), and dispatches each
+ * element to `drawElement`.
  */
 export function drawSlide(
   ctx: CanvasRenderingContext2D,
@@ -181,10 +181,9 @@ export function drawSlide(
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!hasPasteboard) {
-    // TODO(slides-background task 2): paint a real gradient here instead
-    // of collapsing to representativeColor() — this keeps the widened
-    // Fill return type typechecking without changing solid-fill visuals.
-    ctx.fillStyle = resolveColor(representativeColor(resolveBackgroundFill(slide, doc)), theme);
+    ctx.fillStyle = resolveFillStyle(
+      ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
+    );
     ctx.fillRect(0, 0, bitmapW, bitmapH);
   } else {
     ctx.clearRect(0, 0, bitmapW, bitmapH);
@@ -204,10 +203,9 @@ export function drawSlide(
     // and hairline are owned by `slideElevation` in slides-view.tsx
     // — keeping them in CSS means they survive every paint mode
     // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
-    // TODO(slides-background task 2): paint a real gradient here instead
-    // of collapsing to representativeColor() — this keeps the widened
-    // Fill return type typechecking without changing solid-fill visuals.
-    ctx.fillStyle = resolveColor(representativeColor(resolveBackgroundFill(slide, doc)), theme);
+    ctx.fillStyle = resolveFillStyle(
+      ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
+    );
     ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
   }
 
