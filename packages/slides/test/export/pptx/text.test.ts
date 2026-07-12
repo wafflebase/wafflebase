@@ -55,6 +55,33 @@ describe('textBodyToXml', () => {
     expect(xml).toMatch(/<a:rPr[^>]*strike="sngStrike"/);
   });
 
+  it('emits baseline for superscript and subscript', () => {
+    expect(
+      textBodyToXml({ blocks: [para('S', { superscript: true })] }),
+    ).toMatch(/<a:rPr[^>]*baseline="30000"/);
+    expect(
+      textBodyToXml({ blocks: [para('s', { subscript: true })] }),
+    ).toMatch(/<a:rPr[^>]*baseline="-25000"/);
+  });
+
+  it('round-trips superscript/subscript through export → re-import', () => {
+    for (const key of ['superscript', 'subscript'] as const) {
+      const block: Block = {
+        id: 'b',
+        type: 'paragraph',
+        inlines: [{ text: 'x', style: { [key]: true } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      const xml = textBodyToXml({ blocks: [block] }, 'p:txBody');
+      const el = parseXml(
+        `<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+          `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${xml}</root>`,
+      ).documentElement.firstElementChild!;
+      const reimported = parseTextBody(el, { report: new ImportReport() });
+      expect(reimported[0].inlines[0].style[key]).toBe(true);
+    }
+  });
+
   it('emits font family', () => {
     const xml = textBodyToXml({ blocks: [para('F', { fontFamily: 'Arial' })] });
     expect(xml).toContain('<a:latin typeface="Arial"/>');
@@ -202,11 +229,62 @@ describe('textBodyToXml', () => {
     expect(xml).toContain('<a:srgbClr val="000000"/>');
   });
 
-  it('does not emit hlinkClick for a run with href set', () => {
-    // Hyperlink wiring is deferred; no <a:hlinkClick> node must be emitted
-    // (an empty r:id="" would produce an invalid relationship reference).
+  it('does not emit hlinkClick when no resolver is supplied', () => {
+    // Callers with no `.rels` part (e.g. notes) omit the resolver; the href
+    // stays in the model but no <a:hlinkClick> node is written (an empty
+    // r:id="" would produce an invalid relationship reference).
     const xml = textBodyToXml({ blocks: [para('Link', { href: 'https://example.com' })] });
-    expect(xml).not.toContain('<a:hlinkClick');
     expect(xml).not.toContain('hlinkClick');
+  });
+
+  it('emits hlinkClick with the resolved rId when a resolver is supplied', () => {
+    const seen: string[] = [];
+    const resolve = (href: string) => {
+      seen.push(href);
+      return 'rId7';
+    };
+    const xml = textBodyToXml(
+      { blocks: [para('Link', { href: 'https://example.com/a?x=1&y=2' })] },
+      'a:txBody',
+      resolve,
+    );
+    expect(xml).toContain('<a:hlinkClick r:id="rId7"/>');
+    expect(seen).toEqual(['https://example.com/a?x=1&y=2']);
+    // hlinkClick must follow the typeface children per OOXML child order.
+    const xml2 = textBodyToXml(
+      { blocks: [para('L', { href: 'https://e.com', fontFamily: 'Arial' })] },
+      'a:txBody',
+      () => 'rId3',
+    );
+    expect(xml2.indexOf('<a:latin')).toBeLessThan(xml2.indexOf('<a:hlinkClick'));
+  });
+
+  it('drops executable/local href schemes even when a resolver is supplied', () => {
+    const resolve = () => 'rIdX';
+    for (const href of [
+      'javascript:alert(1)',
+      'data:text/html,x',
+      'vbscript:x',
+      'file:///etc',
+    ]) {
+      const xml = textBodyToXml({ blocks: [para('X', { href })] }, 'a:txBody', resolve);
+      expect(xml).not.toContain('hlinkClick');
+    }
+  });
+
+  it('exports non-web external schemes (tel/sms/ftp) as hyperlinks', () => {
+    const resolve = () => 'rIdT';
+    for (const href of ['tel:+15551234', 'sms:+15551234', 'ftp://host/f']) {
+      const xml = textBodyToXml({ blocks: [para('X', { href })] }, 'a:txBody', resolve);
+      expect(xml).toContain('<a:hlinkClick r:id="rIdT"/>');
+    }
+  });
+
+  it('drops scheme-less/relative hrefs (would be a broken external rel)', () => {
+    const resolve = () => 'rIdR';
+    for (const href of ['www.example.com', '#slide2', '/local/path']) {
+      const xml = textBodyToXml({ blocks: [para('X', { href })] }, 'a:txBody', resolve);
+      expect(xml).not.toContain('hlinkClick');
+    }
   });
 });

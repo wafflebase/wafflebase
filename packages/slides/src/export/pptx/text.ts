@@ -7,17 +7,32 @@ import { ptToHundredths } from './units.js';
 import { ROLE_TO_SCHEME, colorChildXml, colorFromStringOrTheme } from './color.js';
 
 /**
+ * Resolve a run's `href` to a slide-local relationship ID for an
+ * `<a:hlinkClick r:id>`, or `undefined` to drop the hyperlink (unsafe
+ * scheme, or the caller — e.g. notes — has no relationship part to add
+ * to). The orchestrator supplies a closure over the slide's `.rels`.
+ */
+export type HyperlinkRIdResolver = (href: string) => string;
+
+/**
  * Serialize a `TextBody` to an OOXML `<a:txBody>` or `<p:txBody>` element.
  *
  * @param body   The text body to serialize.
  * @param tag    The wrapper element tag. Shapes use `'p:txBody'`; table cells
  *               use `'a:txBody'`. Defaults to `'a:txBody'`.
+ * @param resolveHyperlinkRId  Optional resolver turning a run's `href` into a
+ *               relationship ID. When omitted, hyperlinks are not emitted (the
+ *               `href` is preserved in the model but no `<a:hlinkClick>` node
+ *               is written — appropriate for callers with no `.rels` part).
  */
 export function textBodyToXml(
   body: TextBody,
   tag: 'a:txBody' | 'p:txBody' = 'a:txBody',
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
 ): string {
-  const paras = body.blocks.map(blockToXml).join('');
+  const paras = body.blocks
+    .map((block) => blockToXml(block, resolveHyperlinkRId))
+    .join('');
   return `<${tag}>${bodyPrXml(body.autofit, body.verticalAnchor)}${paras || '<a:p/>'}</${tag}>`;
 }
 
@@ -56,7 +71,10 @@ const ALGN: Record<string, string> = {
  */
 const EMU_PER_PX = 9525;
 
-function blockToXml(block: Block): string {
+function blockToXml(
+  block: Block,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   const algn = ALGN[block.style.alignment] ?? 'l';
   const lvl = block.listLevel ? ` lvl="${block.listLevel}"` : '';
 
@@ -93,7 +111,9 @@ function blockToXml(block: Block): string {
   else if (block.listKind === 'unordered') buType = '<a:buChar char="•"/>';
 
   const pPr = `<a:pPr algn="${algn}"${lvl}${marLAttr}${indentAttr}>${lnSpc}${spcBef}${spcAft}${markerXml}${buType}</a:pPr>`;
-  const runs = block.inlines.map(runToXml).join('');
+  const runs = block.inlines
+    .map((inline) => runToXml(inline, resolveHyperlinkRId))
+    .join('');
   return `<a:p>${pPr}${runs}</a:p>`;
 }
 
@@ -161,8 +181,11 @@ function storedColorToThemeColor(c: StoredColor): ThemeColor {
   return { kind: 'srgb', value: '#000000' };
 }
 
-function runToXml(inline: Inline): string {
-  const rPr = rPrXml(inline.style);
+function runToXml(
+  inline: Inline,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
+  const rPr = rPrXml(inline.style, resolveHyperlinkRId);
   // Soft line breaks (`\n`, imported from `<a:br>`) must round-trip back to
   // `<a:br>`, not a literal newline in `<a:t>` — PowerPoint collapses raw
   // newlines as insignificant whitespace, losing the break. Split on `\n`
@@ -179,13 +202,48 @@ function runToXml(inline: Inline): string {
   return `<a:r>${rPr}<a:t>${escapeXmlText(inline.text)}</a:t></a:r>`;
 }
 
+// Schemes that execute code or read local resources — never propagated
+// into an exported deck even if present in the model (defense-in-depth).
+const UNSAFE_HREF_SCHEMES = new Set(['javascript', 'data', 'vbscript', 'file']);
+
+/**
+ * Whether an `href` should be written as an `<a:hlinkClick>` **external**
+ * relationship. Export semantics deliberately differ from the importer's
+ * `isSafeHref` (`src/import/pptx/text.ts`), which is why this is not a
+ * shared allowlist:
+ *   - **Requires an explicit scheme.** A scheme-less / relative / fragment
+ *     target (`www.example.com`, `#slide2`) would be written as a
+ *     `TargetMode="External"` relative file path and resolve to a broken
+ *     link in PowerPoint, so it is dropped rather than exported wrong.
+ *     (The importer accepts these because they resolve under the web app's
+ *     own origin — a meaning that does not survive into a `.pptx`.)
+ *   - **Blocks executable / local schemes** (`javascript:`, `data:`,
+ *     `vbscript:`, `file:`).
+ *   - **Passes every other scheme** (`http(s)`, `mailto`, `tel`, `sms`,
+ *     `ftp`, …) — all legitimate external hyperlink targets that the
+ *     import-side allowlist would have silently dropped.
+ */
+function isExportableHref(target: string): boolean {
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(target);
+  if (!m) return false; // scheme-less / relative / fragment
+  return !UNSAFE_HREF_SCHEMES.has(m[1].toLowerCase());
+}
+
 /** Build the `<a:rPr>` node for a run/break from an inline style. */
-function rPrXml(s: Inline['style']): string {
+function rPrXml(
+  s: Inline['style'],
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
   if (s.underline) attrs.push('u="sng"');
   if (s.strikethrough) attrs.push('strike="sngStrike"');
+  // baseline — inverse of the importer's sign test (baseline > 0 →
+  // superscript, < 0 → subscript). PPTX stores 1000ths of a percent;
+  // 30000 / -25000 match PowerPoint's default super/subscript offsets.
+  if (s.superscript) attrs.push('baseline="30000"');
+  else if (s.subscript) attrs.push('baseline="-25000"');
   if (s.fontSize != null) attrs.push(`sz="${ptToHundredths(s.fontSize)}"`);
   const children: string[] = [];
   if (s.color != null) {
@@ -203,8 +261,16 @@ function rPrXml(s: Inline['style']): string {
   if (s.fontFamily) {
     children.push(`<a:latin typeface="${escapeXmlAttr(s.fontFamily)}"/>`);
   }
-  // s.href: hyperlink wiring is deferred (Phase 2). Do not emit any
-  // <a:hlinkClick> node — an empty r:id="" produces an invalid relationship.
+  // Hyperlink → <a:hlinkClick r:id>. Per CT_TextCharacterProperties child
+  // order, hlinkClick follows the typeface children, so push it last. Only
+  // emitted when the caller supplies a resolver (which registers the
+  // slide-local external relationship) AND the scheme is safe — otherwise
+  // the href stays in the model but no node is written, avoiding an invalid
+  // empty r:id and matching the importer's safe-scheme policy.
+  if (s.href && resolveHyperlinkRId && isExportableHref(s.href)) {
+    const rId = resolveHyperlinkRId(s.href);
+    children.push(`<a:hlinkClick r:id="${escapeXmlAttr(rId)}"/>`);
+  }
   return attrs.length || children.length
     ? `<a:rPr${attrs.length ? ' ' + attrs.join(' ') : ''}>${children.join('')}</a:rPr>`
     : `<a:rPr/>`;

@@ -34,6 +34,12 @@ export interface ElementXmlCtx {
   resolveImageRId(el: ImageElement): string;
   /** Compute the bounding frame for a connector (from its start/end endpoints). */
   connectorFrame(el: ConnectorElement): Frame;
+  /**
+   * Resolve a text run's `href` to a slide-local external relationship ID
+   * for `<a:hlinkClick>`. Threaded into every text-bearing serializer
+   * (shape, text box, table cell).
+   */
+  resolveHyperlinkRId(href: string): string;
 }
 
 /**
@@ -46,13 +52,13 @@ export interface ElementXmlCtx {
 export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
   switch (el.type) {
     case 'text':
-      return textElementToXml(el);
+      return textElementToXml(el, ctx.resolveHyperlinkRId);
     case 'shape':
-      return shapeToXml(el);
+      return shapeToXml(el, ctx.resolveHyperlinkRId);
     case 'image':
       return imageToXml(el, ctx.resolveImageRId(el));
     case 'table':
-      return tableToXml(el);
+      return tableToXml(el, ctx.resolveHyperlinkRId);
     case 'connector':
       return connectorToXml(el, ctx.connectorFrame(el));
     case 'group':

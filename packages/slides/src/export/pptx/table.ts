@@ -19,17 +19,22 @@
 import type { CellBorder, TableCell, TableElement } from '../../model/element.js';
 import { attr, escapeXmlText } from './xml.js';
 import { pxToEmuX, pxToEmuY, pxToEmu } from './units.js';
-import { textBodyToXml } from './text.js';
+import { textBodyToXml, type HyperlinkRIdResolver } from './text.js';
 import { solidFillXml, colorFromStringOrTheme } from './color.js';
 
-export function tableToXml(el: TableElement): string {
+export function tableToXml(
+  el: TableElement,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   const { data, frame } = el;
 
   const grid = data.columnWidths
     .map((w) => `<a:gridCol w="${pxToEmuX(w)}"/>`)
     .join('');
 
-  const rows = data.rows.map(rowToXml).join('');
+  const rows = data.rows
+    .map((row) => rowToXml(row, resolveHyperlinkRId))
+    .join('');
 
   const tblPrContent = el.data.tableStyleId
     ? `<a:tableStyleId>${escapeXmlText(el.data.tableStyleId)}</a:tableStyleId>`
@@ -59,11 +64,20 @@ export function tableToXml(el: TableElement): string {
   );
 }
 
-function rowToXml(row: { height: number; cells: TableCell[] }): string {
-  return `<a:tr h="${pxToEmuY(row.height)}">${row.cells.map(cellToXml).join('')}</a:tr>`;
+function rowToXml(
+  row: { height: number; cells: TableCell[] },
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
+  const cells = row.cells
+    .map((cell) => cellToXml(cell, resolveHyperlinkRId))
+    .join('');
+  return `<a:tr h="${pxToEmuY(row.height)}">${cells}</a:tr>`;
 }
 
-function cellToXml(cell: TableCell): string {
+function cellToXml(
+  cell: TableCell,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   // Covered-cell fast paths — these cells carry no real content.
   // A cell covered in BOTH directions (diagonal merge corner) needs both attributes.
   if (cell.gridSpan === 0 && cell.rowSpan === 0) {
@@ -87,7 +101,7 @@ function cellToXml(cell: TableCell): string {
       : '';
 
   // Table cells always use the default <a:txBody> tag (not <p:txBody>).
-  const txBody = textBodyToXml(cell.body);
+  const txBody = textBodyToXml(cell.body, 'a:txBody', resolveHyperlinkRId);
 
   return `<a:tc${spanAttr}${rspanAttr}>${txBody}${tcPrXml(cell)}</a:tc>`;
 }

@@ -1,7 +1,7 @@
 import type { Frame, ShapeElement, ShapeKind, Stroke, TextElement } from '../../model/element.js';
 import { pxToEmuX, pxToEmuY, radToRot60k } from './units.js';
 import { fillXml, solidFillXml, colorFromStringOrTheme } from './color.js';
-import { textBodyToXml } from './text.js';
+import { textBodyToXml, type HyperlinkRIdResolver } from './text.js';
 import { effectsToXml } from './effects.js';
 import { freeformToCustGeom } from './freeform.js';
 import { arrowXml } from './connector.js';
@@ -78,7 +78,10 @@ export function lineXml(
  * - The `id` attribute on `<p:cNvPr>` is set to `"0"`; the
  *   PPTX-level shape-id is assigned by the slide assembly layer.
  */
-export function shapeToXml(el: ShapeElement): string {
+export function shapeToXml(
+  el: ShapeElement,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   const { data, frame } = el;
 
   // For freeform with a path → custGeom; freeform without path → rect fallback
@@ -105,7 +108,7 @@ export function shapeToXml(el: ShapeElement): string {
     `</p:spPr>`;
 
   const txBody = data.text
-    ? textBodyToXml(data.text, 'p:txBody')
+    ? textBodyToXml(data.text, 'p:txBody', resolveHyperlinkRId)
     : `<p:txBody><a:bodyPr/><a:p/></p:txBody>`;
 
   const descrAttr = attr('descr', data.alt);
@@ -132,7 +135,10 @@ export function shapeToXml(el: ShapeElement): string {
  * as the mandatory geometry placeholder alongside `<a:noFill/>` (unless an
  * explicit fill is present).
  */
-export function textElementToXml(el: TextElement): string {
+export function textElementToXml(
+  el: TextElement,
+  resolveHyperlinkRId?: HyperlinkRIdResolver,
+): string {
   const { data, frame } = el;
 
   const fill = data.fill ? solidFillXml(data.fill) : '<a:noFill/>';
@@ -149,6 +155,7 @@ export function textElementToXml(el: TextElement): string {
   const txBody = textBodyToXml(
     { blocks: data.blocks, autofit: data.autofit, verticalAnchor: data.verticalAnchor },
     'p:txBody',
+    resolveHyperlinkRId,
   );
 
   const descrAttr = attr('descr', data.alt);

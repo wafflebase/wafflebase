@@ -1,7 +1,8 @@
 import JSZip from 'jszip';
 import { contentTypesXml, rootRelsXml } from './templates.js';
+import { escapeXmlAttr } from './xml.js';
 
-interface Rel { id: string; type: string; target: string; }
+interface Rel { id: string; type: string; target: string; external?: boolean; }
 
 export class PptxWriter {
   private parts = new Map<string, string>();
@@ -26,12 +27,17 @@ export class PptxWriter {
     return path;
   }
 
-  addRel(ownerPartPath: string, type: string, target: string): string {
+  addRel(
+    ownerPartPath: string,
+    type: string,
+    target: string,
+    external = false,
+  ): string {
     const n = (this.relCounters.get(ownerPartPath) ?? 0) + 1;
     this.relCounters.set(ownerPartPath, n);
     const id = `rId${n}`;
     const list = this.rels.get(ownerPartPath) ?? [];
-    list.push({ id, type, target });
+    list.push({ id, type, target, external });
     this.rels.set(ownerPartPath, list);
     return id;
   }
@@ -45,7 +51,12 @@ export class PptxWriter {
     for (const [owner, list] of this.rels) {
       const relsPath = relsPathFor(owner);
       const body = list
-        .map((r) => `  <Relationship Id="${r.id}" Type="${r.type}" Target="${r.target}"/>`)
+        .map(
+          (r) =>
+            `  <Relationship Id="${r.id}" Type="${r.type}" Target="${escapeXmlAttr(
+              r.target,
+            )}"${r.external ? ' TargetMode="External"' : ''}/>`,
+        )
         .join('\n');
       zip.file(
         relsPath,
