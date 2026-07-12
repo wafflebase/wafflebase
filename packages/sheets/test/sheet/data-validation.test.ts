@@ -172,6 +172,71 @@ describe('Sheet data validation', () => {
     ).toBe(false);
   });
 
+  it('range Space bails (no-op) over a checkbox rule larger than the cap', async () => {
+    const sheet = new Sheet(new MemStore());
+    // 60k-row checkbox rule exceeds MaxCheckboxToggleCells (50k) → must not
+    // freeze; it bails to a no-op rather than scanning every cell.
+    await sheet.insertCheckbox(
+      [
+        { r: 1, c: 1 },
+        { r: 60000, c: 1 },
+      ],
+      'dv-big',
+    );
+    expect(
+      await sheet.toggleCheckboxesInRange([
+        { r: 1, c: 1 },
+        { r: 60000, c: 1 },
+      ]),
+    ).toBe(false);
+    expect((await sheet.getCell({ r: 1, c: 1 }))?.v).toBeUndefined();
+  });
+
+  it('range Space skips spill-ghost cells (read-only array output)', async () => {
+    const sheet = new Sheet(new MemStore());
+    // 2x2 identity-ish matrix; MINVERSE spills into A4:B5.
+    await sheet.setData({ r: 1, c: 1 }, '2');
+    await sheet.setData({ r: 1, c: 2 }, '1');
+    await sheet.setData({ r: 2, c: 1 }, '1');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)'); // spills A4:B5
+    // Checkbox rule laid over the spill region.
+    await sheet.insertCheckbox(
+      [
+        { r: 4, c: 1 },
+        { r: 5, c: 2 },
+      ],
+      'dv-spill',
+    );
+
+    // Anchor is a formula, ghosts carry spillAnchor → all read-only, no-op.
+    expect(
+      await sheet.toggleCheckboxesInRange([
+        { r: 4, c: 1 },
+        { r: 5, c: 2 },
+      ]),
+    ).toBe(false);
+    // Spilled array output is intact (not overwritten with TRUE/FALSE).
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('2');
+  });
+
+  it('getMergeRangeForRef resolves a covered cell to its merged range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    await sheet.mergeSelection(); // merge A1:B2
+
+    // A covered (non-anchor) cell resolves to the full merged range.
+    const range = sheet.getMergeRangeForRef({ r: 2, c: 2 });
+    expect(range).toEqual([
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ]);
+    // A non-merged cell has no merged range.
+    expect(sheet.getMergeRangeForRef({ r: 9, c: 9 })).toBeUndefined();
+  });
+
   it('range Space recomputes a formula that depends on a toggled checkbox', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.insertCheckbox(col(), 'dv-1');

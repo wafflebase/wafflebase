@@ -240,17 +240,26 @@ simplifications, each a small follow-up to close:
   (`gridcanvas.ts`); the hit-test normalizes `getCellRect` out of zoom space
   before clamping so the clickable target matches the drawn glyph at every zoom
   level. Toggle is gated on writability and left-button; right-click opens the
-  context menu. (Known caveat: for a checkbox inside a *merged* cell the glyph is
-  centered in the full merged rect while the hit-test uses the anchor cell's rect
-  — a rare configuration, deferred.)
+  context menu. A checkbox inside a *merged* cell now hit-tests correctly: the
+  hit-test resolves a covered ref to its merge anchor via
+  `Sheet.getMergeRangeForRef` and uses the full merged rect (`getCellInputRect`),
+  matching the renderer, which centers the glyph in the same merged rect.
 - **Space** — range-uniform toggle (GS/Excel parity): if every checkbox-ruled,
   non-formula cell in the selection is checked they are all unchecked, otherwise
   all are checked. A single-cell selection toggles just that cell. Implemented
   as `Sheet.toggleCheckboxesInRange`, which writes through the low-level store
   inside one batch + `calculate` (the `removeData` pattern) rather than looping
   `setData` — `setData` self-batches and batches do not nest, so a loop would
-  produce N undo units and clobber grouping. Formula-backed checkboxes stay
-  read-only; non-checkbox cells in the selection are untouched.
+  produce N undo units and clobber grouping. Formula-backed **and spill-ghost**
+  checkboxes stay read-only; non-checkbox cells in the selection are untouched;
+  it no-ops on a pivot-output sheet (like every other write path). The scan is
+  bounded to the intersection of the selection with the checkbox rules' own
+  ranges (a whole-column / Ctrl+A selection over a small rule costs only the
+  rule's cells, not a full-grid walk), and a rule whose intersection exceeds
+  `MaxCheckboxToggleCells` (50k) bails to a no-op rather than freezing the tab
+  (the `setRangeBorders` cap precedent). The write stores the rule's exact
+  checked/unchecked string via `compactCell` (no `inferInput` normalization), so
+  a custom `checkedValue` like `"01"` round-trips for exact-match rendering.
 - **Structural edits** — rules follow row/column insert/delete/move in three
   places that must stay in lockstep: the `Sheet` synced cache, `MemStore`, and the
   Yorkie document helper (`yorkie-worksheet-structure.ts`). All three route through

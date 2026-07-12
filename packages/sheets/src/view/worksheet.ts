@@ -1360,7 +1360,13 @@ export class Worksheet {
     // matches the drawn glyph, then scale back to screen space — otherwise the
     // clickable target and the visible checkbox diverge at zoom != 1.
     const zoom = this.zoom;
-    const cellRect = this.getCellRect(ref);
+    // For a checkbox inside a merged cell the renderer centers the glyph in the
+    // full merged rect, so the hit-test must use the same rect (resolve a
+    // covered ref to its merge anchor first) or the clickable target drifts.
+    const mergeRange = this.sheet?.getMergeRangeForRef(ref);
+    const cellRect = mergeRange
+      ? this.getCellInputRect(mergeRange[0])
+      : this.getCellRect(ref);
     const box = computeCheckboxBox({
       left: cellRect.left / zoom,
       top: cellRect.top / zoom,
