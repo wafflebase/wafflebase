@@ -184,6 +184,13 @@ describe('YorkieAuthController.decide', () => {
     ).toMatchObject({ status: 403, allowed: false, reason: 'unknown document key' });
   });
 
+  it('fails closed (403) on a document method with no attributes', async () => {
+    const c = makeController({ identity: { typ: 'yorkie', sub: 1 } });
+    expect(
+      await c.decide({ method: 'PushPull', token: 't', attributes: [] }),
+    ).toMatchObject({ status: 403, allowed: false });
+  });
+
   it('403s when the document does not exist', async () => {
     const c = makeController({
       identity: { typ: 'yorkie', sub: 1 },

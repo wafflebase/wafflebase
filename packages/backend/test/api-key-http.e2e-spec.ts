@@ -32,6 +32,7 @@ describeDb('API Key HTTP integration', () => {
   }) {
     const token = jwtService.sign(
       {
+        tokenType: 'access',
         sub: user.id,
         username: user.username,
         email: user.email,

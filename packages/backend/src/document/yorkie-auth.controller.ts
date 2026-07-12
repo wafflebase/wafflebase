@@ -134,8 +134,20 @@ export class YorkieAuthController {
     }
 
     // Client-scoped methods carry no document; a valid token is enough.
-    if (CLIENT_METHODS.has(method) || !body?.attributes?.length) {
+    if (CLIENT_METHODS.has(method)) {
       return ALLOW;
+    }
+
+    // A document-scoped method must name the document(s) it targets. An empty
+    // attribute list leaves nothing to authorize, so fail closed rather than
+    // blanket-allow — a would-be bypass then surfaces as a shadow-mode log
+    // before enforcement is turned on.
+    if (!body?.attributes?.length) {
+      return {
+        status: 403,
+        allowed: false,
+        reason: 'missing document attributes',
+      };
     }
 
     for (const attr of body.attributes) {
@@ -168,14 +180,14 @@ export class YorkieAuthController {
     documentId: string,
     needWrite: boolean,
   ): Promise<boolean> {
-    const doc = await this.documentService.document({ id: documentId });
-    if (!doc) {
-      return false;
-    }
-
     if (identity.typ === 'yorkie') {
-      // Workspace membership grants read+write; the model has no per-member
-      // viewer role today (see design doc's granularity note).
+      // Need the document's workspace to check membership. Membership grants
+      // read+write; the model has no per-member viewer role today (see design
+      // doc's granularity note).
+      const doc = await this.documentService.document({ id: documentId });
+      if (!doc) {
+        return false;
+      }
       try {
         await this.workspaceService.assertMember(doc.workspaceId, identity.sub);
         return true;
@@ -185,6 +197,8 @@ export class YorkieAuthController {
     }
 
     // Anonymous share visitor: the link decides the role and the document.
+    // `findByToken` already loads + validates the document (FK, expiry), so no
+    // separate document read is needed here.
     try {
       const link = await this.shareLinkService.findByToken(identity.shareToken);
       if (link.documentId !== documentId) {

@@ -104,6 +104,15 @@ injector *can* hold:
 The webhook decodes the token to `{ userId }` or `{ shareToken }` and resolves
 access from there. Identity is thus **backend-signed**, not client-asserted.
 
+**Token-replay hardening.** The Yorkie token is signed with `JWT_SECRET` (same
+key as the session access token) but, unlike the httpOnly session cookie, it is
+readable by client JS. So `JwtStrategy.validate` must reject anything that isn't
+an access token: it now requires `tokenType === 'access'`, which blocks both a
+captured Yorkie token (`typ: 'yorkie'`) and a refresh token (`tokenType:
+'refresh'`, which shares `JWT_SECRET` when `JWT_REFRESH_SECRET` is unset) from
+being replayed as a `Bearer` session. `verifyYorkieToken` conversely rejects
+access/refresh tokens, so the two token families can't cross over.
+
 ### Permission resolution
 
 For each attribute `{ key, verb }`:
@@ -193,6 +202,27 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
   `metadata.userID` is never trusted for access decisions.
 - **Forged webhook calls** → mandatory HMAC via `YorkieSignatureGuard`; endpoint
   refuses when `YORKIE_SECRET_KEY` is unset (same posture as the event webhook).
+- **Read-only viewers and the attach/PushPull verb** → yorkie derives the verb
+  from the client's change pack, not the sync mode: `AccessAttributes(pack)` is
+  `r` when `pack.HasChanges()` is false, `rw` otherwise
+  (`server/rpc/auth/auth.go`). A viewer who never edits a doc that already has
+  content pushes no changes → verb `r` → allowed. The risk is a "read-only"
+  client that still emits a local change on load (e.g. a lazy data migration or
+  field initialization) → verb `rw` → the webhook denies it under enforcement.
+  The React `DocumentProvider` does not currently expose a read-only/`syncMode`
+  attach option, so this can't be forced from the frontend today. **Mitigation:**
+  shadow mode is exactly the instrument for this — the rollout must confirm
+  viewer-link attach/PushPull requests actually carry verb `r` (watch the shadow
+  logs) before flipping `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. If viewers do emit
+  `rw`, the fix is a read-only attach path in the SDK wrapper (follow-up), not a
+  webhook change.
+- **Authenticated access is workspace-membership only** → the `PrivateRoute`
+  path injects a *user* token, so the webhook authorizes canonical document URLs
+  purely by `assertMember`. A logged-in non-member opening a canonical URL is
+  denied — which matches today's behavior (canonical document reads already
+  require membership; share access flows through the `/share/:token` route and
+  its share token). This is intended, not a regression, but is called out so the
+  two entry points (member vs share) stay distinct.
 - **Member vs viewer granularity** → current model grants members `rw` and only
   distinguishes viewer/editor on share links. Per-member viewer roles are a
   model change, out of scope here; noted so the resolver has a clear extension

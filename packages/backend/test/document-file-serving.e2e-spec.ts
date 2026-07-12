@@ -35,6 +35,7 @@ describeDb('GET /documents/:id/file (member OR share token)', () => {
   }) {
     const token = jwtService.sign(
       {
+        tokenType: 'access',
         sub: user.id,
         username: user.username,
         email: user.email,
