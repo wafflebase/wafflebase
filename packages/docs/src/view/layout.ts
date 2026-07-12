@@ -20,7 +20,7 @@ import { computeTableLayout, type LayoutTable } from './table-layout.js';
  * keys remain readable when debugging.
  */
 function fontKey(font: ResolvedFont): string {
-  return `${font.style}|${font.weight}|${font.size}|${font.family}`;
+  return `${font.style}|${font.weight}|${font.size}|${font.family}|${font.letterSpacing ?? 0}`;
 }
 
 /**
@@ -125,12 +125,18 @@ export function resolveInlineFont(style: InlineStyle): ResolvedFont {
   // font cache on the raw family for direct hits against the registered
   // face. Carrying the chain here would break the CLI cache lookup and
   // bloat the measureCache fontKey.
-  return {
+  const resolved: ResolvedFont = {
     family: style.fontFamily ?? Theme.defaultFontFamily,
     size: ptToPx(sizePt),
     weight: style.bold ? 'bold' : 'normal',
     style: style.italic ? 'italic' : 'normal',
   };
+  // Letter spacing is stored in points; convert to px for measurement/paint.
+  // Sup/sub runs scale their spacing with the 60% font size too.
+  if (style.letterSpacing) {
+    resolved.letterSpacing = ptToPx(isSuperOrSub ? style.letterSpacing * 0.6 : style.letterSpacing);
+  }
+  return resolved;
 }
 
 /**

@@ -300,9 +300,22 @@ export async function exportPptx(
       return rId;
     }
 
+    // Build per-slide hyperlink rId resolver. Like images, hyperlink rels
+    // are slide-local; de-dupe by target so repeated links share one rel.
+    // The target is an external URL (`TargetMode="External"`).
+    const slideHyperlinkRIdCache = new Map<string, string>();
+    function resolveHyperlinkRId(href: string): string {
+      const cached = slideHyperlinkRIdCache.get(href);
+      if (cached) return cached;
+      const rId = writer.addRel(slidePath, REL_TYPES.hyperlink, href, true);
+      slideHyperlinkRIdCache.set(href, rId);
+      return rId;
+    }
+
     const ctx: ElementXmlCtx = {
       resolveImageRId,
       connectorFrame: (el) => computeConnectorFrame(el, worldLookup),
+      resolveHyperlinkRId,
     };
 
     // Always serialize the *resolved* effective fill (slide → layout →

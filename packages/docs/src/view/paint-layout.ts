@@ -417,16 +417,50 @@ export function renderRun(
     }
   }
 
+  // Letter spacing — matches the additive px the measurer folded into
+  // run.width (super/sub-scaled). Set on the paint ctx around fillText only,
+  // then reset so it never leaks to the next run (underline/strike are
+  // strokes and already span run.width, so they need no spacing).
+  const letterSpacingPx = style.letterSpacing
+    ? ptToPx((isSuperscript || isSubscript) ? style.letterSpacing * 0.6 : style.letterSpacing)
+    : 0;
+  if (letterSpacingPx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+      `${letterSpacingPx}px`;
+  }
   ctx.fillText(run.text, x, baselineY);
+  if (letterSpacingPx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px';
+  }
 
   if (showUnderline) {
     const underlineY = baselineY + 2;
+    const uStyle = style.underlineStyle;
+    ctx.save();
     ctx.beginPath();
-    ctx.strokeStyle = textColor;
-    ctx.lineWidth = 1;
-    ctx.moveTo(x, underlineY);
-    ctx.lineTo(x + run.width, underlineY);
+    ctx.strokeStyle = resolveColor(style.underlineColor) ?? textColor;
+    ctx.lineWidth = uStyle === 'heavy' ? 2 : 1;
+    if (uStyle === 'dotted') ctx.setLineDash([1, 2]);
+    else if (uStyle === 'dashed') ctx.setLineDash([3, 2]);
+    if (uStyle === 'double') {
+      ctx.moveTo(x, underlineY);
+      ctx.lineTo(x + run.width, underlineY);
+      ctx.moveTo(x, underlineY + 2);
+      ctx.lineTo(x + run.width, underlineY + 2);
+    } else if (uStyle === 'wavy') {
+      // Approximate a wavy underline with a low-amplitude sine path.
+      const amp = 1.2;
+      const period = 4;
+      ctx.moveTo(x, underlineY);
+      for (let px = 1; px <= run.width; px++) {
+        ctx.lineTo(x + px, underlineY + Math.sin((px / period) * Math.PI * 2) * amp);
+      }
+    } else {
+      ctx.moveTo(x, underlineY);
+      ctx.lineTo(x + run.width, underlineY);
+    }
     ctx.stroke();
+    ctx.restore();
   }
 
   if (style.strikethrough) {
@@ -439,8 +473,16 @@ export function renderRun(
     ctx.beginPath();
     ctx.strokeStyle = textColor;
     ctx.lineWidth = 1;
-    ctx.moveTo(x, strikeY);
-    ctx.lineTo(x + run.width, strikeY);
+    if (style.strikeStyle === 'double') {
+      // Double strike: two hairlines straddling the single-line position.
+      ctx.moveTo(x, strikeY - 1);
+      ctx.lineTo(x + run.width, strikeY - 1);
+      ctx.moveTo(x, strikeY + 1);
+      ctx.lineTo(x + run.width, strikeY + 1);
+    } else {
+      ctx.moveTo(x, strikeY);
+      ctx.lineTo(x + run.width, strikeY);
+    }
     ctx.stroke();
   }
 }

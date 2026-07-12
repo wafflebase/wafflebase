@@ -5,6 +5,7 @@ export const REL_TYPES = {
   slideMaster: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster',
   theme: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme',
   image: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+  hyperlink: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink',
   notesSlide: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide',
   notesMaster: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster',
 } as const;

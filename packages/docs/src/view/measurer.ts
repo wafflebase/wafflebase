@@ -13,6 +13,14 @@ export interface ResolvedFont {
   size: number;
   weight: 'normal' | 'bold';
   style: 'normal' | 'italic';
+  /**
+   * Extra per-character spacing in CSS pixels (from `InlineStyle.letterSpacing`,
+   * converted pt→px). Applied additively — `measureWidth` adds
+   * `letterSpacing * text.length` — so measured widths stay slice-additive
+   * and are an upper bound on the painted width (never overflow). Absent /
+   * `0` = normal spacing.
+   */
+  letterSpacing?: number;
 }
 
 /**

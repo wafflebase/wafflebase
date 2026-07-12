@@ -75,7 +75,8 @@ export class CanvasTextMeasurer implements TextMeasurer {
       ctx.font = fontStr;
       this.lastFont = fontStr;
     }
-    return ctx.measureText(text).width;
+    const base = ctx.measureText(text).width;
+    return font.letterSpacing ? base + font.letterSpacing * text.length : base;
   }
 
   private getCtx(): CanvasRenderingContext2D {

@@ -19,6 +19,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
+| slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./active/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./active/20260712-slides-font-ooxml-parity-lessons.md) |
+| yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./active/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./active/20260711-sheets-date-validation-lessons.md) |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
 | docs list updatedat webhook (2026-07-10) | [20260710-docs-list-updatedat-webhook-todo.md](./active/20260710-docs-list-updatedat-webhook-todo.md) | [20260710-docs-list-updatedat-webhook-lessons.md](./active/20260710-docs-list-updatedat-webhook-lessons.md) |

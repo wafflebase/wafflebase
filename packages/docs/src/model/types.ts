@@ -147,7 +147,27 @@ export interface InlineStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /**
+   * Underline line variant, meaningful only when `underline` is set.
+   * `undefined` renders as a single line (the default). Maps to OOXML
+   * `@u` (17 values collapsed to this representative set).
+   */
+  underlineStyle?: 'single' | 'double' | 'heavy' | 'dotted' | 'dashed' | 'wavy';
+  /** Underline color, meaningful only when `underline` is set. OOXML `<a:uFill>`. */
+  underlineColor?: StoredColor;
   strikethrough?: boolean;
+  /**
+   * Strikethrough line variant, meaningful only when `strikethrough` is
+   * set. `undefined` renders as a single line (the default). Maps to OOXML
+   * `@strike` (`sngStrike` / `dblStrike`).
+   */
+  strikeStyle?: 'single' | 'double';
+  /**
+   * Extra spacing between characters, in points (negative = condensed).
+   * Maps to OOXML `@spc` (hundredths of a point). Applied additively at
+   * measure and paint time; `undefined` = normal spacing.
+   */
+  letterSpacing?: number;
   fontSize?: number;
   fontFamily?: string;
   /**
@@ -222,7 +242,11 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   bold: undefined,
   italic: undefined,
   underline: undefined,
+  underlineStyle: undefined,
+  underlineColor: undefined,
   strikethrough: undefined,
+  strikeStyle: undefined,
+  letterSpacing: undefined,
   fontSize: undefined,
   fontFamily: undefined,
   color: undefined,
@@ -382,7 +406,11 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.bold === b.bold &&
     a.italic === b.italic &&
     a.underline === b.underline &&
+    a.underlineStyle === b.underlineStyle &&
+    storedColorsEqual(a.underlineColor, b.underlineColor) &&
     a.strikethrough === b.strikethrough &&
+    a.strikeStyle === b.strikeStyle &&
+    a.letterSpacing === b.letterSpacing &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
     storedColorsEqual(a.color, b.color) &&

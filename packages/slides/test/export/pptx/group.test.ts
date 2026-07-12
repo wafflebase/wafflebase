@@ -5,6 +5,7 @@ import type { ChartElement, GroupElement, ShapeElement } from '../../../src/mode
 const ctx: ElementXmlCtx = {
   resolveImageRId: () => 'rId1',
   connectorFrame: () => ({ x: 0, y: 0, w: 1, h: 1, rotation: 0 }),
+  resolveHyperlinkRId: () => 'rId9',
 };
 const child: ShapeElement = {
   id: 'c',
