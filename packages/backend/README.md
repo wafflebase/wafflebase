@@ -39,7 +39,41 @@ YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
                                         # "currently editing" presence on
                                         # the documents list. Omit and the
                                         # list still works without avatars.
+                                        # Also the HMAC key for the Yorkie
+                                        # event + auth webhook signature guard.
+YORKIE_TOKEN_EXPIRES_IN=10m             # Optional, lifetime of the short-lived
+                                        # Yorkie auth-webhook token minted by
+                                        # GET /auth/yorkie-token.
+YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
+                                        # mode: log the access decision but
+                                        # never deny. true = enforce per-doc
+                                        # access at the Yorkie auth webhook.
 ```
+
+### Yorkie auth webhook (per-document access control)
+
+`POST /internal/yorkie/auth` enforces per-document read/write access at the
+Yorkie layer (design: [`docs/design/yorkie-auth-webhook.md`](../../docs/design/yorkie-auth-webhook.md)).
+It is HMAC-verified with `YORKIE_SECRET_KEY` (same guard as the event webhook)
+and reads the caller's identity from a backend-minted token supplied by the
+frontend via `authTokenInjector`. Register it on the Yorkie project (auth
+webhook is a per-project setting, not a server flag):
+
+```bash
+yorkie login --rpc-addr localhost:8080          # once, as the project admin
+yorkie project update <project> \
+  --auth-webhook-url http://host.docker.internal:3000/internal/yorkie/auth \
+  --auth-webhook-method-add AttachDocument \
+  --auth-webhook-method-add PushPull \
+  --auth-webhook-method-add Watch \
+  --auth-webhook-method-add DetachDocument \
+  --auth-webhook-method-add Broadcast \
+  --auth-webhook-method-add RemoveDocument
+```
+
+Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
+decision it *would* make), confirm no false denials, then flip to `true`.
+Unregister the methods (`--auth-webhook-method-rm ALL`) to disable.
 
 ### Development
 

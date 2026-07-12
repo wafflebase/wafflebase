@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
-import { fetchMeOptional } from "@/api/auth";
+import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import SheetView from "@/app/spreadsheet/sheet-view";
 import {
@@ -576,6 +576,7 @@ function SharedPdfLayout({
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{ userID: presenceUser.username }}
+      authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}
     >
       <PdfCollabProvider
         documentId={resolved.documentId}
@@ -667,6 +668,7 @@ function SharedDocumentInner({
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_PUBLIC_KEY}
       metadata={{ userID: presence.username }}
+      authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}
     >
       {resolved.type === "doc" ? (
         <DocumentProvider<YorkieDocsRoot>
