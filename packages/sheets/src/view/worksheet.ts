@@ -1,4 +1,10 @@
-import { Range, Ref, Direction, FilterCondition } from '../model/core/types';
+import {
+  Range,
+  Ref,
+  Direction,
+  FilterCondition,
+  DataValidationRule,
+} from '../model/core/types';
 import {
   toColumnLabel,
   toSref,
@@ -27,7 +33,11 @@ import {
   computeCheckboxBox,
   computeListArrowBox,
 } from './gridcanvas';
-import { isValidListValue } from '../model/worksheet/data-validation';
+import {
+  describeDateRule,
+  isValidDateValue,
+  isValidValueForRule,
+} from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
@@ -140,6 +150,14 @@ export class Worksheet {
   } | null = null;
   private listPopoverOutsideClickUnsub: (() => void) | null = null;
   private listPopoverKeyboardUnsub: (() => void) | null = null;
+  private datePopover: HTMLDivElement;
+  private datePopoverState: {
+    ref: Ref;
+    year: number;
+    month: number; // 0-11, the displayed month
+  } | null = null;
+  private datePopoverOutsideClickUnsub: (() => void) | null = null;
+  private datePopoverKeyboardUnsub: (() => void) | null = null;
   private validationTooltip: HTMLDivElement;
   private hoveredValidationCandidate: string | null = null;
   private onValidationErrorCallback?: (message: string) => void;
@@ -236,6 +254,7 @@ export class Worksheet {
     this.resizeTooltip = document.createElement('div');
     this.filterPanel = document.createElement('div');
     this.listPopover = document.createElement('div');
+    this.datePopover = document.createElement('div');
     this.validationTooltip = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
@@ -309,6 +328,22 @@ export class Worksheet {
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.listPopover.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
     document.body.appendChild(this.listPopover);
+
+    this.datePopover.style.position = 'fixed';
+    this.datePopover.style.display = 'none';
+    this.datePopover.style.zIndex = '1002';
+    this.datePopover.style.pointerEvents = 'auto';
+    this.datePopover.style.padding = '6px';
+    this.datePopover.style.borderRadius = '6px';
+    this.datePopover.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
+    this.datePopover.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.datePopover.style.color = getThemeColor(theme, 'cellTextColor');
+    this.datePopover.style.fontSize = '12px';
+    this.datePopover.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.datePopover.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
+    this.datePopover.style.userSelect = 'none';
+    document.body.appendChild(this.datePopover);
 
     // Hover tooltip explaining a data-validation violation on a cell.
     this.validationTooltip.style.position = 'fixed';
@@ -504,6 +539,8 @@ export class Worksheet {
     this.filterPanel.remove();
     this.hideListPopover();
     this.listPopover.remove();
+    this.hideDatePopover();
+    this.datePopover.remove();
     this.validationTooltip.remove();
 
     this.sheet = undefined;
@@ -734,26 +771,28 @@ export class Worksheet {
   }
 
   /**
-   * `commitCellValue` writes a typed value to `ref`, enforcing any list
-   * data-validation rule. A `reject` rule discards an out-of-list value (the
-   * cell keeps its committed value, which `render()` restores in the editors)
-   * and surfaces an error; a `warning` rule stores the value and lets the
-   * render pass draw the warning marker. Returns whether the value was written.
+   * `commitCellValue` writes a typed value to `ref`, enforcing any
+   * data-validation rule (list or date). A `reject` rule discards an
+   * invalid value (the cell keeps its committed value, which `render()`
+   * restores in the editors) and surfaces an error; a `warning` rule stores
+   * the value and lets the render pass draw the warning marker. Returns
+   * whether the value was written.
    */
   private async commitCellValue(ref: Ref, value: string): Promise<boolean> {
     const rule = this.sheet!.getDataValidationAt(ref);
     // A formula is validated by its computed result at render time (warning
     // marker), not by its literal text — reject only compares literal typed
-    // values against the option list, so let formulas through here.
+    // values, so let formulas through here.
     if (
       rule &&
-      rule.kind === 'list' &&
       rule.onInvalid === 'reject' &&
       !value.startsWith('=') &&
-      !isValidListValue(rule, value)
+      !isValidValueForRule(rule, value)
     ) {
       this.onValidationErrorCallback?.(
-        `"${value}" does not match a value in the dropdown list.`,
+        rule.kind === 'date'
+          ? `"${value}" ${describeDateRule(rule)}.`
+          : `"${value}" does not match a value in the dropdown list.`,
       );
       return false;
     }
@@ -1270,6 +1309,15 @@ export class Worksheet {
       return;
     }
 
+    // Double-click a date-validated cell → open the calendar picker instead
+    // of the inline editor (GS parity). Read-only is already returned above.
+    const dblRef = this.toRefFromMouse(x, y);
+    const dblRule = this.sheet?.getDataValidationAt(dblRef);
+    if (dblRule && dblRule.kind === 'date') {
+      void this.showDatePopover(dblRef);
+      return;
+    }
+
     this.showCellInput();
   }
 
@@ -1687,6 +1735,218 @@ export class Worksheet {
   }
 
   /**
+   * `dateWithinRuleBounds` reports whether an ISO day is selectable under the
+   * rule's operator, so out-of-range days render disabled in the picker. It
+   * defers to `isValidDateValue` so the picker offers exactly the days the rule
+   * accepts — including disabling the excluded window of a `not between` rule,
+   * which keeps the picker consistent with reject-mode typed entry. A
+   * `dateValid` rule or one with unfilled operands accepts every day.
+   */
+  private dateWithinRuleBounds(rule: DataValidationRule, iso: string): boolean {
+    return isValidDateValue(rule, iso);
+  }
+
+  /**
+   * `showDatePopover` opens a calendar picker anchored to the date-ruled cell.
+   * The displayed month starts on the cell's current date if valid, else today.
+   */
+  private async showDatePopover(ref: Ref): Promise<void> {
+    if (this.readOnly || !this.sheet) return;
+    const rule = this.sheet.getDataValidationAt(ref);
+    if (!rule || rule.kind !== 'date') return;
+
+    this.hideListPopover();
+    this.hideValidationTooltip();
+    const cell = await this.sheet.getCell(ref);
+    const current = cell?.v && /^\d{4}-\d{2}-\d{2}$/.test(cell.v) ? cell.v : null;
+    const base = current ? new Date(`${current}T00:00:00`) : new Date();
+    this.datePopoverState = {
+      ref,
+      year: base.getFullYear(),
+      month: base.getMonth(),
+    };
+    this.renderDatePopover();
+
+    const cellRect = this.getCellRect(ref);
+    const viewport = this.viewport;
+    this.datePopover.style.display = 'block';
+    const width = this.datePopover.offsetWidth;
+    const height = this.datePopover.offsetHeight;
+    const left = Math.min(
+      viewport.left + cellRect.left,
+      viewport.left + Math.max(0, viewport.width - width - 4),
+    );
+    const belowTop = viewport.top + cellRect.top + cellRect.height + 2;
+    const viewportBottom = viewport.top + viewport.height;
+    let top = belowTop;
+    if (belowTop + height > viewportBottom) {
+      const aboveTop = viewport.top + cellRect.top - height - 2;
+      top =
+        aboveTop >= viewport.top
+          ? aboveTop
+          : Math.max(viewport.top + 2, viewportBottom - height - 4);
+    }
+    this.datePopover.style.left = `${left}px`;
+    this.datePopover.style.top = `${top}px`;
+
+    this.datePopoverKeyboardUnsub?.();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!this.datePopoverState) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.hideDatePopover();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    this.datePopoverKeyboardUnsub = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+
+    this.datePopoverOutsideClickUnsub?.();
+    requestAnimationFrame(() => {
+      if (!this.datePopoverState) return;
+      const onMouseDown = (event: MouseEvent) => {
+        if (!this.datePopover.contains(event.target as Node)) {
+          this.hideDatePopover();
+        }
+      };
+      document.addEventListener('mousedown', onMouseDown);
+      this.datePopoverOutsideClickUnsub = () => {
+        document.removeEventListener('mousedown', onMouseDown);
+      };
+    });
+  }
+
+  /**
+   * `renderDatePopover` builds the month grid: a header with prev/next month
+   * navigation, weekday labels, and day cells. Out-of-bounds days (per the
+   * rule's operator) render disabled.
+   */
+  private renderDatePopover(): void {
+    const state = this.datePopoverState;
+    if (!state || !this.sheet) return;
+    const rule = this.sheet.getDataValidationAt(state.ref);
+    if (!rule || rule.kind !== 'date') return;
+
+    const { year, month } = state;
+    this.datePopover.innerHTML = '';
+    this.datePopover.style.width = '224px';
+
+    const text = getThemeColor(this.theme, 'cellTextColor');
+    const activeBg = getThemeColor(this.theme, 'headerSelectedBGColor');
+
+    // Header: ‹  Month YYYY  ›
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.alignItems = 'center';
+    header.style.justifyContent = 'space-between';
+    header.style.padding = '2px 4px 6px';
+    const mkNav = (label: string, delta: number) => {
+      const btn = document.createElement('div');
+      btn.textContent = label;
+      btn.style.cursor = 'pointer';
+      btn.style.padding = '2px 8px';
+      btn.style.borderRadius = '4px';
+      btn.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const m = state.month + delta;
+        state.year += Math.floor(m / 12);
+        state.month = ((m % 12) + 12) % 12;
+        this.renderDatePopover();
+      };
+      return btn;
+    };
+    const title = document.createElement('div');
+    title.style.fontWeight = '600';
+    title.textContent = `${new Date(year, month, 1).toLocaleString('en-US', {
+      month: 'long',
+    })} ${year}`;
+    header.appendChild(mkNav('‹', -1));
+    header.appendChild(title);
+    header.appendChild(mkNav('›', 1));
+    this.datePopover.appendChild(header);
+
+    // Weekday labels + day grid (7 columns).
+    const grid = document.createElement('div');
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = 'repeat(7, 1fr)';
+    grid.style.gap = '1px';
+    for (const wd of ['S', 'M', 'T', 'W', 'T', 'F', 'S']) {
+      const label = document.createElement('div');
+      label.textContent = wd;
+      label.style.textAlign = 'center';
+      label.style.opacity = '0.6';
+      label.style.padding = '2px 0';
+      grid.appendChild(label);
+    }
+    const firstDow = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let i = 0; i < firstDow; i++) {
+      grid.appendChild(document.createElement('div'));
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      const iso = `${String(year).padStart(4, '0')}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      cell.textContent = String(day);
+      cell.style.textAlign = 'center';
+      cell.style.padding = '4px 0';
+      cell.style.borderRadius = '4px';
+      cell.style.color = text;
+      const enabled = this.dateWithinRuleBounds(rule, iso);
+      if (enabled) {
+        cell.style.cursor = 'pointer';
+        cell.onmouseenter = () => {
+          cell.style.backgroundColor = activeBg;
+        };
+        cell.onmouseleave = () => {
+          cell.style.backgroundColor = '';
+        };
+        cell.onmousedown = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void this.chooseDateValue(iso);
+        };
+      } else {
+        cell.style.opacity = '0.3';
+        cell.style.cursor = 'default';
+      }
+      grid.appendChild(cell);
+    }
+    this.datePopover.appendChild(grid);
+  }
+
+  /**
+   * `chooseDateValue` writes the picked ISO day to the popover's cell and
+   * closes it. The value goes through `setData`, which stamps `nf: 'date'`.
+   */
+  private async chooseDateValue(iso: string): Promise<void> {
+    const state = this.datePopoverState;
+    if (!state || this.readOnly || !this.sheet) {
+      this.hideDatePopover();
+      return;
+    }
+    const { ref } = state;
+    this.hideDatePopover();
+    await this.sheet.setData(ref, iso);
+    this.render();
+  }
+
+  /**
+   * `hideDatePopover` closes the calendar picker.
+   */
+  private hideDatePopover(): void {
+    this.datePopover.style.display = 'none';
+    this.datePopover.innerHTML = '';
+    this.datePopoverState = null;
+    this.datePopoverOutsideClickUnsub?.();
+    this.datePopoverOutsideClickUnsub = null;
+    this.datePopoverKeyboardUnsub?.();
+    this.datePopoverKeyboardUnsub = null;
+  }
+
+  /**
    * `updateValidationTooltip` shows a hover tooltip explaining a data-validation
    * violation when the cursor is over a cell whose value is not allowed by its
    * rule (e.g. a value outside a dropdown list), and hides it otherwise. Cell
@@ -1716,7 +1976,7 @@ export class Worksheet {
     }
     this.hoveredValidationCandidate = sref;
     const rule = this.sheet.getDataValidationAt(ref);
-    if (!rule || rule.kind !== 'list') {
+    if (!rule || (rule.kind !== 'list' && rule.kind !== 'date')) {
       this.hideValidationTooltip();
       return;
     }
@@ -1725,16 +1985,22 @@ export class Worksheet {
     if (this.hoveredValidationCandidate !== sref) {
       return;
     }
-    if (isValidListValue(rule, cell?.v)) {
+    if (isValidValueForRule(rule, cell?.v)) {
       this.hideValidationTooltip();
       return;
     }
-    const options = rule.list ?? [];
-    const shown =
-      options.length > 8
-        ? `${options.slice(0, 8).join(', ')}, …`
-        : options.join(', ');
-    this.validationTooltip.textContent = `Invalid entry — must be one of: ${shown}`;
+    let message: string;
+    if (rule.kind === 'date') {
+      message = `Invalid entry — ${describeDateRule(rule)}.`;
+    } else {
+      const options = rule.list ?? [];
+      const shown =
+        options.length > 8
+          ? `${options.slice(0, 8).join(', ')}, …`
+          : options.join(', ');
+      message = `Invalid entry — must be one of: ${shown}`;
+    }
+    this.validationTooltip.textContent = message;
     this.validationTooltip.style.left = `${clientX + 12}px`;
     this.validationTooltip.style.top = `${clientY + 16}px`;
     this.validationTooltip.style.display = 'block';

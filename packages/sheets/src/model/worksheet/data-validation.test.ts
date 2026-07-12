@@ -7,6 +7,8 @@ import {
   toggleCheckboxValue,
   listOptionsOf,
   isValidListValue,
+  isValidDateValue,
+  isValidValueForRule,
   shiftDataValidationRules,
   moveDataValidationRules,
   CHECKBOX_TRUE,
@@ -35,6 +37,21 @@ const listRule = (id: string, options: string[]): DataValidationRule => ({
     ],
   ],
   list: options,
+});
+
+const dateRule = (
+  id: string,
+  patch: Partial<DataValidationRule> = {},
+): DataValidationRule => ({
+  id,
+  kind: 'date',
+  ranges: [
+    [
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ],
+  ],
+  ...patch,
 });
 
 describe('data-validation model', () => {
@@ -119,6 +136,144 @@ describe('data-validation model', () => {
     const copy = cloneDataValidationRule(src);
     copy.list!.push('Blue');
     expect(src.list).toEqual(['Red', 'Green']);
+  });
+});
+
+describe('date rule normalization', () => {
+  it('defaults operator to dateValid and onInvalid to warning', () => {
+    const out = normalizeDataValidationRule(dateRule('d1'));
+    expect(out).not.toBeNull();
+    expect(out!.operator).toBe('dateValid');
+    expect(out!.onInvalid).toBe('warning');
+    expect(out!.values).toBeUndefined();
+  });
+
+  it('normalizes operands to ISO and keeps the operator', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d2', { operator: 'dateBetween', values: ['2026-01-05', '2026-02-10'] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual(['2026-01-05', '2026-02-10']);
+  });
+
+  it('drops the values array when no operand is filled', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d3', { operator: 'dateAfter', values: ['not-a-date'] }),
+    );
+    expect(out).not.toBeNull();
+    expect(out!.operator).toBe('dateAfter');
+    expect(out!.values).toBeUndefined();
+  });
+
+  it('deep-copies values via cloneDataValidationRule', () => {
+    const rule = dateRule('d4', { operator: 'dateAfter', values: ['2026-01-01'] });
+    const clone = cloneDataValidationRule(rule);
+    clone.values![0] = 'mutated';
+    expect(rule.values![0]).toBe('2026-01-01');
+  });
+
+  it('preserves the upper bound when the lower between-operand is blank', () => {
+    // A blank lower bound keeps its slot ('') so the still-filled upper bound
+    // is neither dropped nor promoted to index 0.
+    const out = normalizeDataValidationRule(
+      dateRule('d5', { operator: 'dateBetween', values: ['', '2026-02-10'] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual(['', '2026-02-10']);
+  });
+
+  it('preserves the lower bound when the upper between-operand is blank', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d6', { operator: 'dateBetween', values: ['2026-01-05', ''] }),
+    );
+    expect(out!.operator).toBe('dateBetween');
+    expect(out!.values).toEqual(['2026-01-05', '']);
+  });
+
+  it('does not drop the other bound when one is later cleared (regression)', () => {
+    // Clearing only the start date in the panel must not lose the end date.
+    const out = normalizeDataValidationRule(
+      dateRule('d5b', { operator: 'dateBetween', values: ['', '2026-01-31'] }),
+    );
+    expect(out!.values).toEqual(['', '2026-01-31']);
+  });
+
+  it('strips a time component from a datetime operand', () => {
+    const out = normalizeDataValidationRule(
+      dateRule('d7', { operator: 'dateAfter', values: ['2026-01-05 10:30:00'] }),
+    );
+    expect(out!.values).toEqual(['2026-01-05']);
+  });
+});
+
+describe('isValidDateValue', () => {
+  const v = (op: DataValidationRule['operator'], values?: string[]) =>
+    normalizeDataValidationRule(dateRule('x', { operator: op, values }))!;
+
+  it('allows empty values', () => {
+    expect(isValidDateValue(v('dateValid'), '')).toBe(true);
+    expect(isValidDateValue(v('dateValid'), undefined)).toBe(true);
+  });
+
+  it('dateValid accepts any parseable date, rejects non-dates', () => {
+    expect(isValidDateValue(v('dateValid'), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateValid'), 'hello')).toBe(false);
+  });
+
+  it('compares before / after / on-or-* correctly (inclusive edges)', () => {
+    expect(isValidDateValue(v('dateBefore', ['2026-03-15']), '2026-03-14')).toBe(true);
+    expect(isValidDateValue(v('dateBefore', ['2026-03-15']), '2026-03-15')).toBe(false);
+    expect(isValidDateValue(v('dateOnOrBefore', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateAfter', ['2026-03-15']), '2026-03-16')).toBe(true);
+    expect(isValidDateValue(v('dateOnOrAfter', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateEquals', ['2026-03-15']), '2026-03-15')).toBe(true);
+    expect(isValidDateValue(v('dateEquals', ['2026-03-15']), '2026-03-16')).toBe(false);
+  });
+
+  it('between is inclusive; not-between is its negation', () => {
+    const b = v('dateBetween', ['2026-01-01', '2026-12-31']);
+    expect(isValidDateValue(b, '2026-01-01')).toBe(true);
+    expect(isValidDateValue(b, '2026-12-31')).toBe(true);
+    expect(isValidDateValue(b, '2027-01-01')).toBe(false);
+    const nb = v('dateNotBetween', ['2026-01-01', '2026-12-31']);
+    expect(isValidDateValue(nb, '2026-06-01')).toBe(false);
+    expect(isValidDateValue(nb, '2027-01-01')).toBe(true);
+  });
+
+  it('falls back to date-valid when operands are incomplete', () => {
+    // operator kept but operand dropped by normalize → only "is a date" enforced
+    const r = v('dateAfter', ['not-a-date']);
+    expect(isValidDateValue(r, '2026-03-15')).toBe(true);
+    expect(isValidDateValue(r, 'hello')).toBe(false);
+  });
+
+  it('degrades to date-valid when a between bound is still blank', () => {
+    // Upper bound preserved, lower still blank → only "is a date" enforced.
+    const r = v('dateBetween', ['', '2026-02-10']);
+    expect(r.values).toEqual(['', '2026-02-10']);
+    expect(isValidDateValue(r, '2020-01-01')).toBe(true); // no lower bound to fail
+    expect(isValidDateValue(r, 'hello')).toBe(false);
+  });
+
+  it('swaps a reversed between range instead of rejecting everything', () => {
+    const r = v('dateBetween', ['2020-12-31', '2020-01-01']); // start > end
+    expect(isValidDateValue(r, '2020-06-01')).toBe(true); // inside the swapped range
+    expect(isValidDateValue(r, '2021-01-01')).toBe(false);
+  });
+
+  it('not-between excludes the interior window (both edges excluded)', () => {
+    const nb = v('dateNotBetween', ['2026-01-10', '2026-01-20']);
+    expect(isValidDateValue(nb, '2026-01-15')).toBe(false); // inside excluded window
+    expect(isValidDateValue(nb, '2026-01-05')).toBe(true);
+    expect(isValidDateValue(nb, '2026-01-25')).toBe(true);
+  });
+});
+
+describe('isValidValueForRule dispatch', () => {
+  it('dispatches by kind', () => {
+    expect(isValidValueForRule(listRule('l', ['A']), 'B')).toBe(false);
+    expect(isValidValueForRule(dateRule('d', { operator: 'dateValid' }), 'hello')).toBe(false);
+    expect(isValidValueForRule(checkboxRule('c'), 'anything')).toBe(true);
   });
 });
 

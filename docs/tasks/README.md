@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
+| sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./active/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./active/20260711-sheets-date-validation-lessons.md) |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
 | docs list updatedat webhook (2026-07-10) | [20260710-docs-list-updatedat-webhook-todo.md](./active/20260710-docs-list-updatedat-webhook-todo.md) | [20260710-docs-list-updatedat-webhook-lessons.md](./active/20260710-docs-list-updatedat-webhook-lessons.md) |
 | devops storage secrets (2026-07-08) | [20260708-devops-storage-secrets-todo.md](./active/20260708-devops-storage-secrets-todo.md) | - |
@@ -34,4 +36,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 356
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides gradient editing (2026-07-11)
+Latest active task: release v0.5.1 (2026-07-12)

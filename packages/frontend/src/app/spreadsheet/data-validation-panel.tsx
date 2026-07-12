@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DataValidationRule,
   DataValidationKind,
+  DataValidationOperator,
+  dateValidationOperandCount,
   Range,
   Spreadsheet,
   parseRef,
@@ -69,8 +71,25 @@ function formatA1Ranges(ranges: Range[]): string {
   return ranges.map((r) => `${toSref(r[0])}:${toSref(r[1])}`).join(", ");
 }
 
+const DATE_OPERATORS: { value: DataValidationOperator; label: string }[] = [
+  { value: "dateValid", label: "is a valid date" },
+  { value: "dateEquals", label: "date is" },
+  { value: "dateBefore", label: "date is before" },
+  { value: "dateOnOrBefore", label: "date is on or before" },
+  { value: "dateAfter", label: "date is after" },
+  { value: "dateOnOrAfter", label: "date is on or after" },
+  { value: "dateBetween", label: "date is between" },
+  { value: "dateNotBetween", label: "date is not between" },
+];
+
 function kindLabel(rule: DataValidationRule): string {
   if (rule.kind === "checkbox") return "Checkbox";
+  if (rule.kind === "date") {
+    const op = DATE_OPERATORS.find(
+      (o) => o.value === (rule.operator ?? "dateValid"),
+    );
+    return `Date (${op?.label ?? "is a valid date"})`;
+  }
   const opts = rule.list ?? [];
   if (opts.length === 0) return "Dropdown";
   const shown = opts.slice(0, 3).join(", ");
@@ -149,7 +168,9 @@ export function DataValidationPanel({
       const rule: DataValidationRule =
         kind === "list"
           ? { id, kind: "list", ranges, list: [], showArrow: true, onInvalid: "warning" }
-          : { id, kind: "checkbox", ranges };
+          : kind === "date"
+            ? { id, kind: "date", ranges, operator: "dateValid", onInvalid: "warning" }
+            : { id, kind: "checkbox", ranges };
       commitRules([...rules, rule]);
       setSelectedRuleId(id);
       return id;
@@ -231,9 +252,15 @@ export function DataValidationPanel({
         showArrow: selectedRule.showArrow ?? true,
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
+    } else if (kind === "date") {
+      updateRule(selectedRule.id, {
+        kind: "date",
+        operator: selectedRule.operator ?? "dateValid",
+        onInvalid: selectedRule.onInvalid ?? "warning",
+      });
     } else {
-      // Keep list/showArrow/onInvalid so switching back to Dropdown restores
-      // the options (the engine ignores them for a checkbox rule).
+      // Keep list/date fields so switching back restores them (the engine
+      // ignores them for a checkbox rule).
       updateRule(selectedRule.id, { kind: "checkbox" });
     }
   };
@@ -255,7 +282,7 @@ export function DataValidationPanel({
             <p className="text-sm font-semibold">Data validation</p>
           </div>
           <p className="truncate pt-1 text-xs text-muted-foreground">
-            Checkbox and dropdown rules for this sheet.
+            Checkbox, dropdown, and date rules for this sheet.
           </p>
         </div>
         <button
@@ -372,6 +399,7 @@ export function DataValidationPanel({
                   <SelectContent>
                     <SelectItem value="list">Dropdown</SelectItem>
                     <SelectItem value="checkbox">Checkbox</SelectItem>
+                    <SelectItem value="date">Date</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -424,6 +452,93 @@ export function DataValidationPanel({
                       <div className="flex items-center gap-2">
                         <RadioGroupItem value="reject" id="dv-reject" />
                         <Label htmlFor="dv-reject" className="font-normal">
+                          Reject the input
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </>
+              )}
+
+              {selectedRule.kind === "date" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="dv-date-op">Condition</Label>
+                    <Select
+                      value={selectedRule.operator ?? "dateValid"}
+                      onValueChange={(v) =>
+                        updateRule(selectedRule.id, {
+                          operator: v as DataValidationOperator,
+                        })
+                      }
+                    >
+                      <SelectTrigger id="dv-date-op">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DATE_OPERATORS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {dateValidationOperandCount(
+                    selectedRule.operator ?? "dateValid",
+                  ) >= 1 && (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        aria-label="Date value"
+                        value={selectedRule.values?.[0] ?? ""}
+                        onChange={(e) => {
+                          const next = [...(selectedRule.values ?? [])];
+                          next[0] = e.target.value;
+                          updateRule(selectedRule.id, { values: next });
+                        }}
+                      />
+                      {dateValidationOperandCount(
+                        selectedRule.operator ?? "dateValid",
+                      ) === 2 && (
+                        <>
+                          <span className="text-xs text-muted-foreground">and</span>
+                          <Input
+                            type="date"
+                            aria-label="End date value"
+                            value={selectedRule.values?.[1] ?? ""}
+                            onChange={(e) => {
+                              const next = [...(selectedRule.values ?? [])];
+                              next[1] = e.target.value;
+                              updateRule(selectedRule.id, { values: next });
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label>If the data is invalid</Label>
+                    <RadioGroup
+                      value={selectedRule.onInvalid ?? "warning"}
+                      onValueChange={(v) =>
+                        updateRule(selectedRule.id, {
+                          onInvalid: v as "reject" | "warning",
+                        })
+                      }
+                      className="flex flex-col gap-1.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="warning" id="dv-date-warning" />
+                        <Label htmlFor="dv-date-warning" className="font-normal">
+                          Show a warning
+                        </Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="reject" id="dv-date-reject" />
+                        <Label htmlFor="dv-date-reject" className="font-normal">
                           Reject the input
                         </Label>
                       </div>
