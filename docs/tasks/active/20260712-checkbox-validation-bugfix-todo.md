@@ -22,8 +22,10 @@ checkbox control, each self-contained.
    REST API / external paste can be lowercase and bypass normalization. The
    formula engine (`formula.ts:1054`) and input parser (`input.ts:242`) already
    treat `TRUE`/`FALSE` case-insensitively; the render/toggle path should match.
-   Fix scope: **default boolean checkbox only** (no custom `checkedValue`) —
-   a custom checked value stays an exact string match (GS parity).
+   Fix scope: **fully-default boolean checkbox only** (neither custom value
+   set) — a rule with *either* custom value (`checkedValue`/`uncheckedValue`)
+   stays an exact string match (GS parity). See
+   `docs/design/sheets/data-validation.md` for the authoritative contract.
 
 ## Plan (TDD)
 
@@ -63,7 +65,3 @@ view-layer change was needed. View-layer smoke deferred (Phase-1 precedent).
 - Merged-cell glyph/hit-test mismatch.
 - Eager `FALSE` materialization for `COUNTIF`.
 - Custom checkbox values UI.
-
-## Review
-
-(filled after implementation)
