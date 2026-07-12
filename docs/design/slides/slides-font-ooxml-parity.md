@@ -95,7 +95,7 @@ property the user can reset.
 | `<a:highlight>` | `backgroundColor` | ✅ | ✅ | ❌ hidden (deferred) | — |
 | `@baseline` super/sub | `superscript`/`subscript` | ✅ | ✅ (A1) | ❌ (deferred) | A1 |
 | `<a:hlinkClick>` | `href` | ✅ | ✅ (A2) | (link flow) | A2 |
-| `@cap` all/small | — | ❌ | ❌ | ❌ | B |
+| `@cap` all/small | — | ❌ | ❌ | ❌ | B.3 (deferred) |
 | `@u` style + `<a:uFill>` | `underlineStyle`/`underlineColor` | ✅ (B.2) | ✅ (B.2) | ❌ (deferred) | B.2 |
 | `@strike` dbl | `strikeStyle` | ✅ (B.1) | ✅ (B.1) | ❌ (deferred) | B.1 |
 | `@spc` letter spacing | `letterSpacing` | ✅ (B.4) | ✅ (B.4) | ❌ (deferred) | B.4 |
@@ -183,8 +183,16 @@ Every new field is added to `CLEAR_INLINE_STYLE` and both
 - **`strikeStyle?: 'single' | 'double'`** (`@strike`
   `sngStrike`/`dblStrike`) — **shipped (B.1).** `strikethrough: true`
   with no style = single; double renders as two hairlines.
-- **`caps?: 'all' | 'small'`** (`@cap`) — non-destructive render-time
-  transform (does not mutate the run text; affects measure + paint).
+- **`caps?: 'all' | 'small'`** (`@cap`) — **deferred (B.3).** A correct
+  implementation is more invasive than the other three: caps is a
+  *display-only* attribute (Word/Docs copy the original case, not the
+  rendered uppercase), so a `toUpperCase` on the shared segment text
+  would corrupt copy/selection and can shift character offsets (e.g.
+  `ß`→`SS`). Rendering it faithfully needs a separate `displayText` layer
+  on `LayoutRun` used by measure + paint but not by copy/offset math, and
+  `'small'` (small caps) additionally needs per-glyph size reduction. That
+  layout-engine design is tracked as its own follow-up rather than bundled
+  here.
 - **`underlineStyle?`** (`'single' | 'double' | 'heavy' | 'dotted' |
   'dashed' | 'wavy'`) + **`underlineColor?: StoredColor`** — map the
   OOXML `@u` enum (17 values collapsed to this representative set) and

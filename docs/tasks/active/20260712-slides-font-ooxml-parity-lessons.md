@@ -50,6 +50,35 @@ Paired with
   that had to gain the field. Prefer required (the orchestrator always
   supplies it, matching `resolveImageRId`) and update the stubs.
 
+## Phase B — extending the shared model
+
+- **A new `InlineStyle` field touches more than the type.** Every
+  formatting field must be added to `CLEAR_INLINE_STYLE` *and both*
+  `inlineStylesEqual` sites (the canonical one in `types.ts` and the
+  duplicate in `text-editor.ts`). Omitting an equality field silently
+  merges adjacent runs that differ only in that field — data loss, and
+  invisible to typecheck. Rebuild `@wafflebase/docs` dist after the model
+  change so slides/cli typecheck against it.
+- **Slides persistence is generic; docs is field-by-field.** The slides
+  text box round-trips the whole `blocks` Tree via `yorkieToPlain`, so new
+  fields save without store code. Docs' `yorkie-doc-store.ts` serializes
+  each field explicitly — so a shared field only persists in Docs once
+  added there too (deferred here, since Docs can't author these yet).
+- **Measurement changes need an overflow-safe model, and the test suite
+  won't catch a bad one.** jsdom's mock canvas doesn't do real
+  `measureText`, so a measure≠paint bug passes `verify:fast` and only
+  shows in a real browser. `letterSpacing` used an additive
+  `spacing × length` fold in the measurer: it's slice-additive (per-offset
+  and char-break math stay consistent) and an upper bound on painted width
+  (measured ≥ painted → never overflow) regardless of the browser's
+  trailing-spacing behavior.
+- **Know when a property needs a bigger design.** Strike/underline/spacing
+  add lines or width — pure additions. Caps is a *text transform* on a
+  *display-only* attribute: rendering it via `toUpperCase` on shared
+  segment text would corrupt copy/selection (Word copies original case)
+  and shift offsets. That needs a `displayText` layer on `LayoutRun`, so
+  it was deferred rather than shipped wrong.
+
 ## Process
 
 - **Keep model/export functionality separable from UI exposure.** Phase A

@@ -44,8 +44,15 @@ exposure"). Kept the export functionality only.
 
 ## Deferred / follow-ups
 
-- **Toolbar exposure** of strikethrough / highlight / super-subscript in
+- **Toolbar exposure** of the shipped properties (strikethrough,
+  highlight, super/subscript, strike/underline style, letter spacing) in
   the slides text-edit toolbar — pure front-end, no model/export work.
+- **B.3 caps (`@cap`)** — needs a `displayText` layer on `LayoutRun`
+  (measure+paint but not copy/offset) so caps stays display-only; small
+  caps also needs per-glyph sizing.
+- **Docs-side parity** for the Phase B fields — field-by-field Yorkie
+  persistence (`yorkie-doc-store.ts`), docx map (`docx-style-map.ts`), and
+  vector-PDF paint (`pdf-painter.ts`) — deferred until Docs authors them.
 - **Speaker-notes hyperlinks** are not exported (the importer's
   `parseNotes` also passes no rels map, so they don't round-trip either).
 
@@ -63,7 +70,11 @@ and BOTH `inlineStylesEqual` sites (types.ts + text-editor.ts). Rebuild
       Model + renderer (double/heavy/dotted/dashed/wavy + color in
       `paint-layout.ts`) + slides import (`mapUnderlineStyle` + uFill parse)
       / export (`UNDERLINE_STYLE_TO_U` + uFill child) + round-trip test.
-- [ ] **B.3 `caps` (all/small)** — `@cap`; measure + paint transform.
+- [~] **B.3 `caps` (all/small)** — **deferred.** Needs a `displayText`
+      layer on `LayoutRun` (measure+paint but not copy/offset) so caps
+      stays display-only; small caps also needs per-glyph sizing. Tracked
+      as a follow-up (see design doc). The other three B properties don't
+      need this because they add lines/spacing, not a text transform.
 - [x] **B.4 `letterSpacing`** — `@spc` (hundredths of a point). Model +
       additive `letterSpacing × length` in the measurement contract
       (`ResolvedFont` + `fontKey` + both measurers) — slice-additive and a
