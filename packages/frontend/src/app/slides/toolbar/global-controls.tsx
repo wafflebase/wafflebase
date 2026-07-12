@@ -8,8 +8,9 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
-import { resolveColor } from "@wafflebase/slides";
+import { representativeColor, resolveColor } from "@wafflebase/slides";
 import { useSlideBackground } from "../use-slide-background";
+import { BackgroundPanel } from "../background-panel";
 import { Toggle } from "@/components/ui/toggle";
 import {
   DropdownMenu,
@@ -21,7 +22,6 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { ThemedColorPicker } from "../themed-color-picker";
 import {
   releaseFocusToBody,
   useMenuCloseHandlers,
@@ -107,6 +107,8 @@ export interface RightGlobalsProps {
   formatPanelOpen?: boolean;
   onToggleMotionPanel?: () => void;
   motionPanelOpen?: boolean;
+  /** Upload pipeline for the Background panel's image picker. */
+  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
 }
 
 /**
@@ -134,31 +136,31 @@ export function RightGlobals({
   formatPanelOpen,
   onToggleMotionPanel,
   motionPanelOpen,
+  upload,
 }: RightGlobalsProps) {
   const slideId = editor?.getCurrentSlideId();
-  // Controlled open state so the swatch click closes the palette — the
-  // color swatches are plain <button>s, not DropdownMenuItem.
+  // Controlled open state so a discrete pick (swatch, image, reset)
+  // closes the palette — the panel's controls are plain <button>s, not
+  // DropdownMenuItem.
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const backgroundMenu = useMenuCloseHandlers(releaseFocusToBody);
-  // Only a discrete swatch pick closes the palette; live custom-input
-  // changes (and the custom blur, which records only) keep it open.
-  const { backgroundFill, onChange: onBackgroundChange } = useSlideBackground(
-    store,
-    slideId,
-    theme ?? null,
-    () => {
-      backgroundMenu.markSwatchClicked();
-      setBackgroundOpen(false);
-    },
-  );
+  // Single hook instance, lifted here (not inside BackgroundPanel) so the
+  // DropdownMenu's onOpenChange can flush an in-flight gradient drag draft
+  // via `bg.onFlushGradientDraft()` before the panel unmounts. Only a
+  // discrete pick closes the palette; live custom-input changes (and the
+  // custom blur, which records only) keep it open.
+  const bg = useSlideBackground(store, slideId, theme ?? null, () => {
+    backgroundMenu.markSwatchClicked();
+    setBackgroundOpen(false);
+  });
 
   const hasSlideStyleGroup = !!store;
 
-  // The raw ThemeColor drives the picker's "active" swatch marker, and its
-  // resolved CSS string drives the swatch button's stripe. Both fall back to
-  // undefined (empty outlined slot / no marker) when nothing is known yet.
-  const currentBackground = backgroundFill
-    ? resolveColor(backgroundFill, theme!)
+  // The swatch button's stripe wants a single resolved CSS color even when
+  // the background is a gradient — representativeColor collapses a
+  // gradient to its first stop so the stripe still shows *something*.
+  const currentBackground = bg.backgroundFill
+    ? resolveColor(representativeColor(bg.backgroundFill), theme!)
     : undefined;
 
   return (
@@ -197,7 +199,15 @@ export function RightGlobals({
         </Tooltip>
       )}
       {hasSlideStyleGroup && (
-        <DropdownMenu open={backgroundOpen} onOpenChange={setBackgroundOpen}>
+        <DropdownMenu
+          open={backgroundOpen}
+          onOpenChange={(open) => {
+            // Flush any uncommitted gradient-drag draft before the panel
+            // unmounts, so a drag-then-click-away doesn't lose the pick.
+            if (!open) bg.onFlushGradientDraft();
+            setBackgroundOpen(open);
+          }}
+        >
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -217,12 +227,11 @@ export function RightGlobals({
             onCloseAutoFocus={backgroundMenu.onCloseAutoFocus}
           >
             {theme && (
-              <ThemedColorPicker
-                value={backgroundFill}
+              <BackgroundPanel
+                bg={bg}
                 theme={theme}
-                onChange={onBackgroundChange}
-                allowAlpha
                 recentColors={store?.read().meta.recentColors}
+                upload={upload}
               />
             )}
           </DropdownMenuContent>

@@ -137,6 +137,7 @@ export function SlidesToolbar({
         formatPanelOpen={formatPanelOpen}
         onToggleMotionPanel={onToggleMotionPanel}
         motionPanelOpen={motionPanelOpen}
+        upload={upload}
       />
     </Toolbar>
   );
