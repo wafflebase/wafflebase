@@ -64,7 +64,11 @@ and BOTH `inlineStylesEqual` sites (types.ts + text-editor.ts). Rebuild
       `paint-layout.ts`) + slides import (`mapUnderlineStyle` + uFill parse)
       / export (`UNDERLINE_STYLE_TO_U` + uFill child) + round-trip test.
 - [ ] **B.3 `caps` (all/small)** — `@cap`; measure + paint transform.
-- [ ] **B.4 `letterSpacing`** — `@spc`; measure + paint.
+- [x] **B.4 `letterSpacing`** — `@spc` (hundredths of a point). Model +
+      additive `letterSpacing × length` in the measurement contract
+      (`ResolvedFont` + `fontKey` + both measurers) — slice-additive and a
+      safe upper bound (no overflow) — + `ctx.letterSpacing` paint +
+      slides import/export + round-trip test.
 
 ## Wrap-up
 

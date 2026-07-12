@@ -84,10 +84,11 @@ export class FontkitMeasurer implements TextMeasurer {
 
   measureWidth(text: string, font: ResolvedFont): number {
     if (text.length === 0) return 0;
+    const spacing = font.letterSpacing ? font.letterSpacing * text.length : 0;
     const f = this.fonts.get(variantKey(font.family, font.weight, font.style));
-    if (!f) return text.length * this.fallbackEmWidth * font.size;
+    if (!f) return text.length * this.fallbackEmWidth * font.size + spacing;
     const run = f.layout(text);
-    return (run.advanceWidth / f.unitsPerEm) * font.size;
+    return (run.advanceWidth / f.unitsPerEm) * font.size + spacing;
   }
 }
 

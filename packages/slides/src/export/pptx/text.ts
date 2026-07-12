@@ -257,6 +257,8 @@ function rPrXml(
   if (s.superscript) attrs.push('baseline="30000"');
   else if (s.subscript) attrs.push('baseline="-25000"');
   if (s.fontSize != null) attrs.push(`sz="${ptToHundredths(s.fontSize)}"`);
+  // Letter spacing → `@spc` (points → hundredths of a point; may be negative).
+  if (s.letterSpacing) attrs.push(`spc="${Math.round(s.letterSpacing * 100)}"`);
   const children: string[] = [];
   if (s.color != null) {
     children.push(

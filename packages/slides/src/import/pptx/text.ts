@@ -520,6 +520,10 @@ function parseRunStyle(
     const sz = attrInt(rPr, 'sz');
     if (sz != null) style.fontSize = (sz / 100) * fontScale;
 
+    // Character spacing `@spc` is in hundredths of a point (may be negative).
+    const spc = attrInt(rPr, 'spc');
+    if (spc != null && spc !== 0) style.letterSpacing = spc / 100;
+
     // Font family — Latin face wins. East Asian fallback kicks in at
     // run text inspection time below.
     const face = parsePrimaryTypeface(rPr);

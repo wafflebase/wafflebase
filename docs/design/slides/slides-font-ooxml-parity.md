@@ -98,7 +98,7 @@ property the user can reset.
 | `@cap` all/small | — | ❌ | ❌ | ❌ | B |
 | `@u` style + `<a:uFill>` | `underlineStyle`/`underlineColor` | ✅ (B.2) | ✅ (B.2) | ❌ (deferred) | B.2 |
 | `@strike` dbl | `strikeStyle` | ✅ (B.1) | ✅ (B.1) | ❌ (deferred) | B.1 |
-| `@spc` letter spacing | — | ❌ | ❌ | ❌ | B |
+| `@spc` letter spacing | `letterSpacing` | ✅ (B.4) | ✅ (B.4) | ❌ (deferred) | B.4 |
 | `<a:gradFill>` text fill | — | ❌ | ❌ | ❌ | C |
 | `<a:ln>` text outline | — | ❌ | ❌ | ❌ | C |
 | `<a:effectLst>` text effects | — | ❌ | ❌ | ❌ | C |

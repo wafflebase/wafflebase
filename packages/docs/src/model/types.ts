@@ -162,6 +162,12 @@ export interface InlineStyle {
    * `@strike` (`sngStrike` / `dblStrike`).
    */
   strikeStyle?: 'single' | 'double';
+  /**
+   * Extra spacing between characters, in points (negative = condensed).
+   * Maps to OOXML `@spc` (hundredths of a point). Applied additively at
+   * measure and paint time; `undefined` = normal spacing.
+   */
+  letterSpacing?: number;
   fontSize?: number;
   fontFamily?: string;
   /**
@@ -240,6 +246,7 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   underlineColor: undefined,
   strikethrough: undefined,
   strikeStyle: undefined,
+  letterSpacing: undefined,
   fontSize: undefined,
   fontFamily: undefined,
   color: undefined,
@@ -403,6 +410,7 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     storedColorsEqual(a.underlineColor, b.underlineColor) &&
     a.strikethrough === b.strikethrough &&
     a.strikeStyle === b.strikeStyle &&
+    a.letterSpacing === b.letterSpacing &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
     storedColorsEqual(a.color, b.color) &&

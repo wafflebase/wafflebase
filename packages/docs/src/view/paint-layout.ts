@@ -417,7 +417,21 @@ export function renderRun(
     }
   }
 
+  // Letter spacing — matches the additive px the measurer folded into
+  // run.width (super/sub-scaled). Set on the paint ctx around fillText only,
+  // then reset so it never leaks to the next run (underline/strike are
+  // strokes and already span run.width, so they need no spacing).
+  const letterSpacingPx = style.letterSpacing
+    ? ptToPx((isSuperscript || isSubscript) ? style.letterSpacing * 0.6 : style.letterSpacing)
+    : 0;
+  if (letterSpacingPx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+      `${letterSpacingPx}px`;
+  }
   ctx.fillText(run.text, x, baselineY);
+  if (letterSpacingPx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px';
+  }
 
   if (showUnderline) {
     const underlineY = baselineY + 2;

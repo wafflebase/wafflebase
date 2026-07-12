@@ -106,6 +106,24 @@ describe('textBodyToXml', () => {
     expect(back[0].inlines[0].style.strikeStyle).toBe('double');
   });
 
+  it('emits spc for letterSpacing and round-trips it (incl. negative)', () => {
+    expect(
+      textBodyToXml({ blocks: [para('S', { letterSpacing: 1.5 })] }),
+    ).toMatch(/<a:rPr[^>]*spc="150"/);
+    expect(
+      textBodyToXml({ blocks: [para('C', { letterSpacing: -0.5 })] }),
+    ).toMatch(/<a:rPr[^>]*spc="-50"/);
+    const el = parseXml(
+      `<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+        `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${textBodyToXml(
+          { blocks: [para('S', { letterSpacing: 1.5 })] },
+          'p:txBody',
+        )}</root>`,
+    ).documentElement.firstElementChild!;
+    const back = parseTextBody(el, { report: new ImportReport() });
+    expect(back[0].inlines[0].style.letterSpacing).toBe(1.5);
+  });
+
   it('emits baseline for superscript and subscript', () => {
     expect(
       textBodyToXml({ blocks: [para('S', { superscript: true })] }),
