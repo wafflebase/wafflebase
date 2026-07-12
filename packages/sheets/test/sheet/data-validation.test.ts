@@ -50,6 +50,25 @@ describe('Sheet data validation', () => {
     expect(await sheet.toggleCheckboxAt({ r: 9, c: 9 })).toBe(false);
   });
 
+  it('does not toggle (or overwrite) a formula cell under a checkbox rule', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.insertCheckbox(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      'dv-1',
+    );
+    // A formula drives the checkbox state; the control is read-only (GS parity).
+    await sheet.setData({ r: 1, c: 1 }, '=1=1'); // → TRUE
+    expect((await sheet.getCell({ r: 1, c: 1 }))?.f).toBe('=1=1');
+
+    // Toggle is a no-op: reports false, keeps the formula, writes no literal.
+    expect(await sheet.toggleCheckboxAt({ r: 1, c: 1 })).toBe(false);
+    const cell = await sheet.getCell({ r: 1, c: 1 });
+    expect(cell?.f).toBe('=1=1');
+  });
+
   it('removes checkbox rules intersecting a range but keeps cell values', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.insertCheckbox(

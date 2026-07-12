@@ -3837,6 +3837,11 @@ export class Sheet {
       return false;
     }
     const cell = await this.getCell(ref);
+    // A checkbox over a formula cell is read-only — the formula drives the
+    // state (Google Sheets / Excel parity). Toggling must not overwrite it.
+    if (cell?.f) {
+      return false;
+    }
     const next = toggleCheckboxValue(rule, cell?.v);
     await this.setData(ref, next);
     return true;

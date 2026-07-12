@@ -90,6 +90,43 @@ describe('data-validation model', () => {
     expect(toggleCheckboxValue(rule, undefined)).toBe(CHECKBOX_TRUE);
   });
 
+  it('matches default boolean checkbox values case-insensitively', () => {
+    // A default checkbox has no custom checkedValue. Values arriving via xlsx
+    // import / REST API / external paste can be lowercase and bypass setData
+    // normalization; they must still render checked (formula engine + input
+    // parser already treat TRUE/FALSE case-insensitively).
+    const rule = checkboxRule('a');
+    expect(isCheckboxChecked(rule, 'true')).toBe(true);
+    expect(isCheckboxChecked(rule, 'True')).toBe(true);
+    expect(isCheckboxChecked(rule, 'TRUE')).toBe(true);
+    expect(isCheckboxChecked(rule, 'false')).toBe(false);
+    // A lowercase checked value toggles to the canonical unchecked value.
+    expect(toggleCheckboxValue(rule, 'true')).toBe(CHECKBOX_FALSE);
+  });
+
+  it('matches a custom checked value exactly (case-sensitive)', () => {
+    const rule: DataValidationRule = {
+      ...checkboxRule('a'),
+      checkedValue: 'Yes',
+      uncheckedValue: 'No',
+    };
+    expect(isCheckboxChecked(rule, 'Yes')).toBe(true);
+    expect(isCheckboxChecked(rule, 'yes')).toBe(false);
+    expect(isCheckboxChecked(rule, 'YES')).toBe(false);
+  });
+
+  it('does not case-fold when only a custom uncheckedValue is set', () => {
+    // Default checkedValue ('TRUE') but a custom uncheckedValue that upper-cases
+    // to 'TRUE' must NOT be misread as checked — case-folding only applies to a
+    // fully-default boolean checkbox (both custom values absent).
+    const rule: DataValidationRule = {
+      ...checkboxRule('a'),
+      uncheckedValue: 'true',
+    };
+    expect(isCheckboxChecked(rule, 'true')).toBe(false); // the unchecked value
+    expect(isCheckboxChecked(rule, 'TRUE')).toBe(true); // the checked value
+  });
+
   it('normalizes a list rule: trims, drops empties, dedupes, defaults arrow', () => {
     const normalized = normalizeDataValidationRule(
       listRule('a', ['  Red ', 'Green', 'Red', '', '  ']),
