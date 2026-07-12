@@ -520,9 +520,10 @@ operator `<Select>` (the eight operators above), one `<input type="date">` for
 single-operand operators / two for `dateBetween`/`dateNotBetween` / none for
 `dateValid`, and the existing On-invalid Reject / Warning radio. Writes go
 through `setDataValidations` exactly as checkbox/list do; editing preserves the
-rule `id`/ranges. An in-progress date rule (operator chosen, operands not yet
-filled) persists as `dateValid` rather than being dropped, so switching a rule to
-Date and back does not lose it (mirroring the checkbox↔dropdown round-trip fix).
+rule `id`/ranges. An in-progress date rule (operator chosen, some operands still
+blank) keeps its operator and any filled operand (blank slots stored as `''`),
+degrading to a "valid date" check until complete rather than being dropped — so
+editing one bound never loses the other and a Date↔Dropdown round-trip is safe.
 
 **Structural edits / Store / seed** — unchanged. `date` rules ride the same
 `shiftRuleRanges`/`moveRuleRanges` path and the same `dataValidations` container
@@ -540,6 +541,34 @@ already seeded in `createWorksheet`; no per-cell field is added, so the
 - **Keyboard-only calendar navigation** — arrow-key day traversal in the popover
   may land as a small follow-up; click + `Esc` ship first.
 - **Time-of-day** — calendar dates only, as in the original Non-Goals.
+
+#### Review hardening (as shipped)
+
+A high-effort branch review drove four correctness/UX fixes over the first cut:
+
+- **Position-preserving operands.** `normalizeDataValidationRule` keeps a
+  fixed-length slot per operand, storing `''` for a blank/unparseable one
+  (`values` becomes `undefined` only when *every* slot is empty). This replaced
+  an earlier "stop at the first gap" rule that permanently dropped the
+  still-filled bound when a user cleared one input of a `between` rule (and an
+  even earlier "skip and continue" that mispositioned operands). A comparison
+  operator with any blank required slot degrades to "is a valid date" in
+  `isValidDateValue` until every operand is filled — so an in-progress rule
+  keeps its operator *and* its filled bound, rather than collapsing to
+  `dateValid` and losing data.
+- **Picker ⇄ reject consistency.** `dateWithinRuleBounds` now defers entirely to
+  `isValidDateValue`, so the calendar disables exactly the days the rule rejects
+  — including the interior window of a `not between` rule (previously left
+  enabled, which let the picker commit a value that typed entry would reject).
+- **Reversed range swap.** `isValidDateValue`/`describeDateRule` present and
+  validate a `between`/`not between` range low→high, so a start > end rule
+  matches Google Sheets instead of rejecting every date.
+- **Condition-naming messages.** A new `describeDateRule` helper backs both the
+  reject toast and the hover tooltip, so a valid-but-out-of-range date reads
+  `"2019-05-01" must be after 2020-01-01.` instead of the misleading "is not a
+  valid date." Locale-specific input formats (e.g. `1/15/2026`) that the shared
+  `inferInput` parser does not recognize are still treated as non-dates — a
+  pre-existing, app-wide date-parsing limitation, not specific to validation.
 
 ### Testing
 

@@ -84,18 +84,18 @@ export function normalizeDataValidationRule(
   if (cloned.kind === 'date') {
     const op: DataValidationOperator = cloned.operator ?? 'dateValid';
     const need = dateValidationOperandCount(op);
-    const operands: string[] = [];
+    // Keep a fixed-length slot per operand, storing '' for a missing or
+    // unparseable one. This preserves position (a blank lower bound never
+    // promotes the upper bound to index 0) AND retains the other operands
+    // (clearing one bound of a between-rule must not drop the still-filled
+    // one). An empty slot makes the comparison incomplete, so `isValidDateValue`
+    // degrades to "is a valid date" until every required operand is filled.
+    const slots: string[] = [];
     for (let i = 0; i < need; i++) {
-      const iso = toIsoDateOperand(cloned.values?.[i]);
-      // Stop at the first missing/unparseable operand rather than skipping it,
-      // so operand positions are never shuffled: a `dateBetween` whose lower
-      // bound is blank must not promote its upper bound to index 0. An
-      // incomplete comparison degrades to "is a valid date" in `isValidDateValue`.
-      if (!iso) break;
-      operands.push(iso);
+      slots.push(toIsoDateOperand(cloned.values?.[i]) ?? '');
     }
     cloned.operator = op;
-    cloned.values = need > 0 ? operands : undefined;
+    cloned.values = slots.some((slot) => slot !== '') ? slots : undefined;
     cloned.onInvalid = cloned.onInvalid ?? 'warning';
   }
   return cloned;
@@ -199,9 +199,10 @@ export function isValidListValue(
  * `isValidDateValue` reports whether a cell value satisfies a date rule. An
  * empty value is always allowed. The value and each operand are normalized to
  * an ISO `yyyy-mm-dd` string (which sorts chronologically) via the shared
- * input parser; a non-date value fails. When the operator's operands are
- * incomplete (normalize dropped an un-parseable operand), only "is a valid
- * date" is enforced, so the rule degrades safely rather than mis-flagging.
+ * input parser; a non-date value fails. When any required operand is still
+ * blank (an unfilled slot), only "is a valid date" is enforced, so the rule
+ * degrades safely rather than mis-flagging. A reversed `between`/`not between`
+ * range (start > end) is swapped, matching Google Sheets.
  */
 export function isValidDateValue(
   rule: DataValidationRule,
@@ -213,8 +214,12 @@ export function isValidDateValue(
 
   const op = rule.operator ?? 'dateValid';
   const need = dateValidationOperandCount(op);
+  if (op === 'dateValid') return true;
   const operands = rule.values ?? [];
-  if (op === 'dateValid' || operands.length < need) return true;
+  // Any missing/blank required operand → validate "is a date" only.
+  for (let i = 0; i < need; i++) {
+    if (!operands[i]) return true;
+  }
 
   const a = operands[0];
   switch (op) {
@@ -228,12 +233,57 @@ export function isValidDateValue(
       return iso > a;
     case 'dateOnOrAfter':
       return iso >= a;
-    case 'dateBetween':
-      return iso >= a && iso <= operands[1];
-    case 'dateNotBetween':
-      return iso < a || iso > operands[1];
+    case 'dateBetween': {
+      const lo = a <= operands[1] ? a : operands[1];
+      const hi = a <= operands[1] ? operands[1] : a;
+      return iso >= lo && iso <= hi;
+    }
+    case 'dateNotBetween': {
+      const lo = a <= operands[1] ? a : operands[1];
+      const hi = a <= operands[1] ? operands[1] : a;
+      return iso < lo || iso > hi;
+    }
     default:
       return true;
+  }
+}
+
+/**
+ * `describeDateRule` returns a short human phrase for a date rule's condition
+ * (e.g. "must be after 2026-01-01", "must be between 2026-01-01 and
+ * 2026-01-31"), so error messages can name the constraint instead of calling a
+ * valid-but-out-of-range date "invalid". Falls back to "must be a valid date"
+ * for `dateValid` or a rule whose operands are not yet fully filled. A reversed
+ * between range is presented low→high to match how it is validated.
+ */
+export function describeDateRule(rule: DataValidationRule): string {
+  const op = rule.operator ?? 'dateValid';
+  const need = dateValidationOperandCount(op);
+  const operands = rule.values ?? [];
+  const complete =
+    op === 'dateValid' || operands.slice(0, need).every((o) => !!o);
+  if (!complete) return 'must be a valid date';
+  const a = operands[0];
+  const b = operands[1];
+  const lo = a <= b ? a : b;
+  const hi = a <= b ? b : a;
+  switch (op) {
+    case 'dateEquals':
+      return `must be ${a}`;
+    case 'dateBefore':
+      return `must be before ${a}`;
+    case 'dateOnOrBefore':
+      return `must be on or before ${a}`;
+    case 'dateAfter':
+      return `must be after ${a}`;
+    case 'dateOnOrAfter':
+      return `must be on or after ${a}`;
+    case 'dateBetween':
+      return `must be between ${lo} and ${hi}`;
+    case 'dateNotBetween':
+      return `must not be between ${lo} and ${hi}`;
+    default:
+      return 'must be a valid date';
   }
 }
 

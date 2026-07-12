@@ -34,7 +34,7 @@ import {
   computeListArrowBox,
 } from './gridcanvas';
 import {
-  dateValidationOperandCount,
+  describeDateRule,
   isValidDateValue,
   isValidValueForRule,
 } from '../model/worksheet/data-validation';
@@ -791,7 +791,7 @@ export class Worksheet {
     ) {
       this.onValidationErrorCallback?.(
         rule.kind === 'date'
-          ? `"${value}" is not a valid date for this cell.`
+          ? `"${value}" ${describeDateRule(rule)}.`
           : `"${value}" does not match a value in the dropdown list.`,
       );
       return false;
@@ -1736,17 +1736,13 @@ export class Worksheet {
 
   /**
    * `dateWithinRuleBounds` reports whether an ISO day is selectable under the
-   * rule's operator, so out-of-range days render disabled in the picker.
-   * `dateNotBetween` deliberately leaves all days enabled (the excluded window
-   * is a validity check, not a hard picker bound).
+   * rule's operator, so out-of-range days render disabled in the picker. It
+   * defers to `isValidDateValue` so the picker offers exactly the days the rule
+   * accepts — including disabling the excluded window of a `not between` rule,
+   * which keeps the picker consistent with reject-mode typed entry. A
+   * `dateValid` rule or one with unfilled operands accepts every day.
    */
   private dateWithinRuleBounds(rule: DataValidationRule, iso: string): boolean {
-    const op = rule.operator ?? 'dateValid';
-    const need = dateValidationOperandCount(op);
-    const operands = rule.values ?? [];
-    if (op === 'dateValid' || op === 'dateNotBetween' || operands.length < need) {
-      return true;
-    }
     return isValidDateValue(rule, iso);
   }
 
@@ -1995,7 +1991,7 @@ export class Worksheet {
     }
     let message: string;
     if (rule.kind === 'date') {
-      message = 'Invalid entry — enter a valid date for this cell.';
+      message = `Invalid entry — ${describeDateRule(rule)}.`;
     } else {
       const options = rule.list ?? [];
       const shown =
