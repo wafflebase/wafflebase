@@ -135,13 +135,20 @@ export type ConditionalFormatRule = {
 /**
  * DataValidationKind enumerates the in-cell control kinds.
  */
-export type DataValidationKind = 'checkbox' | 'list' | 'date';
+export type DataValidationKind =
+  | 'checkbox'
+  | 'list'
+  | 'date'
+  | 'number'
+  | 'text';
 
 /**
- * DataValidationOperator enumerates the comparison operators. Date operators
- * ship first; number/text operators reuse this union later.
+ * DataValidationOperator enumerates the comparison operators, shared by the
+ * `date`, `number`, and `text` kinds. Each operator consumes 0, 1, or 2
+ * operands from the rule's `values` array (see `validationOperandCount`).
  */
 export type DataValidationOperator =
+  // date
   | 'dateValid'
   | 'dateEquals'
   | 'dateBefore'
@@ -149,7 +156,23 @@ export type DataValidationOperator =
   | 'dateAfter'
   | 'dateOnOrAfter'
   | 'dateBetween'
-  | 'dateNotBetween';
+  | 'dateNotBetween'
+  // number
+  | 'numberValid'
+  | 'numberEquals'
+  | 'numberNotEquals'
+  | 'numberGreater'
+  | 'numberGreaterEq'
+  | 'numberLess'
+  | 'numberLessEq'
+  | 'numberBetween'
+  | 'numberNotBetween'
+  // text
+  | 'textContains'
+  | 'textNotContains'
+  | 'textEquals'
+  | 'textIsEmail'
+  | 'textIsUrl';
 
 /**
  * DataValidationRule is a worksheet-level, range-scoped validation/control
@@ -170,9 +193,9 @@ export type DataValidationRule = {
   checkedValue?: string;
   uncheckedValue?: string;
 
-  // kind: 'date' (operator + fixed-date operands; future: number/text)
+  // kind: 'date' | 'number' | 'text' (operator + comparison operands)
   operator?: DataValidationOperator;
-  values?: string[]; // ISO operands; length by operator (0/1/2)
+  values?: string[]; // operands (ISO date / number / text); length by operator
 };
 
 /**

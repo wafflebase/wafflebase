@@ -35,10 +35,29 @@ import {
 } from './gridcanvas';
 import {
   describeDateRule,
+  describeNumberRule,
+  describeTextRule,
   isValidDateValue,
   isValidValueForRule,
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
+
+/**
+ * `validationRuleDetail` returns the reject-message detail (with trailing
+ * period) naming why a value fails a rule, dispatched by kind.
+ */
+function validationRuleDetail(rule: DataValidationRule): string {
+  switch (rule.kind) {
+    case 'date':
+      return `${describeDateRule(rule)}.`;
+    case 'number':
+      return `${describeNumberRule(rule)}.`;
+    case 'text':
+      return `${describeTextRule(rule)}.`;
+    default:
+      return 'does not match a value in the dropdown list.';
+  }
+}
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
@@ -790,9 +809,7 @@ export class Worksheet {
       !isValidValueForRule(rule, value)
     ) {
       this.onValidationErrorCallback?.(
-        rule.kind === 'date'
-          ? `"${value}" ${describeDateRule(rule)}.`
-          : `"${value}" does not match a value in the dropdown list.`,
+        `"${value}" ${validationRuleDetail(rule)}`,
       );
       return false;
     }
@@ -1990,15 +2007,15 @@ export class Worksheet {
       return;
     }
     let message: string;
-    if (rule.kind === 'date') {
-      message = `Invalid entry — ${describeDateRule(rule)}.`;
-    } else {
+    if (rule.kind === 'list') {
       const options = rule.list ?? [];
       const shown =
         options.length > 8
           ? `${options.slice(0, 8).join(', ')}, …`
           : options.join(', ');
       message = `Invalid entry — must be one of: ${shown}`;
+    } else {
+      message = `Invalid entry — ${validationRuleDetail(rule).replace(/\.$/, '')}.`;
     }
     this.validationTooltip.textContent = message;
     this.validationTooltip.style.left = `${clientX + 12}px`;

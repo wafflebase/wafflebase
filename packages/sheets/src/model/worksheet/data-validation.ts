@@ -12,16 +12,54 @@ import { inferInput } from './input';
 export const CHECKBOX_TRUE = 'TRUE';
 export const CHECKBOX_FALSE = 'FALSE';
 
-const Kinds = new Set<DataValidationKind>(['checkbox', 'list', 'date']);
+const Kinds = new Set<DataValidationKind>([
+  'checkbox',
+  'list',
+  'date',
+  'number',
+  'text',
+]);
 
 /**
- * `dateValidationOperandCount` returns how many comparison operands an
- * operator consumes: 0 for `dateValid`, 2 for between/not-between, else 1.
+ * `validationOperandCount` returns how many comparison operands an operator
+ * consumes: 0 for the `*Valid` / email / url predicates, 2 for between /
+ * not-between, else 1. Shared by the date, number, and text kinds.
+ */
+export function validationOperandCount(op: DataValidationOperator): number {
+  switch (op) {
+    case 'dateValid':
+    case 'numberValid':
+    case 'textIsEmail':
+    case 'textIsUrl':
+      return 0;
+    case 'dateBetween':
+    case 'dateNotBetween':
+    case 'numberBetween':
+    case 'numberNotBetween':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * `dateValidationOperandCount` is retained for existing callers; delegates to
+ * the shared `validationOperandCount`.
  */
 export function dateValidationOperandCount(op: DataValidationOperator): number {
-  if (op === 'dateValid') return 0;
-  if (op === 'dateBetween' || op === 'dateNotBetween') return 2;
-  return 1;
+  return validationOperandCount(op);
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * `parseNumberOperand` returns the finite number a raw operand represents, or
+ * undefined when it is blank or not a number.
+ */
+function parseNumberOperand(raw: string | undefined): number | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const n = Number(raw.trim());
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /**
@@ -34,6 +72,24 @@ function toIsoDateOperand(raw: string | undefined): string | undefined {
   // `inferInput` returns the raw string for a datetime (`yyyy-mm-dd HH:MM:SS`);
   // keep only the `yyyy-mm-dd` date part so an operand is always a pure ISO date.
   return inferred.type === 'date' ? inferred.value.slice(0, 10) : undefined;
+}
+
+/**
+ * `normalizeOperand` canonicalizes a single comparison operand by kind: an ISO
+ * date, a finite-number string, or a trimmed text value. Returns '' for a
+ * blank or unparseable operand (a fixed-length slot the value check treats as
+ * incomplete).
+ */
+function normalizeOperand(
+  kind: DataValidationKind,
+  raw: string | undefined,
+): string {
+  if (kind === 'date') return toIsoDateOperand(raw) ?? '';
+  if (kind === 'number') {
+    const n = parseNumberOperand(raw);
+    return n === undefined ? '' : String(n);
+  }
+  return typeof raw === 'string' ? raw.trim() : '';
 }
 
 /**
@@ -81,18 +137,28 @@ export function normalizeDataValidationRule(
     cloned.list = list;
     cloned.showArrow = cloned.showArrow ?? true;
   }
-  if (cloned.kind === 'date') {
-    const op: DataValidationOperator = cloned.operator ?? 'dateValid';
-    const need = dateValidationOperandCount(op);
+  if (
+    cloned.kind === 'date' ||
+    cloned.kind === 'number' ||
+    cloned.kind === 'text'
+  ) {
+    const defaultOp: DataValidationOperator =
+      cloned.kind === 'date'
+        ? 'dateValid'
+        : cloned.kind === 'number'
+          ? 'numberValid'
+          : 'textContains';
+    const op: DataValidationOperator = cloned.operator ?? defaultOp;
+    const need = validationOperandCount(op);
     // Keep a fixed-length slot per operand, storing '' for a missing or
     // unparseable one. This preserves position (a blank lower bound never
     // promotes the upper bound to index 0) AND retains the other operands
     // (clearing one bound of a between-rule must not drop the still-filled
-    // one). An empty slot makes the comparison incomplete, so `isValidDateValue`
-    // degrades to "is a valid date" until every required operand is filled.
+    // one). An empty slot makes the comparison incomplete, so the value check
+    // degrades to "always valid" until every required operand is filled.
     const slots: string[] = [];
     for (let i = 0; i < need; i++) {
-      slots.push(toIsoDateOperand(cloned.values?.[i]) ?? '');
+      slots.push(normalizeOperand(cloned.kind, cloned.values?.[i]));
     }
     cloned.operator = op;
     cloned.values = slots.some((slot) => slot !== '') ? slots : undefined;
@@ -303,8 +369,165 @@ export function describeDateRule(rule: DataValidationRule): string {
 }
 
 /**
+ * `isValidNumberValue` reports whether a cell value satisfies a number rule. An
+ * empty value is always allowed; a non-number value always fails (even under
+ * `numberValid`). When a required operand is still blank, only "is a number" is
+ * enforced (degrade). A reversed `between`/`not between` range is swapped.
+ */
+export function isValidNumberValue(
+  rule: DataValidationRule,
+  value: string | undefined,
+): boolean {
+  if (value === undefined || value.trim() === '') return true;
+  const n = parseNumberOperand(value);
+  if (n === undefined) return false;
+
+  const op = rule.operator ?? 'numberValid';
+  if (op === 'numberValid') return true;
+  const need = validationOperandCount(op);
+  const operands = rule.values ?? [];
+  for (let i = 0; i < need; i++) {
+    if (!operands[i]) return true; // incomplete → "is a number" only
+  }
+  const a = parseNumberOperand(operands[0]);
+  const b = parseNumberOperand(operands[1]);
+  if (a === undefined) return true;
+  switch (op) {
+    case 'numberEquals':
+      return n === a;
+    case 'numberNotEquals':
+      return n !== a;
+    case 'numberGreater':
+      return n > a;
+    case 'numberGreaterEq':
+      return n >= a;
+    case 'numberLess':
+      return n < a;
+    case 'numberLessEq':
+      return n <= a;
+    case 'numberBetween': {
+      if (b === undefined) return true;
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      return n >= lo && n <= hi;
+    }
+    case 'numberNotBetween': {
+      if (b === undefined) return true;
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      return n < lo || n > hi;
+    }
+    default:
+      return true;
+  }
+}
+
+/**
+ * `isValidTextValue` reports whether a cell value satisfies a text rule. An
+ * empty value is always allowed. `contains`/`not contains` are case-insensitive
+ * (Google Sheets parity); `is exactly` is a trimmed exact match; email/url use
+ * a light structural check. A blank operand degrades to "always valid".
+ */
+export function isValidTextValue(
+  rule: DataValidationRule,
+  value: string | undefined,
+): boolean {
+  const text = value?.trim() ?? '';
+  if (text === '') return true;
+  const op = rule.operator ?? 'textContains';
+  if (op === 'textIsEmail') return EMAIL_RE.test(text);
+  if (op === 'textIsUrl') return isLikelyUrl(text);
+  const operand = (rule.values ?? [])[0];
+  if (!operand) return true; // incomplete → always valid
+  switch (op) {
+    case 'textContains':
+      return text.toLowerCase().includes(operand.toLowerCase());
+    case 'textNotContains':
+      return !text.toLowerCase().includes(operand.toLowerCase());
+    case 'textEquals':
+      return text === operand;
+    default:
+      return true;
+  }
+}
+
+/**
+ * `isLikelyUrl` accepts an http(s) URL that the platform `URL` parser resolves
+ * with a dotted host — a light structural check, not full RFC validation.
+ */
+function isLikelyUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return (
+      (u.protocol === 'http:' || u.protocol === 'https:') &&
+      u.hostname.includes('.')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `describeNumberRule` / `describeTextRule` return a short human phrase for a
+ * rule's condition, so a reject message can name the constraint. Both fall back
+ * to a generic phrase for the `*Valid` predicate or an incomplete operand set.
+ */
+export function describeNumberRule(rule: DataValidationRule): string {
+  const op = rule.operator ?? 'numberValid';
+  const need = validationOperandCount(op);
+  const operands = rule.values ?? [];
+  // Incomplete (fewer than `need` non-blank operands) → generic phrase. Check by
+  // index: `[].slice(0, need).every()` is vacuously true for a missing array.
+  let filled = true;
+  for (let i = 0; i < need; i++) if (!operands[i]) filled = false;
+  if (op !== 'numberValid' && !filled) {
+    return 'must be a number';
+  }
+  const a = parseNumberOperand(operands[0]);
+  const b = parseNumberOperand(operands[1]);
+  const lo = a !== undefined && b !== undefined ? Math.min(a, b) : a;
+  const hi = a !== undefined && b !== undefined ? Math.max(a, b) : b;
+  switch (op) {
+    case 'numberEquals':
+      return `must equal ${a}`;
+    case 'numberNotEquals':
+      return `must not equal ${a}`;
+    case 'numberGreater':
+      return `must be greater than ${a}`;
+    case 'numberGreaterEq':
+      return `must be greater than or equal to ${a}`;
+    case 'numberLess':
+      return `must be less than ${a}`;
+    case 'numberLessEq':
+      return `must be less than or equal to ${a}`;
+    case 'numberBetween':
+      return `must be between ${lo} and ${hi}`;
+    case 'numberNotBetween':
+      return `must not be between ${lo} and ${hi}`;
+    default:
+      return 'must be a number';
+  }
+}
+
+export function describeTextRule(rule: DataValidationRule): string {
+  const op = rule.operator ?? 'textContains';
+  const operand = (rule.values ?? [])[0];
+  if (op === 'textIsEmail') return 'must be a valid email';
+  if (op === 'textIsUrl') return 'must be a valid URL';
+  if (!operand) return 'is not valid';
+  switch (op) {
+    case 'textContains':
+      return `must contain "${operand}"`;
+    case 'textNotContains':
+      return `must not contain "${operand}"`;
+    case 'textEquals':
+      return `must be exactly "${operand}"`;
+    default:
+      return 'is not valid';
+  }
+}
+
+/**
  * `isValidValueForRule` dispatches value validation by rule kind. A checkbox
- * rule never rejects a typed value; list and date delegate to their checks.
+ * rule never rejects a typed value; list/date/number/text delegate.
  */
 export function isValidValueForRule(
   rule: DataValidationRule,
@@ -312,6 +535,8 @@ export function isValidValueForRule(
 ): boolean {
   if (rule.kind === 'list') return isValidListValue(rule, value);
   if (rule.kind === 'date') return isValidDateValue(rule, value);
+  if (rule.kind === 'number') return isValidNumberValue(rule, value);
+  if (rule.kind === 'text') return isValidTextValue(rule, value);
   return true;
 }
 

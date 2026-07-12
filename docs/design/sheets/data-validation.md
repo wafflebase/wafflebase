@@ -575,6 +575,48 @@ A high-effort branch review drove four correctness/UX fixes over the first cut:
   `inferInput` parser does not recognize are still treated as non-dates — a
   pre-existing, app-wide date-parsing limitation, not specific to validation.
 
+### Phase 5 (number / text): comparison validation kinds — as shipped
+
+Adds the `number` and `text` kinds, reusing the Phase-4 `operator` + `values`
+substructure (this is exactly the reuse the date phase modeled for). No
+formula-engine change; the warning marker and reject commit path are shared.
+
+- **Operators** (`types.ts`) — the shared `DataValidationOperator` union gains
+  number ops (`numberValid` (0), `numberEquals` / `numberNotEquals` /
+  `numberGreater` / `numberGreaterEq` / `numberLess` / `numberLessEq` (1),
+  `numberBetween` / `numberNotBetween` (2)) and text ops (`textContains` /
+  `textNotContains` / `textEquals` (1), `textIsEmail` / `textIsUrl` (0)).
+- **Operand count** (`data-validation.ts`) — `dateValidationOperandCount` is
+  generalized to `validationOperandCount` (all three kinds); the date name is
+  kept as a delegating alias for existing callers.
+- **Validation** — `isValidNumberValue` parses the value with `Number` (a
+  non-number always fails, even under `numberValid`) and compares numerically
+  (between inclusive, reversed range swapped). `isValidTextValue` does
+  case-insensitive contains/not-contains, trimmed exact match, and light
+  email/URL structural checks (`URL` parser + dotted host). Both degrade to
+  "always valid" (number: "is a number") while a required operand is blank, and
+  a rule is never dropped — mirroring date. `isValidValueForRule` dispatches to
+  them; `normalizeDataValidationRule` normalizes operands per kind
+  (`normalizeOperand`: ISO date / finite-number string / trimmed text) into
+  fixed-length slots.
+- **Messages** — `describeNumberRule` / `describeTextRule` back the reject toast
+  and hover tooltip via a shared `validationRuleDetail` dispatcher in
+  `worksheet.ts`.
+- **Render** (`gridcanvas.ts`) — the date warning-marker branch is generalized
+  to date/number/text via `isValidValueForRule` (no persistent glyph; red
+  corner marker on an invalid value, computed at render time).
+- **Panel** (`data-validation-panel.tsx`) — the date-only editor section is
+  refactored into one shared **comparison section** driven by a
+  `COMPARISON_KINDS` config (operators + input type + default op), so date,
+  number, and text share the operator select + 0/1/2 operand inputs + on-invalid
+  radio. Criteria gains **Number** and **Text**; switching between comparison
+  kinds resets the operator to that kind's default.
+
+Deferred (unchanged Non-Goals): custom-formula criteria, relative operands,
+range-source lists. The `describeDateRule` completeness check has a latent
+vacuous-true edge for a fully-empty operand array (a pre-existing date-only
+quirk); the new `describeNumberRule` checks operands by index to avoid it.
+
 ### Testing
 
 > Scope note: this section is the testing strategy for the **full** feature

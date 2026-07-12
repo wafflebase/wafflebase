@@ -3,7 +3,7 @@ import {
   DataValidationRule,
   DataValidationKind,
   DataValidationOperator,
-  dateValidationOperandCount,
+  validationOperandCount,
   Range,
   Spreadsheet,
   parseRef,
@@ -82,13 +82,72 @@ const DATE_OPERATORS: { value: DataValidationOperator; label: string }[] = [
   { value: "dateNotBetween", label: "date is not between" },
 ];
 
+const NUMBER_OPERATORS: { value: DataValidationOperator; label: string }[] = [
+  { value: "numberValid", label: "is a valid number" },
+  { value: "numberEquals", label: "is equal to" },
+  { value: "numberNotEquals", label: "is not equal to" },
+  { value: "numberGreater", label: "greater than" },
+  { value: "numberGreaterEq", label: "greater than or equal to" },
+  { value: "numberLess", label: "less than" },
+  { value: "numberLessEq", label: "less than or equal to" },
+  { value: "numberBetween", label: "between" },
+  { value: "numberNotBetween", label: "not between" },
+];
+
+const TEXT_OPERATORS: { value: DataValidationOperator; label: string }[] = [
+  { value: "textContains", label: "contains" },
+  { value: "textNotContains", label: "does not contain" },
+  { value: "textEquals", label: "is exactly" },
+  { value: "textIsEmail", label: "is valid email" },
+  { value: "textIsUrl", label: "is valid URL" },
+];
+
+// The date / number / text kinds share one editor shape: an operator select +
+// 0/1/2 operand inputs + an on-invalid radio. This config drives the shared
+// section so the three comparison kinds stay in lockstep.
+const COMPARISON_KINDS: Record<
+  "date" | "number" | "text",
+  {
+    operators: { value: DataValidationOperator; label: string }[];
+    inputType: "date" | "number" | "text";
+    defaultOp: DataValidationOperator;
+    label: string;
+  }
+> = {
+  date: {
+    operators: DATE_OPERATORS,
+    inputType: "date",
+    defaultOp: "dateValid",
+    label: "Date",
+  },
+  number: {
+    operators: NUMBER_OPERATORS,
+    inputType: "number",
+    defaultOp: "numberValid",
+    label: "Number",
+  },
+  text: {
+    operators: TEXT_OPERATORS,
+    inputType: "text",
+    defaultOp: "textContains",
+    label: "Text",
+  },
+};
+
+function isComparisonKind(
+  kind: DataValidationKind,
+): kind is "date" | "number" | "text" {
+  return kind === "date" || kind === "number" || kind === "text";
+}
+
 function kindLabel(rule: DataValidationRule): string {
   if (rule.kind === "checkbox") return "Checkbox";
-  if (rule.kind === "date") {
-    const op = DATE_OPERATORS.find(
-      (o) => o.value === (rule.operator ?? "dateValid"),
+  if (isComparisonKind(rule.kind)) {
+    const config = COMPARISON_KINDS[rule.kind];
+    const op = config.operators.find(
+      (o) => o.value === (rule.operator ?? config.defaultOp),
     );
-    return `Date (${op?.label ?? "is a valid date"})`;
+    return `${config.label} (${op?.label ?? config.operators[0].label})`;
   }
   const opts = rule.list ?? [];
   if (opts.length === 0) return "Dropdown";
@@ -252,14 +311,17 @@ export function DataValidationPanel({
         showArrow: selectedRule.showArrow ?? true,
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
-    } else if (kind === "date") {
+    } else if (isComparisonKind(kind)) {
+      // Switching between comparison kinds resets the operator to that kind's
+      // default (a date operator is meaningless for a number rule) but keeps a
+      // sensible on-invalid default. Operands are re-normalized by the engine.
       updateRule(selectedRule.id, {
-        kind: "date",
-        operator: selectedRule.operator ?? "dateValid",
+        kind,
+        operator: COMPARISON_KINDS[kind].defaultOp,
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
     } else {
-      // Keep list/date fields so switching back restores them (the engine
+      // Keep list/comparison fields so switching back restores them (the engine
       // ignores them for a checkbox rule).
       updateRule(selectedRule.id, { kind: "checkbox" });
     }
@@ -282,7 +344,7 @@ export function DataValidationPanel({
             <p className="text-sm font-semibold">Data validation</p>
           </div>
           <p className="truncate pt-1 text-xs text-muted-foreground">
-            Checkbox, dropdown, and date rules for this sheet.
+            Checkbox, dropdown, date, number, and text rules for this sheet.
           </p>
         </div>
         <button
@@ -400,6 +462,8 @@ export function DataValidationPanel({
                     <SelectItem value="list">Dropdown</SelectItem>
                     <SelectItem value="checkbox">Checkbox</SelectItem>
                     <SelectItem value="date">Date</SelectItem>
+                    <SelectItem value="number">Number</SelectItem>
+                    <SelectItem value="text">Text</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -460,92 +524,102 @@ export function DataValidationPanel({
                 </>
               )}
 
-              {selectedRule.kind === "date" && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="dv-date-op">Condition</Label>
-                    <Select
-                      value={selectedRule.operator ?? "dateValid"}
-                      onValueChange={(v) =>
-                        updateRule(selectedRule.id, {
-                          operator: v as DataValidationOperator,
-                        })
-                      }
-                    >
-                      <SelectTrigger id="dv-date-op">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DATE_OPERATORS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>
-                            {o.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+              {isComparisonKind(selectedRule.kind) &&
+                (() => {
+                  const config = COMPARISON_KINDS[selectedRule.kind];
+                  const op = selectedRule.operator ?? config.defaultOp;
+                  const operandCount = validationOperandCount(op);
+                  return (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="dv-cmp-op">Condition</Label>
+                        <Select
+                          value={op}
+                          onValueChange={(v) =>
+                            updateRule(selectedRule.id, {
+                              operator: v as DataValidationOperator,
+                            })
+                          }
+                        >
+                          <SelectTrigger id="dv-cmp-op">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {config.operators.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                  {dateValidationOperandCount(
-                    selectedRule.operator ?? "dateValid",
-                  ) >= 1 && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="date"
-                        aria-label="Date value"
-                        value={selectedRule.values?.[0] ?? ""}
-                        onChange={(e) => {
-                          const next = [...(selectedRule.values ?? [])];
-                          next[0] = e.target.value;
-                          updateRule(selectedRule.id, { values: next });
-                        }}
-                      />
-                      {dateValidationOperandCount(
-                        selectedRule.operator ?? "dateValid",
-                      ) === 2 && (
-                        <>
-                          <span className="text-xs text-muted-foreground">and</span>
+                      {operandCount >= 1 && (
+                        <div className="flex items-center gap-2">
                           <Input
-                            type="date"
-                            aria-label="End date value"
-                            value={selectedRule.values?.[1] ?? ""}
+                            type={config.inputType}
+                            aria-label="Value"
+                            value={selectedRule.values?.[0] ?? ""}
                             onChange={(e) => {
                               const next = [...(selectedRule.values ?? [])];
-                              next[1] = e.target.value;
+                              next[0] = e.target.value;
                               updateRule(selectedRule.id, { values: next });
                             }}
                           />
-                        </>
+                          {operandCount === 2 && (
+                            <>
+                              <span className="text-xs text-muted-foreground">
+                                and
+                              </span>
+                              <Input
+                                type={config.inputType}
+                                aria-label="End value"
+                                value={selectedRule.values?.[1] ?? ""}
+                                onChange={(e) => {
+                                  const next = [...(selectedRule.values ?? [])];
+                                  next[1] = e.target.value;
+                                  updateRule(selectedRule.id, { values: next });
+                                }}
+                              />
+                            </>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
 
-                  <div className="space-y-1.5">
-                    <Label>If the data is invalid</Label>
-                    <RadioGroup
-                      value={selectedRule.onInvalid ?? "warning"}
-                      onValueChange={(v) =>
-                        updateRule(selectedRule.id, {
-                          onInvalid: v as "reject" | "warning",
-                        })
-                      }
-                      className="flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-center gap-2">
-                        <RadioGroupItem value="warning" id="dv-date-warning" />
-                        <Label htmlFor="dv-date-warning" className="font-normal">
-                          Show a warning
-                        </Label>
+                      <div className="space-y-1.5">
+                        <Label>If the data is invalid</Label>
+                        <RadioGroup
+                          value={selectedRule.onInvalid ?? "warning"}
+                          onValueChange={(v) =>
+                            updateRule(selectedRule.id, {
+                              onInvalid: v as "reject" | "warning",
+                            })
+                          }
+                          className="flex flex-col gap-1.5"
+                        >
+                          <div className="flex items-center gap-2">
+                            <RadioGroupItem value="warning" id="dv-cmp-warning" />
+                            <Label
+                              htmlFor="dv-cmp-warning"
+                              className="font-normal"
+                            >
+                              Show a warning
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <RadioGroupItem value="reject" id="dv-cmp-reject" />
+                            <Label
+                              htmlFor="dv-cmp-reject"
+                              className="font-normal"
+                            >
+                              Reject the input
+                            </Label>
+                          </div>
+                        </RadioGroup>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <RadioGroupItem value="reject" id="dv-date-reject" />
-                        <Label htmlFor="dv-date-reject" className="font-normal">
-                          Reject the input
-                        </Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-                </>
-              )}
+                    </>
+                  );
+                })()}
 
               {selectedRule.kind === "checkbox" && (
                 <p className="text-xs text-muted-foreground">
