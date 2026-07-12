@@ -100,7 +100,6 @@ import {
   normalizeListOptions,
   shiftDataValidationRules,
   moveDataValidationRules,
-  dateValidationOperandCount,
   validationOperandCount,
 } from './model/worksheet/data-validation';
 import {
@@ -283,7 +282,6 @@ export {
   normalizeListOptions,
   shiftDataValidationRules,
   moveDataValidationRules,
-  dateValidationOperandCount,
   validationOperandCount,
   cloneRangeStylePatch,
   normalizeRangeStylePatch,

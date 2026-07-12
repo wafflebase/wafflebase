@@ -42,14 +42,6 @@ export function validationOperandCount(op: DataValidationOperator): number {
   }
 }
 
-/**
- * `dateValidationOperandCount` is retained for existing callers; delegates to
- * the shared `validationOperandCount`.
- */
-export function dateValidationOperandCount(op: DataValidationOperator): number {
-  return validationOperandCount(op);
-}
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
@@ -294,7 +286,7 @@ export function isValidDateValue(
   if (iso === undefined) return false;
 
   const op = rule.operator ?? 'dateValid';
-  const need = dateValidationOperandCount(op);
+  const need = validationOperandCount(op);
   if (op === 'dateValid') return true;
   const operands = rule.values ?? [];
   // Any missing/blank required operand → validate "is a date" only.
@@ -339,7 +331,7 @@ export function isValidDateValue(
  */
 export function describeDateRule(rule: DataValidationRule): string {
   const op = rule.operator ?? 'dateValid';
-  const need = dateValidationOperandCount(op);
+  const need = validationOperandCount(op);
   const operands = rule.values ?? [];
   const complete =
     op === 'dateValid' || operands.slice(0, need).every((o) => !!o);

@@ -312,12 +312,18 @@ export function DataValidationPanel({
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
     } else if (isComparisonKind(kind)) {
-      // Switching between comparison kinds resets the operator to that kind's
-      // default (a date operator is meaningless for a number rule) but keeps a
-      // sensible on-invalid default. Operands are re-normalized by the engine.
+      // Operators are kind-prefixed (`date*` / `number*` / `text*`). If the
+      // current operator already belongs to the target kind (e.g. a
+      // checkbox↔date round-trip preserved it), keep it and its operands;
+      // otherwise reset to the kind default and clear the now cross-type
+      // operands (a date's "2026-07-12" must not bleed into a text "contains").
+      const keepsOperator = (selectedRule.operator ?? "").startsWith(kind);
       updateRule(selectedRule.id, {
         kind,
-        operator: COMPARISON_KINDS[kind].defaultOp,
+        operator: keepsOperator
+          ? selectedRule.operator
+          : COMPARISON_KINDS[kind].defaultOp,
+        values: keepsOperator ? selectedRule.values : undefined,
         onInvalid: selectedRule.onInvalid ?? "warning",
       });
     } else {

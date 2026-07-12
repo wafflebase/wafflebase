@@ -42,6 +42,27 @@ marker + reject commit path are reused.
 - Custom-formula criteria; relative operands; range-source lists.
 - Checkbox eager-init / custom-value UI (separate).
 
+## Review hardening (high-effort workflow review)
+
+Four confirmed findings, all fixed:
+
+- **[0]+[2] kind-switch operand bleed / bound loss (CONFIRMED)** —
+  `handleChangeKind` neither cleared cross-type operands (a date `"2026-07-12"`
+  leaked into a text `contains` constraint) nor preserved a matching operator on
+  a checkbox↔date round-trip (it always reset to the kind default). Fixed with a
+  kind-prefix check: if the current operator already belongs to the target kind,
+  keep operator + `values`; otherwise reset to the default and clear `values`.
+- **[3] tooltip guard (CONFIRMED)** — the hover-tooltip early-return still
+  whitelisted only `list`/`date`, so number/text warning markers showed no
+  tooltip. Guard now includes number/text (the message builder already handled
+  them).
+- **[5] redundant delegate (CONFIRMED, cleanup)** — removed
+  `dateValidationOperandCount` (now a pure alias); internal callers and the two
+  index exports use `validationOperandCount` directly.
+
+Also moved `validationRuleDetail` out of the middle of the import block (a
+refuted-but-tidy nit). Model suite (47) green; `pnpm verify:fast` EXIT 0.
+
 ## Review
 
-(filled after implementation)
+(filled after merge)

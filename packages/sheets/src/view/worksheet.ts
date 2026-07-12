@@ -42,23 +42,6 @@ import {
 } from '../model/worksheet/data-validation';
 import { buildOpenThreadKeySet } from './render-comments';
 
-/**
- * `validationRuleDetail` returns the reject-message detail (with trailing
- * period) naming why a value fails a rule, dispatched by kind.
- */
-function validationRuleDetail(rule: DataValidationRule): string {
-  switch (rule.kind) {
-    case 'date':
-      return `${describeDateRule(rule)}.`;
-    case 'number':
-      return `${describeNumberRule(rule)}.`;
-    case 'text':
-      return `${describeTextRule(rule)}.`;
-    default:
-      return 'does not match a value in the dropdown list.';
-  }
-}
-
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
@@ -89,6 +72,23 @@ import {
   toRefWithFreeze,
   getTextBlockHeight,
 } from './layout';
+
+/**
+ * `validationRuleDetail` returns the reject-message detail (with trailing
+ * period) naming why a value fails a rule, dispatched by kind.
+ */
+function validationRuleDetail(rule: DataValidationRule): string {
+  switch (rule.kind) {
+    case 'date':
+      return `${describeDateRule(rule)}.`;
+    case 'number':
+      return `${describeNumberRule(rule)}.`;
+    case 'text':
+      return `${describeTextRule(rule)}.`;
+    default:
+      return 'does not match a value in the dropdown list.';
+  }
+}
 
 const ResizeEdgeThreshold = 6;
 const MinRowHeight = 10;
@@ -1993,7 +1993,13 @@ export class Worksheet {
     }
     this.hoveredValidationCandidate = sref;
     const rule = this.sheet.getDataValidationAt(ref);
-    if (!rule || (rule.kind !== 'list' && rule.kind !== 'date')) {
+    if (
+      !rule ||
+      (rule.kind !== 'list' &&
+        rule.kind !== 'date' &&
+        rule.kind !== 'number' &&
+        rule.kind !== 'text')
+    ) {
       this.hideValidationTooltip();
       return;
     }
