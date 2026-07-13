@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { parseSlide } from '../../../src/import/pptx/slide';
+import { parseSlide, parseSlideBackground } from '../../../src/import/pptx/slide';
 import { ImportReport } from '../../../src/import/pptx/report';
 import type { PptxArchive } from '../../../src/import/pptx/unzip';
+import type { ImageParseContext } from '../../../src/import/pptx/image';
+import { parseXml, descendant } from '../../../src/import/pptx/xml';
 
 /**
  * Build a `PptxArchive` mock backed by an in-memory file map. Only the
@@ -445,5 +447,42 @@ describe('parseSlide — ellipse connector site remap (slide-21 regression)', ()
     // SW on the ellipse outline: (0.5 - SQRT1_2/2, 0.5 + SQRT1_2/2)
     expect(site.x).toBeCloseTo(0.5 - Math.SQRT1_2 / 2, 5);
     expect(site.y).toBeCloseTo(0.5 + Math.SQRT1_2 / 2, 5);
+  });
+});
+
+describe('parseSlideBackground — gradient fill', () => {
+  const imageCtx: ImageParseContext = {
+    archive: makeArchive({}),
+    slidePartPath: 'ppt/slides/slide1.xml',
+    rels: new Map(),
+    scale: { sx: 1, sy: 1 },
+    report: new ImportReport(),
+  };
+
+  it('parses <a:gradFill> into a gradient Background.fill with 2 stops', async () => {
+    const xml = `<?xml version="1.0"?>
+<p:bg xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:bgPr>
+    <a:gradFill>
+      <a:gsLst>
+        <a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs>
+        <a:gs pos="100000"><a:srgbClr val="000000"/></a:gs>
+      </a:gsLst>
+      <a:lin ang="0" scaled="1"/>
+    </a:gradFill>
+  </p:bgPr>
+</p:bg>`;
+    const bgEl = descendant(parseXml(xml), 'bg');
+    expect(bgEl).toBeDefined();
+
+    const bg = await parseSlideBackground(bgEl!, new Map(), imageCtx);
+
+    expect(bg.fill?.kind).toBe('gradient');
+    if (bg.fill?.kind !== 'gradient') return;
+    expect(bg.fill.type).toBe('linear');
+    expect(bg.fill.stops).toHaveLength(2);
+    expect(bg.fill.stops[0]).toEqual({ pos: 0, color: { kind: 'srgb', value: '#FFFFFF' } });
+    expect(bg.fill.stops[1]).toEqual({ pos: 1, color: { kind: 'srgb', value: '#000000' } });
   });
 });

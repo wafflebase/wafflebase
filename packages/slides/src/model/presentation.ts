@@ -1,6 +1,6 @@
 import type { Block } from '@wafflebase/docs';
 import type { AnimDirection, Crop, Element, ElementInit, ObjectAnimation, PlaceholderType } from './element';
-import type { Theme, ThemeColor } from './theme';
+import type { Fill, Theme } from './theme';
 import type { Master } from './master';
 
 /**
@@ -25,7 +25,7 @@ export type Background = {
    * explicit override at that level. Slides authored before background
    * inheritance landed carry an explicit fill and keep their look.
    */
-  fill?: ThemeColor;
+  fill?: Fill;
   image?: BackgroundImage;
 };
 
@@ -184,7 +184,8 @@ export const DEFAULT_BACKGROUND: Background = {
  * fill), not just freshly-created ones. A genuine custom override (an
  * srgb color, or the background role with a tint/shade) still wins.
  */
-export function isInheritableFill(fill: ThemeColor): boolean {
+export function isInheritableFill(fill: Fill): boolean {
+  if (fill.kind === 'gradient') return false;
   return (
     fill.kind === 'role' &&
     fill.role === 'background' &&
@@ -207,7 +208,7 @@ export function isInheritableFill(fill: ThemeColor): boolean {
 export function resolveBackgroundFill(
   slide: Slide,
   doc: SlidesDocument,
-): ThemeColor {
+): Fill {
   if (slide.background.fill && !isInheritableFill(slide.background.fill)) {
     return slide.background.fill;
   }

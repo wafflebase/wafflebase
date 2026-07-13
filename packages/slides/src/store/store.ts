@@ -11,7 +11,7 @@ import type {
   Endpoint,
 } from '../model/connector';
 import type { ElementInit, Frame, PlaceholderRef } from '../model/element';
-import type { ColorScheme, FontScheme, Theme, ThemeColor } from '../model/theme';
+import type { ColorScheme, Fill, FontScheme, Theme } from '../model/theme';
 import type { MasterBackgroundImage, PlaceholderStyle } from '../model/master';
 
 /** LWW patch for a theme's editable fields (theme builder, PR3). */
@@ -24,7 +24,7 @@ export type ThemePatch = {
 /** LWW patch for a master's editable fields (theme builder, PR3). */
 export type MasterPatch = {
   /** Merge background fill and/or image. Pass `image: null` to clear it. */
-  background?: { fill?: ThemeColor; image?: MasterBackgroundImage | null };
+  background?: { fill?: Fill; image?: MasterBackgroundImage | null };
   /** Per-key partial merge of placeholder type styles (title, body, …). */
   placeholderStyles?: Record<string, Partial<PlaceholderStyle>>;
 };

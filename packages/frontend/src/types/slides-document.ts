@@ -89,7 +89,7 @@ export interface YorkieSlide {
    * always see a defined fill.
    */
   background: {
-    fill?: ThemeColor;
+    fill?: import('@wafflebase/slides').Fill;
     image?: {
       src: string;
       opacity?: number;

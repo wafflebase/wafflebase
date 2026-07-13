@@ -16,12 +16,12 @@
 
 import { useEffect, useState } from "react";
 import {
+  representativeColor,
   resolveColor,
   type ColorRole,
   type SlidesStore,
   type Theme,
   type Master,
-  type ThemeColor,
 } from "@wafflebase/slides";
 import { FontFamilyPicker } from "@/components/text-formatting/font-family-picker";
 import { ensureFontLink } from "@/components/text-formatting/font-catalog";
@@ -102,7 +102,7 @@ export function ThemeBuilderPanel({
   };
 
   const masterFill = master.background.fill ?? { kind: "role", role: "background" };
-  const masterFillHex = resolveColor(masterFill as ThemeColor, theme);
+  const masterFillHex = resolveColor(representativeColor(masterFill), theme);
   const masterFillIsRole = masterFill.kind === "role";
 
   const setMasterFill = (value: string) => {

@@ -66,6 +66,18 @@ export interface CtxSpy {
 
   // images
   drawImage: SpyFn;
+
+  // gradients
+  createLinearGradient: SpyFn;
+  /**
+   * `(x0, y0, x1, y1)` args from every `createLinearGradient` call, in
+   * call order. `createLinearGradient` is a `vi.fn()` so the raw args
+   * are technically already in `.mock.calls`, but this gives renderer
+   * tests a readable way to assert gradient axis placement (e.g. "the
+   * axis spans the bitmap rect, not the logical slide rect") without
+   * reaching into mock internals.
+   */
+  gradientCoords: Array<[number, number, number, number]>;
 }
 
 /**
@@ -73,6 +85,7 @@ export interface CtxSpy {
  * isolated object; do NOT share between tests.
  */
 export function createCtxSpy(): CtxSpy {
+  const gradientCoords: Array<[number, number, number, number]> = [];
   return {
     fillStyle: '#000000',
     strokeStyle: '#000000',
@@ -116,6 +129,12 @@ export function createCtxSpy(): CtxSpy {
     measureText: vi.fn(() => ({ width: 0 })) as unknown as SpyFn,
 
     drawImage: vi.fn(),
+
+    createLinearGradient: vi.fn((x0: number, y0: number, x1: number, y1: number) => {
+      gradientCoords.push([x0, y0, x1, y1]);
+      return { addColorStop: vi.fn() };
+    }),
+    gradientCoords,
   };
 }
 

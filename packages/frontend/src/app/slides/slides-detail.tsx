@@ -28,6 +28,7 @@ import { insertImageOnSlide } from "./insert-image";
 import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
+import { BackgroundSidePanel } from "./background-side-panel";
 import {
   Sheet,
   SheetContent,
@@ -148,7 +149,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
-  type RightPanel = "theme" | "format" | "motion" | null;
+  type RightPanel = "theme" | "format" | "motion" | "background" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   // Session-scoped zoom controller shared between SlidesView (drives
   // refitCanvas) and SlidesToolbar (renders the dropdown). useRef
@@ -384,6 +385,10 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               setRightPanel((p) => (p === "motion" ? null : "motion"))
             }
             motionPanelOpen={rightPanel === "motion"}
+            onToggleBackgroundPanel={() =>
+              setRightPanel((p) => (p === "background" ? null : "background"))
+            }
+            backgroundPanelOpen={rightPanel === "background"}
             zoomController={zoomControllerRef.current}
           />
           {layoutEditTarget && (
@@ -431,6 +436,15 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               <MotionPanel
                 store={store}
                 editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "background" && store && editor && activeTheme && (
+              <BackgroundSidePanel
+                store={store}
+                editor={editor}
+                theme={activeTheme}
+                upload={uploadFn}
                 onClose={() => setRightPanel(null)}
               />
             )}
@@ -488,6 +502,10 @@ const MOBILE_PANEL_META = {
     title: "Motion",
     description: "Configure slide transitions and object animations.",
   },
+  background: {
+    title: "Background",
+    description: "Set the slide background color, gradient, or image.",
+  },
 } as const;
 
 /**
@@ -514,7 +532,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
   // Which design/format panel is open as a bottom sheet. Mirrors the
   // desktop `rightPanel` side-drawer state machine, but the panels render
   // inside a `Sheet` instead of docking next to the canvas.
-  type RightPanel = "theme" | "format" | "motion" | null;
+  type RightPanel = "theme" | "format" | "motion" | "background" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const panelMeta = rightPanel ? MOBILE_PANEL_META[rightPanel] : null;
   // Mirror the active theme so the Format sheet's theme-bound pickers
@@ -712,6 +730,10 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
               setRightPanel((p) => (p === "motion" ? null : "motion"))
             }
             motionPanelOpen={rightPanel === "motion"}
+            onToggleBackgroundPanel={() =>
+              setRightPanel((p) => (p === "background" ? null : "background"))
+            }
+            backgroundPanelOpen={rightPanel === "background"}
           />
           <MobileSlidesView
             mode="edit"
@@ -756,6 +778,16 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
                 variant="sheet"
                 store={store}
                 editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "background" && store && editor && activeTheme && (
+              <BackgroundSidePanel
+                variant="sheet"
+                store={store}
+                editor={editor}
+                theme={activeTheme}
+                upload={uploadFn}
                 onClose={() => setRightPanel(null)}
               />
             )}

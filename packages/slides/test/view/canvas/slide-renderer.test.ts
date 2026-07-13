@@ -254,6 +254,73 @@ describe('SlideRenderer.render', () => {
     // model-level color was a role binding.
     expect(ctx.fillStyle).toBe('#fff');
   });
+
+  it('paints a gradient slide background via resolveFillStyle', () => {
+    const { renderer, ctx } = makeRenderer();
+    const slide: Slide = {
+      ...blankSlide(),
+      background: {
+        fill: {
+          kind: 'gradient',
+          type: 'linear',
+          angle: 0,
+          stops: [
+            { pos: 0, color: { kind: 'srgb', value: '#fff' } },
+            { pos: 1, color: { kind: 'srgb', value: '#000' } },
+          ],
+        },
+      },
+    };
+    renderer.render(slide, DOC);
+    // A real gradient axis is built (createLinearGradient), not a
+    // collapsed representative solid color.
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
+    expect(typeof ctx.fillStyle).toBe('object'); // CanvasGradient stub
+  });
+
+  it('paints a solid slide background as a CSS string, no gradient call', () => {
+    const { renderer, ctx } = makeRenderer();
+    const slide: Slide = {
+      ...blankSlide(),
+      background: { fill: { kind: 'srgb', value: '#123456' } },
+    };
+    renderer.render(slide, DOC);
+    expect(ctx.createLinearGradient).not.toHaveBeenCalled();
+    expect(ctx.fillStyle).toBe('#123456');
+  });
+
+  it('lays the no-pasteboard gradient axis across the actual bitmap rect, not SLIDE_WIDTH', () => {
+    // The no-pasteboard background paint runs under an identity CTM and
+    // fills `fillRect(0, 0, bitmapW, bitmapH)` — DEVICE pixels. `makeRenderer`
+    // uses hostWidth 960 / dpr 1 and the ctx-spy exposes no `.canvas`, so
+    // `bitmapW` falls back to `hostWidth * dpr` = 960 (this mirrors how a
+    // thumbnail-sized host renders in production — bitmapW there is also
+    // far below the logical SLIDE_WIDTH of 1920). That 960-vs-1920 gap is
+    // exactly what makes this test fail against the old `SLIDE_WIDTH`-based
+    // gradient axis and pass once the axis is laid out across `bitmapW`.
+    const { renderer, ctx } = makeRenderer();
+    const slide: Slide = {
+      ...blankSlide(),
+      background: {
+        fill: {
+          kind: 'gradient',
+          type: 'linear',
+          angle: 0,
+          stops: [
+            { pos: 0, color: { kind: 'srgb', value: '#fff' } },
+            { pos: 1, color: { kind: 'srgb', value: '#000' } },
+          ],
+        },
+      },
+    };
+    renderer.render(slide, DOC);
+    expect(ctx.gradientCoords.length).toBe(1);
+    // angle 0 → axis spans [0, w] at the fill's local y-center — end-x
+    // must land on the bitmap width (960), not SLIDE_WIDTH (1920).
+    const [, , x1] = ctx.gradientCoords[0];
+    expect(x1).toBe(960);
+    expect(x1).not.toBe(SLIDE_WIDTH);
+  });
 });
 
 function buildDoc() {

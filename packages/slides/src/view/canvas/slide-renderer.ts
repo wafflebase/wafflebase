@@ -7,11 +7,10 @@ import {
   resolveBackgroundImage,
 } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
-import { resolveColor } from '../../model/theme';
 import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
-import { getActiveTheme } from './render-context';
+import { getActiveTheme, resolveFillStyle } from './render-context';
 
 /** Global alpha applied to the hover-ghost element so the user can see
  * exactly what (kind + size + position) is about to be inserted while
@@ -135,7 +134,8 @@ export class SlideRenderer {
  * Functional core of the renderer — exposed for tests and for the
  * thumbnail path which doesn't need the dirty-flag bookkeeping. Looks
  * up the active theme from `doc`, fills the background through
- * `resolveColor`, and dispatches each element to `drawElement`.
+ * `resolveFillStyle` (solid color or gradient), and dispatches each
+ * element to `drawElement`.
  */
 export function drawSlide(
   ctx: CanvasRenderingContext2D,
@@ -181,7 +181,17 @@ export function drawSlide(
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!hasPasteboard) {
-    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
+    // This branch runs under the IDENTITY ctm (the `ctx.scale(scale,
+    // scale)` below hasn't been applied yet) and fills the DEVICE-pixel
+    // rect `fillRect(0, 0, bitmapW, bitmapH)`. A gradient's axis must
+    // therefore be laid out across `bitmapW × bitmapH`, not the logical
+    // `SLIDE_WIDTH × slideH` — otherwise the axis only matches the
+    // filled rect when `bitmapW === SLIDE_WIDTH` (e.g. it silently
+    // breaks thumbnails, PDF export, and no-pasteboard presentation /
+    // mobile, whose bitmaps are smaller than the logical slide).
+    ctx.fillStyle = resolveFillStyle(
+      ctx, resolveBackgroundFill(slide, doc), theme, bitmapW, bitmapH,
+    );
     ctx.fillRect(0, 0, bitmapW, bitmapH);
   } else {
     ctx.clearRect(0, 0, bitmapW, bitmapH);
@@ -201,7 +211,9 @@ export function drawSlide(
     // and hairline are owned by `slideElevation` in slides-view.tsx
     // — keeping them in CSS means they survive every paint mode
     // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
-    ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme);
+    ctx.fillStyle = resolveFillStyle(
+      ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
+    );
     ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
   }
 

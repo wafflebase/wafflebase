@@ -9,7 +9,7 @@ import { parseBlipFill, toBackgroundImage, type ImageParseContext } from './imag
 import type { TxStylesAlignments, TxStylesMarkers } from './master';
 import { parseRels, resolveRelsTarget, type PptxRel } from './rels';
 import { ImportReport } from './report';
-import { parseSpTree, type SlideParseContext } from './shape';
+import { parseGradientFill, parseSpTree, type SlideParseContext } from './shape';
 import { parseTextBody } from './text';
 import { parseTiming } from './timing';
 import { parseTransition } from './transition-map';
@@ -164,10 +164,11 @@ function pickLayoutInfo(
 
 /**
  * Parse a `<p:bg>` element (from a slide, layout, or any `<p:cSld>`) into a
- * {@link Background}. Handles `<p:bgPr>` with `blipFill` (image) or
- * `solidFill` (color); `<p:bgRef>` style-matrix indices are unhandled and
- * fall through to {@link DEFAULT_BACKGROUND}. Exported so the layout parser
- * reuses the exact same semantics rather than keeping a third copy.
+ * {@link Background}. Handles `<p:bgPr>` with `blipFill` (image), `gradFill`
+ * (gradient), or `solidFill` (color); `<p:bgRef>` style-matrix indices are
+ * unhandled and fall through to {@link DEFAULT_BACKGROUND}. Exported so the
+ * layout parser reuses the exact same semantics rather than keeping a third
+ * copy.
  */
 export async function parseSlideBackground(
   bgEl: Element,
@@ -188,6 +189,11 @@ export async function parseSlideBackground(
       }
       // Upload failed / blip unresolved — fall through so the slide
       // still gets the theme background instead of nothing.
+    }
+    const grad = child(bgPr, 'gradFill');
+    if (grad) {
+      const g = parseGradientFill(grad, clrMap);
+      if (g) return { fill: g };
     }
     const solid = child(bgPr, 'solidFill');
     if (solid) {

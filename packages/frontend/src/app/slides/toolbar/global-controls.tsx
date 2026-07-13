@@ -8,25 +8,12 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
-import { resolveColor } from "@wafflebase/slides";
-import { useSlideBackground } from "../use-slide-background";
 import { Toggle } from "@/components/ui/toggle";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { ThemedColorPicker } from "../themed-color-picker";
-import {
-  releaseFocusToBody,
-  useMenuCloseHandlers,
-} from "@/components/menu-focus";
-import { ColorSwatchButton } from "@/components/color-swatch-button";
 
 // ---------------------------------------------------------------------------
 // UndoRedoGroup
@@ -107,6 +94,8 @@ export interface RightGlobalsProps {
   formatPanelOpen?: boolean;
   onToggleMotionPanel?: () => void;
   motionPanelOpen?: boolean;
+  onToggleBackgroundPanel?: () => void;
+  backgroundPanelOpen?: boolean;
 }
 
 /**
@@ -123,44 +112,22 @@ export interface RightGlobalsProps {
  * painter); Done moved into the text-edit contextual section so it
  * doesn't sit among slide-style controls. `aria-label` on the wrapper
  * lets tests anchor on the cluster without relying on visual order.
+ *
+ * Background is a right-side PANEL like Format/Motion/Theme (not a
+ * DropdownMenu here) — the actual `useSlideBackground` instance now
+ * lives in `BackgroundSidePanel`, mounted by `slides-detail.tsx`
+ * alongside the other panels, so this component only renders the toggle.
  */
 export function RightGlobals({
-  editor,
-  store,
-  theme,
   onToggleThemePanel,
   themePanelOpen,
   onToggleFormatPanel,
   formatPanelOpen,
   onToggleMotionPanel,
   motionPanelOpen,
+  onToggleBackgroundPanel,
+  backgroundPanelOpen,
 }: RightGlobalsProps) {
-  const slideId = editor?.getCurrentSlideId();
-  // Controlled open state so the swatch click closes the palette — the
-  // color swatches are plain <button>s, not DropdownMenuItem.
-  const [backgroundOpen, setBackgroundOpen] = useState(false);
-  const backgroundMenu = useMenuCloseHandlers(releaseFocusToBody);
-  // Only a discrete swatch pick closes the palette; live custom-input
-  // changes (and the custom blur, which records only) keep it open.
-  const { backgroundFill, onChange: onBackgroundChange } = useSlideBackground(
-    store,
-    slideId,
-    theme ?? null,
-    () => {
-      backgroundMenu.markSwatchClicked();
-      setBackgroundOpen(false);
-    },
-  );
-
-  const hasSlideStyleGroup = !!store;
-
-  // The raw ThemeColor drives the picker's "active" swatch marker, and its
-  // resolved CSS string drives the swatch button's stripe. Both fall back to
-  // undefined (empty outlined slot / no marker) when nothing is known yet.
-  const currentBackground = backgroundFill
-    ? resolveColor(backgroundFill, theme!)
-    : undefined;
-
   return (
     <div
       className="ml-auto flex items-center gap-1"
@@ -196,37 +163,20 @@ export function RightGlobals({
           <TooltipContent>Motion</TooltipContent>
         </Tooltip>
       )}
-      {hasSlideStyleGroup && (
-        <DropdownMenu open={backgroundOpen} onOpenChange={setBackgroundOpen}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <ColorSwatchButton
-                  icon={<IconBackground size={14} />}
-                  color={currentBackground}
-                  label="Slide background"
-                  disabled={!store || !slideId || !theme}
-                />
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Slide background</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            align="end"
-            className="w-auto p-2"
-            onCloseAutoFocus={backgroundMenu.onCloseAutoFocus}
-          >
-            {theme && (
-              <ThemedColorPicker
-                value={backgroundFill}
-                theme={theme}
-                onChange={onBackgroundChange}
-                allowAlpha
-                recentColors={store?.read().meta.recentColors}
-              />
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {onToggleBackgroundPanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!backgroundPanelOpen}
+              onPressedChange={() => onToggleBackgroundPanel()}
+              aria-label="Toggle slide background"
+            >
+              <IconBackground size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Background</TooltipContent>
+        </Tooltip>
       )}
       {onToggleThemePanel && (
         <Tooltip>

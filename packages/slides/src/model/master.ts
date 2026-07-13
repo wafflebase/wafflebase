@@ -1,5 +1,5 @@
 import type { Crop } from './element';
-import type { ColorRole, FontRole, ThemeColor } from './theme';
+import type { ColorRole, Fill, FontRole } from './theme';
 
 export type PlaceholderStyle = {
   fontRole: FontRole;
@@ -18,7 +18,7 @@ export type MasterBackgroundImage = {
 };
 
 export type MasterBackground = {
-  fill: ThemeColor;
+  fill: Fill;
   image?: MasterBackgroundImage;
 };
 

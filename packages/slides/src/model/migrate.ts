@@ -1,6 +1,6 @@
 import type { Guide, GuideAxis, SlidesDocument } from './presentation';
 import { MAX_RECENT_COLORS } from './presentation';
-import type { GradientFill, ThemeColor } from './theme';
+import type { Fill, GradientFill, ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
 import { generateId } from './element';
 import { defaultLight } from '../themes/default-light';
@@ -133,14 +133,21 @@ function migrateSlide(slide: any): any {
   return migrated;
 }
 
-function migrateBackground(bg: any): { fill?: ThemeColor; image?: any } {
-  const out: { fill?: ThemeColor; image?: any } = {};
+function migrateBackground(bg: any): { fill?: Fill; image?: any } {
+  const out: { fill?: Fill; image?: any } = {};
   // Preserve an absent fill as "inherit" (slide → layout → master →
   // background role). Only wrap a fill that is actually set; never
   // synthesize a white default — an inheriting slide resolves to the
   // `background` role, which is white for default-light, so old decks
-  // look identical.
-  if (bg?.fill != null) out.fill = wrapColor(bg.fill);
+  // look identical. A gradient fill routes through `migrateGradientFill`
+  // (same split `migrateElement` already uses for shape fills) so it
+  // survives instead of being treated as an opaque `ThemeColor`.
+  if (bg?.fill != null) {
+    out.fill =
+      bg.fill?.kind === 'gradient'
+        ? migrateGradientFill(bg.fill)
+        : wrapColor(bg.fill);
+  }
   if (bg?.image != null) out.image = bg.image;
   return out;
 }
