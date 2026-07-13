@@ -131,50 +131,54 @@ the same swap there.
   L1091-1093) also `clone` — all gradient-agnostic. Gradients ride through
   because the whole `background` object is cloned, exactly like shape fills.
 
-### 4. UI — restructure the panel, reuse `FillPicker`
+### 4. UI — a right-side **panel**, consistent with Theme / Motion / Format
 
-**Panel layout** (desktop popover + mobile bottom sheet):
+Background is a **right-side panel** (`background-side-panel.tsx`), not a
+toolbar dropdown — so it matches the Theme / Motion / Format panels rather
+than being the odd one out. It participates in the single `RightPanel`
+union (`slides-detail.tsx`, `"theme" | "format" | "motion" | "background" |
+null`), so it is mutually exclusive with the others and toggles from a
+toolbar `Toggle` button (`global-controls.tsx`, `IconBackground`) exactly
+like them. Desktop renders the `variant="drawer"` `w-72` aside; mobile
+renders `variant="sheet"` inside the shared bottom `Sheet`.
+
+**Panel layout** (sections, like the Format panel):
 
 ```
-┌ Background ────────────────┐
-│ [ Color ] [ Image ]         │  segmented toggle
-│ ──────────────────────────  │
-│ (Color)  <FillPicker>        │  Solid | Gradient tabs (existing)
-│ (Image)  [ Choose image… ]   │  → image-upload URL pipeline
-│          Opacity ▓▓▓░ 80%    │  image.opacity slider
-│ ──────────────────────────  │
-│ ↺ Reset to theme            │  clear fill + image
-│ ☑ Apply to all slides       │  write to master background
-└─────────────────────────────┘
+┌ Background                 × ┐
+│ Color                        │
+│   [ Solid | Gradient ]       │  <FillPicker> (existing, generic)
+│   [ swatch palette / stops ] │
+│ Image                        │
+│   [ Choose / Replace image… ]│  → image-upload URL pipeline
+│   Opacity ▓▓▓░ 80%           │  image.opacity slider (commit on release)
+│   [ Remove image ]           │
+│ ───────────────────────────  │
+│ [ Reset to theme ]           │  clear fill + image
+│ [ Apply to all slides ]      │  write to master background
+└──────────────────────────────┘
 ```
 
-**Components to reuse (drop-in, already generic — no shape coupling):**
+**Reused as-is:** `FillPicker` (`fill-picker/index.tsx`, Solid|Gradient) and
+the `useSlideBackground` hook (below). The panel owns one `useSlideBackground`
+instance (no `onCommit` auto-close — the panel stays open like the others),
+subscribes to `store.onChange` + `editor.onCurrentSlideChange` to refresh on
+slide switches, and flushes any in-progress gradient draft on unmount via a
+`bgRef`-backed cleanup (covers drawer ×, panel switch, and mobile Sheet close
+uniformly).
 
-- `FillPicker` (`fill-picker/index.tsx:32`) — Solid | Gradient toggle, props
-  `{ fill: Fill | undefined; onChangeSolid; onChangeGradient; onClear }`.
-- `GradientEditor` (`fill-picker/gradient-editor.tsx:56`) — stops-bar.
+**`useSlideBackground`** (`use-slide-background.ts`) owns all read/write
+semantics: `backgroundFill: Fill`, `backgroundImage`, `gradientDraft`;
+`onChangeSolid`/`onChangeGradient` (draft + commit-on-flush, pattern lifted
+from `shape-controls.tsx`) → `updateSlideBackground(slideId, { fill })`;
+`onChooseImage(src)` → `{ image: { src } }`; `onChangeImageOpacity`;
+`onResetToTheme` → `{}`; `onApplyToAll` → `updateMaster(doc.meta.masterId,
+{ background: { fill, ...(image ? { image } : {}) } })`.
 
-**The one non-trivial wiring** — `packages/frontend/src/app/slides/use-slide-background.ts`
-(currently hard-codes `{ fill: color }` at L44-56):
-
-- Widen `backgroundFill` return type `ThemeColor | undefined` → `Fill | undefined`.
-- Add `onChangeSolid` / `onChangeGradient` writing
-  `updateSlideBackground(slideId, { fill })` and an `onClearFill`.
-- Add `onChangeImage(src)` writing `updateSlideBackground(slideId, { image: { src } })`
-  and `onChangeOpacity`.
-- Add `onResetToTheme()` → `updateSlideBackground(slideId, {})`.
-- Add `onApplyToAll()` → `updateMaster(masterId, { background: { ... } })` for
-  the current slide's master.
-- Gradient needs a **draft/commit debounce** (drag stops without spamming
-  CRDT ops then commit on release); lift the pattern almost verbatim from
-  `shape-controls.tsx:62-164` (`persistGradient` debounce → commit).
-
-**Wiring sites:**
-
-- Desktop: `global-controls.tsx:220-223` — replace `<ThemedColorPicker>` with
-  the new Background popover (Color=`FillPicker`, Image section).
-- Mobile: `mobile-toolbar.tsx` `SlideBackgroundSheet` (L654+) — same content in
-  the bottom sheet.
+**Wiring sites:** the desktop dropdown and the bespoke mobile
+`SlideBackgroundSheet` were **removed**; the toolbar `Toggle`
+(`global-controls.tsx`) drives `rightPanel`, and both surfaces mount the one
+`BackgroundSidePanel`.
 
 **Store ops** (all already exist — `store.ts`):
 
