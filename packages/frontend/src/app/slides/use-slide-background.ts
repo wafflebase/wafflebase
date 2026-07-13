@@ -12,18 +12,20 @@ import { resolveBackgroundFill, resolveBackgroundImage } from "@wafflebase/slide
 /**
  * Shared slide-background read + write semantics for the current slide.
  *
- * Both the desktop `RightGlobals` dropdown and the mobile
- * `SlideBackgroundSheet` consume this so the store-write rules — one
- * background per slide (a solid/gradient fill and an image are mutually
- * exclusive; setting one drops the other), batched `updateSlideBackground`
- * writes, `pushRecentColor` on a recorded sRGB pick, and the gradient
- * live-drag draft that avoids spamming the CRDT on every pointermove —
- * live in exactly one place.
+ * `BackgroundSidePanel` (the shared Theme/Motion/Format-panel-parity right
+ * side surface, used on both desktop and mobile) consumes this so the
+ * store-write rules — one background per slide (a solid/gradient fill and
+ * an image are mutually exclusive; setting one drops the other), batched
+ * `updateSlideBackground` writes, `pushRecentColor` on a recorded sRGB
+ * pick, and the gradient live-drag draft that avoids spamming the CRDT on
+ * every pointermove — live in exactly one place.
  *
- * `onCommit` fires for a discrete, "close the popover/sheet" action
- * (a swatch pick, a gradient drag release, an image choice, a reset);
- * live custom-input changes (including an in-flight gradient drag) keep
- * it open.
+ * `onCommit` fires for a discrete, "close the popover/sheet" action (a
+ * swatch pick, a gradient drag release, an image choice, a reset); live
+ * custom-input changes (including an in-flight gradient drag) keep it
+ * open. `BackgroundSidePanel` passes no `onCommit` — unlike the old
+ * dropdown/sheet, the panel stays open across edits, matching Theme /
+ * Motion / Format.
  */
 export function useSlideBackground(
   store: SlidesStore | null,

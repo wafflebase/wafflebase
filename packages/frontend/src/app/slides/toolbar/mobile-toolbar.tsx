@@ -75,8 +75,6 @@ import { ArrangeMenu } from "./arrange-menu";
 import { ShapePicker } from "../shape-picker";
 import { LinePicker } from "../line-picker";
 import { TablePicker } from "../table-picker";
-import { BackgroundPanel } from "../background-panel";
-import { useSlideBackground } from "../use-slide-background";
 
 export interface MobileSlidesToolbarProps {
   editor: SlidesEditor | null;
@@ -88,6 +86,7 @@ export interface MobileSlidesToolbarProps {
   onToggleThemePanel?: () => void;
   onToggleFormatPanel?: () => void;
   onToggleMotionPanel?: () => void;
+  onToggleBackgroundPanel?: () => void;
 }
 
 export function MobileSlidesToolbar(props: MobileSlidesToolbarProps) {
@@ -105,10 +104,10 @@ function IdleMobileBar({
   store,
   theme,
   onImagePick,
-  upload,
   onToggleThemePanel,
   onToggleFormatPanel,
   onToggleMotionPanel,
+  onToggleBackgroundPanel,
 }: MobileSlidesToolbarProps) {
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
@@ -120,10 +119,10 @@ function IdleMobileBar({
         editor={editor}
         store={store}
         theme={theme}
-        upload={upload}
         onToggleThemePanel={onToggleThemePanel}
         onToggleFormatPanel={onToggleFormatPanel}
         onToggleMotionPanel={onToggleMotionPanel}
+        onToggleBackgroundPanel={onToggleBackgroundPanel}
       />
     </Toolbar>
   );
@@ -143,6 +142,7 @@ function ObjectMobileBar({
   onToggleThemePanel,
   onToggleFormatPanel,
   onToggleMotionPanel,
+  onToggleBackgroundPanel,
 }: MobileSlidesToolbarProps & {
   state: Extract<ToolbarState, { kind: "object" }>;
 }) {
@@ -195,10 +195,10 @@ function ObjectMobileBar({
         editor={editor}
         store={store}
         theme={theme}
-        upload={upload}
         onToggleThemePanel={onToggleThemePanel}
         onToggleFormatPanel={onToggleFormatPanel}
         onToggleMotionPanel={onToggleMotionPanel}
+        onToggleBackgroundPanel={onToggleBackgroundPanel}
       />
     </Toolbar>
   );
@@ -567,24 +567,22 @@ function OverflowMenu({
   editor,
   store,
   theme,
-  upload,
   onToggleThemePanel,
   onToggleFormatPanel,
   onToggleMotionPanel,
+  onToggleBackgroundPanel,
 }: {
   editor: SlidesEditor | null;
   store: SlidesStore | null;
   theme?: Theme | null;
-  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
   onToggleThemePanel?: () => void;
   onToggleFormatPanel?: () => void;
   onToggleMotionPanel?: () => void;
+  onToggleBackgroundPanel?: () => void;
 }) {
-  // Only `backgroundOpen` is controlled — the DropdownMenu itself is
-  // uncontrolled and auto-closes on select. The background sheet lives
-  // outside the menu so it survives the dropdown unmount.
-  const [backgroundOpen, setBackgroundOpen] = useState(false);
   const slideId = editor?.getCurrentSlideId();
+  // Slide background routes through the shared `rightPanel` bottom Sheet
+  // (same as Theme/Format/Motion) rather than a toolbar-local sheet.
   const canBackground = !!store && !!slideId && !!theme;
   // Theme reads the deck (store); Format/Motion panels need a live editor
   // selection context. Gate the items on real readiness so a tap before
@@ -594,118 +592,44 @@ function OverflowMenu({
   const canPanels = !!store && !!editor;
 
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="More slide options"
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-          >
-            <IconDotsVertical size={16} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Design</DropdownMenuLabel>
-          <DropdownMenuItem
-            onClick={() => onToggleThemePanel?.()}
-            disabled={!canTheme}
-          >
-            Theme…
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => setBackgroundOpen(true)}
-            disabled={!canBackground}
-          >
-            Slide background…
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => onToggleFormatPanel?.()}
-            disabled={!onToggleFormatPanel || !canPanels}
-          >
-            Format options…
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => onToggleMotionPanel?.()}
-            disabled={!onToggleMotionPanel || !canPanels}
-          >
-            Motion…
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {canBackground && (
-        <SlideBackgroundSheet
-          open={backgroundOpen}
-          onOpenChange={setBackgroundOpen}
-          store={store!}
-          theme={theme!}
-          slideId={slideId!}
-          upload={upload}
-        />
-      )}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Slide background sheet (toolbar-local)
-// ---------------------------------------------------------------------------
-
-/**
- * Mobile bottom-sheet wrapper around the shared `BackgroundPanel`,
- * mirroring the desktop `RightGlobals` slide-background dropdown. Writes
- * through `store.updateSlideBackground` for the current slide; a discrete
- * pick (swatch, image, reset) closes the sheet, live custom-input changes
- * (and gradient-stop drags) keep it open.
- */
-function SlideBackgroundSheet({
-  open,
-  onOpenChange,
-  store,
-  theme,
-  slideId,
-  upload,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  store: SlidesStore;
-  theme: Theme;
-  slideId: string;
-  upload?: (file: File) => Promise<{ url: string; w: number; h: number }>;
-}) {
-  // Single hook instance, lifted here (not inside BackgroundPanel) so the
-  // Sheet's onOpenChange can flush an in-flight gradient drag draft via
-  // `bg.onFlushGradientDraft()` before the panel unmounts — same pattern
-  // as the desktop RightGlobals DropdownMenu.
-  const bg = useSlideBackground(store, slideId, theme, () =>
-    onOpenChange(false),
-  );
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) bg.onFlushGradientDraft();
-        onOpenChange(next);
-      }}
-    >
-      <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom,8px)]">
-        <SheetHeader>
-          <SheetTitle>Background</SheetTitle>
-          <SheetDescription className="sr-only">
-            Set the slide background color, gradient, or image.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="px-4 pb-4">
-          <BackgroundPanel
-            bg={bg}
-            theme={theme}
-            recentColors={store.read().meta.recentColors}
-            upload={upload}
-          />
-        </div>
-      </SheetContent>
-    </Sheet>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="More slide options"
+          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+        >
+          <IconDotsVertical size={16} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Design</DropdownMenuLabel>
+        <DropdownMenuItem
+          onClick={() => onToggleThemePanel?.()}
+          disabled={!canTheme}
+        >
+          Theme…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onToggleBackgroundPanel?.()}
+          disabled={!onToggleBackgroundPanel || !canBackground}
+        >
+          Slide background…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onToggleFormatPanel?.()}
+          disabled={!onToggleFormatPanel || !canPanels}
+        >
+          Format options…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onToggleMotionPanel?.()}
+          disabled={!onToggleMotionPanel || !canPanels}
+        >
+          Motion…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
