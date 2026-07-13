@@ -193,6 +193,34 @@ describe('SlideRenderer.render', () => {
       renderer.render(blankSlide(), DOC);
       expect(ctx.drawImage).not.toHaveBeenCalled();
     });
+
+    it('invokes onAssetLoad when a background image finishes loading so loop-less consumers can repaint', async () => {
+      // Regression: mobile view mode / presenter have no per-frame RAF loop,
+      // so the background image loaded after the first paint stayed blank
+      // until an unrelated event. The renderer must notify the consumer via
+      // onAssetLoad (not just flip its internal dirty flag) on async load.
+      const ctx = createCtxSpy();
+      const onAssetLoad = vi.fn();
+      const renderer = new SlideRenderer(asCtx(ctx), {
+        hostWidth: 960, hostHeight: 540, dpr: 1, onAssetLoad,
+      });
+      const slide: Slide = {
+        ...blankSlide(),
+        background: {
+          fill: { kind: 'srgb', value: '#fff' },
+          image: { src: 'late-bg.png' },
+        },
+      };
+      renderer.render(slide, DOC);
+      // First paint kicks off the load; nothing drawn, callback not yet fired.
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+      expect(onAssetLoad).not.toHaveBeenCalled();
+
+      await flushMicrotasks();
+
+      // Image finished decoding → renderer notifies the consumer.
+      expect(onAssetLoad).toHaveBeenCalled();
+    });
   });
 
   it('forceRender paints even when not dirty', () => {

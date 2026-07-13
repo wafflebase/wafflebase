@@ -18,6 +18,8 @@ interface TestHandle {
   getCanvas: () => HTMLCanvasElement;
   getLastPaintKind: () => 'slide' | 'end' | null;
   getAnimPlayer: () => AnimationPlayer | null;
+  scheduleRepaint: () => void;
+  getRepaintRafHandle: () => number | null;
 }
 
 function testApi(presenter: Presenter): TestHandle {
@@ -400,6 +402,35 @@ describe('presenter — RAF loop fires forceRender during animation', () => {
       // Slide A is still current — the RAF loop doesn't change slides.
       expect(presenter.getCurrentSlideId()).toBe(aId);
       expect(presenter.isAtEndScreen()).toBe(false);
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('does NOT schedule an asset-load repaint while an animation step is playing', () => {
+    const { doc, aId } = makeDocWithAnimations();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // On the resting slide (no step playing) an asset load schedules a
+      // repaint as normal.
+      testApi(presenter).scheduleRepaint();
+      expect(testApi(presenter).getRepaintRafHandle()).not.toBeNull();
+      flushRaf(500);
+      expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
+
+      testApi(presenter).next(); // advance step 0 → object-animation loop running
+
+      // An asset finishing while the animation is mid-flight must not force a
+      // resting-state paint() that flashes the element to its end position —
+      // the running forceRender loop already repaints (and re-queries the
+      // image cache) every frame.
+      testApi(presenter).scheduleRepaint();
+      expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
     } finally {
       presenter.dispose();
     }

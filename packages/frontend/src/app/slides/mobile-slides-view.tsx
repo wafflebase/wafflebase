@@ -249,6 +249,12 @@ export function MobileSlidesView({
 
     let renderer: SlideRenderer | null = null;
     let lastDoc: SlidesDocument = store.read();
+    let repaintRaf = 0;
+    // Set on cleanup. A background image still loading when the effect
+    // re-runs keeps this renderer's onAssetLoad subscribed in the image
+    // cache; the flag makes that stale callback a no-op instead of
+    // scheduling a RAF the (already-run) cleanup can no longer cancel.
+    let cancelled = false;
 
     function paint() {
       if (!renderer) return;
@@ -256,6 +262,18 @@ export function MobileSlidesView({
       if (!slide) return;
       renderer.markDirty();
       renderer.render(slide, lastDoc);
+    }
+
+    // View mode has no per-frame RAF loop, so a background/element image
+    // that finishes decoding after the first paint would stay blank until
+    // an unrelated event (slide change, store.onChange) re-ran paint().
+    // Schedule a coalesced repaint when the renderer reports an async load.
+    function scheduleRepaint() {
+      if (cancelled || repaintRaf) return;
+      repaintRaf = requestAnimationFrame(() => {
+        repaintRaf = 0;
+        paint();
+      });
     }
 
     function applyFit() {
@@ -272,6 +290,7 @@ export function MobileSlidesView({
         hostWidth: cssW,
         hostHeight: cssH,
         dpr,
+        onAssetLoad: scheduleRepaint,
       });
       paint();
     }
@@ -296,6 +315,8 @@ export function MobileSlidesView({
     return () => {
       ro.disconnect();
       unsubscribe();
+      cancelled = true;
+      if (repaintRaf) cancelAnimationFrame(repaintRaf);
       renderer = null;
     };
   }, [mode, store, currentSlideId]);

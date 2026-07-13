@@ -18,9 +18,13 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides background (2026-07-12) | [20260712-slides-background-todo.md](./active/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./active/20260712-slides-background-lessons.md) |
+| slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./active/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./active/20260714-slides-mobile-bg-repaint-lessons.md) |
+| checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./active/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./active/20260712-checkbox-parity-lessons.md) |
+| checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./active/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./active/20260712-checkbox-validation-bugfix-lessons.md) |
 | release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
+| slides background (2026-07-12) | [20260712-slides-background-todo.md](./active/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./active/20260712-slides-background-lessons.md) |
 | slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./active/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./active/20260712-slides-font-ooxml-parity-lessons.md) |
+| validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./active/20260712-validation-number-text-todo.md) | - |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./active/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./active/20260711-sheets-date-validation-lessons.md) |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
@@ -39,4 +43,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 356
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.5.1 (2026-07-12)
+Latest active task: slides mobile bg repaint (2026-07-14)

@@ -38,6 +38,14 @@ export interface SlideRendererOptions {
    */
   slideOffsetLogicalX?: number;
   slideOffsetLogicalY?: number;
+  /**
+   * Called after an async asset (e.g. a background or element image)
+   * finishes loading, in addition to the internal dirty flag. Consumers
+   * without a continuous render loop (mobile single-slide view, presenter)
+   * use this to schedule a repaint; the desktop editor's RAF loop repaints
+   * from the dirty flag alone and can omit it.
+   */
+  onAssetLoad?: () => void;
 }
 
 /**
@@ -76,6 +84,18 @@ export class SlideRenderer {
   }
 
   /**
+   * Asset-load callback handed to `drawSlide`. Marks the slide dirty and
+   * notifies the consumer so paths without a per-frame render loop (mobile
+   * view, presenter) can schedule a repaint. Consumers that re-drive
+   * `render()` every frame (desktop editor) leave `onAssetLoad` unset — the
+   * dirty flag alone repaints them on the next frame.
+   */
+  private handleAssetLoad(): void {
+    this.markDirty();
+    this.options.onAssetLoad?.();
+  }
+
+  /**
    * Paint `slide` onto the bound ctx if dirty. No-op otherwise.
    *
    * `doc` provides the active theme via `getActiveTheme(doc)`; every
@@ -85,7 +105,7 @@ export class SlideRenderer {
    */
   render(slide: Slide, doc: SlidesDocument): void {
     if (!this.dirty) return;
-    drawSlide(this.ctx, slide, doc, this.options, () => this.markDirty());
+    drawSlide(this.ctx, slide, doc, this.options, () => this.handleAssetLoad());
     this.dirty = false;
   }
 
@@ -121,7 +141,7 @@ export class SlideRenderer {
       slide,
       doc,
       this.options,
-      () => this.markDirty(),
+      () => this.handleAssetLoad(),
       ghosts,
       animStates,
       cropPreview,

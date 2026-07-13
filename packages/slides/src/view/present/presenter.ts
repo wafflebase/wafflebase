@@ -110,6 +110,12 @@ export function startPresenter(options: PresenterOptions): Presenter {
   // on dispose() and before any slide change.
   let transitionRafHandle: number | null = null;
 
+  // Repaint RAF handle — a static (non-animated) slide has no render loop,
+  // so an async-loaded background/element image would otherwise stay blank
+  // until the next navigation. Coalesces asset-load repaints; cancelled on
+  // dispose.
+  let repaintRafHandle: number | null = null;
+
   // Current CSS size of the canvas slot. Updated by applyFit() and read
   // by playTransition() to build offscreen SlideRenderers at the same
   // scale as the main renderer.
@@ -160,9 +166,28 @@ export function startPresenter(options: PresenterOptions): Presenter {
       hostWidth: cssWidth,
       hostHeight: cssHeight,
       dpr,
+      onAssetLoad: scheduleRepaint,
     });
     renderer.markDirty();
     paint();
+  }
+
+  // Schedule a coalesced repaint when the renderer reports an async asset
+  // load (e.g. a background image that finished decoding after the initial
+  // paint). Only fires when the slide is otherwise static: a running
+  // object-animation loop (rafHandle) already re-draws every frame via
+  // forceRender (re-querying the image cache), and a running transition
+  // (transitionRafHandle) composites frozen offscreen bitmaps and settles
+  // with its own onDone paint() — forcing a settled paint() on top of
+  // either would flash the resting/next slide over the in-progress
+  // animation for one frame.
+  function scheduleRepaint(): void {
+    if (disposed || repaintRafHandle !== null) return;
+    if (rafHandle !== null || transitionRafHandle !== null) return;
+    repaintRafHandle = requestAnimationFrame(() => {
+      repaintRafHandle = null;
+      paint();
+    });
   }
 
   // observe documentElement as a viewport proxy — it works pre-fullscreen and post-overlay-fallback alike
@@ -694,6 +719,10 @@ export function startPresenter(options: PresenterOptions): Presenter {
     // ensure no further ticks fire even if cancelAnimationFrame races.
     cancelRaf();
     cancelTransitionRaf();
+    if (repaintRafHandle !== null) {
+      cancelAnimationFrame(repaintRafHandle);
+      repaintRafHandle = null;
+    }
     animPlayer = null;
 
     // Detach the fullscreenchange listener FIRST so the
@@ -766,6 +795,8 @@ export function startPresenter(options: PresenterOptions): Presenter {
       getResources: () => ({ canvas, ctx, prevCssText, resizeObserver, mountMode }),
       getAnimPlayer: () => animPlayer,
       getTransitionRafHandle: () => transitionRafHandle,
+      scheduleRepaint,
+      getRepaintRafHandle: () => repaintRafHandle,
     },
   });
 
