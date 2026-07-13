@@ -202,7 +202,10 @@ export function BackgroundSidePanel({
   return (
     <aside
       aria-label="Background"
-      className="flex w-72 shrink-0 flex-col border-l bg-background"
+      // Narrower than the w-72 Theme/Format/Motion panels: the widest content
+      // is the 208px FillPicker, so w-60 (240px) fits it plus the p-3 padding
+      // without the empty gutter w-72 left.
+      className="flex w-60 shrink-0 flex-col border-l bg-background"
     >
       <header className="flex items-center justify-between border-b p-2">
         <h2 className="text-sm font-semibold">Background</h2>
