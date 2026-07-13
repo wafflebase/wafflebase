@@ -94,10 +94,14 @@ degrade to a single color.
   `shape-renderer.ts:400/418`). It returns a solid CSS string for a
   `ThemeColor` or a `CanvasGradient` for a gradient, laid across the `w × h`
   box, with a degenerate fallback to `resolveColor(representativeColor(fill))`.
-- **Nuance:** the no-pasteboard path (L184) fills the whole bitmap
-  (`bitmapW × bitmapH`). Pass the **logical slide size** (`SLIDE_WIDTH ×
-  slideH`) as `w/h` so the gradient axis maps to the slide, not the DPR-scaled
-  bitmap.
+- **Nuance:** the no-pasteboard path (L184) runs under the identity CTM (the
+  `ctx.scale` is applied afterwards) and fills the whole bitmap in **device
+  pixels** — so it must pass `bitmapW × bitmapH` as `w/h`, matching the filled
+  rect. Only the **pasteboard** path (L204), which paints after `ctx.scale`
+  in logical coords, passes the logical slide size (`SLIDE_WIDTH × slideH`). A
+  gradient laid across the logical size in the no-pasteboard branch would only
+  line up when `bitmapW === SLIDE_WIDTH`, silently breaking thumbnails, PDF
+  export, and no-pasteboard presentation/mobile.
 - The image fill (L214-217, `pickBackgroundImage` → `drawImage`) is unchanged;
   it already paints over the color/gradient fill.
 
@@ -221,7 +225,7 @@ solid. Image `<a:blipFill>` export is unchanged.
 
 | Risk | Mitigation |
 | --- | --- |
-| No-pasteboard renderer path fills the DPR-scaled bitmap, so a gradient axis could map to the wrong box | Pass logical `SLIDE_WIDTH × slideH` as `w/h` to `resolveFillStyle`, not bitmap size |
+| No-pasteboard renderer path fills the DPR-scaled bitmap under the identity CTM, so a gradient axis could map to the wrong box | Pass the **bitmap** size (`bitmapW × bitmapH`) as `w/h` to `resolveFillStyle` in the no-pasteboard branch (device pixels, matching the filled rect); the pasteboard branch passes logical `SLIDE_WIDTH × slideH` |
 | Widening `Background.fill` to `Fill` breaks `isInheritableFill` type-narrowing | Add `kind === 'gradient'` early-return guard; a gradient is never inheritable |
 | Legacy pre-v0.5 string / solid backgrounds must keep loading | `migrateBackground` ternary preserves the `wrapColor` path for non-gradient; only adds the gradient branch |
 | Gradient stop dragging spams CRDT ops | Draft/commit debounce lifted from `shape-controls.tsx:62-164` |

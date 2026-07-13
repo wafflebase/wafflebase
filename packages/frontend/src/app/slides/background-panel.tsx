@@ -1,9 +1,31 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { toast } from "sonner";
 import type { Theme } from "@wafflebase/slides";
 import { representativeColor, resolveColor } from "@wafflebase/slides";
 import { FillPicker } from "./fill-picker";
 import type { useSlideBackground } from "./use-slide-background";
+
+// Inline chevrons instead of `@tabler/icons-react` so this module doesn't
+// become a second importer of the icon barrel (which Vite would hoist into
+// an extra shared chunk, tripping the frontend chunk-count budget).
+function Chevron({ dir }: { dir: "left" | "right" }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-muted-foreground"
+      aria-hidden="true"
+    >
+      <path d={dir === "left" ? "M15 18l-6-6 6-6" : "M9 18l6-6-6-6"} />
+    </svg>
+  );
+}
 
 export interface BackgroundPanelProps {
   /**
@@ -44,8 +66,13 @@ export function BackgroundPanel({
 
   const onPickFile = async (file: File) => {
     if (!upload) return;
-    const { url } = await upload(file);
-    bg.onChooseImage(url);
+    try {
+      const { url } = await upload(file);
+      bg.onChooseImage(url);
+    } catch (err) {
+      console.error("Failed to upload background image", err);
+      toast.error("Failed to upload image");
+    }
   };
 
   // Live-drag local value: mirrors the gradient-draft pattern — a store
@@ -71,7 +98,7 @@ export function BackgroundPanel({
           className="mb-1 flex w-full items-center gap-1 rounded px-1 py-1 text-xs font-medium hover:bg-muted"
           onClick={() => setShowColor(false)}
         >
-          <IconChevronLeft size={14} className="text-muted-foreground" />
+          <Chevron dir="left" />
           Background
         </button>
         <FillPicker
@@ -100,7 +127,7 @@ export function BackgroundPanel({
             className="h-4 w-4 rounded border"
             style={swatch ? { background: swatch } : undefined}
           />
-          <IconChevronRight size={14} className="text-muted-foreground" />
+          <Chevron dir="right" />
         </span>
       </button>
 
