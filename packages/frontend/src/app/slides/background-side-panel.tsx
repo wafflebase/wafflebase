@@ -70,13 +70,19 @@ export function BackgroundSidePanel({
 
   const fileRef = useRef<HTMLInputElement>(null);
   const opacityId = useId();
+  // Monotonic id so a slower earlier upload can't clobber a newer pick: only
+  // the most recent request commits its result.
+  const uploadRequestRef = useRef(0);
 
   const onPickFile = async (file: File) => {
     if (!upload) return;
+    const requestId = ++uploadRequestRef.current;
     try {
       const { url } = await upload(file);
+      if (requestId !== uploadRequestRef.current) return;
       bg.onChooseImage(url);
     } catch (err) {
+      if (requestId !== uploadRequestRef.current) return;
       console.error("Failed to upload background image", err);
       toast.error("Failed to upload image");
     }

@@ -144,7 +144,7 @@ renders `variant="sheet"` inside the shared bottom `Sheet`.
 
 **Panel layout** (sections, like the Format panel):
 
-```
+```text
 ┌ Background                 × ┐
 │ Color                        │
 │   [ Solid | Gradient ]       │  <FillPicker> (existing, generic)
