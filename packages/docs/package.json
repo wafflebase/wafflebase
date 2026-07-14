@@ -43,7 +43,6 @@
   "devDependencies": {
     "@types/nspell": "^2.1.6",
     "@vitest/coverage-v8": "4.1.8",
-    "@wafflebase/tokens": "workspace:*",
     "dictionary-en": "^4.0.0",
     "jsdom": "^28.0.0",
     "playwright": "^1.58.2",
@@ -55,6 +54,7 @@
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
+    "@wafflebase/tokens": "workspace:*",
     "jszip": "^3.10.1",
     "nspell": "^2.1.5",
     "pdf-lib": "^1.17.1"

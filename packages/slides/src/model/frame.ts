@@ -1,6 +1,7 @@
 import type { Frame } from './element';
+import type { Point } from '@wafflebase/core/geometry';
 
-export type Point = { x: number; y: number };
+export type { Point };
 
 /**
  * Hit-test a point against a frame, accounting for rotation around the

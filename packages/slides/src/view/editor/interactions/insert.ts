@@ -1,6 +1,9 @@
 import type { ElementInit, ShapeKind } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
+import type { Point, Size } from '@wafflebase/core/geometry';
 import { makeDefaultSlidesTextBlock } from '../default-text';
+
+export type { Point };
 
 /**
  * Subset of editor `InsertKind` that `buildInsertElement` handles —
@@ -30,8 +33,6 @@ const TEXT_DEFAULT_H = 80;
  */
 const MIN_TEXT_BOX_W = 40;
 
-export interface Point { x: number; y: number; }
-
 /**
  * Per-shape "no-drag click" default frame in slide-logical coordinates
  * (slide is 1920×1080). When the user picks a shape in the toolbar and
@@ -47,7 +48,6 @@ export interface Point { x: number; y: number; }
  *   - Action buttons are small squares so the inner glyph stays
  *     proportionate.
  */
-interface Size { w: number; h: number; }
 
 const ARC_HALF: Size = { w: 320, h: 160 };
 const SHAPE_WIDE: Size = { w: 320, h: 200 };

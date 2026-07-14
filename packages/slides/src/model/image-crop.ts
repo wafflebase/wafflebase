@@ -1,4 +1,5 @@
 import type { Crop } from './element';
+import type { Rect } from '@wafflebase/core/geometry';
 
 /**
  * Pure geometry for interactive image crop (P0 — rectangular).
@@ -22,7 +23,7 @@ import type { Crop } from './element';
  * == source-rect-crop into frame).
  */
 
-export type Rect = { x: number; y: number; w: number; h: number };
+export type { Rect };
 
 export type CropHandle =
   | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';

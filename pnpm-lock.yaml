@@ -332,6 +332,9 @@ importers:
       '@pdf-lib/fontkit':
         specifier: ^1.1.1
         version: 1.1.1
+      '@wafflebase/tokens':
+        specifier: workspace:*
+        version: link:../tokens
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -348,9 +351,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.8
         version: 4.1.8(vitest@4.1.8)
-      '@wafflebase/tokens':
-        specifier: workspace:*
-        version: link:../tokens
       dictionary-en:
         specifier: ^4.0.0
         version: 4.0.0
@@ -629,6 +629,9 @@ importers:
 
   packages/slides:
     dependencies:
+      '@wafflebase/core':
+        specifier: workspace:*
+        version: link:../core
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs

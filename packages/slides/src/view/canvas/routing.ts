@@ -1,4 +1,6 @@
-export type Point = { x: number; y: number };
+import type { Point } from '@wafflebase/core/geometry';
+
+export type { Point };
 export type SegmentPath = { points: Point[] };
 export type BezierPath = { p0: Point; c1: Point; c2: Point; p1: Point };
 export type ConnectorPath = SegmentPath | BezierPath;

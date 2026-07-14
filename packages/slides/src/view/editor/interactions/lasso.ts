@@ -1,25 +1,9 @@
 import type { Slide } from '../../../model/presentation';
 import { boundingBox } from '../../../model/frame';
+import { normalizeRect, rectsIntersect, type Rect } from '@wafflebase/core/geometry';
 
-export interface Rect {
-  x: number; y: number; w: number; h: number;
-}
-
-/**
- * Normalise a rectangle from two arbitrary corner points so that w/h
- * are non-negative. Used while the user is dragging — startX/startY
- * stay fixed, currentX/currentY can move in any direction.
- */
-export function normalizeRect(
-  startX: number, startY: number,
-  currentX: number, currentY: number,
-): Rect {
-  const x = Math.min(startX, currentX);
-  const y = Math.min(startY, currentY);
-  const w = Math.abs(currentX - startX);
-  const h = Math.abs(currentY - startY);
-  return { x, y, w, h };
-}
+export { normalizeRect };
+export type { Rect };
 
 /**
  * Return ids of elements whose axis-aligned bounding box intersects
@@ -33,13 +17,4 @@ export function selectInRect(slide: Slide, rect: Rect): string[] {
     if (rectsIntersect(bb, rect)) ids.push(el.id);
   }
   return ids;
-}
-
-function rectsIntersect(a: Rect, b: Rect): boolean {
-  return !(
-    a.x + a.w < b.x ||
-    b.x + b.w < a.x ||
-    a.y + a.h < b.y ||
-    b.y + b.h < a.y
-  );
 }

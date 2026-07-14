@@ -24,11 +24,10 @@ into `w/h` would be a leaky abstraction; leave sheets as-is this phase.
 - [x] Scaffold `packages/core/` (package.json, tsconfig{,.build,.build.cjs}, vitest) mirroring tokens
 - [x] `src/geometry/index.ts` — `Point`, `Size`, `Rect` + pure helpers (`normalizeRect`, `rectContainsPoint`, `rectsIntersect`, `unionRect`, `rectCenter`)
 - [x] Unit tests for geometry
-- [ ] `src/canvas/index.ts` — DPR-aware 2d context setup, `drawRoundedRect`, offscreen creation + tests (2nd commit)
-- [ ] Migrate slides off local geometry redefinitions: `view/canvas/routing.ts` (`Point`), `view/editor/interactions/insert.ts` (`Point`/`Size`), `view/editor/interactions/lasso.ts` (`Rect`+`normalizeRect`), `model/image-crop.ts` (`Rect`); keep `Frame` helpers in `model/frame.ts` but re-export shared `Point`
-- [ ] Migrate the three view layers off copy-pasted DPR/2d-ctx boilerplate
-- [ ] Fix `packages/docs/package.json` — move `@wafflebase/tokens` devDep → dependency (runtime import in `src/view/theme.ts`)
-- [ ] Add `@wafflebase/core: workspace:*` deps to consuming packages
+- [x] Migrate slides off local geometry redefinitions: `model/frame.ts` (`Point`), `view/canvas/routing.ts` (`Point`), `view/editor/interactions/insert.ts` (`Point`/`Size`), `view/editor/interactions/lasso.ts` (`Rect`+`normalizeRect`+`rectsIntersect`), `model/image-crop.ts` (`Rect`); `Frame` helpers stay in `model/frame.ts`, re-export shared `Point`
+- [x] Fix `packages/docs/package.json` — move `@wafflebase/tokens` devDep → dependency (runtime import in `src/view/theme.ts`)
+- [x] Add `@wafflebase/core: workspace:*` dep to slides
+- [ ] `src/canvas/index.ts` — DPR-aware 2d context setup, `drawRoundedRect`, offscreen creation + tests + migrate the three view layers (deferred — boilerplate varies per call site; assess separately)
 - [ ] `pnpm verify:fast` green; open PR1
 
 **Checkpoint before consumer migration** — package + geometry + tests land
