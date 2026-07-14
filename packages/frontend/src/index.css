@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@wafflebase/tokens/tokens.css";
+@import "@wafflebase/core/tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 

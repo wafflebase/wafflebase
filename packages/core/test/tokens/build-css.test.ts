@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderTokensCss } from '../scripts/build-css';
+import { renderTokensCss } from '../../scripts/build-css';
 
 describe('renderTokensCss', () => {
   const css = renderTokensCss();

@@ -27,6 +27,7 @@ into `w/h` would be a leaky abstraction; leave sheets as-is this phase.
 - [x] Migrate slides off local geometry redefinitions: `model/frame.ts` (`Point`), `view/canvas/routing.ts` (`Point`), `view/editor/interactions/insert.ts` (`Point`/`Size`), `view/editor/interactions/lasso.ts` (`Rect`+`normalizeRect`+`rectsIntersect`), `model/image-crop.ts` (`Rect`); `Frame` helpers stay in `model/frame.ts`, re-export shared `Point`
 - [x] Fix `packages/docs/package.json` — move `@wafflebase/tokens` devDep → dependency (runtime import in `src/view/theme.ts`)
 - [x] Add `@wafflebase/core: workspace:*` dep to slides
+- [x] **Fold `@wafflebase/tokens` into `@wafflebase/core`** (user request): move src/scripts/tests → `core/src/tokens` + `core/scripts/build-css.ts`, add `./tokens` + `./tokens.css` exports + CSS build step; rewire all consumers (frontend CSS+JS, sheets/docs/slides theme.ts, deps), backend jest mapping + `tsconfig` `@wafflebase/core/*` path, root `pnpm tokens build`→`pnpm core build` (+ verify-self/browser-lanes/ci.yml/knip); delete `packages/tokens`
 - [ ] `src/canvas/index.ts` — DPR-aware 2d context setup, `drawRoundedRect`, offscreen creation + tests + migrate the three view layers (deferred — boilerplate varies per call site; assess separately)
 - [ ] `pnpm verify:fast` green; open PR1
 

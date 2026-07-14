@@ -38,12 +38,12 @@ if (!isDocker && !isPlaywrightAvailable()) {
 
 console.log(`${PREFIX} Chromium found — running browser lanes.`);
 
-// Build library packages that frontend depends on. Tokens must come
+// Build library packages that frontend depends on. Core must come
 // first because sheets/docs/slides/frontend all import
-// `@wafflebase/tokens` from its gitignored `dist/`.
+// `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
 console.log(`${PREFIX} Building library packages...`);
 try {
-  execSync("pnpm tokens build", {
+  execSync("pnpm core build", {
     cwd: repoRoot,
     stdio: "inherit",
   });

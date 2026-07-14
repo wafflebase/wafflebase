@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.5.1",
   "license": "Apache-2.0",
-  "description": "Shared engine primitives for Wafflebase (geometry, canvas helpers, OOXML)",
+  "description": "Shared foundation for Wafflebase (design tokens, geometry, canvas helpers, OOXML)",
   "type": "module",
   "files": [
     "dist"
@@ -14,16 +14,24 @@
       "import": "./dist/geometry/index.js",
       "require": "./dist/cjs/geometry/index.js",
       "default": "./dist/geometry/index.js"
-    }
+    },
+    "./tokens": {
+      "types": "./dist/tokens/index.d.ts",
+      "import": "./dist/tokens/index.js",
+      "require": "./dist/cjs/tokens/index.js",
+      "default": "./dist/tokens/index.js"
+    },
+    "./tokens.css": "./dist/tokens.css"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\"",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\" && tsx scripts/build-css.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
     "format": "prettier --write ."
   },
   "devDependencies": {
     "prettier": "^3.3.2",
+    "tsx": "^4.20.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"
   }

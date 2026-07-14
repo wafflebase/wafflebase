@@ -111,15 +111,19 @@ follow-up on top of the OOXML core, not a prerequisite.
 
 ### Proposed package layout
 
-Decision: **one new package `@wafflebase/core`, internally modularized via
-subpath exports.** Keep `tokens` as the pure-constant/CSS leaf. Net package
-count for all of Tier A is **+1**, addressing the "too many packages" concern
-while preserving module boundaries.
+Decision: **one shared package `@wafflebase/core`, internally modularized via
+subpath exports** — and the existing `@wafflebase/tokens` is **folded into it**
+as the `./tokens` subpath rather than kept as a separate leaf. Net result: the
+whole shared foundation is a **single** package (down from tokens + a planned
+core), which is the "too many packages" concern resolved directly.
 
 ```
 packages/core/
   package.json            # exports map splits the subpaths
+  scripts/build-css.ts    → generates dist/tokens.css (moved from tokens)
   src/
+    tokens/               → @wafflebase/core/tokens     (palette, semantic, radius, typography, contrast)
+      index.ts palette.ts semantic.ts radius.ts typography.ts contrast.ts
     geometry/index.ts     → @wafflebase/core/geometry     (Point/Rect/Size, bbox, hit-test)
     canvas/index.ts       → @wafflebase/core/canvas        (DPR ctx setup, drawRoundedRect, offscreen)
     ooxml/
@@ -131,6 +135,8 @@ packages/core/
 ```jsonc
 // package.json exports
 "exports": {
+  "./tokens":          { "types": "...", "import": "./dist/tokens/index.js",         "require": "./dist/cjs/tokens/index.js" },
+  "./tokens.css":      "./dist/tokens.css",
   "./geometry":        { "types": "...", "import": "./dist/geometry/index.js",       "require": "./dist/cjs/geometry/index.js" },
   "./canvas":          { "types": "...", "import": "./dist/canvas/index.js",         "require": "./dist/cjs/canvas/index.js" },
   "./ooxml":           { "types": "...", "import": "./dist/ooxml/index.js",          "require": "./dist/cjs/ooxml/index.js" },
@@ -138,27 +144,34 @@ packages/core/
 }
 ```
 
-Build/tsconfig mirror `@wafflebase/tokens` (plain `tsc` dual ESM/CJS to `dist`,
-no Vite lib bundling — this is pure logic). `jszip` is a dependency of `core`
-but is only reachable through the `./ooxml` entry, so a module importing
-`@wafflebase/core/geometry` does not pull it into the bundle (subpath entry +
-tree-shaking). No root `.` barrel — subpath imports keep bundles tight and
-keep the jszip weight isolated.
+Build/tsconfig mirror the former `tokens` build (plain `tsc` dual ESM/CJS to
+`dist`, plus `tsx scripts/build-css.ts` for `dist/tokens.css` — no Vite lib
+bundling; this is pure logic + a CSS artifact). `jszip` is a dependency of
+`core` but is only reachable through the `./ooxml` entry, so a module importing
+`@wafflebase/core/geometry` or `@wafflebase/core/tokens` does not pull it into
+the bundle (subpath entry + tree-shaking). No root `.` barrel — subpath imports
+keep bundles tight and keep the jszip weight isolated.
 
-Resulting graph (one new edge):
+Resulting graph (one leaf for the whole foundation):
 
 ```
-tokens (leaf, CSS+constants)
-core   (leaf, TS primitives; jszip)   ← sheets, docs, slides ← frontend/backend/cli
-docs   ← slides   (rich-text, unchanged)
+core (leaf: tokens + geometry + canvas + ooxml; jszip)   ← sheets, docs, slides ← frontend/backend/cli
+docs ← slides   (rich-text, unchanged)
 ```
+
+Node/CommonJS consumers (backend jest via ts-jest) don't honour `exports`
+subpaths under classic resolution, so backend `tsconfig.json` maps
+`@wafflebase/core/*` → `../core/src/*` (source), alongside the existing
+sheets/docs/slides source paths.
 
 Alternatives considered:
+- **Keep `tokens` a separate leaf next to `core`** — the original plan; the user
+  chose to consolidate to a single foundation package. `./tokens` as a subpath
+  keeps the CSS-artifact concern isolated behind its own export, so the earlier
+  "mixes CSS with logic" objection no longer applies.
 - **Two sibling packages (`core` + `ooxml`)** — cleaner dependency isolation on
-  paper, but +2 packages; the jszip-weight concern it solved is already handled
+  paper, but more packages; the jszip-weight concern it solved is already handled
   by subpath exports + tree-shaking. Rejected for package-count simplicity.
-- **Extend `tokens` into `core`** — fewest packages, but mixes a build-time
-  CSS-artifact package with TS engine logic; rejected.
 
 ### Rollout — Tier A in one package, three shippable PRs
 

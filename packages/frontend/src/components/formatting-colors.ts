@@ -8,9 +8,9 @@
 //          have full color expression)
 //   Row 4  Earthy + status accents (browns, alarm, warning, success)
 //
-// Sourced from `@wafflebase/tokens` palette where the value matches.
+// Sourced from `@wafflebase/core/tokens` palette where the value matches.
 
-import { palette } from "@wafflebase/tokens";
+import { palette } from "@wafflebase/core/tokens";
 
 export const TEXT_COLORS = [
   // Row 1 — neutrals

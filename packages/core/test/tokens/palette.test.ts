@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { palette } from '../src/palette';
+import { palette } from '../../src/tokens/palette';
 
 describe('palette', () => {
   it('exposes Butter & Maple core colors', () => {

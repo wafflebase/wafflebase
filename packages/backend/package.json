@@ -110,7 +110,7 @@
       "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts",
       "^@wafflebase/docs$": "<rootDir>/../../docs/src/node.ts",
       "^@wafflebase/slides$": "<rootDir>/../../slides/src/node.ts",
-      "^@wafflebase/tokens$": "<rootDir>/../../tokens/src/index.ts",
+      "^@wafflebase/core/tokens$": "<rootDir>/../../core/src/tokens/index.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [

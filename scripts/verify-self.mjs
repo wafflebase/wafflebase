@@ -8,9 +8,9 @@ const repoRoot = path.resolve(scriptDir, "..");
 const reportDir = path.resolve(repoRoot, ".harness-reports");
 
 const LANES = [
-  // tokens must build first — sheets/docs/slides/frontend all import
-  // `@wafflebase/tokens` from its gitignored `dist/`.
-  { name: "tokens:build", cmd: "pnpm tokens build" },
+  // core must build first — sheets/docs/slides/frontend all import
+  // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
+  { name: "core:build", cmd: "pnpm core build" },
   { name: "sheets:build", cmd: "pnpm sheets build" },
   { name: "docs:build", cmd: "pnpm --filter @wafflebase/docs build" },
   { name: "slides:build", cmd: "pnpm slides build" },

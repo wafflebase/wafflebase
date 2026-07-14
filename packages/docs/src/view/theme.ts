@@ -1,4 +1,4 @@
-import { palette } from '@wafflebase/tokens';
+import { palette } from '@wafflebase/core/tokens';
 import { resolveFontFamily } from './fonts.js';
 
 /**
