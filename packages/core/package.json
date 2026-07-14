@@ -1,0 +1,30 @@
+{
+  "name": "@wafflebase/core",
+  "private": true,
+  "version": "0.5.1",
+  "license": "Apache-2.0",
+  "description": "Shared engine primitives for Wafflebase (geometry, canvas helpers, OOXML)",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./geometry": {
+      "types": "./dist/geometry/index.d.ts",
+      "import": "./dist/geometry/index.js",
+      "require": "./dist/cjs/geometry/index.js",
+      "default": "./dist/geometry/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

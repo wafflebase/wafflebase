@@ -121,6 +121,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 | [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |
+| [shared-core-extraction.md](shared-core-extraction.md) | Shared core extraction — audit of engine-level duplication across sheets/docs/slides; single `@wafflebase/core` package (subpath exports: `/geometry`, `/canvas`, `/ooxml`, `/ooxml/drawingml`) rolled out over 3 PRs; chart/color-model/store deferred as Non-Goals |
 
 ## Obsolete docs
 
