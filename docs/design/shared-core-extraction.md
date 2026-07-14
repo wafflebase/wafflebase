@@ -31,7 +31,7 @@ extends the shared-package layer without collapsing engine-specific logic.
   import/export code) in its own package.
 
 Success = a new shared package (or two) exists, the three engines depend on it,
-the flagged duplication (`rels.ts` comment, geometry redefinitions, canvas DPR
+the flagged duplication (the `rels` comment, geometry redefinitions, canvas DPR
 boilerplate) is deleted from the engines, and `pnpm verify:self` stays green.
 
 ### Non-Goals
@@ -76,7 +76,7 @@ sheets/docs/slides ← frontend, backend, cli
 
 | Candidate | State today | Tier | Notes |
 | --- | --- | --- | --- |
-| OOXML plumbing (ZIP, XML facade, `.rels`, EMU units, XML escaping) | Triplicated across xlsx/docx/pptx | **A** | ~1,000–1,300 LOC. `slides/src/import/pptx/rels.ts` comment already flags it: *"Same shape as docs's `parseRelationships`, kept separate so slides doesn't depend on docs internals."* |
+| OOXML plumbing (ZIP, XML facade, `.rels`, EMU units, XML escaping) | Triplicated across xlsx/docx/pptx | **A** | ~1,000–1,300 LOC. `packages/slides/src/import/pptx/rels.ts` comment already flags it: *"Same shape as docs's `parseRelationships`, kept separate so slides doesn't depend on docs internals."* |
 | DrawingML sub-format (color/fill/gradient, `<a:xfrm>`, effects, `theme1.xml`) | slides-only (237 refs; docs 2, sheets 0) | **A** | ~700–800 LOC single-source. Genuinely a shared OOXML sub-format; docs (images/shapes) and sheets (charts/shapes) can newly consume it. |
 | Geometry (`Point`/`Rect`/`Size`/bbox/hit-test) | Pure duplication; redefined even *within* slides | **A** | Small, mechanical, high hygiene. See redefinition sites below. |
 | Canvas helpers (DPR/2d-ctx setup, `roundRect` fallback, offscreen) | Copy-pasted across all 3 view layers | **B** | Boilerplate `ctx.scale(dpr,dpr)` etc. Small. |
@@ -86,11 +86,13 @@ sheets/docs/slides ← frontend, backend, cli
 | Chart | sheets=Recharts/DOM, slides=Canvas painter | **D** | Convergence target, not an extraction (see below). |
 
 Geometry redefinition sites (Tier A, illustrative):
-`slides/src/model/frame.ts`, `slides/src/view/canvas/routing.ts`,
-`slides/src/view/editor/interactions/insert.ts`,
-`slides/src/view/editor/interactions/lasso.ts`,
-`slides/src/model/image-crop.ts`, `sheets/src/view/layout.ts` (`Size` with
-`width/height` vs slides `w/h` — a real field-name mismatch across packages).
+`packages/slides/src/model/frame.ts`,
+`packages/slides/src/view/canvas/routing.ts`,
+`packages/slides/src/view/editor/interactions/insert.ts`,
+`packages/slides/src/view/editor/interactions/lasso.ts`,
+`packages/slides/src/model/image-crop.ts`,
+`packages/sheets/src/view/layout.ts` (`Size` with `width/height` vs slides
+`w/h` — a real field-name mismatch across packages).
 
 ### Why chart is a Non-Goal (and how it converges later)
 
@@ -145,8 +147,8 @@ packages/core/
 ```
 
 Build/tsconfig mirror the former `tokens` build (plain `tsc` dual ESM/CJS to
-`dist`, plus `tsx scripts/build-css.ts` for `dist/tokens.css` — no Vite lib
-bundling; this is pure logic + a CSS artifact). `jszip` is a dependency of
+`dist`, plus a `tsx` build step that generates the CSS token bundle — no Vite
+lib bundling; this is pure logic + a CSS artifact). `jszip` is a dependency of
 `core` but is only reachable through the `./ooxml` entry, so a module importing
 `@wafflebase/core/geometry` or `@wafflebase/core/tokens` does not pull it into
 the bundle (subpath entry + tree-shaking). No root `.` barrel — subpath imports
@@ -160,7 +162,7 @@ docs ← slides   (rich-text, unchanged)
 ```
 
 Node/CommonJS consumers (backend jest via ts-jest) don't honour `exports`
-subpaths under classic resolution, so backend `tsconfig.json` maps
+subpaths under classic resolution, so `packages/backend/tsconfig.json` maps
 `@wafflebase/core/*` → `../core/src/*` (source), alongside the existing
 sheets/docs/slides source paths.
 
@@ -182,16 +184,16 @@ regression risk is staged.
 1. **PR1 / Phase 0 — `@wafflebase/core` bootstrap + `geometry` + `canvas`
    (low risk).** Scaffold the package (mirror `tokens` build), add the
    `geometry` and `canvas` subpath modules, migrate all three engines off their
-   local redefinitions (`slides` `frame.ts`/`routing.ts`/`insert.ts`/`lasso.ts`/
-   `image-crop.ts`, `sheets` `layout.ts` `Size`). Also fix the misclassified
-   `tokens` dep (below). Proves package wiring with the lowest-risk content.
+   local redefinitions (slides `frame`/`routing`/`insert`/`lasso`/`image-crop`
+   modules, sheets `layout` `Size`). Also fix the misclassified `tokens` dep
+   (below). Proves package wiring with the lowest-risk content.
 2. **PR2 / Phase 1 — `core/ooxml` plumbing (Tier A).** Add ZIP/XML/rels/units/
    escaping under `./ooxml`. Promote slides' `PptxArchive`/`PptxWriter`/`xml`/
    `rels` as canonical; migrate docx + xlsx import/export to consume them.
-   Delete the flagged `rels.ts`/`parseRelationships`/`parseWorkbookRelationships`
+   Delete the flagged `rels`/`parseRelationships`/`parseWorkbookRelationships`
    triplication.
 3. **PR3 / Phase 2 — `core/ooxml/drawingml` (Tier A).** Move slides'
-   `color.ts`/`geometry.ts`(`parseXfrm`)/`effects.ts`/`theme.ts` + export
+   `color`/`geometry`(`parseXfrm`)/`effects`/`theme` OOXML modules + export
    inverses under `./ooxml/drawingml`. Guard against render regressions with the
    existing slides import/export/round-trip/painter suite. docs/sheets opt in
    incrementally (docs images/shapes; sheets charts later).
