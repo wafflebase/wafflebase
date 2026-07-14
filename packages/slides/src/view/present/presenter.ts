@@ -186,6 +186,12 @@ export function startPresenter(options: PresenterOptions): Presenter {
     if (rafHandle !== null || transitionRafHandle !== null) return;
     repaintRafHandle = requestAnimationFrame(() => {
       repaintRafHandle = null;
+      // A navigation may have started a transition or animation loop between
+      // scheduling and now (nav paths cancel rafHandle/transitionRafHandle but
+      // not this one). Re-check: that loop already repaints every frame, and a
+      // transition settles via its own onDone paint(), so a settled paint()
+      // here would flash the resting/next slide over the in-progress animation.
+      if (disposed || rafHandle !== null || transitionRafHandle !== null) return;
       paint();
     });
   }
