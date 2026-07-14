@@ -94,6 +94,14 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-font-ooxml-parity.md](slides/slides-font-ooxml-parity.md)                      | Slides font OOXML parity — staged roadmap growing per-run `InlineStyle` toward `<a:rPr>` parity; Phase A (shipped) fixes the super-subscript `@baseline` + text-run `<a:hlinkClick>` export round-trip losses (no toolbar change; toolbar exposure deferred); B adds shared caps/underline-style/letter-spacing, C Slides-only text gradient/outline/effects, D `<a:ea>`/`<a:cs>` CJK typeface fidelity |
 | [slides-background.md](slides/slides-background.md)                                    | Slide background (Color / Image / Gradient) — rename the solid-only "Background Color" control to "Background" with Color / Image sections; widen `Background.fill: ThemeColor → Fill` to reuse the shipped `FillPicker`/`resolveFillStyle`/`migrateGradientFill`/`fillXml` gradient infra (model+renderer+CRDT already paint image backgrounds), image upload via the existing URL pipeline, Reset to theme, Apply to all slides (master), best-effort PPTX `<p:bg>` gradient round-trip; tile/repeat + bg-image crop deferred |
 
+## Notes
+
+Markdown note engine — CodeMirror source editor, single Yorkie `Text` CRDT.
+
+| Document                        | Description                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [notes.md](notes/notes.md)      | Notes — markdown note document type (`"note"`) ported from CodePair; CodeMirror 6 source editor + live preview, whole content in one Yorkie `Text` at `root.content` (byte-compatible with CodePair), new `@wafflebase/notes` engine package + `note-<id>` docKey, inherits workspaces/sharing/auth-webhook/presence unchanged; RAG/AI out of scope; P1 editor+type, P2 parity (image/export/revisions/vim), P3 CodePair migration |
+
 ## PDF
 
 Static PDF documents — upload, store, and view (no CRDT editing).
