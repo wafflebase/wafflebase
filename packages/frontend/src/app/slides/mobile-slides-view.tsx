@@ -249,8 +249,14 @@ export function MobileSlidesView({
 
     let renderer: SlideRenderer | null = null;
     let lastDoc: SlidesDocument = store.read();
+    let repaintRaf: number | null = null;
+    // Set on cleanup. A background image still loading when the effect
+    // re-runs keeps this renderer's onAssetLoad subscribed in the image
+    // cache; the flag makes that stale callback a no-op instead of
+    // scheduling a RAF the (already-run) cleanup can no longer cancel.
+    let cancelled = false;
 
-    function paint() {
+    function paint(): void {
       if (!renderer) return;
       const slide = lastDoc.slides.find((s) => s.id === currentSlideId);
       if (!slide) return;
@@ -258,7 +264,19 @@ export function MobileSlidesView({
       renderer.render(slide, lastDoc);
     }
 
-    function applyFit() {
+    // View mode has no per-frame RAF loop, so a background/element image
+    // that finishes decoding after the first paint would stay blank until
+    // an unrelated event (slide change, store.onChange) re-ran paint().
+    // Schedule a coalesced repaint when the renderer reports an async load.
+    function scheduleRepaint(): void {
+      if (cancelled || repaintRaf !== null) return;
+      repaintRaf = requestAnimationFrame(() => {
+        repaintRaf = null;
+        paint();
+      });
+    }
+
+    function applyFit(): void {
       const rect = host!.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const fit = computeFitSize(rect.width, rect.height, deckAspect(store));
@@ -272,16 +290,16 @@ export function MobileSlidesView({
         hostWidth: cssW,
         hostHeight: cssH,
         dpr,
+        onAssetLoad: scheduleRepaint,
       });
       paint();
     }
 
-    let rafScheduled = false;
+    let resizeRaf: number | null = null;
     const ro = new ResizeObserver(() => {
-      if (rafScheduled) return;
-      rafScheduled = true;
-      requestAnimationFrame(() => {
-        rafScheduled = false;
+      if (resizeRaf !== null) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
         applyFit();
       });
     });
@@ -296,6 +314,12 @@ export function MobileSlidesView({
     return () => {
       ro.disconnect();
       unsubscribe();
+      cancelled = true;
+      // Cancel both pending RAFs so neither an asset-load repaint nor a
+      // resize-driven applyFit() (which would recreate the renderer) fires
+      // after teardown.
+      if (repaintRaf !== null) cancelAnimationFrame(repaintRaf);
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
       renderer = null;
     };
   }, [mode, store, currentSlideId]);

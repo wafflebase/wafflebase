@@ -19,6 +19,8 @@ interface TestHandle {
   getLastPaintKind: () => 'slide' | 'end' | null;
   getAnimPlayer: () => AnimationPlayer | null;
   getTransitionRafHandle: () => number | null;
+  scheduleRepaint: () => void;
+  getRepaintRafHandle: () => number | null;
 }
 
 function testApi(presenter: Presenter): TestHandle {
@@ -602,5 +604,77 @@ describe('presenter — cancel in-flight transition on back/jump navigation', ()
     } finally {
       presenter.dispose();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 5: Asset-load repaint (scheduleRepaint) must not fight an active loop
+// ---------------------------------------------------------------------------
+
+describe('presenter — async asset-load repaint scheduling', () => {
+  it('schedules a coalesced repaint when the slide is static (no loop running)', () => {
+    const { doc, ids } = makeDocNoTransitions();
+    const [aId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      // No transition or animation loop is running on the resting slide.
+      expect(testApi(presenter).getTransitionRafHandle()).toBeNull();
+      expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
+
+      testApi(presenter).scheduleRepaint();
+      // A repaint RAF is now armed…
+      expect(testApi(presenter).getRepaintRafHandle()).not.toBeNull();
+
+      // …and a second call coalesces (does not double-schedule).
+      const first = testApi(presenter).getRepaintRafHandle();
+      testApi(presenter).scheduleRepaint();
+      expect(testApi(presenter).getRepaintRafHandle()).toBe(first);
+
+      // Flushing runs paint() and clears the handle.
+      flushRaf(500);
+      expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('does NOT schedule a repaint while a slide transition is in flight', () => {
+    const { doc, aId } = makeDocWithFadeTransition();
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    try {
+      testApi(presenter).next(); // transition A→B in flight
+      expect(testApi(presenter).getTransitionRafHandle()).not.toBeNull();
+
+      // An asset finishing mid-transition must not force a settled paint()
+      // over the transition composite — scheduleRepaint is a no-op here.
+      testApi(presenter).scheduleRepaint();
+      expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
+    } finally {
+      presenter.dispose();
+    }
+  });
+
+  it('does NOT schedule a repaint after dispose()', () => {
+    const { doc, ids } = makeDocNoTransitions();
+    const [aId] = ids;
+    const presenter = startPresenter({
+      container: makeContainer(),
+      doc,
+      startSlideId: aId,
+      onExit: vi.fn(),
+    });
+    presenter.dispose();
+    testApi(presenter).scheduleRepaint();
+    expect(testApi(presenter).getRepaintRafHandle()).toBeNull();
   });
 });
