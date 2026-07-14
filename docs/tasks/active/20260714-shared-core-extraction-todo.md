@@ -29,11 +29,28 @@ into `w/h` would be a leaky abstraction; leave sheets as-is this phase.
 - [x] Add `@wafflebase/core: workspace:*` dep to slides
 - [x] **Fold `@wafflebase/tokens` into `@wafflebase/core`** (user request): move src/scripts/tests → `core/src/tokens` + `core/scripts/build-css.ts`, add `./tokens` + `./tokens.css` exports + CSS build step; rewire all consumers (frontend CSS+JS, sheets/docs/slides theme.ts, deps), backend jest mapping + `tsconfig` `@wafflebase/core/*` path, root `pnpm tokens build`→`pnpm core build` (+ verify-self/browser-lanes/ci.yml/knip); delete `packages/tokens`
 - [ ] `src/canvas/index.ts` — DPR-aware 2d context setup, `drawRoundedRect`, offscreen creation + tests + migrate the three view layers (deferred — boilerplate varies per call site; assess separately)
-- [ ] `pnpm verify:fast` green; open PR1
+- [x] `pnpm verify:fast` green; open PR1
 
 **Checkpoint before consumer migration** — package + geometry + tests land
 first (zero risk to existing code); pause for review before touching
 slides/sheets/docs consumers.
+
+### PR1 Review
+
+Shipped in PR1 (3 commits on `shared-core-extraction`, rebased on `origin/main`
+@ e8d6da401):
+
+1. `@wafflebase/core` scaffold + `./geometry` subpath (types + pure helpers) + 13 tests.
+2. slides geometry consumers migrated (frame/routing/lasso/insert/image-crop);
+   docs `tokens` devDep → dependency fix.
+3. `@wafflebase/tokens` folded into `core` as `./tokens` + `./tokens.css`; all
+   consumers + root/CI scripts rewired; `packages/tokens` deleted; backend
+   `tsconfig` `@wafflebase/core/*` path added.
+
+Verification: full `pnpm verify:fast` green (frontend 777 · backend 255 · sheets
+1399 · slides 2609 · cli 208 · docs 1083) + frontend production build (CSS
+`@import` resolves). Canvas-helper extraction (Tier B) deferred to a follow-up —
+DPR boilerplate varies per call site. PR2 (OOXML) / PR3 (DrawingML) unstarted.
 
 ## PR2 / Phase 1 — core/ooxml plumbing
 
