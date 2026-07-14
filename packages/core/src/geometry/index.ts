@@ -38,21 +38,6 @@ export function normalizeRect(
   };
 }
 
-/** The geometric centre of a rectangle. */
-export function rectCenter(r: Rect): Point {
-  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-}
-
-/**
- * True iff `p` lies within `r` (edges inclusive). Assumes `r` has
- * non-negative `w`/`h` (see {@link normalizeRect}).
- */
-export function rectContainsPoint(r: Rect, p: Point): boolean {
-  return (
-    p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
-  );
-}
-
 /**
  * True iff two axis-aligned rectangles overlap. Edge contact counts as
  * intersection, matching Google Slides' lasso-select behaviour.

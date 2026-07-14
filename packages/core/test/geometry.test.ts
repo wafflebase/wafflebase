@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeRect,
-  rectCenter,
-  rectContainsPoint,
   rectsIntersect,
   unionRect,
   type Rect,
@@ -19,30 +17,6 @@ describe('normalizeRect', () => {
 
   it('handles a zero-size drag (no movement)', () => {
     expect(normalizeRect(5, 5, 5, 5)).toEqual({ x: 5, y: 5, w: 0, h: 0 });
-  });
-});
-
-describe('rectCenter', () => {
-  it('returns the geometric centre', () => {
-    expect(rectCenter({ x: 0, y: 0, w: 10, h: 20 })).toEqual({ x: 5, y: 10 });
-  });
-});
-
-describe('rectContainsPoint', () => {
-  const r: Rect = { x: 0, y: 0, w: 10, h: 10 };
-
-  it('includes interior points', () => {
-    expect(rectContainsPoint(r, { x: 5, y: 5 })).toBe(true);
-  });
-
-  it('includes edge points', () => {
-    expect(rectContainsPoint(r, { x: 0, y: 0 })).toBe(true);
-    expect(rectContainsPoint(r, { x: 10, y: 10 })).toBe(true);
-  });
-
-  it('excludes outside points', () => {
-    expect(rectContainsPoint(r, { x: 11, y: 5 })).toBe(false);
-    expect(rectContainsPoint(r, { x: -1, y: 5 })).toBe(false);
   });
 });
 
