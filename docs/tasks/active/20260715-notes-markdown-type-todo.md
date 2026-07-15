@@ -1244,14 +1244,18 @@ Defines the Yorkie document root (`{ content: Text }`) + presence shape + `initi
 `packages/frontend/src/types/notes-document.test.ts`:
 ```ts
 import { describe, it, expect } from 'vitest';
+import { Text } from '@yorkie-js/sdk';
 import { initialNotesRoot } from './notes-document';
 
 describe('initialNotesRoot', () => {
-  it('creates an empty Text content field', () => {
+  it('creates a Text content field for client.attach to seed', () => {
     const root = initialNotesRoot();
-    expect(root.content).toBeDefined();
-    // A fresh yorkie.Text stringifies to empty.
-    expect(root.content?.toString()).toBe('');
+    // NOTE: a detached yorkie.Text throws ErrNotInitialized if you call its
+    // methods (edit/toString) before client.attach seeds it inside a doc.
+    // So assert the instance, do NOT call .toString() here (verified in the
+    // Task 2 spike). The real content round-trip is covered by the
+    // YorkieNoteStore test (Task 9), which drives an attached Document.
+    expect(root.content).toBeInstanceOf(Text);
   });
 });
 ```
@@ -1310,7 +1314,7 @@ export function initialNotesRoot(): Partial<YorkieNotesRoot> {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- notes-document`
-Expected: PASS.
+Expected: PASS — `root.content` is a `Text` instance. (Do NOT call `.toString()` on the detached Text; it throws `ErrNotInitialized`.)
 
 - [ ] **Step 5: Commit**
 
@@ -1962,12 +1966,30 @@ git commit -m "Notes: read-only shared note viewer"
 
 Run the pre-commit gate across the whole repo, then a manual collaborative smoke test.
 
-**Files:** none (verification only).
+**Files:** `package.json` (root — wire the notes package into the gate).
+
+- [ ] **Step 0: Wire `@wafflebase/notes` into the root gate**
+
+The root `verify:fast` and `test` scripts enumerate packages explicitly and do
+NOT yet include `@wafflebase/notes` — so the engine's tests/typecheck never run
+in the pre-commit gate. In the root `package.json`:
+- In `verify:fast`, append ` && pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test` after the `@wafflebase/docs` entries.
+- In the root `test` script's `concurrently` list, add `"pnpm --filter @wafflebase/notes test"`.
+Commit this wiring:
+```bash
+git add package.json
+git commit -m "Notes: wire @wafflebase/notes into root verify:fast + test"
+```
 
 - [ ] **Step 1: Run the fast gate**
 
 Run: `pnpm verify:fast`
-Expected: lint + unit tests pass across all packages (including the new `@wafflebase/notes` suite and the frontend/backend additions).
+Expected: lint + unit tests pass across all packages (now including the
+`@wafflebase/notes` suite via Step 0, plus the frontend/backend additions).
+Note: the frontend has NO `typecheck` script — its gate is `pnpm frontend lint`
+(eslint `--max-warnings 0`) + `pnpm frontend test`. Frontend type/compile errors
+surface via `pnpm --filter @wafflebase/frontend build` and lint, not a raw
+`tsc --noEmit` (the repo carries baseline `tsc` noise on the app tsconfig).
 
 - [ ] **Step 2: Build all**
 
@@ -2003,4 +2025,46 @@ Dispatch a code-review skill (e.g. `/code-review`) over the full branch diff. Ap
 
 ## Review
 
-_(Fill in after implementation: what shipped, deviations from plan, follow-ups deferred to P2/P3.)_
+**Status:** P1 implemented via subagent-driven execution (14 tasks, fresh
+implementer + spec/quality review per task, opus whole-branch review at the
+end). All automated gates green: `pnpm verify:fast` passes (now includes the
+`@wafflebase/notes` typecheck + 13 tests, wired in Task 14 Step 0); frontend +
+notes builds succeed. **Not yet run:** the interactive two-browser
+collaborative + share-link smoke (Task 14 Step 3) — needs a live `pnpm dev`
+environment.
+
+**What shipped (branch `feat/notes-markdown-type`, 22 commits):**
+- Engine `@wafflebase/notes`: `NoteStore`/`MemNoteStore`, CodeMirror↔store sync
+  binding (echo-suppressed, offset-adjusted), remote-selection peer carets
+  (clamped, multi-line), `initialize()` + markdown-it preview, dual `.`/`./node`
+  barrels. Framework-agnostic — zero `@yorkie-js/*` imports (Store rule holds).
+- Frontend: `YorkieNoteStore` (Yorkie Text + presence, CodePair port behind the
+  interface), `NotesView`/`NotesDetail`, Yorkie root/presence types, type/route/
+  create-menu wiring, read-only shared viewer.
+- Backend: `note` type + `note-` docKey prefix — inherits auth/edit webhooks +
+  sharing unchanged.
+
+**Deviations from plan (all reviewed/ratified):**
+- Test binding: CM `ViewPlugin` builds decorations in the constructor too, not
+  only `update()` (mount-time carets). See lessons.
+- Frontend test discovery: Vitest `include` glob widened to `src/**` so the
+  co-located tests run; surfaced + fixed a dormant `theme-fonts.test.ts`
+  (Fraunces font). See lessons.
+- Plan gaps fixed mid-flight: `ResolvedShareLink.type` widened to include
+  `note`; `@wafflebase/notes` wired into root `verify:fast`/`test`; frontend
+  has no `typecheck` script (gate = lint + build). See lessons.
+- Final review fix: shared-link peer-caret presence was missing `color`/`name`
+  (invisible carets) — added `noteUserColor()` deterministic per-user color used
+  by both owner and shared routes.
+
+**Follow-ups deferred:**
+- REST API v1 `create` coerces `type:'note'`→`'sheet'` (pre-existing pattern,
+  also drops `pdf`); v1 API is spreadsheet-oriented (no note cells/tabs). Fast-
+  follow, out of P1 scope.
+- `notes-detail.tsx` dropped the mobile Radix-Sheet `pointer-events` cleanup
+  effect docs-detail has (edge-case mobile nav). Minor parity gap.
+- Bundle: the `/n/:id` chunk is ~723 kB (259 kB gzip: CodeMirror + markdown-it),
+  lazy-loaded and isolated from the main bundle. Trim in P2 if needed.
+- P2 (feature parity): image upload, PDF/HTML/MD export, revision history, vim.
+- P3 (CodePair migration) and the two open questions (CodePair prod data?
+  shared Yorkie server/project?).
