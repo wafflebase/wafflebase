@@ -124,13 +124,19 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
     const decorations: Array<cmState.Range<cmView.Decoration>> = [];
     const docLen = state.doc.length;
     for (const peer of this.store.getPeerSelections()) {
-      const start = Math.min(peer.from, peer.to);
-      const end = Math.max(peer.from, peer.to);
+      // Clamp both endpoints to the local document bounds ONCE, up front.
+      // A peer selection can point past `docLen` in a real collaborative
+      // race (another client deleted text after the peer recorded its
+      // selection); every coordinate handed to CodeMirror below — line
+      // lookups, mark() boundaries, and the caret — must derive from these
+      // clamped values, not the raw peer.from/peer.to.
+      const start = Math.min(Math.max(0, Math.min(peer.from, peer.to)), docLen);
+      const end = Math.min(Math.max(0, Math.max(peer.from, peer.to)), docLen);
       if (start === end) {
         // caret only
       } else {
-        const startLine = state.doc.lineAt(Math.min(start, docLen));
-        const endLine = state.doc.lineAt(Math.min(end, docLen));
+        const startLine = state.doc.lineAt(start);
+        const endLine = state.doc.lineAt(end);
         const mark = (from: number, to: number) =>
           decorations.push({
             from,
@@ -151,7 +157,7 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
           mark(endLine.from, end);
         }
       }
-      const caretPos = Math.min(peer.to, docLen);
+      const caretPos = peer.from - peer.to > 0 ? start : end;
       decorations.push({
         from: caretPos,
         to: caretPos,

@@ -37,4 +37,57 @@ describe('noteRemoteSelections', () => {
     view.destroy();
     parent.remove();
   });
+
+  it('renders decorations for a multi-line peer selection without throwing', () => {
+    const docText = 'line one\nline two\nline three\nline four';
+    const store = storeWithPeers([
+      { clientID: 'c1', from: 2, to: docText.length - 2, color: '#0f0', name: 'Grace' },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    let view: EditorView | undefined;
+    expect(() => {
+      view = new EditorView({
+        parent,
+        state: EditorState.create({
+          doc: docText,
+          extensions: [noteStoreFacet.of(store), noteRemoteSelectionsTheme, noteRemoteSelections],
+        }),
+      });
+    }).not.toThrow();
+    // The peer caret carries the peer's name.
+    expect(view!.dom.textContent).toContain('Grace');
+    // The selection spans 4 lines, so it should be split into multiple mark
+    // decorations (one per line segment). If this DOM query ever proves
+    // unreliable across CodeMirror versions, the no-throw + name assertions
+    // above already cover the regression this test guards against.
+    const marks = view!.dom.querySelectorAll('.cm-ySelection');
+    expect(marks.length).toBeGreaterThanOrEqual(2);
+    view!.destroy();
+    parent.remove();
+  });
+
+  it('clamps an out-of-range peer selection instead of throwing', () => {
+    const docText = 'abcde'; // doc length 5
+    const store = storeWithPeers([
+      { clientID: 'c1', from: 10, to: 20, color: '#00f', name: 'Bob' },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    let view: EditorView | undefined;
+    expect(() => {
+      view = new EditorView({
+        parent,
+        state: EditorState.create({
+          doc: docText,
+          extensions: [noteStoreFacet.of(store), noteRemoteSelectionsTheme, noteRemoteSelections],
+        }),
+      });
+    }).not.toThrow();
+    // The caret still renders (clamped to doc length) even though the peer's
+    // recorded selection points past the local document.
+    expect(view!.dom.textContent).toContain('Bob');
+    view!.destroy();
+    parent.remove();
+  });
 });
