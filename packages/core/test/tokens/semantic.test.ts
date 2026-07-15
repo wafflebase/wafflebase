@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { semantic } from '../src/semantic';
+import { semantic } from '../../src/tokens/semantic';
 
 describe('semantic tokens', () => {
   it('exposes a light and dark map with identical keys', () => {

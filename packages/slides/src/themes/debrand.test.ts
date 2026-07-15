@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { palette } from '@wafflebase/tokens';
+import { palette } from '@wafflebase/core/tokens';
 import { defaultLight, defaultDark, wafflebase } from './index';
 
 describe('de-branded defaults', () => {

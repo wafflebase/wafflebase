@@ -222,11 +222,11 @@ jobs:
         # built file under `dist/`. The `verify-self` job builds these on
         # its own runner; `verify-integration` is a separate runner that
         # starts without those artifacts, so we rebuild them here.
-        # `@wafflebase/tokens` must build first because docs/slides consume
+        # `@wafflebase/core` must build first because docs/slides consume
         # it via `dist/`; its dist is gitignored, so a fresh runner has
         # nothing to import until this step runs.
         run: |
-          pnpm tokens build
+          pnpm core build
           pnpm --filter @wafflebase/docs build
           pnpm slides build
           pnpm sheets build

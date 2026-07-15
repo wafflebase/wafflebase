@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { semantic, palette } from '../src';
-import { contrastRatio } from '../src/contrast';
+import { semantic, palette } from '../../src/tokens';
+import { contrastRatio } from '../../src/tokens/contrast';
 
 const AA_NORMAL = 4.5;
 const AA_LARGE = 3.0;

@@ -1,21 +1,25 @@
 {
-  "name": "@wafflebase/tokens",
+  "name": "@wafflebase/core",
   "private": true,
   "version": "0.5.1",
   "license": "Apache-2.0",
-  "description": "Shared design tokens for Wafflebase (palette, semantic colors, radius, typography)",
+  "description": "Shared foundation for Wafflebase (design tokens, geometry, canvas helpers, OOXML)",
   "type": "module",
   "files": [
     "dist"
   ],
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/cjs/index.js",
-      "default": "./dist/index.js"
+    "./geometry": {
+      "types": "./dist/geometry/index.d.ts",
+      "import": "./dist/geometry/index.js",
+      "require": "./dist/cjs/geometry/index.js",
+      "default": "./dist/geometry/index.js"
+    },
+    "./tokens": {
+      "types": "./dist/tokens/index.d.ts",
+      "import": "./dist/tokens/index.js",
+      "require": "./dist/cjs/tokens/index.js",
+      "default": "./dist/tokens/index.js"
     },
     "./tokens.css": "./dist/tokens.css"
   },

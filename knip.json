@@ -30,8 +30,13 @@
       "entry": ["src/index.ts", "src/node.ts", "src/**/*.test.ts", "demo.ts"],
       "project": ["src/**/*.ts"]
     },
-    "packages/tokens": {
-      "entry": ["src/index.ts", "scripts/build-css.ts", "test/**/*.test.ts"],
+    "packages/core": {
+      "entry": [
+        "src/geometry/index.ts",
+        "src/tokens/index.ts",
+        "scripts/build-css.ts",
+        "test/**/*.test.ts"
+      ],
       "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
     }
   },

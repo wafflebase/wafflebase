@@ -1,4 +1,4 @@
-import { palette, typography } from '@wafflebase/tokens';
+import { palette, typography } from '@wafflebase/core/tokens';
 import { firstFamily } from '../../themes/font-stack';
 
 import type { ColorRole, ColorScheme, FontScheme, Theme } from '../../model/theme';

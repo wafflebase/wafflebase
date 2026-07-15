@@ -13,7 +13,8 @@
     "paths": {
       "@wafflebase/sheets": ["../sheets/src/index.ts"],
       "@wafflebase/docs": ["../docs/src/node.ts"],
-      "@wafflebase/slides": ["../slides/src/node.ts"]
+      "@wafflebase/slides": ["../slides/src/node.ts"],
+      "@wafflebase/core/*": ["../core/src/*"]
     },
     "incremental": true,
     "skipLibCheck": true,

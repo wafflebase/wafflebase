@@ -1,5 +1,5 @@
 import type { Theme } from '../model/theme';
-import { palette, typography } from '@wafflebase/tokens';
+import { palette, typography } from '@wafflebase/core/tokens';
 import { firstFamily } from './font-stack';
 
 /**

@@ -1,6 +1,7 @@
 import type { Frame } from './element';
+import { unionRect, type Point, type Rect } from '@wafflebase/core/geometry';
 
-export type Point = { x: number; y: number };
+export type { Point };
 
 /**
  * Hit-test a point against a frame, accounting for rotation around the
@@ -35,9 +36,7 @@ export function toLocal(frame: Frame, p: Point): Point {
 }
 
 /** Bounding box of a (possibly rotated) frame, in world coordinates. */
-export function boundingBox(frame: Frame): {
-  x: number; y: number; w: number; h: number;
-} {
+export function boundingBox(frame: Frame): Rect {
   if (frame.rotation === 0) {
     return { x: frame.x, y: frame.y, w: frame.w, h: frame.h };
   }
@@ -52,16 +51,8 @@ export function boundingBox(frame: Frame): {
 }
 
 /** Smallest axis-aligned bbox enclosing multiple frames. */
-export function combinedBoundingBox(frames: Frame[]): {
-  x: number; y: number; w: number; h: number;
-} | undefined {
-  if (frames.length === 0) return undefined;
-  const boxes = frames.map(boundingBox);
-  const minX = Math.min(...boxes.map((b) => b.x));
-  const minY = Math.min(...boxes.map((b) => b.y));
-  const maxX = Math.max(...boxes.map((b) => b.x + b.w));
-  const maxY = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+export function combinedBoundingBox(frames: Frame[]): Rect | undefined {
+  return unionRect(frames.map(boundingBox));
 }
 
 /**

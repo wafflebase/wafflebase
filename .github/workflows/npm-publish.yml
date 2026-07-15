@@ -40,7 +40,7 @@ jobs:
       - name: Run CLI tests
         run: pnpm --filter @wafflebase/cli test
 
-      # @wafflebase/docs, @wafflebase/slides and @wafflebase/tokens are private
+      # @wafflebase/docs, @wafflebase/slides and @wafflebase/core are private
       # workspace packages bundled directly into dist/bin.js by the CLI build,
       # so the CLI is the only npm artifact we publish.
       - name: Publish @wafflebase/cli to npm

@@ -59,14 +59,20 @@ Introduce a new `packages/tokens` workspace package and migrate the four
 surfaces to consume shared color, radius, and typography tokens from one
 source of truth.
 
-- New package `packages/tokens/`
-  - `packages/tokens/src/palette.ts` — raw oklch color constants (Butter & Maple,
-    light and dark maps).
-  - `packages/tokens/src/semantic.ts` — meaning-level tokens (`primary`,
+> **Update (superseded location):** the tokens package was later folded into
+> `@wafflebase/core` as its `./tokens` subpath — see
+> [shared-core-extraction.md](shared-core-extraction.md). Paths below point to
+> the current `packages/core/src/tokens/` location; the design intent is
+> unchanged.
+
+- Shared tokens (now `@wafflebase/core/tokens`)
+  - `packages/core/src/tokens/palette.ts` — raw oklch color constants (Butter &
+    Maple, light and dark maps).
+  - `packages/core/src/tokens/semantic.ts` — meaning-level tokens (`primary`,
     `surface`, `foreground`, `border`, ...).
-  - `packages/tokens/src/radius.ts`, `packages/tokens/src/typography.ts`.
-  - `packages/tokens/src/index.ts` — re-exports.
-  - `packages/tokens/scripts/build-css.ts` — generates a CSS-variable
+  - `packages/core/src/tokens/radius.ts`, `packages/core/src/tokens/typography.ts`.
+  - `packages/core/src/tokens/index.ts` — re-exports.
+  - `packages/core/scripts/build-css.ts` — generates a CSS-variable
     bundle from the TS source, emitted to the package's gitignored dist
     directory at build time.
 - Migrations
@@ -100,7 +106,7 @@ visual changes shipped together because they would have been awkward to
 defer once consumers were already migrating:
 
 - **Chrome neutralization.** Sidebar surface/border/foreground in
-  `packages/tokens/src/semantic.ts` no longer reference
+  `packages/core/src/tokens/semantic.ts` no longer reference
   `palette.neutrals.*` (warm Butter & Maple). They use shadcn neutral
   oklch values so the editor chrome reads as quiet workbench surface.
   Brand still appears on primary, ring, accent, selection wash, and

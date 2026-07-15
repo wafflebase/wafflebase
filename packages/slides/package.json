@@ -38,8 +38,8 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "@wafflebase/core": "workspace:*",
     "@wafflebase/docs": "workspace:*",
-    "@wafflebase/tokens": "workspace:*",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1"
   },

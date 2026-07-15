@@ -25,8 +25,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install and Build
-        # build:all runs `pnpm tokens build` first — required because the
-        # tokens dist/ (incl. tokens.css imported by the frontend) is gitignored
+        # build:all runs `pnpm core build` first — required because the
+        # core dist/ (incl. tokens.css imported by the frontend) is gitignored
         # — then builds the frontend + docs and copies docs into the frontend dist.
         run: |
           pnpm i

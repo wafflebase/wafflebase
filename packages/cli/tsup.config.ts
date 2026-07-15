@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 // The CLI depends on the private workspace packages `@wafflebase/docs`,
-// `@wafflebase/slides` (and transitively `@wafflebase/tokens`). Those are
+// `@wafflebase/slides` (and transitively `@wafflebase/core`). Those are
 // never published to npm, so a plain `tsc` build leaves the published CLI
 // with `workspace:*`-derived deps that 404 on `npm install`. Bundle every
 // `@wafflebase/*` package inline so the published CLI is self-contained and
