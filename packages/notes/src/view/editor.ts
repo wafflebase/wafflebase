@@ -46,7 +46,9 @@ export function initialize(
   const editorEl = document.createElement('div');
   editorEl.dataset.role = 'note-editor';
   editorEl.style.flex = '1 1 50%';
-  editorEl.style.overflow = 'auto';
+  // The CodeMirror `.cm-scroller` owns scrolling (see the theme below); keep
+  // this wrapper clipped so there is no double scrollbar.
+  editorEl.style.overflow = 'hidden';
   editorEl.style.minWidth = '0';
 
   const preview = new NotePreview();
@@ -70,7 +72,12 @@ export function initialize(
     themeExt(mode),
     EditorView.lineWrapping,
     EditorView.editable.of(!readOnly),
-    EditorView.theme({ '&': { width: '100%' } }),
+    // Fill the wrapper's full height (so an empty note starts full-height, not
+    // collapsed to one line) and let the internal scroller handle overflow.
+    EditorView.theme({
+      '&': { width: '100%', height: '100%' },
+      '.cm-scroller': { overflow: 'auto' },
+    }),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) renderPreview();
     }),
