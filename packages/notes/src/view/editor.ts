@@ -1,5 +1,5 @@
 import { markdown } from '@codemirror/lang-markdown';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
@@ -61,26 +61,28 @@ export function initialize(
   const themeExt = (mode: ThemeMode) =>
     mode === 'light' ? xcodeLight : xcodeDark;
 
-  const themeCompartmentDoc = () => view.state.doc.toString();
-  const renderPreview = () => preview.render(themeCompartmentDoc());
+  const currentDoc = () => view.state.doc.toString();
+  const renderPreview = () => preview.render(currentDoc());
+
+  const buildExtensions = (mode: ThemeMode): Extension[] => [
+    basicSetup({ highlightSelectionMatches: false }),
+    markdown(),
+    themeExt(mode),
+    EditorView.lineWrapping,
+    EditorView.editable.of(!readOnly),
+    EditorView.theme({ '&': { width: '100%' } }),
+    EditorView.updateListener.of((u) => {
+      if (u.docChanged) renderPreview();
+    }),
+    noteStoreFacet.of(store),
+    noteSync,
+    noteRemoteSelectionsTheme,
+    noteRemoteSelections,
+  ];
 
   const state = EditorState.create({
     doc: store.getText(),
-    extensions: [
-      basicSetup({ highlightSelectionMatches: false }),
-      markdown(),
-      themeExt(theme),
-      EditorView.lineWrapping,
-      EditorView.editable.of(!readOnly),
-      EditorView.theme({ '&': { width: '100%' } }),
-      EditorView.updateListener.of((u) => {
-        if (u.docChanged) renderPreview();
-      }),
-      noteStoreFacet.of(store),
-      noteSync,
-      noteRemoteSelectionsTheme,
-      noteRemoteSelections,
-    ],
+    extensions: buildExtensions(theme),
   });
 
   const view = new EditorView({ state, parent: editorEl });
@@ -101,21 +103,7 @@ export function initialize(
         EditorState.create({
           doc,
           selection: sel,
-          extensions: [
-            basicSetup({ highlightSelectionMatches: false }),
-            markdown(),
-            themeExt(mode),
-            EditorView.lineWrapping,
-            EditorView.editable.of(!readOnly),
-            EditorView.theme({ '&': { width: '100%' } }),
-            EditorView.updateListener.of((u) => {
-              if (u.docChanged) renderPreview();
-            }),
-            noteStoreFacet.of(store),
-            noteSync,
-            noteRemoteSelectionsTheme,
-            noteRemoteSelections,
-          ],
+          extensions: buildExtensions(mode),
         }),
       );
       renderPreview();
