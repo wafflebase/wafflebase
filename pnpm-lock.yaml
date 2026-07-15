@@ -462,6 +462,9 @@ importers:
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs
+      '@wafflebase/notes':
+        specifier: workspace:*
+        version: link:../notes
       '@wafflebase/sheets':
         specifier: workspace:*
         version: link:../sheets

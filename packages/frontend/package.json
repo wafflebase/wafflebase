@@ -52,6 +52,7 @@
     "@tanstack/react-table": "^8.21.2",
     "@wafflebase/core": "workspace:*",
     "@wafflebase/docs": "workspace:*",
+    "@wafflebase/notes": "workspace:*",
     "@wafflebase/sheets": "workspace:*",
     "@wafflebase/slides": "workspace:*",
     "@yorkie-js/react": "0.7.8",
