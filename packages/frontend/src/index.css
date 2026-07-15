@@ -2,7 +2,24 @@
 @import "tw-animate-css";
 @import "@wafflebase/core/tokens.css";
 
+/* Markdown preview typography (notes editor right pane). */
+@plugin "@tailwindcss/typography";
+
 @custom-variant dark (&:is(.dark *));
+
+/*
+ * Notes markdown preview: the engine renders markdown-it HTML into a
+ * `.note-preview` element. Tailwind's preflight strips default heading/list/
+ * blockquote styling, so without this the rendered HTML looks like plain text.
+ * `prose` (from @tailwindcss/typography) restores GitHub-style markdown
+ * styling; `max-w-none` lets it fill the pane; `prose-invert` handles dark.
+ */
+.note-preview {
+  @apply prose prose-sm max-w-none;
+}
+.dark .note-preview {
+  @apply prose-invert;
+}
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
