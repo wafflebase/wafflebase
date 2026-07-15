@@ -48,3 +48,13 @@ describe('parseYorkieDocKey', () => {
     expect(parseYorkieDocKey('')).toBeNull();
   });
 });
+
+describe('yorkie-doc-key notes', () => {
+  it('builds a note- prefixed key', () => {
+    expect(yorkieDocKey('note', 'abc')).toBe('note-abc');
+    expect(yorkieDocKeyPrefix('note')).toBe('note-');
+  });
+  it('parses a note- key back to type note', () => {
+    expect(parseYorkieDocKey('note-abc')).toEqual({ type: 'note', id: 'abc' });
+  });
+});
