@@ -89,6 +89,8 @@ export function getDocumentPath(doc: {
       return `/p/${doc.id}`;
     case "pdf":
       return `/f/${doc.id}`;
+    case "note":
+      return `/n/${doc.id}`;
     case "sheet":
     default:
       return `/s/${doc.id}`;
