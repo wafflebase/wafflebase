@@ -59,3 +59,21 @@ Capture non-obvious findings here as implementation proceeds.
 
 - **Frontend verification (Tasks 9-13):** `packages/frontend` has NO `typecheck` script. Its real gate = `pnpm --filter @wafflebase/frontend lint` (eslint --max-warnings 0) + `pnpm --filter @wafflebase/frontend test` + `pnpm --filter @wafflebase/frontend build` (vite). Do NOT judge by raw `tsc --noEmit -p tsconfig.app.json` — the repo has ~122 baseline tsc errors on that config; it is not the enforced gate.
 - **verify:fast gap:** root `verify:fast` and `test` enumerate packages explicitly and did NOT include `@wafflebase/notes`. Wired in as Task 14 Step 0 so the engine suite runs in the pre-commit gate.
+
+- **CRITICAL runtime bug (`{"context":null,"text":null}` on new note):** Yorkie
+  CRDT values seeded via `client.attach({ initialRoot })` (or any `doc.update`
+  under `@yorkie-js/react`) MUST be constructed from the CRDT class exported by
+  **`@yorkie-js/react`**, NOT `@yorkie-js/sdk`. The react package bundles its own
+  copy of the SDK, so `sdk.Text !== react.Text` (distinct class identities). The
+  provider's `client.attach`/`buildCRDTElement` recognizes CRDT types via
+  `instanceof` against react's classes; an sdk `Text`/`Tree` fails the check and
+  is silently materialized as a plain `CRDTObject` built from the wrapper's own
+  fields (`Text` → `{ context, text }`, both null), whose `toString()` is the
+  literal `{"context":null,"text":null}`. `docs-view.tsx` already imports `Tree`
+  from `@yorkie-js/react` for exactly this reason (its `ensureTree`); notes
+  originally imported `Text` from `@yorkie-js/sdk` in `initialNotesRoot()` and
+  hit the bug. Fix: import `Text` from `@yorkie-js/react` in `notes-document.ts`
+  + add `ensureText()` repair in `notes-view.tsx` for already-broken persisted
+  docs. Regression guard: `notes-document.test.ts` asserts `content instanceof`
+  the **react** Text. Proven byte-exact via node repro. Applies to ANY future
+  Yorkie CRDT type in the frontend.
