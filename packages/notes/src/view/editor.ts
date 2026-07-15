@@ -139,6 +139,33 @@ export function initialize(
   };
   applyViewMode(viewMode);
 
+  // Proportional scroll sync between the editor scroller and the preview,
+  // active only in split ('both') mode. Mirrors CodePair's react-scroll-sync,
+  // which syncs by scroll percentage (not source-line mapping) and is on by
+  // default. A lock flag suppresses the echo scroll event on the destination.
+  const editorScroller = view.scrollDOM;
+  let scrollLock = false;
+  const scrollRatioOf = (el: HTMLElement) => {
+    const range = el.scrollHeight - el.clientHeight;
+    return range > 0 ? el.scrollTop / range : 0;
+  };
+  const applyScrollRatio = (el: HTMLElement, ratio: number) => {
+    const range = el.scrollHeight - el.clientHeight;
+    el.scrollTop = ratio * range;
+  };
+  const linkScroll = (src: HTMLElement, dst: HTMLElement) => () => {
+    if (scrollLock || currentViewMode !== 'both') return;
+    scrollLock = true;
+    applyScrollRatio(dst, scrollRatioOf(src));
+    requestAnimationFrame(() => {
+      scrollLock = false;
+    });
+  };
+  const onEditorScroll = linkScroll(editorScroller, preview.el);
+  const onPreviewScroll = linkScroll(preview.el, editorScroller);
+  editorScroller.addEventListener('scroll', onEditorScroll, { passive: true });
+  preview.el.addEventListener('scroll', onPreviewScroll, { passive: true });
+
   return {
     getText: () => view.state.doc.toString(),
     setTheme: (mode: ThemeMode) => {
@@ -163,6 +190,10 @@ export function initialize(
     },
     getViewMode: () => currentViewMode,
     focus: () => view.focus(),
-    dispose: () => view.destroy(),
+    dispose: () => {
+      editorScroller.removeEventListener('scroll', onEditorScroll);
+      preview.el.removeEventListener('scroll', onPreviewScroll);
+      view.destroy();
+    },
   };
 }
