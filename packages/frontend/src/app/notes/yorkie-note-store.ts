@@ -33,6 +33,8 @@ export class YorkieNoteStore implements NoteStore {
         listener({ type: 'replace', content: this.getText() });
         return;
       }
+      // Retained for forward-compat with Yorkie-native undo; currently
+      // dormant since P1 undo/redo runs through CodeMirror local history.
       const isUndoRedo =
         event.type === 'local-change' && event.source === 'undoredo';
       if (event.type !== 'remote-change' && !isUndoRedo) return;

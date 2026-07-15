@@ -13,7 +13,7 @@ import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { initialNotesRoot } from "@/types/notes-document";
+import { initialNotesRoot, noteUserColor } from "@/types/notes-document";
 import { NotesView } from "./notes-view";
 
 /**
@@ -167,7 +167,7 @@ export function NotesDetail() {
         username: currentUser.username,
         email: currentUser.email,
         photo: currentUser.photo || "",
-        color: "#1E88E5",
+        color: noteUserColor(currentUser.username),
         name: currentUser.username,
         selection: null,
         cursor: null,

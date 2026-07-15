@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Text } from '@yorkie-js/sdk';
-import { initialNotesRoot } from './notes-document';
+import { initialNotesRoot, noteUserColor } from './notes-document';
 
 describe('initialNotesRoot', () => {
   it('creates a Text content field for client.attach to seed', () => {
@@ -11,5 +11,19 @@ describe('initialNotesRoot', () => {
     // Task 2 spike). The real content round-trip is covered by the
     // YorkieNoteStore test (Task 9), which drives an attached Document.
     expect(root.content).toBeInstanceOf(Text);
+  });
+});
+
+describe('noteUserColor', () => {
+  it('is deterministic for the same seed', () => {
+    expect(noteUserColor('alice')).toBe(noteUserColor('alice'));
+  });
+
+  it('returns an hsl(...) string', () => {
+    expect(noteUserColor('alice')).toMatch(/^hsl\(\d+, 70%, 55%\)$/);
+  });
+
+  it('produces different hues for different seeds', () => {
+    expect(noteUserColor('alice')).not.toBe(noteUserColor('bob'));
   });
 });

@@ -15,6 +15,7 @@ import {
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import {
   initialNotesRoot,
+  noteUserColor,
   type YorkieNotesRoot,
 } from "@/types/notes-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
@@ -728,7 +729,13 @@ function SharedDocumentInner({
         <DocumentProvider<Partial<YorkieNotesRoot>>
           docKey={docKey}
           initialRoot={initialNotesRoot()}
-          initialPresence={presence}
+          initialPresence={{
+            ...presence,
+            color: noteUserColor(presence.username),
+            name: presence.username,
+            selection: null,
+            cursor: null,
+          }}
           enableDevtools={import.meta.env.DEV}
         >
           <SharedNotesLayout resolved={resolved} />
