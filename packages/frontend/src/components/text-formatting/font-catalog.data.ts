@@ -61,6 +61,7 @@ export const FONT_CATALOG_DATA: readonly FontEntry[] = [
   { label: "Libre Baskerville", family: "Libre Baskerville", group: "Serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["latin","latin-ext"] },
   { label: "Spectral", family: "Spectral", group: "Serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","latin","latin-ext","vietnamese"] },
   { label: "Zilla Slab", family: "Zilla Slab", group: "Serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["latin","latin-ext"] },
+  { label: "Fraunces", family: "Fraunces", group: "Serif", webFont: true, weights: "400;700", license: "OFL", scripts: ["latin","latin-ext","vietnamese"] },
   { label: "Roboto Mono", family: "Roboto Mono", group: "Monospace", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","latin","latin-ext","vietnamese"] },
   { label: "JetBrains Mono", family: "JetBrains Mono", group: "Monospace", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","latin","latin-ext","vietnamese"] },
   { label: "Source Code Pro", family: "Source Code Pro", group: "Monospace", webFont: true, weights: "400;700", license: "OFL", scripts: ["cyrillic","cyrillic-ext","greek","greek-ext","latin","latin-ext","vietnamese"] },
