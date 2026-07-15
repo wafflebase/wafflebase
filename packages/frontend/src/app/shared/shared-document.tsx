@@ -13,11 +13,16 @@ import {
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
+import {
+  initialNotesRoot,
+  type YorkieNotesRoot,
+} from "@/types/notes-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
+import { NotesView } from "@/app/notes/notes-view";
 import {
   PdfCollabProvider,
   PdfHeaderActions,
@@ -262,6 +267,35 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
           commentsPanelOpen={commentsPanelOpen}
           onCommentsPanelOpenChange={setCommentsPanelOpen}
         />
+      </div>
+    </div>
+  );
+}
+
+function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
+  const readOnly = resolved.role === "viewer";
+
+  useEffect(() => {
+    document.title = resolved.title
+      ? `${resolved.title} — Wafflebase`
+      : "Wafflebase";
+  }, [resolved.title]);
+
+  return (
+    <div className="flex h-screen w-full flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence />
+      </header>
+      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        <NotesView readOnly={readOnly} />
       </div>
     </div>
   );
@@ -661,6 +695,8 @@ function SharedDocumentInner({
       ? `doc-${resolved.documentId}`
       : resolved.type === "slides"
       ? `slides-${resolved.documentId}`
+      : resolved.type === "note"
+      ? `note-${resolved.documentId}`
       : `sheet-${resolved.documentId}`;
 
   return (
@@ -687,6 +723,15 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedSlidesLayout resolved={resolved} />
+        </DocumentProvider>
+      ) : resolved.type === "note" ? (
+        <DocumentProvider<Partial<YorkieNotesRoot>>
+          docKey={docKey}
+          initialRoot={initialNotesRoot()}
+          initialPresence={presence}
+          enableDevtools={import.meta.env.DEV}
+        >
+          <SharedNotesLayout resolved={resolved} />
         </DocumentProvider>
       ) : (
         <DocumentProvider
