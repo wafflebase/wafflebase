@@ -20,6 +20,11 @@
           "pattern": "^slides-detail-",
           "maxKb": 1500,
           "reason": "Slides editor bundle — @wafflebase/slides (model + canvas renderer + editor + interactions) plus the @wafflebase/docs layout engine reused for text-element rendering, loaded only when navigating to a /p/:id Presentation route. v2 can split editor from renderer if the budget tightens."
+        },
+        {
+          "pattern": "^notes-view-",
+          "maxKb": 1300,
+          "reason": "Notes editor bundle — CodeMirror plus the markdown preview engine (markdown-it + highlight.js/lib/common for ~35 fenced-code languages, @vscode/markdown-it-katex + katex for math, markdown-it-task-lists for checkboxes), loaded only when navigating to a notes document route. Grew from ~724 kB to ~1.16 MB adding CodePair-parity preview rendering (syntax highlighting, KaTeX, task lists); highlight.js's curated `lib/common` entry point was used instead of the full ~190-language bundle specifically to keep this bounded. Same lazily-loaded-route-chunk pattern as `slides-detail-`."
         }
       ]
     }

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@wafflebase/core/tokens.css";
+@import "katex/dist/katex.min.css";
+@import "./app/notes/notes-preview.css";
 
 /* Markdown preview typography (notes editor right pane). */
 @plugin "@tailwindcss/typography";

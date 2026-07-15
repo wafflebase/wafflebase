@@ -38,6 +38,7 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@types/katex": "^0.16.7",
     "@types/markdown-it": "^14.1.2",
     "@vitest/coverage-v8": "4.1.8",
     "jsdom": "^28.0.0",
@@ -54,8 +55,12 @@
     "@codemirror/view": "^6.23.1",
     "@uiw/codemirror-extensions-basic-setup": "^4.25.4",
     "@uiw/codemirror-theme-xcode": "^4.25.4",
+    "@vscode/markdown-it-katex": "^1.1.1",
     "codemirror": "^6.0.2",
-    "markdown-it": "^14.1.0"
+    "highlight.js": "^11.10.0",
+    "katex": "^0.16.11",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1"
   },
   "peerDependencies": {
     "@yorkie-js/sdk": "0.7.8"
