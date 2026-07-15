@@ -1,6 +1,10 @@
 import { initialize, type NoteEditorAPI, type ThemeMode } from "@wafflebase/notes";
 import { useEffect, useRef, useState } from "react";
-import { useDocument } from "@yorkie-js/react";
+// `Text` is imported from @yorkie-js/react (NOT @yorkie-js/sdk) on purpose: the
+// provider's client.attach recognizes CRDT values via `instanceof` against its
+// own Text class, so content must be created from this same module or it is
+// materialized as a plain `{ context, text }` object. See notes-document.ts.
+import { useDocument, Text } from "@yorkie-js/react";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieNotesRoot, NotesPresence } from "@/types/notes-document";
@@ -11,6 +15,36 @@ export type { NoteEditorAPI } from "@wafflebase/notes";
 interface NotesViewProps {
   onEditorReady?: (editor: NoteEditorAPI | null) => void;
   readOnly?: boolean;
+}
+
+/**
+ * Ensure the Yorkie document has a valid `Text` CRDT at `root.content`.
+ *
+ * New notes receive the Text via `client.attach({ initialRoot })`. This helper
+ * is a fallback/repair for documents whose content is missing OR was persisted
+ * as a plain `{ context, text }` object by an earlier build that created the
+ * Text from the wrong package instance (`@yorkie-js/sdk` vs `@yorkie-js/react`
+ * class-identity mismatch). A valid Text exposes `edit()`; a mis-built
+ * CRDTObject does not. After (re)creating we `clearHistory()` so an undo can't
+ * unwind the seed. Caller must only invoke this on a writable (non-read-only)
+ * document.
+ */
+function ensureText(
+  doc: ReturnType<typeof useDocument<YorkieNotesRoot, NotesPresence>>["doc"],
+): boolean {
+  if (!doc) return false;
+  const root = doc.getRoot();
+  if (
+    root.content &&
+    typeof (root.content as { edit?: unknown }).edit === "function"
+  ) {
+    return true;
+  }
+  doc.update((r) => {
+    r.content = new Text();
+  });
+  doc.clearHistory();
+  return true;
 }
 
 /**
@@ -36,6 +70,10 @@ export function NotesView({ onEditorReady, readOnly }: NotesViewProps) {
   useEffect(() => {
     const container = containerRef.current;
     if (!didMount || !container || !doc) return;
+
+    // Repair/seed content on writable docs only (a read-only share viewer has
+    // no write permission — the auth webhook would reject the update).
+    if (!readOnly) ensureText(doc);
 
     const store = new YorkieNoteStore(doc);
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;

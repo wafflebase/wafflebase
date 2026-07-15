@@ -1,4 +1,13 @@
-import { Text } from '@yorkie-js/sdk';
+// IMPORTANT: import `Text` from `@yorkie-js/react`, NOT `@yorkie-js/sdk`.
+// The collaborative document runs through @yorkie-js/react's DocumentProvider,
+// whose bundled `client.attach({ initialRoot })` recognizes CRDT values via
+// `instanceof` against ITS OWN Text class. `@yorkie-js/sdk`'s Text is a
+// different class identity (sdk.Text !== react.Text), so a sdk Text passed as
+// initialRoot is NOT recognized and gets materialized as a plain CRDTObject
+// `{ context, text }` — surfacing in the editor as the literal string
+// `{"context":null,"text":null}`. Matches how docs-view creates its `Tree`
+// from @yorkie-js/react.
+import { Text } from '@yorkie-js/react';
 import type { TextPosStructRange } from '@yorkie-js/sdk';
 
 /**
