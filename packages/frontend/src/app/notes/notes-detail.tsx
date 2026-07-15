@@ -1,7 +1,8 @@
 import { DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { NoteViewMode } from "@wafflebase/notes";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialNotesRoot, noteUserColor } from "@/types/notes-document";
 import { NotesView } from "./notes-view";
+import { NotesToolbar } from "./notes-toolbar";
 
 /**
  * NotesLayout provides the sidebar + header chrome around the note editor,
@@ -23,6 +25,7 @@ import { NotesView } from "./notes-view";
 function NotesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState<NoteViewMode>("both");
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
@@ -122,7 +125,8 @@ function NotesLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <NotesView />
+          <NotesToolbar mode={viewMode} onModeChange={setViewMode} />
+          <NotesView viewMode={viewMode} />
         </div>
       </SidebarInset>
     </SidebarProvider>

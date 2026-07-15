@@ -296,7 +296,7 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
         <UserPresence />
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        <NotesView readOnly={readOnly} />
+        <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
       </div>
     </div>
   );

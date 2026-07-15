@@ -1,4 +1,9 @@
-import { initialize, type NoteEditorAPI, type ThemeMode } from "@wafflebase/notes";
+import {
+  initialize,
+  type NoteEditorAPI,
+  type ThemeMode,
+  type NoteViewMode,
+} from "@wafflebase/notes";
 import { useEffect, useRef, useState } from "react";
 // `Text` is imported from @yorkie-js/react (NOT @yorkie-js/sdk) on purpose: the
 // provider's client.attach recognizes CRDT values via `instanceof` against its
@@ -15,6 +20,8 @@ export type { NoteEditorAPI } from "@wafflebase/notes";
 interface NotesViewProps {
   onEditorReady?: (editor: NoteEditorAPI | null) => void;
   readOnly?: boolean;
+  /** Pane layout: editor only / split / preview only. Defaults to `both`. */
+  viewMode?: NoteViewMode;
 }
 
 /**
@@ -55,7 +62,11 @@ function ensureText(
  * (unlike DocsView) this component needs no re-render plumbing beyond
  * mount/unmount and theme sync.
  */
-export function NotesView({ onEditorReady, readOnly }: NotesViewProps) {
+export function NotesView({
+  onEditorReady,
+  readOnly,
+  viewMode = "both",
+}: NotesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
   const [didMount, setDidMount] = useState(false);
@@ -77,7 +88,7 @@ export function NotesView({ onEditorReady, readOnly }: NotesViewProps) {
 
     const store = new YorkieNoteStore(doc);
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
-    const editor = initialize(container, store, theme, readOnly);
+    const editor = initialize(container, store, theme, readOnly, viewMode);
     editorRef.current = editor;
     onEditorReady?.(editor);
 
@@ -95,6 +106,11 @@ export function NotesView({ onEditorReady, readOnly }: NotesViewProps) {
       (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode,
     );
   }, [resolvedTheme]);
+
+  // Apply view-mode changes from the toolbar to the mounted editor.
+  useEffect(() => {
+    editorRef.current?.setViewMode(viewMode);
+  }, [viewMode]);
 
   if (loading) return <Loader />;
   if (error) {

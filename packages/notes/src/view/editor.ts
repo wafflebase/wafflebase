@@ -13,12 +13,24 @@ import { NotePreview } from './preview.js';
 
 export type ThemeMode = 'light' | 'dark';
 
+/**
+ * Pane layout mode (mirrors CodePair's editor modes):
+ * - `edit` — editor only
+ * - `both` — editor + preview split
+ * - `view` — preview only (reading mode)
+ */
+export type NoteViewMode = 'edit' | 'both' | 'view';
+
 /** Public API returned by initialize(). */
 export interface NoteEditorAPI {
   /** Current markdown text. */
   getText(): string;
   /** Switch the editor color theme. */
   setTheme(mode: ThemeMode): void;
+  /** Switch the pane layout: editor only / split / preview only. */
+  setViewMode(mode: NoteViewMode): void;
+  /** Current pane layout mode. */
+  getViewMode(): NoteViewMode;
   /** Focus the editor. */
   focus(): void;
   /** Tear down the editor and its listeners. */
@@ -38,6 +50,7 @@ export function initialize(
   store: NoteStore,
   theme: ThemeMode = 'light',
   readOnly = false,
+  viewMode: NoteViewMode = 'both',
 ): NoteEditorAPI {
   container.style.display = 'flex';
   container.style.alignItems = 'stretch';
@@ -97,6 +110,32 @@ export function initialize(
 
   let currentTheme = theme;
 
+  // Toggle which panes are visible for the current layout mode. The preview
+  // still receives updates while hidden (the updateListener fires regardless
+  // of display), so switching into it shows current content; we re-render and
+  // re-measure the editor defensively on show.
+  let currentViewMode: NoteViewMode = viewMode;
+  const applyViewMode = (mode: NoteViewMode) => {
+    currentViewMode = mode;
+    const showEditor = mode !== 'view';
+    const showPreview = mode !== 'edit';
+    editorEl.style.display = showEditor ? '' : 'none';
+    preview.el.style.display = showPreview ? '' : 'none';
+    editorEl.style.flex = showEditor
+      ? showPreview
+        ? '1 1 50%'
+        : '1 1 100%'
+      : '0 0 0';
+    preview.el.style.flex = showPreview
+      ? showEditor
+        ? '1 1 50%'
+        : '1 1 100%'
+      : '0 0 0';
+    if (showPreview) renderPreview();
+    if (showEditor) view.requestMeasure();
+  };
+  applyViewMode(viewMode);
+
   return {
     getText: () => view.state.doc.toString(),
     setTheme: (mode: ThemeMode) => {
@@ -115,6 +154,11 @@ export function initialize(
       );
       renderPreview();
     },
+    setViewMode: (mode: NoteViewMode) => {
+      if (mode === currentViewMode) return;
+      applyViewMode(mode);
+    },
+    getViewMode: () => currentViewMode,
     focus: () => view.focus(),
     dispose: () => view.destroy(),
   };

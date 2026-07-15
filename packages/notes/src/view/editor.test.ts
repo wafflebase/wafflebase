@@ -29,4 +29,30 @@ describe('initialize', () => {
     api.dispose();
     container.remove();
   });
+
+  it('honors the initial view mode and switches panes', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // Start in 'view' (preview only) — the read-only share default.
+    const api = initialize(container, new MemNoteStore('# Hi'), 'light', false, 'view');
+    const editorEl = container.querySelector<HTMLElement>('[data-role="note-editor"]')!;
+    const previewEl = container.querySelector<HTMLElement>('[data-role="note-preview"]')!;
+
+    expect(api.getViewMode()).toBe('view');
+    expect(editorEl.style.display).toBe('none');
+    expect(previewEl.style.display).not.toBe('none');
+
+    api.setViewMode('edit');
+    expect(api.getViewMode()).toBe('edit');
+    expect(editorEl.style.display).not.toBe('none');
+    expect(previewEl.style.display).toBe('none');
+
+    api.setViewMode('both');
+    expect(api.getViewMode()).toBe('both');
+    expect(editorEl.style.display).not.toBe('none');
+    expect(previewEl.style.display).not.toBe('none');
+
+    api.dispose();
+    container.remove();
+  });
 });

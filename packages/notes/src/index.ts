@@ -9,7 +9,12 @@ export { MemNoteStore } from './store/memory.js';
 export type { Unsubscribe } from './types.js';
 
 // View
-export { initialize, type NoteEditorAPI, type ThemeMode } from './view/editor.js';
+export {
+  initialize,
+  type NoteEditorAPI,
+  type ThemeMode,
+  type NoteViewMode,
+} from './view/editor.js';
 export { noteStoreFacet, noteSync } from './view/note-sync.js';
 export {
   noteRemoteSelections,
