@@ -67,7 +67,10 @@ export function initialize(
   const preview = new NotePreview();
   preview.el.style.flex = '1 1 50%';
   preview.el.style.overflow = 'auto';
-  preview.el.style.padding = '0 16px';
+  // Vertical padding matters: `prose` zeroes the first child's margin-top
+  // (.note-preview > :first-child), so a first-line heading would otherwise
+  // sit flush against the top edge.
+  preview.el.style.padding = '16px 20px';
   preview.el.style.minWidth = '0';
 
   container.appendChild(editorEl);
