@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -28,6 +29,7 @@ import {
 import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
+import { isDocumentManager } from './document-access';
 
 type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   editors?: PresenceUser[];
@@ -37,6 +39,10 @@ type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   // the per-request Yorkie admin call — so the list order no longer flips when
   // that call times out.
   updatedAt: string;
+  // Whether the caller may delete or move this document — workspace owner or
+  // the document's author (see `resolveDocManager`). Lets the client gate the
+  // Delete/Move menu items without re-deriving roles per workspace.
+  canManage: boolean;
 };
 
 @Controller()
@@ -51,6 +57,8 @@ export class DocumentController {
 
   private async attachMeta(
     docs: DocumentWithAuthor[],
+    roleByWorkspace: Map<string, string>,
+    userId: number,
   ): Promise<DocumentListItem[]> {
     if (docs.length === 0) return [];
     // The Yorkie admin call now supplies only the decorative "currently
@@ -62,11 +70,34 @@ export class DocumentController {
       const item: DocumentListItem = {
         ...d,
         updatedAt: d.updatedAt.toISOString(),
+        canManage: isDocumentManager(
+          roleByWorkspace.get(d.workspaceId),
+          d.authorID,
+          userId,
+        ),
       };
       const editors = editorsByKey.get(keys[i]);
       if (editors?.length) item.editors = editors;
       return item;
     });
+  }
+
+  /**
+   * A document's "manager" — the workspace owner or the document's author — is
+   * the tier allowed to delete or move it (parity with the share-link
+   * `isManager` gate; see docs/design/sharing.md). Plain members have `rw` on
+   * the content but may not destroy or relocate a document they do not own.
+   * Requires workspace membership first, so a removed author cannot act.
+   */
+  private async resolveDocManager(
+    doc: { workspaceId: string; authorID: number | null },
+    userId: number,
+  ): Promise<boolean> {
+    const member = await this.workspaceService.assertMember(
+      doc.workspaceId,
+      userId,
+    );
+    return isDocumentManager(member.role, doc.authorID, userId);
   }
 
   /**
@@ -110,12 +141,12 @@ export class DocumentController {
     const userId = Number(req.user.id);
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
-    await this.workspaceService.assertMember(workspaceId, userId);
+    const member = await this.workspaceService.assertMember(workspaceId, userId);
     const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
-    return this.attachMeta(docs);
+    return this.attachMeta(docs, new Map([[workspaceId, member.role]]), userId);
   }
 
   // --- Legacy / backward-compatible endpoints ---
@@ -141,13 +172,16 @@ export class DocumentController {
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentListItem[]> {
     const userId = Number(req.user.id);
-    const workspaces = await this.workspaceService.findAllByUser(userId);
-    const workspaceIds = workspaces.map((w) => w.id);
+    const memberships = await this.workspaceService.findMembershipsByUser(userId);
+    const roleByWorkspace = new Map(
+      memberships.map((m) => [m.workspaceId, m.role]),
+    );
+    const workspaceIds = memberships.map((m) => m.workspaceId);
     const docs = await this.documentService.listDocumentsWithAuthor({
       where: { workspaceId: { in: workspaceIds } },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
-    return this.attachMeta(docs);
+    return this.attachMeta(docs, roleByWorkspace, userId);
   }
 
   @Post('documents')
@@ -178,7 +212,8 @@ export class DocumentController {
       throw new NotFoundException('Document not found');
     }
     const userId = Number(req.user.id);
-    await this.workspaceService.assertMember(doc.workspaceId, userId);
+    // Renaming is an edit any member may do; moving is a manager-only action.
+    const isManager = await this.resolveDocManager(doc, userId);
 
     const data: { title?: string; workspace?: { connect: { id: string } } } =
       {};
@@ -186,6 +221,11 @@ export class DocumentController {
       data.title = body.title;
     }
     if (body.workspaceId !== undefined) {
+      if (!isManager) {
+        throw new ForbiddenException(
+          'Only the workspace owner or document owner can move this document',
+        );
+      }
       await this.workspaceService.assertMember(body.workspaceId, userId);
       data.workspace = { connect: { id: body.workspaceId } };
     }
@@ -205,10 +245,11 @@ export class DocumentController {
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
-    await this.workspaceService.assertMember(
-      doc.workspaceId,
-      Number(req.user.id),
-    );
+    if (!(await this.resolveDocManager(doc, Number(req.user.id)))) {
+      throw new ForbiddenException(
+        'Only the workspace owner or document owner can delete this document',
+      );
+    }
     const deleted = await this.documentService.deleteDocument({ id });
     if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
       // Best-effort: a failed blob cleanup must not fail the delete, but log

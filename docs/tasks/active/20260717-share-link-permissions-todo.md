@@ -47,6 +47,30 @@ Capability derivation (single source in backend, post-review):
 - [x] `handleCreate` catch — surface the server error message instead of the
       hardcoded generic toast.
 
+## Document Delete / Move (follow-on, same PR)
+
+Delete/Move had the *inverse* gap: gated only on `assertMember`, so any plain
+member could delete or move another member's (incl. the owner's) document.
+Tightened to the same manager tier (`isOwner || isAuthor`); Rename stays
+member-level (it's an edit).
+
+- [x] `DocumentController.resolveDocManager` helper (member + owner-role/author).
+- [x] Legacy `DELETE /documents/:id` → manager only.
+- [x] Legacy `PATCH /documents/:id` → rename any member; move manager only
+      (+ destination membership).
+- [x] v1 `DELETE /api/v1/.../documents/:did` → manager gate for JWT callers;
+      API keys require `write` scope (read-only keys rejected — review R3 F1).
+- [x] Extract shared `isDocumentManager` helper (review R3 F4) reused by the
+      legacy gate, v1 gate, list `canManage`, and share-link `resolveCapability`.
+- [x] `WorkspaceService.findMembershipsByUser` + list `canManage` annotation on
+      `GET /documents` and `GET /workspaces/:id/documents`.
+- [x] Frontend: `Document.canManage`; hide Delete/Move in the list dropdown
+      when `!canManage` (Rename stays).
+- [x] Unit tests: `document.controller.spec.ts` (12), `documents.controller.spec.ts` (4).
+- [x] HTTP e2e: member can rename, cannot move/delete; owner can delete;
+      `canManage` flag per row.
+- [x] Docs: `backend.md` stale author-only claims → workspace + manager model.
+
 ## Docs
 
 - [x] Update `docs/design/sharing.md` "owner only" wording → this matrix.
@@ -101,3 +125,18 @@ Workflow-backed review surfaced 8 findings; all addressed:
     `getShareLinks` rejection left `loaded=false`, permanently disabling Create
     with no feedback. Fixed: set `loaded` in `finally`, surface the error via
     toast, and fall back to viewer-only perms (backend stays the real gate).
+
+### Round 3 (review of the delete/move commit)
+
+11. **[security] v1 DELETE exempted all API keys** — a read-only key could
+    delete documents (my exemption skipped the scope check). Fixed: API keys
+    now require the `write` scope; read-only keys get 403.
+12. **[cleanup] manager predicate duplicated ×4** — extracted
+    `document/document-access.ts#isDocumentManager`, reused by the legacy gate,
+    v1 gate, list `canManage`, and share-link `resolveCapability`.
+- **F2 (null authorID → owner-only manage)**: accepted as by-design — there is
+  always a workspace owner who can manage, so no document is unmanageable;
+  documented in the `isDocumentManager` doc-comment.
+- **F3 (redundant `assertMember` on the v1 JWT path)**: left as-is; threading
+  the role through the shared `WorkspaceScopeGuard` would couple every v1 route
+  for one avoidable `findUnique` on the delete path only.

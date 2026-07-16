@@ -17,7 +17,8 @@ ownership and user accounts.
 
 - Authenticate users via GitHub OAuth2 and issue JWT session cookies.
 - Provide a REST API for creating, listing, and deleting spreadsheet documents.
-- Enforce document ownership — users can only access their own documents.
+- Enforce workspace-based access — members share their workspace's documents;
+  deleting or moving a document is reserved to its manager (owner or author).
 
 ### Non-Goals
 
@@ -106,40 +107,65 @@ flowchart TD
 
 All endpoints require `JwtAuthGuard`.
 
+Access follows the **workspace** model, not document authorship alone: every
+member of a document's workspace has `rw` on it. A document's **manager** —
+the workspace owner **or** the document's `authorID` — is additionally the tier
+allowed to delete or move it (`DocumentController.resolveDocManager`).
+
 **`GET /documents`**
-- Returns all documents where `authorID` matches the authenticated user.
+- Returns all documents across every workspace the user belongs to, each row
+  annotated with `canManage` (owner-of-workspace or author) so the client can
+  gate Delete/Move without re-deriving roles.
 
 **`GET /documents/:id`**
-- Returns the document if the authenticated user is the author.
-- Throws `ForbiddenException` if the user is not the owner.
+- Returns the document if the user is a member of its workspace.
+- Throws `ForbiddenException` (403) otherwise.
 
-**`POST /documents`**
-- Body: `{ title: string }`
-- Creates a document with `authorID` set to the authenticated user's ID.
+**`POST /documents` / `POST /workspaces/:workspaceId/documents`**
+- Body: `{ title: string, type?, workspaceId }`
+- Requires workspace membership. Creates a document with `authorID` set to the
+  caller.
+
+**`PATCH /documents/:id`**
+- Rename (`{ title }`) — any workspace member.
+- Move (`{ workspaceId }`) — manager only (owner or author); the caller must
+  also be a member of the destination workspace. `403` otherwise.
 
 **`DELETE /documents/:id`**
-- Deletes the document if the authenticated user is the author.
-- Throws `ForbiddenException` if the user is not the owner.
+- Deletes the document if the caller is its manager (workspace owner or author).
+- Throws `ForbiddenException` (403) for a non-manager member. Best-effort blob
+  cleanup for `pdf` documents.
+
+The REST v1 `DELETE /api/v1/workspaces/:wid/documents/:did` applies the same
+manager gate for JWT callers; API-key callers (workspace-scoped credentials
+minted by an owner) act with workspace authority but must carry the `write`
+scope — a read-only key is rejected.
 
 #### Share Links (`/documents/:id/share-links`, `/share-links`)
+
+Share-link authority mirrors the document model — see
+[sharing.md](sharing.md) for the full matrix. `isManager = isOwner || isAuthor`.
 
 **`POST /documents/:id/share-links`**
 - Guard: `JwtAuthGuard`
 - Body: `{ role: "viewer" | "editor", expiration: "1h" | "8h" | "24h" | "7d" | null }`
-- Creates a share link for the document. Only the document owner can create links.
-- Returns the created ShareLink (including `token`).
+- Any workspace member may create a `viewer` link; only a manager may create an
+  `editor` link. Returns the created ShareLink (including `token`).
 
 **`GET /documents/:id/share-links`**
 - Guard: `JwtAuthGuard`
-- Returns all share links for the document. Only the document owner can list links.
+- Any workspace member may list. Returns `{ links, permissions:
+  { canCreateEditorLink } }`, each link annotated with `canDelete`. Editor
+  links a non-manager did not create are omitted (a token is redistributable).
 
 **`DELETE /share-links/:id`**
 - Guard: `JwtAuthGuard`
-- Revokes (deletes) a share link. Only the link creator can delete it.
+- Revokes a share link. The link's creator may always revoke it; a manager may
+  revoke any link on the document.
 
 **`GET /share-links/:token/resolve`** *(public — no auth required)*
 - Resolves a share token to document info.
-- Returns `{ documentId, role, title }` if the token is valid and not expired.
+- Returns `{ documentId, role, title, type }` if the token is valid and not expired.
 - Returns `410 Gone` if the token has expired.
 - Returns `404 Not Found` if the token is invalid.
 
@@ -420,9 +446,10 @@ Deployment assumes frontend and backend share an eTLD+1
 (e.g. `*.wafflebase.com`). Cross-eTLD deployments would need
 `SameSite=None` paired with a CSRF token, not yet implemented.
 
-**Authorization checks** — Document endpoints verify that `req.user.id`
-matches the document's `authorID`. Unauthorized access throws
-`ForbiddenException` (HTTP 403).
+**Authorization checks** — Document endpoints verify workspace membership
+(`WorkspaceService.assertMember`) for read/edit, and additionally require the
+caller to be the document's **manager** (workspace owner or `authorID`) to
+delete or move it. Unauthorized access throws `ForbiddenException` (HTTP 403).
 
 **Middleware pipeline:**
 

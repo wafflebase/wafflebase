@@ -6,6 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
+import { isDocumentManager } from '../document/document-access';
 
 const SHARE_LINK_ROLES = ['viewer', 'editor'] as const;
 type ShareLinkRole = (typeof SHARE_LINK_ROLES)[number];
@@ -62,7 +63,9 @@ export class ShareLinkService {
       throw new ForbiddenException('You do not have access to this document');
     }
 
-    return { isManager: membership?.role === 'owner' || isAuthor };
+    return {
+      isManager: isDocumentManager(membership?.role, doc.authorID, userId),
+    };
   }
 
   async create(

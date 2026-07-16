@@ -30,6 +30,19 @@ export class WorkspaceService {
     return memberships.map((m) => m.workspace);
   }
 
+  /**
+   * The user's `(workspaceId, role)` across every workspace they belong to.
+   * Lets callers resolve per-workspace ownership without an N+1 of
+   * `assertMember` — e.g. the documents list annotating each row with whether
+   * the caller may manage (delete/move) it.
+   */
+  async findMembershipsByUser(userId: number) {
+    return this.prisma.workspaceMember.findMany({
+      where: { userId },
+      select: { workspaceId: true, role: true },
+    });
+  }
+
   async findOne(idOrSlug: string, userId: number) {
     const isUUID =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

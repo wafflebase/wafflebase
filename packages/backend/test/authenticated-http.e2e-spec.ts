@@ -124,6 +124,64 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       .expect(403);
   });
 
+  it('reserves document delete/move to owner or author, but rename to any member', async () => {
+    const owner = await createUser();
+    const member = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
+    });
+    const other = await createWorkspace(prisma, member.id); // move destination
+
+    const doc = await prisma.document.create({
+      data: {
+        title: 'Owner roadmap',
+        authorID: owner.id,
+        workspaceId: workspace.id,
+      },
+    });
+
+    // The list annotates canManage per row: true for the owner, false for a
+    // plain member who is not the author.
+    const ownerList = await request(app.getHttpServer())
+      .get('/documents')
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(ownerList.body.find((d: { id: string }) => d.id === doc.id).canManage).toBe(true);
+
+    const memberList = await request(app.getHttpServer())
+      .get('/documents')
+      .set('Cookie', authCookie(member))
+      .expect(200);
+    expect(memberList.body.find((d: { id: string }) => d.id === doc.id).canManage).toBe(false);
+
+    // A plain member may rename…
+    await request(app.getHttpServer())
+      .patch(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(member))
+      .send({ title: 'Renamed by member' })
+      .expect(200);
+
+    // …but not move…
+    await request(app.getHttpServer())
+      .patch(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(member))
+      .send({ workspaceId: other.id })
+      .expect(403);
+
+    // …nor delete.
+    await request(app.getHttpServer())
+      .delete(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(member))
+      .expect(403);
+
+    // The owner can delete.
+    await request(app.getHttpServer())
+      .delete(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+  });
+
   it('enforces share-link owner permissions and supports public token resolve', async () => {
     const owner = await createUser();
     const other = await createUser();

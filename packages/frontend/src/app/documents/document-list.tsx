@@ -293,32 +293,36 @@ export function DocumentList({
                 <Pencil className="mr-2 h-4 w-4" />
                 Rename
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e: MouseEvent<HTMLElement>) => {
-                  e.stopPropagation();
-                  setMovingDoc({
-                    id: String(row.getValue("id")),
-                    title: row.getValue("title"),
-                    workspaceId: row.original.workspaceId,
-                  });
-                }}
-              >
-                <FolderOutput className="mr-2 h-4 w-4" />
-                Move to...
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={(e: MouseEvent<HTMLElement>) => {
-                  e.stopPropagation();
-                  setDeletingDoc({
-                    id: String(row.getValue("id")),
-                    title: row.getValue("title"),
-                  });
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              {row.original.canManage && (
+                <DropdownMenuItem
+                  onClick={(e: MouseEvent<HTMLElement>) => {
+                    e.stopPropagation();
+                    setMovingDoc({
+                      id: String(row.getValue("id")),
+                      title: row.getValue("title"),
+                      workspaceId: row.original.workspaceId,
+                    });
+                  }}
+                >
+                  <FolderOutput className="mr-2 h-4 w-4" />
+                  Move to...
+                </DropdownMenuItem>
+              )}
+              {row.original.canManage && (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={(e: MouseEvent<HTMLElement>) => {
+                    e.stopPropagation();
+                    setDeletingDoc({
+                      id: String(row.getValue("id")),
+                      title: row.getValue("title"),
+                    });
+                  }}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         );
