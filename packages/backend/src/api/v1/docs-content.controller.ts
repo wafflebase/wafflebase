@@ -22,6 +22,12 @@ import {
   readSlidesRoot,
   writeSlidesRoot,
 } from '../../yorkie/slides-tree';
+import {
+  NoteDocument,
+  NoteYorkieRoot,
+  readNoteRoot,
+  writeNoteRoot,
+} from '../../yorkie/note-content';
 import type {
   DocsDocument,
   SlidesDocument,
@@ -31,6 +37,7 @@ import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 
 const DOC_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.doc;
 const SLIDES_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.slides;
+const NOTE_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.note;
 
 const TYPE_MISMATCH_BODY = {
   error: {
@@ -39,21 +46,22 @@ const TYPE_MISMATCH_BODY = {
   },
 };
 
-type ContentDocument = DocsDocument | SlidesDocument;
+type ContentDocument = DocsDocument | SlidesDocument | NoteDocument;
 
 /**
- * Read/write the canonical content JSON for word-processor (`doc`) and
- * slides (`slides`) documents.
+ * Read/write the canonical content JSON for word-processor (`doc`), slides
+ * (`slides`), and note (`note`) documents.
  *
  * The PUT body shape is determined by the persisted document type — the
  * controller loads the document's `type` from Postgres and dispatches to
  * the matching writer. Sheets are rejected with `TYPE_MISMATCH` because
  * they expose the `cells` endpoints instead.
  *
- * Both flows attach to the same Yorkie document the editor uses (key
- * `doc-<id>` for word-processor docs, `slides-<id>` for decks — see
- * `packages/frontend/src/app/docs/docs-detail.tsx` and
- * `packages/frontend/src/app/slides/slides-detail.tsx`). The CLI consumes
+ * All flows attach to the same Yorkie document the editor uses (key
+ * `doc-<id>` for word-processor docs, `slides-<id>` for decks, `note-<id>`
+ * for notes — see `packages/frontend/src/app/docs/docs-detail.tsx`,
+ * `packages/frontend/src/app/slides/slides-detail.tsx`, and
+ * `packages/frontend/src/app/notes/notes-detail.tsx`). The CLI consumes
  * these endpoints so it never needs to ship a Yorkie SDK dependency.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/content')
@@ -71,12 +79,12 @@ export class ApiV1DocsContentController {
   private async loadContentType(
     workspaceId: string,
     documentId: string,
-  ): Promise<'doc' | 'slides'> {
+  ): Promise<'doc' | 'slides' | 'note'> {
     const meta = await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (meta.type !== 'doc' && meta.type !== 'slides') {
+    if (meta.type !== 'doc' && meta.type !== 'slides' && meta.type !== 'note') {
       throw new ConflictException(TYPE_MISMATCH_BODY);
     }
     return meta.type;
@@ -93,6 +101,13 @@ export class ApiV1DocsContentController {
         documentId,
         (doc) => readDocsRoot(doc.getRoot()),
         { docKeyPrefix: DOC_KEY_PREFIX, syncMode: 'readonly' },
+      );
+    }
+    if (type === 'note') {
+      return this.yorkieService.withDocument<NoteDocument, NoteYorkieRoot>(
+        documentId,
+        (doc) => readNoteRoot(doc.getRoot()),
+        { docKeyPrefix: NOTE_KEY_PREFIX, syncMode: 'readonly' },
       );
     }
     return this.yorkieService.withDocument<SlidesDocument, SlidesYorkieRoot>(
@@ -121,11 +136,13 @@ export class ApiV1DocsContentController {
     const shape = sniffBodyShape(body);
     if (shape === null) {
       throw new BadRequestException(
-        "Invalid content payload: must contain 'blocks' (docs) or 'slides' (slides)",
+        "Invalid content payload: must contain 'blocks' (docs), 'slides' (slides), or 'content' (note)",
       );
     }
     if (shape === 'doc') {
       assertValidDocsBody(body);
+    } else if (shape === 'note') {
+      assertValidNoteBody(body);
     } else {
       assertValidSlidesBody(body);
     }
@@ -151,6 +168,18 @@ export class ApiV1DocsContentController {
       );
       return body as DocsDocument;
     }
+    if (type === 'note') {
+      await this.yorkieService.withDocument<void, NoteYorkieRoot>(
+        documentId,
+        (doc) => {
+          doc.update((root) => {
+            writeNoteRoot(root as NoteYorkieRoot, body as NoteDocument);
+          });
+        },
+        { docKeyPrefix: NOTE_KEY_PREFIX },
+      );
+      return body as NoteDocument;
+    }
     await this.yorkieService.withDocument<void, SlidesYorkieRoot>(
       documentId,
       (doc) => {
@@ -169,7 +198,7 @@ export class ApiV1DocsContentController {
  * than the document's persisted type. Returns `null` if neither anchor
  * field is recognisable; the caller surfaces this as a 400.
  */
-function sniffBodyShape(body: unknown): 'doc' | 'slides' | null {
+function sniffBodyShape(body: unknown): 'doc' | 'slides' | 'note' | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   // `slides` is the unambiguous anchor for slides decks — docs bodies
@@ -178,6 +207,10 @@ function sniffBodyShape(body: unknown): 'doc' | 'slides' | null {
   // `meta` and the other required arrays).
   if (Array.isArray(b.slides)) return 'slides';
   if (Array.isArray(b.blocks)) return 'doc';
+  // A note body is just `{ content: <markdown string> }`. Checked last so
+  // the array anchors above win; docs/slides bodies never carry a
+  // top-level string `content` field.
+  if (typeof b.content === 'string') return 'note';
   return null;
 }
 
@@ -186,6 +219,23 @@ function sniffBodyShape(body: unknown): 'doc' | 'slides' | null {
  * we find. Stops at the first failure to keep the response small —
  * fix-and-retry workflows don't gain much from a list of every error.
  */
+/**
+ * A note payload is minimal: `{ content: string }`. The whole markdown doc
+ * lives in one string, so there is nothing else to validate.
+ */
+function assertValidNoteBody(body: unknown): asserts body is NoteDocument {
+  if (!body || typeof body !== 'object') {
+    throw new BadRequestException(
+      'Invalid note content payload: not an object',
+    );
+  }
+  if (typeof (body as { content?: unknown }).content !== 'string') {
+    throw new BadRequestException(
+      "Invalid note content payload: 'content' must be a string",
+    );
+  }
+}
+
 function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
   if (!body || typeof body !== 'object') {
     throw new BadRequestException('Invalid docs content payload: not an object');

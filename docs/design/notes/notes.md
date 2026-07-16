@@ -238,6 +238,26 @@ paste/drop → `![](url)` insertion), export (PDF/HTML/Markdown via
 `markdown-it`), revision history panel, and vim mode. Each is additive and
 route-local.
 
+**CLI (shipped).** A `notes` namespace (alias `note`) in `@wafflebase/cli`
+brings notes to parity with the `docs`/`slides` namespaces:
+`list / create / get / rename / delete / content / export / import`. Because a
+note's content *is* its markdown string in one Yorkie `Text` at `root.content`,
+the pipeline is the thinnest of the three — no lossy serialization:
+
+- `notes content <id>` → `{ "content": "…" }` for `--format json`, raw markdown
+  for `md`/`text`.
+- `notes export <id> <file.md>` → markdown only (PDF/HTML export still deferred
+  above).
+- `notes import <file.md>` → creates (or `--replace`s) a note from a markdown
+  file or stdin.
+
+The backend reuses the shared `GET`/`PUT /api/v1/.../documents/:id/content`
+endpoint, adding a `note` arm that reads/writes the `Text` via
+`packages/backend/src/yorkie/note-content.ts` (mirrors the `doc`/`slides`
+tree readers/writers). The v1 `POST /documents` create path also learned to
+accept `type: 'note'` (it previously downgraded unknown types to `sheet`).
+See [cli.md](../cli.md).
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

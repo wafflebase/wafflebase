@@ -7,6 +7,15 @@ import {
   decodeJwtExpiry,
 } from '../config/session.js';
 
+/**
+ * Canonical note content JSON exchanged with the content endpoint. A note's
+ * whole content is a single markdown string — mirrors the backend's
+ * `NoteDocument` (`packages/backend/src/yorkie/note-content.ts`).
+ */
+export interface NoteContent {
+  content: string;
+}
+
 export interface ApiResponse<T = unknown> {
   ok: boolean;
   status: number;
@@ -135,8 +144,9 @@ export class HttpClient {
   listDocuments() {
     return this.request<unknown[]>('GET', '/documents');
   }
-  createDocument(title: string, type?: 'doc' | 'sheet' | 'slides') {
-    const body: { title: string; type?: 'doc' | 'sheet' | 'slides' } = { title };
+  createDocument(title: string, type?: 'doc' | 'sheet' | 'slides' | 'note') {
+    const body: { title: string; type?: 'doc' | 'sheet' | 'slides' | 'note' } =
+      { title };
     if (type) body.type = type;
     return this.request('POST', '/documents', body);
   }
@@ -179,6 +189,23 @@ export class HttpClient {
       'PUT',
       `/documents/${docId}/content`,
       deck,
+    );
+  }
+
+  // Notes content — same endpoint as docs/slides; the backend dispatches
+  // on the persisted document type, picking the note writer for `'note'`.
+  // A note's content is a single markdown string (`{ content }`).
+  getNoteContent(docId: string) {
+    return this.request<NoteContent>(
+      'GET',
+      `/documents/${docId}/content`,
+    );
+  }
+  putNoteContent(docId: string, note: NoteContent) {
+    return this.request<NoteContent>(
+      'PUT',
+      `/documents/${docId}/content`,
+      note,
     );
   }
 

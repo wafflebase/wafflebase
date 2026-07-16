@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| notes cli (2026-07-16) | [20260716-notes-cli-todo.md](./active/20260716-notes-cli-todo.md) | [20260716-notes-cli-lessons.md](./active/20260716-notes-cli-lessons.md) |
 | release v0.6.0 (2026-07-16) | [20260716-release-v0.6.0-todo.md](./active/20260716-release-v0.6.0-todo.md) | - |
 | notes markdown type (2026-07-15) | [20260715-notes-markdown-type-todo.md](./active/20260715-notes-markdown-type-todo.md) | [20260715-notes-markdown-type-lessons.md](./active/20260715-notes-markdown-type-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
@@ -39,4 +40,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 363
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.0 (2026-07-16)
+Latest active task: notes cli (2026-07-16)

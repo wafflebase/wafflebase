@@ -307,19 +307,36 @@ wafflebase
   │     └── export <doc-id> <file>
   │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
   │
-  └── slides (aliases: slide, deck)
-        ├── list                             List slide decks (type: slides)
-        ├── create <title>                   Create a new deck
-        ├── get <doc-id>                      Show deck metadata
-        ├── rename <doc-id> <title>          Rename a deck
-        ├── delete <doc-id>                   Delete a deck
+  ├── slides (aliases: slide, deck)
+  │     ├── list                             List slide decks (type: slides)
+  │     ├── create <title>                   Create a new deck
+  │     ├── get <doc-id>                      Show deck metadata
+  │     ├── rename <doc-id> <title>          Rename a deck
+  │     ├── delete <doc-id>                   Delete a deck
+  │     ├── content <doc-id>
+  │     │     [--format json|md|text]        (default: json)
+  │     │     [--notes]                       (include speaker notes; md/text)
+  │     │     [--out <file>|-]                (default: stdout)
+  │     │     [--force]
+  │     ├── export <doc-id> <file>
+  │     │     [--format pptx]                (default: from extension)
+  │     │     [--force]                       (overwrite existing file)
+  │     └── import <file>
+  │           [--title <title>]               (default: file basename)
+  │           [--replace <doc-id> --yes]      (destructive; required together)
+  │
+  └── notes (alias: note)
+        ├── list                             List notes (type: note)
+        ├── create <title>                   Create a new note
+        ├── get <doc-id>                      Show note metadata
+        ├── rename <doc-id> <title>          Rename a note
+        ├── delete <doc-id>                   Delete a note
         ├── content <doc-id>
         │     [--format json|md|text]        (default: json)
-        │     [--notes]                       (include speaker notes; md/text)
         │     [--out <file>|-]                (default: stdout)
         │     [--force]
-        ├── export <doc-id> <file>
-        │     [--format pptx]                (default: from extension)
+        ├── export <doc-id> <file>|-         (- writes Markdown to stdout)
+        │     [--format md]                  (default: from extension; - ⇒ md)
         │     [--force]                       (overwrite existing file)
         └── import <file>
               [--title <title>]               (default: file basename)
@@ -339,6 +356,18 @@ three documented v1 limitations: inline href links on text runs,
 connector attached-endpoints are not yet wired in the exporter, and
 group-targeted animation coupling is a documented v1 gap. PDF
 export remains deferred (requires Canvas rasterization).
+
+The Notes commands are the thinnest of the three document namespaces: a
+note's entire content *is* a single markdown string held in one Yorkie
+`Text` CRDT at `root.content` (byte-compatible with CodePair), so there is
+no lossy serialization. `notes content` returns `{ "content": "…" }` for
+`--format json` and the raw markdown for `md`/`text`; `notes export`
+writes markdown only (a note is already markdown — PDF/HTML export is
+deferred). `notes import` reads a `.md` file (or stdin) straight into the
+content string. The backend content endpoint dispatches on the persisted
+type (`doc` → docs tree, `slides` → slides tree, `note` → `Text`); the
+CLI-side `getNoteContent`/`putNoteContent` reuse the same
+`GET`/`PUT /documents/:id/content` route.
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
@@ -570,6 +599,7 @@ packages/cli/
       ctx.ts             ctx list/switch
       docs.ts            docs list/create/get/rename/delete + content/export/import
       slides.ts          slides list/create/get/rename/delete + content/export/import
+      notes.ts           notes list/create/get/rename/delete + content/export/import
       sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
       tabs.ts            sheets tabs list
       cells.ts           sheets cells get/set/batch/delete
@@ -588,6 +618,9 @@ packages/cli/
       content.ts         runSlidesContent orchestrator (json + per-slide md/text)
       import.ts          runSlidesImport orchestrator (POST + PUT, --replace flow)
       pptx-import.ts     importPptx wrapper + base64 image uploader
+    notes/               Markdown-note pipeline
+      content.ts         runNotesContent orchestrator (json {content} + raw md/text)
+      import.ts          runNotesImport orchestrator (POST + PUT, --replace flow)
       page-range.ts      parsePageRange (1-3,5,7-9 + clamp warnings)
       page-slice.ts      sliceBlocksByPages
       fontkit-measurer.ts FontkitMeasurer (TextMeasurer for Node)
@@ -782,6 +815,14 @@ Schema entries by command (canonical plural names):
 | `slides.content`         | read-only     | `json` lossless; `md`/`text` text-only                 |
 | `slides.export`          | read-only     | file write is local; PPTX only                         |
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
+| `notes.list`             | read-only     | filtered to `type: note`                               |
+| `notes.create`           | write         |                                                        |
+| `notes.get`              | read-only     | metadata only                                          |
+| `notes.rename`           | write         |                                                        |
+| `notes.delete`           | destructive   |                                                        |
+| `notes.content`          | read-only     | `json` → `{content}`; `md`/`text` raw markdown         |
+| `notes.export`           | read-only     | file write is local; Markdown only                     |
+| `notes.import`           | write         | `safety` becomes `destructive` with `--replace`        |
 | `login`                  | write         | OAuth login, writes session file                       |
 | `logout`                 | write         | Deletes session file                                   |
 | `status`                 | read-only     | Shows current auth state                               |
