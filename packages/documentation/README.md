@@ -8,9 +8,9 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 
 | Page | Description |
 |------|-------------|
-| [Getting Started](guide/getting-started.md) | Sign in, create sheets, docs, or slides, first steps |
-| [Collaboration](guide/collaboration.md) | Share documents, real-time editing, permissions |
-| [Import & Export](guide/import-export.md) | XLSX/DOCX/PPTX import, DOCX/PPTX/PDF export, CLI automation |
+| [Getting Started](guide/getting-started.md) | Sign in, create sheets, docs, slides, or notes, first steps |
+| [Collaboration](guide/collaboration.md) | Share documents, real-time editing, comments, permissions |
+| [Import & Export](guide/import-export.md) | XLSX/DOCX/PPTX import, PDF upload, DOCX/PPTX/PDF export, CLI automation |
 
 ### Sheets
 
@@ -19,6 +19,7 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 | [Build a Budget](sheets/build-a-budget.md) | Learn formulas, formatting, and layout |
 | [Formulas](sheets/formulas.md) | Formula syntax, function reference, examples |
 | [Charts](sheets/charts.md) | Chart types, creation, editing, pivot tables |
+| [Data Validation](sheets/data-validation.md) | Checkboxes, dropdowns, date/number/text rules |
 | [External Datasources](sheets/datasources.md) | Connect PostgreSQL, run SQL, read-only result tabs |
 | [Keyboard Shortcuts](sheets/keyboard-shortcuts.md) | Spreadsheet shortcut reference |
 
@@ -36,6 +37,18 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 | [Build a Deck](slides/build-a-deck.md) | Slides, elements, themes, presenting |
 | [Themes & Layouts](slides/themes-and-layouts.md) | Theme system and slide layouts |
 | [Keyboard Shortcuts](slides/keyboard-shortcuts.md) | Presentation editor shortcut reference |
+
+### Notes
+
+| Page | Description |
+|------|-------------|
+| [Writing a Note](notes/writing-a-note.md) | Markdown source editor, live preview, view modes, Vim |
+
+### PDF
+
+| Page | Description |
+|------|-------------|
+| [Viewing PDFs](pdf/viewing-pdfs.md) | Upload, read, page-anchored comments, presence |
 
 ### Developers
 
@@ -60,7 +73,7 @@ Site configuration is in `.vitepress/config.ts`:
 
 - **Base path**: `/docs/` (deployed as subpath of the main site)
 - **Search**: Local search provider (no external service)
-- **Navigation**: Five sidebar sections — Guide, Sheets, Docs, Slides, and Developers
+- **Navigation**: Seven sidebar sections — Guide, Sheets, Docs, Slides, Notes, PDF, and Developers
 - **Theme**: Default VitePress theme with custom CSS overrides
 
 ## Tech Stack

@@ -1,6 +1,6 @@
 # Collaboration & Sharing
 
-Wafflebase lets multiple people edit the same sheet, document, or presentation at the same time. Share via link — no account required for recipients.
+Wafflebase lets multiple people edit the same sheet, document, presentation, or note at the same time — and read and comment on the same PDF. Share via link — no account required for recipients.
 
 ## Share a Document
 
@@ -31,7 +31,7 @@ In sheets, editors can also use formulas, insert/delete rows and columns, and re
 
 When a collaborator opens your shared link, you'll see:
 
-- **Their cursor** — In sheets, a colored highlight on their selected cell. In docs, a colored text cursor at their position.
+- **Their cursor** — In sheets, a colored highlight on their selected cell. In docs and notes, a colored text cursor at their position. In PDFs, presence follows the page they're reading.
 - **Their name** — Appears near their cursor so you know who's editing where
 - **Live changes** — Edits appear instantly with no need to refresh or save
 
@@ -61,6 +61,16 @@ and on selected text in documents.
 3. Type your comment and click **Comment**
 
 The commented text is highlighted so everyone can see where the discussion is.
+
+**In a PDF:**
+
+1. Click **Add comment** in the header
+2. Drag a rectangle over the region of the page you want to comment on
+3. Type your comment and post it
+
+The comment is pinned to that page and region. Open the comments panel from the
+header to browse every thread by page. See [Viewing PDFs](/pdf/viewing-pdfs) for
+more.
 
 ### Reply, resolve, edit
 
