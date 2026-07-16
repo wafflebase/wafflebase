@@ -2,7 +2,20 @@ import { DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { NoteViewMode, NoteEditorAPI } from "@wafflebase/notes";
+import type {
+  NoteViewMode,
+  NoteEditorAPI,
+  NoteKeymap,
+} from "@wafflebase/notes";
+
+const KEYMAP_STORAGE_KEY = "wafflebase:notes:keymap";
+
+function readStoredKeymap(): NoteKeymap {
+  if (typeof window === "undefined") return "default";
+  return window.localStorage.getItem(KEYMAP_STORAGE_KEY) === "vim"
+    ? "vim"
+    : "default";
+}
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -27,6 +40,16 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<NoteViewMode>("both");
   const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
+  const [keymap, setKeymap] = useState<NoteKeymap>(readStoredKeymap);
+
+  const handleKeymapChange = useCallback((next: NoteKeymap) => {
+    setKeymap(next);
+    try {
+      window.localStorage.setItem(KEYMAP_STORAGE_KEY, next);
+    } catch {
+      // ignore storage failures (private mode / disabled)
+    }
+  }, []);
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
@@ -129,9 +152,15 @@ function NotesLayout({ documentId }: { documentId: string }) {
           <NotesToolbar
             mode={viewMode}
             onModeChange={setViewMode}
+            keymap={keymap}
+            onKeymapChange={handleKeymapChange}
             editor={editor}
           />
-          <NotesView viewMode={viewMode} onEditorReady={setEditor} />
+          <NotesView
+            viewMode={viewMode}
+            keymap={keymap}
+            onEditorReady={setEditor}
+          />
         </div>
       </SidebarInset>
     </SidebarProvider>

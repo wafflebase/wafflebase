@@ -14,6 +14,7 @@ export {
   type NoteEditorAPI,
   type ThemeMode,
   type NoteViewMode,
+  type NoteKeymap,
 } from './view/editor.js';
 export type { NoteInlineFormats } from './view/commands.js';
 export { noteStoreFacet, noteSync } from './view/note-sync.js';

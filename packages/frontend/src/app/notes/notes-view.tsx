@@ -3,6 +3,7 @@ import {
   type NoteEditorAPI,
   type ThemeMode,
   type NoteViewMode,
+  type NoteKeymap,
 } from "@wafflebase/notes";
 import { useEffect, useRef, useState } from "react";
 // `Text` is imported from @yorkie-js/react (NOT @yorkie-js/sdk) on purpose: the
@@ -22,6 +23,8 @@ interface NotesViewProps {
   readOnly?: boolean;
   /** Pane layout: editor only / split / preview only. Defaults to `both`. */
   viewMode?: NoteViewMode;
+  /** Editor keybinding mode. Defaults to `default`. */
+  keymap?: NoteKeymap;
 }
 
 /**
@@ -66,6 +69,7 @@ export function NotesView({
   onEditorReady,
   readOnly,
   viewMode = "both",
+  keymap = "default",
 }: NotesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
@@ -111,6 +115,11 @@ export function NotesView({
   useEffect(() => {
     editorRef.current?.setViewMode(viewMode);
   }, [viewMode]);
+
+  // Apply keybinding-mode changes (default / vim) to the mounted editor.
+  useEffect(() => {
+    editorRef.current?.setKeymap(keymap);
+  }, [keymap]);
 
   if (loading) return <Loader />;
   if (error) {

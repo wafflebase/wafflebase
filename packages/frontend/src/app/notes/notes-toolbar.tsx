@@ -3,6 +3,7 @@ import type {
   NoteEditorAPI,
   NoteViewMode,
   NoteInlineFormats,
+  NoteKeymap,
 } from "@wafflebase/notes";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -27,7 +28,13 @@ import {
   IconStrikethrough,
   IconLink,
   IconTable,
+  IconKeyboard,
 } from "@tabler/icons-react";
+
+const KEYMAPS: { key: NoteKeymap; label: string }[] = [
+  { key: "default", label: "Default" },
+  { key: "vim", label: "Vim" },
+];
 
 const MODES: { mode: NoteViewMode; label: string; Icon: typeof IconEye }[] = [
   { mode: "edit", label: "Editor", Icon: IconPencil },
@@ -130,11 +137,15 @@ function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
 export function NotesToolbar({
   mode,
   onModeChange,
+  keymap,
+  onKeymapChange,
   editor,
   readOnly,
 }: {
   mode: NoteViewMode;
   onModeChange: (mode: NoteViewMode) => void;
+  keymap: NoteKeymap;
+  onKeymapChange: (keymap: NoteKeymap) => void;
   editor: NoteEditorAPI | null;
   readOnly?: boolean;
 }) {
@@ -193,7 +204,40 @@ export function NotesToolbar({
         </>
       )}
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-0.5">
+        {!readOnly && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Keyboard: ${
+                      KEYMAPS.find((k) => k.key === keymap)?.label ?? "Default"
+                    }`}
+                    className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted"
+                  >
+                    <IconKeyboard size={16} />
+                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Keyboard</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              {KEYMAPS.map(({ key, label }) => (
+                <DropdownMenuCheckboxItem
+                  key={key}
+                  checked={keymap === key}
+                  onCheckedChange={() => onKeymapChange(key)}
+                >
+                  {label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>

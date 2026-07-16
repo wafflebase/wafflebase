@@ -55,4 +55,22 @@ describe('initialize', () => {
     api.dispose();
     container.remove();
   });
+
+  it('switches the keybinding mode (default <-> vim)', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = initialize(container, new MemNoteStore('hi'), 'light');
+
+    expect(api.getKeymap()).toBe('default');
+    // Switching to vim rebuilds the editor state with the vim() extension
+    // (throws here if the extension fails to load) and preserves content.
+    api.setKeymap('vim');
+    expect(api.getKeymap()).toBe('vim');
+    expect(api.getText()).toBe('hi');
+    api.setKeymap('default');
+    expect(api.getKeymap()).toBe('default');
+
+    api.dispose();
+    container.remove();
+  });
 });

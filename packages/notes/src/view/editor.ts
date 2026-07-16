@@ -1,6 +1,7 @@
 import { markdown } from '@codemirror/lang-markdown';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
 import type { NoteStore } from '../store/store.js';
@@ -30,6 +31,9 @@ export type ThemeMode = 'light' | 'dark';
  */
 export type NoteViewMode = 'edit' | 'both' | 'view';
 
+/** Editor keybinding mode (mirrors CodePair's CodeKeyType). */
+export type NoteKeymap = 'default' | 'vim';
+
 /** Public API returned by initialize(). */
 export interface NoteEditorAPI {
   /** Current markdown text. */
@@ -40,6 +44,10 @@ export interface NoteEditorAPI {
   setViewMode(mode: NoteViewMode): void;
   /** Current pane layout mode. */
   getViewMode(): NoteViewMode;
+  /** Switch the editor keybinding mode (default / vim). */
+  setKeymap(mode: NoteKeymap): void;
+  /** Current editor keybinding mode. */
+  getKeymap(): NoteKeymap;
   /** Toggle `**bold**` around the selection. */
   toggleBold(): void;
   /** Toggle `*italic*` around the selection. */
@@ -130,7 +138,12 @@ export function initialize(
   // or document changes, so it can highlight the format toggles.
   let selectionCb: ((formats: NoteInlineFormats) => void) | null = null;
 
+  // Editor keybinding mode; `vim()` must sit at the front of the extension
+  // list (before the default keymaps) to take precedence.
+  let currentKeymap: NoteKeymap = 'default';
+
   const buildExtensions = (mode: ThemeMode): Extension[] => [
+    currentKeymap === 'vim' ? vim() : [],
     basicSetup({ highlightSelectionMatches: false }),
     markdown(),
     themeExt(mode),
@@ -265,6 +278,21 @@ export function initialize(
       applyViewMode(mode);
     },
     getViewMode: () => currentViewMode,
+    setKeymap: (mode: NoteKeymap) => {
+      if (mode === currentKeymap) return;
+      currentKeymap = mode;
+      const doc = view.state.doc.toString();
+      const sel = view.state.selection;
+      view.setState(
+        EditorState.create({
+          doc,
+          selection: sel,
+          extensions: buildExtensions(currentTheme),
+        }),
+      );
+      view.focus();
+    },
+    getKeymap: () => currentKeymap,
     toggleBold: () => toggleBold(view),
     toggleItalic: () => toggleItalic(view),
     toggleStrikethrough: () => toggleStrikethrough(view),

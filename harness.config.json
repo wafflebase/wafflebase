@@ -23,8 +23,8 @@
         },
         {
           "pattern": "^notes-view-",
-          "maxKb": 1300,
-          "reason": "Notes editor bundle — CodeMirror plus the markdown preview engine (markdown-it + highlight.js/lib/common for ~35 fenced-code languages, @vscode/markdown-it-katex + katex for math, markdown-it-task-lists for checkboxes), loaded only when navigating to a notes document route. Grew from ~724 kB to ~1.16 MB adding CodePair-parity preview rendering (syntax highlighting, KaTeX, task lists); highlight.js's curated `lib/common` entry point was used instead of the full ~190-language bundle specifically to keep this bounded. Same lazily-loaded-route-chunk pattern as `slides-detail-`."
+          "maxKb": 1400,
+          "reason": "Notes editor bundle — CodeMirror plus the markdown preview engine (markdown-it + highlight.js/lib/common for ~35 fenced-code languages, @vscode/markdown-it-katex + katex for math, markdown-it-task-lists for checkboxes) and the optional Vim keybinding mode (@replit/codemirror-vim), loaded only when navigating to a notes document route. Grew from ~724 kB → ~1.16 MB (CodePair-parity preview: syntax highlighting, KaTeX, task lists) → ~1.29 MB (Vim keymap). highlight.js's curated `lib/common` entry point was used instead of the full ~190-language bundle specifically to keep this bounded. Same lazily-loaded-route-chunk pattern as `slides-detail-`."
         }
       ]
     }
