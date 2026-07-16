@@ -280,6 +280,102 @@ const registry: CommandSchema[] = [
     aliases: ['slide.export', 'deck.export', 'decks.export'],
   },
 
+  // Notes (markdown) namespace
+  {
+    name: 'notes.list',
+    description: 'List notes in workspace',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'string', title: 'string', type: 'string', createdAt: 'string' } },
+    aliases: ['note.list'],
+  },
+  {
+    name: 'notes.create',
+    description: 'Create a new note',
+    safety: 'write',
+    parameters: {
+      title: { type: 'string', required: true, description: 'Note title' },
+    },
+    response: { id: 'string', title: 'string', type: 'string' },
+    aliases: ['note.create'],
+  },
+  {
+    name: 'notes.get',
+    description: 'Show note metadata',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string', title: 'string', type: 'string', createdAt: 'string' },
+    aliases: ['note.get'],
+  },
+  {
+    name: 'notes.rename',
+    description: 'Rename a note',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      title: { type: 'string', required: true, description: 'New title' },
+    },
+    response: { id: 'string', title: 'string' },
+    aliases: ['note.rename'],
+  },
+  {
+    name: 'notes.delete',
+    description: 'Delete a note',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string' },
+    aliases: ['note.delete'],
+  },
+  {
+    name: 'notes.content',
+    description: 'Read note content as JSON or Markdown',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--format': { type: 'string', required: false, description: 'Output format (json|md|text)', default: 'json' },
+      '--out': { type: 'string', required: false, description: 'Output file (- for stdout)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'object', description: 'Note JSON ({content}) or raw Markdown per --format' },
+    aliases: ['note.content'],
+  },
+  {
+    name: 'notes.import',
+    description: 'Import a Markdown file as a new (or replacement) note',
+    // Default safety is `write` (create new note); `--replace` flips it to
+    // destructive, mirroring `docs.import` / `slides.import`.
+    safety: 'write',
+    parameters: {
+      file: { type: 'string', required: true, description: 'Source .md path or - for stdin' },
+      '--title': { type: 'string', required: false, description: 'Note title (default: file basename)' },
+      '--replace': { type: 'string', required: false, description: 'Existing note ID to replace' },
+      '--yes': { type: 'boolean', required: false, description: 'Skip --replace confirmation', default: 'false' },
+    },
+    response: { id: 'string', title: 'string', replaced: 'boolean' },
+    variants: [
+      { when: 'default', safety: 'write', creates: 'new note' },
+      { when: '--replace given', safety: 'destructive', modifies: 'existing note content' },
+    ],
+    aliases: ['note.import'],
+  },
+  {
+    name: 'notes.export',
+    description: 'Export a note to Markdown',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'Output path or - for stdout' },
+      '--format': { type: 'string', required: false, description: 'Output format (md); default from extension' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'string', description: 'Markdown text' },
+    aliases: ['note.export'],
+  },
+
   // Sheets namespace — canonical names live under sheets.*
   {
     name: 'sheets.tabs.list',

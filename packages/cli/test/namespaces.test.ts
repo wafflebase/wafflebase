@@ -4,6 +4,7 @@ import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
 import { registerSlidesCommand } from '../src/commands/slides.js';
+import { registerNotesCommand } from '../src/commands/notes.js';
 import { registerApiKeysCommand } from '../src/commands/api-keys.js';
 
 function buildProgram(): Command {
@@ -11,6 +12,7 @@ function buildProgram(): Command {
   registerDocsCommand(p);
   registerSheetsCommand(p);
   registerSlidesCommand(p);
+  registerNotesCommand(p);
   registerApiKeysCommand(p);
   return p;
 }
@@ -120,6 +122,31 @@ describe('CLI namespace structure', () => {
       'export',
     ]) {
       expect(findChild(slides!, sub)?.name()).toBe(sub);
+    }
+  });
+
+  it('exposes the notes namespace with the note alias', () => {
+    const program = buildProgram();
+    const notes = findChild(program, 'notes');
+    expect(notes?.name()).toBe('notes');
+    expect(notes?.aliases()).toEqual(expect.arrayContaining(['note']));
+  });
+
+  it('notes contains list/create/get/rename/delete/content/import/export', () => {
+    const program = buildProgram();
+    const notes = findChild(program, 'notes');
+    expect(notes).toBeDefined();
+    for (const sub of [
+      'list',
+      'create',
+      'get',
+      'rename',
+      'delete',
+      'content',
+      'import',
+      'export',
+    ]) {
+      expect(findChild(notes!, sub)?.name()).toBe(sub);
     }
   });
 });

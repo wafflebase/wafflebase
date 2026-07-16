@@ -133,6 +133,27 @@ describe('ApiV1DocsContentController', () => {
       );
     });
 
+    it('returns the note content JSON for a note-typed document', async () => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'note',
+      });
+      yorkieService.withDocument.mockResolvedValue({ content: '# Hi' });
+
+      const result = await controller.getContent('ws-1', 'd1');
+
+      expect(result).toEqual({ content: '# Hi' });
+      expect(yorkieService.withDocument).toHaveBeenCalledWith(
+        'd1',
+        expect.any(Function),
+        expect.objectContaining({
+          docKeyPrefix: 'note-',
+          syncMode: 'readonly',
+        }),
+      );
+    });
+
     it('propagates NotFoundException when the document does not exist', async () => {
       documentService.getDocumentOrThrow.mockRejectedValue(
         new NotFoundException('Document not found'),
@@ -237,6 +258,85 @@ describe('ApiV1DocsContentController', () => {
         expect.any(Function),
         { docKeyPrefix: 'slides-' },
       );
+    });
+
+    it('writes a note body via doc.update and echoes it back', async () => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'note',
+      });
+
+      // Seed a fake `Text` on the root so writeNoteRoot takes the
+      // existing-text (edit) branch rather than constructing a real
+      // Yorkie `Text` — which would need a live document context.
+      const edits: Array<[number, number, string]> = [];
+      let value = 'stale';
+      const fakeText = {
+        get length() {
+          return value.length;
+        },
+        toString: () => value,
+        edit: (from: number, to: number, content: string) => {
+          edits.push([from, to, content]);
+          value = value.slice(0, from) + content + value.slice(to);
+        },
+      };
+      const capturedRoot: Record<string, unknown> = { content: fakeText };
+      type FakeDoc = {
+        update: (fn: (root: Record<string, unknown>) => void) => void;
+        getRoot: () => Record<string, unknown>;
+      };
+      type Cb = (doc: FakeDoc) => unknown;
+      yorkieService.withDocument.mockImplementation((_id: string, cb: Cb) => {
+        const fakeDoc: FakeDoc = {
+          update: (fn) => fn(capturedRoot),
+          getRoot: () => capturedRoot,
+        };
+        return Promise.resolve(cb(fakeDoc));
+      });
+
+      const result = await controller.putContent('ws-1', 'd1', {
+        content: 'new markdown',
+      } as never);
+
+      expect(result).toEqual({ content: 'new markdown' });
+      expect(edits).toEqual([[0, 'stale'.length, 'new markdown']]);
+      expect(yorkieService.withDocument).toHaveBeenCalledWith(
+        'd1',
+        expect.any(Function),
+        { docKeyPrefix: 'note-' },
+      );
+    });
+
+    it('rejects a note payload whose content is not a string', async () => {
+      // Only a *string* `content` routes to the note arm, so a non-string
+      // value is an unrecognised shape and hits the generic 400 before any
+      // metadata/Yorkie work.
+      await expect(
+        controller.putContent('ws-1', 'd1', { content: 123 } as never),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: expect.stringMatching(/'blocks'.*'slides'.*'content'/),
+      });
+      expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
+      expect(yorkieService.withDocument).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when a note body targets a slides document', async () => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'ws-1',
+        type: 'slides',
+      });
+
+      await expect(
+        controller.putContent('ws-1', 'd1', { content: '# hi' } as never),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: expect.stringMatching(/shape 'note'.*type 'slides'/),
+      });
+      expect(yorkieService.withDocument).not.toHaveBeenCalled();
     });
 
     it('returns 400 when body shape does not match document type', async () => {
