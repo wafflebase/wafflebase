@@ -1,20 +1,28 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   NoteEditorAPI,
   NoteViewMode,
   NoteInlineFormats,
 } from "@wafflebase/notes";
 import { Toggle } from "@/components/ui/toggle";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
+import { TableGridPicker } from "@/components/table-grid-picker";
+import {
   IconPencil,
   IconLayoutColumns,
   IconEye,
+  IconChevronDown,
   IconBold,
   IconItalic,
   IconStrikethrough,
@@ -68,13 +76,57 @@ function Divider() {
   return <div className="mx-1 h-5 w-px shrink-0 bg-border" />;
 }
 
+/** Table insert as a hover-grid size picker, mirroring the docs toolbar. */
+function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
+  const [open, setOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Insert table"
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            >
+              <IconTable size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Insert table</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        ref={contentRef}
+        align="start"
+        sideOffset={4}
+        // Radix focuses the menu container on open; redirect focus to the grid
+        // so its arrow-key sizing handler is reachable.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          contentRef.current
+            ?.querySelector<HTMLElement>('[role="grid"]')
+            ?.focus();
+        }}
+      >
+        <TableGridPicker
+          onSelect={(rows, cols) => {
+            editor.insertTable(rows, cols);
+            editor.focus();
+            setOpen(false);
+          }}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /**
- * Thin notes toolbar: a view-mode segmented control (Editor / Split / Preview)
- * plus, when editing, a markdown-formatting group (bold / italic /
- * strikethrough toggles, a link toggle, and a table insert). Uses the same
- * Toggle + tooltip + tabler-icon pattern as the docs/sheets formatting
- * toolbars. Formatting is hidden when read-only or in preview-only mode (no
- * editor pane to act on).
+ * Thin notes toolbar: a markdown-formatting group (bold / italic /
+ * strikethrough toggles, link toggle, table insert) on the left when editing,
+ * and a view-mode dropdown (Editor / Split / Preview) pinned to the far right
+ * — following the Slides toolbar's right-aligned dropdown pattern. Uses the
+ * same Toggle + tooltip + tabler-icon look as the docs/sheets toolbars.
  */
 export function NotesToolbar({
   mode,
@@ -100,32 +152,15 @@ export function NotesToolbar({
   }, [editor]);
 
   const canFormat = !readOnly && mode !== "view";
+  const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
 
   return (
     <div
       aria-label="Note toolbar"
       className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap"
     >
-      {MODES.map(({ mode: m, label, Icon }) => (
-        <Tooltip key={m}>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={mode === m}
-              onPressedChange={() => onModeChange(m)}
-              className="h-7 w-7 cursor-pointer"
-              aria-label={label}
-            >
-              <Icon size={16} />
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>{label}</TooltipContent>
-        </Tooltip>
-      ))}
-
       {canFormat && editor && (
         <>
-          <Divider />
           <TooltipToggle
             label="Bold"
             pressed={formats.bold}
@@ -155,23 +190,43 @@ export function NotesToolbar({
           >
             <IconLink size={16} />
           </TooltipToggle>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 cursor-pointer p-0"
-                aria-label="Insert table"
-                onClick={() => editor.insertTable()}
-              >
-                <IconTable size={16} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Insert table</TooltipContent>
-          </Tooltip>
+          <TableDropdown editor={editor} />
         </>
       )}
+
+      <div className="ml-auto">
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="View mode"
+                  className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5 text-sm hover:bg-muted"
+                >
+                  <current.Icon size={16} />
+                  <span className="hidden sm:inline">{current.label}</span>
+                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>View mode</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup
+              value={mode}
+              onValueChange={(v) => onModeChange(v as NoteViewMode)}
+            >
+              {MODES.map(({ mode: m, label, Icon }) => (
+                <DropdownMenuRadioItem key={m} value={m} className="gap-2">
+                  <Icon size={16} />
+                  {label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 }

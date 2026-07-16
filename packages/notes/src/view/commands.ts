@@ -154,16 +154,24 @@ export function toggleLink(view: EditorView): void {
   view.focus();
 }
 
-/** Insert a 3×2 GFM table skeleton on its own line(s). */
-export function insertTable(view: EditorView): void {
+/**
+ * Insert a GFM table skeleton of `rows` × `cols` (the first row is the header,
+ * so `rows` counts the header row) on its own line(s). Cells are empty.
+ */
+export function insertTable(view: EditorView, rows: number, cols: number): void {
+  const c = Math.max(1, Math.floor(cols));
+  const r = Math.max(1, Math.floor(rows));
   const { state } = view;
   const pos = state.selection.main.head;
   const line = state.doc.lineAt(pos);
   const prefix = pos === line.from ? '' : '\n';
-  const table =
-    `${prefix}| Column 1 | Column 2 | Column 3 |\n` +
-    `| --- | --- | --- |\n` +
-    `| Cell | Cell | Cell |\n`;
+
+  const rowLine = `| ${Array(c).fill('   ').join(' | ')} |`;
+  const sepLine = `| ${Array(c).fill('---').join(' | ')} |`;
+  const lines = [rowLine, sepLine];
+  for (let i = 1; i < r; i++) lines.push(rowLine);
+  const table = `${prefix}${lines.join('\n')}\n`;
+
   const cursor = pos + prefix.length + 2; // just inside the first header cell
   view.dispatch(
     state.update({

@@ -48,8 +48,8 @@ export interface NoteEditorAPI {
   toggleStrikethrough(): void;
   /** Wrap the selection as a `[text](url)` link, or unwrap the link at cursor. */
   toggleLink(): void;
-  /** Insert a markdown table skeleton at the cursor. */
-  insertTable(): void;
+  /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
+  insertTable(rows: number, cols: number): void;
   /** Inline markdown formats active at the current selection. */
   getActiveFormats(): NoteInlineFormats;
   /**
@@ -100,7 +100,24 @@ export function initialize(
   preview.el.style.padding = '16px 20px';
   preview.el.style.minWidth = '0';
 
+  // Draggable divider between the editor and preview (split mode only), so the
+  // user can adjust the two panes' widths — the native equivalent of CodePair's
+  // react-resizable-layout splitter.
+  const divider = document.createElement('div');
+  divider.dataset.role = 'note-divider';
+  divider.style.flex = '0 0 auto';
+  divider.style.width = '7px';
+  divider.style.cursor = 'col-resize';
+  divider.style.alignSelf = 'stretch';
+  divider.style.background = 'var(--border, rgba(0,0,0,0.08))';
+  divider.style.backgroundClip = 'content-box';
+  divider.style.padding = '0 3px';
+  divider.style.userSelect = 'none';
+  divider.setAttribute('role', 'separator');
+  divider.setAttribute('aria-orientation', 'vertical');
+
   container.appendChild(editorEl);
+  container.appendChild(divider);
   container.appendChild(preview.el);
 
   const themeExt = (mode: ThemeMode) =>
@@ -152,26 +169,51 @@ export function initialize(
   // of display), so switching into it shows current content; we re-render and
   // re-measure the editor defensively on show.
   let currentViewMode: NoteViewMode = viewMode;
+  let splitRatio = 0.5; // editor's share of the width in split mode
   const applyViewMode = (mode: NoteViewMode) => {
     currentViewMode = mode;
     const showEditor = mode !== 'view';
     const showPreview = mode !== 'edit';
+    const split = showEditor && showPreview;
     editorEl.style.display = showEditor ? '' : 'none';
     preview.el.style.display = showPreview ? '' : 'none';
-    editorEl.style.flex = showEditor
-      ? showPreview
-        ? '1 1 50%'
-        : '1 1 100%'
-      : '0 0 0';
-    preview.el.style.flex = showPreview
-      ? showEditor
-        ? '1 1 50%'
-        : '1 1 100%'
-      : '0 0 0';
+    divider.style.display = split ? '' : 'none';
+    if (split) {
+      editorEl.style.flex = `1 1 ${(splitRatio * 100).toFixed(3)}%`;
+      preview.el.style.flex = `1 1 ${((1 - splitRatio) * 100).toFixed(3)}%`;
+    } else {
+      editorEl.style.flex = showEditor ? '1 1 100%' : '0 0 0';
+      preview.el.style.flex = showPreview ? '1 1 100%' : '0 0 0';
+    }
     if (showPreview) renderPreview();
     if (showEditor) view.requestMeasure();
   };
   applyViewMode(viewMode);
+
+  // Divider drag: adjust splitRatio from the pointer x within the container.
+  const onDividerPointerDown = (e: PointerEvent) => {
+    if (currentViewMode !== 'both') return;
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const onMove = (ev: PointerEvent) => {
+      const ratio = (ev.clientX - rect.left) / rect.width;
+      splitRatio = Math.max(0.15, Math.min(0.85, ratio));
+      editorEl.style.flex = `1 1 ${(splitRatio * 100).toFixed(3)}%`;
+      preview.el.style.flex = `1 1 ${((1 - splitRatio) * 100).toFixed(3)}%`;
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      view.requestMeasure();
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  divider.addEventListener('pointerdown', onDividerPointerDown);
 
   // Proportional scroll sync between the editor scroller and the preview,
   // active only in split ('both') mode. Mirrors CodePair's react-scroll-sync,
@@ -227,7 +269,7 @@ export function initialize(
     toggleItalic: () => toggleItalic(view),
     toggleStrikethrough: () => toggleStrikethrough(view),
     toggleLink: () => toggleLink(view),
-    insertTable: () => insertTable(view),
+    insertTable: (rows, cols) => insertTable(view, rows, cols),
     getActiveFormats: () => computeActiveFormats(view.state),
     onSelectionChange: (cb) => {
       selectionCb = cb;
@@ -236,6 +278,7 @@ export function initialize(
     dispose: () => {
       editorScroller.removeEventListener('scroll', onEditorScroll);
       preview.el.removeEventListener('scroll', onPreviewScroll);
+      divider.removeEventListener('pointerdown', onDividerPointerDown);
       view.destroy();
     },
   };

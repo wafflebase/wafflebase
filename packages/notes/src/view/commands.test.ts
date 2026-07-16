@@ -74,12 +74,18 @@ describe('markdown commands', () => {
     view.destroy();
   });
 
-  it('inserts a table skeleton', () => {
+  it('inserts a rows x cols table skeleton (header + body rows)', () => {
     const view = mount('', 0);
-    insertTable(view);
-    const text = view.state.doc.toString();
-    expect(text).toContain('| Column 1 | Column 2 | Column 3 |');
-    expect(text).toContain('| --- | --- | --- |');
+    insertTable(view, 3, 2);
+    const lines = view.state.doc.toString().trimEnd().split('\n');
+    // 3 rows total = 1 header + separator + 2 body rows.
+    expect(lines).toHaveLength(4);
+    // 2 columns => 3 pipes per line.
+    for (const l of lines) {
+      expect((l.match(/\|/g) ?? []).length).toBe(3);
+    }
+    // Separator row has one '---' per column.
+    expect((lines[1].match(/---/g) ?? []).length).toBe(2);
     view.destroy();
   });
 });
