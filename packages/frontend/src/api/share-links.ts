@@ -19,6 +19,28 @@ export type ResolvedShareLink = {
 };
 
 /**
+ * The caller's share-link capabilities for a document, resolved server-side
+ * from workspace ownership + document authorship (see docs/design/sharing.md).
+ */
+export type ShareLinkPermissions = {
+  /** Workspace owner or document author — may create `editor` links. */
+  canCreateEditorLink: boolean;
+};
+
+/**
+ * A listed share link, annotated server-side with whether the caller may
+ * revoke it (manager of the document, or its creator).
+ */
+export type ShareLinkListItem = ShareLink & {
+  canDelete: boolean;
+};
+
+export type ShareLinksResponse = {
+  links: ShareLinkListItem[];
+  permissions: ShareLinkPermissions;
+};
+
+/**
  * Creates share link.
  */
 export async function createShareLink(
@@ -43,7 +65,7 @@ export async function createShareLink(
  */
 export async function getShareLinks(
   documentId: string
-): Promise<ShareLink[]> {
+): Promise<ShareLinksResponse> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`
   );

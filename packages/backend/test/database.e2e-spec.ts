@@ -493,5 +493,79 @@ describeDb('Database-backed integration', () => {
       const deleted = await shareLinkService.delete(link.id, owner.id);
       expect(deleted.id).toBe(link.id);
     });
+
+    it('lets a workspace owner who is not the author create an editor link', async () => {
+      const author = await createUser();
+      const wsOwner = await createUser();
+      const workspace = await createWorkspace(prisma, wsOwner.id);
+      const doc = await prisma.document.create({
+        data: {
+          title: 'Team doc',
+          authorID: author.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+      const link = await shareLinkService.create(
+        doc.id,
+        'editor',
+        wsOwner.id,
+        null,
+      );
+      expect(link.role).toBe('editor');
+    });
+
+    it('lets a plain member create a viewer link but not an editor link', async () => {
+      const owner = await createUser();
+      const member = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
+      });
+      const doc = await prisma.document.create({
+        data: {
+          title: 'Member doc',
+          authorID: owner.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+      const viewer = await shareLinkService.create(
+        doc.id,
+        'viewer',
+        member.id,
+        null,
+      );
+      expect(viewer.role).toBe('viewer');
+
+      await expect(
+        shareLinkService.create(doc.id, 'editor', member.id, null),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('lets a workspace owner revoke a link created by a member', async () => {
+      const owner = await createUser();
+      const member = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
+      });
+      const doc = await prisma.document.create({
+        data: {
+          title: 'Owned doc',
+          authorID: owner.id,
+          workspaceId: workspace.id,
+        },
+      });
+      const link = await shareLinkService.create(
+        doc.id,
+        'viewer',
+        member.id,
+        null,
+      );
+
+      const deleted = await shareLinkService.delete(link.id, owner.id);
+      expect(deleted.id).toBe(link.id);
+    });
   });
 });
