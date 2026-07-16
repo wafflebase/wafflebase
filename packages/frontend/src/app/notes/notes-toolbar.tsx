@@ -14,8 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { TableGridPicker } from "@/components/table-grid-picker";
 import {
@@ -201,11 +200,10 @@ export function NotesToolbar({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label="View mode"
-                  className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5 text-sm hover:bg-muted"
+                  aria-label={`View mode: ${current.label}`}
+                  className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted"
                 >
                   <current.Icon size={16} />
-                  <span className="hidden sm:inline">{current.label}</span>
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -213,17 +211,18 @@ export function NotesToolbar({
             <TooltipContent>View mode</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
-            <DropdownMenuRadioGroup
-              value={mode}
-              onValueChange={(v) => onModeChange(v as NoteViewMode)}
-            >
-              {MODES.map(({ mode: m, label, Icon }) => (
-                <DropdownMenuRadioItem key={m} value={m} className="gap-2">
-                  <Icon size={16} />
-                  {label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            {MODES.map(({ mode: m, label, Icon }) => (
+              <DropdownMenuCheckboxItem
+                key={m}
+                checked={mode === m}
+                // Ignore the toggled-off case: a mode is always selected.
+                onCheckedChange={() => onModeChange(m)}
+                className="gap-2"
+              >
+                <Icon size={16} />
+                {label}
+              </DropdownMenuCheckboxItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
