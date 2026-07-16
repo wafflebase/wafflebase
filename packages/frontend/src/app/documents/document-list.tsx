@@ -30,6 +30,7 @@ import {
   FileText,
   FolderOutput,
   MoreHorizontal,
+  NotebookPen,
   Pencil,
   Plus,
   Presentation,
@@ -118,6 +119,7 @@ const TYPE_META: Record<
 > = {
   sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
   doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
+  note: { label: "Note", Icon: NotebookPen, color: "text-purple-500" },
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
   pdf: { label: "PDF", Icon: IconFileTypePdf, color: "text-red-500" },
 };
@@ -126,6 +128,7 @@ const TYPE_META: Record<
 const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "sheet",
   "doc",
+  "note",
   "slides",
   "pdf",
 ];
@@ -662,6 +665,17 @@ export function DocumentList({
             <DropdownMenuItem
               onClick={() =>
                 createDocumentMutation.mutate({
+                  title: "New Note",
+                  type: "note",
+                })
+              }
+            >
+              <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
+              New Note
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                createDocumentMutation.mutate({
                   title: "New Presentation",
                   type: "slides",
                 })
@@ -790,6 +804,17 @@ export function DocumentList({
                         >
                           <FileText className="mr-2 h-4 w-4 text-blue-500" />
                           New Document
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            createDocumentMutation.mutate({
+                              title: "New Note",
+                              type: "note",
+                            })
+                          }
+                        >
+                          <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
+                          New Note
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() =>

@@ -1,0 +1,160 @@
+/*
+ * Notes markdown preview: highlight.js token palette + code-block copy
+ * button. Plain CSS (no @apply) since these selectors target markdown-it's
+ * generated HTML, not Tailwind utility classes.
+ *
+ * Light palette ~ github.css, dark palette ~ github-dark.css (highlight.js
+ * built-in themes), scoped under `.note-preview` / `.dark .note-preview` to
+ * match the existing `prose` / `prose-invert` split in index.css.
+ */
+
+.note-preview .hljs {
+  color: #24292e;
+  background: transparent;
+}
+
+.note-preview .hljs-comment,
+.note-preview .hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.note-preview .hljs-keyword,
+.note-preview .hljs-selector-tag,
+.note-preview .hljs-type {
+  color: #d73a49;
+}
+
+.note-preview .hljs-string,
+.note-preview .hljs-doctag {
+  color: #032f62;
+}
+
+.note-preview .hljs-title,
+.note-preview .hljs-section {
+  color: #6f42c1;
+}
+
+.note-preview .hljs-variable,
+.note-preview .hljs-attr,
+.note-preview .hljs-attribute {
+  color: #005cc5;
+}
+
+.note-preview .hljs-number,
+.note-preview .hljs-literal {
+  color: #005cc5;
+}
+
+.note-preview .hljs-built_in {
+  color: #e36209;
+}
+
+.note-preview .hljs-tag,
+.note-preview .hljs-name {
+  color: #22863a;
+}
+
+.note-preview .hljs-meta {
+  color: #6a737d;
+}
+
+.note-preview .hljs-emphasis {
+  font-style: italic;
+}
+
+.note-preview .hljs-strong {
+  font-weight: 600;
+}
+
+.dark .note-preview .hljs {
+  color: #c9d1d9;
+}
+
+.dark .note-preview .hljs-comment,
+.dark .note-preview .hljs-quote {
+  color: #8b949e;
+}
+
+.dark .note-preview .hljs-keyword,
+.dark .note-preview .hljs-selector-tag,
+.dark .note-preview .hljs-type {
+  color: #ff7b72;
+}
+
+.dark .note-preview .hljs-string,
+.dark .note-preview .hljs-doctag {
+  color: #a5d6ff;
+}
+
+.dark .note-preview .hljs-title,
+.dark .note-preview .hljs-section {
+  color: #d2a8ff;
+}
+
+.dark .note-preview .hljs-variable,
+.dark .note-preview .hljs-attr,
+.dark .note-preview .hljs-attribute {
+  color: #79c0ff;
+}
+
+.dark .note-preview .hljs-number,
+.dark .note-preview .hljs-literal {
+  color: #79c0ff;
+}
+
+.dark .note-preview .hljs-built_in {
+  color: #ffa657;
+}
+
+.dark .note-preview .hljs-tag,
+.dark .note-preview .hljs-name {
+  color: #7ee787;
+}
+
+.dark .note-preview .hljs-meta {
+  color: #8b949e;
+}
+
+/* Code-block chrome: relative anchor for the copy button + a subtle,
+ * hover-revealed affordance so it doesn't compete with the code itself. */
+.note-preview .note-code {
+  position: relative;
+}
+
+.note-preview .note-copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: #57606a;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  border-radius: 0.375rem;
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.note-preview .note-code:hover .note-copy-btn,
+.note-preview .note-copy-btn:focus-visible {
+  opacity: 1;
+}
+
+.note-preview .note-copy-btn:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.dark .note-preview .note-copy-btn {
+  color: #c9d1d9;
+  background: rgba(22, 27, 34, 0.85);
+  border-color: rgba(240, 246, 252, 0.15);
+}
+
+.dark .note-preview .note-copy-btn:hover {
+  background: rgba(22, 27, 34, 1);
+}

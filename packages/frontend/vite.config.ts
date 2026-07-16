@@ -226,6 +226,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       "@wafflebase/sheets": path.resolve(__dirname, "../sheets/src/index.ts"),
       "@wafflebase/docs": path.resolve(__dirname, "../docs/src/index.ts"),
+      "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
       "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
       util: utilShimPath,
       assert: assertShimPath,
@@ -263,7 +264,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"],
     setupFiles: ["tests/setup.ts"],
     globals: false,
   },

@@ -1,4 +1,4 @@
-export type DocumentType = "sheet" | "doc" | "slides" | "pdf";
+export type DocumentType = "sheet" | "doc" | "slides" | "pdf" | "note";
 
 /**
  * Backend-projected "currently editing" user. The server unwraps Yorkie's

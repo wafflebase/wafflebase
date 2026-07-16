@@ -8,7 +8,7 @@ import {
 } from 'class-validator';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
-const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf'] as const;
+const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf', 'note'] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export class CreateDocumentDto {

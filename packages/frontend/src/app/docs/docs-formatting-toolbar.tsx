@@ -45,7 +45,7 @@ import {
   IconClearFormatting,
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
-import { TableGridPicker } from "./table-grid-picker";
+import { TableGridPicker } from "@/components/table-grid-picker";
 import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
 import {
   TextStyleGroup,

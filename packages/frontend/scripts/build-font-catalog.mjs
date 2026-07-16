@@ -110,6 +110,7 @@ export const GOOGLE_SEED = [
   { family: 'Libre Baskerville' },
   { family: 'Spectral' },
   { family: 'Zilla Slab' },
+  { family: 'Fraunces' },
   // Monospace
   { family: 'Roboto Mono' },
   { family: 'JetBrains Mono' },

@@ -1,0 +1,69 @@
+{
+  "name": "@wafflebase/notes",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "CodeMirror-based collaborative markdown note editor for Wafflebase",
+  "type": "module",
+  "files": ["dist"],
+  "main": "dist/wafflebase-notes.cjs",
+  "module": "dist/wafflebase-notes.es.js",
+  "types": "dist/wafflebase-notes.es.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./dist/node.d.ts",
+        "import": "./dist/node.js",
+        "require": "./dist/node.cjs",
+        "default": "./dist/node.js"
+      },
+      "types": "./dist/wafflebase-notes.es.d.ts",
+      "import": "./dist/wafflebase-notes.es.js",
+      "require": "./dist/wafflebase-notes.cjs",
+      "default": "./dist/wafflebase-notes.es.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs",
+      "default": "./dist/node.js"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "build": "vite --config vite.build.ts build",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.7",
+    "@types/markdown-it": "^14.1.2",
+    "@vitest/coverage-v8": "4.1.8",
+    "jsdom": "^28.0.0",
+    "prettier": "^3.3.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2",
+    "vite-plugin-dts": "^4.5.3",
+    "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.1.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.23.1",
+    "@replit/codemirror-vim": "^6.3.0",
+    "@uiw/codemirror-extensions-basic-setup": "^4.25.4",
+    "@uiw/codemirror-theme-xcode": "^4.25.4",
+    "@vscode/markdown-it-katex": "^1.1.1",
+    "codemirror": "^6.0.2",
+    "highlight.js": "^11.10.0",
+    "katex": "^0.16.11",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1"
+  },
+  "peerDependencies": {
+    "@yorkie-js/sdk": "0.7.8"
+  }
+}

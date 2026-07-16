@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
+| notes markdown type (2026-07-15) | [20260715-notes-markdown-type-todo.md](./active/20260715-notes-markdown-type-todo.md) | [20260715-notes-markdown-type-lessons.md](./active/20260715-notes-markdown-type-lessons.md) |
 | slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./active/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./active/20260714-slides-mobile-bg-repaint-lessons.md) |
 | checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./active/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./active/20260712-checkbox-parity-lessons.md) |
 | checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./active/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./active/20260712-checkbox-validation-bugfix-lessons.md) |
