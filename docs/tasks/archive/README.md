@@ -6,14 +6,21 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 356
+Total archived tasks: 363
 
-## 2026/07 (26 tasks)
+## 2026/07 (33 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./2026/07/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./2026/07/20260714-slides-mobile-bg-repaint-lessons.md) |
+| checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./2026/07/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./2026/07/20260712-checkbox-parity-lessons.md) |
+| checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./2026/07/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./2026/07/20260712-checkbox-validation-bugfix-lessons.md) |
+| release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./2026/07/20260712-release-v0.5.1-todo.md) | - |
+| slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./2026/07/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./2026/07/20260712-slides-font-ooxml-parity-lessons.md) |
+| validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./2026/07/20260712-validation-number-text-todo.md) | - |
 | data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./2026/07/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./2026/07/20260711-data-validation-panel-lessons.md) |
 | pptx inherit title align (2026-07-11) | [20260711-pptx-inherit-title-align-todo.md](./2026/07/20260711-pptx-inherit-title-align-todo.md) | [20260711-pptx-inherit-title-align-lessons.md](./2026/07/20260711-pptx-inherit-title-align-lessons.md) |
+| sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./2026/07/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./2026/07/20260711-sheets-date-validation-lessons.md) |
 | sheets xlsx style import (2026-07-11) | [20260711-sheets-xlsx-style-import-todo.md](./2026/07/20260711-sheets-xlsx-style-import-todo.md) | - |
 | slides gradient fill (2026-07-11) | [20260711-slides-gradient-fill-todo.md](./2026/07/20260711-slides-gradient-fill-todo.md) | [20260711-slides-gradient-fill-lessons.md](./2026/07/20260711-slides-gradient-fill-lessons.md) |
 | data validation list (2026-07-10) | [20260710-data-validation-list-todo.md](./2026/07/20260710-data-validation-list-todo.md) | [20260710-data-validation-list-lessons.md](./2026/07/20260710-data-validation-list-lessons.md) |

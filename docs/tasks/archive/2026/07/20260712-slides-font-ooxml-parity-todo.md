@@ -84,4 +84,4 @@ and BOTH `inlineStylesEqual` sites (types.ts + text-editor.ts). Rebuild
 ## Wrap-up
 
 - [x] Capture lessons in the paired `-lessons.md`.
-- [ ] PR: Summary + Test plan.
+- [x] PR: Summary + Test plan. (shipped as #474)

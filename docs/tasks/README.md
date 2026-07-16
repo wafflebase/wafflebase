@@ -18,17 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
+| release v0.6.0 (2026-07-16) | [20260716-release-v0.6.0-todo.md](./active/20260716-release-v0.6.0-todo.md) | - |
 | notes markdown type (2026-07-15) | [20260715-notes-markdown-type-todo.md](./active/20260715-notes-markdown-type-todo.md) | [20260715-notes-markdown-type-lessons.md](./active/20260715-notes-markdown-type-lessons.md) |
-| slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./active/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./active/20260714-slides-mobile-bg-repaint-lessons.md) |
-| checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./active/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./active/20260712-checkbox-parity-lessons.md) |
-| checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./active/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./active/20260712-checkbox-validation-bugfix-lessons.md) |
-| release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
+| shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | slides background (2026-07-12) | [20260712-slides-background-todo.md](./active/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./active/20260712-slides-background-lessons.md) |
-| slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./active/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./active/20260712-slides-font-ooxml-parity-lessons.md) |
-| validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./active/20260712-validation-number-text-todo.md) | - |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
-| sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./active/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./active/20260711-sheets-date-validation-lessons.md) |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
 | docs list updatedat webhook (2026-07-10) | [20260710-docs-list-updatedat-webhook-todo.md](./active/20260710-docs-list-updatedat-webhook-todo.md) | [20260710-docs-list-updatedat-webhook-lessons.md](./active/20260710-docs-list-updatedat-webhook-lessons.md) |
 | devops storage secrets (2026-07-08) | [20260708-devops-storage-secrets-todo.md](./active/20260708-devops-storage-secrets-todo.md) | - |
@@ -42,7 +36,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 356
+- Archived task count: 363
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: shared core extraction (2026-07-14)
+Latest active task: release v0.6.0 (2026-07-16)
