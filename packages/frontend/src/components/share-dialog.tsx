@@ -86,9 +86,19 @@ export function ShareDialog({ documentId }: { documentId: string }) {
         if (cancelled) return;
         setLinks(res.links);
         setPermissions(res.permissions);
-        setLoaded(true);
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (cancelled || isAuthExpiredError(error)) return;
+        // Surface the failure and still unblock the form: permissions stay at
+        // their viewer-only default and the backend remains the real gate, so
+        // the user can retry rather than facing a permanently disabled button.
+        toast.error(
+          error instanceof Error ? error.message : "Failed to load share links",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
     return () => {
       cancelled = true;
     };

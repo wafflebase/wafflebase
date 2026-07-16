@@ -89,3 +89,15 @@ Workflow-backed review surfaced 8 findings; all addressed:
    query with a justifying comment: `doc.workspaceId` is already canonical (no
    slug resolution) and we need a non-throwing, author-aware lookup that
    `assertMember` does not provide.
+
+### Round 2 (re-review after applying the above)
+
+9. **[correctness] demoted ex-manager can't revoke own editor link** — the
+   editor-link filter hid *all* editor links from a non-manager, including ones
+   they created while still an owner, so a live anonymous write link became
+   unrevocable via the UI. Fixed: filter keeps `role !== 'editor' ||
+   createdBy === userId`.
+10. **[correctness] list-fetch failure locks the Create button** — a swallowed
+    `getShareLinks` rejection left `loaded=false`, permanently disabling Create
+    with no feedback. Fixed: set `loaded` in `finally`, surface the error via
+    toast, and fall back to viewer-only perms (backend stays the real gate).

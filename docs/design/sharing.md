@@ -56,10 +56,12 @@ to the document and creator.
 The list endpoint returns `{ links, permissions: { canCreateEditorLink } }`,
 where each link is annotated with a server-computed `canDelete` flag, so the
 client gates the UI without re-deriving roles or knowing its own user id. It
-also **omits editor links from non-managers**: a plain member may not mint an
-editor link, so handing them an existing editor token (which they could copy
-and redistribute) would escalate anonymous write access they were never allowed
-to grant. The resolve endpoint returns `{ documentId, role, title, type }` on
+also **omits editor links a non-manager did not create**: a plain member may
+not mint an editor link, so handing them someone else's editor token (which
+they could copy and redistribute) would escalate anonymous write access they
+were never allowed to grant. Their own editor links stay visible so a demoted
+ex-manager can still find and revoke live links they minted. The resolve
+endpoint returns `{ documentId, role, title, type }` on
 success, `410 Gone` for expired tokens, and `404` for invalid tokens.
 
 ### Permission model

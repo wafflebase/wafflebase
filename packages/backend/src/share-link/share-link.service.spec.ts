@@ -131,6 +131,17 @@ describe('ShareLinkService', () => {
       expect(result.permissions).toEqual({ canCreateEditorLink: false });
     });
 
+    it('keeps a non-manager\'s own editor link visible (demoted ex-manager)', async () => {
+      // MEMBER_ID minted this editor link while still an owner, then was demoted.
+      const ownEditor = { id: 'l-own-editor', role: 'editor', createdBy: MEMBER_ID };
+      asMember('member');
+      prisma.shareLink.findMany.mockResolvedValue([OWNER_EDITOR, ownEditor]);
+      const result = await service.findByDocument(DOC_ID, MEMBER_ID);
+      // Someone else's editor link is hidden; their own stays so they can revoke it.
+      expect(result.links.map((l) => l.id)).toEqual(['l-own-editor']);
+      expect(result.links[0].canDelete).toBe(true);
+    });
+
     it('marks a member as able to delete only their own links', async () => {
       asMember('member');
       prisma.shareLink.findMany.mockResolvedValue([

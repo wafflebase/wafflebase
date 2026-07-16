@@ -121,12 +121,15 @@ export class ShareLinkService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // A plain member cannot mint editor links, so they must not be handed an
-    // existing editor token either (they could copy and redistribute it,
-    // escalating anonymous write access they were never allowed to grant).
+    // A non-manager must not be handed an editor token they did not create
+    // (they could copy and redistribute it, escalating anonymous write access
+    // they were never allowed to grant). Their own editor links stay visible
+    // so a demoted ex-manager can still find and revoke live links they minted.
     const visible = isManager
       ? links
-      : links.filter((link) => link.role !== 'editor');
+      : links.filter(
+          (link) => link.role !== 'editor' || link.createdBy === userId,
+        );
 
     return {
       links: visible.map((link) => ({
