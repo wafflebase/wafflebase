@@ -1,10 +1,11 @@
 # Notes CLI — todo
 
-Add first-class `notes` support to the `wafflebase` CLI, at parity with the
-`slides` / `docs` namespaces. Notes shipped in v0.6.0 as a collaborative
-markdown document type (`type: 'note'`, docKey `note-<id>`), whose entire
-content is a single Yorkie `Text` CRDT at `root.content`. The CLI talks only
-to REST v1, so the backend needs a note content read/write path first.
+This task adds first-class `notes` support to the `wafflebase` CLI, at parity
+with the `slides` / `docs` namespaces. The note *document type* shipped in
+v0.6.0 (a collaborative markdown type, `type: 'note'`, docKey `note-<id>`,
+whose entire content is a single Yorkie `Text` CRDT at `root.content`) but was
+unreachable from the CLI. The CLI talks only to REST v1, so the backend needs
+a note content read/write path first.
 
 ## Scope (confirmed)
 
@@ -20,9 +21,10 @@ to REST v1, so the backend needs a note content read/write path first.
 - [x] `api/v1/documents.controller.ts` — allow `type: 'note'` in the `create`
       coercion (currently silently downgrades `note` → `sheet`).
 - [x] New `yorkie/note-content.ts` — `NoteDocument = { content: string }`,
-      `NoteYorkieRoot`, `readNoteRoot` (`content?.toString() ?? ''`),
-      `writeNoteRoot` (create `new Text()` if missing, then
-      `edit(0, length, content)`).
+      `NoteYorkieRoot`, `readNoteRoot` (guards on the distinguishing
+      `text.edit` capability — not `toString`, which every object has — then
+      `text.toString()`, else `{ content: '' }`; see F2), `writeNoteRoot`
+      (create `new Text()` if missing, then `edit(0, length, content)`).
 - [x] `api/v1/docs-content.controller.ts` — add `note` arm:
   - [x] `loadContentType` returns `'doc' | 'slides' | 'note'`.
   - [x] GET → `readNoteRoot` with `note-` prefix, `syncMode: 'readonly'`.
@@ -47,8 +49,9 @@ to REST v1, so the backend needs a note content read/write path first.
       markdown), `--out`/`--force`.
 - [x] New `notes/import.ts` — `runNotesImport` (read `.md`/text file or stdin →
       create-or-`--replace` → PUT content), `--title`/`--replace`/`--yes`.
-- [x] `commands/notes.ts` export — `notes export <id> <file.md>` → GET content,
-      write markdown (markdown-only; reject non-md `--format`).
+- [x] `commands/notes.ts` export — `notes export <id> <file.md>|-` → GET
+      content, write markdown (`-` ⇒ stdout; markdown-only; reject non-md
+      `--format`).
 - [x] `bin.ts` — `registerNotesCommand(program)`.
 - [x] `schema/registry.ts` — `notes.*` entries + `note.*` aliases.
 

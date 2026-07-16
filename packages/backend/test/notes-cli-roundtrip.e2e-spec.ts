@@ -20,7 +20,12 @@
  * auth), mirroring `docs-cli-roundtrip.e2e-spec.ts`.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
@@ -201,10 +206,16 @@ describeFull('notes CLI round-trip', () => {
     expect(existsSync(mdPath)).toBe(true);
     expect(readFileSync(mdPath, 'utf-8')).toContain('# Integration Note');
 
-    // 5. `notes import --replace` round-trips the exported markdown back into
-    //    the existing note (the edit branch), and the content survives.
+    // 5. `notes import --replace` with *different* content exercises the edit
+    //    branch (existing Text → wipe-and-rewrite). Write a distinct markdown
+    //    body so a broken/no-op replacement can't pass, then assert the new
+    //    content replaced the old exactly (json envelope, not a substring).
+    const replacedMd = '# Replaced Note\n\nCompletely different body.';
+    const replacePath = join(tempDir, `replace-${docId}.md`);
+    writeFileSync(replacePath, replacedMd, 'utf-8');
+
     const replaceResult = await runCli(
-      ['notes', 'import', mdPath, '--replace', docId, '--yes'],
+      ['notes', 'import', replacePath, '--replace', docId, '--yes'],
       cliEnv(),
     );
     expect(replaceResult.exitCode).toBe(0);
@@ -214,10 +225,10 @@ describeFull('notes CLI round-trip', () => {
     });
 
     const reReadResult = await runCli(
-      ['notes', 'content', docId, '--format', 'md'],
+      ['notes', 'content', docId, '--format', 'json'],
       cliEnv(),
     );
     expect(reReadResult.exitCode).toBe(0);
-    expect(reReadResult.stdout).toContain('# Integration Note');
+    expect(JSON.parse(reReadResult.stdout).content).toBe(replacedMd);
   }, 60_000);
 });

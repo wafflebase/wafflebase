@@ -84,11 +84,7 @@ export class ApiV1DocsContentController {
       id: documentId,
       workspaceId,
     });
-    if (
-      meta.type !== 'doc' &&
-      meta.type !== 'slides' &&
-      meta.type !== 'note'
-    ) {
+    if (meta.type !== 'doc' && meta.type !== 'slides' && meta.type !== 'note') {
       throw new ConflictException(TYPE_MISMATCH_BODY);
     }
     return meta.type;
@@ -229,7 +225,9 @@ function sniffBodyShape(body: unknown): 'doc' | 'slides' | 'note' | null {
  */
 function assertValidNoteBody(body: unknown): asserts body is NoteDocument {
   if (!body || typeof body !== 'object') {
-    throw new BadRequestException('Invalid note content payload: not an object');
+    throw new BadRequestException(
+      'Invalid note content payload: not an object',
+    );
   }
   if (typeof (body as { content?: unknown }).content !== 'string') {
     throw new BadRequestException(

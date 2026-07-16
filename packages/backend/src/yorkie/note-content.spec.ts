@@ -1,4 +1,8 @@
-import { readNoteRoot, writeNoteRoot, type NoteYorkieRoot } from './note-content';
+import {
+  readNoteRoot,
+  writeNoteRoot,
+  type NoteYorkieRoot,
+} from './note-content';
 
 /**
  * Minimal stand-in for a Yorkie `Text` proxy. `writeNoteRoot` only touches

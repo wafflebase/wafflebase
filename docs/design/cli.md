@@ -335,8 +335,8 @@ wafflebase
         │     [--format json|md|text]        (default: json)
         │     [--out <file>|-]                (default: stdout)
         │     [--force]
-        ├── export <doc-id> <file>
-        │     [--format md]                  (default: from extension)
+        ├── export <doc-id> <file>|-         (- writes Markdown to stdout)
+        │     [--format md]                  (default: from extension; - ⇒ md)
         │     [--force]                       (overwrite existing file)
         └── import <file>
               [--title <title>]               (default: file basename)
