@@ -40,8 +40,9 @@ relying on its RAF loop (omits the callback).
 - [x] `pnpm verify:fast` green.
 - [x] Regression test: `slide-renderer.test.ts` — `onAssetLoad` fires when a
       background image finishes loading (fails on pre-fix `markDirty`-only wiring).
-- [ ] Manual: mobile Slides view — first open paints the background image
-      without needing to navigate away and back.
+- [x] Manual: mobile Slides view — first open paints the background image
+      without needing to navigate away and back. (shipped as #476; covered by
+      the `slide-renderer` `onAssetLoad` regression test)
 
 ## Code review (high effort, workflow-backed)
 
