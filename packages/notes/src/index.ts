@@ -15,6 +15,7 @@ export {
   type ThemeMode,
   type NoteViewMode,
 } from './view/editor.js';
+export type { NoteInlineFormats } from './view/commands.js';
 export { noteStoreFacet, noteSync } from './view/note-sync.js';
 export {
   noteRemoteSelections,

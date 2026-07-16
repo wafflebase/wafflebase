@@ -10,6 +10,15 @@ import {
   noteRemoteSelectionsTheme,
 } from './remote-selection.js';
 import { NotePreview } from './preview.js';
+import {
+  computeActiveFormats,
+  toggleBold,
+  toggleItalic,
+  toggleStrikethrough,
+  toggleLink,
+  insertTable,
+  type NoteInlineFormats,
+} from './commands.js';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -31,6 +40,24 @@ export interface NoteEditorAPI {
   setViewMode(mode: NoteViewMode): void;
   /** Current pane layout mode. */
   getViewMode(): NoteViewMode;
+  /** Toggle `**bold**` around the selection. */
+  toggleBold(): void;
+  /** Toggle `*italic*` around the selection. */
+  toggleItalic(): void;
+  /** Toggle `~~strikethrough~~` around the selection. */
+  toggleStrikethrough(): void;
+  /** Wrap the selection as a `[text](url)` link, or unwrap the link at cursor. */
+  toggleLink(): void;
+  /** Insert a markdown table skeleton at the cursor. */
+  insertTable(): void;
+  /** Inline markdown formats active at the current selection. */
+  getActiveFormats(): NoteInlineFormats;
+  /**
+   * Register a callback fired whenever the selection or document changes, with
+   * the inline formats now active (drives toolbar toggle highlighting). Only
+   * one callback is kept; call with `null` to clear.
+   */
+  onSelectionChange(cb: ((formats: NoteInlineFormats) => void) | null): void;
   /** Focus the editor. */
   focus(): void;
   /** Tear down the editor and its listeners. */
@@ -82,6 +109,10 @@ export function initialize(
   const currentDoc = () => view.state.doc.toString();
   const renderPreview = () => preview.render(currentDoc());
 
+  // Notifies the host (toolbar) of the active inline formats as the selection
+  // or document changes, so it can highlight the format toggles.
+  let selectionCb: ((formats: NoteInlineFormats) => void) | null = null;
+
   const buildExtensions = (mode: ThemeMode): Extension[] => [
     basicSetup({ highlightSelectionMatches: false }),
     markdown(),
@@ -96,6 +127,9 @@ export function initialize(
     }),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) renderPreview();
+      if (u.docChanged || u.selectionSet) {
+        selectionCb?.(computeActiveFormats(u.state));
+      }
     }),
     noteStoreFacet.of(store),
     noteSync,
@@ -189,6 +223,15 @@ export function initialize(
       applyViewMode(mode);
     },
     getViewMode: () => currentViewMode,
+    toggleBold: () => toggleBold(view),
+    toggleItalic: () => toggleItalic(view),
+    toggleStrikethrough: () => toggleStrikethrough(view),
+    toggleLink: () => toggleLink(view),
+    insertTable: () => insertTable(view),
+    getActiveFormats: () => computeActiveFormats(view.state),
+    onSelectionChange: (cb) => {
+      selectionCb = cb;
+    },
     focus: () => view.focus(),
     dispose: () => {
       editorScroller.removeEventListener('scroll', onEditorScroll);

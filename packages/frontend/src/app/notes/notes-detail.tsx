@@ -2,7 +2,7 @@ import { DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { NoteViewMode } from "@wafflebase/notes";
+import type { NoteViewMode, NoteEditorAPI } from "@wafflebase/notes";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<NoteViewMode>("both");
+  const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
@@ -125,8 +126,12 @@ function NotesLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <NotesToolbar mode={viewMode} onModeChange={setViewMode} />
-          <NotesView viewMode={viewMode} />
+          <NotesToolbar
+            mode={viewMode}
+            onModeChange={setViewMode}
+            editor={editor}
+          />
+          <NotesView viewMode={viewMode} onEditorReady={setEditor} />
         </div>
       </SidebarInset>
     </SidebarProvider>
