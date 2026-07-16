@@ -204,6 +204,9 @@ export function initialize(
   applyViewMode(viewMode);
 
   // Divider drag: adjust splitRatio from the pointer x within the container.
+  // `endDrag` is set while a drag is in flight so dispose() can tear down the
+  // window listeners if the editor unmounts mid-drag.
+  let endDrag: (() => void) | null = null;
   const onDividerPointerDown = (e: PointerEvent) => {
     if (currentViewMode !== 'both') return;
     e.preventDefault();
@@ -219,8 +222,10 @@ export function initialize(
       window.removeEventListener('pointerup', onUp);
       document.body.style.removeProperty('cursor');
       document.body.style.removeProperty('user-select');
+      endDrag = null;
       view.requestMeasure();
     };
+    endDrag = onUp;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('pointermove', onMove);
@@ -304,6 +309,7 @@ export function initialize(
     },
     focus: () => view.focus(),
     dispose: () => {
+      endDrag?.(); // tear down window listeners if a divider drag is in flight
       editorScroller.removeEventListener('scroll', onEditorScroll);
       preview.el.removeEventListener('scroll', onPreviewScroll);
       divider.removeEventListener('pointerdown', onDividerPointerDown);
