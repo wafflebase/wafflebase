@@ -94,6 +94,9 @@ export function NotesView({
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode);
     editorRef.current = editor;
+    // keymap is not an initialize() param, so apply the persisted preference
+    // now — otherwise re-opening with Vim set reverts to the default keymap.
+    editor.setKeymap(keymap);
     onEditorReady?.(editor);
 
     return () => {

@@ -7,15 +7,12 @@ import type {
   NoteEditorAPI,
   NoteKeymap,
 } from "@wafflebase/notes";
-
-const KEYMAP_STORAGE_KEY = "wafflebase:notes:keymap";
-
-function readStoredKeymap(): NoteKeymap {
-  if (typeof window === "undefined") return "default";
-  return window.localStorage.getItem(KEYMAP_STORAGE_KEY) === "vim"
-    ? "vim"
-    : "default";
-}
+import {
+  readViewMode,
+  writeViewMode,
+  readKeymap,
+  writeKeymap,
+} from "./notes-settings";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -38,17 +35,20 @@ import { NotesToolbar } from "./notes-toolbar";
 function NotesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState<NoteViewMode>("both");
   const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
-  const [keymap, setKeymap] = useState<NoteKeymap>(readStoredKeymap);
+  // View mode + keyboard mode are per-user (localStorage) preferences, not
+  // per-document — they persist across notes and reloads.
+  const [viewMode, setViewMode] = useState<NoteViewMode>(readViewMode);
+  const [keymap, setKeymap] = useState<NoteKeymap>(readKeymap);
+
+  const handleViewModeChange = useCallback((next: NoteViewMode) => {
+    setViewMode(next);
+    writeViewMode(next);
+  }, []);
 
   const handleKeymapChange = useCallback((next: NoteKeymap) => {
     setKeymap(next);
-    try {
-      window.localStorage.setItem(KEYMAP_STORAGE_KEY, next);
-    } catch {
-      // ignore storage failures (private mode / disabled)
-    }
+    writeKeymap(next);
   }, []);
 
   const { data: documentData, isError: isDocumentError } = useQuery({
@@ -151,7 +151,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <NotesToolbar
             mode={viewMode}
-            onModeChange={setViewMode}
+            onModeChange={handleViewModeChange}
             keymap={keymap}
             onKeymapChange={handleKeymapChange}
             editor={editor}
