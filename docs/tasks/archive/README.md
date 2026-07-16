@@ -6,15 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 362
+Total archived tasks: 363
 
-## 2026/07 (32 tasks)
+## 2026/07 (33 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./2026/07/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./2026/07/20260714-slides-mobile-bg-repaint-lessons.md) |
 | checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./2026/07/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./2026/07/20260712-checkbox-parity-lessons.md) |
 | checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./2026/07/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./2026/07/20260712-checkbox-validation-bugfix-lessons.md) |
+| release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./2026/07/20260712-release-v0.5.1-todo.md) | - |
 | slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./2026/07/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./2026/07/20260712-slides-font-ooxml-parity-lessons.md) |
 | validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./2026/07/20260712-validation-number-text-todo.md) | - |
 | data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./2026/07/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./2026/07/20260711-data-validation-panel-lessons.md) |

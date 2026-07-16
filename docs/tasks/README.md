@@ -21,7 +21,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | release v0.6.0 (2026-07-16) | [20260716-release-v0.6.0-todo.md](./active/20260716-release-v0.6.0-todo.md) | - |
 | notes markdown type (2026-07-15) | [20260715-notes-markdown-type-todo.md](./active/20260715-notes-markdown-type-todo.md) | [20260715-notes-markdown-type-lessons.md](./active/20260715-notes-markdown-type-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
-| release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./active/20260712-release-v0.5.1-todo.md) | - |
 | slides background (2026-07-12) | [20260712-slides-background-todo.md](./active/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./active/20260712-slides-background-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
@@ -37,7 +36,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 362
+- Archived task count: 363
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: release v0.6.0 (2026-07-16)
