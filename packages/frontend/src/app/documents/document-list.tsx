@@ -3,6 +3,7 @@ import {
   FormEvent,
   MouseEvent,
   ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -393,40 +394,67 @@ export function DocumentList({
   // queue owns progress/errors/retry (see upload-queue.ts); we just refresh
   // the documents list as each item lands so new rows appear without a
   // manual reload.
-  const startBatch = (files: File[]) => {
-    if (files.length === 0) return;
-    enqueue(files, workspaceId);
-    startUploads(() => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      if (workspaceId) {
-        queryClient.invalidateQueries({
-          queryKey: ["workspaces", workspaceId, "documents"],
-        });
-      }
-    });
-  };
+  const startBatch = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      enqueue(files, workspaceId);
+      startUploads(() => {
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+        if (workspaceId) {
+          queryClient.invalidateQueries({
+            queryKey: ["workspaces", workspaceId, "documents"],
+          });
+        }
+      });
+    },
+    [workspaceId, queryClient],
+  );
 
   const [dragging, setDragging] = useState(false);
 
-  // A file dropped outside the list wrapper (nav, header, page margins)
-  // would otherwise hit the browser's default handler and navigate to the
-  // raw file, blowing away SPA state and any in-flight uploads. These
-  // window-level listeners exist solely to neutralize that default; the
-  // list wrapper's own onDrop below is still the only place that enqueues
-  // a batch.
+  // Google-Drive-style: the whole window is the drop target, not just the
+  // list. Window-level listeners both (a) neutralize the browser default so a
+  // file dropped anywhere — nav, header, page margins — never navigates the
+  // tab to the raw file (destroying SPA state + in-flight uploads), and (b)
+  // drive the full-viewport overlay and enqueue the batch on drop. A depth
+  // counter tracks enter/leave across nested children so the overlay doesn't
+  // flicker off when the pointer crosses element boundaries mid-drag.
   useEffect(() => {
     const isFileDrag = (e: DragEvent) =>
       !!e.dataTransfer?.types?.includes("Files");
-    const swallow = (e: DragEvent) => {
+    let depth = 0;
+    const onEnter = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      depth += 1;
+      setDragging(true);
+    };
+    const onOver = (e: DragEvent) => {
       if (isFileDrag(e)) e.preventDefault();
     };
-    window.addEventListener("dragover", swallow);
-    window.addEventListener("drop", swallow);
-    return () => {
-      window.removeEventListener("dragover", swallow);
-      window.removeEventListener("drop", swallow);
+    const onLeave = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
     };
-  }, []);
+    const onDrop = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      startBatch(Array.from(e.dataTransfer?.files ?? []));
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [startBatch]);
 
   const handleImportPick = async (accept: string) => {
     startBatch(await pickFiles(accept));
@@ -530,26 +558,7 @@ export function DocumentList({
 
   return (
     <>
-      <div
-        className="relative w-full"
-        onDragEnter={(e) => {
-          if (e.dataTransfer.types.includes("Files")) {
-            e.preventDefault();
-            setDragging(true);
-          }
-        }}
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-        }}
-        onDragLeave={(e) => {
-          if (e.currentTarget === e.target) setDragging(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          startBatch(Array.from(e.dataTransfer.files));
-        }}
-      >
+      <div className="w-full">
       <div className="flex flex-wrap items-center gap-2 py-4">
         <Input
           placeholder="Search by title..."
@@ -942,14 +951,14 @@ export function DocumentList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
       {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
+        <div className="pointer-events-none fixed inset-0 z-40 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
           <span className="text-lg font-medium text-primary">
             Drop files to upload
           </span>
         </div>
       )}
-      </div>
       <UploadPanel />
     </>
   );
