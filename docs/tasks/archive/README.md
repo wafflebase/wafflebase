@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 370
+Total archived tasks: 371
 
-## 2026/07 (40 tasks)
+## 2026/07 (41 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| active tasks audit (2026-07-17) | [20260717-active-tasks-audit-todo.md](./2026/07/20260717-active-tasks-audit-todo.md) | - |
 | documentation 0.6.0 update (2026-07-17) | [20260717-documentation-0.6.0-update-todo.md](./2026/07/20260717-documentation-0.6.0-update-todo.md) | [20260717-documentation-0.6.0-update-lessons.md](./2026/07/20260717-documentation-0.6.0-update-lessons.md) |
 | share link permissions (2026-07-17) | [20260717-share-link-permissions-todo.md](./2026/07/20260717-share-link-permissions-todo.md) | [20260717-share-link-permissions-lessons.md](./2026/07/20260717-share-link-permissions-lessons.md) |
 | notes cli (2026-07-16) | [20260716-notes-cli-todo.md](./2026/07/20260716-notes-cli-todo.md) | [20260716-notes-cli-lessons.md](./2026/07/20260716-notes-cli-lessons.md) |

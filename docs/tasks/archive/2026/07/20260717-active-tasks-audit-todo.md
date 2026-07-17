@@ -158,7 +158,7 @@ task. Both verified shipped and archived:
 - [x] Discarded my generated `README.md`/archive index (regenerate deterministically), `git pull --ff-only` main
 - [x] Assessed + closed the 2 new tasks; ticked + appended closure notes
 - [x] Re-ran `pnpm tasks:archive && pnpm tasks:index` to reconcile (my 5 + these 2)
-- [ ] Awaiting user review before committing the archive moves
+- [x] Reviewed; archive moves committed + PR #486 opened
 
 **Running total this session:** 7 tasks archived (5 first pass + 2 second pass).
 Remaining active: the 2 partial + 9 not-ready + this audit record.
