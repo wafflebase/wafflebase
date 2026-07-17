@@ -40,6 +40,18 @@
   `dataTransfer.types.includes("Files")`. The final (opus) review caught this;
   per-task reviews couldn't see it because the enclosing chrome is out of the
   task's file scope — a case for the whole-branch review step.
+- **"Full-page drop zone" means the window, not the component wrapper.** The
+  design said full-page, but the first implementation scoped the drop
+  handlers + highlight overlay to the list's `relative w-full` wrapper, so a
+  drop on the surrounding chrome did nothing (the window guard only swallowed
+  the default). User feedback ("drag area should be bigger") → moved ALL of
+  dragenter/over/leave/drop to window-level listeners with an enter/leave
+  depth counter (children fire spurious leave events; a counter prevents
+  overlay flicker) and made the overlay a `fixed inset-0` viewport layer.
+  When a spec says "full-page/drop-anywhere," bind to `window` from the start;
+  a component-scoped drop zone is a narrower thing that will read as a bug.
+  Guard against double-enqueue: with window-level drop handling, remove the
+  inner element's own `onDrop` so a single drop enqueues once.
 
 ## Process notes
 
