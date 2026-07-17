@@ -3,6 +3,7 @@ import {
   FormEvent,
   MouseEvent,
   ReactNode,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -407,6 +408,26 @@ export function DocumentList({
 
   const [dragging, setDragging] = useState(false);
 
+  // A file dropped outside the list wrapper (nav, header, page margins)
+  // would otherwise hit the browser's default handler and navigate to the
+  // raw file, blowing away SPA state and any in-flight uploads. These
+  // window-level listeners exist solely to neutralize that default; the
+  // list wrapper's own onDrop below is still the only place that enqueues
+  // a batch.
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) =>
+      !!e.dataTransfer?.types?.includes("Files");
+    const swallow = (e: DragEvent) => {
+      if (isFileDrag(e)) e.preventDefault();
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
+
   const handleImportPick = async (accept: string) => {
     startBatch(await pickFiles(accept));
   };
@@ -518,7 +539,7 @@ export function DocumentList({
           }
         }}
         onDragOver={(e) => {
-          if (dragging) e.preventDefault();
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDragLeave={(e) => {
           if (e.currentTarget === e.target) setDragging(false);

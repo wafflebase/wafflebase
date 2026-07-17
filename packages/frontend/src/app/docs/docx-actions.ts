@@ -7,7 +7,6 @@ import {
   docsImageUploader,
   docsImageFetcher,
   downloadBlob,
-  pickFile,
   safeFilename,
 } from "./export-utils";
 
@@ -18,7 +17,7 @@ export const docxImageFetcher = docsImageFetcher;
 
 /**
  * Parse an already-selected .docx `File` into a Docs `Document`. Used
- * directly by the upload queue and internally by `pickAndImportDocx`.
+ * directly by the upload queue.
  */
 export async function importDocx(
   file: File,
@@ -37,25 +36,6 @@ export async function importDocx(
       : undefined,
   );
   return { doc, fileName: file.name };
-}
-
-/**
- * Open a native file picker for .docx files and parse the selected file
- * into a Docs `Document`. Returns `null` if the user cancels the picker.
- */
-export async function pickAndImportDocx(
-  onProgress?: (p: {
-    done: number;
-    total: number;
-    fileName: string;
-  }) => void,
-): Promise<{
-  doc: DocsDocument;
-  fileName: string;
-} | null> {
-  const file = await pickFile(".docx");
-  if (!file) return null;
-  return importDocx(file, onProgress);
 }
 
 /**

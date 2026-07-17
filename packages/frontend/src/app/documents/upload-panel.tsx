@@ -31,6 +31,7 @@ function StatusCell({ item }: { item: UploadItem }) {
         className="h-6 w-6"
         onClick={() => retry(item.id)}
         title={item.reason}
+        aria-label={`Retry uploading ${item.fileName}`}
       >
         <RotateCw className="h-3.5 w-3.5 text-destructive" />
       </Button>
@@ -49,6 +50,10 @@ export function UploadPanel() {
   const [collapsed, setCollapsed] = useState(false);
   if (items.length === 0) return null;
 
+  // Intentionally includes "pending" (queued but not yet started), unlike
+  // the store's activeCount() which counts only in-flight (parsing |
+  // uploading) items — this header count is meant to read as "work left
+  // in this batch", not strictly "currently running".
   const active = items.filter(
     (i) => i.status === "pending" || i.status === "parsing" || i.status === "uploading",
   ).length;
@@ -65,16 +70,23 @@ export function UploadPanel() {
             size="icon"
             className="h-6 w-6"
             onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? "Expand uploads panel" : "Collapse uploads panel"}
           >
             {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearFinished}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={clearFinished}
+            aria-label="Clear finished uploads"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
       {!collapsed && (
-        <ul className="max-h-72 overflow-y-auto py-1">
+        <ul className="max-h-72 overflow-y-auto py-1" aria-live="polite">
           {items.map((item) => (
             <li key={item.id} className="flex items-center gap-2 px-3 py-1.5">
               <span className="flex-1 truncate text-sm" title={item.fileName}>
@@ -89,6 +101,7 @@ export function UploadPanel() {
                   size="icon"
                   className="h-6 w-6"
                   onClick={() => removeItem(item.id)}
+                  aria-label={`Remove ${item.fileName} from upload list`}
                 >
                   <X className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>

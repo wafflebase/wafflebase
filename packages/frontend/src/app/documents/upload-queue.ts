@@ -185,6 +185,9 @@ function finish(id: string, created: DocRef): void {
     status: "done",
     docId: created.id,
     docPath: activeDeps.getDocumentPath(created),
+    // Release the retained File once the upload has succeeded — only
+    // error items need to keep it around for retry().
+    file: undefined,
   });
   const item = items.find((it) => it.id === id);
   if (item && onItemDoneCb) onItemDoneCb(item);

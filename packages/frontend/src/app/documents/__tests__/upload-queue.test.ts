@@ -36,4 +36,29 @@ describe("upload-queue store", () => {
     q.clearFinished();
     expect(q.getSnapshot()).toHaveLength(0);
   });
+
+  it("clearFinished prunes done and skipped items but retains pending/in-flight/error items", () => {
+    const [done, skipped, pending, uploading, errored] = q.enqueue([
+      file("a.pptx"),
+      file("b.png"), // unsupported -> auto "skipped"
+      file("c.docx"),
+      file("d.xlsx"),
+      file("e.pdf"),
+    ]);
+    q.patchItem(done.id, { status: "done" });
+    expect(q.getSnapshot().find((i) => i.id === skipped.id)?.status).toBe(
+      "skipped",
+    );
+    q.patchItem(uploading.id, { status: "uploading", done: 1, total: 2 });
+    q.patchItem(errored.id, { status: "error", reason: "boom" });
+
+    q.clearFinished();
+
+    const remainingIds = q.getSnapshot().map((i) => i.id);
+    expect(remainingIds).not.toContain(done.id);
+    expect(remainingIds).not.toContain(skipped.id);
+    expect(remainingIds).toContain(pending.id);
+    expect(remainingIds).toContain(uploading.id);
+    expect(remainingIds).toContain(errored.id);
+  });
 });
