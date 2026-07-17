@@ -9,6 +9,7 @@ export function DocumentAnalyticsPage() {
     queryKey: ["analytics", id],
     queryFn: () => getDocumentAnalytics(id!),
     enabled: Boolean(id),
+    retry: false,
   });
 
   if (isLoading) return <Loader />;
@@ -47,19 +48,21 @@ export function DocumentAnalyticsPage() {
         </table>
       </section>
 
-      <section>
-        <h2 className="mb-2 font-medium">By tab / slide</h2>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-muted-foreground"><th>Target</th><th>Views</th></tr>
-          </thead>
-          <tbody>
-            {data.byTarget.map((r) => (
-              <tr key={r.target}><td className="font-mono">{r.target}</td><td>{r.views}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      {data.byTarget.length > 0 && (
+        <section>
+          <h2 className="mb-2 font-medium">By tab / slide</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted-foreground"><th>Target</th><th>Views</th></tr>
+            </thead>
+            <tbody>
+              {data.byTarget.map((r) => (
+                <tr key={r.target}><td className="font-mono">{r.target}</td><td>{r.views}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   );
 }

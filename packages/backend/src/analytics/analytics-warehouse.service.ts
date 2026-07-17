@@ -68,7 +68,9 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
   buildQueries(documentId: string, from: Date, to: Date) {
     const id = sql(documentId);
     const lo = sql(day(from));
-    const hi = sql(day(to));
+    // Exclusive upper bound: the day AFTER `to`, so events stamped on the
+    // `to` day itself (e.g. "today" in the default window) are included.
+    const hi = sql(day(new Date(to.getTime() + 86400000)));
     const where = `document_id = ${id} AND timestamp >= ${lo} AND timestamp < ${hi}`;
     return {
       totalViews: `SELECT COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,

@@ -64,6 +64,9 @@ export class AnalyticsController {
     if (body.events.length > 50) {
       throw new BadRequestException('too many events in one batch');
     }
+    if (!this.producer.isEnabled()) {
+      return { ok: true };
+    }
 
     // Server-derived attribution: the client cannot claim a document, link,
     // role, or user — all come from the resolved share token / session.
@@ -121,11 +124,15 @@ export class AnalyticsController {
       );
     }
 
-    // Default window: last 30 days. Validate range; swap if reversed.
-    const toDate = to ? new Date(to) : new Date();
-    const fromDate = from
-      ? new Date(from)
-      : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Default window: last 30 days. Fall back to defaults on unparsable
+    // from/to (Invalid Date would otherwise blow up downstream). Validate
+    // range; swap if reversed.
+    const toDate =
+      to && !Number.isNaN(Date.parse(to)) ? new Date(to) : new Date();
+    const fromDate =
+      from && !Number.isNaN(Date.parse(from))
+        ? new Date(from)
+        : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
     const [lo, hi] =
       fromDate <= toDate ? [fromDate, toDate] : [toDate, fromDate];
     return this.warehouse.getDocumentAnalytics(documentId, lo, hi);

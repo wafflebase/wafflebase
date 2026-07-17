@@ -113,6 +113,35 @@ describe('AnalyticsController ingest', () => {
       ),
     ).rejects.toThrow();
   });
+
+  it('short-circuits without a share-link lookup when the producer is disabled', async () => {
+    const producer = {
+      produce: () => {
+        throw new Error('should not be called');
+      },
+      isEnabled: () => false,
+    } as unknown as AnalyticsProducerService;
+    const shareLink = {
+      findByToken: () => {
+        throw new Error('should not be called');
+      },
+    } as unknown as ShareLinkService;
+    const controller = new AnalyticsController(
+      producer,
+      {} as AnalyticsWarehouseService,
+      shareLink,
+      {} as PrismaService,
+    );
+    const req = { headers: {}, user: null } as never;
+    const res = await controller.ingest(
+      {
+        shareToken: 'tok',
+        events: [{ sessionId: 's1', visitorId: 'v1', eventType: 'open' }],
+      },
+      req,
+    );
+    expect(res).toEqual({ ok: true });
+  });
 });
 
 describe('AnalyticsController dashboard', () => {
@@ -157,5 +186,12 @@ describe('AnalyticsController dashboard', () => {
     await expect(
       c.dashboard('doc-1', req, undefined, undefined),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('falls back to default window on an unparsable `to` param', async () => {
+    const c = setup({ memberRole: 'owner', authorID: null });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.dashboard('doc-1', req, 'garbage', undefined);
+    expect((res as { totalViews: number }).totalViews).toBe(5);
   });
 });

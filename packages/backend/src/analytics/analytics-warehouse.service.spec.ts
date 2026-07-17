@@ -45,7 +45,9 @@ describe('AnalyticsWarehouseService', () => {
     );
     expect(q.totalViews).toContain("document_id = 'doc-1'");
     expect(q.totalViews).toContain("timestamp >= '2026-07-01'");
-    expect(q.totalViews).toContain("timestamp < '2026-07-17'");
+    // Upper bound is the day AFTER `to` (2026-07-17), so events stamped on
+    // the `to` day itself are included (inclusive `to` day).
+    expect(q.totalViews).toContain("timestamp < '2026-07-18'");
     expect(q.totalViews).toContain("event_type = 'open'");
     expect(q.dwell).toContain('session_id');
   });
