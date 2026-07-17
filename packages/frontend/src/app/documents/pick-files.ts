@@ -20,14 +20,21 @@ export function pickFiles(accept: string): Promise<File[]> {
       resolve(files);
     };
 
-    // Detect cancel via window focus (no perfect way, but acceptable).
+    // Detect cancel via window focus (no perfect way, but acceptable). When
+    // the timer fires, read `input.files` directly rather than assuming a
+    // cancel: the browser populates it synchronously on selection, so if a
+    // real pick's `change` event is merely delayed (large multi-select / slow
+    // disk) past this window, we still resolve the selected files instead of
+    // silently discarding them. `resolve` is idempotent, so a later `change`
+    // is harmless.
     const onFocus = () => {
       window.removeEventListener("focus", onFocus);
       setTimeout(() => {
-        if (!settled) {
-          cleanup();
-          resolve([]);
-        }
+        if (settled) return;
+        settled = true;
+        const files = input.files ? Array.from(input.files) : [];
+        cleanup();
+        resolve(files);
       }, 300);
     };
     window.addEventListener("focus", onFocus);

@@ -398,12 +398,27 @@ export function DocumentList({
     (files: File[]) => {
       if (files.length === 0) return;
       enqueue(files, workspaceId);
-      startUploads(() => {
-        queryClient.invalidateQueries({ queryKey: ["documents"] });
-        if (workspaceId) {
-          queryClient.invalidateQueries({
-            queryKey: ["workspaces", workspaceId, "documents"],
-          });
+      // The settled callback keys off each item's OWN captured workspaceId,
+      // not the closed-over one — a batch may finish after the user has
+      // switched the list to another workspace, and startUploads keeps only
+      // the latest callback, so it must not assume the current workspace.
+      startUploads((item) => {
+        if (item.status === "done") {
+          queryClient.invalidateQueries({ queryKey: ["documents"] });
+          if (item.workspaceId) {
+            queryClient.invalidateQueries({
+              queryKey: ["workspaces", item.workspaceId, "documents"],
+            });
+          }
+          if (item.warning) {
+            toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+          }
+        } else if (item.status === "error") {
+          toast.error(
+            `Upload failed: ${item.fileName}${
+              item.reason ? ` — ${item.reason}` : ""
+            }`,
+          );
         }
       });
     },
@@ -437,22 +452,38 @@ export function DocumentList({
       depth = Math.max(0, depth - 1);
       if (depth === 0) setDragging(false);
     };
+    const reset = () => {
+      depth = 0;
+      setDragging(false);
+    };
     const onDrop = (e: DragEvent) => {
       if (!isFileDrag(e)) return;
       e.preventDefault();
-      depth = 0;
-      setDragging(false);
+      reset();
       startBatch(Array.from(e.dataTransfer?.files ?? []));
+    };
+    // Belt-and-suspenders dismissal: some browsers fire no window `dragleave`
+    // when a drag is cancelled with ESC or the pointer leaves the window, so
+    // the depth counter can stay > 0 and the overlay would stick open. Force
+    // a reset on those signals.
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") reset();
     };
     window.addEventListener("dragenter", onEnter);
     window.addEventListener("dragover", onOver);
     window.addEventListener("dragleave", onLeave);
     window.addEventListener("drop", onDrop);
+    window.addEventListener("dragend", reset);
+    window.addEventListener("blur", reset);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("dragenter", onEnter);
       window.removeEventListener("dragover", onOver);
       window.removeEventListener("dragleave", onLeave);
       window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragend", reset);
+      window.removeEventListener("blur", reset);
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [startBatch]);
 

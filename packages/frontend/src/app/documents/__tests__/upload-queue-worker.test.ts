@@ -28,9 +28,7 @@ describe("upload-queue worker", () => {
         type: p.type,
       })),
       getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
-      stashSheet: vi.fn(),
-      stashDoc: vi.fn(),
-      stashSlides: vi.fn(),
+      applyContent: vi.fn(async () => {}),
     };
     q.enqueue([file("a.xlsx"), file("b.png"), file("c.pdf")], "ws1");
     q.startUploads(undefined, deps as never);
@@ -43,6 +41,14 @@ describe("upload-queue worker", () => {
     expect(snap.find((i) => i.fileName === "c.pdf")?.status).toBe("done");
     expect(snap.find((i) => i.fileName === "b.png")?.status).toBe("skipped");
     expect(deps.createDoc).toHaveBeenCalledTimes(2); // xlsx + pdf, not png
+    // Content is applied for the parsed sheet, never for the skipped png or
+    // the PDF (whose bytes are stored server-side at create time).
+    expect(deps.applyContent).toHaveBeenCalledTimes(1);
+    // docId = "d" + stripExt("a.xlsx") = "d" + "a" = "da"
+    expect(deps.applyContent).toHaveBeenCalledWith(
+      "da",
+      expect.objectContaining({ type: "sheet" }),
+    );
   });
 
   it("marks an item error when its importer throws and keeps others going", async () => {
@@ -62,9 +68,7 @@ describe("upload-queue worker", () => {
         type: p.type,
       })),
       getDocumentPath: () => "/p",
-      stashSheet: vi.fn(),
-      stashDoc: vi.fn(),
-      stashSlides: vi.fn(),
+      applyContent: vi.fn(async () => {}),
     };
     q.enqueue([file("bad.docx"), file("ok.xlsx")], "ws1");
     q.startUploads(undefined, deps as never);
@@ -101,14 +105,9 @@ describe("upload-queue worker", () => {
         type: p.type,
       })),
       getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
-      stashSheet: vi.fn(),
-      stashDoc: vi.fn(),
-      stashSlides: vi.fn(),
+      applyContent: vi.fn(async () => {}),
     };
-    q.enqueue(
-      [file("a.xlsx"), file("b.xlsx"), file("c.xlsx")],
-      "ws1",
-    );
+    q.enqueue([file("a.xlsx"), file("b.xlsx"), file("c.xlsx")], "ws1");
     q.startUploads(undefined, deps as never);
 
     // Synchronously (no flush needed): pump() claims slots up to the cap in
@@ -139,8 +138,8 @@ describe("upload-queue worker", () => {
     expect(deps.createDoc).toHaveBeenCalledTimes(3);
   });
 
-  it("retrying after a stash failure reuses the created document (no duplicate createDoc)", async () => {
-    let stashCalls = 0;
+  it("retrying after an apply failure reuses the created document (no duplicate createDoc)", async () => {
+    let applyCalls = 0;
     const deps = {
       importXlsx: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
@@ -155,12 +154,10 @@ describe("upload-queue worker", () => {
         type: p.type,
       })),
       getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
-      stashSheet: vi.fn(() => {
-        stashCalls++;
-        if (stashCalls === 1) throw new Error("stash failed");
+      applyContent: vi.fn(async () => {
+        applyCalls++;
+        if (applyCalls === 1) throw new Error("apply failed");
       }),
-      stashDoc: vi.fn(),
-      stashSlides: vi.fn(),
     };
     const [item] = q.enqueue([file("dup.xlsx")], "ws1");
     q.startUploads(undefined, deps as never);
@@ -170,7 +167,7 @@ describe("upload-queue worker", () => {
     let snap = q.getSnapshot();
     let current = snap.find((i) => i.id === item.id);
     expect(current?.status).toBe("error");
-    expect(current?.reason).toContain("stash failed");
+    expect(current?.reason).toContain("apply failed");
     expect(deps.createDoc).toHaveBeenCalledTimes(1);
     const docIdAfterFirstAttempt = current?.docId;
     expect(docIdAfterFirstAttempt).toBeTruthy();
@@ -184,6 +181,106 @@ describe("upload-queue worker", () => {
     expect(current?.status).toBe("done");
     expect(deps.createDoc).toHaveBeenCalledTimes(1); // still just once, not 2
     expect(current?.docId).toBe(docIdAfterFirstAttempt); // same document reused
-    expect(deps.stashSheet).toHaveBeenCalledTimes(2); // 1st threw, 2nd succeeded
+    expect(deps.applyContent).toHaveBeenCalledTimes(2); // 1st threw, 2nd succeeded
+  });
+
+  it("retrying a PDF whose createDoc failed does not re-upload the blob", async () => {
+    let createCalls = 0;
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadPdf: vi.fn(async () => ({ id: "blob-1" })),
+      createDoc: vi.fn(async (_ws, p) => {
+        createCalls++;
+        if (createCalls === 1) throw new Error("create failed");
+        return { id: "doc-1", title: p.title, type: p.type };
+      }),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("a.pdf")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    let snap = q.getSnapshot();
+    let current = snap.find((i) => i.id === item.id);
+    expect(current?.status).toBe("error");
+    expect(deps.uploadPdf).toHaveBeenCalledTimes(1);
+    expect(current?.fileId).toBe("blob-1"); // fileId persisted for resume
+
+    q.retry(item.id);
+    await flush();
+    await flush();
+
+    snap = q.getSnapshot();
+    current = snap.find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    // The blob was uploaded exactly once across the failure + retry; the
+    // second attempt reused the persisted fileId instead of orphaning a copy.
+    expect(deps.uploadPdf).toHaveBeenCalledTimes(1);
+    expect(deps.createDoc).toHaveBeenCalledTimes(2);
+  });
+
+  it("fires the settled callback on both done and error", async () => {
+    const settled: Array<{ name: string; status: string }> = [];
+    const deps = {
+      importXlsx: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+      importPptxFile: vi.fn(),
+      uploadPdf: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    q.enqueue([file("ok.xlsx"), file("bad.docx")], "ws1");
+    q.startUploads(
+      (item) => settled.push({ name: item.fileName, status: item.status }),
+      deps as never,
+    );
+    await flush();
+    await flush();
+    await flush();
+
+    expect(settled).toContainEqual({ name: "ok.xlsx", status: "done" });
+    expect(settled).toContainEqual({ name: "bad.docx", status: "error" });
+  });
+
+  it("surfaces a lossy PPTX import summary as a warning on the done item", async () => {
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(async (f: File) => ({
+        document: {},
+        report: { summary: () => "2 fallbacks applied." },
+        fileName: f.name,
+      })),
+      uploadPdf: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("deck.pptx")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(current?.warning).toBe("2 fallbacks applied.");
   });
 });
