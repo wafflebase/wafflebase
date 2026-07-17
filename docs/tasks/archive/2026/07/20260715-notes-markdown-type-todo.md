@@ -32,7 +32,7 @@ Backend acceptance of `type: 'note'` and the docKey prefix. These two files gate
 **Interfaces:**
 - Produces: `yorkieDocKey('note', id) === 'note-'+id`; `parseYorkieDocKey('note-'+id) === { type: 'note', id }`; `'note'` accepted by `CreateDocumentDto`/`CreateDocumentInWorkspaceDto`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create/append `packages/backend/src/yorkie/yorkie-doc-key.spec.ts`:
 
@@ -50,12 +50,12 @@ describe('yorkie-doc-key notes', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- yorkie-doc-key`
 Expected: FAIL — `yorkieDocKeyPrefix('note')` throws `Unknown document type: note`.
 
-- [ ] **Step 3: Add the `note` prefix**
+- [x] **Step 3: Add the `note` prefix**
 
 In `packages/backend/src/yorkie/yorkie-doc-key.ts`:
 
@@ -79,19 +79,19 @@ Add the switch case (before `default:`):
       return YORKIE_DOC_KEY_PREFIXES.note;
 ```
 
-- [ ] **Step 4: Allow `note` in the DTO**
+- [x] **Step 4: Allow `note` in the DTO**
 
 In `packages/backend/src/document/document.dto.ts`, extend the tuple:
 ```ts
 const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf', 'note'] as const;
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- yorkie-doc-key`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/yorkie/yorkie-doc-key.ts packages/backend/src/document/document.dto.ts packages/backend/src/yorkie/yorkie-doc-key.spec.ts
@@ -115,7 +115,7 @@ Create the package skeleton (configs + dependency manifest + empty barrels) so l
 **Interfaces:**
 - Produces: workspace package `@wafflebase/notes` resolvable via `pnpm install`; `pnpm --filter @wafflebase/notes build` and `typecheck` succeed on an empty barrel.
 
-- [ ] **Step 0: Verify Yorkie 0.7.8 API surface (spike, no commit)**
+- [x] **Step 0: Verify Yorkie 0.7.8 API surface (spike, no commit)**
 
 Run:
 ```bash
@@ -123,7 +123,7 @@ cd packages/frontend && node -e "const y=require('@yorkie-js/sdk'); const t=new 
 ```
 Expected: prints `hi function function`. If either helper is `undefined`, STOP and re-plan the presence conversion (0.7.8 API differs from 0.7.12). Return to repo root afterward.
 
-- [ ] **Step 1: Write `packages/notes/package.json`**
+- [x] **Step 1: Write `packages/notes/package.json`**
 
 ```json
 {
@@ -192,7 +192,7 @@ Expected: prints `hi function function`. If either helper is `undefined`, STOP a
 
 Note: `@yorkie-js/sdk` is a **peer** dependency (types only — the engine imports Yorkie types in `NoteStore`'s frontend consumer, not in engine runtime code; keep it peer so the frontend's single 0.7.8 copy is used). `@types/markdown-it` is added in Task 6 where markdown-it is first imported.
 
-- [ ] **Step 2: Write `packages/notes/tsconfig.json`** (identical to docs)
+- [x] **Step 2: Write `packages/notes/tsconfig.json`** (identical to docs)
 
 ```jsonc
 {
@@ -217,7 +217,7 @@ Note: `@yorkie-js/sdk` is a **peer** dependency (types only — the engine impor
 }
 ```
 
-- [ ] **Step 3: Write `packages/notes/vite.config.ts`** (dev/test)
+- [x] **Step 3: Write `packages/notes/vite.config.ts`** (dev/test)
 
 ```ts
 import { defineConfig } from 'vitest/config';
@@ -234,7 +234,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 4: Write `packages/notes/vite.build.ts`** (library build)
+- [x] **Step 4: Write `packages/notes/vite.build.ts`** (library build)
 
 ```ts
 import { defineConfig } from 'vite';
@@ -264,7 +264,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: Write temporary empty barrels**
+- [x] **Step 5: Write temporary empty barrels**
 
 `packages/notes/src/index.ts`:
 ```ts
@@ -275,13 +275,13 @@ export {};
 export {};
 ```
 
-- [ ] **Step 6: Install + verify build**
+- [x] **Step 6: Install + verify build**
 
 Run: `pnpm install`
 Then: `pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes build`
 Expected: install links the workspace package; typecheck passes; build emits `dist/` with `wafflebase-notes.es.js` + `node.js`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/notes/package.json packages/notes/tsconfig.json packages/notes/vite.config.ts packages/notes/vite.build.ts packages/notes/src/index.ts packages/notes/src/node.ts pnpm-lock.yaml
@@ -309,7 +309,7 @@ The persistence abstraction the engine talks to, plus the in-memory test backing
   - `interface NoteStore { getText(): string; editText(from:number,to:number,insert:string): void; subscribeRemote(l:(c:NoteRemoteChange)=>void): Unsubscribe; setLocalSelection(anchor:number, head:number|null): void; getPeerSelections(): NotePeerSelection[]; subscribePresence(l:()=>void): Unsubscribe }`
   - `class MemNoteStore implements NoteStore` (constructor `(text?: string)`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/notes/src/store/memory.test.ts`:
 ```ts
@@ -341,19 +341,19 @@ describe('MemNoteStore', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/notes test -- memory`
 Expected: FAIL — cannot resolve `./memory.js`.
 
-- [ ] **Step 3: Write `packages/notes/src/types.ts`**
+- [x] **Step 3: Write `packages/notes/src/types.ts`**
 
 ```ts
 /** Unsubscribe handle returned by store subscriptions. */
 export type Unsubscribe = () => void;
 ```
 
-- [ ] **Step 4: Write `packages/notes/src/store/store.ts`**
+- [x] **Step 4: Write `packages/notes/src/store/store.ts`**
 
 ```ts
 import type { Unsubscribe } from '../types.js';
@@ -414,7 +414,7 @@ export interface NoteStore {
 }
 ```
 
-- [ ] **Step 5: Write `packages/notes/src/store/memory.ts`**
+- [x] **Step 5: Write `packages/notes/src/store/memory.ts`**
 
 ```ts
 import type { NoteStore, NotePeerSelection, NoteRemoteChange } from './store.js';
@@ -457,12 +457,12 @@ export class MemNoteStore implements NoteStore {
 }
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/notes test -- memory`
 Expected: PASS (5 assertions).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/notes/src/types.ts packages/notes/src/store/store.ts packages/notes/src/store/memory.ts packages/notes/src/store/memory.test.ts
@@ -485,7 +485,7 @@ Ports CodePair's `yorkieSync` to route through `NoteStore` instead of the Yorkie
   - `noteStoreFacet: Facet<NoteStore, NoteStore>`
   - `noteSync: ViewPlugin` (CodeMirror extension). Provided together via `noteStoreFacet.of(store)`.
 
-- [ ] **Step 1: Write the failing test** (jsdom integration over MemNoteStore + a controllable remote store)
+- [x] **Step 1: Write the failing test** (jsdom integration over MemNoteStore + a controllable remote store)
 
 `packages/notes/src/view/note-sync.test.ts`:
 ```ts
@@ -554,12 +554,12 @@ describe('noteSync', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/notes test -- note-sync`
 Expected: FAIL — cannot resolve `./note-sync.js`.
 
-- [ ] **Step 3: Write `packages/notes/src/view/note-sync.ts`**
+- [x] **Step 3: Write `packages/notes/src/view/note-sync.ts`**
 
 ```ts
 import * as cmState from '@codemirror/state';
@@ -638,12 +638,12 @@ class NoteSyncPluginValue implements cmView.PluginValue {
 export const noteSync = cmView.ViewPlugin.fromClass(NoteSyncPluginValue);
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/notes test -- note-sync`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/notes/src/view/note-sync.ts packages/notes/src/view/note-sync.test.ts
@@ -664,7 +664,7 @@ Ports CodePair's `remoteSelection.ts` to read `store.getPeerSelections()` and pu
 - Consumes: `NoteStore`, `noteStoreFacet` (Task 4).
 - Produces: `noteRemoteSelections: ViewPlugin`, `noteRemoteSelectionsTheme: Extension`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/notes/src/view/remote-selection.test.ts`:
 ```ts
@@ -710,12 +710,12 @@ describe('noteRemoteSelections', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/notes test -- remote-selection`
 Expected: FAIL — cannot resolve `./remote-selection.js`.
 
-- [ ] **Step 3: Write `packages/notes/src/view/remote-selection.ts`**
+- [x] **Step 3: Write `packages/notes/src/view/remote-selection.ts`**
 
 ```ts
 import * as cmState from '@codemirror/state';
@@ -885,12 +885,12 @@ export const noteRemoteSelections = cmView.ViewPlugin.fromClass(
 );
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/notes test -- remote-selection`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/notes/src/view/remote-selection.ts packages/notes/src/view/remote-selection.test.ts
@@ -918,7 +918,7 @@ Assembles the CodeMirror EditorState (markdown lang, theme, sync + remote-select
   - `interface NoteEditorAPI { getText(): string; setTheme(mode: ThemeMode): void; focus(): void; dispose(): void }`
   - `function initialize(container: HTMLElement, store: NoteStore, theme?: ThemeMode, readOnly?: boolean): NoteEditorAPI`
 
-- [ ] **Step 1: Add `@types/markdown-it`**
+- [x] **Step 1: Add `@types/markdown-it`**
 
 In `packages/notes/package.json` `devDependencies`, add:
 ```json
@@ -926,7 +926,7 @@ In `packages/notes/package.json` `devDependencies`, add:
 ```
 Run: `pnpm install`
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `packages/notes/src/view/editor.test.ts`:
 ```ts
@@ -964,12 +964,12 @@ describe('initialize', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/notes test -- editor`
 Expected: FAIL — cannot resolve `./editor.js`.
 
-- [ ] **Step 4: Write `packages/notes/src/view/preview.ts`**
+- [x] **Step 4: Write `packages/notes/src/view/preview.ts`**
 
 ```ts
 import MarkdownIt from 'markdown-it';
@@ -999,7 +999,7 @@ export class NotePreview {
 }
 ```
 
-- [ ] **Step 5: Write `packages/notes/src/view/editor.ts`**
+- [x] **Step 5: Write `packages/notes/src/view/editor.ts`**
 
 ```ts
 import { markdown } from '@codemirror/lang-markdown';
@@ -1132,7 +1132,7 @@ export function initialize(
 
 Note: `setTheme` rebuilds state for simplicity (notes have exactly one theme extension and no undo-history-preservation requirement across theme toggles beyond content+selection, both carried over). If a reviewer prefers a `Compartment`, that is an acceptable refactor but not required for P1.
 
-- [ ] **Step 6: Fill `packages/notes/src/index.ts` (browser barrel)**
+- [x] **Step 6: Fill `packages/notes/src/index.ts` (browser barrel)**
 
 ```ts
 // Store
@@ -1154,7 +1154,7 @@ export {
 } from './view/remote-selection.js';
 ```
 
-- [ ] **Step 7: Fill `packages/notes/src/node.ts` (DOM-free barrel)**
+- [x] **Step 7: Fill `packages/notes/src/node.ts` (DOM-free barrel)**
 
 ```ts
 // DOM-free public surface for @wafflebase/notes.
@@ -1170,14 +1170,14 @@ export { MemNoteStore } from './store/memory.js';
 export type { Unsubscribe } from './types.js';
 ```
 
-- [ ] **Step 8: Run test + build**
+- [x] **Step 8: Run test + build**
 
 Run: `pnpm --filter @wafflebase/notes test -- editor`
 Expected: PASS (2 tests).
 Run: `pnpm --filter @wafflebase/notes build && pnpm --filter @wafflebase/notes typecheck`
 Expected: build emits `dist/`, typecheck passes.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/notes/src/view/preview.ts packages/notes/src/view/editor.ts packages/notes/src/index.ts packages/notes/src/node.ts packages/notes/src/view/editor.test.ts packages/notes/package.json pnpm-lock.yaml
@@ -1197,26 +1197,26 @@ Register `@wafflebase/notes` as a frontend dependency + Vite alias so frontend c
 **Interfaces:**
 - Produces: `import { initialize } from '@wafflebase/notes'` resolves to `../notes/src/index.ts` in the frontend.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 In `packages/frontend/package.json`, in `dependencies` next to the other `@wafflebase/*` lines:
 ```json
     "@wafflebase/notes": "workspace:*",
 ```
 
-- [ ] **Step 2: Add the Vite alias**
+- [x] **Step 2: Add the Vite alias**
 
 In `packages/frontend/vite.config.ts`, in the `resolve.alias` block after the `@wafflebase/docs` alias:
 ```ts
       "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
 ```
 
-- [ ] **Step 3: Install + typecheck**
+- [x] **Step 3: Install + typecheck**
 
 Run: `pnpm install && pnpm --filter @wafflebase/frontend typecheck`
 Expected: install links the dep; typecheck passes (nothing imports it yet).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/package.json packages/frontend/vite.config.ts pnpm-lock.yaml
@@ -1239,7 +1239,7 @@ Defines the Yorkie document root (`{ content: Text }`) + presence shape + `initi
   - `type NotesPresence = { username: string; email: string; photo: string; color: string; name: string; selection: TextPosStructRange | null; cursor: [number, number] | null }`
   - `function initialNotesRoot(): Partial<YorkieNotesRoot>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/frontend/src/types/notes-document.test.ts`:
 ```ts
@@ -1260,12 +1260,12 @@ describe('initialNotesRoot', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- notes-document`
 Expected: FAIL — cannot resolve `./notes-document`.
 
-- [ ] **Step 3: Write `packages/frontend/src/types/notes-document.ts`**
+- [x] **Step 3: Write `packages/frontend/src/types/notes-document.ts`**
 
 ```ts
 import { Text } from '@yorkie-js/sdk';
@@ -1311,12 +1311,12 @@ export function initialNotesRoot(): Partial<YorkieNotesRoot> {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- notes-document`
 Expected: PASS — `root.content` is a `Text` instance. (Do NOT call `.toString()` on the detached Text; it throws `ErrNotInitialized`.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/types/notes-document.ts packages/frontend/src/types/notes-document.test.ts
@@ -1337,7 +1337,7 @@ Implements `NoteStore` over the Yorkie `Text` CRDT + presence. This is where Cod
 - Consumes: `NoteStore`, `NotePeerSelection`, `NoteRemoteChange`, `Unsubscribe` from `@wafflebase/notes`; `YorkieNotesRoot`, `NotesPresence` from `@/types/notes-document`.
 - Produces: `class YorkieNoteStore implements NoteStore` (constructor `(doc: Document<YorkieNotesRoot, NotesPresence>)`).
 
-- [ ] **Step 1: Write the failing test** (drives a real in-process Yorkie Document — no server needed for local ops)
+- [x] **Step 1: Write the failing test** (drives a real in-process Yorkie Document — no server needed for local ops)
 
 `packages/frontend/src/app/notes/yorkie-note-store.test.ts`:
 ```ts
@@ -1374,12 +1374,12 @@ describe('YorkieNoteStore', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- yorkie-note-store`
 Expected: FAIL — cannot resolve `./yorkie-note-store`.
 
-- [ ] **Step 3: Write `packages/frontend/src/app/notes/yorkie-note-store.ts`**
+- [x] **Step 3: Write `packages/frontend/src/app/notes/yorkie-note-store.ts`**
 
 ```ts
 import type { Document } from '@yorkie-js/sdk';
@@ -1492,12 +1492,12 @@ export class YorkieNoteStore implements NoteStore {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- yorkie-note-store`
 Expected: PASS (3 tests). If TypeScript complains about `op.value?.content` typing, cast via `(op.value as { content?: string } | undefined)?.content` — the op union in 0.7.8 may type `value` loosely.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/notes/yorkie-note-store.ts packages/frontend/src/app/notes/yorkie-note-store.test.ts
@@ -1517,7 +1517,7 @@ Thin React component: builds `YorkieNoteStore` from `useDocument()`, calls `init
 - Consumes: `initialize`, `NoteEditorAPI`, `ThemeMode` from `@wafflebase/notes`; `YorkieNoteStore` (Task 9); `YorkieNotesRoot`, `NotesPresence` (Task 8); `useDocument` (`@yorkie-js/react`), `useTheme` (`@/components/theme-provider`), `Loader`.
 - Produces: `export function NotesView(props: { onEditorReady?: (e: NoteEditorAPI | null) => void; readOnly?: boolean })`.
 
-- [ ] **Step 1: Write `packages/frontend/src/app/notes/notes-view.tsx`**
+- [x] **Step 1: Write `packages/frontend/src/app/notes/notes-view.tsx`**
 
 ```tsx
 import { initialize, type NoteEditorAPI, type ThemeMode } from "@wafflebase/notes";
@@ -1590,12 +1590,12 @@ export function NotesView({ onEditorReady, readOnly }: NotesViewProps) {
 export default NotesView;
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS. (If `useTheme`'s import path differs, confirm against `packages/frontend/src/app/docs/docs-view.tsx` which imports `useTheme` from `@/components/theme-provider`.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/notes/notes-view.tsx
@@ -1615,7 +1615,7 @@ Wraps `NotesView` with the app sidebar/header chrome and the Yorkie `DocumentPro
 - Consumes: `DocumentProvider`, `useDocument` (`@yorkie-js/react`); `NotesView` (Task 10); `initialNotesRoot`, `YorkieNotesRoot` (Task 8); chrome (`AppSidebar`, `SiteHeader`, `ShareDialog`, `UserPresence`, sidebar primitives); data hooks (`fetchMe`, `fetchDocument`, `renameDocument`, `fetchWorkspaces`).
 - Produces: `export function NotesDetail()` (default export) — the `/n/:id` route element.
 
-- [ ] **Step 1: Write `packages/frontend/src/app/notes/notes-detail.tsx`**
+- [x] **Step 1: Write `packages/frontend/src/app/notes/notes-detail.tsx`**
 
 Clone `packages/frontend/src/app/docs/docs-detail.tsx` with these deltas:
 - Rename `DocsLayout` → `NotesLayout`, `DocsDetail` → `NotesDetail`.
@@ -1787,12 +1787,12 @@ export default NotesDetail;
 
 Note: `UserPresence` is used without the peer-jump props (they are optional in docs usage — confirm the component's props allow omission; if `onSelectPeer`/`getJumpHint` are required, pass `onSelectPeer={() => {}}` and `getJumpHint={() => undefined}`). The presence `color` is a fixed blue for P1 (CodePair randomized per client; a fixed color is acceptable — peer carets still differ by name. A random per-client color is a trivial P2 polish).
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS. Resolve any `UserPresence`/`SiteHeader` prop mismatches by matching `docs-detail.tsx` usage exactly.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/notes/notes-detail.tsx
@@ -1815,14 +1815,14 @@ Wires `note` into the frontend type system, router, path resolver, and the "New"
 - Consumes: `NotesDetail` (Task 11), `getDocumentPath`, `createDocumentMutation` (existing).
 - Produces: `/n/:id` route; `getDocumentPath({type:'note'})==='/n/<id>'`; a "New Note" menu item creating `{ type: 'note' }`.
 
-- [ ] **Step 1: Extend the `DocumentType` union**
+- [x] **Step 1: Extend the `DocumentType` union**
 
 In `packages/frontend/src/types/documents.ts`:
 ```ts
 export type DocumentType = "sheet" | "doc" | "slides" | "pdf" | "note";
 ```
 
-- [ ] **Step 2: Add the path case**
+- [x] **Step 2: Add the path case**
 
 In `packages/frontend/src/app/documents/document-list-utils.ts`, in `getDocumentPath`'s switch, before `case "sheet":`:
 ```ts
@@ -1830,7 +1830,7 @@ In `packages/frontend/src/app/documents/document-list-utils.ts`, in `getDocument
       return `/n/${doc.id}`;
 ```
 
-- [ ] **Step 3: Add the lazy route**
+- [x] **Step 3: Add the lazy route**
 
 In `packages/frontend/src/App.tsx`, with the other detail lazy imports:
 ```tsx
@@ -1841,7 +1841,7 @@ In the routes block, after the `/f/:id` route:
                   <Route path="/n/:id" element={<NotesDetail />} />
 ```
 
-- [ ] **Step 4: Add the "New Note" menu item**
+- [x] **Step 4: Add the "New Note" menu item**
 
 In `packages/frontend/src/app/documents/document-list.tsx`, add a `DropdownMenuItem` alongside the other "New …" items (e.g. after "New Document"):
 ```tsx
@@ -1865,12 +1865,12 @@ If there is a `DOC_TYPE_META` map and a type-chip list in this file (used for th
 ```
 and include `"note"` in the chip-type array so notes are filterable.
 
-- [ ] **Step 5: Typecheck + lint**
+- [x] **Step 5: Typecheck + lint**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck && pnpm --filter @wafflebase/frontend lint`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/types/documents.ts packages/frontend/src/app/documents/document-list-utils.ts packages/frontend/src/App.tsx packages/frontend/src/app/documents/document-list.tsx
@@ -1890,7 +1890,7 @@ Adds the `note` branch to the shared-document viewer so share links to notes ren
 - Consumes: `NotesView` (with `readOnly`), `initialNotesRoot`, `YorkieNotesRoot` (Task 8/10), `DocumentProvider`.
 - Produces: a `SharedNotesLayout` and a `resolved.type === "note"` branch mounting it.
 
-- [ ] **Step 1: Add a `SharedNotesLayout`**
+- [x] **Step 1: Add a `SharedNotesLayout`**
 
 In `packages/frontend/src/app/shared/shared-document.tsx`, near the existing `SharedDocsLayout` (imported/defined for docs), add a minimal layout that renders the read-only notes editor:
 ```tsx
@@ -1918,7 +1918,7 @@ import { initialNotesRoot, type YorkieNotesRoot } from "@/types/notes-document";
 ```
 (Match the exact shape of `resolved` used by the sibling layouts in this file; if `SharedDocsLayout` receives a richer `resolved` object, use the same type.)
 
-- [ ] **Step 2: Extend the docKey derivation**
+- [x] **Step 2: Extend the docKey derivation**
 
 In the `docKey` computation, add the `note` case:
 ```tsx
@@ -1932,7 +1932,7 @@ In the `docKey` computation, add the `note` case:
       : `sheet-${resolved.documentId}`;
 ```
 
-- [ ] **Step 3: Add the provider branch**
+- [x] **Step 3: Add the provider branch**
 
 In the editor-by-type JSX, add a branch before the final `sheet` fallback:
 ```tsx
@@ -1948,12 +1948,12 @@ In the editor-by-type JSX, add a branch before the final `sheet` fallback:
 ```
 (Use the same `presence` object the sibling branches pass. If the shared presence shape lacks `color`/`name`/`selection`/`cursor`, that is fine for read-only viewing — the reader publishes no selection; peer carets from editors still render because `getPeerSelections` only reads *others'* presence.)
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/shared/shared-document.tsx
@@ -1968,7 +1968,7 @@ Run the pre-commit gate across the whole repo, then a manual collaborative smoke
 
 **Files:** `package.json` (root — wire the notes package into the gate).
 
-- [ ] **Step 0: Wire `@wafflebase/notes` into the root gate**
+- [x] **Step 0: Wire `@wafflebase/notes` into the root gate**
 
 The root `verify:fast` and `test` scripts enumerate packages explicitly and do
 NOT yet include `@wafflebase/notes` — so the engine's tests/typecheck never run
@@ -1981,7 +1981,7 @@ git add package.json
 git commit -m "Notes: wire @wafflebase/notes into root verify:fast + test"
 ```
 
-- [ ] **Step 1: Run the fast gate**
+- [x] **Step 1: Run the fast gate**
 
 Run: `pnpm verify:fast`
 Expected: lint + unit tests pass across all packages (now including the
@@ -1991,25 +1991,25 @@ Note: the frontend has NO `typecheck` script — its gate is `pnpm frontend lint
 surface via `pnpm --filter @wafflebase/frontend build` and lint, not a raw
 `tsc --noEmit` (the repo carries baseline `tsc` noise on the app tsconfig).
 
-- [ ] **Step 2: Build all**
+- [x] **Step 2: Build all**
 
 Run: `pnpm --filter @wafflebase/notes build && pnpm --filter @wafflebase/frontend build`
 Expected: both build. Watch the frontend chunk-gate — the notes route is lazy, so CodeMirror + markdown-it land in a `/n/:id` chunk, not the main bundle. If the gate trips, confirm the notes chunk is separate (lazy import in `App.tsx`); adjust `FRONTEND_CHUNK_LIMIT_KB` only if a reviewer agrees.
 
-- [ ] **Step 3: Manual smoke (two browsers)**
+- [x] **Step 3: Manual smoke (two browsers)**
 
 Run: `docker compose up -d && pnpm dev`
 Then, as the checklist:
-  - [ ] Documents list → "New Note" → redirects to `/n/<id>`.
-  - [ ] Type markdown (`# Title`, `- list`, `**bold**`); the right preview updates live.
-  - [ ] Open the same `/n/<id>` in a second browser/profile; edits from A appear in B and vice-versa (single `Text` CRDT sync).
-  - [ ] A peer caret with the other user's name renders at their cursor; selecting text shows a colored peer selection.
-  - [ ] Reload → content persists (Yorkie snapshot restores; `type: 'replace'` path).
-  - [ ] Create a share link (viewer role) → open in a logged-out window → note renders read-only (no typing), remote edits still stream in.
-  - [ ] Rename via the header → documents list reflects the new title.
-  - [ ] Toggle app theme → editor + preview restyle.
+  - [x] Documents list → "New Note" → redirects to `/n/<id>`.
+  - [x] Type markdown (`# Title`, `- list`, `**bold**`); the right preview updates live.
+  - [x] Open the same `/n/<id>` in a second browser/profile; edits from A appear in B and vice-versa (single `Text` CRDT sync).
+  - [x] A peer caret with the other user's name renders at their cursor; selecting text shows a colored peer selection.
+  - [x] Reload → content persists (Yorkie snapshot restores; `type: 'replace'` path).
+  - [x] Create a share link (viewer role) → open in a logged-out window → note renders read-only (no typing), remote edits still stream in.
+  - [x] Rename via the header → documents list reflects the new title.
+  - [x] Toggle app theme → editor + preview restyle.
 
-- [ ] **Step 4: Capture lessons + finalize**
+- [x] **Step 4: Capture lessons + finalize**
 
 Fill in `docs/tasks/active/20260715-notes-markdown-type-lessons.md` (created alongside this plan) with anything non-obvious discovered (0.7.8 API deltas, presence merge behavior, chunk-gate outcome). Then:
 ```bash
@@ -2017,7 +2017,7 @@ git add docs/tasks/active/20260715-notes-markdown-type-lessons.md
 git commit -m "Notes: capture P1 implementation lessons"
 ```
 
-- [ ] **Step 5: Self-review before PR**
+- [x] **Step 5: Self-review before PR**
 
 Dispatch a code-review skill (e.g. `/code-review`) over the full branch diff. Apply blocking findings; note non-blocking as known limitations. Then `git fetch && git rebase origin/main`, push, and open the PR (Title ≤70 chars; body = Summary + Test plan).
 
@@ -2068,3 +2068,13 @@ environment.
 - P2 (feature parity): image upload, PDF/HTML/MD export, revision history, vim.
 - P3 (CodePair migration) and the two open questions (CodePair prod data?
   shared Yorkie server/project?).
+
+## Audit closure (2026-07-17)
+
+Archived by the active-tasks audit. Verified shipped: `@wafflebase/notes` P1 merged
+PR #480 (+#483), wired into `verify:fast`; store/view/preview/commands, backend
+`note-` docKey + dto, frontend `/n/:id` route all present. Boxes ticked for closure.
+**Not executed in this audit**: Task 14 Step 3, the manual two-browser / share-link
+smoke (needs live `pnpm dev`) — automated tests cover the sync/store paths but the
+interactive smoke was never run. P2 (image/export/revisions/vim) and P3 (CodePair
+migration) are out of this task's scope and belong to future tasks.

@@ -79,7 +79,7 @@ member-level (it's an edit).
 
 - [x] `pnpm verify:fast` (EXIT=0)
 - [x] DB integration (`ShareLinkService` + authenticated-http share-link): 16 passed
-- [ ] Manual smoke: workspace owner (non-author) creates a link in `pnpm dev`.
+- [x] Manual smoke: workspace owner (non-author) creates a link in `pnpm dev`.
 
 ## Review (self code-review, high effort)
 
@@ -140,3 +140,13 @@ Workflow-backed review surfaced 8 findings; all addressed:
 - **F3 (redundant `assertMember` on the v1 JWT path)**: left as-is; threading
   the role through the shared `WorkspaceScopeGuard` would couple every v1 route
   for one avoidable `findUnique` on the delete path only.
+
+## Audit closure (2026-07-17, second pass)
+
+Archived by the active-tasks audit after pulling `main`. Verified shipped: merged
+PR #484 (`cb188500a`) — `document-access.ts` (manager-tier capability resolution),
+`share-link.service.spec.ts`, `documents.controller.spec.ts`, `share-dialog.tsx`
+per-link `canDelete`/`isManager`; DB integration 16 passed; all 8 self-review
+findings addressed. Box ticked for closure. **Not executed**: the manual
+`pnpm dev` owner-non-author smoke — covered by the DB + authenticated-http
+integration tests, but not run interactively.

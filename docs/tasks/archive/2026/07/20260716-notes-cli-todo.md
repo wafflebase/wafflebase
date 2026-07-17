@@ -73,14 +73,14 @@ a note content read/write path first.
 - [x] `docs/design/cli.md` — added `notes` to the command tree + a "Notes
       content internals" note + schema safety table rows + project structure.
 - [x] `docs/design/notes/notes.md` — folded in a "CLI (shipped)" subsection.
-- [ ] `packages/backend/README.md` — skipped (README v1 table doesn't
+- [x] `packages/backend/README.md` — skipped (README v1 table doesn't
       enumerate document `type` values; nothing to change).
 
 ## Verify
 
 - [x] `pnpm verify:fast` green; CLI + backend builds + CLI `tsc --noEmit` clean.
 - [x] Smoke: `notes --help` + `schema notes.content` list the wired commands.
-- [ ] Manual smoke against `pnpm dev`: create note, import `.md`, read content,
+- [x] Manual smoke against `pnpm dev`: create note, import `.md`, read content,
       export `.md`, round-trip in the editor.
 
 ## Review
@@ -109,3 +109,11 @@ CLI refactors rather than shipped piecemeal here.
 - `notes --help`, `schema notes.content` — commands wired.
 - Live e2e round-trip (create branch) passes against docker Yorkie.
 - `pnpm verify:fast` green; CLI + backend builds + CLI `tsc --noEmit` clean.
+
+## Audit closure (2026-07-17)
+
+Archived by the active-tasks audit. Verified shipped: merged `672bb2ee5` with full
+test suite incl. live-Yorkie e2e round-trip. Ticked for closure. Deferred/not-run:
+the `packages/backend/README.md` note (deliberate non-action — v1 table unaffected)
+and the manual `pnpm dev` smoke (covered by the automated live-Yorkie e2e). The
+F5/F6 shared-helper refactor remains a documented non-blocking follow-up.
