@@ -34,6 +34,17 @@ export function createSpreadsheetDocumentFromImportedXlsxSheets(
   return { tabs, tabOrder, sheets };
 }
 
+export async function importXlsx(file: File): Promise<{
+  document: SpreadsheetDocument;
+  fileName: string;
+}> {
+  const importedSheets = await importXlsxWorkbook(await file.arrayBuffer());
+  return {
+    document: createSpreadsheetDocumentFromImportedXlsxSheets(importedSheets),
+    fileName: file.name,
+  };
+}
+
 export async function pickAndImportXlsx(): Promise<{
   document: SpreadsheetDocument;
   fileName: string;
@@ -42,10 +53,5 @@ export async function pickAndImportXlsx(): Promise<{
     ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   );
   if (!file) return null;
-
-  const importedSheets = await importXlsxWorkbook(await file.arrayBuffer());
-  return {
-    document: createSpreadsheetDocumentFromImportedXlsxSheets(importedSheets),
-    fileName: file.name,
-  };
+  return importXlsx(file);
 }

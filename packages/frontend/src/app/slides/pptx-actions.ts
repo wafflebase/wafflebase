@@ -40,6 +40,36 @@ const slidesImageUploader: UploadImage = async (
 };
 
 /**
+ * Parse an already-selected .pptx `File` into a Slides `SlidesDocument`.
+ * Named `importPptxFile` (not `importPptx`) to avoid shadowing the
+ * package-level `importPptx` imported above from `@wafflebase/slides`.
+ * Used directly by the upload queue and internally by `pickAndImportPptx`.
+ * Throws on a malformed archive or a failed image upload — the caller
+ * surfaces a toast and aborts the document-creation flow.
+ */
+export async function importPptxFile(
+  file: File,
+  onProgress?: (p: {
+    done: number;
+    total: number;
+    fileName: string;
+  }) => void,
+): Promise<{
+  document: SlidesDocument;
+  report: ImportReport;
+  fileName: string;
+}> {
+  const buffer = await file.arrayBuffer();
+  const { document, report } = await importPptx(buffer, {
+    uploadImage: slidesImageUploader,
+    onProgress: onProgress
+      ? (done, total) => onProgress({ done, total, fileName: file.name })
+      : undefined,
+  });
+  return { document, report, fileName: file.name };
+}
+
+/**
  * Open the file picker for .pptx and parse the chosen archive. Returns
  * `null` if the user cancels. Throws on a malformed archive or a
  * failed image upload — the caller surfaces a toast and aborts the
@@ -58,14 +88,7 @@ export async function pickAndImportPptx(
 } | null> {
   const file = await pickFile(".pptx");
   if (!file) return null;
-  const buffer = await file.arrayBuffer();
-  const { document, report } = await importPptx(buffer, {
-    uploadImage: slidesImageUploader,
-    onProgress: onProgress
-      ? (done, total) => onProgress({ done, total, fileName: file.name })
-      : undefined,
-  });
-  return { document, report, fileName: file.name };
+  return importPptxFile(file, onProgress);
 }
 
 /**
