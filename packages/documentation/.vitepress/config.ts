@@ -69,6 +69,7 @@ export default defineConfig({
       { text: "Sheets", link: "/sheets/build-a-budget" },
       { text: "Docs", link: "/docs-editor/writing-a-document" },
       { text: "Slides", link: "/slides/build-a-deck" },
+      { text: "Notes", link: "/notes/writing-a-note" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -90,6 +91,7 @@ export default defineConfig({
           { text: "Build a Budget", link: "/sheets/build-a-budget" },
           { text: "Formulas", link: "/sheets/formulas" },
           { text: "Charts & Pivot Tables", link: "/sheets/charts" },
+          { text: "Data Validation", link: "/sheets/data-validation" },
           { text: "External Datasources", link: "/sheets/datasources" },
           {
             text: "Keyboard Shortcuts",
@@ -123,6 +125,16 @@ export default defineConfig({
             link: "/slides/keyboard-shortcuts",
           },
         ],
+      },
+      {
+        text: "Notes",
+        items: [
+          { text: "Writing a Note", link: "/notes/writing-a-note" },
+        ],
+      },
+      {
+        text: "PDF",
+        items: [{ text: "Viewing PDFs", link: "/pdf/viewing-pdfs" }],
       },
       {
         text: "Developers",

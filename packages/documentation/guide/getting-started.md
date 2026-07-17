@@ -12,6 +12,11 @@ After signing in, you'll see your workspace. Click the **New** dropdown button t
 
 - **New Sheet** — A spreadsheet for structured data, formulas, and charts
 - **New Document** — A word-processor-style editor for writing and formatting text
+- **New Note** — A Markdown editor with a live preview for quick notes and docs
+- **New Presentation** — A slide deck with themes, layouts, and shapes
+
+The same menu can import existing files (**Import XLSX / DOCX / PPTX**) or
+**Upload PDF** to store and view a PDF in your workspace.
 
 ## Try a Sheet
 
@@ -46,17 +51,38 @@ Select **New Document** to open a blank page. Start typing — the editor works 
 
 For a full walkthrough, see the [Writing a Document](/docs-editor/writing-a-document) guide.
 
+## Try a Note
+
+Select **New Note** for a Markdown editor with a live preview. Type Markdown on
+the left and watch it render on the right:
+
+```markdown
+# Meeting Notes
+- [x] Review the roadmap
+- [ ] Assign owners
+```
+
+Switch between **Split**, **Editor**, and **Preview** views from the toolbar.
+For more, see the [Writing a Note](/notes/writing-a-note) guide.
+
 ## What's Next
 
 **Sheets:**
 - [Build a Budget Spreadsheet](/sheets/build-a-budget) — Learn formulas, formatting, and layout
 - [Formulas](/sheets/formulas) — Full list of supported functions
 - [Charts & Pivot Tables](/sheets/charts) — Visualize your data
+- [Data Validation](/sheets/data-validation) — Checkboxes, dropdowns, and input rules
 - [Keyboard Shortcuts](/sheets/keyboard-shortcuts) — Speed up your workflow
 
 **Docs:**
 - [Writing a Document](/docs-editor/writing-a-document) — Text editing, formatting, and page layout
 - [Keyboard Shortcuts](/docs-editor/keyboard-shortcuts) — Document editor shortcuts
+
+**Notes:**
+- [Writing a Note](/notes/writing-a-note) — Markdown editor with live preview
+
+**PDF:**
+- [Viewing PDFs](/pdf/viewing-pdfs) — Upload, read, and comment on PDF files
 
 **Common:**
 - [Collaboration & Sharing](/guide/collaboration) — Share and edit together in real time

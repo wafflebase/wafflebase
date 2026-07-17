@@ -11,9 +11,12 @@ the platform.
 | **Sheets** | Excel (`.xlsx`) | — *(CSV/JSON via [CLI](../developers/cli))* |
 | **Docs** | Word (`.docx`) | Word (`.docx`), PDF (`.pdf`) |
 | **Slides** | PowerPoint (`.pptx`) | PowerPoint (`.pptx`), PDF (`.pdf`) |
+| **Notes** | — | — |
+| **PDF** | Upload (`.pdf`) | — *(view-only)* |
 
 Import always creates a **new** document; it never overwrites an open one.
-Export downloads a file from the document you are editing.
+Export downloads a file from the document you are editing. Notes live entirely
+inside Wafflebase — they have no file import or export.
 
 ## Importing files
 
@@ -27,6 +30,9 @@ From your workspace, open the **New** menu and choose an import option:
 - **Import PPTX** — creates a new deck from a PowerPoint file: slides,
   text boxes, shapes, images, tables, and theme colors are converted to
   native Wafflebase elements.
+- **Upload PDF** — stores a PDF as a new document you can read and comment on.
+  Unlike the other imports, the file is kept intact and viewed as-is rather than
+  converted into an editable document. See [Viewing PDFs](../pdf/viewing-pdfs).
 
 Large files show a progress indicator while they are parsed and any embedded
 images are uploaded into your workspace.
