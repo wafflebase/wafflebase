@@ -2,7 +2,12 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { matchPath, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import {
+  IconFolder,
+  IconSettings,
+  IconDatabase,
+  IconChartBar,
+} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useEffect, useMemo } from "react";
@@ -10,6 +15,7 @@ import { useEffect, useMemo } from "react";
 /** Declarative route → title mapping. First match wins. */
 const ROUTE_TITLES: Array<{ path: string; title: string }> = [
   { path: "/w/:workspaceId/datasources", title: "Data Sources" },
+  { path: "/w/:workspaceId/analytics", title: "Analytics" },
   { path: "/w/:workspaceId/settings", title: "Settings" },
   { path: "/w/:workspaceId", title: "Documents" },
   { path: "/datasources", title: "Data Sources" },
@@ -50,6 +56,11 @@ export default function Layout() {
             title: "Data Sources",
             url: `/w/${workspaceSlug}/datasources`,
             icon: IconDatabase,
+          },
+          {
+            title: "Analytics",
+            url: `/w/${workspaceSlug}/analytics`,
+            icon: IconChartBar,
           },
           {
             title: "Settings",

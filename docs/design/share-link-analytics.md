@@ -205,13 +205,33 @@ change for this feature:
   inject `WAFFLEBASE_KAFKA_ADDRESSES`, `WAFFLEBASE_KAFKA_TOPIC`,
   `WAFFLEBASE_STARROCKS_DSN` env.
 
+### Workspace-aggregate view + Analytics tab
+
+Besides the per-document dashboard, the workspace nav exposes an **Analytics**
+tab (`/w/:workspaceId/analytics`) backed by `GET /workspaces/:workspaceId/analytics`
+(member-gated). It rolls the same `view_events` table up across the workspace's
+documents (`document_id IN (...)`) into workspace totals + a per-document
+ranking, each row linking to that document's detailed dashboard. Postgres owns
+the document set + titles; StarRocks only knows `document_id`, so the controller
+fetches titles and enriches the ranking.
+
 ### Local development
 
-Kafka/StarRocks are **not** part of the Wafflebase `docker compose` by default.
-With the two env vars unset, the producer and warehouse services no-op and the
-dashboard shows "analytics disabled" (mirrors Yorkie's `DummyWarehouse`).
-Integration testing can reuse Yorkie's analytics docker-compose stack
-(yorkie repo: build/docker/analytics — StarRocks FE/BE + Kafka + init).
+The Kafka + StarRocks stack ships as an **opt-in** Docker Compose profile
+(`docker/analytics/` + the `analytics` profile in `docker-compose.yaml`):
+
+```bash
+docker compose --profile analytics up -d
+# then in packages/backend/.env:
+#   WAFFLEBASE_KAFKA_ADDRESSES=localhost:29092
+#   WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events
+#   WAFFLEBASE_STARROCKS_DSN=root:@tcp(localhost:9030)/wafflebase
+```
+
+An init container creates the `wafflebase` database, `view_events` table, and
+the Kafka routine load. Omit the profile (the default) and the producer +
+warehouse no-op and the dashboard shows "not enabled" (mirrors Yorkie's
+`DummyWarehouse`) — the app is unaffected.
 
 ### Privacy
 

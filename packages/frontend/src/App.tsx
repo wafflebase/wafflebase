@@ -37,6 +37,9 @@ const WorkspaceDocuments = lazy(
 const WorkspaceSettings = lazy(
   () => import("@/app/workspaces/workspace-settings"),
 );
+const WorkspaceAnalytics = lazy(
+  () => import("@/app/workspaces/workspace-analytics"),
+);
 const WorkspaceDataSources = lazy(
   () => import("@/app/workspaces/workspace-datasources"),
 );
@@ -73,6 +76,10 @@ function App() {
                     <Route
                       path="/w/:workspaceId/datasources"
                       element={<WorkspaceDataSources />}
+                    />
+                    <Route
+                      path="/w/:workspaceId/analytics"
+                      element={<WorkspaceAnalytics />}
                     />
                     <Route
                       path="/w/:workspaceId/settings"

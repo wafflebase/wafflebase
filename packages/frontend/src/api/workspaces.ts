@@ -222,6 +222,35 @@ export async function fetchWorkspaceDocuments(workspaceId: string) {
   return res.json();
 }
 
+export interface WorkspaceAnalytics {
+  enabled: boolean;
+  totalViews: number;
+  uniqueVisitors: number;
+  viewsByDay: { date: string; value: number }[];
+  byDocument: {
+    documentId: string;
+    title: string;
+    views: number;
+    uniqueVisitors: number;
+  }[];
+}
+
+/**
+ * Fetches aggregated view analytics for a workspace (member-gated).
+ */
+export async function getWorkspaceAnalytics(
+  workspaceId: string,
+  range?: { from?: string; to?: string },
+): Promise<WorkspaceAnalytics> {
+  const qs = new URLSearchParams();
+  if (range?.from) qs.set("from", range.from);
+  if (range?.to) qs.set("to", range.to);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/analytics${suffix}`);
+  await assertOk(res, "Failed to load analytics");
+  return res.json();
+}
+
 /**
  * Creates workspace document.
  */
