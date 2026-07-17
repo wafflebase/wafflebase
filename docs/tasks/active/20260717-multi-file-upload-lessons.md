@@ -53,6 +53,33 @@
   Guard against double-enqueue: with window-level drop handling, remove the
   inner element's own `onDrop` so a single drop enqueues once.
 
+## The big one: a deferred queue broke the pendingImports contract
+
+The client-side importers (xlsx/docx/pptx) parse into a CRDT document that is
+**not** persisted at create time — the old single-file flow stashed it in an
+in-memory `pendingImports` Map and relied on the immediate `navigate` →
+editor-mount to push it into Yorkie. The deferred upload queue dropped the
+navigate (you can't navigate to N documents), so a batch could reach "done"
+with the backend document created but **empty**, and the parsed content lived
+only in memory — lost on reload or if the user never opened the doc. Every
+earlier review (per-task + the branch-level subagent review) missed this
+because it's an emergent property of the whole flow, not visible in any single
+diff; the high-effort multi-agent code review caught it.
+
+**Lesson:** when you decouple document *creation* from content *application*,
+the content must be persisted by the operation itself, not by a later,
+optional editor mount. Fix was a headless `applyImportedContent` that attaches
+to the Yorkie doc (`@yorkie-js/sdk` `Client`/`Document` are fully React-free),
+writes the same root the editor would, and detaches — so "done" means saved.
+Watch for the residual create-then-populate exposure: if the apply fails after
+create, the doc exists empty (retryable, surfaced) — inherent to any
+create-then-write model.
+
+**Meta-lesson:** cheap per-task reviews and even a whole-branch review can all
+miss a flow-level architectural gap. For a feature that changes *when/where*
+persistence happens, run the deep multi-agent review before calling it done —
+it paid for itself here.
+
 ## Process notes
 
 - The `.superpowers/sdd/` scratch (briefs/reports/ledger) accumulated stale
