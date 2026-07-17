@@ -55,6 +55,34 @@ describe('AnalyticsController ingest', () => {
     expect(e.event_type).toBe('open');
   });
 
+  it('parses a text/plain (string) beacon body', async () => {
+    const { controller, produced } = setup();
+    const req = { headers: {}, user: null } as never;
+    await controller.ingest(
+      JSON.stringify({
+        shareToken: 'tok',
+        events: [{ sessionId: 's1', visitorId: 'v1', eventType: 'open' }],
+      }),
+      req,
+    );
+    expect(produced).toHaveLength(1);
+    expect((produced[0] as Record<string, unknown>).session_id).toBe('s1');
+  });
+
+  it('rejects a malformed (non-object) event with 400, not 500', async () => {
+    const { controller } = setup();
+    const req = { headers: {}, user: null } as never;
+    await expect(
+      controller.ingest({ shareToken: 'tok', events: [null] as never }, req),
+    ).rejects.toThrow();
+  });
+
+  it('rejects an unparsable string body', async () => {
+    const { controller } = setup();
+    const req = { headers: {}, user: null } as never;
+    await expect(controller.ingest('not json', req)).rejects.toThrow();
+  });
+
   it('records anonymous visitor (no user) with empty user_id', async () => {
     const { controller, produced } = setup();
     const req = { headers: {}, user: null } as never;
@@ -189,6 +217,13 @@ describe('AnalyticsController dashboard', () => {
   });
 
   it('falls back to default window on an unparsable `to` param', async () => {
+    const c = setup({ memberRole: 'owner', authorID: null });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.dashboard('doc-1', req, undefined, 'garbage');
+    expect((res as { totalViews: number }).totalViews).toBe(5);
+  });
+
+  it('falls back to default window on an unparsable `from` param', async () => {
     const c = setup({ memberRole: 'owner', authorID: null });
     const req = { user: { id: 7 } } as never;
     const res = await c.dashboard('doc-1', req, 'garbage', undefined);

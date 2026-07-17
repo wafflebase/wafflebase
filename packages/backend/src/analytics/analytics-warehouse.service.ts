@@ -11,7 +11,8 @@ import {
 /** Parse Yorkie-style DSN `user:pass@tcp(host:port)/db` into a mysql2 config. */
 function parseDSN(dsn: string): mysql.PoolOptions {
   const m = /^([^:]*):([^@]*)@tcp\(([^:]+):(\d+)\)\/(.+)$/.exec(dsn);
-  if (!m) throw new Error(`invalid StarRocks DSN: ${dsn}`);
+  // Never interpolate the DSN itself — it carries the warehouse password.
+  if (!m) throw new Error('invalid StarRocks DSN');
   return {
     user: m[1],
     password: m[2],
@@ -19,6 +20,10 @@ function parseDSN(dsn: string): mysql.PoolOptions {
     port: Number(m[4]),
     database: m[5],
     connectionLimit: 4,
+    // StarRocks (MySQL protocol) returns DATE/DATETIME columns as JS Date
+    // objects by default; keep them as strings so `DATE(timestamp)` in
+    // viewsByDay maps cleanly to a 'YYYY-MM-DD' string.
+    dateStrings: true,
   };
 }
 

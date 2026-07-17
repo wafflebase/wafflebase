@@ -11,7 +11,6 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../database/prisma.service';
@@ -48,12 +47,22 @@ export class AnalyticsController {
   ) {}
 
   @Post('internal/analytics/view-events')
-  @SkipThrottle()
   @UseGuards(OptionalJwtAuthGuard)
   async ingest(
-    @Body() body: IngestBody,
+    @Body() rawBody: IngestBody | string,
     @Req() req: Request,
   ): Promise<{ ok: true }> {
+    // Beacons are sent as text/plain — a CORS-safelisted content type — so
+    // navigator.sendBeacon and keepalive fetch avoid a cross-origin preflight
+    // that the beacon transport cannot perform. Parse the JSON payload here.
+    let parsed: unknown;
+    try {
+      parsed = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
+    } catch {
+      throw new BadRequestException('invalid JSON body');
+    }
+    const body = parsed as IngestBody;
+
     if (
       !body?.shareToken ||
       !Array.isArray(body.events) ||
@@ -77,17 +86,30 @@ export class AnalyticsController {
     const timestamp = nowStarRocks();
 
     const enriched: ViewEvent[] = body.events.map((e) => {
+      // Client-supplied events are unvalidated JSON — guard every field's
+      // runtime shape so a malformed event returns 400, not 500.
+      if (!e || typeof e !== 'object') {
+        throw new BadRequestException('invalid event');
+      }
       if (!VIEW_EVENT_TYPES.includes(e.eventType)) {
         throw new BadRequestException(`invalid event type: ${e.eventType}`);
       }
-      if (!e.sessionId || !e.visitorId) {
+      if (
+        typeof e.sessionId !== 'string' ||
+        typeof e.visitorId !== 'string' ||
+        !e.sessionId ||
+        !e.visitorId
+      ) {
         throw new BadRequestException('sessionId and visitorId are required');
+      }
+      if (e.target != null && typeof e.target !== 'string') {
+        throw new BadRequestException('invalid target');
       }
       return {
         document_id: link.documentId,
         share_link_id: link.id,
-        session_id: String(e.sessionId).slice(0, 64),
-        visitor_id: String(e.visitorId).slice(0, 64),
+        session_id: e.sessionId.slice(0, 64),
+        visitor_id: e.visitorId.slice(0, 64),
         user_id: userId,
         role: link.role,
         event_type: e.eventType,

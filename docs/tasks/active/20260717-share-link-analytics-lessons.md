@@ -13,7 +13,7 @@ per-document analytics dashboard to managers.
 - **StarRocks has no prepared statements.** All queries interpolate values as
   strings; the reference (`yorkie/server/backend/warehouse/starrocks.go`) does
   the same with `//nolint:gosec`. Mitigate by interpolating only server-derived
-  ids and validated date ranges, and single-quote-escaping (`'' `). Never
+  ids and validated date ranges, and single-quote-escaping (`''`). Never
   interpolate raw client input.
 - **The event granularity we want is frontend-only.** Dwell time and
   tab/slide navigation are invisible to Yorkie webhooks (Yorkie emits only

@@ -56,7 +56,7 @@ ports that Go pattern to the Wafflebase NestJS backend.
 
 ### Architecture
 
-```
+```text
 Frontend  packages/frontend/src/app/shared/shared-document.tsx
   │  emits: open | heartbeat(30s) | tabchange | close(navigator.sendBeacon)
   ▼
@@ -96,7 +96,7 @@ user id) and produces to Kafka. StarRocks `wafflebase.view_events`:
 | `role`          | VARCHAR(16)   | `viewer` \| `editor` (from resolved share link)    |
 | `event_type`    | VARCHAR(32)   | `open` \| `heartbeat` \| `tabchange` \| `close`    |
 | `target`        | VARCHAR(128)  | tab id / sheet id / slide index being viewed       |
-| `doc_type`      | VARCHAR(16)   | `spreadsheet` \| `docs` \| `slides` \| `pdf` \| `note` |
+| `doc_type`      | VARCHAR(16)   | `Document.type`: `sheet` \| `doc` \| `slides` \| `pdf` \| `note` |
 | `user_agent`    | VARCHAR(64)   | Coarse UA (browser/OS family); no full UA, no IP   |
 | `timestamp`     | DATETIME      | Event time (server-stamped on ingest)              |
 
@@ -175,13 +175,20 @@ WAFFLEBASE_STARROCKS_DSN=root:@tcp(kube-starrocks-fe-search.analytics.svc.cluste
   - On `activeTabId` change: `tabchange` with the new tab as `target`.
     Slide-level `target` uses an optional callback surfaced from `SlidesView`;
     if not wired, slides fall back to tab-level granularity.
+    **v1 status:** the hook is mounted at session level in `SharedDocumentInner`
+    and does not yet thread `activeTabId`, so no `tabchange` events are emitted
+    yet — `open`/`heartbeat`/`close` ship; the per-tab/slide `target` stream is
+    a follow-up.
   - On unload / route change: `close` via `navigator.sendBeacon` (survives
     page teardown).
   - Events are batched and sent to `POST /internal/analytics/view-events`.
-- **Dashboard** — a per-document Analytics page (linked from the document
-  context menu / share dialog for managers) rendering: total & unique views,
-  returning visitors, average dwell, a per-share-link comparison table, and a
-  per-tab/slide engagement breakdown, over a selectable date range.
+- **Dashboard** — a per-document Analytics page (reachable at `/analytics/:id`,
+  manager-gated server-side; a manager entry link from the context menu / share
+  dialog is a follow-up) rendering: total & unique views, returning visitors,
+  average dwell, a per-share-link comparison table, and — **planned for a
+  follow-up, once `tabchange` events are emitted** — a per-tab/slide engagement
+  breakdown (the dashboard hides that section while `byTarget` is empty), over a
+  selectable date range.
 
 ### DevOps (separate repo: `yorkie-team/devops`)
 

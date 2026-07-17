@@ -16,19 +16,37 @@ export interface DocumentAnalytics {
   byTarget: { target: string; views: number }[];
 }
 
+/**
+ * Opaque random id. `crypto.randomUUID` only exists in secure contexts
+ * (HTTPS/localhost); fall back so analytics never throws on plain-HTTP LAN
+ * testing.
+ */
+function randomId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Stable, opaque, per-browser id for returning-visitor counting (not PII). */
 export function getVisitorId(): string {
-  let id = localStorage.getItem(VISITOR_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(VISITOR_KEY, id);
+  // localStorage access throws (SecurityError) when cookies are disabled or in
+  // strict private-browsing modes; degrade to a per-call id rather than crash.
+  try {
+    let id = localStorage.getItem(VISITOR_KEY);
+    if (!id) {
+      id = randomId();
+      localStorage.setItem(VISITOR_KEY, id);
+    }
+    return id;
+  } catch {
+    return randomId();
   }
-  return id;
 }
 
 /** Fresh id per visit; groups events for dwell-time computation. */
 export function newSessionId(): string {
-  return crypto.randomUUID();
+  return randomId();
 }
 
 interface SendInput {
@@ -57,15 +75,24 @@ export function sendViewEvents(input: SendInput): void {
       },
     ],
   });
+  // Send as text/plain: a CORS-safelisted content type, so both sendBeacon and
+  // keepalive fetch skip the cross-origin preflight (which sendBeacon cannot
+  // perform and which would otherwise reject the request). The backend parses
+  // the string body as JSON.
   try {
     if (input.beacon && navigator.sendBeacon) {
-      navigator.sendBeacon(endpoint(), new Blob([payload], { type: "application/json" }));
-      return;
+      const queued = navigator.sendBeacon(
+        endpoint(),
+        new Blob([payload], { type: "text/plain" }),
+      );
+      // sendBeacon returns false when the browser refused to queue the beacon
+      // (e.g. queue full); fall through to fetch in that case.
+      if (queued) return;
     }
     void fetch(endpoint(), {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "text/plain" },
       body: payload,
       keepalive: true,
     }).catch(() => undefined);

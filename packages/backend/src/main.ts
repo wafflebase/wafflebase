@@ -56,6 +56,11 @@ async function bootstrap() {
     }),
   );
   app.use(bodyParser.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
+  // Analytics beacons post their JSON payload as text/plain (a CORS-safelisted
+  // content type) so navigator.sendBeacon / keepalive fetch skip the
+  // cross-origin preflight the beacon transport cannot perform. The analytics
+  // controller JSON-parses the string body itself.
+  app.use(bodyParser.text({ type: 'text/plain', limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({
