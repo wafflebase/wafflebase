@@ -1,8 +1,7 @@
 /**
  * Open a native file picker (multi-select). Resolves to the selected files,
- * or an empty array if the user cancels. Mirrors `pickFile` in
- * `@/app/docs/export-utils` but sets `input.multiple = true` and returns all
- * selected files instead of just the first.
+ * or an empty array if the user cancels. Uses a hidden `<input multiple>` and
+ * a focus-based cancel heuristic (there is no reliable native cancel event).
  */
 export function pickFiles(accept: string): Promise<File[]> {
   return new Promise((resolve) => {

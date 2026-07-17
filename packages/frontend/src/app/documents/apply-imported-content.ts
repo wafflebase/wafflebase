@@ -52,6 +52,24 @@ function buildDocKey(type: ImportedContent["type"], docId: string): string {
  * so the subsequent apply behaves identically to the on-mount path. `detach`
  * flushes the pending local change to the server before the client is
  * deactivated.
+ *
+ * The per-type root writes below are intentionally kept in step with the
+ * editor mount paths they mirror — sheets `document-detail.tsx`, docs
+ * `docs-view.tsx` (`YorkieDocStore.setDocument`), slides `slides-view.tsx`
+ * (`doc.update` + `ensureSlidesRoot`). If a new root field is added to one of
+ * those overwrites, add it here too or queue-imported docs will silently drop
+ * it on reload.
+ *
+ * A deliberate simplicity trade-off: one Yorkie `Client` is created per file
+ * rather than shared across a batch. Imports are infrequent, user-initiated,
+ * and capped at 2 concurrent, so the extra handshakes are acceptable next to
+ * the race/lifecycle complexity a ref-counted shared client would add.
+ *
+ * Note: if `createDoc` already succeeded but this apply fails (transient Yorkie
+ * outage / auth webhook not yet resolving write on the new docKey), the backend
+ * document exists but is empty. The item lands in "error" (surfaced + retryable)
+ * and a retry re-applies the content — the same create-then-populate exposure
+ * the pre-queue single-file flow had.
  */
 export async function applyImportedContent(
   docId: string,
@@ -62,6 +80,9 @@ export async function applyImportedContent(
     apiKey: import.meta.env.VITE_YORKIE_PUBLIC_KEY,
     authTokenInjector: fetchYorkieToken,
   });
+  // activate() is intentionally outside the try/finally: if it throws there is
+  // no active client to deactivate, and the caller sees the real activation
+  // error rather than a masking cleanup error.
   await client.activate();
   try {
     const docKey = buildDocKey(content.type, docId);
@@ -102,6 +123,11 @@ export async function applyImportedContent(
       await client.detach(doc);
     }
   } finally {
-    await client.deactivate();
+    // Never let a cleanup failure mask the real apply/attach error.
+    try {
+      await client.deactivate();
+    } catch {
+      /* best-effort teardown */
+    }
   }
 }

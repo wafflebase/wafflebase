@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -394,6 +395,34 @@ export function DocumentList({
   // queue owns progress/errors/retry (see upload-queue.ts); we just refresh
   // the documents list as each item lands so new rows appear without a
   // manual reload.
+  // Coalesce the documents-list refetch: items in a batch land one by one, so
+  // invalidating per item would fire N (x2) refetches. Collect the affected
+  // workspaces and flush a single invalidation on a short trailing debounce.
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRefreshWorkspaces = useRef<Set<string>>(new Set());
+  const scheduleListRefresh = useCallback(
+    (wid?: string) => {
+      if (wid) pendingRefreshWorkspaces.current.add(wid);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+        for (const id of pendingRefreshWorkspaces.current) {
+          queryClient.invalidateQueries({
+            queryKey: ["workspaces", id, "documents"],
+          });
+        }
+        pendingRefreshWorkspaces.current.clear();
+      }, 400);
+    },
+    [queryClient],
+  );
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
+
   const startBatch = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
@@ -404,12 +433,7 @@ export function DocumentList({
       // the latest callback, so it must not assume the current workspace.
       startUploads((item) => {
         if (item.status === "done") {
-          queryClient.invalidateQueries({ queryKey: ["documents"] });
-          if (item.workspaceId) {
-            queryClient.invalidateQueries({
-              queryKey: ["workspaces", item.workspaceId, "documents"],
-            });
-          }
+          scheduleListRefresh(item.workspaceId);
           if (item.warning) {
             toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
           }
@@ -422,7 +446,7 @@ export function DocumentList({
         }
       });
     },
-    [workspaceId, queryClient],
+    [workspaceId, scheduleListRefresh],
   );
 
   const [dragging, setDragging] = useState(false);
